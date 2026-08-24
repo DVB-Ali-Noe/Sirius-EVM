@@ -1,62 +1,64 @@
-# Démo locale sans CVM
-
-Cette procédure reproduit la frontière Next/runner avec le stub confidentiel local. Elle ne valide pas le matériel TDX ni RA-TLS ; ces deux contrôles appartiennent à B.5 sur une vraie CVM Phala. La procédure dédiée est dans [PHALA.md](PHALA.md).
+# Démo EVM locale et testnet
 
 ## Préparation
 
-Dans `.env.local`, renseigner au minimum :
+Copier l'environnement puis renseigner au minimum :
 
-- `SIRIUS_MASTER_KEY`, `SIRIUS_SESSION_SECRET` et `RUNNER_TRANSPORT_SECRET` : 32 octets en base64 ;
-- `XRPL_VERIFIER_SEED` et `XRPL_SETTLEMENT_SEED` : comptes testnet financés ;
-- `SIRIUS_VERIFIER_ADDRESS` : adresse du vérificateur ;
-- `PINATA_JWT` et `PINATA_GATEWAY` pour le parcours réel d'upload ;
-- `NEXT_PUBLIC_WEB3AUTH_CLIENT_ID` si le wallet Google est utilisé.
+- `EVM_NETWORK="testnet"` ;
+- `ROBINHOOD_DEPLOYER_KEY` avec un compte testnet financé ;
+- `ROBINHOOD_TESTNET_RPC` si le RPC public ne convient pas ;
+- `SIRIUS_MASTER_KEY`, `SIRIUS_SESSION_SECRET` et `RUNNER_TRANSPORT_SECRET` ;
+- `PINATA_JWT` et `PINATA_GATEWAY` pour le parcours IPFS ;
+- les trois adresses de contrats une fois le déploiement effectué.
 
-Génération des secrets locaux :
+Ne jamais utiliser de clé mainnet pour une démo.
 
-```bash
-openssl rand -base64 32
-```
-
-## Validation automatisée
+## Vérification locale des contrats
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm prisma migrate dev
+pnpm contracts:compile
+pnpm contracts:test
+pnpm contracts:abi
+```
+
+Ces commandes valident les contrats et régénèrent les ABI TypeScript. Elles ne déploient rien.
+
+## Déploiement testnet
+
+```bash
+pnpm contracts:deploy:testnet
+```
+
+Le script affiche les adresses de `SiriusEscrow`, `SiriusKybRegistry` et `SiriusDatasetRegistry`. Reporter ces valeurs dans `.env.local` :
+
+```dotenv
+NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="0x..."
+NEXT_PUBLIC_SIRIUS_KYB_ADDRESS="0x..."
+NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS="0x..."
+SIRIUS_ESCROW_ADDRESS="0x..."
+```
+
+`SIRIUS_ESCROW_ADDRESS` est la valeur serveur utilisée pour lier la dérivation du préimage au déploiement précis. Elle doit désigner le même contrat que la valeur publique.
+
+## Smoke on-chain
+
+```bash
+pnpm contracts:smoke
+```
+
+Le smoke exerce le déploiement, l'attestation KYB, le titre de dataset, le verrouillage, le release, le remboursement et les retraits de crédit. Il doit être exécuté avant d'intégrer les adresses dans une instance partagée.
+
+## Parcours applicatif
+
+Le rail EVM du runner est implémenté, mais le parcours navigateur complet est encore en migration. La validation locale actuelle couvre donc séparément les contrats, le runner et l'application :
+
+```bash
 pnpm test
 pnpm lint
 pnpm build
-pnpm test:e2e
-```
-
-Les tests Playwright utilisent des API locales simulées et n'envoient aucune transaction XRPL ni donnée à Pinata. Le flag `NEXT_PUBLIC_SIRIUS_E2E=1` est injecté uniquement par Playwright et provoque un arrêt immédiat si `NODE_ENV=production`.
-
-## Frontière Docker locale
-
-```bash
-docker compose --env-file .env.local up --detach --wait --build --remove-orphans
-docker compose --env-file .env.local ps
-curl -fsS -o /dev/null -w '%{http_code}\n' http://localhost:3000
+docker compose --env-file .env.local up --detach --wait --build
 pnpm runner:smoke
 ```
 
-Résultat attendu : `app` et `runner` healthy, HTTP `200`, puis `[runner:smoke] OK`.
-
-## Parcours testnet réel
-
-Utiliser deux wallets testnet distincts et financés.
-
-1. Provider : connexion, signature de session, KYB, dépôt d'un CSV, chiffrement navigateur, upload, puis mint MPT.
-2. Borrower : connexion, KYB, sélection du dataset et signature de l'`EscrowCreate`.
-3. Borrower : lancement du job TEE stub, persistance de la capsule, `EscrowFinish`, récupération du modèle.
-4. Les deux parties : vérification des transactions et de l'attestation dans `/audit`.
-5. Variante remboursement : laisser dépasser `CancelAfter`, puis utiliser « Récupérer l'escrow » ; vérifier l'`EscrowCancel` dans `/audit`.
-6. Provider : supprimer un dataset sans prêt actif, vérifier le crypto-shredding puis la destruction MPT.
-
-## Arrêt
-
-```bash
-docker compose --env-file .env.local down
-```
-
-Conserver les volumes si les preuves de démo doivent être rejouées. Utiliser `down --volumes` uniquement pour repartir volontairement d'une base et d'un registre anti-rejeu vides.
+La démo de bout en bout devient valide uniquement après le branchement des écrans et routes sur les contrats EVM listés dans la [roadmap](ROADMAP.md).

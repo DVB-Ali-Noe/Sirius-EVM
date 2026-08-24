@@ -1,53 +1,40 @@
-# Runner Phala — déploiement et validation B.5
+# Runner Phala et rail EVM
 
-Ce dossier prépare la CVM runner uniquement. Next, Prisma et SQLite restent hors de la CVM.
+Le runner est la frontière de confiance : il détient la master key dstack, ouvre le dataset, entraîne le modèle, dérive le préimage du hashlock et appelle `SiriusEscrow.release` après persistance de la capsule par le borrower.
 
-## Construire l’image
+## État actuel
 
-Choisir un tag immuable : toute mise à jour d’image ou de compose modifie l’identité mesurée. Phala recommande un tag neuf à chaque déploiement.
+`Dockerfile.runner`, le manifeste Phala, RA-TLS et la capture des mesures sont présents. Le manifeste doit encore être aligné sur le rail EVM avant un déploiement : il ne doit recevoir aucune variable d'un rail historique.
 
-```bash
-docker build --file Dockerfile.runner --tag ghcr.io/<organisation>/sirius-runner:<tag> .
-docker push ghcr.io/<organisation>/sirius-runner:<tag>
-```
+## Variables EVM requises dans la CVM
 
-## Déployer la même CVM stable
+- `EVM_NETWORK=testnet` ou `mainnet` ;
+- `EVM_RPC_URL` ;
+- `SIRIUS_ESCROW_ADDRESS` ;
+- `PINATA_GATEWAY` et `PINATA_JWT` ;
+- `RUNNER_TRANSPORT_SECRET` et `SIRIUS_APP_ORIGIN` ;
+- les variables dstack, RA-TLS et de limites déjà requises par le runner.
 
-Dans Phala Cloud, créer une CVM CPU avec une image dstack de production, puis coller [`deploy/phala/compose.yaml`](../deploy/phala/compose.yaml). Monter impérativement `/var/run/dstack.sock` et garder le volume `runner_replay`.
+Le compte EVM de règlement est dérivé dans le runner depuis la master key scellée. Il doit recevoir suffisamment d'ETH natif pour payer les appels `release` et `refund`. Sa clé privée ne doit jamais être injectée par variable d'environnement.
 
-Renseigner les variables dans les secrets chiffrés Phala :
+## Séquence de déploiement
 
-- `SIRIUS_RUNNER_IMAGE`, `RUNNER_TRANSPORT_SECRET`, `SIRIUS_APP_ORIGIN` ;
-- `PINATA_GATEWAY`, `PINATA_JWT` ;
-- `XRPL_ENDPOINT`, `XRPL_NETWORK`, `XRPL_AUDIT_SIGNER_SEED`, `XRPL_SETTLEMENT_SEED` ;
-- si l’image est privée : `DSTACK_DOCKER_USERNAME`, `DSTACK_DOCKER_PASSWORD` et, si nécessaire, `DSTACK_DOCKER_REGISTRY`.
-
-Le gateway doit être utilisé en passthrough TLS : `https://<app_id>-4100s.<gateway_domain>`. Cette valeur est injectée automatiquement comme SAN dans le certificat RA-TLS du runner.
-
-## Capturer puis épingler l’identité
-
-Après le premier démarrage, sans redéployer le runner :
+1. Compiler, tester et déployer les contrats sur testnet.
+2. Poser l'adresse testnet de `SiriusEscrow` dans l'environnement du runner et dans l'application.
+3. Mettre à jour `deploy/phala/compose.yaml` avec les variables EVM ci-dessus.
+4. Construire et publier une image runner immuable.
+5. Déployer une CVM stable, puis capturer les mesures RA-TLS :
 
 ```bash
 RUNNER_URL=https://<app_id>-4100s.<gateway_domain> pnpm runner:capture-ra-tls
 ```
 
-La commande vérifie le certificat, sa quote TDX et le replay RTMR3, puis imprime les cinq variables à poser dans l’environnement de l’application Next. Redémarrer ou redéployer Next avec ces valeurs, `RUNNER_URL` et `RUNNER_TRANSPORT_SECRET`.
-
-Ne jamais reporter ces cinq valeurs dans le compose de la CVM : elles changeraient le `compose_hash` qu’elles sont censées épingler. Toute modification du compose ou de l’image runner impose une nouvelle capture, puis un redéploiement de Next.
-
-Pour vérifier la persistance de clé, arrêter puis redémarrer cette même CVM sans modifier son compose. La seconde capture doit produire exactement les mêmes cinq valeurs. Ne pas créer une nouvelle application Phala : son `app_id` peut produire une master key différente.
-
-## Smoke RA-TLS
-
-Depuis l’environnement de l’application Next configuré avec les cinq pins :
+6. Épingler les valeurs retournées dans l'environnement Next et exécuter :
 
 ```bash
 pnpm runner:smoke
 ```
 
-Le smoke passe par la vérification DCAP, l’identité mesurée, le pinning du certificat et une requête authentifiée à la clé d’ingestion. Résultat attendu : `[runner:smoke] OK`.
+7. Vérifier un prêt testnet réel : verrouillage borrower, contrôle de portée par le runner, release, ouverture de capsule et retrait des crédits.
 
-## Validation testnet réelle
-
-Utiliser deux wallets testnet distincts et financés. Rejouer le parcours décrit dans [`docs/DEMO.md`](DEMO.md) : KYB provider/borrower, ingestion chiffrée, mint MPT, `EscrowCreate`, entraînement, `EscrowFinish`, récupération du modèle, remboursement après `CancelAfter`, puis crypto-shredding. Archiver les liens XRPL dans `/audit` après chaque étape.
+Toute modification de l'image ou du compose implique une nouvelle capture RA-TLS. La même CVM doit être redémarrée pour vérifier la persistance de la master key et du compte de règlement dérivé.
