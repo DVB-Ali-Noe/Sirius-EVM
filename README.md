@@ -51,13 +51,13 @@ Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le détail et les choix.
 
 ## Statut
 
-Inc. 0→3c terminés. **3d.1, 3d.2, 3d.2b et 3d.3 sont code-complete** : master key dstack, quote TDX, replay RTMR3, liaison `compose_hash`, empreinte de la chaîne KMS et fulfillment scellé. Le runner confidentiel isolé est terminé jusqu'à **B.4** ; le transport **RA-TLS direct CVM de B.5 est code-complete** : TLS 1.3 dans le runner, clé/certificat générés par dstack, quote liée au certificat et pinning après vérification TDX côté Next.
+Inc. 0→3c terminés. **3d.1, 3d.2, 3d.2b et 3d.3 sont code-complete** : master key dstack, quote TDX, replay RTMR3, liaison `compose_hash`, empreinte de la chaîne KMS et fulfillment scellé. Le runner confidentiel isolé est terminé jusqu'à **B.4**. L'outillage **B.5 est code-complete** : `Dockerfile.runner`, manifeste Phala, TLS 1.3 dans la CVM, clé/certificat générés par dstack, quote liée au certificat, vérification DCAP et épinglage côté Next des mesures, de la chaîne KMS et de la clé d'ingestion.
 
 Les signatures utilisateur sont désormais entièrement côté client : `EscrowCreate`, paiements, mint/destroy MPT et `CredentialAccept` KYB. L'application ne charge plus de seed provider/borrower. Le remboursement après `CancelAfter` est réconcilié par le runner et déclenchable depuis l'UI ; la transaction `EscrowCancel` est conservée pour l'audit sans pénaliser automatiquement une partie. Le catalogue expose une réputation issue des règlements confirmés et chaque participant dispose d'un registre d'audit vérifiable.
 
 Validation locale au 14 août 2026 : suite de tests, TypeScript et ESLint passants ; `pnpm audit --prod` ne rapporte aucune vulnérabilité connue. Un audit statique couvre sessions, CSRF, grants anti-rejeu, contrôles d'accès API, chiffrement/IPFS, runner RA-TLS et escrows XRPL : aucun contournement exploitable n'a été démontré. Il ne remplace pas la validation de la configuration ni le smoke d'une CVM Phala réelle.
 
-Restent l'image runner de production, le déploiement et le smoke RA-TLS dans une vraie CVM Phala (**B.5**), la validation du parcours réel avec deux wallets testnet et la vidéo de secours.
+Restent la construction et la publication d'une image runner immuable, son déploiement et le smoke RA-TLS dans une vraie CVM Phala (**B.5**), la validation du parcours réel avec deux wallets testnet et la vidéo de secours. Le déploiement est détaillé dans [docs/PHALA.md](docs/PHALA.md).
 
 La migration `bind_dataset_terms` suspend volontairement les anciens datasets publiés : leur reçu runner historique ne liait ni prix ni délai. Ils doivent être recréés et rescellés avant de redevenir empruntables.
 
@@ -93,4 +93,4 @@ docker compose --env-file .env.local down
 
 Le service `app` appelle `http://runner:4100` et reste seul détenteur de la DB. Les secrets sont projetés explicitement par service : l'app ne reçoit pas la master key ni le seed de règlement, et le runner ne reçoit pas les seeds applicatifs. Le runner utilise une image immuable sans montage du code ou de `node_modules`, un volume dédié à l'anti-rejeu et un port hôte limité à `127.0.0.1` pour le smoke local.
 
-Le déroulé complet de démonstration sans CVM est décrit dans [docs/DEMO.md](docs/DEMO.md).
+Le déroulé de démonstration sans CVM est décrit dans [docs/DEMO.md](docs/DEMO.md) ; la procédure de déploiement et de validation Phala est dans [docs/PHALA.md](docs/PHALA.md).

@@ -1,6 +1,6 @@
 # Démo locale sans CVM
 
-Cette procédure reproduit la frontière Next/runner avec le stub confidentiel local. Elle ne valide pas le matériel TDX ni RA-TLS ; ces deux contrôles appartiennent à B.5 sur une vraie CVM Phala.
+Cette procédure reproduit la frontière Next/runner avec le stub confidentiel local. Elle ne valide pas le matériel TDX ni RA-TLS ; ces deux contrôles appartiennent à B.5 sur une vraie CVM Phala. La procédure dédiée est dans [PHALA.md](PHALA.md).
 
 ## Préparation
 
