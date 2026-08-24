@@ -26,11 +26,9 @@ export interface RunnerDeliveryEnvelope {
 }
 
 /**
- * Nature du secret qui verrouille une capsule, et donc de la chaîne qui le publiera.
- * Le champ est porté par la capsule elle-même pour qu'un client sache quel matériel
- * de sel employer — et pour qu'un rail refuse une capsule produite pour l'autre.
+ * Nature du secret qui verrouille une capsule et sera publié par l'escrow.
  */
-export type RunnerReleaseKind = "xrpl-fulfillment" | "evm-preimage";
+export type RunnerReleaseKind = "evm-preimage";
 
 export interface RunnerReleaseEnvelope extends RunnerDeliveryEnvelope {
   release: RunnerReleaseKind;
@@ -60,19 +58,8 @@ export interface DatasetRef {
   cid: string; // blob chiffré sur IPFS
   wrappedKey: string; // DEK scellée
   merkleRoot: string; // intégrité vérifiée après déchiffrement
-  priceDrops: string; // termes provider authentifiés par le reçu runner (rail XRPL)
+  priceUsdcAtomic: string; // termes provider authentifiés par le reçu runner (USDC, six décimales)
   challengeDays: number;
-  /**
-   * Prix du provider en wei, pour le rail EVM.
-   *
-   * Champ distinct plutôt qu'une conversion depuis `priceDrops` : un prix exprimé en
-   * drops XRP n'est pas un prix en wei ETH, et convertir mécaniquement inventerait une
-   * parité qui n'existe pas. Le provider fixe un prix par chaîne.
-   *
-   * Optionnel pour ne pas invalider les datasets déjà scellés sur le rail historique ;
-   * les opérations EVM l'exigent.
-   */
-  priceWei?: string;
 }
 
 /** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
@@ -120,9 +107,3 @@ export type RunnerEscrowReconciliation =
   | { state: "active" }
   | { state: "cancelled"; txHash: string }
   | { state: "settled"; txHash: string };
-
-/** Crypto-condition d'escrow : condition publique (EscrowCreate) + fulfillment secret (release). */
-export interface EscrowCondition {
-  conditionHex: string;
-  fulfillmentHex: string;
-}

@@ -3,23 +3,8 @@ import { AppError } from "@/lib/app-error";
 import { addressesEqual, normalizeAddress, type CanonicalAddress } from "./address";
 
 /**
- * Vérification des signatures de wallet EVM. Remplace `src/lib/auth/verify-signature.ts`.
- *
- * Ce que le portage supprime, et pourquoi c'est important :
- *
- * Sur XRPL, prouver la possession d'une adresse demandait **trois** éléments —
- * `address`, `publicKey` et `signature` — puis deux contrôles : que l'adresse dérive
- * bien de la clé publique (`deriveAddress`), puis que la signature couvre le message.
- * Le wallet devait donc exposer sa clé publique en plus de signer.
- *
- * C'est exactement là que le code actuel a un bug fonctionnel : `signMessageExternal`
- * n'exploite que `{ signature, publicKey }`, or seul Crossmark renvoie ce couple.
- * GemWallet et WalletConnect sont proposés dans l'interface mais ne peuvent pas
- * terminer l'authentification.
- *
- * En EVM, `ecrecover` **reconstruit l'adresse depuis la seule signature**. Il n'y a
- * plus de clé publique à transporter, plus de contrôle croisé à faire, et
- * `personal_sign` (EIP-191) est universel : tous les wallets le supportent.
+ * Vérification des signatures de wallet EVM. `ecrecover` reconstruit l'adresse
+ * depuis la seule signature EIP-191 ; aucun export de clé publique n'est requis.
  */
 
 /** Signature EIP-191 : 65 octets (r‖s‖v) en hexadécimal. */

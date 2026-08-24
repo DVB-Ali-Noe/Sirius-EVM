@@ -1,6 +1,6 @@
 "use client";
 
-import { signActiveTransaction } from "@/lib/wallet/transaction-client";
+import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 
 async function responseBody<T>(response: Response): Promise<T & { error?: string }> {
@@ -15,26 +15,16 @@ export async function publishDataset(datasetId: string): Promise<void> {
   });
   const prepared = await responseBody<{ transaction?: Record<string, unknown> }>(preparation);
   if (!preparation.ok || !prepared.transaction) {
-    throw new Error(prepared.error ?? "Préparation du MPT échouée");
+    throw new Error(prepared.error ?? "Préparation du titre EVM échouée");
   }
-  const txBlob = await signActiveTransaction(prepared.transaction);
+  const txHash = await sendActiveTransaction(prepared.transaction);
   const submission = await fetch(`/api/datasets/${datasetId}/list`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ txBlob }),
+    body: JSON.stringify({ txHash }),
   });
   const submitted = await responseBody<Record<string, never>>(submission);
-  if (!submission.ok) throw new Error(submitted.error ?? "Soumission du MPT échouée");
-}
-
-export async function resumeDatasetPublication(datasetId: string): Promise<void> {
-  const response = await fetch(`/api/datasets/${datasetId}/list`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
-  const body = await responseBody<Record<string, never>>(response);
-  if (!response.ok) throw new Error(body.error ?? "Réconciliation du MPT échouée");
+  if (!submission.ok) throw new Error(submitted.error ?? "Publication EVM échouée");
 }
 
 export async function destroyDataset(datasetId: string): Promise<void> {
@@ -45,21 +35,21 @@ export async function destroyDataset(datasetId: string): Promise<void> {
   });
   const prepared = await responseBody<{ transaction: Record<string, unknown> | null }>(preparation);
   if (!preparation.ok) throw new Error(prepared.error ?? "Préparation de la suppression échouée");
-  const txBlob = prepared.transaction
-    ? await signActiveTransaction(prepared.transaction)
+  const txHash = prepared.transaction
+    ? await sendActiveTransaction(prepared.transaction)
     : undefined;
   const authorization = await issueRunnerGrant(
     "delete-dataset",
     { datasetId },
-    [datasetId, txBlob ?? ""],
+    [datasetId, txHash ?? ""],
   );
   const deletion = await fetch(`/api/datasets/${datasetId}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ txBlob, authorization }),
+    body: JSON.stringify({ txHash, authorization }),
   });
   const deleted = await responseBody<Record<string, never>>(deletion);
-  if (!deletion.ok) throw new Error(deleted.error ?? "Suppression du dataset échouée");
+  if (!deletion.ok) throw new Error(deleted.error ?? "Suppression EVM du dataset échouée");
 }
 
 export async function setDatasetVisibility(datasetId: string, visibility: "LISTED" | "UNLISTED" | "PRIVATE"): Promise<void> {

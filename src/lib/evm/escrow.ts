@@ -5,21 +5,14 @@ import { AppError } from "@/lib/app-error";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { siriusescrowAbi } from "./abi/siriusescrow";
 import { normalizeAddress, type CanonicalAddress } from "./address";
+import { escrowAddress as configuredEscrowAddress } from "./addresses";
 import { getPublicClient } from "./client";
 import { resolveServerNetwork } from "./networks";
 
 /**
- * Adaptateur du contrat SiriusEscrow. Remplace, à eux trois :
- *   `src/lib/xrpl/escrow.ts`, `src/lib/runner/xrpl-proof.ts` et la partie
- *   règlement de `src/lib/runner/settlement.ts`.
- *
- * La frontière exposée est volontairement identique à celle du rail XRPL
- * (`settleEscrow` → txHash, `reconcileLoanEscrow` → active|settled|cancelled),
- * pour que les orchestrateurs de `src/lib/sirius/` n'aient pas à changer de forme.
- *
- * Ce qui disparaît au passage : la pagination `account_tx` bornée à 20 pages, qui
- * levait un 503 « Historique XRPL trop volumineux » dès qu'un borrower devenait
- * actif. L'état d'un prêt se lit ici en un seul `eth_call`, sans historique.
+ * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
+ * les logs ne servent qu'à retrouver un hash de transaction déjà borné par le bloc
+ * de lock persistant.
  */
 
 /** Marge minimale avant expiration pour qu'un calcul puisse démarrer. */
@@ -37,7 +30,7 @@ const STATUS_REFUNDED = 3;
 export interface OnChainLoan {
   provider: CanonicalAddress;
   borrower: CanonicalAddress;
-  amountWei: string;
+  amountUsdcAtomic: string;
   deadline: number;
   status: number;
   hashlock: Hex;
@@ -45,9 +38,7 @@ export interface OnChainLoan {
 }
 
 function escrowAddress(): CanonicalAddress {
-  const configured = process.env.NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS?.trim();
-  if (!configured) throw new Error("NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS manquante");
-  return normalizeAddress(configured, "adresse du contrat escrow");
+  return normalizeAddress(configuredEscrowAddress(), "adresse du contrat escrow");
 }
 
 // Les dérivations partagées avec le contrat vivent dans `loan-key.ts`, un module
@@ -65,7 +56,7 @@ export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
   return {
     provider: normalizeAddress(loan.provider),
     borrower: normalizeAddress(loan.borrower),
-    amountWei: loan.amount.toString(),
+    amountUsdcAtomic: loan.amount.toString(),
     deadline: Number(loan.deadline),
     status: loan.status,
     hashlock: loan.hashlock,
@@ -74,15 +65,13 @@ export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
 }
 
 /**
- * Contrôle de portée avant calcul. Remplace `assertLiveEscrow` +
- * `assertEscrowCreateScope`, qui exigeaient deux allers-retours RPC plus un scan
- * d'historique. Ici, un seul appel.
+ * Contrôle de portée avant calcul, en un appel on-chain.
  */
 export async function assertLoanScope(input: {
   loanKey: Hex;
   borrower: string;
   provider: string;
-  amountWei: string;
+  amountUsdcAtomic: string;
   hashlock: Hex;
   minimumRemainingSeconds?: number;
 }): Promise<void> {
@@ -94,7 +83,7 @@ export async function assertLoanScope(input: {
       input.loanKey,
       normalizeAddress(input.borrower),
       normalizeAddress(input.provider),
-      BigInt(input.amountWei),
+      BigInt(input.amountUsdcAtomic),
       input.hashlock,
       BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS),
     ],
@@ -105,10 +94,8 @@ export async function assertLoanScope(input: {
 /**
  * Compte de règlement du runner.
  *
- * La clé est **dérivée dans l'enclave** depuis la master key scellée, au lieu
- * d'être injectée par une variable d'environnement comme `XRPL_SETTLEMENT_SEED`.
- * Elle devient donc attestable : seule une enclave exécutant le code mesuré peut
- * la reconstituer, et l'opérateur ne la voit jamais.
+ * La clé est dérivée dans l'enclave depuis la master key scellée. Elle devient donc
+ * attestable : seule une enclave exécutant le code mesuré peut la reconstituer.
  */
 function settlementAccount() {
   const key = deriveKey(getMasterKey(), "settlement:evm:v1");
@@ -125,15 +112,13 @@ function walletClient() {
 }
 
 /**
- * Publie le préimage et crédite le provider. Équivalent d'`EscrowFinish`.
- *
  * Idempotent par relecture : si le prêt est déjà réglé — reprise après crash,
  * timeout réseau alors que la transaction avait été incluse — on ne resoumet pas,
  * on renvoie la résolution existante. Le contrat refuserait de toute façon, mais
  * échouer bruyamment sur une reprise légitime serait un faux négatif.
  */
-export async function settleEscrow(loanKey: Hex, preimage: Hex): Promise<string> {
-  const existing = await reconcileLoanEscrow(loanKey);
+export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigint): Promise<string> {
+  const existing = await reconcileLoanEscrow(loanKey, fromBlock);
   if (existing.state === "settled") return existing.txHash;
   if (existing.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
 
@@ -151,7 +136,7 @@ export async function settleEscrow(loanKey: Hex, preimage: Hex): Promise<string>
     txHash = await client.writeContract(request);
   } catch (error) {
     // Une resoumission concurrente a pu passer entre la relecture et l'envoi.
-    const recovered = await reconcileLoanEscrow(loanKey).catch(() => ({ state: "active" }) as const);
+    const recovered = await reconcileLoanEscrow(loanKey, fromBlock).catch(() => ({ state: "active" }) as const);
     if (recovered.state === "settled") return recovered.txHash;
     if (recovered.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
     console.error("[evm] release échouée", error);
@@ -163,9 +148,9 @@ export async function settleEscrow(loanKey: Hex, preimage: Hex): Promise<string>
   return receipt.transactionHash;
 }
 
-/** Rembourse le borrower après expiration. Équivalent d'`EscrowCancel`. */
-export async function refundEscrow(loanKey: Hex): Promise<string> {
-  const existing = await reconcileLoanEscrow(loanKey);
+/** Rembourse le borrower après expiration. */
+export async function refundEscrow(loanKey: Hex, fromBlock?: bigint): Promise<string> {
+  const existing = await reconcileLoanEscrow(loanKey, fromBlock);
   if (existing.state === "cancelled") return existing.txHash;
   if (existing.state === "settled") throw new AppError("Escrow on-chain déjà réglé", 409);
 
@@ -185,14 +170,10 @@ export async function refundEscrow(loanKey: Hex): Promise<string> {
 }
 
 /**
- * État d'un prêt on-chain, en une lecture. Remplace `findResolution`, qui paginait
- * `account_tx` sur tout l'historique du borrower avec un budget de 20 pages.
- *
- * Le hash de transaction est retrouvé par recherche du log correspondant ; l'état
- * lui-même vient du storage, donc une rétention de logs incomplète chez le
- * fournisseur RPC dégrade la traçabilité mais jamais la correction.
+ * État d'un prêt on-chain. Le hash de transaction est retrouvé uniquement depuis
+ * le bloc du lock persistant ; aucun scan depuis le genesis n'est autorisé.
  */
-export async function reconcileLoanEscrow(loanKey: Hex): Promise<EscrowResolution> {
+export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint): Promise<EscrowResolution> {
   const loan = await readLoan(loanKey);
   if (!loan) throw new AppError("Prêt inconnu du contrat escrow", 409);
   if (loan.status === STATUS_LOCKED) return { state: "active" };
@@ -202,7 +183,10 @@ export async function reconcileLoanEscrow(loanKey: Hex): Promise<EscrowResolutio
     throw new AppError("État de prêt on-chain inattendu", 409);
   }
 
-  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded");
+  if (fromBlock === undefined) {
+    throw new AppError("Bloc de lock requis pour retrouver la résolution on-chain", 409);
+  }
+  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded", fromBlock);
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
     : { state: "cancelled", txHash };
@@ -220,13 +204,14 @@ const REFUNDED_EVENT = parseAbiItem(
 async function findLifecycleTxHash(
   loanKey: Hex,
   eventName: "LoanReleased" | "LoanRefunded",
+  fromBlock: bigint,
 ): Promise<string> {
   const client = getPublicClient();
   const address = escrowAddress();
   const logs =
     eventName === "LoanReleased"
-      ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock: "earliest" })
-      : await client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock: "earliest" });
+      ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })
+      : await client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock });
 
   const last = logs.at(-1);
   if (!last?.transactionHash) {

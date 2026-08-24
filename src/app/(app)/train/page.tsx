@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
-import { truncate, formatBytes, formatDropsAsXrp } from "@/lib/format";
+import { truncate, formatBytes } from "@/lib/format";
+import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { useUiStore } from "@/stores/ui";
@@ -35,7 +36,7 @@ interface Dataset {
   ipfsCid: string | null;
   runnerReceipt: string | null;
   sizeBytes: number | null;
-  priceDrops: string;
+  priceUsdcAtomic: string | null;
   challengeDays: number;
   metrics: Metrics | null;
 }
@@ -43,16 +44,15 @@ interface Dataset {
 interface Loan {
   id: string;
   datasetId: string;
-  amount: string;
-  currency: string;
+  amountUsdcAtomic: string;
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
-  escrowTxHash: string | null;
-  escrowSequence: number | null;
+  evmLockTxHash: string | null;
+  evmLoanKey: string | null;
   settleTxHash: string | null;
   cancelTxHash: string | null;
   modelCid: string | null;
   runnerReceipt: string | null;
-  cancelAfter: string | null;
+  evmDeadline: string | null;
   createdAt: string;
   dataset: { name: string; runnerReceipt: string | null } | null;
   refundable: boolean;
@@ -176,7 +176,7 @@ export default function TrainPage() {
         continue;
       }
       try {
-        const delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt, loan.settleTxHash);
+        const delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
         if (mounted.current) deliver(loan.id, delivery);
       } catch {
         // Une délégation expirée sera redemandée lors de la prochaine connexion.
@@ -210,15 +210,13 @@ export default function TrainPage() {
     setError(null);
     setBusyKey(key, true);
     try {
-      if (!loan.dataset?.runnerReceipt || !loan.escrowTxHash || loan.escrowSequence == null) {
+      if (!loan.dataset?.runnerReceipt || !loan.evmLockTxHash || !loan.evmLoanKey) {
         throw new Error(t("Preuve d’escrow ou reçu dataset manquant"));
       }
       const delivery = await runLoanJob({
         loanId: loan.id,
         datasetId: loan.datasetId,
         datasetReceipt: loan.dataset.runnerReceipt,
-        escrowTxHash: loan.escrowTxHash,
-        escrowSequence: loan.escrowSequence,
       });
       deliver(loan.id, delivery);
       await refresh();
@@ -249,7 +247,7 @@ export default function TrainPage() {
     setError(null);
     setBusyKey(key, true);
     try {
-      await resumeLoanSubmission(loan.id);
+      await resumeLoanSubmission();
       await refresh();
     } catch (err) {
       setError(messageOf(err));
@@ -346,7 +344,7 @@ export default function TrainPage() {
       <section className="mb-10">
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Catalogue")}</h2>
-          <span className="text-xs text-muted">{t("Emprunt · escrow XRP")}</span>
+          <span className="text-xs text-muted">{t("Emprunt · escrow USDC")}</span>
         </div>
         {external.length === 0 ? (
           <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
@@ -402,13 +400,13 @@ export default function TrainPage() {
                     <Badge variant="default">{t("Emprunt")}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                    <Field label={t("Montant")} value={`${formatDropsAsXrp(l.amount)} ${l.currency}`} />
+                    <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
                     {advanced && (
                       <>
-                        <Field label={t("Escrow tx")} value={l.escrowTxHash ? truncate(l.escrowTxHash) : "—"} mono />
+                        <Field label={t("Lock USDC")} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
                         <Field
                           label={t("Remboursable après")}
-                          value={l.cancelAfter ? new Date(l.cancelAfter).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US") : "—"}
+                          value={l.evmDeadline ? new Date(l.evmDeadline).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US") : "—"}
                         />
                       </>
                     )}
@@ -539,7 +537,7 @@ function CatalogueCard({
             {formatBytes(dataset.sizeBytes)}
           </p>
           <p className="mt-1 text-xs font-medium text-foreground">
-            {formatDropsAsXrp(dataset.priceDrops)} XRP · {t("remboursable après {days} j", { days: dataset.challengeDays })}
+            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("remboursable après {days} j", { days: dataset.challengeDays })}
           </p>
         </div>
         {!openForm && (

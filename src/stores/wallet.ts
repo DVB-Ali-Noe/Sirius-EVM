@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export type WalletRole = "provider" | "borrower" | null;
-export type WalletSource = "external" | "embedded" | null;
+export type WalletSource = "external" | null;
 
 interface WalletState {
   address: string | null;
@@ -9,13 +9,11 @@ interface WalletState {
   connected: boolean;
   connecting: boolean;
   role: WalletRole;
-  // Origine de la connexion active : "external" (xrpl-connect) ou "embedded" (Web3Auth).
-  // Sert à router la déconnexion vers le bon SDK.
+  // Origine de la connexion active : wallet EIP-1193 injecté.
   source: WalletSource;
   // Session serveur active (cookie signé) : le wallet a prouvé sa possession par signature.
   authenticated: boolean;
-  // Wallet embarqué (Web3Auth) : un facteur de récupération est configuré. Faux pour les
-  // wallets externes (custody gérée par eux) et tant que le compte n'est pas sécurisé.
+  // Réservé à une future connexion embarquée ; toujours faux pour les wallets externes.
   mfaEnabled: boolean;
   setConnected: (address: string, network: string, source: Exclude<WalletSource, null>) => void;
   setDisconnected: () => void;
@@ -26,8 +24,7 @@ interface WalletState {
   setMfaEnabled: (mfaEnabled: boolean) => void;
 }
 
-// Pas de persistance : l'état reflète le SDK live (xrpl-connect autoConnect / Web3Auth
-// session). Persister "connected" créait une UI fantôme au reload.
+// Pas de persistance : l'état reflète le provider EIP-1193 live.
 export const useWalletStore = create<WalletState>((set) => ({
   address: null,
   network: null,

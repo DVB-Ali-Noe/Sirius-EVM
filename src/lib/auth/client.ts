@@ -1,7 +1,6 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { signMessageEmbedded } from "@/lib/web3auth/manager";
 import { signMessageExternal } from "@/lib/wallet/manager";
 import {
   activateRunnerDelegation,
@@ -29,15 +28,12 @@ export async function signInWithWallet(): Promise<void> {
   }
   const { challenge } = await chalRes.json();
 
-  const { signature, publicKey } =
-    source === "embedded"
-      ? await signMessageEmbedded(challenge)
-      : await signMessageExternal(challenge);
+  const { signature } = await signMessageExternal(challenge, address);
 
   const verifyRes = await fetch("/api/auth/verify", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address, publicKey, signature, message: challenge, source }),
+    body: JSON.stringify({ address, signature, message: challenge, source }),
   });
   if (!verifyRes.ok) {
     clearRunnerDelegation();
@@ -46,7 +42,6 @@ export async function signInWithWallet(): Promise<void> {
 
   activateRunnerDelegation({
     message: challenge,
-    walletPublicKey: publicKey,
     walletSignature: signature,
     sessionPublicKey: runnerSessionPublicKey,
   });

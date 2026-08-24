@@ -6,7 +6,7 @@ const CTX = "sirius-session";
 const COOKIE = "sirius_session";
 const TTL_MS = 24 * 60 * 60 * 1000;
 
-export type SessionSource = "external" | "embedded";
+export type SessionSource = "external";
 export interface Session {
   address: string;
   source: SessionSource;

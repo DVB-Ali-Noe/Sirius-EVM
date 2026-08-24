@@ -4,13 +4,9 @@ export type AuthorizedRunnerOperation =
   | "delete-dataset"
   | "run-training"
   | "run-loan-job"
-  | "prepare-loan-delivery"
   | "settle-loan"
   | "loan-model-key"
-  | "self-train-key"
-  | "evm-run-loan-job"
-  | "evm-settle-loan"
-  | "evm-loan-model-key";
+  | "self-train-key";
 
 export interface RunnerGrantScope {
   datasetId?: string;
@@ -20,7 +16,6 @@ export interface RunnerGrantScope {
 
 export interface RunnerDelegation {
   message: string;
-  walletPublicKey: string;
   walletSignature: string;
   sessionPublicKey: string;
 }

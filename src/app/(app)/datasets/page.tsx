@@ -14,7 +14,6 @@ import { ModeToggle } from "@/components/ui/ModeToggle";
 import {
   destroyDataset,
   publishDataset,
-  resumeDatasetPublication,
   setDatasetVisibility,
 } from "@/lib/datasets/client";
 import { acceptKybCredential } from "@/lib/kyb/client";
@@ -34,7 +33,7 @@ interface Dataset {
   status: DatasetStatus;
   ipfsCid: string | null;
   merkleRoot: string | null;
-  mptIssuanceId: string | null;
+  evmDatasetId: string | null;
   sizeBytes: number | null;
   metrics: DatasetMetrics | null;
 }
@@ -116,8 +115,7 @@ export default function DatasetsPage() {
     setError(null);
     setPendingId(dataset.id);
     try {
-      if (dataset.status === "LISTING") await resumeDatasetPublication(dataset.id);
-      else await publishDataset(dataset.id);
+      await publishDataset(dataset.id);
       await refresh();
     } catch (err) {
       setError(messageOf(err));
@@ -144,7 +142,7 @@ export default function DatasetsPage() {
     if (
       !window.confirm(
         dataset.status === "DELETED"
-          ? t("Finaliser la destruction du titre MPT sur XRPL ?")
+          ? t("Finaliser la destruction du titre du dataset sur EVM ?")
           : t("Supprimer ce dataset ? Sa clé de déchiffrement est détruite : la donnée devient définitivement irrécupérable."),
       )
     ) {
@@ -194,7 +192,7 @@ export default function DatasetsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t("Mes actifs data")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("{datasets} dataset{datasetSuffix} · {listed} public{publicSuffix}. Chaque MPT est le titre on-chain de ta donnée.", {
+            {t("{datasets} dataset{datasetSuffix} · {listed} public{publicSuffix}. Chaque titre est l'ancrage on-chain de ta donnée.", {
               datasets: datasets.length,
               datasetSuffix: datasets.length > 1 ? "s" : "",
               listed,
@@ -248,7 +246,7 @@ export default function DatasetsPage() {
                     <>
                       <Field label="CID" value={d.ipfsCid ? truncate(d.ipfsCid) : "—"} mono />
                       <Field label="Merkle" value={d.merkleRoot ? truncate(d.merkleRoot) : "—"} mono />
-                      <Field label="MPT" value={d.mptIssuanceId ? truncate(d.mptIssuanceId) : "—"} mono />
+                      <Field label="Titre EVM" value={d.evmDatasetId ? truncate(d.evmDatasetId) : "—"} mono />
                     </>
                   )}
                 </dl>
@@ -264,7 +262,7 @@ export default function DatasetsPage() {
                     {d.status === "LISTING"
                       ? t("Réconcilier…")
                       : d.ipfsCid
-                        ? t("Publier (MPT)")
+                        ? t("Publier le titre")
                         : t("Upload incomplet")}
                   </button>
                   {d.status === "DRAFT" && (
@@ -306,13 +304,13 @@ export default function DatasetsPage() {
                   </button>
                 </div>
               )}
-              {d.status === "DELETED" && d.mptIssuanceId && (
+              {d.status === "DELETED" && d.evmDatasetId && (
                 <button
                   onClick={() => handleDelete(d)}
                   disabled={pendingId === d.id}
                   className="shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                 >
-                  {pendingId === d.id ? t("Réconciliation…") : t("Finaliser le MPT")}
+                  {pendingId === d.id ? t("Réconciliation…") : t("Finaliser le titre")}
                 </button>
               )}
             </div>

@@ -1,7 +1,8 @@
 import "server-only";
 import { createPublicKey, verify as verifySignature, createHash } from "node:crypto";
-import { deriveAddress, verify as verifyXrplSignature } from "ripple-keypairs";
 import { AppError } from "@/lib/app-error";
+import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
+import { recoverWalletAddress } from "@/lib/evm/signature";
 import {
   parseDelegationMessage,
   runnerGrantMessage,
@@ -40,7 +41,10 @@ export interface ValidatedRunnerGrant {
   expiresAt: number;
 }
 
-export function validateRunnerGrant(value: unknown, expected: ExpectedRunnerGrant): ValidatedRunnerGrant {
+export async function validateRunnerGrant(
+  value: unknown,
+  expected: ExpectedRunnerGrant,
+): Promise<ValidatedRunnerGrant> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AppError("Autorisation runner manquante", 401);
   }
@@ -54,7 +58,7 @@ export function validateRunnerGrant(value: unknown, expected: ExpectedRunnerGran
   const now = Date.now();
   if (
     !fields ||
-    fields.address !== payload.subject ||
+    !addressesEqual(fields.address, payload.subject) ||
     fields.sessionPublicKey !== delegation.sessionPublicKey ||
     fields.network !== payload.network ||
     fields.issuedAt >= fields.expiresAt ||
@@ -70,22 +74,16 @@ export function validateRunnerGrant(value: unknown, expected: ExpectedRunnerGran
   if (configuredOrigin && fields.origin !== configuredOrigin) {
     throw new AppError("Origine de délégation invalide", 401);
   }
-  const expectedNetwork = process.env.XRPL_NETWORK || "testnet";
+  const expectedNetwork = process.env.EVM_NETWORK || "testnet";
   if (fields.network !== expectedNetwork) throw new AppError("Réseau de délégation invalide", 401);
 
   let walletAddress: string;
-  let walletSignatureValid = false;
   try {
-    walletAddress = deriveAddress(delegation.walletPublicKey);
-    walletSignatureValid = verifyXrplSignature(
-      Buffer.from(delegation.message, "utf8").toString("hex"),
-      delegation.walletSignature,
-      delegation.walletPublicKey,
-    );
+    walletAddress = await recoverWalletAddress(delegation.message, delegation.walletSignature);
   } catch {
     throw new AppError("Signature wallet de délégation invalide", 401);
   }
-  if (!walletSignatureValid || walletAddress !== fields.address) {
+  if (!addressesEqual(walletAddress, fields.address) || !addressesEqual(walletAddress, payload.subject)) {
     throw new AppError("Signature wallet de délégation invalide", 401);
   }
 
@@ -136,15 +134,19 @@ export function validateRunnerGrant(value: unknown, expected: ExpectedRunnerGran
   }
   if (!signatureValid) throw new AppError("Signature de grant invalide", 401);
 
+  const subject = normalizeAddress(payload.subject);
   return {
-    subject: payload.subject,
-    replayId: `${payload.subject}:${payload.nonce}`,
+    subject,
+    replayId: `${subject}:${payload.nonce}`,
     expiresAt: payload.expiresAt,
   };
 }
 
-export function verifyRunnerGrant(value: unknown, expected: ExpectedRunnerGrant): { subject: string } {
-  const grant = validateRunnerGrant(value, expected);
+export async function verifyRunnerGrant(
+  value: unknown,
+  expected: ExpectedRunnerGrant,
+): Promise<{ subject: string }> {
+  const grant = await validateRunnerGrant(value, expected);
   if (!consumeRunnerReplay("grant", grant.replayId, grant.expiresAt)) {
     throw new AppError("Grant runner déjà utilisé", 409);
   }

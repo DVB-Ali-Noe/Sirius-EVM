@@ -6,7 +6,7 @@ import { readSession } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { priceXrpToDrops } from "@/lib/xrpl/amount";
+import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
 import { publicDatasetMetrics } from "@/lib/sirius/metrics";
 
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
           provider: session.address,
           OR: [
             { status: { not: "DELETED" as const } },
-            { status: "DELETED" as const, mptIssuanceId: { not: null }, mptDestroyedAt: null },
+            { status: "DELETED" as const, evmDatasetId: { not: null }, evmDestroyTxHash: null },
           ],
         };
   const datasets = await prisma.dataset.findMany({
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       name?: unknown;
       description?: unknown;
       sizeBytes?: unknown;
-      priceXrp?: unknown;
+      priceUsdc?: unknown;
       challengeDays?: unknown;
     }>(req);
     if (typeof body.name !== "string" || body.name.trim() === "" || body.name.trim().length > MAX_NAME_LENGTH) {
@@ -101,9 +101,9 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "Fichier trop volumineux (max 16 Mo)" }, { status: 413 });
     }
-    const priceDrops = priceXrpToDrops(body.priceXrp);
-    if (!priceDrops) {
-      return NextResponse.json({ error: "Prix invalide (0.001 à 1 000 000 XRP)" }, { status: 400 });
+    const priceUsdcAtomic = priceUsdcToAtomic(body.priceUsdc);
+    if (!priceUsdcAtomic) {
+      return NextResponse.json({ error: "Prix invalide (0.001 à 1 000 000 USDC)" }, { status: 400 });
     }
     const challengeDays = Number(body.challengeDays);
     if (
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
       description: body.description?.trim() || undefined,
       provider: session.address,
       sizeBytes: body.sizeBytes,
-      priceDrops,
+      priceUsdcAtomic,
       challengeDays,
     });
 

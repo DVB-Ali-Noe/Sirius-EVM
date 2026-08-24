@@ -359,6 +359,11 @@ export const siriuskybregistryAbi = [
             "type": "uint40"
           },
           {
+            "internalType": "uint64",
+            "name": "verifierEpoch",
+            "type": "uint64"
+          },
+          {
             "internalType": "bool",
             "name": "revoked",
             "type": "bool"
@@ -492,6 +497,25 @@ export const siriuskybregistryAbi = [
     "name": "transferAdmin",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "verifierEpoch",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ] as const;

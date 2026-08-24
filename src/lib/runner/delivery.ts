@@ -13,20 +13,14 @@ const DELIVERY_INFO_PREFIX = "sirius-runner-delivery-v1:";
 
 /**
  * Une capsule est verrouillée par deux facteurs : la clé ECDH du navigateur, et le
- * secret que la chaîne publiera au moment du règlement. Ce secret n'a pas la même
- * forme selon le rail — fulfillment DER sur XRPL, préimage brut de 32 octets sur EVM —
- * donc chaque rail a son propre préfixe d'`info` HKDF.
- *
- * Conséquence voulue : une capsule produite pour un rail est **cryptographiquement
- * inouvrable** sur l'autre, même si son champ `release` était falsifié en transit.
- * Le champ ne sert qu'à choisir le bon calcul ; il ne porte aucune autorité.
+ * préimage de 32 octets que la chaîne publiera au règlement. Le préfixe HKDF lie
+ * explicitement cette capsule au protocole de release EVM.
  */
 const RELEASE_INFO_PREFIX: Record<RunnerReleaseKind, string> = {
-  "xrpl-fulfillment": "sirius-runner-release-v1:",
   "evm-preimage": "sirius-runner-release-v2:",
 };
 
-/** Le préimage EVM fait exactement 32 octets ; le fulfillment XRPL est de longueur variable. */
+/** Le préimage EVM fait exactement 32 octets. */
 const EVM_PREIMAGE_BYTES = 32;
 
 function decodePublicKey(value: string): Buffer {
@@ -71,12 +65,8 @@ export function encryptRunnerDelivery(
  * publiera au règlement. Le borrower détient la capsule avant tout paiement, sans
  * pouvoir l'ouvrir : c'est le règlement lui-même qui livre le second facteur.
  *
- * @param secretHex Le secret, avec ou sans préfixe `0x` : fulfillment DER sur XRPL,
- *                  préimage de 32 octets sur EVM.
- * @param kind      Rail visé. **Sans valeur par défaut, volontairement** : un défaut
- *                  laisserait un appelant produire une capsule XRPL à partir d'un
- *                  préimage EVM sans que rien ne proteste, et la capsule serait
- *                  définitivement inouvrable. Chaque site d'appel doit trancher.
+ * @param secretHex Le préimage EVM de 32 octets, avec ou sans préfixe `0x`.
+ * @param kind      Version du protocole de release.
  */
 export function encryptRunnerRelease(
   plaintext: string,

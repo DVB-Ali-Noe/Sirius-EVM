@@ -3,13 +3,8 @@ import { createPublicClient, http, type PublicClient } from "viem";
 import { resolveServerNetwork } from "./networks";
 
 /**
- * Client de lecture EVM partagé côté serveur. Remplace `src/lib/xrpl/client.ts`.
- *
- * Différence structurante avec XRPL : plus de WebSocket, plus de connexion à
- * maintenir, plus de reconnexion à gérer. Le transport est du HTTP sans état, donc
- * le singleton ne sert qu'à réutiliser le pool de sockets — jamais à porter un état
- * de session. Les ~40 lignes de reconnexion et de retry de l'ancien client
- * disparaissent avec lui.
+ * Client de lecture EVM partagé côté serveur. Le transport HTTP est sans état ; le
+ * singleton ne sert qu'à réutiliser le pool de sockets, jamais à porter une session.
  */
 
 let cached: { key: string; client: PublicClient } | null = null;

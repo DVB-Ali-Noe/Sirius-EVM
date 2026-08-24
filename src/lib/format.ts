@@ -8,11 +8,3 @@ export function formatBytes(n: number | null | undefined): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-export function formatDropsAsXrp(value: string): string {
-  if (!/^[0-9]+$/.test(value)) return "—";
-  const drops = BigInt(value);
-  const whole = drops / BigInt(1_000_000);
-  const fraction = (drops % BigInt(1_000_000)).toString().padStart(6, "0").replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole.toString();
-}

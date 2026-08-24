@@ -18,11 +18,11 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const session = requireAuth(req);
-    const { txBlob } = await readJson<{ txBlob?: unknown }>(req);
-    if (txBlob !== undefined && typeof txBlob !== "string") {
-      return NextResponse.json({ error: "Transaction CredentialAccept invalide" }, { status: 400 });
+    const { txHash } = await readJson<{ txHash?: unknown }>(req);
+    if (txHash !== undefined && typeof txHash !== "string") {
+      return NextResponse.json({ error: "Hash de transaction KYB invalide" }, { status: 400 });
     }
-    return NextResponse.json(await finalizeKybAcceptance(session.address, txBlob));
+    return NextResponse.json(await finalizeKybAcceptance(session.address, txHash));
   } catch (err) {
     return errorResponse(err);
   }

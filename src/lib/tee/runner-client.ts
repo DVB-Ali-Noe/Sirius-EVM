@@ -7,80 +7,54 @@ import type {
   AuthorizedTrainingResult,
   DatasetIngressEnvelope,
   DatasetIngressKey,
-  EscrowCondition,
-  LoanJobInput,
+  DatasetRef,
   RunnerDeliveryEnvelope,
-  RunnerEscrowReconciliation,
   RunnerReleaseEnvelope,
-  SelfTrainingInput,
 } from "./contract";
-import type { PreparedLoanJobResult } from "./types";
 import { attestedRunnerFetch } from "./ra-tls-client";
 
 const RUNNER_TIMEOUT_MS = 60_000;
 
 function endpoint(): string | null {
   const configured = process.env.RUNNER_URL?.trim();
-  if (configured) {
-    const url = new URL(configured);
-    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
-      throw new Error("RUNNER_URL doit cibler l’origine racine du runner");
-    }
-    if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
-      throw new Error("RUNNER_URL doit utiliser HTTPS en production");
-    }
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("Protocole RUNNER_URL invalide");
-    }
-    if (process.env.NODE_ENV === "production" && process.env.TEE_MODE !== "phala") {
-      throw new Error("TEE_MODE=phala obligatoire avec le runner de production");
-    }
-    return url.toString().replace(/\/+$/, "");
+  if (!configured) {
+    if (process.env.NODE_ENV === "production") throw new Error("RUNNER_URL obligatoire en production");
+    return null;
   }
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("RUNNER_URL obligatoire en production");
+  const url = new URL(configured);
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+    throw new Error("RUNNER_URL doit cibler l’origine racine du runner");
   }
-  return null;
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Protocole RUNNER_URL invalide");
+  if (process.env.NODE_ENV === "production" && (url.protocol !== "https:" || process.env.TEE_MODE !== "phala")) {
+    throw new Error("Runner production : HTTPS et TEE_MODE=phala obligatoires");
+  }
+  return url.toString().replace(/\/+$/, "");
 }
 
 export function usesRemoteRunner(): boolean {
-  return !!process.env.RUNNER_URL?.trim();
+  return endpoint() !== null;
 }
 
 async function callRunner<T>(op: RunnerOperation, scope: RunnerScope, payload: object): Promise<T> {
   const base = endpoint();
   if (!base) throw new Error("Runner distant non configuré");
-
-  let response: Response;
+  const url = new URL(op, `${base}/`);
   try {
-    const url = new URL(op, `${base}/`);
-    const body = JSON.stringify(payload);
     const headers = {
       "content-type": "application/json",
       "x-sirius-runner-capability": issueRunnerCapability(op, scope),
     };
-    response = url.protocol === "https:"
-      ? await attestedRunnerFetch(url, {
-          method: "POST",
-          headers,
-          body,
-          timeoutMs: RUNNER_TIMEOUT_MS,
-        })
-      : await fetch(url, {
-      method: "POST",
-      headers,
-      body,
-      signal: AbortSignal.timeout(RUNNER_TIMEOUT_MS),
-    });
-  } catch {
+    const response = url.protocol === "https:"
+      ? await attestedRunnerFetch(url, { method: "POST", headers, body: JSON.stringify(payload), timeoutMs: RUNNER_TIMEOUT_MS })
+      : await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(RUNNER_TIMEOUT_MS) });
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown } & T;
+    if (!response.ok) throw new AppError(typeof body.error === "string" ? body.error : "Runner confidentiel en échec", response.status);
+    return body;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
     throw new AppError("Runner confidentiel indisponible", 503);
   }
-
-  const body = (await response.json().catch(() => ({}))) as { error?: unknown } & T;
-  if (!response.ok) {
-    throw new AppError(typeof body.error === "string" ? body.error : "Runner confidentiel en échec", response.status);
-  }
-  return body;
 }
 
 async function dispatchRunner<T>(op: RunnerOperation, scope: RunnerScope, payload: Record<string, unknown>): Promise<T> {
@@ -95,7 +69,7 @@ export async function datasetIngressKeyInRunner(): Promise<DatasetIngressKey> {
 
 export async function sealDatasetInRunner(
   datasetId: string,
-  priceDrops: string,
+  priceUsdcAtomic: string,
   challengeDays: number,
   sizeBytes: number,
   envelope: DatasetIngressEnvelope,
@@ -104,12 +78,67 @@ export async function sealDatasetInRunner(
   return dispatchRunner(
     "seal-dataset",
     { datasetId },
-    { datasetId, priceDrops, challengeDays, sizeBytes, envelope, authorization },
+    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization },
+  );
+}
+
+export async function escrowHashlockInRunner(loanId: string, borrower: string): Promise<`0x${string}`> {
+  const out = await dispatchRunner<{ hashlock: `0x${string}` }>(
+    "escrow-hashlock",
+    { loanId, borrower },
+    { loanId, borrower },
+  );
+  return out.hashlock;
+}
+
+export async function runLoanJobInRunner(
+  input: Omit<DatasetRef, "datasetId"> & { datasetId: string; loanId: string },
+  datasetReceipt: string,
+  deliveryPublicKey: string,
+  authorization: RunnerGrant,
+): Promise<{
+  modelCid: string;
+  metrics: Record<string, number>;
+  attestation: { payloadHash: string };
+  releaseEnvelope: RunnerReleaseEnvelope;
+  runnerReceipt: string;
+}> {
+  return dispatchRunner(
+    "run-loan-job",
+    { datasetId: input.datasetId, loanId: input.loanId },
+    { ...input, datasetReceipt, deliveryPublicKey, authorization },
+  );
+}
+
+export async function settleLoanInRunner(
+  loanId: string,
+  loanReceipt: string,
+  releaseEnvelopeHash: string,
+  lockBlock: string,
+  authorization: RunnerGrant,
+): Promise<{ settleTxHash: string }> {
+  return dispatchRunner(
+    "settle-loan",
+    { loanId },
+    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, authorization },
+  );
+}
+
+export async function loanModelKeyInRunner(
+  loanId: string,
+  loanReceipt: string,
+  deliveryPublicKey: string,
+  authorization: RunnerGrant,
+): Promise<{ modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope }> {
+  return dispatchRunner(
+    "loan-model-key",
+    { loanId },
+    { loanId, loanReceipt, deliveryPublicKey, authorization },
   );
 }
 
 export async function runSelfTrainingInRunner(
-  input: Omit<SelfTrainingInput, "owner">,
+  input: Omit<DatasetRef, "datasetId"> & { datasetId: string; jobId: string },
   datasetReceipt: string,
   authorization: RunnerGrant,
 ): Promise<AuthorizedTrainingResult> {
@@ -118,78 +147,6 @@ export async function runSelfTrainingInRunner(
     { datasetId: input.datasetId, jobId: input.jobId },
     { ...input, datasetReceipt, authorization },
   );
-}
-
-export async function runLoanJobInRunner(
-  input: Omit<LoanJobInput, "borrower">,
-  proof: {
-    datasetReceipt: string;
-    escrowTxHash: string;
-    escrowSequence: number;
-    deliveryPublicKey: string;
-  },
-  authorization: RunnerGrant,
-): Promise<PreparedLoanJobResult> {
-  return dispatchRunner(
-    "run-loan-job",
-    { datasetId: input.datasetId, loanId: input.loanId },
-    { ...input, ...proof, authorization },
-  );
-}
-
-export async function prepareLoanDeliveryInRunner(
-  loanId: string,
-  loanReceipt: string,
-  deliveryPublicKey: string,
-  authorization: RunnerGrant,
-): Promise<{ runnerReceipt: string; releaseEnvelope: RunnerReleaseEnvelope }> {
-  return dispatchRunner(
-    "prepare-loan-delivery",
-    { loanId },
-    { loanId, loanReceipt, deliveryPublicKey, authorization },
-  );
-}
-
-export async function settleLoanInRunner(
-  loanId: string,
-  loanReceipt: string,
-  releaseEnvelopeHash: string,
-  authorization: RunnerGrant,
-): Promise<{ settleTxHash: string; auditTxHash: string | null }> {
-  return dispatchRunner<{ settleTxHash: string; auditTxHash: string | null }>(
-    "settle-loan",
-    { loanId },
-    { loanId, loanReceipt, releaseEnvelopeHash, authorization },
-  );
-}
-
-export async function reconcileLoanEscrowInRunner(input: {
-  loanId: string;
-  borrower: string;
-  escrowTxHash: string;
-  escrowSequence: number;
-  loanReceipt?: string;
-}): Promise<RunnerEscrowReconciliation> {
-  return dispatchRunner(
-    "reconcile-loan-escrow",
-    { loanId: input.loanId, borrower: input.borrower },
-    input,
-  );
-}
-
-export async function loanModelKeyInRunner(
-  loanId: string,
-  loanReceipt: string,
-  settleTxHash: string,
-  deliveryPublicKey: string,
-  authorization: RunnerGrant,
-): Promise<RunnerDeliveryEnvelope> {
-  const out = await dispatchRunner<{ modelKeyEnvelope: RunnerDeliveryEnvelope }>(
-    "loan-model-key",
-    { loanId },
-    { loanId, loanReceipt, settleTxHash, deliveryPublicKey, authorization },
-  );
-  return out.modelKeyEnvelope;
 }
 
 export async function selfTrainModelKeyInRunner(
@@ -204,13 +161,4 @@ export async function selfTrainModelKeyInRunner(
     { jobId, jobReceipt, deliveryPublicKey, authorization },
   );
   return out.modelKeyEnvelope;
-}
-
-export async function escrowConditionInRunner(loanId: string, borrower: string): Promise<EscrowCondition> {
-  const out = await dispatchRunner<{ conditionHex: string }>(
-    "escrow-condition",
-    { loanId, borrower },
-    { loanId, borrower },
-  );
-  return { conditionHex: out.conditionHex, fulfillmentHex: "" };
 }

@@ -8,7 +8,7 @@ export function LanguageToggle() {
   const { locale, setLocale } = useLocale();
 
   return (
-    <div className="flex rounded-[2rem] border border-white/[0.1] bg-background/50 p-1 text-xs font-semibold tracking-wide shadow-[0_8px_24px_rgba(0,0,0,0.2)] backdrop-blur-xl" role="group" aria-label="Language">
+    <div className="flex rounded-[2rem] border border-white/[0.1] bg-background/50 p-1 text-xs font-semibold tracking-wide shadow-[0_8px_24px_rgba(0,0,0,0.2)] backdrop-blur-xl" role="group" aria-label={locale === "fr" ? "Langue" : "Language"}>
       {LOCALES.map((item) => (
         <button
           key={item}

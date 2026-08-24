@@ -35,7 +35,7 @@ export async function runSelfTrain(
   const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
   if (dataset.provider !== owner) throw new AppError("Self-train réservé au propriétaire du dataset", 403);
-  if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt) {
+  if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt || !dataset.priceUsdcAtomic) {
     throw new AppError("Dataset non finalisé (pas encore uploadé)", 409);
   }
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
@@ -71,7 +71,7 @@ export async function runSelfTrain(
       cid: dataset.ipfsCid,
       wrappedKey: dataset.wrappedKey,
       merkleRoot: dataset.merkleRoot,
-      priceDrops: dataset.priceDrops,
+      priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
       jobId: job.id,
     }, datasetReceipt, authorization);

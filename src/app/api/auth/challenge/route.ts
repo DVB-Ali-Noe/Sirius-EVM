@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createPublicKey } from "node:crypto";
-import { isValidClassicAddress } from "xrpl";
+import { tryNormalizeAddress } from "@/lib/evm/address";
 import { createChallenge } from "@/lib/auth/challenge";
 import { authenticationOrigin } from "@/lib/auth/origin";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
-import { resolveServerNetwork } from "@/lib/xrpl/networks";
+import { resolveServerNetwork } from "@/lib/evm/networks";
 
 export const runtime = "nodejs";
 
@@ -36,16 +36,17 @@ export async function POST(req: Request) {
       address?: unknown;
       runnerSessionPublicKey?: unknown;
     }>(req);
-    if (typeof address !== "string" || !isValidClassicAddress(address)) {
+    const normalizedAddress = tryNormalizeAddress(address);
+    if (!normalizedAddress) {
       return NextResponse.json({ error: "Adresse invalide" }, { status: 400 });
     }
     if (!isValidSessionPublicKey(runnerSessionPublicKey)) {
       return NextResponse.json({ error: "Clé de session runner invalide" }, { status: 400 });
     }
-    enforceRateLimit(challengeLimiter, requestClientKey(req, address));
+    enforceRateLimit(challengeLimiter, requestClientKey(req, normalizedAddress));
     const { network } = resolveServerNetwork();
     return NextResponse.json(
-      await createChallenge(address, origin, runnerSessionPublicKey, network),
+      await createChallenge(normalizedAddress, origin, runnerSessionPublicKey, network),
     );
   } catch (err) {
     return errorResponse(err);

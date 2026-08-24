@@ -14,7 +14,7 @@ export async function requireMutationGrant(
   authorization: RunnerGrant,
   expected: ExpectedRunnerGrant,
 ): Promise<void> {
-  const grant = validateRunnerGrant(authorization, expected);
+  const grant = await validateRunnerGrant(authorization, expected);
   if (grant.subject !== session.address) {
     throw new AppError("Le grant de mutation ne correspond pas au wallet connecté", 403);
   }

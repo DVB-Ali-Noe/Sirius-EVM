@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createPublicClient, createWalletClient, formatEther, http, type Abi, type Chain, type Hex } from "viem";
+import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS, type EvmNetwork } from "../../src/lib/evm/networks";
 
@@ -51,6 +51,22 @@ function requireRole(variable: string, deployer: Hex): Hex {
       "le registre KYB. Fournis une adresse dédiée, ou SIRIUS_ALLOW_SHARED_ROLES=true " +
       "pour un déploiement jetable assumé.",
   );
+}
+
+function requireAddress(variable: string): Hex {
+  const configured = process.env[variable]?.trim();
+  if (!configured || !/^0x[0-9a-fA-F]{40}$/.test(configured)) {
+    throw new Error(`${variable} doit être une adresse EVM valide`);
+  }
+  return configured as Hex;
+}
+
+function requireCodeHash(variable: string): Hex {
+  const configured = process.env[variable]?.trim();
+  if (!configured || !/^0x[0-9a-fA-F]{64}$/.test(configured)) {
+    throw new Error(`${variable} doit être le keccak256 du bytecode USDC`);
+  }
+  return configured as Hex;
 }
 
 function targetNetwork(): { network: EvmNetwork; chain: Chain } {
@@ -104,11 +120,20 @@ async function main() {
   // attester, l'autre atteste. Les confondre supprime le contre-pouvoir.
   const admin = requireRole("SIRIUS_KYB_ADMIN", account.address);
   const verifier = requireRole("SIRIUS_KYB_VERIFIER", account.address);
+  const usdc = requireAddress("SIRIUS_USDC_ADDRESS");
+  const expectedUsdcCodeHash = requireCodeHash("SIRIUS_USDC_CODE_HASH");
   if (admin.toLowerCase() === verifier.toLowerCase()) {
     throw new Error(
       "SIRIUS_KYB_ADMIN et SIRIUS_KYB_VERIFIER doivent être deux adresses distinctes. " +
         "Pour un déploiement jetable, SIRIUS_ALLOW_SHARED_ROLES=true.",
     );
+  }
+
+  const usdcCode = await publicClient.getBytecode({ address: usdc });
+  if (!usdcCode || usdcCode === "0x") throw new Error("SIRIUS_USDC_ADDRESS ne contient aucun contrat");
+  const usdcCodeHash = keccak256(usdcCode);
+  if (usdcCodeHash.toLowerCase() !== expectedUsdcCodeHash.toLowerCase()) {
+    throw new Error(`Code hash USDC inattendu : ${usdcCodeHash}`);
   }
 
   const deployed: Record<string, Hex> = {};
@@ -140,11 +165,8 @@ async function main() {
   }
 
   console.log("");
-  const escrowAddress = process.env.SIRIUS_REUSE_ESCROW?.trim() as Hex | undefined;
-  const escrow = escrowAddress ?? (await deploy("SiriusEscrow"));
-  if (escrowAddress) console.log(`SiriusEscrow           ${escrow}  (réutilisé)`);
-
   const kyb = await deploy("SiriusKybRegistry", [admin, verifier]);
+  const escrow = await deploy("SiriusEscrow", [usdc, kyb]);
   const datasets = await deploy("SiriusDatasetRegistry", [kyb]);
 
   console.log("");
@@ -162,8 +184,24 @@ async function main() {
     abi: escrowAbi,
     functionName: "accounting",
   })) as readonly [bigint, bigint, bigint, bigint];
-  if (!escrowAddress && accounting.some((value) => value !== 0n)) {
+  if (accounting.some((value) => value !== 0n)) {
     throw new Error("SiriusEscrow fraîchement déployé n'est pas dans un état vierge");
+  }
+  const escrowUsdc = (await publicClient.readContract({
+    address: escrow,
+    abi: escrowAbi,
+    functionName: "usdc",
+  })) as Hex;
+  if (escrowUsdc.toLowerCase() !== usdc.toLowerCase()) {
+    throw new Error("SiriusEscrow ne référence pas le contrat USDC configuré");
+  }
+  const escrowKyb = (await publicClient.readContract({
+    address: escrow,
+    abi: escrowAbi,
+    functionName: "kyb",
+  })) as Hex;
+  if (escrowKyb.toLowerCase() !== kyb.toLowerCase()) {
+    throw new Error("SiriusEscrow ne référence pas le registre KYB déployé");
   }
 
   const verifierRegistered = await publicClient.readContract({
@@ -187,8 +225,13 @@ async function main() {
   console.log("");
   console.log("À reporter dans .env.local :");
   console.log(`NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="${escrow}"`);
+  console.log(`NEXT_PUBLIC_SIRIUS_USDC_ADDRESS="${usdc}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_KYB_ADDRESS="${kyb}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS="${datasets}"`);
+  console.log(`SIRIUS_ESCROW_ADDRESS="${escrow}"`);
+  console.log(`SIRIUS_USDC_ADDRESS="${usdc}"`);
+  console.log(`SIRIUS_KYB_ADDRESS="${kyb}"`);
+  console.log(`SIRIUS_DATASET_ADDRESS="${datasets}"`);
   if (explorer) {
     console.log("");
     console.log("Explorateur :");

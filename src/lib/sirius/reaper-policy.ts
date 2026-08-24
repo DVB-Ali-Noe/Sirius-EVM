@@ -14,7 +14,7 @@ export interface LoanReaperSnapshot {
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
   createdAt: Date;
   updatedAt: Date;
-  cancelAfter: Date | null;
+  evmDeadline: Date | null;
   modelCid: string | null;
 }
 
@@ -33,8 +33,8 @@ export function loanReaperAction(
   }
   if (
     (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
-    loan.cancelAfter &&
-    loan.cancelAfter.getTime() <= now.getTime() &&
+    loan.evmDeadline &&
+    loan.evmDeadline.getTime() <= now.getTime() &&
     age >= CHAIN_REAPER_LEASE_MS
   ) {
     return "reconcile-chain";

@@ -5,28 +5,29 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 ## Socle EVM — implémenté
 
 - [x] Définition de Robinhood Chain testnet `46630` et mainnet `4663` dans `src/lib/evm/networks.ts`.
-- [x] Client RPC `viem`, normalisation EIP-55 des adresses, validation des montants en wei et vérification de signatures EVM.
-- [x] `SiriusEscrow` : verrouillage ETH, hashlock SHA-256, release, remboursement, crédits pull-only et protections contre les scénarios de paiement hostiles.
-- [x] `SiriusKybRegistry` : attestations KYB EIP-712, révocation, expiration et gestion des vérificateurs.
+- [x] Client RPC `viem`, normalisation EVM des adresses, validation des montants USDC et vérification de signatures EVM.
+- [x] `SiriusEscrow` : verrouillage USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, release avant échéance, remboursement, crédits pull-only et transferts sûrs.
+- [x] `SiriusKybRegistry` : attestations KYB EIP-712, révocation durable, expiration et gestion des vérificateurs.
 - [x] `SiriusDatasetRegistry` : ancrage d'un dataset chiffré, KYB bloquant et tombstone après destruction.
-- [x] Tests Hardhat, scripts de compilation, export ABI, déploiement et smoke test des contrats.
-- [x] Liaison EVM dans le runner : dérivation du préimage liée au contrat et au réseau, contrôle `matchesScope`, règlement, réconciliation et re-livraison de clé modèle.
+- [x] Tests Hardhat, scripts de compilation, export ABI, déploiement et smoke test USDC.
+- [x] Liaison EVM dans le runner : dérivation du préimage liée au contrat et au réseau, contrôle KYB + `matchesScope` + escrow, règlement et re-livraison de clé modèle.
 
 ## Migration produit — en cours
 
-- [ ] Déployer les trois contrats sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
+- [ ] Déployer les trois contrats durcis sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
+- [ ] Configurer l'émetteur KYB externe et sa clé HSM/KMS ; l'application ne signe plus d'attestation KYB.
 - [ ] Financer et vérifier le compte EVM dérivé du runner, utilisé pour appeler `release` et `refund`.
-- [ ] Brancher le wallet navigateur EVM sur les appels `mint`, `lock`, `withdraw` et les attestations KYB.
-- [ ] Migrer les routes et écrans dataset, marketplace, entraînement, audit et wallet sur les données et événements EVM.
-- [ ] Retirer les chemins historiques restants de l'application, du runner et du manifeste de déploiement.
-- [ ] Remplacer les variables historiques dans `deploy/phala/compose.yaml` par `EVM_NETWORK`, `EVM_RPC_URL` et l'adresse serveur de `SiriusEscrow`.
+- [x] Brancher le wallet navigateur EVM sur les appels `mint`, `approve`, `lock`, `withdraw` et les attestations KYB.
+- [x] Migrer les routes et écrans dataset, marketplace, entraînement, audit et wallet sur les données et événements EVM.
+- [x] Retirer les chemins historiques de l'application, du runner et du manifeste de déploiement.
+- [x] Remplacer le manifeste Phala par `EVM_NETWORK`, `EVM_RPC_URL` et les adresses de contrats EVM.
 - [ ] Ajouter des tests d'intégration navigateur/runner/contrats sur un nœud EVM local puis sur testnet.
 
 ## Validation testnet — à faire
 
 - [ ] Déployer et exécuter `pnpm contracts:smoke` avec les adresses réellement publiées.
-- [ ] Attester un provider et un borrower via `SiriusKybRegistry`.
-- [ ] Publier un dataset chiffré, verrouiller un prêt en ETH, entraîner dans le TEE et régler avec `release`.
+- [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.
+- [ ] Publier un dataset chiffré, verrouiller un prêt en USDC, entraîner dans le TEE et régler avec `release`.
 - [ ] Vérifier l'ouverture de la capsule uniquement après publication du préimage.
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.

@@ -1,5 +1,4 @@
-// Schéma Sirius — data lending confidentiel sur XRPL.
-// Draft inc.0 : structure de base, à affiner au fil des incréments.
+// Schéma Sirius — data lending confidentiel EVM.
 // Doc : https://pris.ly/d/prisma-schema
 
 generator client {
@@ -11,22 +10,21 @@ datasource db {
   provider = "sqlite"
 }
 
-/// Dataset déposé par un provider : chiffré (IPFS), tokenisé on-chain (MPT).
+/// Dataset déposé par un provider : chiffré sur IPFS et ancré on-chain.
 model Dataset {
   id             String        @id @default(cuid())
   name           String
   description    String?
-  provider       String // adresse XRPL du provider
-  mptIssuanceId  String?       @unique // identité on-chain du dataset (MPT XLS-33)
-  mptTxHash      String? // transaction de publication signée, pour réconciliation après timeout
-  mptTxBlob      String? // blob signé réutilisable jusqu'à LastLedgerSequence
-  mptLastLedger  Int?
-  mptDestroyedAt DateTime? // destruction de l'émission confirmée sur XRPL
+  provider       String // adresse EVM du provider, normalisée en minuscules
+  evmDatasetId    String?       @unique // identifiant bytes32 du titre EVM
+  evmMintTxHash   String? // hash de mint confirmé
+  evmMintBlock    String? // bloc de mint, borne les recherches d'événements
+  evmDestroyTxHash String? // hash de tombstone confirmé
   ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
   wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
-  priceDrops     String        @default("10000000") // prix provider par entraînement, en drops XRP
+  priceUsdcAtomic String // prix en unités atomiques USDC (6 décimales)
   challengeDays  Int           @default(7) // délai avant remboursement possible
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
@@ -49,7 +47,7 @@ model TrainingJob {
   id        String  @id @default(cuid())
   datasetId String
   dataset   Dataset @relation(fields: [datasetId], references: [id])
-  owner     String // adresse XRPL du propriétaire (== dataset.provider)
+  owner     String // adresse EVM du propriétaire (== dataset.provider)
 
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
@@ -65,23 +63,21 @@ model TrainingJob {
   @@index([status])
 }
 
-/// Emprunt d'accès : escrow conditionnel (TokenEscrow XLS-85) + job TEE.
+/// Emprunt d'accès : escrow USDC conditionnel + job TEE.
 model Loan {
   id        String  @id @default(cuid())
   datasetId String
   dataset   Dataset @relation(fields: [datasetId], references: [id])
-  borrower  String // adresse XRPL de l'emprunteur
-  provider  String // adresse XRPL du provider (dénormalisé pour les requêtes)
-  amount    String // montant en drops/unités (string pour éviter la perte de précision)
-  currency  String  @default("RLUSD")
+  borrower  String // adresse EVM de l'emprunteur
+  provider  String // adresse EVM du provider (dénormalisé pour les requêtes)
+  amountUsdcAtomic String // montant USDC en unités atomiques
 
-  // Escrow conditionnel
-  escrowSequence   Int?
-  escrowTxHash     String?
-  escrowTxBlob     String? // blob signé conservé seulement pendant la réconciliation
-  escrowLastLedger Int?
-  conditionHex     String? // crypto-condition PREIMAGE-SHA-256
-  cancelAfter      DateTime? // fin de la challenge period → remboursement borrower
+  // Escrow USDC conditionnel
+  evmLoanKey       String? @unique // clé bytes32 du prêt EVM
+  evmHashlock      String? // SHA-256 du préimage TEE
+  evmLockTxHash    String? // lock ERC-20 confirmé
+  evmLockBlock     String? // bloc de lock, borne la lecture des événements
+  evmDeadline      DateTime?
 
   // Résultat TEE préparé avant le release atomique
   jobId                  String?
@@ -91,9 +87,9 @@ model Loan {
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
   runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
-  settleTxHash           String? // EscrowFinish
+  settleTxHash           String? // release USDC
   auditTxHash            String? // reçu d'audit signé depuis le runner isolé
-  cancelTxHash           String? // EscrowCancel confirmé après expiration
+  cancelTxHash           String? // remboursement USDC confirmé après expiration
 
   status    LoanStatus @default(PENDING)
   createdAt DateTime   @default(now())
@@ -126,19 +122,19 @@ model KeyGrant {
   @@index([loanId])
 }
 
-/// KYB via Credentials (XLS-70) + rattachement Permissioned Domain (XLS-80).
+/// KYB EIP-712 accepté on-chain.
 model Credential {
   id               String           @id @default(cuid())
-  subject          String // adresse XRPL du sujet
+  subject          String // adresse EVM du sujet
   credType         String // type de credential (ex: "KYB")
-  issuer           String // adresse XRPL de l'émetteur
-  domainId         String? // Permissioned Domain de rattachement
+  issuer           String // adresse EVM du vérificateur
   txHash           String?
-  acceptTxBlob     String? // blob CredentialAccept signé, conservé pendant la réconciliation
-  acceptLastLedger Int?
   status           CredentialStatus @default(PENDING)
   createdAt        DateTime         @default(now())
   acceptedAt       DateTime?
+  evmVerifier      String?
+  evmExpiresAt     DateTime?
+  evmAttestationTxHash String?
 
   @@unique([subject, credType])
   @@index([subject])
@@ -179,8 +175,8 @@ model Reputation {
 
 enum DatasetStatus {
   DRAFT // métadonnées créées, pas encore on-chain
-  LISTING // publication MPT en cours ou à réconcilier
-  LISTED // « Public » : MPT minté, visible marketplace, empruntable
+  LISTING // publication EVM en cours
+  LISTED // « Public » : titre EVM minté, visible marketplace, empruntable
   UNLISTED // « Semi-privé » : hors catalogue, empruntable par lien direct
   PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
   SUSPENDED
@@ -189,12 +185,12 @@ enum DatasetStatus {
 
 enum LoanStatus {
   PENDING // créé, escrow pas encore posé
-  SUBMITTING // EscrowCreate signé, soumission ou réconciliation en cours
-  ESCROWED // EscrowCreate confirmé, fonds bloqués
+  SUBMITTING // lock USDC envoyé, confirmation en cours
+  ESCROWED // lock USDC confirmé, fonds bloqués
   TRAINING // job en cours ou capsule prête avant règlement
-  SETTLING // EscrowFinish soumis ou à réconcilier
-  SETTLED // EscrowFinish validé, capsule déverrouillable
-  CANCELLED // réservation abandonnée ou EscrowCancel confirmé
+  SETTLING // release USDC soumis ou à réconcilier
+  SETTLED // release USDC validé, capsule déverrouillable
+  CANCELLED // réservation abandonnée ou remboursement USDC confirmé
 }
 
 enum TrainingStatus {

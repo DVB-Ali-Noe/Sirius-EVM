@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { SecureAccountCard } from "@/components/wallet/SecureAccount";
 import { useWalletStore } from "@/stores/wallet";
-import { fetchXrpBalance, type XrplBalance } from "@/lib/xrpl/balance";
+import { fetchUsdcBalance, type UsdcBalance } from "@/lib/evm/balance";
+import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { sendPayment } from "@/lib/wallet/payment-client";
 import { openMoonpay } from "@/lib/wallet/onramp";
 import { messageOf } from "@/lib/errors-client";
@@ -18,7 +19,7 @@ export default function WalletPage() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const { locale, t } = useLocale();
 
-  const [balance, setBalance] = useState<XrplBalance | null>(null);
+  const [balance, setBalance] = useState<UsdcBalance | null>(null);
   const [balError, setBalError] = useState(false);
 
   const [destination, setDestination] = useState("");
@@ -31,7 +32,7 @@ export default function WalletPage() {
     if (!address) return;
     setBalError(false);
     try {
-      setBalance(await fetchXrpBalance(address));
+      setBalance(await fetchUsdcBalance(address));
     } catch {
       setBalError(true);
     }
@@ -47,15 +48,14 @@ export default function WalletPage() {
     setSendError(null);
     setTxHash(null);
 
-    const amountNum = Number(amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    if (!/^\d+(?:\.\d{1,6})?$/.test(amount) || Number(amount) <= 0) {
       setSendError(t("Montant invalide."));
       return;
     }
 
     setSending(true);
     try {
-      const hash = await sendPayment({ destination: destination.trim(), amountXrp: amountNum });
+      const hash = await sendPayment({ destination: destination.trim(), amountUsdc: amount });
       setTxHash(hash);
       setDestination("");
       setAmount("");
@@ -93,13 +93,10 @@ export default function WalletPage() {
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-3xl font-semibold tracking-tight">
-              {balError ? "—" : balance ? balance.xrp.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "…"}
+              {balError ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "…"}
             </span>
-            <span className="text-sm text-muted">XRP</span>
+            <span className="text-sm text-muted">USDC</span>
           </div>
-          {balance && !balance.activated && (
-            <p className="mt-2 text-xs text-muted">{t("Compte non activé — ajoute des fonds pour l’activer.")}</p>
-          )}
           {balError && <p className="mt-2 text-xs text-negative">{t("Solde indisponible.")}</p>}
         </div>
         <button
@@ -113,7 +110,7 @@ export default function WalletPage() {
       <Card>
         <h2 className="text-sm font-semibold">{t("Envoyer / Retirer")}</h2>
         <p className="mt-1 text-xs text-muted">
-          {t("Tes fonds vivent on-chain — envoie-les vers n’importe quelle adresse XRPL que tu contrôles.")}
+          {t("Tes fonds vivent on-chain — envoie-les vers n’importe quelle adresse EVM que tu contrôles.")}
         </p>
 
         <form onSubmit={handleSend} className="mt-4 flex flex-col gap-4">
@@ -123,12 +120,12 @@ export default function WalletPage() {
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
               required
-              placeholder="r…"
+              placeholder="0x…"
               className="rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm outline-none transition-colors focus:border-white/30"
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t("Montant (XRP)")}</label>
+            <label className="text-sm font-medium">{t("Montant (USDC)")}</label>
             <input
               type="number"
               min="0.000001"

@@ -5,20 +5,11 @@ export type RunnerOperation =
   | "dataset-ingress-key"
   | "seal-dataset"
   | "run-training"
+  | "escrow-hashlock"
   | "run-loan-job"
-  | "prepare-loan-delivery"
   | "settle-loan"
-  | "reconcile-loan-escrow"
   | "loan-model-key"
-  | "self-train-key"
-  | "escrow-condition"
-  // Rail EVM. Opérations distinctes plutôt que variantes des précédentes : le nom de
-  // l'opération entre dans la capability et dans le grant wallet, donc une
-  // autorisation obtenue pour un rail ne vaut rien sur l'autre.
-  | "evm-escrow-hashlock"
-  | "evm-run-loan-job"
-  | "evm-settle-loan"
-  | "evm-loan-model-key";
+  | "self-train-key";
 
 export interface RunnerScope {
   datasetId?: string;

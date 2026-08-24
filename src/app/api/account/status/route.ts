@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { isValidClassicAddress } from "xrpl";
-import { hasAcceptedKyb } from "@/lib/xrpl/credentials";
-import { siriusVerifierAddress } from "@/lib/xrpl/verifier";
+import { tryNormalizeAddress } from "@/lib/evm/address";
+import { kybRegistryAddress } from "@/lib/evm/addresses";
+import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
+import { getPublicClient } from "@/lib/evm/client";
 import { errorResponse } from "@/lib/errors";
 import { AppError } from "@/lib/app-error";
 import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
@@ -34,32 +35,22 @@ function cacheStatus(address: string, known: boolean): void {
   statusCache.set(address, { known, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-function isMissingAccount(error: unknown): boolean {
-  return (error as { data?: { error?: unknown } }).data?.error === "actNotFound";
-}
-
-/**
- * Détection « compte connu » 100% on-chain, sans écriture DB (option B, D-23) :
- * un compte est connu de Sirius s'il porte un credential KYB accepté. Une adresse
- * inconnue (nouvelle ou non activée) déclenche le product tour côté client.
- * Donnée publique du ledger → pas d'auth requise.
- */
 export async function GET(req: Request) {
   try {
-    const address = new URL(req.url).searchParams.get("address");
-    if (!address || !isValidClassicAddress(address)) {
+    const address = tryNormalizeAddress(new URL(req.url).searchParams.get("address"));
+    if (!address) {
       return NextResponse.json({ error: "Adresse invalide" }, { status: 400 });
     }
     enforceRateLimit(statusLimiter, requestClientKey(req, address));
     const cached = cachedStatus(address);
     if (cached !== null) return NextResponse.json({ known: cached });
 
-    let known = false;
-    try {
-      known = await hasAcceptedKyb(address, siriusVerifierAddress());
-    } catch (error) {
-      if (!isMissingAccount(error)) throw new AppError("Statut XRPL indisponible", 503);
-    }
+    const known = await getPublicClient().readContract({
+      address: kybRegistryAddress(),
+      abi: siriuskybregistryAbi,
+      functionName: "isKybValid",
+      args: [address],
+    }).catch(() => { throw new AppError("Statut EVM indisponible", 503); });
     cacheStatus(address, known);
     return NextResponse.json({ known });
   } catch (err) {

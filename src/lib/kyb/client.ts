@@ -1,6 +1,6 @@
 "use client";
 
-import { signActiveTransaction } from "@/lib/wallet/transaction-client";
+import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 
 export type KybRole = "provider" | "borrower";
 
@@ -18,11 +18,11 @@ export async function acceptKybCredential(role: KybRole): Promise<void> {
   if (!preparation.ok) throw new Error(prepared.error ?? "Préparation du KYB échouée");
   if (!prepared.transaction) return;
 
-  const txBlob = await signActiveTransaction(prepared.transaction);
+  const txHash = await sendActiveTransaction(prepared.transaction);
   const submission = await fetch(endpoint, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ txBlob }),
+    body: JSON.stringify({ txHash }),
   });
   const submitted = (await submission.json()) as { error?: string };
   if (!submission.ok) throw new Error(submitted.error ?? "Acceptation du KYB échouée");

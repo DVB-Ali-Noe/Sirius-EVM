@@ -9,7 +9,7 @@
     "start": "next start",
     "runner:dev": "NODE_OPTIONS=\"--conditions=react-server --max-old-space-size=384\" node --import tsx src/runner/dev.ts",
     "runner:smoke": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx src/runner/smoke.ts",
-    "test": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/http/security.test.ts src/lib/tee/identity.test.ts src/lib/tee/ingress.test.ts src/lib/tee/train.test.ts src/lib/runner/authorization.test.ts src/lib/runner/replay.test.ts src/lib/runner/settlement.test.ts src/lib/sirius/metrics.test.ts src/lib/sirius/reaper-policy.test.ts src/lib/sirius/reputation-policy.test.ts src/lib/sirius/settlement-policy.test.ts src/lib/tee/escrow-evm.test.ts src/lib/runner/capsule.test.ts src/lib/runner/evm-receipt.test.ts src/lib/evm/address.test.ts src/lib/evm/amount.test.ts src/lib/evm/signature.test.ts src/lib/xrpl/amount.test.ts src/lib/xrpl/credentials.test.ts src/lib/xrpl/escrow.test.ts src/lib/xrpl/mpt.test.ts src/runner/server.test.ts",
+    "test": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/http/security.test.ts src/lib/tee/identity.test.ts src/lib/tee/ingress.test.ts src/lib/tee/train.test.ts src/lib/runner/authorization.test.ts src/lib/runner/replay.test.ts src/lib/sirius/metrics.test.ts src/lib/sirius/reaper-policy.test.ts src/lib/sirius/reputation-policy.test.ts src/lib/sirius/settlement-policy.test.ts src/lib/tee/escrow-evm.test.ts src/lib/runner/capsule.test.ts src/lib/runner/evm-receipt.test.ts src/lib/evm/address.test.ts src/lib/evm/signature.test.ts src/runner/server.test.ts",
     "test:e2e": "playwright test",
     "lint": "eslint",
     "contracts:compile": "cd contracts && hardhat compile",
@@ -20,7 +20,7 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "runner:capture-ra-\n  tls": "NODE_OPTIONS=\"--conditions=react-server\" node\n  --import tsx src/runner/capture-ra-tls.ts"
+    "runner:capture-ra-tls": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx src/runner/capture-ra-tls.ts"
   },
   "dependencies": {
     "@phala/dcap-qvl": "^0.5.2",
@@ -29,21 +29,16 @@
     "@prisma/client": "^7.8.0",
     "@react-three/fiber": "^9.5.0",
     "@react-three/postprocessing": "^3.0.4",
-    "@web3auth/modal": "^11.2.0",
     "better-sqlite3": "^12.11.1",
-    "five-bells-condition": "^5.0.1",
     "gsap": "^3.15.0",
     "lenis": "^1.3.25",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "ripple-keypairs": "3.0.0",
     "server-only": "^0.0.1",
     "three": "^0.183.1",
     "tsx": "^4.23.0",
     "viem": "^2.54.1",
-    "xrpl": "^5.0.0",
-    "xrpl-connect": "^0.8.2",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

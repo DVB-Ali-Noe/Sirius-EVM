@@ -23,7 +23,7 @@ export function E2eWalletBridge() {
         const wallet = useWalletStore.getState();
         wallet.setConnected(
           address,
-          process.env.NEXT_PUBLIC_XRPL_NETWORK || "testnet",
+          process.env.NEXT_PUBLIC_EVM_NETWORK || "testnet",
           "external",
         );
         useWalletStore.getState().setRole(role);

@@ -25,14 +25,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const session = requireAuth(req);
     const { id } = await params;
-    const { txBlob } = await readJson<{ txBlob?: unknown }>(req);
-    if (txBlob !== undefined && typeof txBlob !== "string") {
-      return NextResponse.json({ error: "Transaction MPT invalide" }, { status: 400 });
+    const { txHash } = await readJson<{ txHash?: unknown }>(req);
+    if (txHash !== undefined && typeof txHash !== "string") {
+      return NextResponse.json({ error: "Hash de titre EVM invalide" }, { status: 400 });
     }
     const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
     if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     assertOwner(session, owned.provider);
-    return NextResponse.json(await finalizeDatasetListing(id, session.address, txBlob));
+    return NextResponse.json(await finalizeDatasetListing(id, session.address, txHash));
   } catch (err) {
     return errorResponse(err);
   }

@@ -4,15 +4,14 @@ import { AppError } from "@/lib/app-error";
 /**
  * Normalisation des adresses EVM — brique de sécurité, pas de confort.
  *
- * Une adresse XRPL est en base58 : une seule écriture possible, donc `a === b`
- * suffisait. Une adresse EVM s'écrit en hexadécimal et l'EIP-55 y encode une
- * somme de contrôle **dans la casse** : `0xAbC…` et `0xabc…` désignent le même
- * compte tout en étant deux chaînes différentes.
+ * Une adresse EVM s'écrit en hexadécimal et l'EIP-55 y encode une somme de
+ * contrôle **dans la casse** : `0xAbC…` et `0xabc…` désignent le même compte
+ * tout en étant deux chaînes différentes.
  *
- * Or les contrôles d'accès de Sirius comparent des chaînes :
- *   - `assertOwner()`            → `session.address !== owner`
- *   - `assertGrantSubject()`     → `grant.payload.subject !== session.address`
- *   - `finalizeLoan()`           → `loan.borrower !== borrower`
+ * Or les contrôles d'accès de Sirius comparent des identités d'adresse :
+ *   - `assertOwner()`
+ *   - `assertGrantSubject()`
+ *   - `finalizeLoan()`
  * Une casse divergente entre le wallet, la session et la base créerait soit un
  * refus injustifié, soit deux comptes distincts pour un même utilisateur.
  *

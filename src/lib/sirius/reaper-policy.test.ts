@@ -9,7 +9,7 @@ function loan(overrides: Partial<LoanReaperSnapshot>): LoanReaperSnapshot {
     status: "PENDING",
     createdAt: new Date(now.getTime() - 60_000),
     updatedAt: new Date(now.getTime() - 60_000),
-    cancelAfter: null,
+    evmDeadline: null,
     modelCid: null,
     ...overrides,
   };
@@ -31,7 +31,7 @@ test("un escrow expiré est réconcilié avant tout changement terminal local", 
     assert.equal(
       loanReaperAction(loan({
         status,
-        cancelAfter: new Date(now.getTime() - 1),
+        evmDeadline: new Date(now.getTime() - 1),
         updatedAt: new Date(now.getTime() - 90_000),
       }), now),
       "reconcile-chain",

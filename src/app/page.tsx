@@ -188,7 +188,7 @@ function PageBottom() {
         <Link href="/docs" className="text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
           {t("Documentation")}
         </Link>
-        <p className="text-xs tracking-widest text-muted">{t("Sirius — data lending confidentiel sur XRPL")}</p>
+        <p className="text-xs tracking-widest text-muted">{t("Sirius — data lending confidentiel sur EVM")}</p>
       </footer>
     </div>
   );

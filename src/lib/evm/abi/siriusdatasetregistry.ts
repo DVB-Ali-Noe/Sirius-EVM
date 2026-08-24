@@ -112,9 +112,9 @@ export const siriusdatasetregistryAbi = [
       },
       {
         "indexed": false,
-        "internalType": "string",
-        "name": "cid",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "cidHash",
+        "type": "bytes32"
       },
       {
         "indexed": false,
@@ -140,19 +140,6 @@ export const siriusdatasetregistryAbi = [
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_CID_BYTES",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -192,9 +179,9 @@ export const siriusdatasetregistryAbi = [
         "type": "address"
       },
       {
-        "internalType": "string",
-        "name": "datasetId",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "datasetIdHash",
+        "type": "bytes32"
       }
     ],
     "name": "datasetIdOf",
@@ -211,9 +198,9 @@ export const siriusdatasetregistryAbi = [
   {
     "inputs": [
       {
-        "internalType": "string",
-        "name": "datasetId",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "datasetIdHash",
+        "type": "bytes32"
       }
     ],
     "name": "destroy",
@@ -265,9 +252,9 @@ export const siriusdatasetregistryAbi = [
             "type": "bytes32"
           },
           {
-            "internalType": "string",
-            "name": "cid",
-            "type": "string"
+            "internalType": "bytes32",
+            "name": "cidHash",
+            "type": "bytes32"
           }
         ],
         "internalType": "struct SiriusDatasetRegistry.Dataset",
@@ -347,9 +334,9 @@ export const siriusdatasetregistryAbi = [
         "type": "bytes32"
       },
       {
-        "internalType": "string",
-        "name": "cid",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "cidHash",
+        "type": "bytes32"
       }
     ],
     "name": "matchesScope",
@@ -366,14 +353,14 @@ export const siriusdatasetregistryAbi = [
   {
     "inputs": [
       {
-        "internalType": "string",
-        "name": "datasetId",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "datasetIdHash",
+        "type": "bytes32"
       },
       {
-        "internalType": "string",
-        "name": "cid",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "cidHash",
+        "type": "bytes32"
       },
       {
         "internalType": "bytes32",

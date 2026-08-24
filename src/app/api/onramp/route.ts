@@ -5,7 +5,7 @@ import { errorResponse } from "@/lib/errors";
 
 export const runtime = "nodejs";
 
-/** Renvoie une URL MoonPay signée, liée au wallet authentifié (achat de XRP → auto-activation). */
+/** Renvoie une URL MoonPay signée, liée au wallet authentifié. */
 export async function GET(req: Request) {
   try {
     const session = requireAuth(req);

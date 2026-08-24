@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { formatBytes, formatDropsAsXrp } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
+import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
 import { useFavoritesStore } from "@/stores/favorites";
@@ -16,7 +17,7 @@ interface Dataset {
   description: string | null;
   status: string;
   sizeBytes: number | null;
-  priceDrops: string;
+  priceUsdcAtomic: string | null;
   challengeDays: number;
   metrics: { rowCount: number; columnCount: number } | null;
   providerReputation?: {
@@ -178,12 +179,12 @@ function MarketCard({
       </div>
 
       <p className="text-sm font-medium">
-        {formatDropsAsXrp(dataset.priceDrops)} XRP
+        {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC
         <span className="ml-2 text-xs font-normal text-muted">{t("remboursable après {days} j", { days: dataset.challengeDays })}</span>
       </p>
 
       <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
-        {t("Confiance XRPL {score}/100 · {count} règlements", { score: dataset.providerReputation?.score ?? 0, count: dataset.providerReputation?.completedLoans ?? 0 })}
+        {t("Confiance EVM {score}/100 · {count} règlements", { score: dataset.providerReputation?.score ?? 0, count: dataset.providerReputation?.completedLoans ?? 0 })}
       </p>
 
       <div className="mt-1 flex items-center gap-2">

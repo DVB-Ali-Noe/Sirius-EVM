@@ -26,12 +26,12 @@ export default function NewDatasetPage() {
       const file = form.get("file");
       const name = form.get("name");
       const description = form.get("description");
-      const priceXrp = form.get("priceXrp");
+      const priceUsdc = form.get("priceUsdc");
       const challengeDays = form.get("challengeDays");
       if (
         !(file instanceof File) ||
         typeof name !== "string" ||
-        typeof priceXrp !== "string" ||
+        typeof priceUsdc !== "string" ||
         typeof challengeDays !== "string"
       ) {
         throw new Error(t("Formulaire invalide"));
@@ -45,14 +45,14 @@ export default function NewDatasetPage() {
           name,
           description: typeof description === "string" ? description : undefined,
           sizeBytes: file.size,
-          priceXrp,
+          priceUsdc,
           challengeDays: Number(challengeDays),
         }),
       });
       const init = (await initRes.json()) as {
         datasetId?: string;
         ingressKey?: DatasetIngressKey;
-        priceDrops?: string;
+        priceUsdcAtomic?: string;
         challengeDays?: number;
         sizeBytes?: number;
         error?: string;
@@ -61,7 +61,7 @@ export default function NewDatasetPage() {
         !initRes.ok ||
         !init.datasetId ||
         !init.ingressKey ||
-        !init.priceDrops ||
+        !init.priceUsdcAtomic ||
         !init.challengeDays ||
         init.sizeBytes !== file.size
       ) {
@@ -74,7 +74,7 @@ export default function NewDatasetPage() {
         { datasetId: init.datasetId },
         [
           init.datasetId,
-          init.priceDrops,
+          init.priceUsdcAtomic,
           String(init.challengeDays),
           String(init.sizeBytes),
           envelope.ciphertext,
@@ -137,9 +137,9 @@ export default function NewDatasetPage() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t("Prix par entraînement (XRP)")}</label>
+            <label className="text-sm font-medium">{t("Prix par entraînement (USDC)")}</label>
             <input
-              name="priceXrp"
+              name="priceUsdc"
               type="number"
               min="0.001"
               max="1000000"

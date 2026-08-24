@@ -1,6 +1,5 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { PreimageSha256 } from "five-bells-condition";
 import {
   decrypt,
   encrypt,
@@ -17,7 +16,6 @@ import { computeMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainLinearRegression } from "./train";
 import { gateModel } from "./output-gate";
-import { attest } from "./attestation";
 import { decryptDatasetIngress } from "./ingress";
 import { evmEscrowBinding } from "./evm-binding";
 import { canonicalSubject } from "@/lib/subject";
@@ -29,10 +27,8 @@ import type {
   SelfTrainingInput,
   LoanJobInput,
   SealDatasetResult,
-  EscrowCondition,
   EvmEscrowLock,
 } from "./contract";
-import type { LoanJobResult } from "./types";
 
 /**
  * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
@@ -51,17 +47,12 @@ const datasetKeyContext = (datasetId: string) => `wrap:dataset:v1:${datasetId}`;
 // dérivée une fois au calcul et **redérivée** à chaque livraison. Une adresse EVM
 // écrite en EIP-55 d'un côté et en minuscules de l'autre produirait deux clés, donc
 // un modèle définitivement indéchiffrable — sans aucune erreur explicite, seulement
-// un échec d'authentification AES-GCM. Les adresses XRPL, en base58, sont laissées
-// intactes : leur casse porte du sens.
-const modelKeyContext = (loanId: string, borrower: string) =>
-  `model:loan:${canonicalSubject(borrower)}:${loanId}`;
+// un échec d'authentification AES-GCM.
 export const selfTrainKeyContext = (jobId: string, owner: string) =>
   `model:selftrain:${canonicalSubject(owner)}:${jobId}`;
-const escrowKeyContext = (loanId: string, borrower: string) => `escrow:${borrower}:${loanId}`;
 
 /**
- * Contexte du préimage sur le rail EVM. Trois différences avec le contexte XRPL
- * ci-dessus, toutes délibérées.
+ * Contexte du préimage EVM.
  *
  * 1. Il inclut le **chainId et l'adresse du contrat**. Sans eux, le même couple
  *    (borrower, loanId) produit le même secret sur deux déploiements ou deux
@@ -167,39 +158,11 @@ export async function runSelfTraining(
   });
 }
 
-/**
- * Job d'emprunt : entraînement + attestation + préparation interne du fulfillment. Le secret
- * reste dans le runner ; il sert à verrouiller la capsule puis à régler l'escrow.
- */
-export async function runLoanJob(input: LoanJobInput): Promise<LoanJobResult> {
-  // Le contexte de clé inclut borrower + loanId vérifiés par le runner : aucune collision
-  // inter-tenant ne permet de redériver la clé d'un autre emprunt.
-  const { modelCid, model } = await trainAndSeal({
-    ...input,
-    keyContext: modelKeyContext(input.loanId, input.borrower),
-    filename: `${input.loanId}.model.enc`,
-  });
-  const payloadHash = createHash("sha256")
-    .update(modelCid)
-    .update(input.merkleRoot)
-    .update(input.loanId)
-    .update(input.borrower)
-    .digest("hex");
-  const attestation = attest(payloadHash);
-  const resultHash = createHash("sha256").update(payloadHash).update(attestation.signature).digest("hex");
-  const { conditionHex, fulfillmentHex } = escrowRelease(input.loanId, input.borrower);
-  return { modelCid, metrics: model.metrics, resultHash, attestation, conditionHex, fulfillmentHex };
-}
 
 // Dérive une clé de livraison (base64). PRIVÉ : jamais exposé avec un contexte libre (= oracle
 // universel sur la master key). Les seules clés dérivables de l'extérieur sont les livrables ↓.
 function deliveryKey(keyContext: string): string {
   return encodeKey(deriveKey(getMasterKey(), keyContext));
-}
-
-/** Clé (base64) du modèle d'un emprunt — livrée au borrower post-règlement (contexte reconstruit ici). */
-export function loanModelKey(loanId: string, borrower: string): string {
-  return deliveryKey(modelKeyContext(loanId, borrower));
 }
 
 /** Clé (base64) du modèle d'un self-train — livrée au propriétaire (contexte reconstruit ici). */
@@ -208,43 +171,10 @@ export function selfTrainModelKey(jobId: string, owner: string): string {
 }
 
 /**
- * Crypto-condition PREIMAGE-SHA-256 d'un escrow, dérivée de la master key (HKDF, contexte =
- * borrower + loanId). Le fulfillment n'est jamais stocké : régénéré au release (révélé on-chain par
- * l'EscrowFinish). Dérivé DANS l'enclave en mode phala → 2ᵉ trou non-custodial D-17 fermé.
- * Interne au runner : il verrouille la capsule après un job réussi, puis n'est publié que
- * dans l'EscrowFinish soumis par le runner.
- */
-function escrowFulfillment(loanId: string, borrower: string): PreimageSha256 {
-  const f = new PreimageSha256();
-  f.setPreimage(deriveKey(getMasterKey(), escrowKeyContext(loanId, borrower)));
-  return f;
-}
-
-export function escrowRelease(loanId: string, borrower: string): EscrowCondition {
-  const f = escrowFulfillment(loanId, borrower);
-  return {
-    conditionHex: f.getConditionBinary().toString("hex").toUpperCase(),
-    fulfillmentHex: f.serializeBinary().toString("hex").toUpperCase(),
-  };
-}
-
-/** Condition d'escrow PUBLIQUE (sans sérialiser le fulfillment) — pour l'EscrowCreate au prepareLoan. */
-export function escrowConditionPublic(loanId: string, borrower: string): string {
-  return escrowFulfillment(loanId, borrower).getConditionBinary().toString("hex").toUpperCase();
-}
-
-// ---------------------------------------------------------------------------------
-// Rail EVM
-// ---------------------------------------------------------------------------------
-
-/**
  * Verrou d'escrow sur le rail EVM : un préimage de 32 octets et son empreinte SHA-256.
  *
- * Plus d'enveloppe DER. Sur XRPL, `five-bells-condition` sérialisait la condition et
- * le fulfillment dans un format normalisé ; le contrat Solidity, lui, compare
- * simplement `sha256(preimage)` au hashlock, et `release()` publie le préimage brut.
- * Le calcul du secret ne change pas — c'est toujours la même dérivation depuis la
- * master key scellée — seule son emballage disparaît.
+ * Le contrat compare `sha256(preimage)` au hashlock, et `release()` publie le
+ * préimage brut.
  */
 export function escrowLock(loanId: string, borrower: string): EvmEscrowLock {
   const preimage = deriveKey(getMasterKey(), evmEscrowKeyContext(loanId, borrower));

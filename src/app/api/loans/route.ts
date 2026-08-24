@@ -21,8 +21,8 @@ export async function GET(req: Request) {
       ...loan,
       refundable:
         (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
-        loan.cancelAfter !== null &&
-        loan.cancelAfter.getTime() <= now,
+        loan.evmDeadline !== null &&
+        loan.evmDeadline.getTime() <= now,
     })));
   } catch (err) {
     return errorResponse(err);
@@ -37,10 +37,9 @@ export async function POST(req: Request) {
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
     }
-    // Phase 1 : le borrower authentifié prépare son escrow ; il le signera lui-même.
-    const { loan, transaction } = await prepareLoan(datasetId, session.address);
+    const { loan, approveTransaction, lockTransaction } = await prepareLoan(datasetId, session.address);
 
-    return NextResponse.json({ loanId: loan.id, transaction }, { status: 201 });
+    return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }

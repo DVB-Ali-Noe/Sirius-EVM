@@ -17,12 +17,6 @@ export const prisma =
     omit: {
       dataset: {
         wrappedKey: true,
-        mptTxHash: true,
-        mptTxBlob: true,
-        mptLastLedger: true,
-      },
-      loan: {
-        escrowTxBlob: true,
       },
     },
   });

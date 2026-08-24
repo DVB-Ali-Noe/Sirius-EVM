@@ -2,7 +2,7 @@ import { EVM_CHAINS, type EvmNetwork } from "./networks";
 
 /**
  * Liens vers l'explorateur Blockscout de Robinhood Chain.
- * Miroir de `src/lib/xrpl/explorer.ts`, consommé par la page `/audit`.
+ * Liens d'exploration EVM, consommés par la page `/audit`.
  */
 
 function explorerBase(network: EvmNetwork): string {

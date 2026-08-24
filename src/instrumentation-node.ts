@@ -3,9 +3,6 @@ export async function registerNode() {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");
     }
-    for (const name of ["XRPL_PROVIDER_SEED", "XRPL_BORROWER_SEED", "XRPL_VERIFIER_SEED"]) {
-      if (process.env[name]) throw new Error(`${name} interdit dans l’application de production`);
-    }
     if (process.env.TEE_MODE !== "phala") throw new Error("TEE_MODE=phala obligatoire en production");
     if (process.env.DSTACK_SIMULATOR_ENDPOINT) throw new Error("Simulateur dstack interdit en production");
     for (const name of [
@@ -18,7 +15,14 @@ export async function registerNode() {
       "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256",
       "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256",
       "SIRIUS_APP_ORIGIN",
-      "SIRIUS_VERIFIER_ADDRESS",
+      "SIRIUS_ESCROW_ADDRESS",
+      "SIRIUS_USDC_ADDRESS",
+      "SIRIUS_KYB_ADDRESS",
+      "SIRIUS_DATASET_ADDRESS",
+      "NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS",
+      "NEXT_PUBLIC_SIRIUS_USDC_ADDRESS",
+      "NEXT_PUBLIC_SIRIUS_KYB_ADDRESS",
+      "NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS",
     ]) {
       if (!process.env[name]) throw new Error(`${name} obligatoire en production`);
     }
@@ -31,11 +35,18 @@ export async function registerNode() {
     if (process.env.SIRIUS_INGRESS_RATE_LIMITED !== "true") {
       throw new Error("SIRIUS_INGRESS_RATE_LIMITED=true obligatoire en production");
     }
-    if (process.env.XRPL_NETWORK !== "mainnet" || process.env.NEXT_PUBLIC_XRPL_NETWORK !== "mainnet") {
-      throw new Error("XRPL_NETWORK et NEXT_PUBLIC_XRPL_NETWORK doivent être mainnet en production");
+    if (process.env.EVM_NETWORK !== "mainnet" || process.env.NEXT_PUBLIC_EVM_NETWORK !== "mainnet") {
+      throw new Error("EVM_NETWORK et NEXT_PUBLIC_EVM_NETWORK doivent être mainnet en production");
     }
-    if (process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK !== "sapphire_mainnet") {
-      throw new Error("NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet obligatoire en production");
+    for (const [privateName, publicName] of [
+      ["SIRIUS_ESCROW_ADDRESS", "NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS"],
+      ["SIRIUS_USDC_ADDRESS", "NEXT_PUBLIC_SIRIUS_USDC_ADDRESS"],
+      ["SIRIUS_KYB_ADDRESS", "NEXT_PUBLIC_SIRIUS_KYB_ADDRESS"],
+      ["SIRIUS_DATASET_ADDRESS", "NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS"],
+    ]) {
+      if (process.env[privateName]?.toLowerCase() !== process.env[publicName]?.toLowerCase()) {
+        throw new Error(`${privateName} et ${publicName} doivent désigner le même contrat`);
+      }
     }
   }
 

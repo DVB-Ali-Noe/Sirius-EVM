@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loanModelKeyInRunner } from "@/lib/tee/runner-client";
-import { verifiedEscrowFinishFulfillment } from "@/lib/runner/xrpl-proof";
+import { readLoan } from "@/lib/evm/escrow";
 import { assertGrantSubject, requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
@@ -16,7 +16,7 @@ const keyDeliveryLimiter = new FixedWindowRateLimiter({
   maxGlobal: 200,
 });
 
-/** Retourne le secret devenu public dans l'EscrowFinish pour ouvrir la capsule locale. */
+/** Retourne le préimage EVM devenu public pour ouvrir la capsule locale. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -29,20 +29,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       loan.status !== "SETTLED" ||
       !loan.modelCid ||
       !loan.settleTxHash ||
-      loan.escrowSequence == null
+      !loan.evmLoanKey
     ) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
-    const fulfillmentHex = await verifiedEscrowFinishFulfillment({
-      txHash: loan.settleTxHash,
-      loanId: id,
-      borrower: loan.borrower,
-      sequence: loan.escrowSequence,
-    });
+    const onChain = await readLoan(loan.evmLoanKey as `0x${string}`);
+    if (!onChain || onChain.status !== 2) return NextResponse.json({ error: "Préimage EVM indisponible" }, { status: 409 });
     return NextResponse.json({
       modelCid: loan.modelCid,
       settleTxHash: loan.settleTxHash,
-      fulfillmentHex,
+      preimage: onChain.preimage,
     });
   } catch (err) {
     return errorResponse(err);
@@ -69,14 +65,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (loan.status !== "SETTLED" || !loan.modelCid || !loan.runnerReceipt || !loan.settleTxHash) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
-    const modelKeyEnvelope = await loanModelKeyInRunner(
+    const delivery = await loanModelKeyInRunner(
       id,
       loan.runnerReceipt,
-      loan.settleTxHash,
       deliveryPublicKey,
       authorization,
     );
-    return NextResponse.json({ modelCid: loan.modelCid, modelKeyEnvelope });
+    return NextResponse.json({ modelCid: delivery.modelCid, modelKeyEnvelope: delivery.modelKeyEnvelope });
   } catch (err) {
     return errorResponse(err);
   }

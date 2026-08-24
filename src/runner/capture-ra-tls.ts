@@ -83,7 +83,10 @@ function parseEvidence(body: Buffer): RunnerRaTlsEvidence {
     "ingressKeySha256",
     "masterKeyChainSha256",
   ] as const) {
-    if (!/^[0-9a-f]{64}$/i.test(evidence[key])) throw new Error("Empreinte RA-TLS invalide");
+    const value = evidence[key];
+    if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {
+      throw new Error("Empreinte RA-TLS invalide");
+    }
   }
   return evidence as RunnerRaTlsEvidence;
 }
@@ -103,7 +106,7 @@ async function main() {
   const response = await fetchBootstrap(url);
   if (response.status !== 200) throw new Error(`Bootstrap RA-TLS en échec (${response.status})`);
 
-  const certificate = new X509Certificate(response.certificate.raw);
+  const certificate = new X509Certificate(response.certificate.raw as Buffer);
   assertCertificateHostname(certificate, url.hostname);
   const certificateSha256 = createHash("sha256").update(certificate.raw).digest("hex");
   const evidence = parseEvidence(response.body);

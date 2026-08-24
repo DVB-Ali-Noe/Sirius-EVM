@@ -4,13 +4,14 @@ Le runner est la frontière de confiance : il détient la master key dstack, ouv
 
 ## État actuel
 
-`Dockerfile.runner`, le manifeste Phala, RA-TLS et la capture des mesures sont présents. Le manifeste doit encore être aligné sur le rail EVM avant un déploiement : il ne doit recevoir aucune variable d'un rail historique.
+`Dockerfile.runner`, le manifeste Phala, RA-TLS et la capture des mesures sont présents et configurés pour le rail EVM. Ils restent à déployer puis à vérifier sur une CVM réelle.
 
 ## Variables EVM requises dans la CVM
 
 - `EVM_NETWORK=testnet` ou `mainnet` ;
 - `EVM_RPC_URL` ;
 - `SIRIUS_ESCROW_ADDRESS` ;
+- `SIRIUS_KYB_ADDRESS` et `SIRIUS_DATASET_ADDRESS` ;
 - `PINATA_GATEWAY` et `PINATA_JWT` ;
 - `RUNNER_TRANSPORT_SECRET` et `SIRIUS_APP_ORIGIN` ;
 - les variables dstack, RA-TLS et de limites déjà requises par le runner.
@@ -20,7 +21,7 @@ Le compte EVM de règlement est dérivé dans le runner depuis la master key sce
 ## Séquence de déploiement
 
 1. Compiler, tester et déployer les contrats sur testnet.
-2. Poser l'adresse testnet de `SiriusEscrow` dans l'environnement du runner et dans l'application.
+2. Poser les adresses testnet d'escrow, KYB et dataset dans l'environnement du runner et dans l'application.
 3. Mettre à jour `deploy/phala/compose.yaml` avec les variables EVM ci-dessus.
 4. Construire et publier une image runner immuable.
 5. Déployer une CVM stable, puis capturer les mesures RA-TLS :

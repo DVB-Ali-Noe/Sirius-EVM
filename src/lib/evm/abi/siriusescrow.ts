@@ -3,6 +3,22 @@
 
 export const siriusescrowAbi = [
   {
+    "inputs": [
+      {
+        "internalType": "contract IERC20",
+        "name": "usdc_",
+        "type": "address"
+      },
+      {
+        "internalType": "contract SiriusKybRegistry",
+        "name": "kyb_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
     "inputs": [],
     "name": "AmountOverflow",
     "type": "error"
@@ -29,8 +45,24 @@ export const siriusescrowAbi = [
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint40",
+        "name": "deadline",
+        "type": "uint40"
+      },
+      {
+        "internalType": "uint256",
+        "name": "nowTs",
+        "type": "uint256"
+      }
+    ],
+    "name": "ChallengePeriodElapsed",
+    "type": "error"
+  },
+  {
     "inputs": [],
-    "name": "EmptyLoanId",
+    "name": "InexactTokenTransfer",
     "type": "error"
   },
   {
@@ -45,12 +77,27 @@ export const siriusescrowAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidLoanId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidPreimage",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "InvalidProvider",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidUsdcContract",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "KybRequired",
     "type": "error"
   },
   {
@@ -101,24 +148,13 @@ export const siriusescrowAbi = [
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes",
-        "name": "reason",
-        "type": "bytes"
-      }
-    ],
-    "name": "TransferFailed",
+    "inputs": [],
+    "name": "TokenTransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
     "type": "error"
   },
   {
@@ -177,12 +213,6 @@ export const siriusescrowAbi = [
         "internalType": "address",
         "name": "provider",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "loanId",
-        "type": "string"
       },
       {
         "indexed": false,
@@ -550,6 +580,19 @@ export const siriusescrowAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "kyb",
+    "outputs": [
+      {
+        "internalType": "contract SiriusKybRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -577,32 +620,13 @@ export const siriusescrowAbi = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "borrower",
+        "name": "provider",
         "type": "address"
       },
       {
-        "internalType": "string",
-        "name": "loanId",
-        "type": "string"
-      }
-    ],
-    "name": "loanKeyOfId",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "pure",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "provider",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       },
       {
         "internalType": "bytes32",
@@ -615,9 +639,9 @@ export const siriusescrowAbi = [
         "type": "uint8"
       },
       {
-        "internalType": "string",
-        "name": "loanId",
-        "type": "string"
+        "internalType": "bytes32",
+        "name": "loanIdHash",
+        "type": "bytes32"
       }
     ],
     "name": "lock",
@@ -628,12 +652,12 @@ export const siriusescrowAbi = [
         "type": "bytes32"
       }
     ],
-    "stateMutability": "payable",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "lockedWei",
+    "name": "lockedUsdc",
     "outputs": [
       {
         "internalType": "uint256",
@@ -690,7 +714,7 @@ export const siriusescrowAbi = [
   },
   {
     "inputs": [],
-    "name": "owedWei",
+    "name": "owedUsdc",
     "outputs": [
       {
         "internalType": "uint256",
@@ -754,6 +778,19 @@ export const siriusescrowAbi = [
     "name": "release",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "usdc",
+    "outputs": [
+      {
+        "internalType": "contract IERC20",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

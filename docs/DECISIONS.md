@@ -12,7 +12,7 @@ Le testnet est obligatoire avant toute décision mainnet. Le script de déploiem
 
 ## D-3 — Trois contrats spécialisés
 
-- `SiriusEscrow` règle un prêt hashlocké en ETH natif.
+- `SiriusEscrow` règle un prêt hashlocké en USDC ERC-20.
 - `SiriusKybRegistry` gère les attestations KYB EIP-712.
 - `SiriusDatasetRegistry` ancre la provenance d'un dataset chiffré.
 
@@ -34,7 +34,7 @@ Une adresse possède une attestation KYB, indépendamment de son rôle. Le même
 
 ## D-7 — Registre de dataset, pas NFT
 
-Le titre on-chain est non transférable. Il contient uniquement le CID du contenu déjà chiffré, son Merkle root et sa taille ; le nom et la description restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
+Le titre on-chain est non transférable. Il contient uniquement le hash du CID du contenu déjà chiffré, son Merkle root et sa taille ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
 
 Le crypto-shredding détruit la clé de dataset et laisse un tombstone on-chain : la donnée devient irrécupérable, tandis que la preuve d'existence demeure auditable.
 
@@ -44,9 +44,7 @@ La donnée brute, la master key et le préimage restent dans le runner Phala. Ne
 
 ## D-9 — Migration par étapes
 
-Les fondations EVM sont implémentées dans `contracts/`, `src/lib/evm/` et le runner. La migration du parcours produit reste à terminer : configuration testnet, appels wallet dans l'interface, routes métier, manifeste Phala et validation de bout en bout.
-
-La roadmap distingue volontairement le code présent d'une intégration utilisateur validée.
+Le parcours produit est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, publication, KYB, USDC, runner et audit. La roadmap distingue le code présent d'une validation testnet réelle.
 
 ## D-10 — Production après validation réelle
 

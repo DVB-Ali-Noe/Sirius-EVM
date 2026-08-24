@@ -23,7 +23,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `NEXT_PUBLIC_SIRIUS_E2E=1 SIRIUS_REAPER_ENABLED=false NEXT_PUBLIC_XRPL_NETWORK=testnet XRPL_NETWORK=testnet SIRIUS_APP_ORIGIN=${baseURL} pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
+    command: `NEXT_PUBLIC_SIRIUS_E2E=1 SIRIUS_REAPER_ENABLED=false NEXT_PUBLIC_EVM_NETWORK=testnet EVM_NETWORK=testnet SIRIUS_APP_ORIGIN=${baseURL} pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 180_000,

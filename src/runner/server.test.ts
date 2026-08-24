@@ -102,20 +102,18 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
   );
   assert.equal(oversized.status, 413);
 
-  const reconciliationBody = JSON.stringify({
+  const hashlockBody = JSON.stringify({
     loanId: "loan-2",
     borrower: "rBorrower",
-    escrowTxHash: "A".repeat(64),
-    escrowSequence: 7,
   });
   const wrongScope = await request(
     "POST",
-    "/reconcile-loan-escrow",
-    issueRunnerCapability("reconcile-loan-escrow", {
+    "/escrow-hashlock",
+    issueRunnerCapability("escrow-hashlock", {
       loanId: "loan-1",
       borrower: "rBorrower",
     }),
-    reconciliationBody,
+    hashlockBody,
   );
   assert.equal(wrongScope.status, 401);
 });

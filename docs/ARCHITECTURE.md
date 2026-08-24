@@ -10,9 +10,9 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
-| `SiriusEscrow` | Règlement d'un prêt | hashlock SHA-256, états exclusifs `Locked`/`Released`/`Refunded`, crédit pull-only, aucune fonction d'administration |
-| `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration et révocation |
-| `SiriusDatasetRegistry` | Titre d'un dataset | identité déterministe, KYB bloquant, CID/Merkle root/taille, tombstone après crypto-shredding |
+| `SiriusEscrow` | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, `release` avant l'échéance, états exclusifs et crédit pull-only |
+| `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
+| `SiriusDatasetRegistry` | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, tombstone après crypto-shredding |
 
 Le titre n'est pas un NFT transférable : il représente la provenance d'un dataset et non un actif de spéculation.
 
@@ -20,15 +20,15 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 
 1. Le provider chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Next ne reçoit pas le CSV en clair.
 2. Le runner scelle une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
-3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB.
-4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au `loanId`.
-5. Le borrower appelle `SiriusEscrow.lock`, en ETH natif, avec le provider, le hashlock et la durée de challenge.
-6. Avant de calculer, le runner lit `matchesScope` : borrower, provider, montant, hashlock et délai doivent correspondre au reçu du dataset.
+3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
+4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
+5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge et le hash du `loanId`.
+6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
 7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Le borrower persiste cette capsule.
-8. Le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
+8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
 9. Si aucun modèle n'est livré, `refund(loanKey)` devient possible après l'échéance. Le borrower récupère ensuite son crédit avec `withdraw`.
 
-Le contrat n'effectue aucun transfert externe pendant `release` ou `refund`. Les fonds sont crédités puis retirés séparément, ce qui évite de bloquer un règlement sur le fallback d'un provider.
+Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc ni token à frais ni transfert silencieux. Il n'effectue aucun transfert externe pendant `release` ou `refund` : les fonds sont crédités puis retirés séparément.
 
 ## Séparation de domaine
 
@@ -60,10 +60,11 @@ src/
 
 ## État de migration
 
-Les modules EVM et le rail EVM du runner existent. Le reste de l'application conserve encore des chemins historiques : la migration des écrans wallet, des routes métier et du manifeste de production doit les remplacer avant une validation utilisateur complète. Voir [ROADMAP.md](ROADMAP.md).
+La migration applicative est EVM-only. La validation sur testnet avec des wallets réels et une CVM Phala reste requise. Voir [ROADMAP.md](ROADMAP.md).
 
 ## Sécurité et production
 
+- L'émetteur KYB signe hors de Next et du runner, idéalement depuis un HSM/KMS. Sans lui, aucun wallet ne peut obtenir de KYB depuis l'application.
 - Les contrats sont testés localement, mais ne sont pas déclarés prêts mainnet sans déploiement testnet, revue externe et parcours réel complet.
 - Le runner Phala doit être déployé avec RA-TLS, quote TDX, replay RTMR3 et valeurs d'attestation épinglées côté Next.
 - Les adresses de contrat, le réseau attendu et le RPC sont des paramètres de déploiement : aucune valeur vide ne doit atteindre une instance de production.

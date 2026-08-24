@@ -2,24 +2,15 @@
 pragma solidity 0.8.24;
 
 /// @title SiriusKybRegistry
-/// @notice On-chain KYB registry for Sirius, replacing XRPL Credentials (XLS-70) and
-///         Permissioned Domains (XLS-80).
+/// @notice On-chain KYB registry for Sirius.
 ///
 ///         One credential per **entity**, never per role: the same address can be a provider
 ///         and a borrower with a single KYB, and it is the *action* that carries the role.
 ///         Gating is blocking — no valid credential, no dataset listing and no borrowing.
 ///
-/// @dev WHAT THIS ADDS OVER THE XRPL RAIL
-///      Revocation and expiry, neither of which the XRPL implementation ever had: XLS-70
-///      carries an expiry field that Sirius never set, and no revocation path was written.
-///      Multiple verifiers from the start, rather than the single hardcoded issuer.
-///      And a real gate: on XRPL the Permissioned Domain was created but never consulted —
-///      `ensureSiriusDomain()` has no caller anywhere in the codebase.
-///
 /// @dev CONSENT IS PRESERVED
-///      On XRPL a credential only counted once the subject signed `CredentialAccept`. That
-///      property is kept: every entry point requires a signature from the subject, or the
-///      subject's own transaction. A verifier can never unilaterally stamp an address.
+///      Every entry point requires a signature from the subject, or the subject's own
+///      transaction. A verifier can never unilaterally stamp an address.
 ///
 /// @dev NO ATTESTATION SERVICE ON THIS CHAIN
 ///      EAS is not deployed on Robinhood Chain — checked at its three canonical addresses —
@@ -33,20 +24,21 @@ contract SiriusKybRegistry {
 
     /// @param verifier  Who attested. Validity follows this verifier's own authorisation.
     /// @param issuedAt  Unix seconds, informational.
-    /// @param expiresAt Unix seconds. Zero means no expiry.
+    /// @param expiresAt Unix seconds.
     /// @param revoked   Set by the issuing verifier; terminal for this attestation.
     struct Attestation {
         address verifier; // 20 bytes ┐
         uint40 issuedAt; //   5 bytes │
         uint40 expiresAt; //  5 bytes │
-        bool revoked; //      1 byte  ┘ one slot
+        uint64 verifierEpoch;
+        bool revoked;
     }
 
     // ---------------------------------------------------------------------------------
     // Constants
     // ---------------------------------------------------------------------------------
 
-    string public constant VERSION = "sirius-kyb-v1";
+    string public constant VERSION = "sirius-kyb-v2";
 
     /// @dev EIP-712. The domain embeds `chainId` and `verifyingContract`, so an attestation
     ///      signed for the testnet registry can never be replayed against the mainnet one —
@@ -77,6 +69,9 @@ contract SiriusKybRegistry {
 
     /// @notice Addresses currently allowed to attest.
     mapping(address => bool) public isVerifier;
+
+    /// @notice Version of a verifier's authorization. Re-adding it never revives old KYB.
+    mapping(address => uint64) public verifierEpoch;
 
     /// @notice One attestation per entity — the credential is per entity, not per role.
     mapping(address => Attestation) private _attestations;
@@ -121,6 +116,7 @@ contract SiriusKybRegistry {
         if (admin_ == address(0) || firstVerifier == address(0)) revert ZeroAddress();
         admin = admin_;
         isVerifier[firstVerifier] = true;
+        verifierEpoch[firstVerifier] = 1;
         emit AdminTransferred(address(0), admin_);
         emit VerifierAdded(firstVerifier);
     }
@@ -138,6 +134,9 @@ contract SiriusKybRegistry {
         if (verifier == address(0)) revert ZeroAddress();
         if (isVerifier[verifier]) revert AlreadyVerifier();
         isVerifier[verifier] = true;
+        unchecked {
+            verifierEpoch[verifier] += 1;
+        }
         emit VerifierAdded(verifier);
     }
 
@@ -227,8 +226,9 @@ contract SiriusKybRegistry {
     function isKybValid(address subject) public view returns (bool) {
         Attestation storage attestation = _attestations[subject];
         if (attestation.verifier == address(0) || attestation.revoked) return false;
-        if (attestation.expiresAt != 0 && block.timestamp >= attestation.expiresAt) return false;
-        return isVerifier[attestation.verifier];
+        if (block.timestamp >= attestation.expiresAt) return false;
+        return isVerifier[attestation.verifier]
+            && attestation.verifierEpoch == verifierEpoch[attestation.verifier];
     }
 
     function attestationOf(address subject) external view returns (Attestation memory) {
@@ -265,15 +265,19 @@ contract SiriusKybRegistry {
     // ---------------------------------------------------------------------------------
 
     function _assertExpiry(uint40 expiresAt) private view {
-        if (expiresAt == 0) return; // no expiry is allowed, but must be explicit
         if (expiresAt <= block.timestamp || expiresAt > block.timestamp + MAX_VALIDITY) {
             revert InvalidExpiry();
         }
     }
 
     function _record(address subject, address verifier, uint40 expiresAt, uint256 nonce) private {
-        _attestations[subject] =
-            Attestation({verifier: verifier, issuedAt: uint40(block.timestamp), expiresAt: expiresAt, revoked: false});
+        _attestations[subject] = Attestation({
+            verifier: verifier,
+            issuedAt: uint40(block.timestamp),
+            expiresAt: expiresAt,
+            verifierEpoch: verifierEpoch[verifier],
+            revoked: false
+        });
         unchecked {
             nonces[subject] = nonce + 1;
         }

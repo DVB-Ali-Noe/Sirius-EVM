@@ -10,11 +10,6 @@
  * rendue ne déchiffre rien — et **aucune exception n'est levée** : on obtient un
  * échec d'authentification AES-GCM, indiscernable d'une corruption de données.
  *
- * La normalisation est conditionnelle à dessein. Une adresse XRPL est en base58, où
- * la casse **porte du sens** : la mettre en minuscules désignerait un autre compte et
- * rendrait irrécupérables tous les datasets déjà scellés sur ce rail. On ne touche
- * donc qu'à ce qui est reconnaissable comme une adresse EVM.
- *
  * Idempotente : l'appliquer deux fois donne le même résultat.
  */
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;

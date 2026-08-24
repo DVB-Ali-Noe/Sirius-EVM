@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { prisma } from "@/lib/db";
 import { errorResponse } from "@/lib/errors";
-import { resolveServerNetwork } from "@/lib/xrpl/networks";
+import { resolveServerNetwork } from "@/lib/evm/networks";
 
 export const runtime = "nodejs";
 
@@ -17,20 +17,19 @@ export async function GET(req: Request) {
         id: true,
         borrower: true,
         provider: true,
-        amount: true,
-        currency: true,
+        amountUsdcAtomic: true,
         status: true,
-        escrowTxHash: true,
+        evmLockTxHash: true,
         settleTxHash: true,
         auditTxHash: true,
         cancelTxHash: true,
         attestationHash: true,
         attestationComposeHash: true,
-        cancelAfter: true,
+        evmDeadline: true,
         createdAt: true,
         settledAt: true,
         dataset: {
-          select: { name: true, mptIssuanceId: true, mptTxHash: true },
+          select: { name: true, evmDatasetId: true, evmMintTxHash: true },
         },
       },
     });

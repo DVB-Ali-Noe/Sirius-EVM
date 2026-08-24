@@ -19,7 +19,7 @@ export interface IngestInput {
   description?: string;
   provider: string;
   sizeBytes: number;
-  priceDrops: string;
+  priceUsdcAtomic: string;
   challengeDays: number;
 }
 
@@ -27,7 +27,7 @@ export interface AuthorizedDatasetUpload {
   id: string;
   provider: string;
   sizeBytes: number;
-  priceDrops: string;
+  priceUsdcAtomic: string;
   challengeDays: number;
 }
 
@@ -40,7 +40,7 @@ export async function beginDatasetIngestion({
   description,
   provider,
   sizeBytes,
-  priceDrops,
+  priceUsdcAtomic,
   challengeDays,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
@@ -69,7 +69,7 @@ export async function beginDatasetIngestion({
       throw new AppError("Quota d’ingestion atteint — réessaie plus tard", 429);
     }
     return tx.dataset.create({
-      data: { name, description, provider, sizeBytes, priceDrops, challengeDays },
+      data: { name, description, provider, sizeBytes, priceUsdcAtomic, challengeDays },
     });
   });
   try {
@@ -77,7 +77,7 @@ export async function beginDatasetIngestion({
     return {
       datasetId: dataset.id,
       ingressKey,
-      priceDrops: dataset.priceDrops,
+      priceUsdcAtomic: dataset.priceUsdcAtomic!,
       challengeDays: dataset.challengeDays,
       sizeBytes: dataset.sizeBytes,
     };
@@ -101,7 +101,7 @@ export async function authorizeDatasetUpload(
       provider: true,
       status: true,
       sizeBytes: true,
-      priceDrops: true,
+      priceUsdcAtomic: true,
       challengeDays: true,
       ipfsCid: true,
       wrappedKey: true,
@@ -115,7 +115,8 @@ export async function authorizeDatasetUpload(
     dataset.ipfsCid ||
     dataset.wrappedKey ||
     dataset.keyDestroyedAt ||
-    !dataset.sizeBytes
+    !dataset.sizeBytes ||
+    !dataset.priceUsdcAtomic
   ) {
     throw new AppError("Ce dataset ne peut plus recevoir de fichier", 409);
   }
@@ -136,7 +137,7 @@ export async function authorizeDatasetUpload(
     id: datasetId,
     provider,
     sizeBytes: dataset.sizeBytes,
-    priceDrops: dataset.priceDrops,
+    priceUsdcAtomic: dataset.priceUsdcAtomic,
     challengeDays: dataset.challengeDays,
   };
 }
@@ -148,7 +149,7 @@ export async function completeDatasetIngestion(
 ) {
   const { cid, wrappedKey, merkleRoot, metrics, sizeBytes, runnerReceipt } = await sealDatasetInRunner(
     dataset.id,
-    dataset.priceDrops,
+    dataset.priceUsdcAtomic,
     dataset.challengeDays,
     dataset.sizeBytes,
     envelope,

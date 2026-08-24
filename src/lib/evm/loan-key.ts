@@ -22,6 +22,12 @@ import { encodeAbiParameters, getAddress, keccak256, stringToBytes, type Hex } f
  */
 export const LOAN_KEY_DOMAIN = keccak256(stringToBytes("sirius.escrow.loanKey.v1"));
 
+export function loanIdHash(loanId: string): Hex {
+  const bytes = stringToBytes(loanId);
+  if (bytes.length === 0 || bytes.length > 128) throw new Error("Identifiant de prêt invalide");
+  return keccak256(bytes);
+}
+
 /**
  * Clé de prêt déterministe. Reproduit `loanKeyOf(address,bytes32)` du contrat :
  * `keccak256(abi.encode(LOAN_KEY_DOMAIN, borrower, keccak256(bytes(loanId))))`.
@@ -33,7 +39,7 @@ export function loanKeyFor(borrower: string, loanId: string): Hex {
   return keccak256(
     encodeAbiParameters(
       [{ type: "bytes32" }, { type: "address" }, { type: "bytes32" }],
-      [LOAN_KEY_DOMAIN, getAddress(borrower), keccak256(stringToBytes(loanId))],
+      [LOAN_KEY_DOMAIN, getAddress(borrower), loanIdHash(loanId)],
     ),
   );
 }

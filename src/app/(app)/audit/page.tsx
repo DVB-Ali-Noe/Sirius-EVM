@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
-import { formatDropsAsXrp, truncate } from "@/lib/format";
-import { transactionExplorerUrl, type ExplorerNetwork } from "@/lib/xrpl/explorer";
+import { truncate } from "@/lib/format";
+import { formatUsdcAtomic } from "@/lib/evm/usdc";
+import { transactionExplorerUrl } from "@/lib/evm/explorer";
+import type { EvmNetwork } from "@/lib/evm/networks";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
@@ -13,19 +15,18 @@ interface AuditLoan {
   id: string;
   borrower: string;
   provider: string;
-  amount: string;
-  currency: string;
+  amountUsdcAtomic: string;
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
-  escrowTxHash: string | null;
+  evmLockTxHash: string | null;
   settleTxHash: string | null;
   auditTxHash: string | null;
   cancelTxHash: string | null;
   attestationHash: string | null;
   attestationComposeHash: string | null;
-  cancelAfter: string | null;
+  evmDeadline: string | null;
   createdAt: string;
   settledAt: string | null;
-  dataset: { name: string; mptIssuanceId: string | null; mptTxHash: string | null };
+  dataset: { name: string; evmDatasetId: string | null; evmMintTxHash: string | null };
 }
 
 const STATUS_VARIANT: Record<AuditLoan["status"], BadgeVariant> = {
@@ -42,7 +43,7 @@ export default function AuditPage() {
   const connected = useWalletStore((state) => state.connected);
   const authenticated = useWalletStore((state) => state.authenticated);
   const { locale, t } = useLocale();
-  const [network, setNetwork] = useState<ExplorerNetwork>("testnet");
+  const [network, setNetwork] = useState<EvmNetwork>("testnet");
   const [loans, setLoans] = useState<AuditLoan[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -54,7 +55,7 @@ export default function AuditPage() {
     try {
       const response = await fetch("/api/audit");
       if (!response.ok) throw new Error();
-      const body = await response.json() as { network: ExplorerNetwork; loans: AuditLoan[] };
+      const body = await response.json() as { network: EvmNetwork; loans: AuditLoan[] };
       setNetwork(body.network);
       setLoans(body.loans);
     } catch {
@@ -91,7 +92,7 @@ export default function AuditPage() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t("Registre d’audit")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("Chaîne de preuves Sirius recoupable sur XRPL.")}</p>
+          <p className="mt-1 text-sm text-muted">{t("Chaîne de preuves Sirius recoupable sur EVM.")}</p>
         </div>
         <div className="flex gap-5 font-mono text-xs uppercase tracking-wider text-muted">
           <span>{t("{count} réglés", { count: settled })}</span>
@@ -124,18 +125,18 @@ export default function AuditPage() {
                 <p className="mt-1 font-mono text-xs text-muted">{loan.id}</p>
               </div>
               <div className="text-right">
-                <div className="text-sm font-medium">{formatDropsAsXrp(loan.amount)} {loan.currency}</div>
+                <div className="text-sm font-medium">{formatUsdcAtomic(loan.amountUsdcAtomic)} USDC</div>
                 <div className="mt-1 text-xs text-muted">{new Date(loan.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US")}</div>
               </div>
             </div>
 
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              <Evidence label={t("Titre MPT")} value={loan.dataset.mptIssuanceId} txHash={loan.dataset.mptTxHash} network={network} />
-              <Evidence label="EscrowCreate" value={loan.escrowTxHash} txHash={loan.escrowTxHash} network={network} />
+              <Evidence label={t("Titre du dataset")} value={loan.dataset.evmDatasetId} txHash={loan.dataset.evmMintTxHash} network={network} />
+              <Evidence label="Lock USDC" value={loan.evmLockTxHash} txHash={loan.evmLockTxHash} network={network} />
               <Evidence label={t("Attestation TEE")} value={loan.attestationHash} />
               <Evidence label={t("Reçu d’audit")} value={loan.auditTxHash} txHash={loan.auditTxHash} network={network} />
               <Evidence
-                label={loan.cancelTxHash ? "EscrowCancel" : "EscrowFinish"}
+                label={loan.cancelTxHash ? "Remboursement USDC" : "Release USDC"}
                 value={loan.cancelTxHash ?? loan.settleTxHash}
                 txHash={loan.cancelTxHash ?? loan.settleTxHash}
                 network={network}
@@ -146,7 +147,7 @@ export default function AuditPage() {
               <span>{t("provider")} {truncate(loan.provider)}</span>
               <span>{t("borrower")} {truncate(loan.borrower)}</span>
               {loan.attestationComposeHash && <span>compose {truncate(loan.attestationComposeHash)}</span>}
-              {loan.cancelAfter && <span>{t("cancel-after")} {new Date(loan.cancelAfter).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</span>}
+              {loan.evmDeadline && <span>{t("échéance")} {new Date(loan.evmDeadline).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</span>}
             </div>
           </Card>
         ))}
@@ -164,7 +165,7 @@ function Evidence({
   label: string;
   value: string | null;
   txHash?: string | null;
-  network?: ExplorerNetwork;
+  network?: EvmNetwork;
 }) {
   const { t } = useLocale();
   const content = value ? truncate(value, 10, 8) : t("En attente");
@@ -179,7 +180,7 @@ function Evidence({
           href={transactionExplorerUrl(network, txHash)}
           target="_blank"
           rel="noreferrer"
-          aria-label={t("Vérifier {label} sur XRPL", { label })}
+          aria-label={t("Vérifier {label} sur EVM", { label })}
           className="shrink-0 text-xs font-medium text-accent transition-opacity hover:opacity-70"
         >
           {t("Vérifier ↗")}

@@ -10,8 +10,7 @@ import { defineChain, type Chain } from "viem";
  *   FCFS strict, donc surenchérir sur le gas n'accélère jamais une inclusion.
  *   Multicall3 déployé à l'adresse canonique.
  *
- * Remplace `src/lib/xrpl/networks.ts`. La forme est volontairement identique
- * (`resolveServerNetwork`) pour que les appelants ne changent pas de contrat.
+ * Les deux environnements partagent les mêmes conventions de résolution réseau.
  */
 
 export type EvmNetwork = "mainnet" | "testnet";

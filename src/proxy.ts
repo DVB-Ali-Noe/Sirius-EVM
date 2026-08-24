@@ -4,13 +4,13 @@ function contentSecurityPolicy(nonce: string): string {
   const development = process.env.NODE_ENV !== "production";
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://*.web3auth.io https://*.tor.us${development ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://xrpl.org https://*.web3auth.io https://*.tor.us",
+    "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://xrplcluster.com wss://xrplcluster.com https://s.altnet.rippletest.net:51234 wss://s.altnet.rippletest.net:51233 https://s.devnet.rippletest.net:51234 wss://s.devnet.rippletest.net:51233 https://*.web3auth.io wss://*.web3auth.io https://*.tor.us wss://*.tor.us https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://buy.moonpay.com https://buy-sandbox.moonpay.com",
-    "frame-src https://*.web3auth.io https://*.tor.us",
+    "connect-src 'self' https://rpc.mainnet.chain.robinhood.com https://rpc.testnet.chain.robinhood.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com https://buy.moonpay.com https://buy-sandbox.moonpay.com",
+    "frame-src 'none'",
     "worker-src 'self' blob:",
     "media-src 'none'",
     "object-src 'none'",

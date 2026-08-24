@@ -1,87 +1,82 @@
 "use client";
 
-import type { WalletManager } from "xrpl-connect";
+import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
 
-let managerPromise: Promise<WalletManager> | null = null;
+export interface Eip1193Provider {
+  request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
+  on?(event: string, listener: (...args: unknown[]) => void): void;
+  removeListener?(event: string, listener: (...args: unknown[]) => void): void;
+}
 
-/**
- * WalletManager partagé. xrpl-connect touche `window` à l'import → chargé
- * dynamiquement (navigateur only) pour ne pas casser le SSR.
- *
- * Adapters sans config (extension/device) toujours actifs : Crossmark, GemWallet,
- * Otsu, Xyra, Ledger. Xaman et WalletConnect nécessitent une clé → activés seulement
- * si la variable d'env correspondante est fournie.
- */
-export function getWalletManager(): Promise<WalletManager> {
-  if (managerPromise) return managerPromise;
+function provider(): Eip1193Provider {
+  const candidate = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
+  if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe MetaMask, Rabby ou Coinbase Wallet.");
+  return candidate;
+}
 
-  managerPromise = (async () => {
-    try {
-      const xc = await import("xrpl-connect");
+function chainHex(chainId: number): `0x${string}` {
+  return `0x${chainId.toString(16)}`;
+}
 
-      const adapters: unknown[] = [
-        new xc.CrossmarkAdapter(),
-        new xc.GemWalletAdapter(),
-        new xc.OtsuAdapter(),
-        new xc.XyraAdapter(),
-        new xc.LedgerAdapter({
-          derivationPath: "44'/144'/0'/0/0",
-          timeout: 60000,
-          preferWebHID: true,
-        }),
-      ];
+export function expectedChainId(): string {
+  return chainHex(chainForNetwork(resolveClientNetwork()).id);
+}
 
-      const xamanKey = process.env.NEXT_PUBLIC_XAMAN_API_KEY;
-      if (xamanKey) adapters.push(new xc.XamanAdapter({ apiKey: xamanKey }));
+export async function ensureExpectedChain(wallet = provider()): Promise<void> {
+  const chain = chainForNetwork(resolveClientNetwork());
+  const expected = chainHex(chain.id);
+  const current = await wallet.request({ method: "eth_chainId" });
+  if (typeof current === "string" && current.toLowerCase() === expected) return;
+  try {
+    await wallet.request({ method: "wallet_switchEthereumChain", params: [{ chainId: expected }] });
+  } catch (error) {
+    if ((error as { code?: number }).code !== 4902) throw new Error("Bascule vers Robinhood Chain refusée par le wallet.");
+    await wallet.request({
+      method: "wallet_addEthereumChain",
+      params: [{
+        chainId: expected,
+        chainName: chain.name,
+        nativeCurrency: chain.nativeCurrency,
+        rpcUrls: chain.rpcUrls.default.http,
+        blockExplorerUrls: chain.blockExplorers?.default.url ? [chain.blockExplorers.default.url] : [],
+      }],
+    });
+  }
+}
 
-      const wcProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-      if (wcProjectId) adapters.push(new xc.WalletConnectAdapter({ projectId: wcProjectId }));
+export async function connectExternalWallet(): Promise<{ address: string; chainId: string }> {
+  const wallet = provider();
+  await ensureExpectedChain(wallet);
+  const accounts = await wallet.request({ method: "eth_requestAccounts" });
+  if (!Array.isArray(accounts) || typeof accounts[0] !== "string") throw new Error("Le wallet n'a renvoyé aucun compte.");
+  const chainId = await wallet.request({ method: "eth_chainId" });
+  if (typeof chainId !== "string") throw new Error("Réseau EVM indisponible.");
+  return { address: accounts[0], chainId };
+}
 
-      const network = process.env.NEXT_PUBLIC_XRPL_NETWORK || "testnet";
-      return new xc.WalletManager({ adapters, network, autoConnect: true });
-    } catch (err) {
-      // Permet un retry au prochain appel au lieu de rester bloqué sur une promesse rejetée.
-      managerPromise = null;
-      throw err;
-    }
-  })();
-
-  return managerPromise;
+export function getExternalWallet(): Eip1193Provider | null {
+  return typeof window === "undefined" ? null : (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
 }
 
 export async function disconnectWallet(): Promise<void> {
-  const manager = await getWalletManager();
-  await manager.disconnect();
+  await provider().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => {});
 }
 
-/**
- * Signe le challenge d'auth avec le wallet externe. Format de retour hétérogène selon
- * l'adaptateur : on ne gère que `{ signature, publicKey }` (Crossmark). GemWallet
- * (`signedMessage`) et WalletConnect (non supporté) lèvent une erreur explicite.
- */
-export async function signMessageExternal(
-  message: string,
-): Promise<{ signature: string; publicKey: string }> {
-  const manager = await getWalletManager();
-  const res = await manager.signMessage(message);
-  const signature = res?.signature;
-  const publicKey = res?.publicKey || manager.account?.publicKey;
-  if (!signature || !publicKey) {
-    throw new Error("Ce wallet ne supporte pas la connexion par signature — essaie Crossmark ou Google.");
-  }
-  return { signature, publicKey };
+function messageHex(message: string): `0x${string}` {
+  const bytes = new TextEncoder().encode(message);
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/**
- * Signe une transaction XRPL avec le wallet externe → tx_blob (soumis par le backend).
- * Retour hétérogène selon l'adaptateur ; on couvre les formes connues (Crossmark).
- */
-export async function signTransactionExternal(transaction: Record<string, unknown>): Promise<string> {
-  const manager = await getWalletManager();
-  const signed = (await manager.sign(transaction)) as Record<string, unknown> | undefined;
-  const blob = (signed?.tx_blob ?? signed?.txBlob ?? signed?.signedTransaction) as string | undefined;
-  if (!blob) {
-    throw new Error("Ce wallet ne permet pas de signer la transaction — essaie Crossmark ou Google.");
-  }
-  return blob;
+export async function signMessageExternal(message: string, address: string): Promise<{ signature: string }> {
+  const signature = await provider().request({ method: "personal_sign", params: [messageHex(message), address] });
+  if (typeof signature !== "string") throw new Error("Signature EVM refusée par le wallet.");
+  return { signature };
+}
+
+export async function sendTransactionExternal(transaction: Record<string, unknown>): Promise<string> {
+  const wallet = provider();
+  await ensureExpectedChain(wallet);
+  const hash = await wallet.request({ method: "eth_sendTransaction", params: [transaction] });
+  if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Transaction EVM refusée par le wallet.");
+  return hash;
 }

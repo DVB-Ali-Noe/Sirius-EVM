@@ -2,8 +2,8 @@ import { expect } from "chai";
 import { createHash, randomBytes } from "node:crypto";
 import hre from "hardhat";
 import type { Hex } from "viem";
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
-import { hashlockOf, loanKeyFor } from "../../src/lib/evm/loan-key";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
 
 /**
  * Croise les dérivations TypeScript de l'application avec celles du contrat.
@@ -13,14 +13,48 @@ import { hashlockOf, loanKeyFor } from "../../src/lib/evm/loan-key";
  * des prêts inexistants, sans qu'aucun des deux camps ne paraisse fautif.
  */
 async function fixture() {
-  const escrow = await hre.viem.deployContract("SiriusEscrow");
   const wallets = await hre.viem.getWalletClients();
-  return { escrow, wallets };
+  const usdc = await hre.viem.deployContract("MockUsdc");
+  const kyb = await hre.viem.deployContract("SiriusKybRegistry", [
+    wallets[0].account.address,
+    wallets[1].account.address,
+  ]);
+  const grantKyb = async (subject: typeof wallets[number]) => {
+    const expiresAt = (await time.latest()) + 365 * 24 * 60 * 60;
+    const nonce = await kyb.read.nonces([subject.account.address]);
+    const chainId = await (await hre.viem.getPublicClient()).getChainId();
+    const signature = await wallets[1].signTypedData({
+      domain: { name: "SiriusKybRegistry", version: "1", chainId, verifyingContract: kyb.address },
+      types: {
+        KybAttestation: [
+          { name: "subject", type: "address" },
+          { name: "verifier", type: "address" },
+          { name: "expiresAt", type: "uint40" },
+          { name: "nonce", type: "uint256" },
+        ],
+      },
+      primaryType: "KybAttestation",
+      message: {
+        subject: subject.account.address,
+        verifier: wallets[1].account.address,
+        expiresAt,
+        nonce,
+      },
+    });
+    await kyb.write.acceptAttestation([wallets[1].account.address, expiresAt, signature], {
+      account: subject.account,
+    });
+  };
+  await grantKyb(wallets[0]);
+  await grantKyb(wallets[1]);
+  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address]);
+  await usdc.write.mint([wallets[0].account.address, 1_000_000_000n]);
+  return { escrow, usdc, kyb, wallets };
 }
 
 describe("Dérivations partagées application ↔ contrat", () => {
   it("loanKeyFor reproduit exactement loanKeyOf on-chain", async () => {
-    const { escrow, wallets } = await loadFixture(fixture);
+    const { escrow, usdc, wallets } = await loadFixture(fixture);
 
     for (const wallet of wallets.slice(0, 3)) {
       for (const loanId of [
@@ -31,7 +65,7 @@ describe("Dérivations partagées application ↔ contrat", () => {
         "0x1234",
       ]) {
         const offChain = loanKeyFor(wallet.account.address, loanId);
-        const onChain = await escrow.read.loanKeyOfId([wallet.account.address, loanId]);
+        const onChain = await escrow.read.loanKeyOf([wallet.account.address, loanIdHash(loanId)]);
         expect(offChain).to.equal(onChain, `divergence pour ${wallet.account.address} / ${loanId}`);
       }
     }
@@ -47,15 +81,16 @@ describe("Dérivations partagées application ↔ contrat", () => {
   });
 
   it("hashlockOf reproduit le hashlock recalculé par le contrat", async () => {
-    const { escrow, wallets } = await loadFixture(fixture);
+    const { escrow, usdc, wallets } = await loadFixture(fixture);
     const [borrower, provider] = wallets;
 
     const preimage = randomBytes(32);
     const hashlock = hashlockOf(preimage);
 
-    await escrow.write.lock([provider.account.address, hashlock, 7, "loan-hash"], {
+    const amount = 1_000_000n;
+    await usdc.write.approve([escrow.address, amount], { account: borrower.account });
+    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash")], {
       account: borrower.account,
-      value: 10n ** 17n,
     });
 
     const loanKey = loanKeyFor(borrower.account.address, "loan-hash");
@@ -74,6 +109,11 @@ describe("Dérivations partagées application ↔ contrat", () => {
     }
   });
 
+  it("loanIdHash refuse un identifiant vide ou trop long", () => {
+    expect(() => loanIdHash("")).to.throw("Identifiant de prêt invalide");
+    expect(() => loanIdHash("x".repeat(129))).to.throw("Identifiant de prêt invalide");
+  });
+
   it("le hashlock reste du SHA-256, jamais du keccak256", async () => {
     const { escrow } = await loadFixture(fixture);
     const preimage = randomBytes(32);
@@ -82,6 +122,6 @@ describe("Dérivations partagées application ↔ contrat", () => {
     expect(hashlockOf(preimage)).to.equal(
       `0x${createHash("sha256").update(preimage).digest("hex")}`,
     );
-    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-v1");
+    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v2");
   });
 });

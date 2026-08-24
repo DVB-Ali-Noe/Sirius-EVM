@@ -10,8 +10,6 @@ allowBuilds:
   sharp: true
   tiny-secp256k1: false
   unrs-resolver: true
-patchedDependencies:
-  '@web3auth/no-modal@11.2.0': patches/@web3auth__no-modal.patch
 overrides:
   # @phala/dstack-sdk 0.5.8 exige @noble/hashes@^1.6.1 (subpaths /sha256 /sha512), mais le
   # projet embarque la v2 (subpaths renommés) → épingle l'arête du SDK sur la 1.x compatible.

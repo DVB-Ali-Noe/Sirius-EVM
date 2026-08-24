@@ -29,7 +29,7 @@ test("une adresse invalide lève une 400 plutôt que de traverser silencieusemen
     `${LOWERCASE}00`, // 21 octets
     LOWERCASE.replace("0x", ""), // sans préfixe
     "0xZZaeb6053f3e94c9b9a09f33669435e7ef1beaed", // caractère non hexadécimal
-    "rProviderXrplAddress1111111111111", // adresse XRPL héritée
+    "not-an-evm-address",
   ]) {
     assert.throws(
       () => normalizeAddress(invalid),

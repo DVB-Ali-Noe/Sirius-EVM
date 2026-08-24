@@ -11,7 +11,7 @@ Provider                 Robinhood Chain                     Borrower
   │                             │                               │
   ├─ dataset chiffré → IPFS     │                               │
   ├─ SiriusDatasetRegistry.mint │                               │
-  │                             │◄── SiriusEscrow.lock (ETH) ────┤
+  │                             │◄── SiriusEscrow.lock (USDC) ───┤
   │                             │                               │
   │           Phala TEE : déchiffre, entraîne, atteste          │
   │                             │                               │
@@ -33,17 +33,17 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 
 ## Contrats EVM
 
-- `SiriusEscrow` : hashlock SHA-256, verrouillage en ETH, release atomique, remboursement et paiements pull-only.
-- `SiriusKybRegistry` : attestations KYB EIP-712, consenties par le sujet, expirables et révocables.
-- `SiriusDatasetRegistry` : titre non transférable d'un dataset chiffré, lié à son CID, son Merkle root et sa taille.
+- `SiriusEscrow` : USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
+- `SiriusKybRegistry` : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et invalidées durablement au retrait d'un vérificateur.
+- `SiriusDatasetRegistry` : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root et à sa taille.
 
 Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). Les ABI TypeScript sont générées dans [`src/lib/evm/abi/`](src/lib/evm/abi).
 
 ## État réel
 
-Le socle EVM est implémenté : réseaux, contrats Solidity, tests Hardhat, génération d'ABI, scripts de déploiement/smoke et opérations EVM du runner (`hashlock`, contrôle on-chain, règlement et réconciliation).
+Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
-La migration produit n'est pas terminée : les adresses doivent être déployées et configurées sur testnet, puis les parcours navigateur et API doivent utiliser ce rail de bout en bout. La roadmap ne présente donc pas encore le produit comme déployé ni validé sur une chaîne publique.
+Les contrats doivent être redéployés et configurés sur testnet ; le parcours réel navigateur/runner/contrats, un émetteur KYB externe et la CVM Phala restent à valider. La roadmap ne présente donc pas encore le produit comme déployé ni validé sur une chaîne publique.
 
 ## Démarrage
 

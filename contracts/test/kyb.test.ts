@@ -6,8 +6,7 @@ import type { Address, Hex } from "viem";
 /**
  * Le KYB est un gate BLOQUANT : sans credential valide, pas de publication de
  * dataset ni d'emprunt. Ces tests portent donc autant sur ce qu'il autorise que
- * sur ce qu'il refuse — et sur le consentement, que le rail XRPL exigeait déjà
- * via `CredentialAccept`.
+ * sur ce qu'il refuse et sur le consentement.
  */
 
 const YEAR = 365 * 24 * 60 * 60;
@@ -132,7 +131,7 @@ describe("SiriusKybRegistry", () => {
     });
   });
 
-  describe("cycle de vie — ce que XRPL n'avait pas", () => {
+  describe("cycle de vie", () => {
     async function attested(ctx: Awaited<ReturnType<typeof fixture>>, expiresAt: number) {
       const subject = ctx.subject.account.address;
       const verifier = ctx.verifier.account.address;
@@ -143,7 +142,7 @@ describe("SiriusKybRegistry", () => {
       return { subject, verifier };
     }
 
-    it("le credential expire — champ jamais posé sur le rail XRPL", async () => {
+    it("le credential expire", async () => {
       const ctx = await loadFixture(fixture);
       const expiresAt = (await time.latest()) + 3600;
       const { subject } = await attested(ctx, expiresAt);
@@ -153,7 +152,7 @@ describe("SiriusKybRegistry", () => {
       expect(await ctx.kyb.read.isKybValid([subject])).to.equal(false);
     });
 
-    it("le vérificateur émetteur peut révoquer — chemin jamais écrit sur XRPL", async () => {
+    it("le vérificateur émetteur peut révoquer", async () => {
       const ctx = await loadFixture(fixture);
       const { subject } = await attested(ctx, (await time.latest()) + YEAR);
 
@@ -178,6 +177,22 @@ describe("SiriusKybRegistry", () => {
       // sont exactement ce qui doit cesser de compter.
       await ctx.kyb.write.removeVerifier([ctx.verifier.account.address], { account: ctx.admin.account });
       expect(await ctx.kyb.read.isKybValid([subject])).to.equal(false);
+    });
+
+    it("réajouter un vérificateur ne réactive pas ses anciennes attestations", async () => {
+      const ctx = await loadFixture(fixture);
+      const { subject, verifier } = await attested(ctx, (await time.latest()) + YEAR);
+
+      await ctx.kyb.write.removeVerifier([verifier], { account: ctx.admin.account });
+      await ctx.kyb.write.addVerifier([verifier], { account: ctx.admin.account });
+      expect(await ctx.kyb.read.isKybValid([subject])).to.equal(false);
+
+      const expiresAt = (await time.latest()) + YEAR;
+      const signature = await signAttestation(ctx, ctx.verifier, subject, verifier, expiresAt);
+      await ctx.kyb.write.acceptAttestation([verifier, expiresAt, signature], {
+        account: ctx.subject.account,
+      });
+      expect(await ctx.kyb.read.isKybValid([subject])).to.equal(true);
     });
 
     it("refuse une expiration incohérente ou trop lointaine", async () => {

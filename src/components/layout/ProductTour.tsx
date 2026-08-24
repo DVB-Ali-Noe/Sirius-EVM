@@ -11,9 +11,9 @@ export function ProductTour() {
   const address = useWalletStore((s) => s.address);
   const { t } = useLocale();
   const steps = [
-    { title: t("Bienvenue sur Sirius"), body: t("Entraîne des modèles sur de la donnée confidentielle, ou monétise la tienne — le tout réglé et audité sur XRPL.") },
+    { title: t("Bienvenue sur Sirius"), body: t("Entraîne des modèles sur de la donnée confidentielle, ou monétise la tienne — le tout réglé et audité sur EVM.") },
     { title: t("Entraîner un modèle"), body: t("Choisis un dataset : les tiens (gratuit, sans escrow) ou le catalogue (emprunt via escrow). Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.") },
-    { title: t("Tes données sont un actif"), body: t("Dépose un dataset : il est chiffré, tokenisé en MPT sur XRPL, et tu gardes le titre et les revenus. La donnée brute ne sort jamais.") },
+    { title: t("Tes données sont un actif"), body: t("Dépose un dataset : il est chiffré, inscrit sur EVM, et tu gardes le titre et les revenus. La donnée brute ne sort jamais.") },
     { title: t("Ton wallet, tes fonds"), body: t("Solde, ajout par carte (MoonPay) et retrait vers n'importe quelle adresse. Tes fonds vivent on-chain — jamais chez Sirius.") },
   ];
 

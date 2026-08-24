@@ -6,17 +6,16 @@ import { readJson } from "@/lib/http/body";
 
 export const runtime = "nodejs";
 
-/** Phase 2 : reçoit l'EscrowCreate signé par le borrower, le vérifie et le soumet. */
+/** Phase 2 : vérifie le lock USDC déjà diffusé par le wallet du borrower. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
     const { id } = await params;
-    const { txBlob } = await readJson<{ txBlob?: unknown }>(req);
-    if (txBlob !== undefined && (typeof txBlob !== "string" || !txBlob)) {
-      return NextResponse.json({ error: "txBlob invalide" }, { status: 400 });
+    const { lockTxHash } = await readJson<{ lockTxHash?: unknown }>(req);
+    if (lockTxHash !== undefined && (typeof lockTxHash !== "string" || !lockTxHash)) {
+      return NextResponse.json({ error: "lockTxHash invalide" }, { status: 400 });
     }
-    // finalizeLoan applique le contrôle de propriété (borrower === session.address).
-    const loan = await finalizeLoan(id, session.address, typeof txBlob === "string" ? txBlob : undefined);
+    const loan = await finalizeLoan(id, session.address, typeof lockTxHash === "string" ? lockTxHash : undefined);
     return NextResponse.json(loan);
   } catch (err) {
     return errorResponse(err);

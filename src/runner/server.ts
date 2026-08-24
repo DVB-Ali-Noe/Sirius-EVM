@@ -14,7 +14,7 @@ import {
   type RunnerOperation,
 } from "@/lib/runner/capability";
 import { consumeRunnerReplay } from "@/lib/runner/replay";
-import { runnerSettlementAddress } from "@/lib/runner/settlement";
+import { runnerSettlementAddress } from "@/lib/evm/escrow";
 import { datasetIngressKeyFingerprint } from "@/lib/tee/ingress";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
 import { handleRunnerOp, scopeForRunnerOp } from "./handler";
@@ -164,9 +164,9 @@ export async function startRunner(
       "RUNNER_REPLAY_DIR",
       "RUNNER_TLS_HOSTNAME",
       "SIRIUS_APP_ORIGIN",
-      "XRPL_NETWORK",
-      "XRPL_SETTLEMENT_SEED",
-      "XRPL_AUDIT_SIGNER_SEED",
+      "EVM_NETWORK",
+      "EVM_RPC_URL",
+      "SIRIUS_ESCROW_ADDRESS",
     ]) {
       if (!process.env[name]) throw new Error(`${name} obligatoire pour le runner en production`);
     }
@@ -234,9 +234,9 @@ export async function startRunner(
     }
     console.log(`[runner] empreinte SHA-256 de la clé d’ingestion : ${datasetIngressKeyFingerprint()}`);
     try {
-      console.log(`[runner] compte de règlement XRPL : ${runnerSettlementAddress()}`);
+      console.log(`[runner] compte de règlement EVM : ${runnerSettlementAddress()}`);
     } catch (err) {
-      console.warn("[runner] compte de règlement XRPL non configuré", err);
+      console.warn("[runner] compte de règlement EVM non configuré", err);
     }
   }
   return server;

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   deleteDataset,
-  prepareDatasetMptDestruction,
+  prepareDatasetDestruction,
   setDatasetVisibility,
 } from "@/lib/sirius/provider";
 import { requireAuth, assertOwner } from "@/lib/auth/require-auth";
@@ -73,7 +73,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-/** Prépare la destruction MPT à signer par le provider avant le crypto-shredding. */
+/** Prépare le tombstone EVM à signer par le provider avant le crypto-shredding. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -81,24 +81,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
     if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     assertOwner(session, owned.provider);
-    const transaction = await prepareDatasetMptDestruction(id, session.address);
+    const transaction = await prepareDatasetDestruction(id, session.address);
     return NextResponse.json({ transaction });
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-/** Suppression par crypto-shredding : détruit la clé + dépinne + détruit le MPT (D-21). */
+/** Suppression par crypto-shredding : détruit la clé, dépine puis ancre le tombstone EVM. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
     const { id } = await params;
-    const { txBlob, authorization } = await readJson<{
-      txBlob?: unknown;
+    const { txHash, authorization } = await readJson<{
+      txHash?: unknown;
       authorization?: RunnerGrant;
     }>(req);
-    if (txBlob !== undefined && typeof txBlob !== "string") {
-      return NextResponse.json({ error: "Transaction MPT invalide" }, { status: 400 });
+    if (txHash !== undefined && typeof txHash !== "string") {
+      return NextResponse.json({ error: "Hash de tombstone EVM invalide" }, { status: 400 });
     }
     if (!authorization) return NextResponse.json({ error: "Confirmation wallet requise" }, { status: 400 });
     const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
@@ -107,9 +107,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     await requireMutationGrant(session, authorization, {
       operation: "delete-dataset",
       datasetId: id,
-      intentParts: [id, txBlob ?? ""],
+      intentParts: [id, txHash ?? ""],
     });
-    const dataset = await deleteDataset(id, session.address, txBlob);
+    const dataset = await deleteDataset(id, session.address, txHash);
     return NextResponse.json(dataset);
   } catch (err) {
     return errorResponse(err);

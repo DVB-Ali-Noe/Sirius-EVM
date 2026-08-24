@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useWalletStore } from "@/stores/wallet";
-import { fetchXrpBalance, type XrplBalance } from "@/lib/xrpl/balance";
+import { fetchUsdcBalance, type UsdcBalance } from "@/lib/evm/balance";
+import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { openMoonpay } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -46,7 +47,7 @@ export default function DashboardPage() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const { locale, t } = useLocale();
 
-  const [balance, setBalance] = useState<XrplBalance | null>(null);
+  const [balance, setBalance] = useState<UsdcBalance | null>(null);
   const [reputation, setReputation] = useState<ReputationOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -56,7 +57,7 @@ export default function DashboardPage() {
     setLoading(true);
     setError(false);
     try {
-      setBalance(await fetchXrpBalance(address));
+      setBalance(await fetchUsdcBalance(address));
     } catch {
       setError(true);
     } finally {
@@ -111,15 +112,10 @@ export default function DashboardPage() {
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-3xl font-semibold tracking-tight">
-              {loading && !balance ? "…" : error ? "—" : balance ? balance.xrp.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "—"}
+              {loading && !balance ? "…" : error ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "—"}
             </span>
-            <span className="text-sm text-muted">XRP</span>
+            <span className="text-sm text-muted">USDC</span>
           </div>
-          {balance && !balance.activated && (
-            <p className="mt-2 text-xs text-muted">
-              {t("Compte non activé — ajoute des fonds pour l’activer.")}
-            </p>
-          )}
           {error && <p className="mt-2 text-xs text-negative">{t("Solde indisponible — réessaie.")}</p>}
         </div>
         <button
@@ -134,7 +130,7 @@ export default function DashboardPage() {
         <Card className="mb-8">
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold">{t("Confiance XRPL")}</h2>
+              <h2 className="text-sm font-semibold">{t("Confiance EVM")}</h2>
               <p className="mt-1 text-xs text-muted">{t("Uniquement les escrows résolus et confirmés on-chain.")}</p>
             </div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">{t("ledger evidence")}</span>

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { disconnectWallet } from "@/lib/wallet/manager";
-import { loginWithGoogle, logoutEmbedded } from "@/lib/web3auth/manager";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
 import { openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -12,18 +11,16 @@ function truncate(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-const EXPECTED_NETWORK = process.env.NEXT_PUBLIC_XRPL_NETWORK || "testnet";
+const EXPECTED_NETWORK = "testnet";
 
 /** dropUp : ouvre le menu vers le haut (footer de sidebar, sinon clippé en bas de viewport). */
 export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const network = useWalletStore((s) => s.network);
-  const source = useWalletStore((s) => s.source);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -57,18 +54,6 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     }
   };
 
-  const handleGoogle = async () => {
-    setPending(true);
-    try {
-      await loginWithGoogle();
-      setOpen(false);
-    } catch {
-      // L'échec réel remonte via l'overlay dev ; rien à afficher ici au MVP.
-    } finally {
-      setPending(false);
-    }
-  };
-
   const handleExternal = () => {
     setOpen(false);
     openWalletModal();
@@ -78,8 +63,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     setOpen(false);
     try {
       await signOut();
-      if (source === "embedded") await logoutEmbedded();
-      else await disconnectWallet();
+      await disconnectWallet();
     } finally {
       useWalletStore.getState().setDisconnected();
     }
@@ -109,12 +93,15 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div role="menu" className={`absolute z-50 ${menuPos} ${menuWidth} ${dropUp ? "rounded-[2rem]" : "w-72 rounded-xl"} overflow-hidden border border-border bg-surface shadow-xl`}>
               <button
-                onClick={handleGoogle}
-                disabled={pending}
-                className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5 disabled:opacity-50"
+                type="button"
+                disabled
+                className="block w-full cursor-not-allowed px-4 py-3 text-left opacity-60"
               >
-                <span className="text-sm font-medium text-foreground">
-                  {pending ? t("Connexion…") : t("Continuer avec Google")}
+                <span className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-foreground">{t("Continuer avec Google")}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
+                    {t("Bientôt disponible")}
+                  </span>
                 </span>
                 <span className="mt-0.5 block text-xs text-muted">{t("Sans crypto, en un clic")}</span>
               </button>
@@ -124,7 +111,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                 className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5"
               >
                 <span className="text-sm font-medium text-foreground">{t("Wallet externe")}</span>
-                <span className="mt-0.5 block text-xs text-muted">Crossmark, Ledger, GemWallet…</span>
+                <span className="mt-0.5 block text-xs text-muted">MetaMask, Rabby, Coinbase Wallet…</span>
               </button>
             </div>
           </>
@@ -160,8 +147,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                 <span
                   className={`mt-1 block text-xs uppercase tracking-wider ${wrongNetwork ? "text-negative" : "text-muted"}`}
                 >
-                  {source === "embedded" ? "Google · " : ""}
-                  {network ?? "—"}
+                  Robinhood Chain · {network ?? "—"}
                 </span>
               </span>
               <span className={`shrink-0 transition-colors ${copied ? "text-positive" : "text-muted group-hover:text-foreground"}`} aria-hidden>

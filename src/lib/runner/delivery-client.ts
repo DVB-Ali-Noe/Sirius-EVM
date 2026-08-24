@@ -25,7 +25,7 @@ function decodeBase64Url(value: string): Uint8Array<ArrayBuffer> {
 }
 
 function decodeHex(value: string): Uint8Array<ArrayBuffer> {
-  if (!/^(?:[A-Fa-f0-9]{2})+$/.test(value)) throw new Error("Fulfillment XRPL invalide");
+  if (!/^(?:[A-Fa-f0-9]{2})+$/.test(value)) throw new Error("Préimage EVM invalide");
   const bytes = new Uint8Array(value.length / 2);
   for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
   return bytes;
@@ -116,13 +116,10 @@ export async function createRunnerReleaseDelivery(context: string): Promise<{
 }
 
 /**
- * Chaque rail a son propre préfixe d'`info` HKDF, donc une capsule produite pour l'un
- * est cryptographiquement inouvrable sur l'autre. Le champ `release` ne fait que
- * choisir le calcul : le falsifier en transit ne donne accès à rien, la dérivation
- * échoue simplement.
+ * Le préfixe d'`info` HKDF lie la capsule au protocole de release EVM. Le champ
+ * `release` ne porte aucune autorité cryptographique.
  */
 const RELEASE_INFO_PREFIX: Record<RunnerReleaseKind, string> = {
-  "xrpl-fulfillment": "sirius-runner-release-v1:",
   "evm-preimage": "sirius-runner-release-v2:",
 };
 
@@ -131,8 +128,7 @@ const EVM_PREIMAGE_BYTES = 32;
 /**
  * Ouvre une capsule avec le secret devenu public au règlement.
  *
- * @param secretHex Fulfillment XRPL, ou préimage EVM lu dans le contrat. Le préfixe
- *                  `0x` est toléré : c'est la forme que rend une lecture on-chain.
+ * @param secretHex Préimage EVM lu dans le contrat. Le préfixe `0x` est toléré.
  */
 export async function decryptRunnerRelease(
   privateKey: CryptoKey,
