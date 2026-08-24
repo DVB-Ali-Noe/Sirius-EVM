@@ -18,6 +18,8 @@ export interface TdxEvidence {
 
 export interface RunnerRaTlsEvidence extends TdxEvidence {
   certificateSha256: string;
+  ingressKeySha256: string;
+  masterKeyChainSha256: string;
 }
 
 /** Résultat d'un job : modèle livré (chiffré, sur IPFS) + métriques + preuve. */

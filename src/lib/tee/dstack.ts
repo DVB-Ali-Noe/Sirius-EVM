@@ -50,8 +50,14 @@ export function isSimulator(): boolean {
  * devient un vrai scellement enclave. primeMasterKey porte la validation de taille.
  */
 let initialized = false;
-export async function initEnclave(): Promise<void> {
-  if (initialized) return;
+let enclaveIdentity: EnclaveIdentity | null = null;
+
+export interface EnclaveIdentity {
+  masterKeyChainSha256: string;
+}
+
+export async function initEnclave(): Promise<EnclaveIdentity> {
+  if (initialized && enclaveIdentity) return enclaveIdentity;
   const { key, signature_chain: signatureChain } = await getClient().getKey(MASTER_KEY_PATH);
   if (!isSimulator() && signatureChain.length === 0) throw new Error("Chaîne KMS dstack absente");
   const chainHash = hashSignatureChain(signatureChain);
@@ -60,11 +66,13 @@ export async function initEnclave(): Promise<void> {
     process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256,
     SHA256_MEASUREMENT,
   );
-  if (process.env.NODE_ENV === "production" && chainMatches !== true) {
+  if (process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256 && chainMatches !== true) {
     throw new Error(`Chaîne KMS dstack non authentifiée (empreinte observée : ${chainHash})`);
   }
   primeMasterKey(Buffer.from(key));
+  enclaveIdentity = { masterKeyChainSha256: chainHash };
   initialized = true;
+  return enclaveIdentity;
 }
 
 /**
@@ -85,7 +93,7 @@ export async function getEnclaveQuote(payloadHash: string): Promise<TdxEvidence>
 export interface EnclaveTlsIdentity {
   key: string;
   certificateChain: string[];
-  evidence: RunnerRaTlsEvidence;
+  evidence: TdxEvidence & Pick<RunnerRaTlsEvidence, "certificateSha256">;
 }
 
 export async function getEnclaveTlsIdentity(): Promise<EnclaveTlsIdentity> {

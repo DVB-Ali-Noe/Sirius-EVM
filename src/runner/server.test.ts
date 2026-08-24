@@ -64,6 +64,8 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     certificateSha256: "12".repeat(32),
     composeHash: "34".repeat(32),
     eventLog: "[]",
+    ingressKeySha256: "78".repeat(32),
+    masterKeyChainSha256: "9a".repeat(32),
     quote: "56",
   };
   const raTls = await request("GET", "/ra-tls", undefined, "{}", true, evidence);

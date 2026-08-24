@@ -19,7 +19,8 @@
     "contracts:smoke": "node --import tsx contracts/scripts/smoke.ts",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "runner:capture-ra-\n  tls": "NODE_OPTIONS=\"--conditions=react-server\" node\n  --import tsx src/runner/capture-ra-tls.ts"
   },
   "dependencies": {
     "@phala/dcap-qvl": "^0.5.2",
@@ -39,6 +40,7 @@
     "ripple-keypairs": "3.0.0",
     "server-only": "^0.0.1",
     "three": "^0.183.1",
+    "tsx": "^4.23.0",
     "viem": "^2.54.1",
     "xrpl": "^5.0.0",
     "xrpl-connect": "^0.8.2",
@@ -62,7 +64,6 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
-    "tsx": "^4.23.0",
     "typescript": "^5"
   }
 }

@@ -163,10 +163,6 @@ export async function startRunner(
       "RUNNER_TRANSPORT_SECRET",
       "RUNNER_REPLAY_DIR",
       "RUNNER_TLS_HOSTNAME",
-      "SIRIUS_EXPECTED_MRTD",
-      "SIRIUS_EXPECTED_RTMR3",
-      "SIRIUS_EXPECTED_COMPOSE_HASH",
-      "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256",
       "SIRIUS_APP_ORIGIN",
       "XRPL_NETWORK",
       "XRPL_SETTLEMENT_SEED",
@@ -175,14 +171,21 @@ export async function startRunner(
       if (!process.env[name]) throw new Error(`${name} obligatoire pour le runner en production`);
     }
   }
-  if (process.env.TEE_MODE === "phala") await initEnclave();
+  const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
   if (tlsEnabled && process.env.TEE_MODE !== "phala") {
     throw new Error("TEE_MODE=phala obligatoire quand TLS runner est activé");
   }
 
   const tlsIdentity = tlsEnabled ? await getEnclaveTlsIdentity() : null;
+  const raTlsEvidence = tlsIdentity && enclaveIdentity
+    ? {
+        ...tlsIdentity.evidence,
+        ingressKeySha256: datasetIngressKeyFingerprint(),
+        masterKeyChainSha256: enclaveIdentity.masterKeyChainSha256,
+      }
+    : undefined;
   const requestHandler = (req: IncomingMessage, res: ServerResponse) => {
-    void handleRunnerRequest(req, res, tlsIdentity?.evidence);
+    void handleRunnerRequest(req, res, raTlsEvidence);
   };
 
   const server = tlsIdentity
@@ -225,6 +228,9 @@ export async function startRunner(
     );
     if (tlsIdentity) {
       console.log(`[runner] certificat RA-TLS SHA-256 : ${tlsIdentity.evidence.certificateSha256}`);
+    }
+    if (enclaveIdentity) {
+      console.log(`[runner] empreinte SHA-256 de la chaîne KMS : ${enclaveIdentity.masterKeyChainSha256}`);
     }
     console.log(`[runner] empreinte SHA-256 de la clé d’ingestion : ${datasetIngressKeyFingerprint()}`);
     try {

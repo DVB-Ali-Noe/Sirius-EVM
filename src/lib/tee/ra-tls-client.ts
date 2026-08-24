@@ -153,11 +153,23 @@ function parseEvidence(raw: Buffer): RunnerRaTlsEvidence {
     typeof parsed.eventLog !== "string" ||
     typeof parsed.composeHash !== "string" ||
     typeof parsed.certificateSha256 !== "string" ||
-    !/^[0-9a-f]{64}$/i.test(parsed.certificateSha256)
+    typeof parsed.ingressKeySha256 !== "string" ||
+    typeof parsed.masterKeyChainSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/i.test(parsed.certificateSha256) ||
+    !/^[0-9a-f]{64}$/i.test(parsed.ingressKeySha256) ||
+    !/^[0-9a-f]{64}$/i.test(parsed.masterKeyChainSha256)
   ) {
     throw new Error("Évidence RA-TLS runner invalide");
   }
   return parsed as RunnerRaTlsEvidence;
+}
+
+function assertPinnedHash(name: string, actual: string, expected: string | undefined): void {
+  const normalized = expected?.trim().toLowerCase();
+  if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${name} épinglée absente ou invalide`);
+  }
+  if (actual.toLowerCase() !== normalized) throw new Error(`${name} non authentifiée`);
 }
 
 async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
@@ -180,6 +192,16 @@ async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
   if (evidence.certificateSha256.toLowerCase() !== certificateSha256) {
     throw new Error("La quote RA-TLS ne cible pas le certificat présenté");
   }
+  assertPinnedHash(
+    "Empreinte de la chaîne KMS",
+    evidence.masterKeyChainSha256,
+    process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256,
+  );
+  assertPinnedHash(
+    "Empreinte de la clé d’ingestion",
+    evidence.ingressKeySha256,
+    process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256,
+  );
 
   const verification = await verifyTdxQuote(evidence.quote, certificateSha256, evidence);
   if (
