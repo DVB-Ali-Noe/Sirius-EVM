@@ -1,0 +1,10 @@
+ALTER TABLE "Dataset" ADD COLUMN "priceDrops" TEXT NOT NULL DEFAULT '10000000';
+ALTER TABLE "Dataset" ADD COLUMN "challengeDays" INTEGER NOT NULL DEFAULT 7;
+
+UPDATE "Loan"
+SET "amount" = CAST(ROUND(CAST("amount" AS REAL) * 1000000) AS TEXT)
+WHERE "currency" = 'XRP';
+
+UPDATE "Dataset"
+SET "status" = 'SUSPENDED'
+WHERE "status" IN ('LISTED', 'UNLISTED');

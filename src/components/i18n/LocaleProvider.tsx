@@ -1,0 +1,286 @@
+"use client";
+
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+
+export type Locale = "fr" | "en";
+
+type Variables = Record<string, string | number>;
+
+const messages: Record<Locale, Record<string, string>> = {
+  fr: {
+    "About us": "À propos",
+    "Documentation": "Documentation",
+    "Provider": "Fournisseur",
+    "Borrower": "Emprunteur",
+    "ledger evidence": "preuves ledger",
+    "PENDING": "EN ATTENTE",
+    "SUBMITTING": "SOUMISSION",
+    "ESCROWED": "SOUS ESCROW",
+    "TRAINING": "ENTRAÎNEMENT",
+    "SETTLING": "RÈGLEMENT",
+    "SETTLED": "RÉGLÉ",
+    "CANCELLED": "ANNULÉ",
+    "provider": "fournisseur",
+    "borrower": "emprunteur",
+    "cancel-after": "annulation après",
+  },
+  en: {
+    "Tableau de bord": "Dashboard",
+    "Entraîner": "Train",
+    "Mes datasets": "My datasets",
+    "Quitter vers l'accueil": "Back to home",
+    "Quitter": "Exit",
+    "Bienvenue sur Sirius": "Welcome to Sirius",
+    "Connecte un wallet pour accéder à ton tableau de bord.": "Connect a wallet to access your dashboard.",
+    "Connecter un wallet": "Connect a wallet",
+    "Accéder à l’app": "Access the app",
+    "Solde": "Balance",
+    "Compte non activé — ajoute des fonds pour l’activer.": "Account not activated — add funds to activate it.",
+    "Solde indisponible — réessaie.": "Balance unavailable — try again.",
+    "Ajouter des fonds": "Add funds",
+    "Confiance XRPL": "XRPL trust",
+    "Uniquement les escrows résolus et confirmés on-chain.": "Only resolved escrows confirmed on-chain.",
+    "{count} réglés": "{count} settled",
+    "{count} remboursés": "{count} refunded",
+    "{count} preuves": "{count} proofs",
+    "Parcourir les datasets et lancer un entraînement en TEE.": "Browse datasets and run training in a TEE.",
+    "Entraîner sur ses données ou un dataset du catalogue, en TEE.": "Train on your data or a catalog dataset in a TEE.",
+    "Déposer, tokeniser et monétiser une donnée.": "Upload, tokenize, and monetize data.",
+    "Connecte un wallet pour voir ton solde.": "Connect a wallet to view your balance.",
+    "Solde indisponible.": "Balance unavailable.",
+    "Envoyer / Retirer": "Send / withdraw",
+    "Tes fonds vivent on-chain — envoie-les vers n’importe quelle adresse XRPL que tu contrôles.": "Your funds live on-chain — send them to any XRPL address you control.",
+    "Adresse de destination": "Destination address",
+    "Montant (XRP)": "Amount (XRP)",
+    "Authentifie-toi (bouton « Se connecter ») pour envoyer.": "Authenticate with the “Sign in” button to send.",
+    "Envoyé — tx": "Sent — tx",
+    "Envoi…": "Sending…",
+    "Envoyer": "Send",
+    "Montant invalide.": "Invalid amount.",
+    "Registre d’audit": "Audit ledger",
+    "Connecte un wallet pour consulter ses preuves.": "Connect a wallet to view your proofs.",
+    "Chaîne de preuves Sirius recoupable sur XRPL.": "Sirius proof trail verifiable on XRPL.",
+    "Registre indisponible — réessaie.": "Ledger unavailable — try again.",
+    "Chargement des preuves…": "Loading proofs…",
+    "Aucun prêt auditable pour ce wallet.": "No auditable loan for this wallet.",
+    "Titre MPT": "MPT title",
+    "Attestation TEE": "TEE attestation",
+    "En attente": "Pending",
+    "Vérifier {label} sur XRPL": "Verify {label} on XRPL",
+    "Vérifier ↗": "Verify ↗",
+    "Connexion": "Connect",
+    "Connexion…": "Connecting…",
+    "Continuer avec Google": "Continue with Google",
+    "Sans crypto, en un clic": "No crypto needed, one click",
+    "Wallet externe": "External wallet",
+    "Mauvais réseau — bascule ton wallet sur {network}.": "Wrong network — switch your wallet to {network}.",
+    "Authentifié": "Authenticated",
+    "Se connecter": "Sign in",
+    "Signature…": "Signing…",
+    "Échec — réessaie": "Failed — try again",
+    "Signe pour prouver la possession du wallet": "Sign to prove you own this wallet",
+    "Acheter des XRP par carte (MoonPay)": "Buy XRP by card (MoonPay)",
+    "Déconnecter": "Disconnect",
+    "Copier l’adresse": "Copy address",
+    "Adresse copiée": "Address copied",
+    "Sécurise l’accès à tes fonds": "Secure access to your funds",
+    "Ajoute un facteur de récupération pour ne pas dépendre du seul login Google.": "Add a recovery factor so you do not rely on Google login alone.",
+    "Ouverture…": "Opening…",
+    "Sécuriser": "Secure",
+    "Ignorer": "Dismiss",
+    "Sécurité du compte": "Account security",
+    "Un facteur de récupération est configuré. Tu peux le gérer à tout moment.": "A recovery factor is configured. You can manage it at any time.",
+    "Ton compte dépend du seul login Google. Ajoute un facteur de récupération (PIN, phrase, authenticator) pour protéger l'accès à tes fonds.": "Your account relies on Google login alone. Add a recovery factor (PIN, passphrase, authenticator) to protect access to your funds.",
+    "Gérer les facteurs": "Manage factors",
+    "Sécuriser mon compte": "Secure my account",
+    "Entraîne des modèles sur de la donnée confidentielle, ou monétise la tienne — le tout réglé et audité sur XRPL.": "Train models on confidential data, or monetize yours — all settled and audited on XRPL.",
+    "Entraîner un modèle": "Train a model",
+    "Choisis un dataset : les tiens (gratuit, sans escrow) ou le catalogue (emprunt via escrow). Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.": "Choose a dataset: your own (free, no escrow) or the catalog (loaned through escrow). Computing runs in a TEE — you receive only the model, never the raw data.",
+    "Tes données sont un actif": "Your data is an asset",
+    "Dépose un dataset : il est chiffré, tokenisé en MPT sur XRPL, et tu gardes le titre et les revenus. La donnée brute ne sort jamais.": "Upload a dataset: it is encrypted, tokenized as an MPT on XRPL, and you keep the title and revenue. Raw data never leaves.",
+    "Ton wallet, tes fonds": "Your wallet, your funds",
+    "Solde, ajout par carte (MoonPay) et retrait vers n'importe quelle adresse. Tes fonds vivent on-chain — jamais chez Sirius.": "Balance, card top-up (MoonPay), and withdrawal to any address. Your funds live on-chain — never with Sirius.",
+    "Étape {current} / {total}": "Step {current} / {total}",
+    "Passer": "Skip",
+    "Précédent": "Previous",
+    "Commencer": "Get started",
+    "Suivant": "Next",
+    "Vos données, exploitables sans jamais les exposer.": "Your data, usable without ever exposing it.",
+    "Lire la documentation": "Read the documentation",
+    "Sirius — data lending confidentiel sur XRPL": "Sirius — confidential data lending on XRPL",
+    "{name} sur X": "{name} on X",
+    "{name} sur LinkedIn": "{name} on LinkedIn",
+    "{name} sur GitHub": "{name} on GitHub",
+    "LISTED": "LISTED",
+    "DRAFT": "Draft",
+    "LISTING": "Publishing…",
+    "UNLISTED": "Unlisted",
+    "PRIVATE": "Private",
+    "SUSPENDED": "Suspended",
+    "DELETED": "Deleted",
+    "Datasets disponibles": "Available datasets",
+    "Emprunte l’accès via un escrow conditionnel. La donnée reste chiffrée — tu ne récupères qu’un modèle entraîné en TEE.": "Borrow access through a conditional escrow. Data stays encrypted — you only receive a model trained in a TEE.",
+    "Configurer le KYB": "Set up KYB",
+    "Catalogue indisponible": "Catalog unavailable",
+    "Aucun dataset listé pour l’instant.": "No listed dataset yet.",
+    "Chargement…": "Loading…",
+    "Afficher plus": "Show more",
+    "Retirer des favoris": "Remove from favorites",
+    "Ajouter aux favoris": "Add to favorites",
+    "{count} lignes": "{count} rows",
+    "{count} colonnes": "{count} columns",
+    "remboursable après {days} j": "refundable after {days} d",
+    "Confiance XRPL {score}/100 · {count} règlements": "XRPL trust {score}/100 · {count} settlements",
+    "Escrow…": "Escrow…",
+    "Emprunter": "Borrow",
+    "Mes actifs data": "My data assets",
+    "Connecte un wallet pour gérer tes datasets.": "Connect a wallet to manage your datasets.",
+    "{datasets} dataset{datasetSuffix} · {listed} public{publicSuffix}. Chaque MPT est le titre on-chain de ta donnée.": "{datasets} dataset{datasetSuffix} · {listed} public dataset{publicSuffix}. Each MPT is the on-chain title to your data.",
+    "Déposer": "Upload",
+    "Aucun dataset.": "No dataset.",
+    "Dépose ton premier actif": "Upload your first asset",
+    "Lignes": "Rows",
+    "Colonnes": "Columns",
+    "Taille": "Size",
+    "Upload interrompu : supprime ce brouillon et recommence": "Upload interrupted: delete this draft and start over",
+    "Réconcilier…": "Reconcile…",
+    "Publier (MPT)": "Publish (MPT)",
+    "Upload incomplet": "Incomplete upload",
+    "Supprimer le brouillon": "Delete draft",
+    "Supprimer": "Delete",
+    "Réconciliation…": "Reconciling…",
+    "Finaliser le MPT": "Finalize MPT",
+    "Public": "Public",
+    "Semi-privé": "Unlisted",
+    "Privé": "Private",
+    "Brouillon": "Draft",
+    "Publication…": "Publishing…",
+    "Suspendu": "Suspended",
+    "Supprimé": "Deleted",
+    "Dans le catalogue, empruntable par tous": "In the catalog, borrowable by everyone",
+    "Hors catalogue, empruntable par lien direct": "Outside the catalog, borrowable through a direct link",
+    "Toi seul (self-train)": "Only you (self-train)",
+    "Finaliser la destruction du titre MPT sur XRPL ?": "Finalize destruction of the MPT title on XRPL?",
+    "Supprimer ce dataset ? Sa clé de déchiffrement est détruite : la donnée devient définitivement irrécupérable.": "Delete this dataset? Its decryption key will be destroyed: data will become permanently unrecoverable.",
+    "Échec du changement de visibilité": "Visibility change failed",
+    "← Mes actifs data": "← My data assets",
+    "Déposer un dataset": "Upload a dataset",
+    "Chiffré dans ton navigateur → ouvert et rescellé dans le TEE → IPFS. Next.js ne reçoit jamais la donnée brute.": "Encrypted in your browser → opened and resealed in the TEE → IPFS. Next.js never receives raw data.",
+    "Nom": "Name",
+    "Ex : Transactions e-commerce 2025": "E.g. E-commerce transactions 2025",
+    "Description": "Description",
+    "(optionnel)": "(optional)",
+    "Contenu, provenance, fraîcheur…": "Content, provenance, freshness…",
+    "Prix par entraînement (XRP)": "Price per training run (XRP)",
+    "Délai de remboursement (jours)": "Refund period (days)",
+    "Fichier CSV": "CSV file",
+    "Chiffrement & upload…": "Encrypting & uploading…",
+    "Déposer le dataset": "Upload dataset",
+    "Formulaire invalide": "Invalid form",
+    "Fichier trop volumineux (max 16 Mo)": "File too large (max 16 MB)",
+    "Échec de la préparation du dépôt": "Upload preparation failed",
+    "Échec de l’upload confidentiel": "Confidential upload failed",
+    "RUNNING": "RUNNING",
+    "DONE": "DONE",
+    "FAILED": "FAILED",
+    "Self-train": "Self-training",
+    "Emprunt": "Loan",
+    "Dataset": "Dataset",
+    "Connecte un wallet pour lancer un entraînement.": "Connect a wallet to run training.",
+    "Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.": "Computing runs in a TEE — you only receive the model, never the raw data.",
+    "Mes données": "My data",
+    "Self-train · gratuit": "Self-training · free",
+    "Aucun dataset finalisé. Dépose-en un dans « Mes datasets ».": "No finalized dataset. Upload one in “My datasets”.",
+    "Entraînement…": "Training…",
+    "Catalogue": "Catalog",
+    "Emprunt · escrow XRP": "Loan · XRP escrow",
+    "Aucun dataset tiers disponible pour l’instant.": "No third-party dataset available yet.",
+    "Mes entraînements": "My training runs",
+    "Aucun entraînement pour l’instant.": "No training run yet.",
+    "Modèle livré": "Model delivered",
+    "Modèle (CID)": "Model (CID)",
+    "Clé de déchiffrement": "Decryption key",
+    "Montant": "Amount",
+    "Escrow tx": "Escrow tx",
+    "Remboursable après": "Refundable after",
+    "Remboursement…": "Refunding…",
+    "Récupérer l’escrow": "Recover escrow",
+    "Job TEE…": "TEE job…",
+    "Réessayer le job": "Retry job",
+    "Lancer le job (TEE)": "Run job (TEE)",
+    "Réconcilier l’escrow": "Reconcile escrow",
+    "Règlement…": "Settling…",
+    "Réconcilier le règlement": "Reconcile settlement",
+    "Finaliser le règlement": "Finalize settlement",
+    "Règlement tx": "Settlement tx",
+    "livrée à l'exécution": "delivered at runtime",
+    "Escrow remboursé": "Escrow refunded",
+    "Remboursement tx": "Refund tx",
+    "Termes provider verrouillés dans le reçu runner": "Provider terms locked in the runner receipt",
+    "Confirmer l'escrow": "Confirm escrow",
+    "Annuler": "Cancel",
+    "Reçu confidentiel du dataset manquant": "Dataset confidential receipt is missing",
+    "Preuve d’escrow ou reçu dataset manquant": "Escrow proof or dataset receipt is missing",
+    "Capsule TEE manquante": "TEE capsule is missing",
+    "Simple": "Simple",
+    "Avancé": "Advanced",
+    "Sommaire": "Contents",
+    "Le problème": "The problem",
+    "La solution en un coup d'œil": "The solution at a glance",
+    "Les acteurs & artefacts": "Actors & artifacts",
+    "Le parcours complet": "The complete flow",
+    "Le fair-exchange atomique": "Atomic fair exchange",
+    "Cycle de vie de l'escrow": "Escrow lifecycle",
+    "Confidentialité : qui voit quoi": "Confidentiality: who sees what",
+    "Custody : qui détient quoi": "Custody: who holds what",
+    "Les primitives XRPL": "XRPL primitives",
+    "Limites & feuille de route": "Limits & roadmap",
+    "Comment fonctionne Sirius": "How Sirius works",
+  },
+};
+
+interface LocaleContextValue {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: string, variables?: Variables) => string;
+}
+
+const LocaleContext = createContext<LocaleContextValue | null>(null);
+
+function format(message: string, variables?: Variables) {
+  if (!variables) return message;
+  return message.replace(/\{(\w+)\}/g, (_, key: string) => String(variables[key] ?? `{${key}}`));
+}
+
+export function LocaleProvider({ children }: { children: React.ReactNode }) {
+  const [locale, setLocale] = useState<Locale>("fr");
+  const [ready, setReady] = useState(false);
+
+  const t = useCallback(
+    (key: string, variables?: Variables) => format(messages[locale][key] ?? key, variables),
+    [locale],
+  );
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("sirius.locale");
+    const timer = window.setTimeout(() => {
+      if (saved === "fr" || saved === "en") setLocale(saved);
+      setReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.title = t("Sirius — data lending confidentiel sur XRPL");
+    if (ready) window.localStorage.setItem("sirius.locale", locale);
+  }, [locale, ready, t]);
+
+  return <LocaleContext value={{ locale, setLocale, t }}>{children}</LocaleContext>;
+}
+
+export function useLocale() {
+  const value = useContext(LocaleContext);
+  if (!value) throw new Error("useLocale must be used within LocaleProvider");
+  return value;
+}

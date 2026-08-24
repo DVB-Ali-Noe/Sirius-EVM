@@ -1,0 +1,222 @@
+// Schéma Sirius — data lending confidentiel sur XRPL.
+// Draft inc.0 : structure de base, à affiner au fil des incréments.
+// Doc : https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Dataset déposé par un provider : chiffré (IPFS), tokenisé on-chain (MPT).
+model Dataset {
+  id             String        @id @default(cuid())
+  name           String
+  description    String?
+  provider       String // adresse XRPL du provider
+  mptIssuanceId  String?       @unique // identité on-chain du dataset (MPT XLS-33)
+  mptTxHash      String? // transaction de publication signée, pour réconciliation après timeout
+  mptTxBlob      String? // blob signé réutilisable jusqu'à LastLedgerSequence
+  mptLastLedger  Int?
+  mptDestroyedAt DateTime? // destruction de l'émission confirmée sur XRPL
+  ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
+  wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
+  merkleRoot     String? // racine Merkle des chunks (intégrité)
+  sizeBytes      Int?
+  priceDrops     String        @default("10000000") // prix provider par entraînement, en drops XRP
+  challengeDays  Int           @default(7) // délai avant remboursement possible
+  metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
+  runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
+  status         DatasetStatus @default(DRAFT)
+  keyDestroyedAt DateTime? // horodatage du crypto-shredding (DEK détruite, data irrécupérable)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  loans        Loan[]
+  keyGrants    KeyGrant[]
+  trainingJobs TrainingJob[]
+
+  @@index([provider])
+  @@index([status])
+}
+
+/// Self-train (MLaaS) : entraînement sur SON PROPRE dataset, sans escrow ni
+/// fair-exchange (aucun tiers à payer, cf. D-19). Le TEE rend le modèle au propriétaire.
+model TrainingJob {
+  id        String  @id @default(cuid())
+  datasetId String
+  dataset   Dataset @relation(fields: [datasetId], references: [id])
+  owner     String // adresse XRPL du propriétaire (== dataset.provider)
+
+  modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
+  metrics       Json? // métriques en clair (R², RMSE…)
+  runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
+
+  status      TrainingStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  completedAt DateTime?
+
+  @@index([datasetId])
+  @@index([owner])
+  @@index([status])
+}
+
+/// Emprunt d'accès : escrow conditionnel (TokenEscrow XLS-85) + job TEE.
+model Loan {
+  id        String  @id @default(cuid())
+  datasetId String
+  dataset   Dataset @relation(fields: [datasetId], references: [id])
+  borrower  String // adresse XRPL de l'emprunteur
+  provider  String // adresse XRPL du provider (dénormalisé pour les requêtes)
+  amount    String // montant en drops/unités (string pour éviter la perte de précision)
+  currency  String  @default("RLUSD")
+
+  // Escrow conditionnel
+  escrowSequence   Int?
+  escrowTxHash     String?
+  escrowTxBlob     String? // blob signé conservé seulement pendant la réconciliation
+  escrowLastLedger Int?
+  conditionHex     String? // crypto-condition PREIMAGE-SHA-256
+  cancelAfter      DateTime? // fin de la challenge period → remboursement borrower
+
+  // Résultat TEE préparé avant le release atomique
+  jobId                  String?
+  modelCid               String? // modèle entraîné chiffré, produit avant le règlement
+  attestationHash        String? // hash(attestation + résultat) gravé on-chain
+  attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)
+  attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
+  attestationComposeHash String? // compose_hash lié à l'event-log
+  runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
+  settleTxHash           String? // EscrowFinish
+  auditTxHash            String? // reçu d'audit signé depuis le runner isolé
+  cancelTxHash           String? // EscrowCancel confirmé après expiration
+
+  status    LoanStatus @default(PENDING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  settledAt DateTime?
+
+  keyGrants KeyGrant[]
+
+  @@index([datasetId])
+  @@index([borrower])
+  @@index([status])
+  @@index([provider, status])
+  @@index([borrower, status])
+}
+
+/// Octroi de la clé de déchiffrement au TEE pour un job donné.
+model KeyGrant {
+  id        String         @id @default(cuid())
+  datasetId String
+  dataset   Dataset        @relation(fields: [datasetId], references: [id])
+  loanId    String?
+  loan      Loan?          @relation(fields: [loanId], references: [id])
+  grantee   String // destinataire (enclave TEE)
+  keyRef    String // référence vers le key-store (jamais la clé en clair)
+  status    KeyGrantStatus @default(PENDING)
+  createdAt DateTime       @default(now())
+  revokedAt DateTime?
+
+  @@index([datasetId])
+  @@index([loanId])
+}
+
+/// KYB via Credentials (XLS-70) + rattachement Permissioned Domain (XLS-80).
+model Credential {
+  id               String           @id @default(cuid())
+  subject          String // adresse XRPL du sujet
+  credType         String // type de credential (ex: "KYB")
+  issuer           String // adresse XRPL de l'émetteur
+  domainId         String? // Permissioned Domain de rattachement
+  txHash           String?
+  acceptTxBlob     String? // blob CredentialAccept signé, conservé pendant la réconciliation
+  acceptLastLedger Int?
+  status           CredentialStatus @default(PENDING)
+  createdAt        DateTime         @default(now())
+  acceptedAt       DateTime?
+
+  @@unique([subject, credType])
+  @@index([subject])
+}
+
+/// Nonce d'authentification consommable une seule fois.
+model AuthChallenge {
+  nonce     String   @id
+  address   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+/// Grant P-256 de mutation consommé une fois, persistant entre les redémarrages Next.
+model MutationGrant {
+  nonce     String   @id
+  address   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+/// Réputation dérivée des events on-chain (calcul léger au MVP).
+model Reputation {
+  id             String          @id @default(cuid())
+  address        String
+  role           ParticipantRole
+  score          Float           @default(0)
+  completedLoans Int             @default(0)
+  disputes       Int             @default(0)
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([address, role])
+}
+
+enum DatasetStatus {
+  DRAFT // métadonnées créées, pas encore on-chain
+  LISTING // publication MPT en cours ou à réconcilier
+  LISTED // « Public » : MPT minté, visible marketplace, empruntable
+  UNLISTED // « Semi-privé » : hors catalogue, empruntable par lien direct
+  PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
+  SUSPENDED
+  DELETED // crypto-shreddé : clé détruite, data irrécupérable ; ligne gardée pour l'audit
+}
+
+enum LoanStatus {
+  PENDING // créé, escrow pas encore posé
+  SUBMITTING // EscrowCreate signé, soumission ou réconciliation en cours
+  ESCROWED // EscrowCreate confirmé, fonds bloqués
+  TRAINING // job en cours ou capsule prête avant règlement
+  SETTLING // EscrowFinish soumis ou à réconcilier
+  SETTLED // EscrowFinish validé, capsule déverrouillable
+  CANCELLED // réservation abandonnée ou EscrowCancel confirmé
+}
+
+enum TrainingStatus {
+  PENDING // job créé
+  RUNNING // calcul TEE en cours
+  DONE // modèle livré
+  FAILED // échec du calcul
+}
+
+enum KeyGrantStatus {
+  PENDING
+  GRANTED
+  REVOKED
+}
+
+enum CredentialStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
+enum ParticipantRole {
+  PROVIDER
+  BORROWER
+}

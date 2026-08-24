@@ -1,0 +1,2 @@
+ALTER TABLE "Loan" ADD COLUMN "escrowTxBlob" TEXT;
+ALTER TABLE "Loan" ADD COLUMN "escrowLastLedger" INTEGER;

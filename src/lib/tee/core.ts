@@ -1,0 +1,282 @@
+import "server-only";
+import { createHash } from "node:crypto";
+import { PreimageSha256 } from "five-bells-condition";
+import {
+  decrypt,
+  encrypt,
+  generateKey,
+  wrapKey,
+  unwrapKey,
+  deriveKey,
+  getMasterKey,
+  encodeKey,
+  type EncryptedPayload,
+} from "@/lib/crypto/encryption";
+import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/merkle";
+import { computeMetrics } from "@/lib/sirius/metrics";
+import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
+import { trainLinearRegression } from "./train";
+import { gateModel } from "./output-gate";
+import { attest } from "./attestation";
+import { decryptDatasetIngress } from "./ingress";
+import { evmEscrowBinding } from "./evm-binding";
+import { canonicalSubject } from "@/lib/subject";
+import { AppError } from "@/lib/app-error";
+import type {
+  DatasetIngressEnvelope,
+  DatasetRef,
+  TrainingInput,
+  SelfTrainingInput,
+  LoanJobInput,
+  SealDatasetResult,
+  EscrowCondition,
+  EvmEscrowLock,
+} from "./contract";
+import type { LoanJobResult } from "./types";
+
+/**
+ * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
+ * le plaintext des datasets, les DEK et le fulfillment. Prend des inputs explicites → sera
+ * exposé tel quel par le service runner isolé (inc.3d-B). Le Next l'appelle (in-process au
+ * MVP, via HTTP en CVM) mais ne voit jamais ces secrets.
+ */
+
+// Contextes de dérivation (couplés à la master key enclave, versionnés pour rotation). Privés
+// sauf selfTrainKeyContext (le contexte de chiffrement d'un self-train, choisi par l'appelant
+// in-process). AUCUN contexte n'est exposé à un primitive de dérivation à contexte libre : la
+// lecture de clé passe par les fonctions scopées loanModelKey/selfTrainModelKey (cf audit B.2).
+const datasetKeyContext = (datasetId: string) => `wrap:dataset:v1:${datasetId}`;
+
+// `canonicalSubject` est indispensable ici, pas cosmétique : la clé du modèle est
+// dérivée une fois au calcul et **redérivée** à chaque livraison. Une adresse EVM
+// écrite en EIP-55 d'un côté et en minuscules de l'autre produirait deux clés, donc
+// un modèle définitivement indéchiffrable — sans aucune erreur explicite, seulement
+// un échec d'authentification AES-GCM. Les adresses XRPL, en base58, sont laissées
+// intactes : leur casse porte du sens.
+const modelKeyContext = (loanId: string, borrower: string) =>
+  `model:loan:${canonicalSubject(borrower)}:${loanId}`;
+export const selfTrainKeyContext = (jobId: string, owner: string) =>
+  `model:selftrain:${canonicalSubject(owner)}:${jobId}`;
+const escrowKeyContext = (loanId: string, borrower: string) => `escrow:${borrower}:${loanId}`;
+
+/**
+ * Contexte du préimage sur le rail EVM. Trois différences avec le contexte XRPL
+ * ci-dessus, toutes délibérées.
+ *
+ * 1. Il inclut le **chainId et l'adresse du contrat**. Sans eux, le même couple
+ *    (borrower, loanId) produit le même secret sur deux déploiements ou deux
+ *    chaînes — et comme c'est le préimage qui verrouille la capsule du modèle,
+ *    en publier un sur la chaîne bon marché ouvrirait la capsule de l'autre.
+ *    Ces deux valeurs viennent de la configuration du runner, jamais de l'appelant.
+ *
+ * 2. Le `borrower` est **normalisé en minuscules**. Une adresse EVM s'écrit en
+ *    casse mixte ; deux écritures du même compte donneraient deux préimages, donc
+ *    une capsule inouvrable.
+ *
+ * 3. La concaténation est **non ambiguë** : `chainId` est un entier, `escrow` et
+ *    `borrower` sont des adresses de longueur fixe validées, et le seul champ de
+ *    longueur libre — `loanId` — est en dernière position. Aucun découpage
+ *    alternatif ne peut donc produire la même chaîne.
+ */
+function evmSubject(borrower: string): string {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(borrower)) throw new AppError("Adresse borrower invalide", 400);
+  return borrower.toLowerCase();
+}
+
+const evmEscrowKeyContext = (loanId: string, borrower: string) => {
+  const { chainId, escrow } = evmEscrowBinding();
+  return `escrow:v2:${chainId}:${escrow}:${evmSubject(borrower)}:${loanId}`;
+};
+
+/**
+ * Contexte de la clé du **modèle** sur le rail EVM, séparé par les mêmes facteurs.
+ *
+ * Séparer le seul préimage d'escrow ne suffisait pas : cela verrouille le cadenas,
+ * pas le contenu. La clé du modèle chiffre le blob déposé sur IPFS, et elle était
+ * dérivée de `model:loan:<borrower>:<loanId>` — donc identique sur deux déploiements.
+ * Un emprunteur pouvait obtenir cette clé au terme d'un prêt bon marché, puis s'en
+ * servir pour déchiffrer le modèle d'un prêt homonyme ailleurs, sans jamais payer.
+ */
+const evmModelKeyContext = (loanId: string, borrower: string) => {
+  const { chainId, escrow } = evmEscrowBinding();
+  return `model:loan:v2:${chainId}:${escrow}:${evmSubject(borrower)}:${loanId}`;
+};
+
+/**
+ * Scelle un dataset (upload provider) : Merkle + métriques sur le plaintext → DEK aléatoire →
+ * AES-256-GCM → IPFS. La DEK est renvoyée UNIQUEMENT wrappée (destructible, crypto-shredding).
+ */
+export async function sealDataset(datasetId: string, content: Buffer): Promise<SealDatasetResult> {
+  const tree = buildMerkleTree(content);
+  const metrics = computeMetrics(content);
+  const dek = generateKey();
+  const payload = encrypt(content, dek);
+  // Wrap avant l'upload : si la clé enclave manque, on échoue sans pinner un blob orphelin.
+  const wrappedKey = wrapKey(dek, datasetKeyContext(datasetId));
+  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), `${datasetId}.enc`);
+  return { cid, wrappedKey, merkleRoot: tree.root, metrics, sizeBytes: content.length };
+}
+
+export async function sealDatasetEnvelope(
+  datasetId: string,
+  envelope: DatasetIngressEnvelope,
+  expectedSizeBytes: number,
+): Promise<SealDatasetResult> {
+  const content = decryptDatasetIngress(datasetId, envelope);
+  if (content.length !== expectedSizeBytes) {
+    throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
+  }
+  return sealDataset(datasetId, content);
+}
+
+/** Déchiffre un dataset « en enclave » + vérifie l'intégrité Merkle. Le plaintext ne sort jamais. */
+async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef): Promise<Buffer> {
+  const blob = await fetchFromIpfs(cid);
+  const payload = JSON.parse(blob.toString()) as EncryptedPayload;
+  const plaintext = decrypt(payload, unwrapKey(wrappedKey, datasetKeyContext(datasetId)));
+  if (!verifyRoot(plaintext, merkleRoot, DEFAULT_CHUNK_SIZE)) {
+    throw new Error(`Intégrité Merkle invalide pour ${datasetId}`);
+  }
+  return plaintext;
+}
+
+/** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
+async function trainAndSeal(input: TrainingInput) {
+  const plaintext = await decryptDataset(input);
+  const model = trainLinearRegression(plaintext);
+  const { model: gated, buffer } = gateModel(model);
+  const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
+  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
+  return { modelCid: cid, model: gated };
+}
+
+/** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */
+export async function runTraining(input: TrainingInput): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+  const { modelCid, model } = await trainAndSeal(input);
+  return { modelCid, metrics: model.metrics };
+}
+
+/** Self-train : les contextes de livraison sont reconstruits dans le runner. */
+export async function runSelfTraining(
+  input: SelfTrainingInput,
+): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+  return runTraining({
+    ...input,
+    keyContext: selfTrainKeyContext(input.jobId, input.owner),
+    filename: `${input.jobId}.model.enc`,
+  });
+}
+
+/**
+ * Job d'emprunt : entraînement + attestation + préparation interne du fulfillment. Le secret
+ * reste dans le runner ; il sert à verrouiller la capsule puis à régler l'escrow.
+ */
+export async function runLoanJob(input: LoanJobInput): Promise<LoanJobResult> {
+  // Le contexte de clé inclut borrower + loanId vérifiés par le runner : aucune collision
+  // inter-tenant ne permet de redériver la clé d'un autre emprunt.
+  const { modelCid, model } = await trainAndSeal({
+    ...input,
+    keyContext: modelKeyContext(input.loanId, input.borrower),
+    filename: `${input.loanId}.model.enc`,
+  });
+  const payloadHash = createHash("sha256")
+    .update(modelCid)
+    .update(input.merkleRoot)
+    .update(input.loanId)
+    .update(input.borrower)
+    .digest("hex");
+  const attestation = attest(payloadHash);
+  const resultHash = createHash("sha256").update(payloadHash).update(attestation.signature).digest("hex");
+  const { conditionHex, fulfillmentHex } = escrowRelease(input.loanId, input.borrower);
+  return { modelCid, metrics: model.metrics, resultHash, attestation, conditionHex, fulfillmentHex };
+}
+
+// Dérive une clé de livraison (base64). PRIVÉ : jamais exposé avec un contexte libre (= oracle
+// universel sur la master key). Les seules clés dérivables de l'extérieur sont les livrables ↓.
+function deliveryKey(keyContext: string): string {
+  return encodeKey(deriveKey(getMasterKey(), keyContext));
+}
+
+/** Clé (base64) du modèle d'un emprunt — livrée au borrower post-règlement (contexte reconstruit ici). */
+export function loanModelKey(loanId: string, borrower: string): string {
+  return deliveryKey(modelKeyContext(loanId, borrower));
+}
+
+/** Clé (base64) du modèle d'un self-train — livrée au propriétaire (contexte reconstruit ici). */
+export function selfTrainModelKey(jobId: string, owner: string): string {
+  return deliveryKey(selfTrainKeyContext(jobId, owner));
+}
+
+/**
+ * Crypto-condition PREIMAGE-SHA-256 d'un escrow, dérivée de la master key (HKDF, contexte =
+ * borrower + loanId). Le fulfillment n'est jamais stocké : régénéré au release (révélé on-chain par
+ * l'EscrowFinish). Dérivé DANS l'enclave en mode phala → 2ᵉ trou non-custodial D-17 fermé.
+ * Interne au runner : il verrouille la capsule après un job réussi, puis n'est publié que
+ * dans l'EscrowFinish soumis par le runner.
+ */
+function escrowFulfillment(loanId: string, borrower: string): PreimageSha256 {
+  const f = new PreimageSha256();
+  f.setPreimage(deriveKey(getMasterKey(), escrowKeyContext(loanId, borrower)));
+  return f;
+}
+
+export function escrowRelease(loanId: string, borrower: string): EscrowCondition {
+  const f = escrowFulfillment(loanId, borrower);
+  return {
+    conditionHex: f.getConditionBinary().toString("hex").toUpperCase(),
+    fulfillmentHex: f.serializeBinary().toString("hex").toUpperCase(),
+  };
+}
+
+/** Condition d'escrow PUBLIQUE (sans sérialiser le fulfillment) — pour l'EscrowCreate au prepareLoan. */
+export function escrowConditionPublic(loanId: string, borrower: string): string {
+  return escrowFulfillment(loanId, borrower).getConditionBinary().toString("hex").toUpperCase();
+}
+
+// ---------------------------------------------------------------------------------
+// Rail EVM
+// ---------------------------------------------------------------------------------
+
+/**
+ * Verrou d'escrow sur le rail EVM : un préimage de 32 octets et son empreinte SHA-256.
+ *
+ * Plus d'enveloppe DER. Sur XRPL, `five-bells-condition` sérialisait la condition et
+ * le fulfillment dans un format normalisé ; le contrat Solidity, lui, compare
+ * simplement `sha256(preimage)` au hashlock, et `release()` publie le préimage brut.
+ * Le calcul du secret ne change pas — c'est toujours la même dérivation depuis la
+ * master key scellée — seule son emballage disparaît.
+ */
+export function escrowLock(loanId: string, borrower: string): EvmEscrowLock {
+  const preimage = deriveKey(getMasterKey(), evmEscrowKeyContext(loanId, borrower));
+  return {
+    preimage: `0x${preimage.toString("hex")}`,
+    hashlock: `0x${createHash("sha256").update(preimage).digest("hex")}`,
+  };
+}
+
+/** Hashlock seul, pour le `lock()` que le borrower signe — le secret ne sort pas. */
+export function escrowHashlock(loanId: string, borrower: string): `0x${string}` {
+  return escrowLock(loanId, borrower).hashlock;
+}
+
+/**
+ * Clé (base64) du modèle d'un emprunt sur le rail EVM, livrée au borrower après
+ * règlement. Le contexte est reconstruit ici depuis l'identifiant, jamais fourni par
+ * l'appelant — même règle que `loanModelKey` sur le rail historique.
+ */
+export function evmLoanModelKey(loanId: string, borrower: string): string {
+  return deliveryKey(evmModelKeyContext(loanId, borrower));
+}
+
+/** Chiffre le modèle d'un emprunt EVM sous une clé liée à la chaîne et au contrat. */
+export async function runEvmLoanJob(input: LoanJobInput): Promise<{
+  modelCid: string;
+  metrics: Record<string, number>;
+}> {
+  const { modelCid, model } = await trainAndSeal({
+    ...input,
+    keyContext: evmModelKeyContext(input.loanId, input.borrower),
+    filename: `${input.loanId}.model.enc`,
+  });
+  return { modelCid, metrics: model.metrics };
+}

@@ -1,0 +1,25 @@
+allowBuilds:
+  '@prisma/engines': true
+  better-sqlite3: true
+  ed25519: false
+  esbuild: true
+  keccak: false
+  prisma: true
+  protobufjs: false
+  secp256k1: false
+  sharp: true
+  tiny-secp256k1: false
+  unrs-resolver: true
+patchedDependencies:
+  '@web3auth/no-modal@11.2.0': patches/@web3auth__no-modal.patch
+overrides:
+  # @phala/dstack-sdk 0.5.8 exige @noble/hashes@^1.6.1 (subpaths /sha256 /sha512), mais le
+  # projet embarque la v2 (subpaths renommés) → épingle l'arête du SDK sur la 1.x compatible.
+  '@phala/dstack-sdk>@noble/hashes': '1.8.0'
+  '@segment/analytics-next>js-cookie': '3.0.7'
+  '@prisma/dev>@hono/node-server': '1.19.13'
+  'fast-uri@>=3.0.0 <3.1.4': '3.1.4'
+  'next>sharp': '0.35.3'
+  'postcss@>=8.0.0 <8.5.18': '8.5.18'
+  'protobufjs@>=7.5.0 <7.6.5': '7.6.5'
+  'ws@>=8.0.0 <8.21.0': '8.21.0'

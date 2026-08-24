@@ -1,0 +1,90 @@
+diff --git a/dist/lib.cjs/noModal.js b/dist/lib.cjs/noModal.js
+index 6f101df4b5fb0c27738e093b5a58d7a404a49f4c..0570cc151a39a501436d82f3fd67cd3543beddd1 100644
+--- a/dist/lib.cjs/noModal.js
++++ b/dist/lib.cjs/noModal.js
+@@ -883,7 +883,11 @@ class Web3AuthNoModal extends auth.SafeEventEmitter {
+       plugins
+     } = this.coreOptions;
+     const pluginFns = plugins || [];
+-    const isWsSupportedChain = chains.some(x => x.chainNamespace === baseControllers.CHAIN_NAMESPACES.EIP155 || x.chainNamespace === baseControllers.CHAIN_NAMESPACES.SOLANA);
++    // Patch Sirius : n'enregistrer le WalletServices plugin que si la chaîne ACTIVE
++    // le supporte (EIP155/SOLANA), pas juste une chaîne EVM injectée par le dashboard.
++    // Sinon, sur XRPL, le plugin s'enregistre puis crashe à la connexion ("not initialized").
++    const _siriusActiveChain = chains.find(x => x.chainId === this.coreOptions.defaultChainId) || chains[0];
++    const isWsSupportedChain = !!_siriusActiveChain && (_siriusActiveChain.chainNamespace === baseControllers.CHAIN_NAMESPACES.EIP155 || _siriusActiveChain.chainNamespace === baseControllers.CHAIN_NAMESPACES.SOLANA);
+     if (isWsSupportedChain) {
+       pluginFns.push(plugin.walletServicesPlugin());
+     }
+diff --git a/dist/lib.cjs/plugins/wallet-services-plugin/plugin.js b/dist/lib.cjs/plugins/wallet-services-plugin/plugin.js
+index e003fc7604b6ff995d1194bd17daacf872649b8b..3f189ce840978b124ac7036a61e62f11c8dc4188 100644
+--- a/dist/lib.cjs/plugins/wallet-services-plugin/plugin.js
++++ b/dist/lib.cjs/plugins/wallet-services-plugin/plugin.js
+@@ -35,7 +35,7 @@ class WalletServicesPlugin extends auth.SafeEventEmitter {
+     if (!web3auth) throw errors.WalletServicesPluginError.web3authRequired();
+     if (web3auth.connection && !this.SUPPORTED_CONNECTORS.includes(web3auth.primaryConnectorName)) throw errors.WalletServicesPluginError.notInitialized();
+     const currentChainConfig = web3auth.currentChain;
+-    if (![baseControllers.CHAIN_NAMESPACES.EIP155, baseControllers.CHAIN_NAMESPACES.SOLANA].includes(currentChainConfig === null || currentChainConfig === void 0 ? void 0 : currentChainConfig.chainNamespace)) throw errors.WalletServicesPluginError.unsupportedChainNamespace();
++    if (![baseControllers.CHAIN_NAMESPACES.EIP155, baseControllers.CHAIN_NAMESPACES.SOLANA].includes(currentChainConfig === null || currentChainConfig === void 0 ? void 0 : currentChainConfig.chainNamespace)) return; // Patch Sirius : plugin WalletServices inutilisé sur XRPL — no-op au lieu de throw (chargé à tort si le projet dashboard a des chaînes EVM par défaut)
+     this.web3auth = web3auth;
+     this.analytics = analytics;
+     // Auth connector uses WS embed
+diff --git a/dist/lib.cjs/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js b/dist/lib.cjs/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
+index 0961668d87badffbee58d58528d1c4fa3e9f130f..6e46049eefe26e1b026ccbe22309aec19965dbd9 100644
+--- a/dist/lib.cjs/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
++++ b/dist/lib.cjs/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
+@@ -20,7 +20,9 @@ function createRequestIdNormalizerMiddleware() {
+     request,
+     next
+   }) => {
+-    request.id = baseControllers.randomId();
++    // Patch Sirius : JRPCEngineV2 gèle la requête ET interdit toute modif de `id`
++    // (deepFreeze + _assertValidNextRequest) → ce normaliseur crashe. Ops locales
++    // (getAccounts/sign) ; le réseau XRPL passe par notre propre xrpl.Client.
+     return next(request);
+   };
+ }
+diff --git a/dist/lib.esm/noModal.js b/dist/lib.esm/noModal.js
+index c350b6db9d3d25bccda18f39f9aaa02ae2db5d4b..fa7c0f91aa18178b130aa0c74d2494c5902467dd 100644
+--- a/dist/lib.esm/noModal.js
++++ b/dist/lib.esm/noModal.js
+@@ -899,7 +899,11 @@ class Web3AuthNoModal extends SafeEventEmitter {
+       plugins
+     } = this.coreOptions;
+     const pluginFns = plugins || [];
+-    const isWsSupportedChain = chains.some(x => x.chainNamespace === CHAIN_NAMESPACES.EIP155 || x.chainNamespace === CHAIN_NAMESPACES.SOLANA);
++    // Patch Sirius : n'enregistrer le WalletServices plugin que si la chaîne ACTIVE
++    // le supporte (EIP155/SOLANA), pas juste une chaîne EVM injectée par le dashboard.
++    // Sinon, sur XRPL, le plugin s'enregistre puis crashe à la connexion ("not initialized").
++    const _siriusActiveChain = chains.find(x => x.chainId === this.coreOptions.defaultChainId) || chains[0];
++    const isWsSupportedChain = !!_siriusActiveChain && (_siriusActiveChain.chainNamespace === CHAIN_NAMESPACES.EIP155 || _siriusActiveChain.chainNamespace === CHAIN_NAMESPACES.SOLANA);
+     if (isWsSupportedChain) {
+       pluginFns.push(walletServicesPlugin());
+     }
+diff --git a/dist/lib.esm/plugins/wallet-services-plugin/plugin.js b/dist/lib.esm/plugins/wallet-services-plugin/plugin.js
+index 9b7d91a50bdf3363155e88b4efa244e70f8240c3..4705eb113c19ab4e17d35002e7fb3f6a809dabc4 100644
+--- a/dist/lib.esm/plugins/wallet-services-plugin/plugin.js
++++ b/dist/lib.esm/plugins/wallet-services-plugin/plugin.js
+@@ -26,7 +26,7 @@ class WalletServicesPlugin extends SafeEventEmitter {
+     if (!web3auth) throw WalletServicesPluginError.web3authRequired();
+     if (web3auth.connection && !this.SUPPORTED_CONNECTORS.includes(web3auth.primaryConnectorName)) throw WalletServicesPluginError.notInitialized();
+     const currentChainConfig = web3auth.currentChain;
+-    if (![CHAIN_NAMESPACES.EIP155, CHAIN_NAMESPACES.SOLANA].includes(currentChainConfig === null || currentChainConfig === void 0 ? void 0 : currentChainConfig.chainNamespace)) throw WalletServicesPluginError.unsupportedChainNamespace();
++    if (![CHAIN_NAMESPACES.EIP155, CHAIN_NAMESPACES.SOLANA].includes(currentChainConfig === null || currentChainConfig === void 0 ? void 0 : currentChainConfig.chainNamespace)) return; // Patch Sirius : plugin WalletServices inutilisé sur XRPL — no-op au lieu de throw (chargé à tort si le projet dashboard a des chaînes EVM par défaut)
+     this.web3auth = web3auth;
+     this.analytics = analytics;
+ 
+diff --git a/dist/lib.esm/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js b/dist/lib.esm/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
+index be5e968a9887c7687b2db71e5fab3208b7c0539d..2a4fab7ebac1813b18c6ac1fd151c6a7e5606bb1 100644
+--- a/dist/lib.esm/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
++++ b/dist/lib.esm/providers/xrpl-provider/rpc/xrplRpcMiddlewares.js
+@@ -18,7 +18,9 @@ function createRequestIdNormalizerMiddleware() {
+     request,
+     next
+   }) => {
+-    request.id = randomId();
++    // Patch Sirius : JRPCEngineV2 gèle la requête ET interdit toute modif de `id`
++    // (deepFreeze + _assertValidNextRequest) → ce normaliseur crashe. Ops locales
++    // (getAccounts/sign) ; le réseau XRPL passe par notre propre xrpl.Client.
+     return next(request);
+   };
+ }
