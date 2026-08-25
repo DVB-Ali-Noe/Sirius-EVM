@@ -1,3 +1,0 @@
-ALTER TABLE "Dataset" ADD COLUMN "mptTxHash" TEXT;
-ALTER TABLE "Dataset" ADD COLUMN "mptTxBlob" TEXT;
-ALTER TABLE "Dataset" ADD COLUMN "mptLastLedger" INTEGER;

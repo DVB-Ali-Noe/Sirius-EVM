@@ -1,10 +1,20 @@
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL manquante");
 
-const adapter = new PrismaBetterSqlite3({ url });
+// Adaptateur Postgres générique plutôt que celui propre à Neon : le même code sert
+// à la base managée derrière Vercel et à un Postgres rapatrié sur le VPS, sans que
+// le choix d'hébergement se retrouve figé dans l'application.
+//
+// La taille du pool est volontairement basse. L'application tourne en serverless :
+// chaque instance froide ouvre son propre pool, et une valeur généreuse par instance
+// épuise les connexions de la base bien avant d'être utile.
+const adapter = new PrismaPg({
+  connectionString: url,
+  max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+});
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

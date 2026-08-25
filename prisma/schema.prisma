@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 /// Dataset déposé par un provider : chiffré sur IPFS et ancré on-chain.
@@ -24,7 +24,7 @@ model Dataset {
   wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
-  priceUsdcAtomic String // prix en unités atomiques USDC (6 décimales)
+  priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
   challengeDays  Int           @default(7) // délai avant remboursement possible
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
