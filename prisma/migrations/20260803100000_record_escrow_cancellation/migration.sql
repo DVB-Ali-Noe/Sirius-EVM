@@ -1,1 +1,0 @@
-ALTER TABLE "Loan" ADD COLUMN "cancelTxHash" TEXT;

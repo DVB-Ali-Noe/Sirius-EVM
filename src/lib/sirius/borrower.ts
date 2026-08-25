@@ -10,7 +10,7 @@ import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
 import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
-import { requireAcceptedKyb } from "./access";
+import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 
 const PENDING_LOAN_TTL_MS = 10 * 60_000;
@@ -31,6 +31,9 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
+  // Le contrat exige les deux KYB. Sans ce contrôle, l'échec surviendrait après
+  // que l'emprunteur a signé et payé l'approbation USDC.
+  await requireCounterpartyKyb(dataset.provider, "fournisseur");
 
   const live = await getPublicClient().readContract({
     address: datasetRegistryAddress(),

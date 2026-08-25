@@ -28,6 +28,40 @@ function cleanupDirectory(directory: string, now: number): void {
   }
 }
 
+/**
+ * Force l'écriture de l'entrée de répertoire sur le disque.
+ *
+ * POSIX impose un `fsync` du répertoire pour qu'une création de fichier survive à une
+ * coupure d'alimentation : sans lui, le contenu peut être sur le disque alors que
+ * l'entrée qui le nomme est perdue. Windows n'expose pas cette opération — y ouvrir un
+ * répertoire pour le synchroniser échoue avec `EPERM`.
+ *
+ * L'étanchéité de l'anti-rejeu ne repose pas sur ce `fsync` : elle vient du drapeau
+ * `wx`, dont l'atomicité est garantie par le système de fichiers. Ce qu'on perd sous
+ * Windows est donc la seule durabilité après coupure brutale, sur une plateforme qui
+ * ne sert qu'au développement — la production tourne sous Linux, dans l'enclave.
+ *
+ * L'échec n'est toléré que là où l'opération n'existe pas. Ailleurs il remonte, car il
+ * signalerait une vraie perte de durabilité.
+ */
+function syncDirectory(directory: string): void {
+  const tolerable = process.platform === "win32";
+  let descriptor: number;
+  try {
+    descriptor = openSync(directory, "r");
+  } catch (error) {
+    if (tolerable) return;
+    throw error;
+  }
+  try {
+    fsyncSync(descriptor);
+  } catch (error) {
+    if (!tolerable) throw error;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 export function consumeRunnerReplay(namespace: "capability" | "grant", id: string, expiresAt: number): boolean {
   const now = Date.now();
   if (
@@ -62,12 +96,7 @@ export function consumeRunnerReplay(namespace: "capability" | "grant", id: strin
     } finally {
       closeSync(descriptor);
     }
-    const directoryDescriptor = openSync(directory, "r");
-    try {
-      fsyncSync(directoryDescriptor);
-    } finally {
-      closeSync(directoryDescriptor);
-    }
+    syncDirectory(directory);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;

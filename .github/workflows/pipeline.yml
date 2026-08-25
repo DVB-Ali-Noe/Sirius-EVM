@@ -1,0 +1,191 @@
+# Pipeline unique : vérifier, puis migrer, puis déployer.
+#
+# Tout part d'ici, rien ne se déploie à la main. Vercel passe par la CLI plutôt que
+# par son intégration Git automatique, pour une raison précise : l'intégration déploie
+# sur chaque poussée, y compris quand les tests échouent. Ici le déploiement est un
+# `needs:` — il n'existe pas tant que la vérification n'est pas verte.
+#
+# Ce que le pipeline ne fait PAS, volontairement : déployer les contrats, et mettre à
+# jour la CVM Phala. Voir la section 6 du plan de déploiement — ces deux gestes changent
+# une identité que l'application épingle, et doivent rester une décision humaine.
+
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Une poussée qui en suit une autre annule la précédente : inutile de déployer un
+  # commit déjà dépassé, et deux déploiements concurrents sur le même VPS se marchent
+  # dessus. En revanche on ne coupe jamais un déploiement déjà commencé sur main.
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # `prisma generate` lit cette variable sans jamais s'y connecter. Une valeur factice
+  # suffit donc, et évite d'exposer la vraie base à un job qui n'en a pas besoin.
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+
+jobs:
+  verify:
+    name: Vérification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Activer pnpm
+        run: corepack enable
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Installer
+        run: pnpm install --frozen-lockfile
+
+      - name: Typage
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Tests applicatifs
+        run: pnpm test
+
+      - name: Tests des contrats
+        run: pnpm contracts:test
+
+      # Le build est la dernière barrière : il attrape ce qu'aucun test unitaire ne
+      # voit, par exemple un module serveur importé par un composant client.
+      - name: Build
+        run: pnpm build
+
+  image:
+    name: Image du worker
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire et publier
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/sirius-worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  migrate:
+    name: Migrations
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - name: Installer
+        run: pnpm install --frozen-lockfile
+
+      # `migrate deploy` n'applique que les migrations déjà écrites et ne génère rien.
+      # Il tourne avant le déploiement du code : une migration additive laisse l'ancienne
+      # version fonctionner, l'inverse casserait le service entre les deux étapes.
+      - name: Appliquer les migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm exec prisma migrate deploy
+
+  vercel:
+    name: Front Vercel
+    needs: [verify, migrate]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Déployer
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+  vps:
+    name: Reaper sur le VPS
+    needs: [image, migrate]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Déployer par SSH
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # L'empreinte de l'hôte est épinglée plutôt que découverte : un
+          # `StrictHostKeyChecking=no` accepterait n'importe quelle machine se
+          # présentant à cette adresse, y compris pendant un détournement DNS.
+          printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          scp deploy/vps/compose.yaml \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/sirius/compose.yaml"
+
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<EOF
+          set -euo pipefail
+          cd /opt/sirius
+          # L'image est épinglée par digest : ce qui redémarre est exactement ce que
+          # ce commit a produit, pas ce qu'un tag mutable désignera plus tard.
+          sed -i "s|^SIRIUS_WORKER_IMAGE=.*|SIRIUS_WORKER_IMAGE=\"ghcr.io/${OWNER}/sirius-worker@${DIGEST}\"|" .env.vps
+          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # Le VPS héberge d'autres projets. Le nom de projet est explicite pour que
+          # Compose ne touche qu'aux conteneurs Sirius, et aucun élagage global n'est
+          # lancé : « docker image prune » supprimerait les images pendantes des autres
+          # projets, ce qui n'est pas à nous de décider.
+          docker compose -p sirius --env-file .env.vps up --detach --pull always
+          EOF
+
+      - name: Vérifier que le reaper tourne
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            'cd /opt/sirius && sleep 5 && docker compose -p sirius ps --format "{{.Service}} {{.State}}" | grep -q "reaper running"'

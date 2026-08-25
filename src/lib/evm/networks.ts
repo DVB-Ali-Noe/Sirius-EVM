@@ -58,6 +58,23 @@ export const EVM_CHAIN_IDS: Record<EvmNetwork, number> = {
   testnet: robinhoodTestnet.id,
 };
 
+/**
+ * Précision du contrat USDC de chaque réseau.
+ *
+ * Ce n'est pas une convention universelle : le contrat vérifié du testnet
+ * Robinhood expose 18 décimales, là où l'USDC de référence en expose 6. Une
+ * valeur fausse ici ne lève aucune erreur — elle décale silencieusement tous les
+ * montants d'un facteur de puissance de dix, et rend les prêts gratuits.
+ *
+ * `contracts/scripts/deploy.ts` lit `decimals()` on-chain et refuse de déployer
+ * si la valeur ne correspond pas à celle déclarée ici. C'est ce contrôle, et non
+ * cette table, qui fait autorité.
+ */
+export const USDC_DECIMALS_BY_NETWORK: Record<EvmNetwork, number> = {
+  mainnet: 6,
+  testnet: 18,
+};
+
 function parseNetwork(raw: string, variable: string): EvmNetwork {
   if (raw !== "mainnet" && raw !== "testnet") {
     throw new Error(`${variable} invalide: "${raw}" (attendu: mainnet, testnet)`);
@@ -80,4 +97,24 @@ export function resolveClientNetwork(): EvmNetwork {
 
 export function chainForNetwork(network: EvmNetwork): Chain {
   return EVM_CHAINS[network];
+}
+
+/**
+ * Précision du jeton de règlement, résolue dans les deux contextes d'exécution.
+ *
+ * `usdc.ts` est importé aussi bien par les écrans que par le runner : il ne peut
+ * donc dépendre d'aucun des deux résolveurs ci-dessus. `EVM_NETWORK` n'est pas
+ * inlinée dans le bundle navigateur, où la valeur publique prend le relais ;
+ * côté serveur la variable privée l'emporte, pour qu'une valeur publique oubliée
+ * ne puisse pas contredire la configuration serveur.
+ */
+export function resolveUsdcDecimals(): number {
+  const server = process.env.EVM_NETWORK?.trim();
+  const client = process.env.NEXT_PUBLIC_EVM_NETWORK?.trim();
+  const network = server
+    ? parseNetwork(server, "EVM_NETWORK")
+    : client
+      ? parseNetwork(client, "NEXT_PUBLIC_EVM_NETWORK")
+      : "testnet";
+  return USDC_DECIMALS_BY_NETWORK[network];
 }

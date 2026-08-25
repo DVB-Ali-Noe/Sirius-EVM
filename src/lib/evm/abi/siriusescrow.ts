@@ -153,6 +153,17 @@ export const siriusescrowAbi = [
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "tokenDecimals",
+        "type": "uint8"
+      }
+    ],
+    "name": "UnsupportedUsdcDecimals",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ZeroAddress",
     "type": "error"

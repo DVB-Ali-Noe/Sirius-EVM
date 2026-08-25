@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {SiriusKybRegistry} from "./SiriusKybRegistry.sol";
 
 interface IERC20 {
+    function decimals() external view returns (uint8);
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
@@ -29,7 +30,12 @@ contract SiriusEscrow {
     bytes32 public constant LOAN_KEY_DOMAIN = keccak256("sirius.escrow.loanKey.v1");
     uint8 public constant MIN_CHALLENGE_DAYS = 1;
     uint8 public constant MAX_CHALLENGE_DAYS = 30;
-    uint256 public constant MIN_AMOUNT = 1_000;
+    /// @notice Smallest lockable amount: 0.001 token, derived from the token's own precision.
+    /// @dev Kept in this casing because it is part of the published ABI. It cannot be a
+    /// constant: USDC exposes 6 decimals on some networks and 18 on others, so a literal
+    /// would mean a dust floor on one network and a fortune on the other — with no error
+    /// raised either way.
+    uint256 public immutable MIN_AMOUNT;
     uint256 internal constant MAX_AMOUNT = type(uint96).max;
     bytes32 internal constant ZERO_PREIMAGE_HASH =
         0x66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925;
@@ -68,6 +74,7 @@ contract SiriusEscrow {
     error Reentrancy();
     error ZeroAddress();
     error InvalidUsdcContract();
+    error UnsupportedUsdcDecimals(uint8 tokenDecimals);
     error ZeroAmount();
     error AmountTooSmall();
     error AmountOverflow();
@@ -98,6 +105,13 @@ contract SiriusEscrow {
         if (address(usdc_) == address(0)) revert ZeroAddress();
         if (address(usdc_).code.length == 0) revert InvalidUsdcContract();
         if (address(kyb_) == address(0)) revert ZeroAddress();
+
+        // The floor follows the token, not the chain. Reading decimals() here also proves
+        // the address answers like an ERC-20 before a single loan can exist.
+        uint8 tokenDecimals = usdc_.decimals();
+        if (tokenDecimals < 3 || tokenDecimals > 30) revert UnsupportedUsdcDecimals(tokenDecimals);
+        MIN_AMOUNT = 10 ** (uint256(tokenDecimals) - 3);
+
         usdc = usdc_;
         kyb = kyb_;
     }

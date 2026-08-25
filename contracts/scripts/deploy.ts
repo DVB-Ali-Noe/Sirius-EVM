@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { EVM_CHAINS, type EvmNetwork } from "../../src/lib/evm/networks";
+import { EVM_CHAINS, USDC_DECIMALS_BY_NETWORK, type EvmNetwork } from "../../src/lib/evm/networks";
 
 /**
  * Déploie les contrats Sirius sur Robinhood Chain.
@@ -135,6 +135,39 @@ async function main() {
   if (usdcCodeHash.toLowerCase() !== expectedUsdcCodeHash.toLowerCase()) {
     throw new Error(`Code hash USDC inattendu : ${usdcCodeHash}`);
   }
+
+  // Contrôle de précision. Le hash du bytecode prouve qu'on parle au bon contrat ;
+  // il ne dit pas comment ce contrat compte. Plusieurs jetons nommés « USDC »
+  // coexistent sur les réseaux de test, certains à 6 décimales et d'autres à 18.
+  //
+  // Une divergence ici ne casse rien visiblement : elle décale tous les montants
+  // d'un facteur de puissance de dix. Un emprunteur qui saisit 100 USDC verrouille
+  // alors une poussière, le prêt se règle normalement, et le fournisseur est payé
+  // en presque rien. Aucune exception n'est levée nulle part.
+  const onChainDecimals = await publicClient.readContract({
+    address: usdc,
+    abi: [
+      {
+        type: "function",
+        name: "decimals",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "uint8" }],
+      },
+    ] as const,
+    functionName: "decimals",
+  });
+  const expectedDecimals = USDC_DECIMALS_BY_NETWORK[network];
+  if (Number(onChainDecimals) !== expectedDecimals) {
+    throw new Error(
+      `Précision USDC incohérente sur ${network} : le contrat ${usdc} expose ` +
+        `${onChainDecimals} décimales, l'application en attend ${expectedDecimals}. ` +
+        "Corrige USDC_DECIMALS_BY_NETWORK dans src/lib/evm/networks.ts, ou pointe " +
+        "SIRIUS_USDC_ADDRESS sur le bon contrat. Ne déploie pas avec cet écart : " +
+        "il rendrait tous les prêts gratuits sans lever d'erreur.",
+    );
+  }
+  console.log(`USDC          : ${usdc} (${expectedDecimals} décimales)`);
 
   const deployed: Record<string, Hex> = {};
   let totalGas = 0n;
