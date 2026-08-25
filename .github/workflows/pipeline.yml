@@ -81,6 +81,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Docker impose des noms de dépôt entièrement en minuscules, alors qu'un
+      # propriétaire GitHub peut en contenir. « DVB-Ali-Noe » est donc un nom
+      # d'organisation valide et un nom d'image invalide.
+      - name: Propriétaire en minuscules
+        id: owner
+        run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -96,7 +103,7 @@ jobs:
           context: .
           file: Dockerfile.worker
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/sirius-worker:${{ github.sha }}
+          tags: ghcr.io/${{ steps.owner.outputs.lc }}/sirius-worker:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -142,9 +149,13 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+          # --scope est explicite parce que le projet appartient à une équipe :
+          # sans lui, la CLI cherche dans la portée personnelle du jeton et ne
+          # trouve pas les réglages du projet.
+          SCOPE="${{ secrets.VERCEL_ORG_ID }}"
+          npx --yes vercel@latest pull --yes --environment=production --scope="$SCOPE" --token="${{ secrets.VERCEL_TOKEN }}"
           npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest deploy --prebuilt --prod --scope="$SCOPE" --token="${{ secrets.VERCEL_TOKEN }}"
 
   vps:
     name: Reaper sur le VPS
@@ -157,8 +168,8 @@ jobs:
       - name: Déployer par SSH
         env:
           DIGEST: ${{ needs.image.outputs.digest }}
-          OWNER: ${{ github.repository_owner }}
         run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           install -m 700 -d ~/.ssh
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
