@@ -1,10 +1,33 @@
-const ATOMIC_PER_USDC = BigInt("1000000");
-const USDC_DECIMALS = 6;
+import { resolveUsdcDecimals } from "./networks";
 
-export const MIN_PRICE_USDC_ATOMIC = BigInt("1000");
-export const MAX_PRICE_USDC_ATOMIC = BigInt("1000000000000");
+/**
+ * Conversion des montants de règlement.
+ *
+ * Toutes les bornes et tous les motifs se dérivent de la précision du jeton, qui
+ * dépend du réseau : le contrat USDC du testnet Robinhood expose 18 décimales,
+ * l'USDC de référence en expose 6. Écrire l'une de ces valeurs en dur reviendrait
+ * à casser l'autre réseau sans qu'aucune exception ne soit levée.
+ */
 
-const PRICE_PATTERN = /^(0|[1-9][0-9]{0,6})(?:\.([0-9]{1,6}))?$/;
+export const USDC_DECIMALS = resolveUsdcDecimals();
+
+if (USDC_DECIMALS < 3 || USDC_DECIMALS > 30) {
+  throw new Error(`Précision USDC hors bornes plausibles : ${USDC_DECIMALS}`);
+}
+
+const ATOMIC_PER_USDC = BigInt(10) ** BigInt(USDC_DECIMALS);
+
+/** Plancher de 0,001 USDC. En dessous, le gas d'un règlement dépasse le prêt. */
+export const MIN_PRICE_USDC_ATOMIC = ATOMIC_PER_USDC / BigInt(1000);
+
+/** Plafond d'un million d'USDC par prêt. */
+export const MAX_PRICE_USDC_ATOMIC = ATOMIC_PER_USDC * BigInt(1000000);
+
+// Partie entière : jusqu'à sept chiffres, le plafond ci-dessus tranchant le reste.
+// Partie décimale : au plus la précision du jeton, jamais arrondie au-delà.
+const PRICE_PATTERN = new RegExp(`^(0|[1-9][0-9]{0,6})(?:\\.([0-9]{1,${USDC_DECIMALS}}))?$`);
+
+const ATOMIC_PATTERN = new RegExp(`^[0-9]{1,${MAX_PRICE_USDC_ATOMIC.toString().length}}$`);
 
 export function priceUsdcToAtomic(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -17,7 +40,7 @@ export function priceUsdcToAtomic(value: unknown): string | null {
 }
 
 export function isValidUsdcAtomicAmount(value: unknown): value is string {
-  if (typeof value !== "string" || !/^[0-9]{1,26}$/.test(value)) return false;
+  if (typeof value !== "string" || !ATOMIC_PATTERN.test(value)) return false;
   const amount = BigInt(value);
   return amount >= MIN_PRICE_USDC_ATOMIC && amount <= MAX_PRICE_USDC_ATOMIC;
 }

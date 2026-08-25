@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { expect } from "chai";
 import { createHash, randomBytes } from "node:crypto";
 import hre from "hardhat";
@@ -150,6 +151,28 @@ describe("SiriusEscrow USDC", () => {
     await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("revoked")], {
       account: borrower,
     })).to.be.rejectedWith("KybRequired");
+  });
+
+  it("dérive le montant plancher de la précision du token, pas d'une constante", async () => {
+    const ctx = await loadFixture(fixture);
+
+    // MockUsdc expose 6 décimales : le plancher doit valoir 0,001 USDC, soit 1 000 unités.
+    assert.equal(await ctx.escrow.read.MIN_AMOUNT(), 1_000n);
+
+    // Le même contrat déployé contre un token à 18 décimales doit remonter son plancher
+    // d'autant. Une constante écrite en dur ferait ici un plancher de poussière, et
+    // laisserait passer des prêts dont le gas dépasse le montant.
+    const usdc18 = await hre.viem.deployContract("MockUsdc18");
+    const escrow18 = await hre.viem.deployContract("SiriusEscrow", [usdc18.address, ctx.kyb.address]);
+    assert.equal(await escrow18.read.MIN_AMOUNT(), 10n ** 15n);
+  });
+
+  it("refuse un token dont la précision est implausible", async () => {
+    const ctx = await loadFixture(fixture);
+    const usdc0 = await hre.viem.deployContract("MockUsdc0");
+    await expect(
+      hre.viem.deployContract("SiriusEscrow", [usdc0.address, ctx.kyb.address]),
+    ).to.be.rejectedWith("UnsupportedUsdcDecimals");
   });
 
   it("refuse un token à frais et une adresse sans code", async () => {

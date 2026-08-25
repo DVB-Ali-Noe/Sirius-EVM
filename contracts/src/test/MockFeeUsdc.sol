@@ -3,6 +3,8 @@ pragma solidity 0.8.24;
 
 /// @dev ERC-20 with a transfer fee, used to prove SiriusEscrow rejects non-exact assets.
 contract MockFeeUsdc {
+    uint8 public constant decimals = 6;
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
