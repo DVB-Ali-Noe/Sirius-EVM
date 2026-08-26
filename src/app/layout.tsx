@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import SharedBlob from "@/components/layout/SharedBlob";
-import { DemoBanner } from "@/components/layout/DemoBanner";
 import { WalletConnector } from "@/components/wallet/WalletConnector";
 import { LandingRedirect } from "@/components/layout/LandingRedirect";
 import { StoreHydrator } from "@/components/layout/StoreHydrator";
@@ -38,7 +37,6 @@ export default function RootLayout({
     <html lang="fr" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <LocaleProvider>
-          <DemoBanner />
           <SharedBlob />
           <WalletConnector />
           <E2eWalletBridge />

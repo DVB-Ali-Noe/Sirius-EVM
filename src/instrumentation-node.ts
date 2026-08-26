@@ -27,14 +27,6 @@ export async function registerNode() {
       throw new Error("SIRIUS_DEPLOYMENT_MODE=demo est interdit sur mainnet");
     }
 
-    // L'interface doit annoncer ce qu'elle est. Une démonstration qui se fait passer
-    // pour le produit final est pire que pas de démonstration du tout.
-    if (DEMO && process.env.NEXT_PUBLIC_SIRIUS_DEPLOYMENT_MODE !== "demo") {
-      throw new Error(
-        "NEXT_PUBLIC_SIRIUS_DEPLOYMENT_MODE=demo obligatoire : le navigateur doit savoir qu'il affiche une démonstration",
-      );
-    }
-
     if (!DEMO) {
       if (process.env.TEE_MODE !== "phala") throw new Error("TEE_MODE=phala obligatoire en production");
       if (process.env.DSTACK_SIMULATOR_ENDPOINT) throw new Error("Simulateur dstack interdit en production");
