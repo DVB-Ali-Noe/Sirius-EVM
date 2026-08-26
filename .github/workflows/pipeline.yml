@@ -144,6 +144,12 @@ jobs:
         with:
           node-version: 22
 
+      # « vercel build » relance une installation des dépendances et invoque pnpm.
+      # Sans corepack, le binaire n'existe pas sur le runner et l'étape meurt sur
+      # « spawn pnpm ENOENT ».
+      - name: Activer pnpm
+        run: corepack enable
+
       # Le fichier que « vercel link » produit localement, reproduit à l'identique.
       # Les identifiants ne sont pas des secrets — ce sont des références de projet,
       # pas des clés d'accès — et les passer par l'environnement laissait la CLI
