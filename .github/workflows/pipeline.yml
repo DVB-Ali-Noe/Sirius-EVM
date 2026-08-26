@@ -157,9 +157,20 @@ jobs:
 
       - name: Déployer
         run: |
-          npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-          npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          # Le jeton est nettoyé comme les autres secrets : un retour à la ligne
+          # collé sans le voir suffit à le rendre invalide, et l'API répond alors
+          # « Could not retrieve Project Settings » — un message qui accuse le
+          # projet là où le coupable est l'identifiant.
+          TOKEN="$(printf '%s' "${{ secrets.VERCEL_TOKEN }}" | tr -d '[:space:]')"
+
+          # Contrôle explicite avant tout le reste : si le jeton n'ouvre aucune
+          # porte, autant le savoir ici, avec un message qui le dit.
+          echo "Identité du jeton :"
+          npx --yes vercel@latest whoami --token="$TOKEN"
+
+          npx --yes vercel@latest pull --yes --environment=production --token="$TOKEN"
+          npx --yes vercel@latest build --prod --token="$TOKEN"
+          npx --yes vercel@latest deploy --prebuilt --prod --token="$TOKEN"
 
   vps:
     name: Reaper sur le VPS
