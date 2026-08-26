@@ -149,13 +149,13 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          # --scope est explicite parce que le projet appartient à une équipe :
-          # sans lui, la CLI cherche dans la portée personnelle du jeton et ne
-          # trouve pas les réglages du projet.
-          SCOPE="${{ secrets.VERCEL_ORG_ID }}"
-          npx --yes vercel@latest pull --yes --environment=production --scope="$SCOPE" --token="${{ secrets.VERCEL_TOKEN }}"
+          # Pas de --scope : la CLI le résout comme un identifiant d'utilisateur
+          # et échoue sur « User not found ». VERCEL_ORG_ID et VERCEL_PROJECT_ID
+          # ci-dessus désignent déjà le projet — c'est la méthode documentée pour
+          # l'intégration continue.
+          npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
           npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          npx --yes vercel@latest deploy --prebuilt --prod --scope="$SCOPE" --token="${{ secrets.VERCEL_TOKEN }}"
+          npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
   vps:
     name: Reaper sur le VPS
@@ -176,6 +176,14 @@ jobs:
           DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+
+          # Un secret collé dans l'interface GitHub emporte souvent un retour à
+          # la ligne invisible. OpenSSH refuse alors la cible avec « hostname
+          # contains invalid characters ». On nettoie plutôt que d'exiger un
+          # copier-coller parfait.
+          HOST="$(printf '%s' "${{ secrets.VPS_HOST }}" | tr -d '[:space:]')"
+          SSH_USER="$(printf '%s' "${{ secrets.VPS_USER }}" | tr -d '[:space:]')"
+          CIBLE="${SSH_USER}@${HOST}"
           install -m 700 -d ~/.ssh
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
@@ -186,9 +194,9 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
           scp deploy/vps/compose.yaml \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/sirius/compose.yaml"
+            "${CIBLE}:/opt/sirius/compose.yaml"
 
-          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<EOF
+          ssh "${CIBLE}" bash -s <<EOF
           set -euo pipefail
           cd /opt/sirius
           # L'image est épinglée par digest : ce qui redémarre est exactement ce que
@@ -204,5 +212,8 @@ jobs:
 
       - name: Vérifier que le reaper tourne
         run: |
-          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            'cd /opt/sirius && sleep 5 && docker compose -p sirius ps --format "{{.Service}} {{.State}}" | grep -q "reaper running"'
+          HOST="$(printf '%s' "${{ secrets.VPS_HOST }}" | tr -d '[:space:]')"
+          SSH_USER="$(printf '%s' "${{ secrets.VPS_USER }}" | tr -d '[:space:]')"
+          sleep 5
+          ssh "${SSH_USER}@${HOST}" \
+            'cd /opt/sirius && docker compose -p sirius ps --format "{{.Service}} {{.State}}" | grep -q "reaper running"'
