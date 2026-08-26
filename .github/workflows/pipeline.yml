@@ -144,15 +144,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Déployer
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # Le fichier que « vercel link » produit localement, reproduit à l'identique.
+      # Les identifiants ne sont pas des secrets — ce sont des références de projet,
+      # pas des clés d'accès — et les passer par l'environnement laissait la CLI
+      # échouer sur « Could not retrieve Project Settings » sans dire pourquoi.
+      # Écrit en clair, le lien avec le projet ne peut plus être ambigu.
+      - name: Lier le projet
         run: |
-          # Pas de --scope : la CLI le résout comme un identifiant d'utilisateur
-          # et échoue sur « User not found ». VERCEL_ORG_ID et VERCEL_PROJECT_ID
-          # ci-dessus désignent déjà le projet — c'est la méthode documentée pour
-          # l'intégration continue.
+          mkdir -p .vercel
+          echo '{"projectId":"prj_gmEKctb6EJcsErIQqamKiZNaK5vZ","orgId":"team_lgHr4F4CMq1B8wXtrRe1fbvz"}' > .vercel/project.json
+          cat .vercel/project.json
+
+      - name: Déployer
+        run: |
           npx --yes vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
           npx --yes vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
           npx --yes vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
