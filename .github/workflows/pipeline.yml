@@ -162,6 +162,12 @@ jobs:
     needs: [image, migrate]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Le jeton du workflow suffit à tirer l'image : il est éphémère, limité à ce
+    # passage, et évite d'entretenir un jeton personnel de longue durée dont
+    # l'expiration casserait le déploiement sans prévenir.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -188,7 +194,7 @@ jobs:
           # L'image est épinglée par digest : ce qui redémarre est exactement ce que
           # ce commit a produit, pas ce qu'un tag mutable désignera plus tard.
           sed -i "s|^SIRIUS_WORKER_IMAGE=.*|SIRIUS_WORKER_IMAGE=\"ghcr.io/${OWNER}/sirius-worker@${DIGEST}\"|" .env.vps
-          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           # Le VPS héberge d'autres projets. Le nom de projet est explicite pour que
           # Compose ne touche qu'aux conteneurs Sirius, et aucun élagage global n'est
           # lancé : « docker image prune » supprimerait les images pendantes des autres
