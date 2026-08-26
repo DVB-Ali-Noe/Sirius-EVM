@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.18.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "runner:dev": "NODE_OPTIONS=\"--conditions=react-server --max-old-space-size=384\" node --import tsx src/runner/dev.ts",
     "reaper:start": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx src/worker/reaper.ts",
