@@ -8,6 +8,11 @@ type Variables = Record<string, string | number>;
 
 const messages: Record<Locale, Record<string, string>> = {
   fr: {
+    "Pas de données sous la main ?": "Pas de données sous la main ?",
+    "Charger le jeu d'exemple": "Charger le jeu d'exemple",
+    "— 140 lignes de prix immobiliers, R² ≈ 0,97.": "— 140 lignes de prix immobiliers, R² ≈ 0,97.",
+    "Télécharger": "Télécharger",
+    "Exemple indisponible": "Exemple indisponible",
     "About us": "À propos",
     "Documentation": "Documentation",
     "Provider": "Fournisseur",
@@ -25,6 +30,11 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "Pas de données sous la main ?": "No data at hand?",
+    "Charger le jeu d'exemple": "Load the example dataset",
+    "— 140 lignes de prix immobiliers, R² ≈ 0,97.": "— 140 rows of housing prices, R² ≈ 0.97.",
+    "Télécharger": "Download",
+    "Exemple indisponible": "Example unavailable",
     "Tableau de bord": "Dashboard",
     "Entraîner": "Train",
     "Mes datasets": "My datasets",
@@ -263,7 +273,11 @@ function format(message: string, variables?: Variables) {
 }
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = useState<Locale>("fr");
+  // L'anglais est la langue par défaut : le public visé — investisseurs, réseaux
+  // d'agents, développeurs de l'écosystème — ne lit pas le français, et une page
+  // d'accueil francophone se referme avant que le sélecteur soit remarqué.
+  // Le choix reste offert, et il est mémorisé d'une visite à l'autre.
+  const [locale, setLocale] = useState<Locale>("en");
   const [ready, setReady] = useState(false);
 
   const t = useCallback(
