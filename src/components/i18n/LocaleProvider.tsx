@@ -8,6 +8,7 @@ type Variables = Record<string, string | number>;
 
 const messages: Record<Locale, Record<string, string>> = {
   fr: {
+    "Recherche des wallets…": "Recherche des wallets…",
     "Pas de données sous la main ?": "Pas de données sous la main ?",
     "Charger le jeu d'exemple": "Charger le jeu d'exemple",
     "— 140 lignes de prix immobiliers, R² ≈ 0,97.": "— 140 lignes de prix immobiliers, R² ≈ 0,97.",
@@ -30,6 +31,7 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "Recherche des wallets…": "Looking for wallets…",
     "Pas de données sous la main ?": "No data at hand?",
     "Charger le jeu d'exemple": "Load the example dataset",
     "— 140 lignes de prix immobiliers, R² ≈ 0,97.": "— 140 rows of housing prices, R² ≈ 0.97.",

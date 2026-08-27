@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { disconnectWallet } from "@/lib/wallet/manager";
 import { markWalletDisconnected } from "@/lib/wallet/intent";
+import { selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
 import { openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -55,7 +56,29 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     }
   };
 
-  const handleExternal = () => {
+  // Portefeuilles réellement installés, annoncés via EIP-6963. Interrogés à
+  // l'ouverture du menu plutôt qu'au montage : une extension peut s'installer ou se
+  // déverrouiller pendant la visite, et la liste doit alors refléter le présent.
+  const [wallets, setWallets] = useState<WalletInfo[]>([]);
+  const [scanning, setScanning] = useState(false);
+
+  // La recherche part du clic plutôt que d'un effet : c'est une conséquence directe
+  // du geste de l'utilisateur, pas une synchronisation avec un état extérieur.
+  const toggleMenu = () => {
+    const ouvrir = !open;
+    setOpen(ouvrir);
+    if (!ouvrir || connected) return;
+    setScanning(true);
+    void waitForWallets()
+      .then(setWallets)
+      .finally(() => setScanning(false));
+  };
+
+  const handleExternal = (rdns?: string) => {
+    // Le choix est enregistré avant d'ouvrir la connexion : c'est lui qui décide
+    // quel portefeuille recevra la demande, au lieu de laisser `window.ethereum`
+    // désigner le gagnant de la course d'injection.
+    if (rdns) selectWallet(rdns);
     setOpen(false);
     openWalletModal();
   };
@@ -84,7 +107,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     return (
       <div className="relative">
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleMenu}
           aria-haspopup="menu"
           aria-expanded={open}
           className={`${dropUp ? "rounded-[2rem]" : "rounded-xl"} bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 ${triggerFull}`}
@@ -110,13 +133,33 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                 <span className="mt-0.5 block text-xs text-muted">{t("Sans crypto, en un clic")}</span>
               </button>
               <div className="border-t border-border" />
-              <button
-                onClick={handleExternal}
-                className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5"
-              >
-                <span className="text-sm font-medium text-foreground">{t("Wallet externe")}</span>
-                <span className="mt-0.5 block text-xs text-muted">MetaMask, Rabby, Coinbase Wallet…</span>
-              </button>
+              {scanning && wallets.length === 0 && (
+                <div className="px-4 py-3 text-xs text-muted">{t("Recherche des wallets…")}</div>
+              )}
+
+              {wallets.map((wallet) => (
+                <button
+                  key={wallet.rdns}
+                  onClick={() => handleExternal(wallet.rdns)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5"
+                >
+                  {wallet.icon && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={wallet.icon} alt="" aria-hidden className="h-6 w-6 shrink-0 rounded-md" />
+                  )}
+                  <span className="text-sm font-medium text-foreground">{wallet.name}</span>
+                </button>
+              ))}
+
+              {!scanning && wallets.length === 0 && (
+                <button
+                  onClick={() => handleExternal()}
+                  className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5"
+                >
+                  <span className="text-sm font-medium text-foreground">{t("Wallet externe")}</span>
+                  <span className="mt-0.5 block text-xs text-muted">Phantom, MetaMask, Rabby, Coinbase Wallet…</span>
+                </button>
+              )}
             </div>
           </>
         )}

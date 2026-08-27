@@ -1,6 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
+import { selectedProvider } from "@/lib/wallet/discovery";
 
 export interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
@@ -9,8 +10,15 @@ export interface Eip1193Provider {
 }
 
 function provider(): Eip1193Provider {
+  // Le portefeuille explicitement choisi l'emporte toujours. Sans ce détour, on
+  // retombe sur `window.ethereum`, un emplacement unique que plusieurs extensions se
+  // disputent : celle qui s'injecte en dernier gagne, et l'utilisateur se voit imposer
+  // un portefeuille qu'il n'a pas demandé.
+  const choisi = selectedProvider();
+  if (choisi?.request) return choisi;
+
   const candidate = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
-  if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe MetaMask, Rabby ou Coinbase Wallet.");
+  if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe Phantom, MetaMask, Rabby ou Coinbase Wallet.");
   return candidate;
 }
 
