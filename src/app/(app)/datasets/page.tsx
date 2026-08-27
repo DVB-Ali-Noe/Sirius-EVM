@@ -10,7 +10,6 @@ import { formatBytes, truncate } from "@/lib/format";
 import { messageOf } from "@/lib/errors-client";
 import { useUiStore } from "@/stores/ui";
 import { useWalletStore } from "@/stores/wallet";
-import { ModeToggle } from "@/components/ui/ModeToggle";
 import {
   destroyDataset,
   publishDataset,
@@ -221,7 +220,6 @@ export default function DatasetsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <ModeToggle />
           {kybManquant === true && (
             <button
               onClick={handleOnboard}
