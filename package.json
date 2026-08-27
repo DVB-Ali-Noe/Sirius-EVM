@@ -17,6 +17,8 @@
     "contracts:test": "cd contracts && hardhat test",
     "contracts:abi": "node --import tsx contracts/scripts/export-abi.ts",
     "contracts:deploy:testnet": "node --import tsx contracts/scripts/deploy.ts",
+    "contracts:bootstrap-demo": "node --import tsx contracts/scripts/bootstrap-demo.ts",
+    "contracts:attest-kyb": "node --import tsx contracts/scripts/attest-kyb.ts",
     "contracts:smoke": "node --import tsx contracts/scripts/smoke.ts",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",

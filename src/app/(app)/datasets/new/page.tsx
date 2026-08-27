@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
@@ -15,7 +15,35 @@ export default function NewDatasetPage() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingExample, setLoadingExample] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const { t } = useLocale();
+
+  /**
+   * Charge le jeu d'exemple dans le champ fichier.
+   *
+   * Le champ est non contrôlé — le formulaire le lit au moment de l'envoi — donc on
+   * lui assigne un `FileList` construit via `DataTransfer`, seule façon de garnir un
+   * input file par programme. Sans ça, un visiteur devrait télécharger le fichier
+   * puis le re-sélectionner à la main, et la plupart abandonneraient là.
+   */
+  async function loadExample() {
+    setError(null);
+    setLoadingExample(true);
+    try {
+      const response = await fetch("/examples/housing-prices.csv");
+      if (!response.ok) throw new Error(t("Exemple indisponible"));
+      const blob = await response.blob();
+      const file = new File([blob], "housing-prices.csv", { type: "text/csv" });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      if (fileRef.current) fileRef.current.files = transfer.files;
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setLoadingExample(false);
+    }
+  }
 
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -164,12 +192,32 @@ export default function NewDatasetPage() {
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium">{t("Fichier CSV")}</label>
             <input
+              ref={fileRef}
               name="file"
               type="file"
               accept=".csv,text/csv"
               required
               className="text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-background hover:file:bg-accent/90"
             />
+            <p className="text-xs text-muted">
+              {t("Pas de données sous la main ?")}{" "}
+              <button
+                type="button"
+                onClick={loadExample}
+                disabled={loadingExample}
+                className="underline underline-offset-4 transition-colors hover:text-foreground disabled:opacity-50"
+              >
+                {loadingExample ? t("Chargement…") : t("Charger le jeu d'exemple")}
+              </button>{" "}
+              {t("— 140 lignes de prix immobiliers, R² ≈ 0,97.")}{" "}
+              <a
+                href="/examples/housing-prices.csv"
+                download
+                className="underline underline-offset-4 transition-colors hover:text-foreground"
+              >
+                {t("Télécharger")}
+              </a>
+            </p>
           </div>
           <button
             type="submit"

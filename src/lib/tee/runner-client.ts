@@ -1,5 +1,6 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
+import { isDemoDeployment } from "@/lib/deployment-mode";
 import { issueRunnerCapability, type RunnerOperation, type RunnerScope } from "@/lib/runner/capability";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import type {
@@ -18,7 +19,16 @@ const RUNNER_TIMEOUT_MS = 60_000;
 function endpoint(): string | null {
   const configured = process.env.RUNNER_URL?.trim();
   if (!configured) {
-    if (process.env.NODE_ENV === "production") throw new Error("RUNNER_URL obligatoire en production");
+    // Sans runner distant, l'appelant exécute la logique confidentielle dans son
+    // propre processus. C'est le chemin de développement, et c'est aussi celui de la
+    // démonstration : tant qu'aucune enclave n'existe, un runner séparé n'apporterait
+    // qu'un saut réseau devant le même calcul non attesté.
+    //
+    // Le mode démonstration est refusé sur mainnet par `instrumentation-node.ts`, donc
+    // ce chemin ne peut jamais servir de l'argent réel.
+    if (process.env.NODE_ENV === "production" && !isDemoDeployment()) {
+      throw new Error("RUNNER_URL obligatoire en production");
+    }
     return null;
   }
   const url = new URL(configured);
@@ -26,6 +36,9 @@ function endpoint(): string | null {
     throw new Error("RUNNER_URL doit cibler l’origine racine du runner");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Protocole RUNNER_URL invalide");
+  // Un runner DISTANT reste soumis au régime strict, même en démonstration : dès
+  // qu'un secret traverse le réseau, il lui faut du TLS et une enclave attestée en
+  // face. L'assouplissement ci-dessus ne concerne que le cas sans réseau du tout.
   if (process.env.NODE_ENV === "production" && (url.protocol !== "https:" || process.env.TEE_MODE !== "phala")) {
     throw new Error("Runner production : HTTPS et TEE_MODE=phala obligatoires");
   }

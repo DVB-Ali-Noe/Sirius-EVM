@@ -1,18 +1,6 @@
-/**
- * Mode démonstration : construit comme la production, configuré pour un réseau de
- * test, sans enclave réelle.
- *
- * Il existe parce que `NODE_ENV=production` ne dit qu'une chose — le code est compilé
- * pour être servi — là où les contrôles ci-dessous en supposaient une autre : que
- * l'instance EST le produit final, sur mainnet, derrière un TEE attesté dont les
- * mesures sont épinglées. Tant que les deux notions sont confondues, aucune
- * démonstration publique n'est possible avant que le TEE tourne sur du vrai matériel,
- * puisque tout hébergeur impose `NODE_ENV=production`.
- *
- * Le drapeau vaut une chaîne exacte plutôt qu'un booléen : une variable laissée à
- * « 1 », « true » ou « yes » par mégarde n'active rien.
- */
-const DEMO = process.env.SIRIUS_DEPLOYMENT_MODE === "demo";
+import { isDemoDeployment } from "@/lib/deployment-mode";
+
+const DEMO = isDemoDeployment();
 
 export async function registerNode() {
   if (process.env.NODE_ENV === "production") {

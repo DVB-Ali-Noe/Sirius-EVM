@@ -73,6 +73,24 @@ export async function signMessageExternal(message: string, address: string): Pro
   return { signature };
 }
 
+/**
+ * Signature EIP-712. Le wallet affiche les champs en clair plutôt qu'un condensé
+ * opaque, ce qui permet au signataire de voir ce qu'il approuve — ici son propre
+ * consentement KYB, avec le vérificateur et l'échéance nommés.
+ */
+export async function signTypedDataExternal(payload: unknown, address: string): Promise<string> {
+  const wallet = provider();
+  await ensureExpectedChain(wallet);
+  const signature = await wallet.request({
+    method: "eth_signTypedData_v4",
+    params: [address, JSON.stringify(payload)],
+  });
+  if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) {
+    throw new Error("Signature EIP-712 refusée par le wallet.");
+  }
+  return signature;
+}
+
 export async function sendTransactionExternal(transaction: Record<string, unknown>): Promise<string> {
   const wallet = provider();
   await ensureExpectedChain(wallet);
