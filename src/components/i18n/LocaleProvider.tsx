@@ -8,6 +8,7 @@ type Variables = Record<string, string | number>;
 
 const messages: Record<Locale, Record<string, string>> = {
   fr: {
+    "Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.": "Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.",
     "Recherche des wallets…": "Recherche des wallets…",
     "Pas de données sous la main ?": "Pas de données sous la main ?",
     "Charger le jeu d'exemple": "Charger le jeu d'exemple",
@@ -31,6 +32,7 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.": "To use another account, pick it directly in your wallet — the app will follow.",
     "Recherche des wallets…": "Looking for wallets…",
     "Pas de données sous la main ?": "No data at hand?",
     "Charger le jeu d'exemple": "Load the example dataset",

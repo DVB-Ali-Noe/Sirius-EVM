@@ -211,6 +211,16 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
               </span>
             </button>
             {copied && <p className="px-4 pt-2 text-xs text-positive">{t("Adresse copiée")}</p>}
+
+            {/*
+              Certains portefeuilles — Phantom notamment — gardent le choix du compte
+              dans leur extension et refusent qu'un site rouvre leur sélecteur. Sans
+              cette phrase, l'utilisateur clique « Déconnecter », se reconnecte, retombe
+              sur le même compte, et n'a aucun moyen de deviner où le changer.
+            */}
+            <p className="border-b border-border px-4 py-3 text-xs leading-snug text-muted">
+              {t("Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.")}
+            </p>
             {wrongNetwork && (
               <div className="px-4 pt-2 text-xs leading-snug text-negative">
                 {t("Mauvais réseau — bascule ton wallet sur {network}.", { network: EXPECTED_NETWORK })}
