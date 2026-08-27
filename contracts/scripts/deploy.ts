@@ -118,11 +118,23 @@ async function main() {
   //
   // Admin et vérificateur sont également séparés l'un de l'autre : l'un décide QUI peut
   // attester, l'autre atteste. Les confondre supprime le contre-pouvoir.
-  const admin = requireRole("SIRIUS_KYB_ADMIN", account.address);
-  const verifier = requireRole("SIRIUS_KYB_VERIFIER", account.address);
+  // Mode ouvert : l'escrow et le registre de datasets reçoivent un registre qui
+  // valide tout le monde, au lieu du registre gouverné. Leur source ne change pas —
+  // seul l'argument de construction diffère — et revenir au KYB réel consistera à
+  // les redéployer sans cette variable.
+  const kybOuvert = process.env.SIRIUS_KYB_MODE === "open";
+  if (kybOuvert && chain.id !== 46630) {
+    throw new Error(
+      "SIRIUS_KYB_MODE=open est réservé au testnet 46630. Ailleurs, il supprimerait " +
+        "le seul contrôle on-chain de qui peut prêter et emprunter.",
+    );
+  }
+
+  const admin = kybOuvert ? account.address : requireRole("SIRIUS_KYB_ADMIN", account.address);
+  const verifier = kybOuvert ? account.address : requireRole("SIRIUS_KYB_VERIFIER", account.address);
   const usdc = requireAddress("SIRIUS_USDC_ADDRESS");
   const expectedUsdcCodeHash = requireCodeHash("SIRIUS_USDC_CODE_HASH");
-  if (admin.toLowerCase() === verifier.toLowerCase()) {
+  if (!kybOuvert && admin.toLowerCase() === verifier.toLowerCase()) {
     throw new Error(
       "SIRIUS_KYB_ADMIN et SIRIUS_KYB_VERIFIER doivent être deux adresses distinctes. " +
         "Pour un déploiement jetable, SIRIUS_ALLOW_SHARED_ROLES=true.",
@@ -198,18 +210,24 @@ async function main() {
   }
 
   console.log("");
-  const kyb = await deploy("SiriusKybRegistry", [admin, verifier]);
+  const kyb = kybOuvert
+    ? await deploy("SiriusOpenKybRegistry")
+    : await deploy("SiriusKybRegistry", [admin, verifier]);
   const escrow = await deploy("SiriusEscrow", [usdc, kyb]);
   const datasets = await deploy("SiriusDatasetRegistry", [kyb]);
 
   console.log("");
   console.log(`gas total     : ${totalGas.toLocaleString("fr-FR")}`);
-  console.log(`admin KYB     : ${admin}`);
-  console.log(`vérificateur  : ${verifier}`);
+  if (kybOuvert) {
+    console.log("registre KYB  : OUVERT — toute adresse est valide, sans vérification");
+  } else {
+    console.log(`admin KYB     : ${admin}`);
+    console.log(`vérificateur  : ${verifier}`);
+  }
 
   // Contrôle de bon sens : chaque contrat répond et part d'un état vierge.
   const escrowAbi = artifact("SiriusEscrow").abi;
-  const kybAbi = artifact("SiriusKybRegistry").abi;
+  const kybAbi = artifact(kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry").abi;
   const datasetAbi = artifact("SiriusDatasetRegistry").abi;
 
   const accounting = (await publicClient.readContract({
@@ -237,13 +255,26 @@ async function main() {
     throw new Error("SiriusEscrow ne référence pas le registre KYB déployé");
   }
 
-  const verifierRegistered = await publicClient.readContract({
-    address: kyb,
-    abi: kybAbi,
-    functionName: "isVerifier",
-    args: [verifier],
-  });
-  if (!verifierRegistered) throw new Error("Le premier vérificateur KYB n'a pas été enregistré");
+  if (kybOuvert) {
+    // Le contrôle utile ici est l'inverse du contrôle habituel : on vérifie que le
+    // registre laisse effectivement passer, y compris une adresse qui n'a jamais rien
+    // signé. Un faux négatif bloquerait tous les emprunts sans message clair.
+    const passeSansAttestation = await publicClient.readContract({
+      address: kyb,
+      abi: kybAbi,
+      functionName: "isKybValid",
+      args: ["0x000000000000000000000000000000000000dEaD"],
+    });
+    if (!passeSansAttestation) throw new Error("Le registre ouvert refuse une adresse — il ne remplit pas son rôle");
+  } else {
+    const verifierRegistered = await publicClient.readContract({
+      address: kyb,
+      abi: kybAbi,
+      functionName: "isVerifier",
+      args: [verifier],
+    });
+    if (!verifierRegistered) throw new Error("Le premier vérificateur KYB n'a pas été enregistré");
+  }
 
   const linkedKyb = (await publicClient.readContract({
     address: datasets,
@@ -270,7 +301,7 @@ async function main() {
     console.log("Explorateur :");
     for (const [name, address] of [
       ["SiriusEscrow", escrow],
-      ["SiriusKybRegistry", kyb],
+      [kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry", kyb],
       ["SiriusDatasetRegistry", datasets],
     ] as const) {
       console.log(`  ${name.padEnd(22)} ${explorer}/address/${address}`);

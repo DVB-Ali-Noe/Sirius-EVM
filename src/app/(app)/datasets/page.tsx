@@ -161,10 +161,30 @@ export default function DatasetsPage() {
     }
   }
 
+  // Le bouton ne s'affiche que si le registre refuse encore l'adresse. Sur une
+  // instance adossée au registre ouvert il ne paraît jamais ; il revient de lui-même
+  // le jour où l'escrow pointera de nouveau sur un registre gouverné.
+  const [kybManquant, setKybManquant] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!address) return;
+    let actif = true;
+    void fetch(`/api/account/status?address=${encodeURIComponent(address)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ known?: unknown }>) : null))
+      .then((corps) => {
+        if (actif && corps) setKybManquant(corps.known !== true);
+      })
+      .catch(() => {});
+    return () => {
+      actif = false;
+    };
+  }, [address]);
+
   async function handleOnboard() {
     setError(null);
     try {
       await acceptKybCredential("provider");
+      setKybManquant(false);
     } catch (err) {
       setError(messageOf(err));
     }
@@ -202,12 +222,14 @@ export default function DatasetsPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ModeToggle />
-          <button
-            onClick={handleOnboard}
-            className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
-          >
-            {t("Configurer le KYB")}
-          </button>
+          {kybManquant === true && (
+            <button
+              onClick={handleOnboard}
+              className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
+            >
+              {t("Configurer le KYB")}
+            </button>
+          )}
           <Link
             href="/datasets/new"
             className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90"
