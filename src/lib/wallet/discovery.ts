@@ -102,8 +102,27 @@ export function clearSelectedWallet(): void {
  * comportement qu'EIP-6963 existe pour corriger.
  */
 export function selectedProvider(): Eip1193Provider | null {
+  if (typeof window === "undefined") return null;
   const rdns = selectedWalletRdns();
   if (!rdns) return null;
-  demarrerEcoute();
+
+  const connu = decouverts.get(rdns)?.provider;
+  if (connu) return connu;
+
+  // Rien en mémoire. Le cas est courant et n'a rien d'anormal : la découverte n'était
+  // déclenchée que par le bouton « Connecter », donc au premier rendu d'une page
+  // atteinte directement — un rechargement du tableau de bord, un lien partagé — la
+  // table restait vide. On retombait alors sur `window.ethereum`, c'est-à-dire sur
+  // l'extension qui a gagné la course à l'injection plutôt que sur celle que
+  // l'utilisateur a choisie, et les lectures partaient vers un autre réseau.
+  //
+  // Redemander suffit : l'annonce est synchrone chez la plupart des portefeuilles.
+  // Pour les autres, l'écoute reste posée et le prochain appel aboutira.
+  detectedWallets();
   return decouverts.get(rdns)?.provider ?? null;
 }
+
+// Certaines extensions s'annoncent d'elles-mêmes au chargement, sans qu'on demande
+// rien, et ne le répètent pas. Poser l'écoute dès l'import plutôt qu'au premier appel
+// évite de manquer cette annonce-là.
+demarrerEcoute();
