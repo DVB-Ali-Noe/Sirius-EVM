@@ -7,14 +7,24 @@
  * supposaient une autre : que l'instance EST le produit final, sur mainnet, derrière
  * un TEE dont les mesures sont épinglées.
  *
- * Le drapeau est une chaîne exacte plutôt qu'un booléen. Une variable laissée à « 1 »,
- * « true » ou « yes » par mégarde n'active donc rien, et le mode ne peut pas
- * s'enclencher par accident au détour d'une copie de configuration.
+ * Le mode se déduit du réseau plutôt que de se déclarer. `instrumentation-node.ts`
+ * exigeait déjà mainnet pour toute instance de production qui n'est PAS en
+ * démonstration : servir un testnet au public sans être en démonstration était donc
+ * déjà interdit au démarrage. Le déduire ne relâche rien, cela rend explicite une
+ * contrainte que l'application imposait, et supprime une variable qu'on pouvait
+ * oublier — auquel cas l'attestation parrainée et la distribution de fonds de test
+ * échouaient toutes deux, sans que rien ne relie la panne à sa cause.
  *
- * Deux garde-fous vivent ailleurs et comptent autant que ce fichier :
- * `instrumentation-node.ts` refuse de démarrer si ce mode est actif sur mainnet, et
- * exige le testnet quand il l'est.
+ * Le drapeau explicite reste accepté : il permet de forcer le mode dans un contexte
+ * où le réseau n'est pas encore résolu. Il ne peut en revanche rien débloquer sur
+ * mainnet — `instrumentation-node.ts` refuse de démarrer dans ce cas, et c'est ce
+ * refus, pas cette fonction, qui tient la garantie.
  */
 export function isDemoDeployment(): boolean {
-  return process.env.SIRIUS_DEPLOYMENT_MODE === "demo";
+  if (process.env.SIRIUS_DEPLOYMENT_MODE === "demo") return true;
+
+  // Accès en toutes lettres : une lecture par clé calculée n'est pas inlinée par Next
+  // et vaudrait `undefined` dans tout bundle navigateur.
+  const network = process.env.EVM_NETWORK?.trim() || process.env.NEXT_PUBLIC_EVM_NETWORK?.trim();
+  return network === "testnet";
 }

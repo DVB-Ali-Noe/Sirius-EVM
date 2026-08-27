@@ -20,7 +20,16 @@ export async function attestViaSponsor(): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!preparation.ok) return false;
+  if (!preparation.ok) {
+    // 403 : instance qui n'est pas une démonstration. Le parrainage n'y a pas lieu
+    // d'être et l'appelant doit garder son message d'origine, qui est le bon.
+    if (preparation.status === 403) return false;
+    // Tout autre refus est une panne de configuration — vérificateur absent, mode de
+    // déploiement mal réglé. La taire laisserait un « KYB externe requis » trompeur,
+    // qui désigne une procédure quand le problème est une variable d'environnement.
+    const detail = (await preparation.json().catch(() => ({}))) as { error?: string };
+    throw new Error(detail.error ?? `Attestation parrainée indisponible (${preparation.status})`);
+  }
 
   const payload = (await preparation.json()) as {
     domain: Record<string, unknown>;
