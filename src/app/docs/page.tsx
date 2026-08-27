@@ -51,7 +51,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Le règlement est libellé en": "Settlement is denominated in",
   "et vérifiable on-chain.": "and verifiable on-chain.",
   "L’attestation du runner tourne en simulation sur testnet ; le déploiement Phala sur matériel attesté est le prochain jalon.": "Runner attestation is running in simulation on testnet; hardware-attested Phala deployment is the next milestone.",
-  "Le KYB est accordé automatiquement sur cette instance de test : la vérification par un émetteur externe est un jalon à venir.": "KYB is granted automatically on this test instance; verification by an external issuer is an upcoming milestone.",
+  "Cette instance de test ne vérifie aucune entreprise : l’escrow pointe sur un registre ouvert qui accepte toute adresse. Le registre KYB gouverné existe dans les contrats et sera activé avant toute utilisation réelle.": "This test instance verifies no business: the escrow points at an open registry that accepts every address. The governed KYB registry exists in the contracts and will be enabled before any real use.",
   "le code est validé localement, mais les contrats doivent être redéployés puis testés sur Robinhood Chain. L’émetteur KYB externe et le runner Phala restent à configurer.": "the code is validated locally, but the contracts must be redeployed and tested on Robinhood Chain. The external KYB issuer and Phala runner still need to be configured.",
   "Les données les plus précieuses sont aussi les plus verrouillées : santé, finance, données personnelles ou secrets métier. Elles ne peuvent pas être partagées en clair sans perdre le contrôle.": "The most valuable data is often the most restricted: health, finance, personal data, or trade secrets. It cannot be shared in plaintext without losing control.",
   "Sirius inverse le flux :": "Sirius reverses the flow:",
@@ -525,7 +525,7 @@ export default function DocsPage() {
                 <p className="text-xs leading-relaxed text-muted">
                   {d("L’attestation du runner tourne en simulation sur testnet ; le déploiement Phala sur matériel attesté est le prochain jalon.")}
                   {" "}
-                  {d("Le KYB est accordé automatiquement sur cette instance de test : la vérification par un émetteur externe est un jalon à venir.")}
+                  {d("Cette instance de test ne vérifie aucune entreprise : l’escrow pointe sur un registre ouvert qui accepte toute adresse. Le registre KYB gouverné existe dans les contrats et sera activé avant toute utilisation réelle.")}
                 </p>
                 <p className="mt-6 text-sm">
                   <Link href="/" onClick={returnToLanding} className="text-foreground underline underline-offset-4 hover:text-muted">{d("← Retour à l’accueil")}</Link>

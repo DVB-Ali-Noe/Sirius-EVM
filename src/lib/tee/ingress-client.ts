@@ -1,3 +1,4 @@
+import { isDemoDeployment } from "@/lib/deployment-mode";
 import {
   DATASET_INGRESS_INFO_PREFIX,
   MAX_DATASET_BYTES,
@@ -39,7 +40,15 @@ async function verifyIngressKey(ingressKey: DatasetIngressKey): Promise<Uint8Arr
   if (publicKey.length !== 65 || publicKey[0] !== 4) throw new Error("Clé d’ingestion invalide");
 
   const expectedFingerprint = process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256?.trim().toLowerCase();
-  if (process.env.NODE_ENV === "production" && !expectedFingerprint) {
+  // L'épinglage authentifie un runner distant : il prouve que le navigateur chiffre
+  // pour l'enclave attendue et non pour un intermédiaire. Sur une instance de
+  // démonstration, le runner s'exécute dans le processus qui sert la page — la clé
+  // vient de la même origine, et il n'y a aucun tiers à authentifier. Exiger
+  // l'empreinte y interdisait tout dépôt sans rien protéger.
+  //
+  // `instrumentation-node.ts` retirait déjà cette variable des exigences en mode
+  // démonstration ; ce contrôle-ci l'ignorait, et les deux se contredisaient.
+  if (process.env.NODE_ENV === "production" && !expectedFingerprint && !isDemoDeployment()) {
     throw new Error("Empreinte de clé d’ingestion non configurée");
   }
   if (expectedFingerprint) {
