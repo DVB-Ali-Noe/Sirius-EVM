@@ -37,7 +37,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="h-full antialiased">
+    // Le serveur rend l'anglais ; LocaleProvider corrige l'attribut après hydratation
+    // si le visiteur a choisi le français. Un moteur de recherche et un lecteur d'écran
+    // ne lisent que cette valeur-ci, et Chrome propose de traduire une page qu'il croit
+    // francophone.
+    <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <LocaleProvider>
           <SharedBlob />
