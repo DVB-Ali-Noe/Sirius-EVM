@@ -10,7 +10,6 @@ import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { useUiStore } from "@/stores/ui";
-import { ModeToggle } from "@/components/ui/ModeToggle";
 import {
   borrowDataset,
   cancelExpiredLoan,
@@ -297,7 +296,6 @@ export default function TrainPage() {
             {t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
           </p>
         </div>
-        <ModeToggle />
       </div>
 
       {error && (
