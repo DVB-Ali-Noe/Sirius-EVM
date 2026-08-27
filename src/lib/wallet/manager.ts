@@ -52,9 +52,32 @@ export async function ensureExpectedChain(wallet = provider()): Promise<void> {
   }
 }
 
+/**
+ * Demande au portefeuille de présenter son sélecteur de comptes.
+ *
+ * `eth_requestAccounts` ne demande rien quand le site est déjà autorisé : il rend le
+ * compte précédent en silence. Un utilisateur qui gère plusieurs comptes se retrouve
+ * donc reconnecté au mauvais, sans qu'aucun écran ne lui propose de changer.
+ *
+ * `wallet_requestPermissions` rouvre ce choix. Tous les portefeuilles ne la
+ * connaissent pas : on distingue alors un refus délibéré, qui doit interrompre la
+ * connexion, d'une méthode absente, où l'on retombe sur l'ancien comportement.
+ */
+async function demanderChoixDuCompte(wallet: Eip1193Provider): Promise<void> {
+  try {
+    await wallet.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+  } catch (error) {
+    const code = (error as { code?: number })?.code;
+    if (code === 4001) throw new Error("Connexion annulée dans le wallet.");
+    // 4200 « unsupported method », -32601 « method not found » : le portefeuille ne
+    // sait pas rouvrir le choix, on poursuit avec ce qu'il autorise déjà.
+  }
+}
+
 export async function connectExternalWallet(): Promise<{ address: string; chainId: string }> {
   const wallet = provider();
   await ensureExpectedChain(wallet);
+  await demanderChoixDuCompte(wallet);
   const accounts = await wallet.request({ method: "eth_requestAccounts" });
   if (!Array.isArray(accounts) || typeof accounts[0] !== "string") throw new Error("Le wallet n'a renvoyé aucun compte.");
   const chainId = await wallet.request({ method: "eth_chainId" });
@@ -63,7 +86,11 @@ export async function connectExternalWallet(): Promise<{ address: string; chainI
 }
 
 export function getExternalWallet(): Eip1193Provider | null {
-  return typeof window === "undefined" ? null : (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
+  if (typeof window === "undefined") return null;
+  // Le portefeuille choisi d'abord : sans ça, la synchronisation et la lecture du
+  // solde repartiraient sur `window.ethereum` — donc sur une autre extension que
+  // celle avec laquelle l'utilisateur s'est connecté.
+  return selectedProvider() ?? (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
 }
 
 export async function disconnectWallet(): Promise<void> {
