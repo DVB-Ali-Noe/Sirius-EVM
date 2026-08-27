@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
-import { createPublicClient, createWalletClient, formatEther, http, type Abi, type Hex } from "viem";
+import { createPublicClient, createWalletClient, formatEther, http, parseUnits, type Abi, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS } from "../../src/lib/evm/networks";
 import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
@@ -39,10 +39,16 @@ async function main() {
   const usdcAbi = [
     { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
     { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+    { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
   ] as const;
 
   const provider = requiredAddress("SIRIUS_SMOKE_PROVIDER_ADDRESS");
-  const amount = 2_000_000n;
+  // Montant dérivé de la précision du réseau, jamais écrit en dur : l'USDC du
+  // testnet a 18 décimales là où celui de référence en a 6. Un littéral figé passait
+  // sous le plancher de l'escrow et faisait échouer le verrouillage sans que la
+  // raison soit lisible dans l'erreur.
+  const usdcDecimals = await publicClient.readContract({ address: usdc, abi: usdcAbi, functionName: "decimals" });
+  const amount = parseUnits("2", Number(usdcDecimals));
   const preimage = randomBytes(32);
   const hashlock = hashlockOf(preimage);
   const loanId = `smoke-${randomBytes(6).toString("hex")}`;
