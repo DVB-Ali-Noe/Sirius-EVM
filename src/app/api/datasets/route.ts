@@ -36,6 +36,20 @@ function withoutWrappedKey<T extends { wrappedKey: unknown; metrics: unknown }>(
 }
 
 export async function GET(req: Request) {
+  // Le catalogue était la seule route à laisser filer une exception sans la
+  // rattraper : Next renvoyait alors un 500 au corps vide. Une panne de base s'y
+  // manifestait donc par un écran d'erreur générique, sans rien à lire ni dans le
+  // navigateur ni depuis l'extérieur — alors que c'est justement la seule route
+  // publique qui interroge la base sans authentification, donc la première à
+  // révéler ce genre de panne.
+  try {
+    return await listerDatasets(req);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+async function listerDatasets(req: Request) {
   // Whitelist : par défaut la marketplace publique n'expose que les LISTED (« Public » ;
   // jamais DRAFT/SUSPENDED/UNLISTED/PRIVATE). Un provider authentifié voit en plus ses
   // propres datasets (hors supprimés = bruit).
