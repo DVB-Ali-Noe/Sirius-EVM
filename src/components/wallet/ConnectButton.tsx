@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { disconnectWallet } from "@/lib/wallet/manager";
+import { markWalletDisconnected } from "@/lib/wallet/intent";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
 import { openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -62,6 +63,9 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const handleDisconnect = async () => {
     setOpen(false);
     try {
+      // Posée avant toute chose : si la révocation ou la déconnexion de session
+      // échoue, le geste de l'utilisateur doit tout de même être respecté.
+      markWalletDisconnected();
       await signOut();
       await disconnectWallet();
     } finally {

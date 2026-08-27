@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { clearWalletDisconnected, walletDisconnectedByUser } from "@/lib/wallet/intent";
 import { invalidateWalletSession } from "@/lib/auth/client";
 import { tryNormalizeAddress } from "@/lib/evm/address";
 import { EVM_CHAIN_IDS, resolveClientNetwork, type EvmNetwork } from "@/lib/evm/networks";
@@ -14,6 +15,10 @@ function networkForChain(chainId: unknown): string {
 }
 
 export function openWalletModal(): void {
+  // Clic explicite sur « Connecter » : on lève l'intention de déconnexion, sinon la
+  // synchronisation continuerait de refuser le compte que l'utilisateur vient de
+  // rouvrir, et le bouton semblerait ne rien faire.
+  clearWalletDisconnected();
   void connectExternalWallet().then(({ address, chainId }) => {
     const normalized = tryNormalizeAddress(address);
     if (!normalized) throw new Error("Adresse EVM invalide.");
@@ -33,6 +38,9 @@ export function WalletConnector() {
     if (!wallet) return;
     let active = true;
     const sync = async () => {
+      // L'utilisateur s'est déconnecté : le portefeuille reste peut-être autorisé,
+      // mais le reconnecter d'office annulerait son geste sous ses yeux.
+      if (walletDisconnectedByUser()) return;
       const [accounts, chainId] = await Promise.all([
         wallet.request({ method: "eth_accounts" }),
         wallet.request({ method: "eth_chainId" }),
@@ -45,6 +53,8 @@ export function WalletConnector() {
       setConnected(address, networkForChain(chainId), "external");
     };
     const onAccountsChanged = (accounts: unknown) => {
+      // Un changement de compte est un geste délibéré : il vaut demande de connexion.
+      clearWalletDisconnected();
       const address = tryNormalizeAddress(Array.isArray(accounts) ? accounts[0] : undefined);
       if (!address) {
         void invalidateWalletSession();
