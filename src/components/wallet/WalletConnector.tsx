@@ -14,6 +14,45 @@ function networkForChain(chainId: unknown): string {
   return (Object.entries(EVM_CHAIN_IDS).find(([, id]) => id === parsed)?.[0] as EvmNetwork | undefined) ?? chainId;
 }
 
+/**
+ * Aligne l'état du navigateur sur la session que le serveur reconnaît.
+ *
+ * Le store wallet ne persiste pas — c'est délibéré, il doit refléter le provider
+ * vivant — mais le cookie de session, lui, dure vingt-quatre heures. Au montage, le
+ * store est donc vide face à une session encore ouverte, et la divergence ressemblait
+ * à s'y méprendre à un changement de compte : on détruisait la session à chaque
+ * navigation. L'utilisateur signait, changeait de page, et se retrouvait déconnecté
+ * sans qu'aucun message ne l'explique.
+ *
+ * C'est le serveur qui tranche, puisque c'est lui qui détient le cookie. Trois cas :
+ * une session pour cette adresse, on se déclare authentifié ; une session pour une
+ * autre adresse, vestige d'un compte précédent, on la ferme ; aucune session, il n'y
+ * a rien à faire et l'utilisateur signera.
+ */
+async function synchroniserSession(address: string): Promise<void> {
+  try {
+    const response = await fetch("/api/auth/session", { cache: "no-store" });
+    if (!response.ok) return;
+    const { authenticated, address: sessionAddress } = (await response.json()) as {
+      authenticated?: unknown;
+      address?: unknown;
+    };
+    if (authenticated !== true) return;
+
+    if (tryNormalizeAddress(sessionAddress) !== address) {
+      void invalidateWalletSession();
+      return;
+    }
+    // Le compte a pu changer pendant l'aller-retour réseau.
+    if (useWalletStore.getState().address === address) {
+      useWalletStore.getState().setAuthenticated(true);
+    }
+  } catch {
+    // Serveur injoignable : on reste non authentifié plutôt que de l'affirmer à tort.
+    // L'utilisateur peut toujours signer, ce qui rétablira l'état.
+  }
+}
+
 export function openWalletModal(): void {
   // Clic explicite sur « Connecter » : on lève l'intention de déconnexion, sinon la
   // synchronisation continuerait de refuser le compte que l'utilisateur vient de
@@ -22,9 +61,8 @@ export function openWalletModal(): void {
   void connectExternalWallet().then(({ address, chainId }) => {
     const normalized = tryNormalizeAddress(address);
     if (!normalized) throw new Error("Adresse EVM invalide.");
-    const current = useWalletStore.getState();
-    if (current.address !== normalized || current.source !== "external") void invalidateWalletSession();
     useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
+    void synchroniserSession(normalized);
   }).catch((error) => console.error("Connexion wallet EVM échouée", error));
 }
 
@@ -48,9 +86,8 @@ export function WalletConnector() {
       if (!active || !Array.isArray(accounts) || typeof accounts[0] !== "string") return;
       const address = tryNormalizeAddress(accounts[0]);
       if (!address) return;
-      const current = useWalletStore.getState();
-      if (current.address !== address || current.source !== "external") void invalidateWalletSession();
       setConnected(address, networkForChain(chainId), "external");
+      void synchroniserSession(address);
     };
     const onAccountsChanged = (accounts: unknown) => {
       // Un changement de compte est un geste délibéré : il vaut demande de connexion.
@@ -61,9 +98,10 @@ export function WalletConnector() {
         setDisconnected();
         return;
       }
-      const current = useWalletStore.getState();
-      if (current.address !== address || current.source !== "external") void invalidateWalletSession();
-      void wallet.request({ method: "eth_chainId" }).then((chainId) => setConnected(address, networkForChain(chainId), "external"));
+      void wallet.request({ method: "eth_chainId" }).then((chainId) => {
+        setConnected(address, networkForChain(chainId), "external");
+        void synchroniserSession(address);
+      });
     };
     const onChainChanged = (chainId: unknown) => {
       void invalidateWalletSession();
