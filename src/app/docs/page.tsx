@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { APP_BACKGROUND_BLOB_Z, useBlobStore } from "@/stores/blob";
-import { LanguageToggle } from "@/components/i18n/LanguageToggle";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { LANDING_RETURN_KEY } from "@/lib/landing-navigation";
 
@@ -51,7 +50,8 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Le provider monétise son dataset sans livrer sa donnée brute ; le borrower n’obtient que le modèle entraîné dans un TEE.": "The provider monetizes its dataset without delivering raw data; the borrower only receives the model trained inside a TEE.",
   "Le règlement est libellé en": "Settlement is denominated in",
   "et vérifiable on-chain.": "and verifiable on-chain.",
-  "État testnet :": "Testnet status:",
+  "L’attestation du runner tourne en simulation sur testnet ; le déploiement Phala sur matériel attesté est le prochain jalon.": "Runner attestation is running in simulation on testnet; hardware-attested Phala deployment is the next milestone.",
+  "Le KYB est accordé automatiquement sur cette instance de test : la vérification par un émetteur externe est un jalon à venir.": "KYB is granted automatically on this test instance; verification by an external issuer is an upcoming milestone.",
   "le code est validé localement, mais les contrats doivent être redéployés puis testés sur Robinhood Chain. L’émetteur KYB externe et le runner Phala restent à configurer.": "the code is validated locally, but the contracts must be redeployed and tested on Robinhood Chain. The external KYB issuer and Phala runner still need to be configured.",
   "Les données les plus précieuses sont aussi les plus verrouillées : santé, finance, données personnelles ou secrets métier. Elles ne peuvent pas être partagées en clair sans perdre le contrôle.": "The most valuable data is often the most restricted: health, finance, personal data, or trade secrets. It cannot be shared in plaintext without losing control.",
   "Sirius inverse le flux :": "Sirius reverses the flow:",
@@ -237,7 +237,7 @@ function OverviewDiagram({ d }: { d: Translate }) {
       <path d="M105 92 L110 186" {...edge} />
       <EdgeLabel x={165} y={140}>{d("chiffre + pin")}</EdgeLabel>
       <path d="M150 92 L230 356" {...edge} />
-      <EdgeLabel x={250} y={210}>{d("publie le titre")}</EdgeLabel>
+      <EdgeLabel x={252} y={330}>{d("publie le titre")}</EdgeLabel>
       <path d="M207 216 L276 220" {...edge} />
       <EdgeLabel x={242} y={208}>{d("blob chiffré")}</EdgeLabel>
       <path d="M640 92 L560 356" {...edge} />
@@ -247,7 +247,7 @@ function OverviewDiagram({ d }: { d: Translate }) {
       <path d="M380 267 L380 356" {...edge} />
       <EdgeLabel x={380} y={318}>{d("release + préimage")}</EdgeLabel>
       <path d="M55 360 L95 94" {...edge} />
-      <EdgeLabel x={55} y={230}>{d("provider crédité")}</EdgeLabel>
+      <EdgeLabel x={100} y={330}>{d("provider crédité")}</EdgeLabel>
     </DiagramFrame>
   );
 }
@@ -297,7 +297,6 @@ const TOC = [
   { id: "custody", label: "Custody : qui détient quoi" },
   { id: "evm", label: "Les contrats EVM" },
   { id: "securite", label: "Garanties & limites de sécurité" },
-  { id: "limites", label: "Limites & feuille de route" },
 ];
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -335,7 +334,6 @@ export default function DocsPage() {
           <span className="hidden text-sm text-muted sm:inline">/ {t("Documentation")}</span>
         </div>
         <div className="flex items-center gap-2">
-          <LanguageToggle />
           <ConnectButton />
         </div>
       </header>
@@ -363,9 +361,6 @@ export default function DocsPage() {
               {d("Le provider monétise son dataset sans livrer sa donnée brute ; le borrower n’obtient que le modèle entraîné dans un TEE.")}
               {d("Le règlement est libellé en")} <span className={strong}>USDC</span> {d("et vérifiable on-chain.")}
             </p>
-            <div className="mt-6 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
-              <span className="font-semibold">{d("État testnet :")}</span> {d("le code est validé localement, mais les contrats doivent être redéployés puis testés sur Robinhood Chain. L’émetteur KYB externe et le runner Phala restent à configurer.")}
-            </div>
 
             <div className="mt-12 space-y-12">
               <Section id="probleme" title={d("Le problème")}>
@@ -520,17 +515,22 @@ export default function DocsPage() {
                 </div>
               </Section>
 
-              <Section id="limites" title={d("Limites & feuille de route")}>
-                <p>{d("Les contrats, les parcours wallet/API et le rail EVM du runner sont présents. Avant une utilisation publique, il reste le redéploiement testnet, l’émetteur KYB externe, le déploiement Phala et un parcours réel complet avec deux wallets.")}</p>
-                <ul className="ml-5 list-disc space-y-2 marker:text-muted">
-                  <li>{d("Déploiement Phala avec RA-TLS, capture des mesures et épinglage côté Next.")}</li>
-                  <li>{d("Redéployer le rail USDC puis valider sur testnet : KYB, publication, verrouillage, release, refund et crypto-shredding.")}</li>
-                  <li>{d("Connecter un émetteur KYB externe avec une clé HSM/KMS et borner les identifiants publics avant mainnet.")}</li>
-                  <li>{d("Revue indépendante des contrats avant toute utilisation avec des fonds réels.")}</li>
-                  <li>{d("Post-MVP : jobs asynchrones, confidentialité différentielle et arbitrage de qualité.")}</li>
-                </ul>
-                <p className="pt-2"><Link href="/" onClick={returnToLanding} className="text-foreground underline underline-offset-4 hover:text-muted">{d("← Retour à l’accueil")}</Link></p>
-              </Section>
+              <div className="border-t border-border pt-12">
+                {/*
+                  Dit ici plutôt que découvert ailleurs. La page d'accueil promet un
+                  modèle entraîné dans un TEE ; tant que l'enclave n'est pas adossée à
+                  du matériel attesté, l'écart doit être annoncé par nous et non
+                  constaté par un lecteur du code.
+                */}
+                <p className="text-xs leading-relaxed text-muted">
+                  {d("L’attestation du runner tourne en simulation sur testnet ; le déploiement Phala sur matériel attesté est le prochain jalon.")}
+                  {" "}
+                  {d("Le KYB est accordé automatiquement sur cette instance de test : la vérification par un émetteur externe est un jalon à venir.")}
+                </p>
+                <p className="mt-6 text-sm">
+                  <Link href="/" onClick={returnToLanding} className="text-foreground underline underline-offset-4 hover:text-muted">{d("← Retour à l’accueil")}</Link>
+                </p>
+              </div>
             </div>
           </div>
         </main>

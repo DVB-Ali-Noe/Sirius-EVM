@@ -11,7 +11,6 @@ import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useBlobStore } from "@/stores/blob";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { LanguageToggle } from "@/components/i18n/LanguageToggle";
 
 gsap.registerPlugin(ScrollTrigger);
 // Évite les recalculs de 100vh au show/hide de la barre d'adresse mobile (jank du pin).
@@ -281,7 +280,6 @@ export default function Home() {
   return (
     <main className="relative z-10 text-foreground">
       <div className="fixed right-0 top-0 z-30 flex items-center gap-2 p-6 sm:p-8">
-        <LanguageToggle />
         <ConnectButton />
       </div>
 

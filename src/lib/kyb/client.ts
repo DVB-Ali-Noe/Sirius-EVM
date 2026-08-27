@@ -14,7 +14,7 @@ export type KybRole = "provider" | "borrower";
  * Retourne `false` si l'instance ne propose pas ce parrainage, pour que l'appelant
  * remonte l'erreur d'origine plutôt qu'un message trompeur.
  */
-async function attestViaSponsor(): Promise<boolean> {
+export async function attestViaSponsor(): Promise<boolean> {
   const preparation = await fetch("/api/kyb/demo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -76,4 +76,33 @@ export async function acceptKybCredential(role: KybRole): Promise<void> {
   });
   const submitted = (await submission.json()) as { error?: string };
   if (!submission.ok) throw new Error(submitted.error ?? "Acceptation du KYB échouée");
+}
+
+/**
+ * Pose l'attestation si elle manque, sans en faire une étape pour l'utilisateur.
+ *
+ * L'escrow refuse tout verrouillage dont l'une des parties n'est pas attestée : le
+ * KYB n'est pas une option de l'interface, c'est une condition du contrat. Mais en
+ * faire un bouton distinct oblige chaque visiteur à comprendre un acronyme et à
+ * deviner qu'il doit cliquer dessus avant d'essayer quoi que ce soit.
+ *
+ * Le registre exige le consentement du sujet — il n'existe pas de chemin où le
+ * vérificateur atteste seul, et c'est une bonne chose. On demande donc bien une
+ * signature, mais à la suite de celle de connexion, là où l'utilisateur a déjà son
+ * portefeuille ouvert.
+ *
+ * Ne lève jamais : un échec ici ne doit pas annuler une connexion réussie. Le bouton
+ * de secours reste affiché tant que l'attestation manque.
+ */
+export async function ensureKybAttested(address: string): Promise<void> {
+  try {
+    const statut = await fetch(`/api/account/status?address=${encodeURIComponent(address)}`);
+    if (statut.ok) {
+      const { known } = (await statut.json()) as { known?: unknown };
+      if (known === true) return;
+    }
+    await attestViaSponsor();
+  } catch {
+    // Silence volontaire : l'utilisateur est connecté, c'est ce qu'il demandait.
+  }
 }

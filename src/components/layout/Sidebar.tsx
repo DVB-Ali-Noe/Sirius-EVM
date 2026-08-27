@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
-import { LanguageToggle } from "@/components/i18n/LanguageToggle";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { LANDING_RETURN_KEY } from "@/lib/landing-navigation";
 
@@ -78,7 +77,6 @@ export function Sidebar() {
       <aside className="fixed inset-y-4 left-4 z-30 hidden w-[17rem] flex-col rounded-[2rem] border border-white/[0.12] bg-surface/55 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl md:flex">
         <div className="flex h-14 shrink-0 items-center justify-between px-3">
           <LogoSlot />
-          <LanguageToggle />
         </div>
         <div className="flex-1 overflow-y-auto py-5">
           <NavLinks vertical />
@@ -95,7 +93,6 @@ export function Sidebar() {
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-surface/80 px-4 backdrop-blur-sm md:hidden">
         <LogoSlot />
         <div className="flex items-center gap-1">
-          <LanguageToggle />
           <ExitButton />
           <ConnectButton />
         </div>

@@ -2,6 +2,7 @@
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
 import { selectedProvider } from "@/lib/wallet/discovery";
+import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
@@ -97,15 +98,57 @@ export async function disconnectWallet(): Promise<void> {
   await provider().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => {});
 }
 
+/**
+ * Forme d'adresse à présenter au portefeuille.
+ *
+ * Le projet stocke, compare et signe en minuscules — c'est une règle de sécurité
+ * documentée dans `evm/address.ts`, et elle ne change pas. Mais l'adresse passée à
+ * `personal_sign`, `eth_signTypedData_v4` ou au champ `from` n'est pas une donnée
+ * signée : c'est l'identifiant du compte que l'extension doit retrouver dans sa
+ * propre liste, laquelle est en EIP-55. Un portefeuille qui compare littéralement
+ * ne trouve alors rien et rejette la demande sans expliquer pourquoi.
+ *
+ * La frontière avec le portefeuille est donc le seul endroit où l'on repasse en
+ * casse mixte, et uniquement pour désigner un compte.
+ */
+function pourLeWallet(address: string): string {
+  try {
+    return displayAddress(address);
+  } catch {
+    // Adresse non conforme : on laisse le portefeuille la refuser lui-même plutôt
+    // que d'échouer ici sur une forme qu'il aurait peut-être acceptée.
+    return address;
+  }
+}
+
 function messageHex(message: string): `0x${string}` {
   const bytes = new TextEncoder().encode(message);
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 export async function signMessageExternal(message: string, address: string): Promise<{ signature: string }> {
-  const signature = await provider().request({ method: "personal_sign", params: [messageHex(message), address] });
+  let signature: unknown;
+  try {
+    signature = await provider().request({ method: "personal_sign", params: [messageHex(message), pourLeWallet(address)] });
+  } catch (error) {
+    // Le portefeuille dit toujours pourquoi il refuse — code EIP-1193 et message —
+    // mais cette information se perdait ici, et l'utilisateur n'avait qu'un « échec,
+    // réessaie » qui ne permet ni de le corriger ni de nous le rapporter.
+    throw new Error(descriptionRefus(error));
+  }
   if (typeof signature !== "string") throw new Error("Signature EVM refusée par le wallet.");
   return { signature };
+}
+
+/** Rend lisible un rejet EIP-1193, dont la forme varie d'une extension à l'autre. */
+function descriptionRefus(error: unknown): string {
+  const details = error as { code?: unknown; message?: unknown } | null;
+  const code = typeof details?.code === "number" ? details.code : null;
+  const message = typeof details?.message === "string" ? details.message : String(error);
+  if (code === 4001) return "Signature refusée dans le wallet.";
+  if (code === 4100) return "Le wallet n'a pas autorisé ce compte pour ce site.";
+  if (code === 4901) return "Le wallet n'est connecté à aucun réseau.";
+  return code === null ? message : `${message} (code ${code})`;
 }
 
 /**
@@ -118,7 +161,7 @@ export async function signTypedDataExternal(payload: unknown, address: string): 
   await ensureExpectedChain(wallet);
   const signature = await wallet.request({
     method: "eth_signTypedData_v4",
-    params: [address, JSON.stringify(payload)],
+    params: [pourLeWallet(address), JSON.stringify(payload)],
   });
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) {
     throw new Error("Signature EIP-712 refusée par le wallet.");

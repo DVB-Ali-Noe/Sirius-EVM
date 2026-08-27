@@ -2,6 +2,7 @@
 
 import { useWalletStore } from "@/stores/wallet";
 import { signMessageExternal } from "@/lib/wallet/manager";
+import { ensureKybAttested } from "@/lib/kyb/client";
 import {
   activateRunnerDelegation,
   beginRunnerDelegation,
@@ -46,6 +47,11 @@ export async function signInWithWallet(): Promise<void> {
     sessionPublicKey: runnerSessionPublicKey,
   });
   useWalletStore.getState().setAuthenticated(true);
+
+  // Posé dans la foulée, pendant que le portefeuille est encore sous la main.
+  // L'escrow l'exigera de toute façon ; le découvrir au moment de verrouiller des
+  // fonds serait le plus mauvais moment.
+  await ensureKybAttested(address);
 }
 
 export async function signOut(): Promise<void> {

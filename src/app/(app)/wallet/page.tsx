@@ -8,7 +8,7 @@ import { useWalletStore } from "@/stores/wallet";
 import { fetchUsdcBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { sendPayment } from "@/lib/wallet/payment-client";
-import { openMoonpay } from "@/lib/wallet/onramp";
+import { addFunds } from "@/lib/wallet/onramp";
 import { messageOf } from "@/lib/errors-client";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -27,6 +27,8 @@ export default function WalletPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [fundsPending, setFundsPending] = useState(false);
+  const [fundsMessage, setFundsMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -37,6 +39,24 @@ export default function WalletPage() {
       setBalError(true);
     }
   }, [address]);
+
+  const handleAddFunds = async () => {
+    setFundsPending(true);
+    setFundsMessage(null);
+    try {
+      const recu = await addFunds();
+      setFundsMessage(
+        recu.eth
+          ? t("{usdc} USDC et {eth} ETH envoyés.", { usdc: recu.usdc, eth: recu.eth })
+          : t("{usdc} USDC envoyés.", { usdc: recu.usdc }),
+      );
+      await refresh();
+    } catch (err) {
+      setFundsMessage(t(err instanceof Error ? err.message : "Ajout de fonds indisponible"));
+    } finally {
+      setFundsPending(false);
+    }
+  };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial, setState post-await
@@ -99,12 +119,16 @@ export default function WalletPage() {
           </div>
           {balError && <p className="mt-2 text-xs text-negative">{t("Solde indisponible.")}</p>}
         </div>
-        <button
-          onClick={openMoonpay}
-          className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90"
-        >
-          {t("Ajouter des fonds")}
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          <button
+            onClick={handleAddFunds}
+            disabled={fundsPending}
+            className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+          >
+            {fundsPending ? t("Envoi en cours…") : t("Ajouter des fonds")}
+          </button>
+          {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
+        </div>
       </Card>
 
       <Card>

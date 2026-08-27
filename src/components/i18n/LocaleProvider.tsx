@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect } from "react";
 
 export type Locale = "fr" | "en";
 
@@ -32,6 +32,12 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "Envoi en cours…": "Sending…",
+    "{usdc} USDC et {eth} ETH envoyés.": "Sent {usdc} USDC and {eth} ETH.",
+    "{usdc} USDC envoyés.": "Sent {usdc} USDC.",
+    "Ajout de fonds indisponible": "Adding funds is unavailable",
+    "Distribution de fonds de test indisponible sur cette instance": "Test funds are not available on this instance",
+    "Trop de requêtes — réessaie plus tard": "Too many requests — try again later",
     // Messages renvoyés par l'API. Le serveur parle français ; l'interface, pas
     // forcément. Sans ces entrées, une erreur de session s'affiche en français au
     // milieu d'une page anglaise.
@@ -276,7 +282,6 @@ const messages: Record<Locale, Record<string, string>> = {
 
 interface LocaleContextValue {
   locale: Locale;
-  setLocale: (locale: Locale) => void;
   t: (key: string, variables?: Variables) => string;
 }
 
@@ -288,12 +293,15 @@ function format(message: string, variables?: Variables) {
 }
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  // L'anglais est la langue par défaut : le public visé — investisseurs, réseaux
-  // d'agents, développeurs de l'écosystème — ne lit pas le français, et une page
-  // d'accueil francophone se referme avant que le sélecteur soit remarqué.
-  // Le choix reste offert, et il est mémorisé d'une visite à l'autre.
-  const [locale, setLocale] = useState<Locale>("en");
-  const [ready, setReady] = useState(false);
+  // Le site est en anglais, sans alternative. Le public visé — investisseurs,
+  // réseaux d'agents, développeurs de l'écosystème — ne lit pas le français, et un
+  // sélecteur de langue sur une page d'accueil coûte plus en hésitation qu'il ne
+  // rapporte en confort.
+  //
+  // Le dictionnaire reste en place : c'est lui qui traduit les messages du serveur,
+  // qui parle français, vers l'interface. `setLocale` demeure exposé pour ne pas
+  // rompre le contrat du contexte, mais plus rien ne l'appelle.
+  const locale: Locale = "en";
 
   const t = useCallback(
     (key: string, variables?: Variables) => format(messages[locale][key] ?? key, variables),
@@ -301,21 +309,14 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("sirius.locale");
-    const timer = window.setTimeout(() => {
-      if (saved === "fr" || saved === "en") setLocale(saved);
-      setReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     document.documentElement.lang = locale;
     document.title = t("Sirius — data lending confidentiel sur EVM");
-    if (ready) window.localStorage.setItem("sirius.locale", locale);
-  }, [locale, ready, t]);
+    // Un choix mémorisé lors d'une visite précédente ne doit pas ressusciter une
+    // langue que le site ne propose plus.
+    window.localStorage.removeItem("sirius.locale");
+  }, [locale, t]);
 
-  return <LocaleContext value={{ locale, setLocale, t }}>{children}</LocaleContext>;
+  return <LocaleContext value={{ locale, t }}>{children}</LocaleContext>;
 }
 
 export function useLocale() {

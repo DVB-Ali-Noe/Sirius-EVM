@@ -8,6 +8,7 @@ import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
 import { useFavoritesStore } from "@/stores/favorites";
+import { useWalletStore } from "@/stores/wallet";
 import { acceptKybCredential } from "@/lib/kyb/client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
@@ -32,7 +33,11 @@ export default function MarketplacePage() {
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // `null` tant qu'on ne sait pas : on n'affiche alors rien plutôt qu'un bouton qui
+  // clignoterait à chaque chargement pour disparaître aussitôt.
+  const [kybManquant, setKybManquant] = useState<boolean | null>(null);
   const favIds = useFavoritesStore((s) => s.ids);
+  const address = useWalletStore((s) => s.address);
   const { t } = useLocale();
 
   const loadPage = useCallback(async (cursor: string | null, append: boolean) => {
@@ -70,10 +75,28 @@ export default function MarketplacePage() {
     refresh();
   }, [refresh]);
 
+  // L'attestation est posée automatiquement à la connexion. Ce bouton n'est donc
+  // qu'un secours : il n'apparaît que si elle manque encore, ce qui n'arrive qu'en
+  // cas d'échec de ce chemin-là.
+  useEffect(() => {
+    if (!address) return;
+    let actif = true;
+    void fetch(`/api/account/status?address=${encodeURIComponent(address)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ known?: unknown }>) : null))
+      .then((corps) => {
+        if (actif && corps) setKybManquant(corps.known !== true);
+      })
+      .catch(() => {});
+    return () => {
+      actif = false;
+    };
+  }, [address]);
+
   async function handleOnboard() {
     setError(null);
     try {
       await acceptKybCredential("borrower");
+      setKybManquant(false);
     } catch (err) {
       setError(messageOf(err));
     }
@@ -88,12 +111,14 @@ export default function MarketplacePage() {
               {t("Emprunte l’accès via un escrow conditionnel. La donnée reste chiffrée — tu ne récupères qu’un modèle entraîné en TEE.")}
             </p>
           </div>
-          <button
-            onClick={handleOnboard}
-            className="shrink-0 rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
-          >
-            {t("Configurer le KYB")}
-          </button>
+          {kybManquant === true && (
+            <button
+              onClick={handleOnboard}
+              className="shrink-0 rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
+            >
+              {t("Configurer le KYB")}
+            </button>
+          )}
         </div>
 
         {error && (

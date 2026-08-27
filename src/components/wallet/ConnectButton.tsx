@@ -24,7 +24,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [authPending, setAuthPending] = useState(false);
-  const [authError, setAuthError] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const wrongNetwork = !!network && network !== EXPECTED_NETWORK;
@@ -45,12 +45,15 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
 
   const handleSignIn = async () => {
     setAuthPending(true);
-    setAuthError(false);
+    setAuthError(null);
     try {
       await signInWithWallet();
       setOpen(false);
-    } catch {
-      setAuthError(true);
+    } catch (error) {
+      // Affiché tel quel : c'est le portefeuille qui parle, et lui seul sait
+      // pourquoi il a refusé. Un message générique nous a coûté une soirée.
+      console.error("[sirius] signature refusée", error);
+      setAuthError(error instanceof Error ? error.message : "Échec — réessaie");
     } finally {
       setAuthPending(false);
     }
@@ -241,7 +244,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                   {authPending ? t("Signature…") : t("Se connecter")}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted">
-                  {authError ? t("Échec — réessaie") : t("Signe pour prouver la possession du wallet")}
+                  {authError ?? t("Signe pour prouver la possession du wallet")}
                 </span>
               </button>
             )}
