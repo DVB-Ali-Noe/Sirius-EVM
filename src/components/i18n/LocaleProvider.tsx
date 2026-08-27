@@ -32,6 +32,17 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    // Messages renvoyés par l'API. Le serveur parle français ; l'interface, pas
+    // forcément. Sans ces entrées, une erreur de session s'affiche en français au
+    // milieu d'une page anglaise.
+    "Authentification requise": "Sign-in required",
+    "Une erreur est survenue": "Something went wrong",
+    "Accès refusé : ressource d'un autre compte": "Access denied: this belongs to another account",
+    "Le grant runner ne correspond pas au wallet connecté": "The runner grant does not match the connected wallet",
+    "Wallet EVM indisponible": "EVM wallet unavailable",
+    "Solde USDC indisponible": "USDC balance unavailable",
+    "Aucun wallet EVM détecté. Installe Phantom, MetaMask, Rabby ou Coinbase Wallet.": "No EVM wallet detected. Install Phantom, MetaMask, Rabby or Coinbase Wallet.",
+    "Signature EVM refusée par le wallet.": "The wallet declined the signature.",
     "Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.": "To use another account, pick it directly in your wallet — the app will follow.",
     "Recherche des wallets…": "Looking for wallets…",
     "Pas de données sous la main ?": "No data at hand?",

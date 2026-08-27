@@ -98,7 +98,7 @@ export default function MarketplacePage() {
 
         {error && (
           <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
-            {error}
+            {t(error)}
           </div>
         )}
 
