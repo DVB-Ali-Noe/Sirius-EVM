@@ -22,10 +22,13 @@ import { LocaleProvider } from "@/components/i18n/LocaleProvider";
  */
 export const dynamic = "force-dynamic";
 
+// Rendues côté serveur, donc figées : ce sont elles qu'un moteur de recherche lit et
+// qu'un réseau social affiche en aperçu de lien. Le sélecteur de langue n'y change
+// rien, et un titre français sur un site anglophone se remarque avant la page.
 export const metadata: Metadata = {
-  title: "Sirius — data lending confidentiel sur EVM",
+  title: "Sirius — confidential data lending on EVM",
   description:
-    "Louer des datasets de valeur sans jamais les exposer. Entraînement en TEE, règlement USDC et audit sur EVM.",
+    "Lend valuable datasets without ever exposing them. Training inside a TEE, USDC settlement, and an audit trail on EVM.",
 };
 
 export default function RootLayout({
