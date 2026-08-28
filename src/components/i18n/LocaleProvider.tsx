@@ -32,6 +32,9 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "test USDC": "test USDC",
+    "{eth} ETH pour le gas": "{eth} ETH for gas",
+    "{eth} ETH — plus assez pour payer le gas": "{eth} ETH — not enough left for gas",
     "Transaction refusée dans le wallet.": "Transaction rejected in your wallet.",
     "Le wallet est déconnecté.": "Your wallet is disconnected.",
     "Fonds insuffisants pour payer le gas.": "Not enough funds to pay for gas.",

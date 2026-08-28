@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useWalletStore } from "@/stores/wallet";
-import { fetchUsdcBalance, type UsdcBalance } from "@/lib/evm/balance";
+import { fetchGasBalance, fetchUsdcBalance, type GasBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { addFunds } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const { locale, t } = useLocale();
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
+  const [gas, setGas] = useState<GasBalance | null>(null);
   const [reputation, setReputation] = useState<ReputationOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -59,7 +60,12 @@ export default function DashboardPage() {
     setLoading(true);
     setError(false);
     try {
-      setBalance(await fetchUsdcBalance(address));
+      const [usdc, natif] = await Promise.all([
+        fetchUsdcBalance(address),
+        fetchGasBalance(address).catch(() => null),
+      ]);
+      setBalance(usdc);
+      setGas(natif);
     } catch {
       setError(true);
     } finally {
@@ -134,8 +140,13 @@ export default function DashboardPage() {
             <span className="text-3xl font-semibold tracking-tight">
               {loading && !balance ? "…" : error ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "—"}
             </span>
-            <span className="text-sm text-muted">USDC</span>
+            <span className="text-sm text-muted">{t("test USDC")}</span>
           </div>
+          {gas && (
+            <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>
+              {gas.low ? t("{eth} ETH — plus assez pour payer le gas", { eth: gas.eth }) : t("{eth} ETH pour le gas", { eth: gas.eth })}
+            </p>
+          )}
           {error && <p className="mt-2 text-xs text-negative">{t("Solde indisponible — réessaie.")}</p>}
         </div>
         <div className="flex flex-col items-end gap-2">
