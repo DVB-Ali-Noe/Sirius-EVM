@@ -104,6 +104,7 @@ export default function TrainPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
   const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
+  const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
 
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -261,12 +262,12 @@ export default function TrainPage() {
     }
   }
 
-  async function resumeSubmission(loan: Loan) {
+  async function resumeSubmission(loan: Loan, lockTxHash?: string) {
     const key = `submit:${loan.id}`;
     setError(null);
     setBusyKey(key, true);
     try {
-      await resumeLoanSubmission();
+      await resumeLoanSubmission(loan.id, lockTxHash);
       await refresh();
     } catch (err) {
       setError(messageOf(err));
@@ -465,6 +466,23 @@ export default function TrainPage() {
                   >
                     {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Réconcilier l’escrow")}
                   </button>
+                )}
+                {(l.status === "PENDING" || (l.status === "CANCELLED" && !l.cancelTxHash)) && (
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                    <input
+                      value={lockRecoveryHashes[l.id] ?? ""}
+                      onChange={(event) => setLockRecoveryHashes((previous) => ({ ...previous, [l.id]: event.target.value.trim() }))}
+                      placeholder={t("Hash de la transaction lock")}
+                      className="min-w-0 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent sm:w-72"
+                    />
+                    <button
+                      onClick={() => resumeSubmission(l, lockRecoveryHashes[l.id])}
+                      disabled={busy.has(`submit:${l.id}`) || !lockRecoveryHashes[l.id]}
+                      className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    >
+                      {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Récupérer le lock")}
+                    </button>
+                  </div>
                 )}
                 {!l.refundable && (l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
                   <button

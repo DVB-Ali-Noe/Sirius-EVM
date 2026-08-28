@@ -1,12 +1,15 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { getPublicClient } from "@/lib/evm/client";
 import {
   CHAIN_REAPER_LEASE_MS,
   PENDING_REAPER_TTL_MS,
   SETTLEMENT_REAPER_LEASE_MS,
+  SUBMISSION_REAPER_LEASE_MS,
   TRAINING_REAPER_LEASE_MS,
 } from "./reaper-policy";
+import { finalizeLoan } from "./borrower";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -27,12 +30,22 @@ export async function runLoanReaper(now = new Date()): Promise<void> {
     where: {
       OR: [
         { status: "PENDING", createdAt: { lte: new Date(now.getTime() - PENDING_REAPER_TTL_MS) } },
+        { status: "SUBMITTING", updatedAt: { lte: new Date(now.getTime() - SUBMISSION_REAPER_LEASE_MS) } },
         { status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_REAPER_LEASE_MS) } },
         { status: "SETTLING", updatedAt: { lte: new Date(now.getTime() - SETTLEMENT_REAPER_LEASE_MS) } },
         { status: { in: ["ESCROWED", "TRAINING", "SETTLING"] }, updatedAt: { lte: new Date(now.getTime() - CHAIN_REAPER_LEASE_MS) } },
       ],
     },
-    select: { id: true, status: true, evmLoanKey: true, evmLockBlock: true, modelCid: true, updatedAt: true },
+    select: {
+      id: true,
+      borrower: true,
+      status: true,
+      evmLoanKey: true,
+      evmLockTxHash: true,
+      evmLockBlock: true,
+      modelCid: true,
+      updatedAt: true,
+    },
     orderBy: { updatedAt: "asc" },
     take: BATCH_SIZE,
   });
@@ -40,6 +53,32 @@ export async function runLoanReaper(now = new Date()): Promise<void> {
     try {
       if (loan.status === "PENDING") {
         await prisma.loan.updateMany({ where: { id: loan.id, status: "PENDING", updatedAt: loan.updatedAt }, data: { status: "CANCELLED" } });
+        continue;
+      }
+      if (loan.status === "SUBMITTING") {
+        if (!loan.evmLockTxHash) {
+          await prisma.loan.updateMany({ where: { id: loan.id, status: "SUBMITTING", updatedAt: loan.updatedAt }, data: { status: "CANCELLED" } });
+          continue;
+        }
+        try {
+          const receipt = await getPublicClient().getTransactionReceipt({ hash: loan.evmLockTxHash as `0x${string}` });
+          if (receipt.status === "reverted") {
+            await prisma.loan.updateMany({
+              where: { id: loan.id, status: "SUBMITTING", evmLockTxHash: loan.evmLockTxHash, updatedAt: loan.updatedAt },
+              data: { status: "CANCELLED" },
+            });
+            continue;
+          }
+        } catch {
+          if (now.getTime() - loan.updatedAt.getTime() >= PENDING_REAPER_TTL_MS) {
+            await prisma.loan.updateMany({
+              where: { id: loan.id, status: "SUBMITTING", evmLockTxHash: loan.evmLockTxHash, updatedAt: loan.updatedAt },
+              data: { status: "CANCELLED" },
+            });
+          }
+          continue;
+        }
+        await finalizeLoan(loan.id, loan.borrower);
         continue;
       }
       if (loan.status === "TRAINING" && !loan.modelCid) {

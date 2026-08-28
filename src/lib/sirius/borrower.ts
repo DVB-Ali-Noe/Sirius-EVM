@@ -13,7 +13,6 @@ import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 
-const PENDING_LOAN_TTL_MS = 10 * 60_000;
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
@@ -52,7 +51,14 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   const loan = await prisma.$transaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([
       tx.loan.count({ where: { borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] } } }),
-      tx.loan.count({ where: { borrower: borrowerAddress, datasetId, createdAt: { gte: new Date(Date.now() - RATE_WINDOW_MS) } } }),
+      tx.loan.count({
+        where: {
+          borrower: borrowerAddress,
+          datasetId,
+          status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] },
+          createdAt: { gte: new Date(Date.now() - RATE_WINDOW_MS) },
+        },
+      }),
     ]);
     if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
     if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
@@ -111,21 +117,41 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   if (loan.status === "ESCROWED" && loan.evmLockTxHash) return loan;
-  if (loan.status !== "PENDING" && loan.status !== "SUBMITTING") throw new AppError("Emprunt déjà clôturé", 409);
-  if (!loan.evmLoanKey || !loan.evmHashlock || !loan.amountUsdcAtomic) throw new AppError("Emprunt EVM non préparé", 409);
-  if (loan.status === "PENDING" && Date.now() - loan.createdAt.getTime() > PENDING_LOAN_TTL_MS) {
-    await prisma.loan.updateMany({ where: { id: loan.id, status: "PENDING" }, data: { status: "CANCELLED" } });
-    throw new AppError("Préparation expirée — recommence l’emprunt", 409);
+  const recoverableCancellation = loan.status === "CANCELLED" && !loan.cancelTxHash;
+  if (loan.status !== "PENDING" && loan.status !== "SUBMITTING" && !recoverableCancellation) {
+    throw new AppError("Emprunt déjà clôturé", 409);
   }
-  if (!lockTxHash || !/^0x[0-9a-fA-F]{64}$/.test(lockTxHash)) throw new AppError("Hash de lock USDC manquant", 400);
+  if (!loan.evmLoanKey || !loan.evmHashlock || !loan.amountUsdcAtomic) throw new AppError("Emprunt EVM non préparé", 409);
+  const submittedLockTxHash = loan.evmLockTxHash ?? lockTxHash;
+  if (!submittedLockTxHash || !/^0x[0-9a-fA-F]{64}$/.test(submittedLockTxHash)) {
+    throw new AppError("Hash de lock USDC manquant", 400);
+  }
+  if (lockTxHash && loan.evmLockTxHash && loan.evmLockTxHash.toLowerCase() !== lockTxHash.toLowerCase()) {
+    throw new AppError("Hash de lock USDC différent de la soumission en cours", 409);
+  }
+  const submission = await prisma.loan.updateMany({
+    where: {
+      id: loan.id,
+      borrower: borrowerAddress,
+      status: { in: ["PENDING", "SUBMITTING", "CANCELLED"] },
+      cancelTxHash: null,
+      OR: [{ evmLockTxHash: null }, { evmLockTxHash: submittedLockTxHash }],
+    },
+    data: { status: "SUBMITTING", evmLockTxHash: submittedLockTxHash },
+  });
+  if (submission.count !== 1) {
+    const current = await prisma.loan.findUnique({ where: { id: loan.id } });
+    if (current?.status === "ESCROWED" && current.evmLockTxHash?.toLowerCase() === submittedLockTxHash.toLowerCase()) return current;
+    throw new AppError("Soumission de lock USDC concurrente", 409);
+  }
   if (!isBorrowableDatasetStatus(loan.dataset.status) || !loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
     throw new AppError("Dataset indisponible", 409);
   }
 
   const publicClient = getPublicClient();
-  const [receipt, transaction, onChain] = await Promise.all([
-    publicClient.waitForTransactionReceipt({ hash: lockTxHash as Hex, confirmations: 1 }),
-    publicClient.getTransaction({ hash: lockTxHash as Hex }),
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: submittedLockTxHash as Hex, confirmations: 1 });
+  const [transaction, onChain] = await Promise.all([
+    publicClient.getTransaction({ hash: submittedLockTxHash as Hex }),
     readLoan(loan.evmLoanKey as Hex),
   ]);
   if (receipt.status !== "success" || !addressesEqual(transaction.from, borrowerAddress) || !addressesEqual(transaction.to ?? "", escrowAddress())) {
@@ -141,10 +167,9 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     throw new AppError("Lock USDC hors scope de l’emprunt", 409);
   }
   const updated = await prisma.loan.updateMany({
-    where: { id: loan.id, borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] }, evmLockTxHash: null },
+    where: { id: loan.id, borrower: borrowerAddress, status: "SUBMITTING", evmLockTxHash: submittedLockTxHash },
     data: {
       status: "ESCROWED",
-      evmLockTxHash: lockTxHash,
       evmLockBlock: receipt.blockNumber.toString(),
       evmDeadline: new Date(onChain.deadline * 1000),
     },

@@ -17,6 +17,26 @@ interface BorrowInput {
   datasetId: string;
 }
 
+function lockSubmissionStorageKey(loanId: string): string {
+  return `sirius:loan-lock:${loanId}`;
+}
+
+function storedLockTxHash(loanId: string): string | null {
+  return window.sessionStorage.getItem(lockSubmissionStorageKey(loanId));
+}
+
+async function submitLoanLock(loanId: string, lockTxHash?: string): Promise<void> {
+  const hash = lockTxHash ?? storedLockTxHash(loanId);
+  const submit = await fetch(`/api/loans/${loanId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(hash ? { lockTxHash: hash } : {}),
+  });
+  const submitted = await submit.json() as { error?: string };
+  if (!submit.ok) throw new Error(submitted.error ?? "Lock USDC non confirmé");
+  window.sessionStorage.removeItem(lockSubmissionStorageKey(loanId));
+}
+
 export async function borrowDataset(input: BorrowInput): Promise<void> {
   const prep = await fetch("/api/loans", {
     method: "POST",
@@ -34,17 +54,12 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   }
   await sendActiveTransaction(body.approveTransaction);
   const lockTxHash = await sendActiveTransaction(body.lockTransaction);
-  const submit = await fetch(`/api/loans/${body.loanId}/submit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lockTxHash }),
-  });
-  const submitted = await submit.json() as { error?: string };
-  if (!submit.ok) throw new Error(submitted.error ?? "Lock USDC non confirmé");
+  window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
+  await submitLoanLock(body.loanId, lockTxHash);
 }
 
-export async function resumeLoanSubmission(): Promise<void> {
-  throw new Error("Le hash de lock USDC est requis pour finaliser un emprunt interrompu.");
+export async function resumeLoanSubmission(loanId: string, lockTxHash?: string): Promise<void> {
+  await submitLoanLock(loanId, lockTxHash);
 }
 
 export async function cancelExpiredLoan(loanId: string): Promise<void> {
