@@ -1,0 +1,28 @@
+# Realistic regression benchmarks
+
+These datasets are synthetic and deterministic, but they are designed around the
+failure modes of operational data rather than around a target score. They contain
+categorical variables ignored by the MVP, nonlinear effects, interactions,
+heteroscedastic noise, censored outcomes, outliers and chronological distribution
+shift. No feature is derived from the target or from a post-outcome measurement.
+
+Upload only each `-train.csv` file. Keep its matching `-test.csv` local, then use
+Sirius' **Evaluate on a test CSV** after the model is delivered. Every split is
+chronological: the test period is later than the training period.
+
+| Dataset | Train / test rows | Target | What it exercises |
+|---|---:|---|---|
+| `vehicle-resale` | 6,000 / 1,500 | `resale_price_eur` | Depreciation curves, unobserved trims, accident effects and market-rate shifts. |
+| `retail-demand` | 10,080 / 2,520 | `units_sold` | Promotions, stock-out censoring, seasonality, local events and price elasticity. |
+| `last-mile-delivery` | 9,600 / 2,400 | `actual_duration_min` | Traffic interactions, rare incidents, queueing, weather and a late construction shift. |
+| `industrial-yield` | 15,600 / 3,900 | `yield_pct` | 31 numeric features (the MVP maximum), correlated sensors, nonlinear process windows, faults and supplier drift. |
+
+The MVP is a linear regression. A lower held-out R² is a valid result here: it
+means that the available linear features do not explain part of the real-world
+signal. Treat it as a model limitation to investigate, not as a dataset defect.
+
+Regenerate all four datasets with:
+
+```bash
+pnpm datasets:benchmarks
+```

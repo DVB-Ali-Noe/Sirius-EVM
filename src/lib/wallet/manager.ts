@@ -169,10 +169,13 @@ export async function signTypedDataExternal(payload: unknown, address: string): 
   return signature;
 }
 
-export async function sendTransactionExternal(transaction: Record<string, unknown>): Promise<string> {
+export async function sendTransactionExternal(transaction: Record<string, unknown>, address: string): Promise<string> {
   const wallet = provider();
   await ensureExpectedChain(wallet);
-  const hash = await wallet.request({ method: "eth_sendTransaction", params: [transaction] });
+  const hash = await wallet.request({
+    method: "eth_sendTransaction",
+    params: [{ ...transaction, from: pourLeWallet(address) }],
+  });
   if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Transaction EVM refusée par le wallet.");
   return hash;
 }

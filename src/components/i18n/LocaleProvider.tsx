@@ -249,7 +249,6 @@ const messages: Record<Locale, Record<string, string>> = {
     "Aucun entraînement pour l’instant.": "No training run yet.",
     "Modèle livré": "Model delivered",
     "Modèle (CID)": "Model (CID)",
-    "Clé de déchiffrement": "Decryption key",
     "Vérifier et télécharger": "Verify and download",
     "Vérification…": "Verifying…",
     "Modèle déchiffré": "Decrypted model",

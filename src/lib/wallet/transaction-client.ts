@@ -6,10 +6,11 @@ import { useWalletStore } from "@/stores/wallet";
 export async function sendActiveTransaction(
   transaction: Record<string, unknown>,
 ): Promise<string> {
-  const { source, authenticated } = useWalletStore.getState();
+  const { source, authenticated, address } = useWalletStore.getState();
   if (!source) throw new Error("Connecte un wallet.");
   if (!authenticated) throw new Error("Authentifie-toi avant de signer.");
-  return sendTransactionExternal(transaction);
+  if (!address) throw new Error("Adresse du wallet indisponible.");
+  return sendTransactionExternal(transaction, address);
 }
 
 /**

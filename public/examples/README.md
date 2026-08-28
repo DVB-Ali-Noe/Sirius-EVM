@@ -85,6 +85,17 @@ feature, and Sirius returns the predicted value of the target column. The same
 model JSON can also be used outside Sirius: `prediction = coefficients[0] + Σ
 (coefficients[i + 1] × features[i])`.
 
+## Realistic benchmark suite
+
+Four larger train/test pairs cover vehicle resale, retail demand, last-mile
+delivery and industrial yield. They deliberately include drift, outliers,
+nonlinearity and unobserved categorical context. See
+[`benchmarks/README.md`](benchmarks/README.md) and regenerate them with:
+
+```bash
+pnpm datasets:benchmarks
+```
+
 ## What Sirius expects from a dataset
 
 - **CSV with a header row.**

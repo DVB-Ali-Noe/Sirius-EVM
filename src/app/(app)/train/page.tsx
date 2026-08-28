@@ -397,11 +397,6 @@ export default function TrainPage() {
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                     <Field label={t("Modèle (CID)")} value={j.modelCid ? truncate(j.modelCid) : "—"} mono />
                     <Field label="R²" value={j.metrics?.r2 != null ? j.metrics.r2.toFixed(4) : "—"} />
-                    <Field
-                      label={t("Clé de déchiffrement")}
-                      value={delivered[j.id] ? truncate(delivered[j.id].modelKey, 10, 6) : "—"}
-                      mono
-                    />
                   </dl>
                   {delivered[j.id] && (
                     <button
@@ -494,11 +489,6 @@ export default function TrainPage() {
                     {advanced && (
                       <Field label={t("Règlement tx")} value={l.settleTxHash ? truncate(l.settleTxHash) : "—"} mono />
                     )}
-                    <Field
-                      label={t("Clé de déchiffrement")}
-                      value={delivered[l.id] ? truncate(delivered[l.id].modelKey, 10, 6) : t("livrée à l'exécution")}
-                      mono
-                    />
                   </dl>
                   {delivered[l.id] && (
                     <button
