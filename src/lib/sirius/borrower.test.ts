@@ -22,7 +22,7 @@ test("un prêt annulé sans remboursement on-chain reste récupérable", () => {
   const finalize = SOURCE.slice(SOURCE.indexOf("export async function finalizeLoan"));
 
   assert.match(finalize, /const recoverableCancellation = loan\.status === "CANCELLED" && !loan\.cancelTxHash/);
-  assert.match(finalize, /status: \{ in: \["PENDING", "SUBMITTING", "CANCELLED"\] \},\n      cancelTxHash: null/);
+  assert.match(finalize, /status: \{ in: \["PENDING", "SUBMITTING", "CANCELLED"\] \},\r?\n      cancelTxHash: null/);
 });
 
 test("les essais annulés ne consomment pas le quota d’emprunts", () => {

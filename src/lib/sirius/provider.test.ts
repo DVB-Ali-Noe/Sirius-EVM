@@ -132,5 +132,5 @@ test("un dataset déjà supprimé peut finaliser son titre EVM", () => {
     preparation.indexOf('if (!dataset.evmDatasetId) {') < preparation.indexOf('if (dataset.status === "DELETED") return null;'),
     "seul un dataset supprimé sans titre EVM peut ignorer la finalisation",
   );
-  assert.match(deletion, /status: "DELETED",\n        evmDestroyTxHash: null,/);
+  assert.match(deletion, /status: "DELETED",\r?\n        evmDestroyTxHash: null,/);
 });
