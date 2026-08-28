@@ -31,10 +31,10 @@ export default function NewDatasetPage() {
     setError(null);
     setLoadingExample(true);
     try {
-      const response = await fetch("/examples/housing-prices.csv");
+      const response = await fetch("/examples/housing-prices-train.csv");
       if (!response.ok) throw new Error(t("Exemple indisponible"));
       const blob = await response.blob();
-      const file = new File([blob], "housing-prices.csv", { type: "text/csv" });
+      const file = new File([blob], "housing-prices-train.csv", { type: "text/csv" });
       const transfer = new DataTransfer();
       transfer.items.add(file);
       if (fileRef.current) fileRef.current.files = transfer.files;
@@ -209,9 +209,9 @@ export default function NewDatasetPage() {
               >
                 {loadingExample ? t("Chargement…") : t("Charger le jeu d'exemple")}
               </button>{" "}
-              {t("— 140 lignes de prix immobiliers, R² ≈ 0,97.")}{" "}
+              {t("— 112 lignes d’entraînement, jeu de test séparé.")}{" "}
               <a
-                href="/examples/housing-prices.csv"
+                href="/examples/housing-prices-train.csv"
                 download
                 className="underline underline-offset-4 transition-colors hover:text-foreground"
               >

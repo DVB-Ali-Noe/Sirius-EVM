@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { test } from "node:test";
+import { gateModel } from "./output-gate";
 import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression } from "./train";
 
 function dataset(rows: number): Buffer {
@@ -19,6 +22,30 @@ test("accepte un dataset qui respecte le seuil de confidentialité", () => {
   const model = trainLinearRegression(dataset(MIN_TRAINING_ROWS));
   assert.equal(model.metrics.n, MIN_TRAINING_ROWS);
   assert.deepEqual(model.features, ["feature"]);
+});
+
+test("livre le modèle attendu pour le jeu immobilier de démonstration", () => {
+  const model = gateModel(
+    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/housing-prices.csv"))),
+  ).model;
+
+  assert.deepEqual(model, {
+    algo: "linear_regression",
+    target: "price_eur",
+    features: ["surface_m2", "rooms", "age_years", "distance_km", "energy_score"],
+    coefficients: [41076.6, 2941.28, 12162.4, -608.333, -4784.21, 364.224],
+    metrics: { r2: 0.974095, rmse: 25392.9, n: 140 },
+  });
+});
+
+test("entraîne le jeu de demande énergétique volumineux", () => {
+  const model = gateModel(
+    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/energy-demand.csv"))),
+  ).model;
+
+  assert.equal(model.metrics.n, 8_760);
+  assert.ok(model.metrics.r2 > 0.95);
+  assert.ok(model.metrics.rmse < 3);
 });
 
 test("borne le nombre de features avant le calcul quadratique", () => {

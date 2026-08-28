@@ -19,6 +19,8 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
+import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
+import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 interface Metrics {
@@ -101,6 +103,7 @@ export default function TrainPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
+  const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
 
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -137,6 +140,7 @@ export default function TrainPage() {
       setLoans([]);
       setJobs([]);
       setDelivered({});
+      setInspected({});
       haveKey.current.clear();
       return;
     }
@@ -234,6 +238,22 @@ export default function TrainPage() {
       if (!loan.runnerReceipt) throw new Error(t("Capsule TEE manquante"));
       deliver(loan.id, await resumeLoanSettlement(loan.id, loan.runnerReceipt));
       await refresh();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusyKey(key, false);
+    }
+  }
+
+  async function inspectModel(id: string, delivery: Delivery) {
+    const key = `model:${id}`;
+    setError(null);
+    setBusyKey(key, true);
+    try {
+      const model = await fetchDecryptedModel(delivery.modelCid, delivery.modelKey);
+      if (!mounted.current) return;
+      setInspected((previous) => ({ ...previous, [id]: model }));
+      downloadDecryptedModel(model, `sirius-model-${id}.json`);
     } catch (err) {
       setError(messageOf(err));
     } finally {
@@ -383,6 +403,16 @@ export default function TrainPage() {
                       mono
                     />
                   </dl>
+                  {delivered[j.id] && (
+                    <button
+                      onClick={() => void inspectModel(j.id, delivered[j.id])}
+                      disabled={busy.has(`model:${j.id}`)}
+                      className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
+                    >
+                      {busy.has(`model:${j.id}`) ? t("Vérification…") : t("Vérifier et télécharger")}
+                    </button>
+                  )}
+                  {inspected[j.id] && <ModelInspection model={inspected[j.id]} />}
                 </div>
               )}
             </Card>
@@ -470,6 +500,16 @@ export default function TrainPage() {
                       mono
                     />
                   </dl>
+                  {delivered[l.id] && (
+                    <button
+                      onClick={() => void inspectModel(l.id, delivered[l.id])}
+                      disabled={busy.has(`model:${l.id}`)}
+                      className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
+                    >
+                      {busy.has(`model:${l.id}`) ? t("Vérification…") : t("Vérifier et télécharger")}
+                    </button>
+                  )}
+                  {inspected[l.id] && <ModelInspection model={inspected[l.id]} />}
                 </div>
               )}
               {l.status === "CANCELLED" && l.cancelTxHash && (
@@ -489,6 +529,128 @@ export default function TrainPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ModelInspection({ model }: { model: DeliveredModel }) {
+  const { t } = useLocale();
+  const [testFile, setTestFile] = useState<File | null>(null);
+  const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
+  const [evaluating, setEvaluating] = useState(false);
+  const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
+  const [prediction, setPrediction] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function evaluate() {
+    if (!testFile) {
+      setError(t("Sélectionne un CSV de test"));
+      return;
+    }
+    setError(null);
+    setEvaluating(true);
+    try {
+      setEvaluation(evaluateModelCsv(model, await testFile.text()));
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setEvaluating(false);
+    }
+  }
+
+  function predict() {
+    setError(null);
+    try {
+      const values = Object.fromEntries(
+        model.features.map((feature) => {
+          const raw = featureValues[feature];
+          if (raw === undefined || raw.trim() === "" || !Number.isFinite(Number(raw))) {
+            throw new Error(t("Toutes les valeurs doivent être numériques"));
+          }
+          return [feature, Number(raw)];
+        }),
+      );
+      setPrediction(predictModel(model, values));
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-positive/20 pt-3">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+        <Field label={t("Algorithme")} value={model.algo} mono />
+        <Field label={t("Cible")} value={model.target} />
+        <Field label={t("Features")} value={model.features.join(", ")} />
+        <Field label="R²" value={model.metrics.r2.toFixed(6)} />
+        <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
+        <Field label="n" value={String(model.metrics.n)} />
+      </dl>
+      <div className="mt-2 text-xs text-muted">
+        <span className="font-medium text-foreground">{t("Coefficients")}</span>
+        <code className="ml-2 break-all font-mono">[{model.coefficients.join(", ")}]</code>
+      </div>
+      <details className="mt-3 rounded-lg border border-border bg-surface/30 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Évaluer sur un CSV de test")}</summary>
+        <p className="mt-2 text-xs text-muted">
+          {t("Le fichier reste dans ton navigateur et doit contenir la cible et les mêmes features.")}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => setTestFile(event.target.files?.[0] ?? null)}
+            className="max-w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-background hover:file:bg-accent/90"
+          />
+          <button
+            type="button"
+            onClick={() => void evaluate()}
+            disabled={evaluating || !testFile}
+            className="rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
+          >
+            {evaluating ? t("Évaluation…") : t("Évaluer")}
+          </button>
+        </div>
+        {evaluation && (
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
+            <Field label="R²" value={evaluation.r2.toFixed(6)} />
+            <Field label="RMSE" value={evaluation.rmse.toFixed(6)} />
+            <Field label="MAE" value={evaluation.mae.toFixed(6)} />
+            <Field label={t("Lignes de test")} value={String(evaluation.n)} />
+          </dl>
+        )}
+      </details>
+      <details className="mt-3 rounded-lg border border-border bg-surface/30 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Tester une prédiction")}</summary>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {model.features.map((feature) => (
+            <label key={feature} className="flex flex-col gap-1 text-xs text-muted">
+              {feature}
+              <input
+                type="number"
+                inputMode="decimal"
+                value={featureValues[feature] ?? ""}
+                onChange={(event) => setFeatureValues((values) => ({ ...values, [feature]: event.target.value }))}
+                className="rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
+              />
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={predict}
+          className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive"
+        >
+          {t("Prédire")}
+        </button>
+        {prediction !== null && (
+          <p className="mt-2 text-xs text-muted">
+            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.toFixed(6)} {model.target}</span>
+          </p>
+        )}
+      </details>
+      {error && <p className="mt-3 text-xs text-negative">{error}</p>}
+    </div>
   );
 }
 
