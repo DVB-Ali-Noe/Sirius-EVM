@@ -28,7 +28,7 @@ async function signedGrant() {
     expiresAt: now + 60_000,
     challengeToken: "challenge.signature",
   });
-  activateRunnerDelegation({ message, walletSignature: await account.signMessage({ message }), sessionPublicKey });
+  await activateRunnerDelegation({ message, walletSignature: await account.signMessage({ message }), sessionPublicKey });
   const intentParts = ["dataset-1", "job-1", "receipt-1"];
   return {
     address: account.address.toLowerCase(),

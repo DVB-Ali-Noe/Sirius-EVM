@@ -24,7 +24,7 @@ export async function signInWithWallet(): Promise<void> {
     body: JSON.stringify({ address, runnerSessionPublicKey }),
   });
   if (!chalRes.ok) {
-    clearRunnerDelegation();
+    await clearRunnerDelegation();
     throw new Error("Challenge refusé");
   }
   const { challenge } = await chalRes.json();
@@ -37,11 +37,11 @@ export async function signInWithWallet(): Promise<void> {
     body: JSON.stringify({ address, signature, message: challenge, source }),
   });
   if (!verifyRes.ok) {
-    clearRunnerDelegation();
+    await clearRunnerDelegation();
     throw new Error("Authentification refusée");
   }
 
-  activateRunnerDelegation({
+  await activateRunnerDelegation({
     message: challenge,
     walletSignature: signature,
     sessionPublicKey: runnerSessionPublicKey,
@@ -58,13 +58,13 @@ export async function signOut(): Promise<void> {
   try {
     await fetch("/api/auth/logout", { method: "POST" });
   } finally {
-    clearRunnerDelegation();
+    await clearRunnerDelegation();
     useWalletStore.getState().setAuthenticated(false);
   }
 }
 
 export async function invalidateWalletSession(): Promise<void> {
-  clearRunnerDelegation();
+  await clearRunnerDelegation();
   useWalletStore.getState().setAuthenticated(false);
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 }

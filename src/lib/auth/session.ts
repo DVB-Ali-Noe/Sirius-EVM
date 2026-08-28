@@ -4,7 +4,7 @@ import { signToken, verifyToken } from "./hmac";
 
 const CTX = "sirius-session";
 const COOKIE = "sirius_session";
-const TTL_MS = 24 * 60 * 60 * 1000;
+const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type SessionSource = "external";
 export interface Session {

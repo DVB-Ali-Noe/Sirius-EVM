@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { clearWalletDisconnected, walletDisconnectedByUser } from "@/lib/wallet/intent";
 import { invalidateWalletSession } from "@/lib/auth/client";
+import { hasRunnerDelegation } from "@/lib/runner/authorization-client";
 import { tryNormalizeAddress } from "@/lib/evm/address";
 import { EVM_CHAIN_IDS, resolveClientNetwork, type EvmNetwork } from "@/lib/evm/networks";
 import { connectExternalWallet, getExternalWallet } from "@/lib/wallet/manager";
@@ -18,7 +19,7 @@ function networkForChain(chainId: unknown): string {
  * Aligne l'état du navigateur sur la session que le serveur reconnaît.
  *
  * Le store wallet ne persiste pas — c'est délibéré, il doit refléter le provider
- * vivant — mais le cookie de session, lui, dure vingt-quatre heures. Au montage, le
+ * vivant — mais le cookie de session, lui, dure sept jours. Au montage, le
  * store est donc vide face à une session encore ouverte, et la divergence ressemblait
  * à s'y méprendre à un changement de compte : on détruisait la session à chaque
  * navigation. L'utilisateur signait, changeait de page, et se retrouvait déconnecté
@@ -43,9 +44,10 @@ async function synchroniserSession(address: string): Promise<void> {
       void invalidateWalletSession();
       return;
     }
+    const delegationReady = await hasRunnerDelegation(address, useWalletStore.getState().network);
     // Le compte a pu changer pendant l'aller-retour réseau.
     if (useWalletStore.getState().address === address) {
-      useWalletStore.getState().setAuthenticated(true);
+      useWalletStore.getState().setAuthenticated(delegationReady);
     }
   } catch {
     // Serveur injoignable : on reste non authentifié plutôt que de l'affirmer à tort.

@@ -13,7 +13,7 @@ import {
 } from "./authorization-contract";
 import { consumeRunnerReplay } from "./replay";
 
-const MAX_DELEGATION_MS = 60 * 60 * 1000;
+const MAX_DELEGATION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_GRANT_MS = 60_000;
 const CLOCK_SKEW_MS = 30_000;
 

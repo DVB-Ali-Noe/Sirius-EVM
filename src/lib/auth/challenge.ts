@@ -7,7 +7,7 @@ import { buildDelegationMessage, parseDelegationMessage } from "@/lib/runner/aut
 
 const CTX = "sirius-auth-challenge";
 const TTL_MS = 5 * 60 * 1000;
-const DELEGATION_TTL_MS = 60 * 60 * 1000;
+const DELEGATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_PER_ADDRESS = 5;
 const MAX_ACTIVE_GLOBAL = 1_000;
 
