@@ -32,6 +32,11 @@ const messages: Record<Locale, Record<string, string>> = {
     "cancel-after": "annulation après",
   },
   en: {
+    "Transaction refusée dans le wallet.": "Transaction rejected in your wallet.",
+    "Le wallet est déconnecté.": "Your wallet is disconnected.",
+    "Fonds insuffisants pour payer le gas.": "Not enough funds to pay for gas.",
+    "Une demande est déjà en attente dans le wallet — ouvre-le.": "A request is already pending in your wallet — open it.",
+    "Le wallet a rejeté la transaction.": "Your wallet rejected the transaction.",
     "Empreinte de clé d’ingestion non configurée": "Ingestion key fingerprint is not configured",
     "Empreinte de clé d’ingestion invalide": "Invalid ingestion key fingerprint",
     "Clé d’ingestion non authentifiée": "The ingestion key could not be authenticated",
