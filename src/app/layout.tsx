@@ -79,7 +79,7 @@ export const metadata: Metadata = {
   // plus tard, sans que personne ait à y penser.
   verification: {
     other: {
-      "virtual-protocol-site-verification": "394fd0a65d807900243c60d41eb6d129",
+      "virtual-protocol-site-verification": "3441ea91ddb044e631b70e06ceb457c9",
     },
   },
 };
