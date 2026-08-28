@@ -57,12 +57,55 @@ function listingTerms(dataset: Awaited<ReturnType<typeof ownedDataset>>) {
   };
 }
 
+async function onChainDatasetId(terms: ReturnType<typeof listingTerms>, provider: string): Promise<Hex | null> {
+  const client = getPublicClient();
+  const registry = datasetRegistryAddress();
+  const onChainId = await client.readContract({
+    address: registry,
+    abi: siriusdatasetregistryAbi,
+    functionName: "datasetIdOf",
+    args: [normalizeAddress(provider), datasetIdHash(terms.datasetId)],
+  });
+  if (onChainId === `0x${"0".repeat(64)}`) return null;
+  const matchesScope = await client.readContract({
+    address: registry,
+    abi: siriusdatasetregistryAbi,
+    functionName: "matchesScope",
+    args: [onChainId, normalizeAddress(provider), terms.merkleRoot, cidHash(terms.cid)],
+  });
+  if (!matchesScope) throw new AppError("Titre EVM existant hors scope du dataset", 409);
+  return onChainId;
+}
+
+async function markDatasetListed(
+  dataset: Awaited<ReturnType<typeof ownedDataset>>,
+  onChainId: Hex,
+  mint?: { txHash: string; blockNumber: bigint },
+) {
+  const updated = await prisma.dataset.updateMany({
+    where: { id: dataset.id, provider: normalizeAddress(dataset.provider), status: "DRAFT", evmDatasetId: null },
+    data: {
+      status: "LISTED",
+      evmDatasetId: onChainId,
+      ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
+    },
+  });
+  if (updated.count !== 1) throw new AppError("Publication EVM concurrente", 409);
+  return prisma.dataset.findUniqueOrThrow({ where: { id: dataset.id } });
+}
+
 export async function prepareDatasetListing(datasetId: string, provider: string) {
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status === "LISTED" && dataset.evmDatasetId) throw new AppError("Dataset déjà publié", 409);
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   await requireAcceptedKyb(provider);
-  return mintDatasetTransaction(listingTerms(dataset));
+  const terms = listingTerms(dataset);
+  const onChainId = await onChainDatasetId(terms, provider);
+  if (onChainId) {
+    await markDatasetListed(dataset, onChainId);
+    return { reconciled: true as const };
+  }
+  return { transaction: mintDatasetTransaction(terms) };
 }
 
 export async function finalizeDatasetListing(datasetId: string, provider: string, txHash?: string) {
@@ -74,39 +117,16 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
   const terms = listingTerms(dataset);
   const registry = datasetRegistryAddress();
   const publicClient = getPublicClient();
-  const [receipt, transaction, onChainId] = await Promise.all([
+  const [receipt, transaction] = await Promise.all([
     publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 }),
     publicClient.getTransaction({ hash: txHash as Hex }),
-    publicClient.readContract({
-      address: registry,
-      abi: siriusdatasetregistryAbi,
-      functionName: "datasetIdOf",
-      args: [normalizeAddress(provider), datasetIdHash(datasetId)],
-    }),
   ]);
   if (receipt.status !== "success" || !addressesEqual(transaction.from, provider) || !addressesEqual(transaction.to ?? "", registry)) {
     throw new AppError("Transaction de titre EVM invalide", 409);
   }
-  const matchesScope = await publicClient.readContract({
-    address: registry,
-    abi: siriusdatasetregistryAbi,
-    functionName: "matchesScope",
-    args: [onChainId, normalizeAddress(provider), terms.merkleRoot, cidHash(terms.cid)],
-  });
-  if (!matchesScope) {
-    throw new AppError("Titre EVM hors scope du dataset", 409);
-  }
-  const updated = await prisma.dataset.updateMany({
-    where: { id: datasetId, provider: normalizeAddress(provider), status: "DRAFT", evmDatasetId: null },
-    data: {
-      status: "LISTED",
-      evmDatasetId: onChainId,
-      evmMintTxHash: txHash,
-      evmMintBlock: receipt.blockNumber.toString(),
-    },
-  });
-  if (updated.count !== 1) throw new AppError("Publication EVM concurrente", 409);
-  return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
+  const onChainId = await onChainDatasetId(terms, provider);
+  if (!onChainId) throw new AppError("Titre EVM absent après le mint", 409);
+  return markDatasetListed(dataset, onChainId, { txHash, blockNumber: receipt.blockNumber });
 }
 
 export async function prepareDatasetDestruction(datasetId: string, provider: string) {

@@ -14,8 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
     if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     assertOwner(session, owned.provider);
-    const transaction = await prepareDatasetListing(id, session.address);
-    return NextResponse.json({ transaction });
+    return NextResponse.json(await prepareDatasetListing(id, session.address));
   } catch (err) {
     return errorResponse(err);
   }

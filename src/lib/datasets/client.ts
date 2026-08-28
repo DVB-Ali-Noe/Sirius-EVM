@@ -13,10 +13,12 @@ export async function publishDataset(datasetId: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  const prepared = await responseBody<{ transaction?: Record<string, unknown> }>(preparation);
-  if (!preparation.ok || !prepared.transaction) {
+  const prepared = await responseBody<{ transaction?: Record<string, unknown>; reconciled?: boolean }>(preparation);
+  if (!preparation.ok) {
     throw new Error(prepared.error ?? "Préparation du titre EVM échouée");
   }
+  if (prepared.reconciled) return;
+  if (!prepared.transaction) throw new Error("Préparation du titre EVM échouée");
   const txHash = await sendActiveTransaction(prepared.transaction);
   const submission = await fetch(`/api/datasets/${datasetId}/list`, {
     method: "PUT",

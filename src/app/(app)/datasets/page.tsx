@@ -279,7 +279,9 @@ export default function DatasetsPage() {
                     title={!d.ipfsCid ? t("Upload interrompu : supprime ce brouillon et recommence") : undefined}
                     className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
-                    {d.status === "LISTING"
+                    {pendingId === d.id
+                      ? t("Publication…")
+                      : d.status === "LISTING"
                       ? t("Réconcilier…")
                       : d.ipfsCid
                         ? t("Publier le titre")

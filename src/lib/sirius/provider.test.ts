@@ -77,3 +77,14 @@ test("toute lecture qui contrôle wrappedKey la réinclut explicitement", () => 
     `Ces fichiers testent wrappedKey sans la réinclure — le contrôle sera toujours faux :\n  ${fautifs.join("\n  ")}`,
   );
 });
+
+test("la lecture du titre EVM attend la confirmation du mint", () => {
+  const finalize = SOURCE.slice(
+    SOURCE.indexOf("export async function finalizeDatasetListing"),
+    SOURCE.indexOf("export async function prepareDatasetDestruction"),
+  );
+  assert.ok(
+    finalize.indexOf("waitForTransactionReceipt") < finalize.indexOf("onChainDatasetId(terms, provider)"),
+    "datasetIdOf ne doit pas être lu avant que la transaction mint soit confirmée",
+  );
+});
