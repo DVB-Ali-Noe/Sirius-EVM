@@ -66,7 +66,16 @@ async function onChainDatasetId(terms: ReturnType<typeof listingTerms>, provider
     functionName: "datasetIdOf",
     args: [normalizeAddress(provider), datasetIdHash(terms.datasetId)],
   });
-  if (onChainId === `0x${"0".repeat(64)}`) return null;
+  const onChainDataset = await client.readContract({
+    address: registry,
+    abi: siriusdatasetregistryAbi,
+    functionName: "getDataset",
+    args: [onChainId],
+  });
+  if (addressesEqual(onChainDataset.provider, "0x0000000000000000000000000000000000000000")) return null;
+  if (onChainDataset.destroyedAt !== 0) {
+    throw new AppError("Titre EVM déjà détruit : crée un nouveau dataset", 409);
+  }
   const matchesScope = await client.readContract({
     address: registry,
     abi: siriusdatasetregistryAbi,
@@ -131,9 +140,11 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
 
 export async function prepareDatasetDestruction(datasetId: string, provider: string) {
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status === "DELETED") return null;
   if (dataset.status === "DRAFT") return null;
-  if (!dataset.evmDatasetId) throw new AppError("Titre EVM absent", 409);
+  if (!dataset.evmDatasetId) {
+    if (dataset.status === "DELETED") return null;
+    throw new AppError("Titre EVM absent", 409);
+  }
   const live = await getPublicClient().readContract({
     address: datasetRegistryAddress(),
     abi: siriusdatasetregistryAbi,
@@ -146,7 +157,6 @@ export async function prepareDatasetDestruction(datasetId: string, provider: str
 
 export async function deleteDataset(datasetId: string, provider: string, txHash?: string) {
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status === "DELETED") return dataset;
   if (dataset.status !== "DRAFT") {
     const registry = datasetRegistryAddress();
     const publicClient = getPublicClient();
@@ -168,6 +178,21 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
       args: [datasetIdOnChain],
     });
     if (live) throw new AppError("Tombstone EVM non confirmé", 409);
+  }
+
+  if (dataset.status === "DELETED") {
+    if (!txHash || dataset.evmDestroyTxHash) return dataset;
+    const finalized = await prisma.dataset.updateMany({
+      where: {
+        id: datasetId,
+        provider: normalizeAddress(provider),
+        status: "DELETED",
+        evmDestroyTxHash: null,
+      },
+      data: { evmDestroyTxHash: txHash },
+    });
+    if (finalized.count !== 1) throw new AppError("Finalisation du titre EVM concurrente", 409);
+    return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
   }
 
   const deleted = await prisma.dataset.updateMany({

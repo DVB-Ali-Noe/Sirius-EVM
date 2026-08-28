@@ -89,6 +89,18 @@ test("la lecture du titre EVM attend la confirmation du mint", () => {
   );
 });
 
+test("un identifiant EVM déterministe n'est pas confondu avec un titre mint", () => {
+  const lookup = SOURCE.slice(
+    SOURCE.indexOf("async function onChainDatasetId"),
+    SOURCE.indexOf("async function markDatasetListed"),
+  );
+  assert.ok(
+    lookup.indexOf('functionName: "getDataset"') < lookup.indexOf('functionName: "matchesScope"'),
+    "l'existence du titre doit être lue avant de vérifier son scope",
+  );
+  assert.doesNotMatch(lookup, /onChainId === `0x\$\{"0"\.repeat\(64\)\}`/);
+});
+
 test("la suppression réconcilie un tombstone déjà confirmé", () => {
   const preparation = SOURCE.slice(
     SOURCE.indexOf("export async function prepareDatasetDestruction"),
@@ -103,5 +115,21 @@ test("la suppression réconcilie un tombstone déjà confirmé", () => {
     deletion.indexOf("if (txHash) {") < deletion.indexOf('functionName: "isLive"'),
     "la confirmation d'un hash est optionnelle, mais l'état du titre EVM doit toujours être vérifié",
   );
-  assert.doesNotMatch(deletion, /if \(!txHash \|\|/);
+  assert.doesNotMatch(deletion, /Hash de tombstone EVM manquant/);
+});
+
+test("un dataset déjà supprimé peut finaliser son titre EVM", () => {
+  const preparation = SOURCE.slice(
+    SOURCE.indexOf("export async function prepareDatasetDestruction"),
+    SOURCE.indexOf("export async function deleteDataset"),
+  );
+  const deletion = SOURCE.slice(
+    SOURCE.indexOf("export async function deleteDataset"),
+    SOURCE.indexOf("export async function setDatasetVisibility"),
+  );
+  assert.ok(
+    preparation.indexOf('if (!dataset.evmDatasetId) {') < preparation.indexOf('if (dataset.status === "DELETED") return null;'),
+    "seul un dataset supprimé sans titre EVM peut ignorer la finalisation",
+  );
+  assert.match(deletion, /status: "DELETED",\n        evmDestroyTxHash: null,/);
 });
