@@ -25,7 +25,28 @@ export const dynamic = "force-dynamic";
 // Rendues côté serveur, donc figées : ce sont elles qu'un moteur de recherche lit et
 // qu'un réseau social affiche en aperçu de lien. Le sélecteur de langue n'y change
 // rien, et un titre français sur un site anglophone se remarque avant la page.
-const ORIGINE = process.env.SIRIUS_APP_ORIGIN?.trim() || "https://sirius-data.tech";
+const ORIGINE_PAR_DEFAUT = "https://sirius-data.tech";
+
+/**
+ * Origine publique du site, pour les aperçus de lien.
+ *
+ * Elle doit tolérer une valeur illisible. `vercel pull` remplace le contenu des
+ * variables marquées « Secret » par la chaîne « [SENSITIVE] » : au moment du build,
+ * cette variable ne contient alors pas une URL. Une métadonnée d'aperçu est
+ * cosmétique — la laisser interrompre la construction de tout le site serait hors
+ * de proportion, et à l'exécution la vraie valeur est bien injectée.
+ */
+function origineDuSite(): string {
+  const configuree = process.env.SIRIUS_APP_ORIGIN?.trim();
+  if (!configuree) return ORIGINE_PAR_DEFAUT;
+  try {
+    return new URL(configuree).origin;
+  } catch {
+    return ORIGINE_PAR_DEFAUT;
+  }
+}
+
+const ORIGINE = origineDuSite();
 const TITRE = "Sirius — confidential data lending on EVM";
 const DESCRIPTION =
   "Lend valuable datasets without ever exposing them. Training inside a TEE, USDC settlement, and an audit trail on EVM.";
