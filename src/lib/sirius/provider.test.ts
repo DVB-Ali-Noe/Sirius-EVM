@@ -88,3 +88,20 @@ test("la lecture du titre EVM attend la confirmation du mint", () => {
     "datasetIdOf ne doit pas être lu avant que la transaction mint soit confirmée",
   );
 });
+
+test("la suppression réconcilie un tombstone déjà confirmé", () => {
+  const preparation = SOURCE.slice(
+    SOURCE.indexOf("export async function prepareDatasetDestruction"),
+    SOURCE.indexOf("export async function deleteDataset"),
+  );
+  const deletion = SOURCE.slice(
+    SOURCE.indexOf("export async function deleteDataset"),
+    SOURCE.indexOf("export async function setDatasetVisibility"),
+  );
+  assert.match(preparation, /functionName: "isLive"/);
+  assert.ok(
+    deletion.indexOf("if (txHash) {") < deletion.indexOf('functionName: "isLive"'),
+    "la confirmation d'un hash est optionnelle, mais l'état du titre EVM doit toujours être vérifié",
+  );
+  assert.doesNotMatch(deletion, /if \(!txHash \|\|/);
+});

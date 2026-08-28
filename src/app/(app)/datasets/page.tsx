@@ -322,7 +322,7 @@ export default function DatasetsPage() {
                     disabled={pendingId === d.id}
                     className="text-xs font-medium text-negative/80 transition-colors hover:text-negative disabled:opacity-50"
                   >
-                    {t("Supprimer")}
+                    {pendingId === d.id ? t("Suppression…") : t("Supprimer")}
                   </button>
                 </div>
               )}

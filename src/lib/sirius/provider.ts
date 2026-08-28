@@ -134,6 +134,13 @@ export async function prepareDatasetDestruction(datasetId: string, provider: str
   if (dataset.status === "DELETED") return null;
   if (dataset.status === "DRAFT") return null;
   if (!dataset.evmDatasetId) throw new AppError("Titre EVM absent", 409);
+  const live = await getPublicClient().readContract({
+    address: datasetRegistryAddress(),
+    abi: siriusdatasetregistryAbi,
+    functionName: "isLive",
+    args: [dataset.evmDatasetId as Hex],
+  });
+  if (!live) return null;
   return destroyDatasetTransaction(datasetId);
 }
 
@@ -141,15 +148,17 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status === "DELETED") return dataset;
   if (dataset.status !== "DRAFT") {
-    if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de tombstone EVM manquant", 400);
     const registry = datasetRegistryAddress();
     const publicClient = getPublicClient();
-    const [receipt, transaction] = await Promise.all([
-      publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 }),
-      publicClient.getTransaction({ hash: txHash as Hex }),
-    ]);
-    if (receipt.status !== "success" || !addressesEqual(transaction.from, provider) || !addressesEqual(transaction.to ?? "", registry)) {
-      throw new AppError("Transaction de tombstone EVM invalide", 409);
+    if (txHash) {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de tombstone EVM invalide", 400);
+      const [receipt, transaction] = await Promise.all([
+        publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 }),
+        publicClient.getTransaction({ hash: txHash as Hex }),
+      ]);
+      if (receipt.status !== "success" || !addressesEqual(transaction.from, provider) || !addressesEqual(transaction.to ?? "", registry)) {
+        throw new AppError("Transaction de tombstone EVM invalide", 409);
+      }
     }
     const datasetIdOnChain = dataset.evmDatasetId as Hex;
     const live = await publicClient.readContract({
