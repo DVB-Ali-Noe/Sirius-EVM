@@ -30,3 +30,9 @@ test("les essais annulés ne consomment pas le quota d’emprunts", () => {
 
   assert.match(prepare, /status: \{ in: \["ESCROWED", "TRAINING", "SETTLING", "SETTLED"\] \}/);
 });
+
+test("le lock doit porter le titre EVM du dataset demandé", () => {
+  const finalize = SOURCE.slice(SOURCE.indexOf("export async function finalizeLoan"));
+
+  assert.match(finalize, /onChain\.datasetId\.toLowerCase\(\) !== loan\.dataset\.evmDatasetId\.toLowerCase\(\)/);
+});

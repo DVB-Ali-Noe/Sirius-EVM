@@ -213,8 +213,18 @@ async function main() {
   const kyb = kybOuvert
     ? await deploy("SiriusOpenKybRegistry")
     : await deploy("SiriusKybRegistry", [admin, verifier]);
-  const escrow = await deploy("SiriusEscrow", [usdc, kyb]);
-  const datasets = await deploy("SiriusDatasetRegistry", [kyb]);
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, admin]);
+  const escrow = await deploy("SiriusEscrow", [usdc, kyb, datasets]);
+  const bindEscrowHash = await walletClient.writeContract({
+    address: datasets,
+    abi: artifact("SiriusDatasetRegistry").abi,
+    functionName: "bindEscrow",
+    args: [escrow],
+    account,
+  });
+  const bindEscrowReceipt = await publicClient.waitForTransactionReceipt({ hash: bindEscrowHash, confirmations: 1 });
+  if (bindEscrowReceipt.status !== "success") throw new Error("Liaison DatasetRegistry → SiriusEscrow rejetée");
+  totalGas += bindEscrowReceipt.gasUsed;
 
   console.log("");
   console.log(`gas total     : ${totalGas.toLocaleString("fr-FR")}`);
@@ -254,6 +264,14 @@ async function main() {
   if (escrowKyb.toLowerCase() !== kyb.toLowerCase()) {
     throw new Error("SiriusEscrow ne référence pas le registre KYB déployé");
   }
+  const escrowDatasets = (await publicClient.readContract({
+    address: escrow,
+    abi: escrowAbi,
+    functionName: "datasets",
+  })) as Hex;
+  if (escrowDatasets.toLowerCase() !== datasets.toLowerCase()) {
+    throw new Error("SiriusEscrow ne référence pas le registre dataset déployé");
+  }
 
   if (kybOuvert) {
     // Le contrôle utile ici est l'inverse du contrôle habituel : on vérifie que le
@@ -283,6 +301,14 @@ async function main() {
   })) as Hex;
   if (linkedKyb.toLowerCase() !== kyb.toLowerCase()) {
     throw new Error("Le registre dataset ne pointe pas sur le registre KYB déployé");
+  }
+  const linkedEscrow = (await publicClient.readContract({
+    address: datasets,
+    abi: datasetAbi,
+    functionName: "escrow",
+  })) as Hex;
+  if (linkedEscrow.toLowerCase() !== escrow.toLowerCase()) {
+    throw new Error("SiriusDatasetRegistry ne référence pas le contrat escrow déployé");
   }
 
   const explorer = chain.blockExplorers?.default.url;

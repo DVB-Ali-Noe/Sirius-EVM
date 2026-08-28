@@ -7,6 +7,7 @@ import { addressesEqual, isZeroAddress, normalizeAddress } from "@/lib/evm/addre
 import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
+import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { cidHash, datasetIdHash } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
@@ -110,6 +111,7 @@ async function markDatasetListed(
 }
 
 export async function prepareDatasetListing(datasetId: string, provider: string) {
+  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status === "LISTED" && dataset.evmDatasetId) throw new AppError("Dataset déjà publié", 409);
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
@@ -124,6 +126,7 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
 }
 
 export async function finalizeDatasetListing(datasetId: string, provider: string, txHash?: string) {
+  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status === "LISTED" && dataset.evmDatasetId) return dataset;
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
@@ -132,10 +135,8 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
   const terms = listingTerms(dataset);
   const registry = datasetRegistryAddress();
   const publicClient = getPublicClient();
-  const [receipt, transaction] = await Promise.all([
-    publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 }),
-    publicClient.getTransaction({ hash: txHash as Hex }),
-  ]);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 });
+  const transaction = await publicClient.getTransaction({ hash: txHash as Hex });
   if (receipt.status !== "success" || !addressesEqual(transaction.from, provider) || !addressesEqual(transaction.to ?? "", registry)) {
     throw new AppError("Transaction de titre EVM invalide", 409);
   }
@@ -145,8 +146,14 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
 }
 
 export async function prepareDatasetDestruction(datasetId: string, provider: string) {
+  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status === "DRAFT") return null;
+  const activeLoan = await prisma.loan.findFirst({
+    where: { datasetId, status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } },
+    select: { id: true },
+  });
+  if (activeLoan) throw new AppError("Suppression impossible : emprunt actif", 409);
   if (!dataset.evmDatasetId) {
     if (dataset.status === "DELETED") return null;
     throw new AppError("Titre EVM absent", 409);
@@ -162,16 +169,15 @@ export async function prepareDatasetDestruction(datasetId: string, provider: str
 }
 
 export async function deleteDataset(datasetId: string, provider: string, txHash?: string) {
+  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
   if (dataset.status !== "DRAFT") {
     const registry = datasetRegistryAddress();
     const publicClient = getPublicClient();
     if (txHash) {
       if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de tombstone EVM invalide", 400);
-      const [receipt, transaction] = await Promise.all([
-        publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 }),
-        publicClient.getTransaction({ hash: txHash as Hex }),
-      ]);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 });
+      const transaction = await publicClient.getTransaction({ hash: txHash as Hex });
       if (receipt.status !== "success" || !addressesEqual(transaction.from, provider) || !addressesEqual(transaction.to ?? "", registry)) {
         throw new AppError("Transaction de tombstone EVM invalide", 409);
       }
@@ -225,9 +231,14 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
 export async function setDatasetVisibility(datasetId: string, provider: string, visibility: Visibility) {
   if (!VISIBILITY_STATES.includes(visibility)) throw new AppError("Visibilité invalide", 400);
   const updated = await prisma.dataset.updateMany({
-    where: { id: datasetId, provider: normalizeAddress(provider), status: { in: [...VISIBILITY_STATES] } },
+    where: {
+      id: datasetId,
+      provider: normalizeAddress(provider),
+      status: { in: [...VISIBILITY_STATES] },
+      loans: { none: { status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } } },
+    },
     data: { status: visibility },
   });
-  if (updated.count !== 1) throw new AppError("Visibilité modifiable uniquement pour un dataset publié", 409);
+  if (updated.count !== 1) throw new AppError("Visibilité impossible : dataset non publié ou emprunt actif", 409);
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
 }

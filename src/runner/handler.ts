@@ -14,7 +14,6 @@ import { assertLoanScope, publishedPreimage, settleEscrow } from "@/lib/evm/escr
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { isValidUsdcAtomicAmount } from "@/lib/evm/usdc";
 import { loanKeyFor } from "@/lib/evm/loan-key";
-import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
@@ -169,12 +168,11 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           merkleRoot: dataset.merkleRoot,
           cid: dataset.cid,
         }),
-        requireAcceptedKyb(borrower),
-        requireAcceptedKyb(datasetReceipt.owner),
         assertLoanScope({
           loanKey,
           borrower,
           provider: datasetReceipt.owner,
+          datasetId: dataset.datasetId,
           amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           hashlock,
         }),

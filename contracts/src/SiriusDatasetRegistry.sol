@@ -3,6 +3,10 @@ pragma solidity 0.8.24;
 
 import {SiriusKybRegistry} from "./SiriusKybRegistry.sol";
 
+interface ISiriusDatasetEscrow {
+    function activeLoansForDataset(bytes32 datasetId) external view returns (uint256);
+}
+
 /// @title SiriusDatasetRegistry
 /// @notice On-chain title of a dataset.
 ///
@@ -49,7 +53,7 @@ contract SiriusDatasetRegistry {
     // Constants
     // ---------------------------------------------------------------------------------
 
-    string public constant VERSION = "sirius-dataset-v2";
+    string public constant VERSION = "sirius-dataset-v3";
 
     bytes32 public constant DATASET_ID_DOMAIN = keccak256("sirius.dataset.id.v1");
 
@@ -62,6 +66,8 @@ contract SiriusDatasetRegistry {
 
     /// @notice KYB gate. Immutable: repointing it would silently redefine who may publish.
     SiriusKybRegistry public immutable kyb;
+    address public immutable admin;
+    ISiriusDatasetEscrow public escrow;
 
     mapping(bytes32 => Dataset) private _datasets;
 
@@ -82,6 +88,7 @@ contract SiriusDatasetRegistry {
 
     /// @notice The title was tombstoned after crypto-shredding.
     event DatasetDestroyed(bytes32 indexed datasetId, address indexed provider, uint40 destroyedAt);
+    event EscrowBound(address indexed escrow);
 
     // ---------------------------------------------------------------------------------
     // Errors
@@ -96,14 +103,28 @@ contract SiriusDatasetRegistry {
     error InvalidCid();
     error InvalidMerkleRoot();
     error InvalidSize();
+    error ZeroAddress();
+    error NotAdmin();
+    error EscrowAlreadyBound();
+    error DatasetInUse(bytes32 datasetId, uint256 activeLoans);
 
     // ---------------------------------------------------------------------------------
     // Construction
     // ---------------------------------------------------------------------------------
 
-    constructor(SiriusKybRegistry kyb_) {
+    constructor(SiriusKybRegistry kyb_, address admin_) {
         if (address(kyb_) == address(0)) revert KybRequired();
+        if (admin_ == address(0)) revert ZeroAddress();
         kyb = kyb_;
+        admin = admin_;
+    }
+
+    function bindEscrow(ISiriusDatasetEscrow escrow_) external {
+        if (msg.sender != admin) revert NotAdmin();
+        if (address(escrow) != address(0)) revert EscrowAlreadyBound();
+        if (address(escrow_) == address(0) || address(escrow_).code.length == 0) revert ZeroAddress();
+        escrow = escrow_;
+        emit EscrowBound(address(escrow_));
     }
 
     // ---------------------------------------------------------------------------------
@@ -166,6 +187,8 @@ contract SiriusDatasetRegistry {
         if (dataset.provider == address(0)) revert UnknownDataset(id);
         if (dataset.provider != msg.sender) revert NotProvider();
         if (dataset.destroyedAt != 0) revert AlreadyDestroyed();
+        uint256 activeLoans = address(escrow) == address(0) ? 0 : escrow.activeLoansForDataset(id);
+        if (activeLoans != 0) revert DatasetInUse(id, activeLoans);
 
         dataset.destroyedAt = uint40(block.timestamp);
         unchecked {
@@ -187,6 +210,11 @@ contract SiriusDatasetRegistry {
     function isLive(bytes32 id) external view returns (bool) {
         Dataset storage dataset = _datasets[id];
         return dataset.provider != address(0) && dataset.destroyedAt == 0;
+    }
+
+    function isLiveForProvider(bytes32 id, address provider) external view returns (bool) {
+        Dataset storage dataset = _datasets[id];
+        return dataset.provider == provider && dataset.destroyedAt == 0;
     }
 
     /// @notice Confirm a title matches what the runner holds, before it decrypts anything.

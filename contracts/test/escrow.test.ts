@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import { expect } from "chai";
 import { createHash, randomBytes } from "node:crypto";
 import hre from "hardhat";
-import { type Address, type Hex } from "viem";
+import { keccak256, toHex, type Address, type Hex } from "viem";
 import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import { datasetIdHash } from "../../src/lib/evm/dataset-key";
 import { loanIdHash } from "../../src/lib/evm/loan-key";
 
 const DAY = 24 * 60 * 60;
 const YEAR = 365 * DAY;
 const ONE_USDC = 1_000_000n;
 const ZERO_HASH = `0x${"00".repeat(32)}` as Hex;
+const DATASET_ID = "escrow-dataset";
+const DATASET_CID_HASH = keccak256(toHex("escrow-cid"));
+const DATASET_MERKLE_ROOT = keccak256(toHex("escrow-merkle-root"));
 
 function teePreimage(): { preimage: Hex; hashlock: Hex } {
   const preimage = randomBytes(32);
@@ -48,11 +52,17 @@ async function fixture() {
   };
 
   await Promise.all([grantKyb(borrower), grantKyb(provider), grantKyb(stranger)]);
-  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address]);
+  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address]);
+  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address, registry.address]);
+  await registry.write.bindEscrow([escrow.address], { account: admin.account });
+  await registry.write.mint([datasetIdHash(DATASET_ID), DATASET_CID_HASH, DATASET_MERKLE_ROOT, 1n], {
+    account: provider.account,
+  });
+  const datasetId = await registry.read.datasetIdOf([provider.account.address, datasetIdHash(DATASET_ID)]);
   const publicClient = await hre.viem.getPublicClient();
   await usdc.write.mint([borrower.account.address, 1_000_000n * ONE_USDC]);
   await usdc.write.mint([stranger.account.address, 1_000_000n * ONE_USDC]);
-  return { escrow, kyb, usdc, publicClient, admin, verifier, borrower, provider, stranger };
+  return { escrow, registry, datasetId, kyb, usdc, publicClient, admin, verifier, borrower, provider, stranger };
 }
 
 async function lockLoan(
@@ -67,7 +77,7 @@ async function lockLoan(
 
   await ctx.usdc.write.approve([ctx.escrow.address, amount], { account: borrower.account });
   await ctx.escrow.write.lock(
-    [provider, amount, hashlock, options.challengeDays ?? 7, loanIdHash(loanId)],
+    [provider, amount, hashlock, options.challengeDays ?? 7, loanIdHash(loanId), ctx.datasetId],
     { account: borrower.account },
   );
   const loanKey = await ctx.escrow.read.loanKeyOf([borrower.account.address, loanIdHash(loanId)]);
@@ -129,26 +139,26 @@ describe("SiriusEscrow USDC", () => {
     const { hashlock } = teePreimage();
     const borrower = ctx.borrower.account;
 
-    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("no-allowance")], {
+    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("no-allowance"), ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("TokenTransferFailed");
 
     await ctx.usdc.write.approve([ctx.escrow.address, ONE_USDC], { account: borrower });
-    await expect(ctx.escrow.write.lock([ctx.provider.account.address, 999n, hashlock, 7, loanIdHash("dust")], {
+    await expect(ctx.escrow.write.lock([ctx.provider.account.address, 999n, hashlock, 7, loanIdHash("dust"), ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("AmountTooSmall");
-    await expect(ctx.escrow.write.lock([borrower.address, ONE_USDC, hashlock, 7, loanIdHash("self")], {
+    await expect(ctx.escrow.write.lock([borrower.address, ONE_USDC, hashlock, 7, loanIdHash("self"), ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("SelfDealing");
-    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 0, loanIdHash("days")], {
+    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 0, loanIdHash("days"), ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("InvalidChallengePeriod");
-    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, ZERO_HASH], {
+    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, ZERO_HASH, ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("InvalidLoanId");
 
     await ctx.kyb.write.revoke([ctx.borrower.account.address], { account: ctx.verifier.account });
-    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("revoked")], {
+    await expect(ctx.escrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("revoked"), ctx.datasetId], {
       account: borrower,
     })).to.be.rejectedWith("KybRequired");
   });
@@ -163,7 +173,7 @@ describe("SiriusEscrow USDC", () => {
     // d'autant. Une constante écrite en dur ferait ici un plancher de poussière, et
     // laisserait passer des prêts dont le gas dépasse le montant.
     const usdc18 = await hre.viem.deployContract("MockUsdc18");
-    const escrow18 = await hre.viem.deployContract("SiriusEscrow", [usdc18.address, ctx.kyb.address]);
+    const escrow18 = await hre.viem.deployContract("SiriusEscrow", [usdc18.address, ctx.kyb.address, ctx.registry.address]);
     assert.equal(await escrow18.read.MIN_AMOUNT(), 10n ** 15n);
   });
 
@@ -171,24 +181,24 @@ describe("SiriusEscrow USDC", () => {
     const ctx = await loadFixture(fixture);
     const usdc0 = await hre.viem.deployContract("MockUsdc0");
     await expect(
-      hre.viem.deployContract("SiriusEscrow", [usdc0.address, ctx.kyb.address]),
+      hre.viem.deployContract("SiriusEscrow", [usdc0.address, ctx.kyb.address, ctx.registry.address]),
     ).to.be.rejectedWith("UnsupportedUsdcDecimals");
   });
 
   it("refuse un token à frais et une adresse sans code", async () => {
     const ctx = await loadFixture(fixture);
     await expect(
-      hre.viem.deployContract("SiriusEscrow", [ctx.borrower.account.address, ctx.kyb.address]),
+      hre.viem.deployContract("SiriusEscrow", [ctx.borrower.account.address, ctx.kyb.address, ctx.registry.address]),
     ).to.be.rejectedWith("InvalidUsdcContract");
 
     const feeUsdc = await hre.viem.deployContract("MockFeeUsdc");
-    const feeEscrow = await hre.viem.deployContract("SiriusEscrow", [feeUsdc.address, ctx.kyb.address]);
+    const feeEscrow = await hre.viem.deployContract("SiriusEscrow", [feeUsdc.address, ctx.kyb.address, ctx.registry.address]);
     const { hashlock } = teePreimage();
     await feeUsdc.write.mint([ctx.borrower.account.address, ONE_USDC]);
     await feeUsdc.write.approve([feeEscrow.address, ONE_USDC], { account: ctx.borrower.account });
 
     await expect(
-      feeEscrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("fee-token")], {
+      feeEscrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("fee-token"), ctx.datasetId], {
         account: ctx.borrower.account,
       }),
     ).to.be.rejectedWith("InexactTokenTransfer");
@@ -217,5 +227,17 @@ describe("SiriusEscrow USDC", () => {
       first.hashlock,
       30n * 60n,
     ])).to.equal(false);
+  });
+
+  it("interdit de détruire un dataset tant qu'un escrow est actif", async () => {
+    const ctx = await loadFixture(fixture);
+    const { loanKey, preimage } = await lockLoan(ctx);
+
+    await expect(
+      ctx.registry.write.destroy([datasetIdHash(DATASET_ID)], { account: ctx.provider.account }),
+    ).to.be.rejectedWith("DatasetInUse");
+
+    await ctx.escrow.write.release([loanKey, preimage], { account: ctx.stranger.account });
+    await ctx.registry.write.destroy([datasetIdHash(DATASET_ID)], { account: ctx.provider.account });
   });
 });

@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {SiriusKybRegistry} from "./SiriusKybRegistry.sol";
+import {SiriusDatasetRegistry} from "./SiriusDatasetRegistry.sol";
 
 interface IERC20 {
     function decimals() external view returns (uint8);
@@ -24,9 +25,10 @@ contract SiriusEscrow {
         Status status;
         bytes32 hashlock;
         bytes32 preimage;
+        bytes32 datasetId;
     }
 
-    string public constant VERSION = "sirius-escrow-usdc-v2";
+    string public constant VERSION = "sirius-escrow-usdc-v3";
     bytes32 public constant LOAN_KEY_DOMAIN = keccak256("sirius.escrow.loanKey.v1");
     uint8 public constant MIN_CHALLENGE_DAYS = 1;
     uint8 public constant MAX_CHALLENGE_DAYS = 30;
@@ -42,7 +44,9 @@ contract SiriusEscrow {
 
     IERC20 public immutable usdc;
     SiriusKybRegistry public immutable kyb;
+    SiriusDatasetRegistry public immutable datasets;
     mapping(bytes32 => Loan) private _loans;
+    mapping(bytes32 => uint256) private _activeLoansForDataset;
     mapping(address => uint256) private _credit;
     uint256 public lockedUsdc;
     uint256 public owedUsdc;
@@ -93,6 +97,7 @@ contract SiriusEscrow {
     error TokenTransferFailed();
     error InexactTokenTransfer();
     error Sha256Unavailable();
+    error InvalidDataset();
 
     modifier nonReentrant() {
         if (_guard == 1) revert Reentrancy();
@@ -101,10 +106,11 @@ contract SiriusEscrow {
         _guard = 0;
     }
 
-    constructor(IERC20 usdc_, SiriusKybRegistry kyb_) {
+    constructor(IERC20 usdc_, SiriusKybRegistry kyb_, SiriusDatasetRegistry datasets_) {
         if (address(usdc_) == address(0)) revert ZeroAddress();
         if (address(usdc_).code.length == 0) revert InvalidUsdcContract();
         if (address(kyb_) == address(0)) revert ZeroAddress();
+        if (address(datasets_) == address(0)) revert ZeroAddress();
 
         // The floor follows the token, not the chain. Reading decimals() here also proves
         // the address answers like an ERC-20 before a single loan can exist.
@@ -114,6 +120,7 @@ contract SiriusEscrow {
 
         usdc = usdc_;
         kyb = kyb_;
+        datasets = datasets_;
     }
 
     function loanKeyOf(address borrower, bytes32 loanIdHash) public pure returns (bytes32) {
@@ -121,7 +128,7 @@ contract SiriusEscrow {
     }
 
     /// @notice Lock an exact USDC amount. The borrower must approve this contract first.
-    function lock(address provider, uint256 amount, bytes32 hashlock, uint8 challengeDays, bytes32 loanIdHash)
+    function lock(address provider, uint256 amount, bytes32 hashlock, uint8 challengeDays, bytes32 loanIdHash, bytes32 datasetId)
         external
         nonReentrant
         returns (bytes32 loanKey)
@@ -131,6 +138,7 @@ contract SiriusEscrow {
         if (amount > MAX_AMOUNT) revert AmountOverflow();
         if (provider == address(0) || provider == address(this)) revert InvalidProvider();
         if (provider == msg.sender) revert SelfDealing();
+        if (datasetId == bytes32(0) || !datasets.isLiveForProvider(datasetId, provider)) revert InvalidDataset();
         if (hashlock == bytes32(0) || hashlock == ZERO_PREIMAGE_HASH) revert InvalidHashlock();
         if (challengeDays < MIN_CHALLENGE_DAYS || challengeDays > MAX_CHALLENGE_DAYS) revert InvalidChallengePeriod();
         if (loanIdHash == bytes32(0)) revert InvalidLoanId();
@@ -149,7 +157,9 @@ contract SiriusEscrow {
         loan.deadline = deadline;
         loan.status = Status.Locked;
         loan.hashlock = hashlock;
+        loan.datasetId = datasetId;
         lockedUsdc += amount;
+        unchecked { _activeLoansForDataset[datasetId] += 1; }
 
         emit LoanLocked(loanKey, msg.sender, provider, amount, deadline, hashlock, _nextSeq());
     }
@@ -165,6 +175,7 @@ contract SiriusEscrow {
         loan.status = Status.Released;
         loan.preimage = preimage;
         lockedUsdc -= amount;
+        unchecked { _activeLoansForDataset[loan.datasetId] -= 1; }
         uint256 balance = _credit[loan.provider] + amount;
         _credit[loan.provider] = balance;
         owedUsdc += amount;
@@ -183,6 +194,7 @@ contract SiriusEscrow {
         uint256 amount = loan.amount;
         loan.status = Status.Refunded;
         lockedUsdc -= amount;
+        unchecked { _activeLoansForDataset[loan.datasetId] -= 1; }
         uint256 balance = _credit[loan.borrower] + amount;
         _credit[loan.borrower] = balance;
         owedUsdc += amount;
@@ -215,6 +227,10 @@ contract SiriusEscrow {
 
     function creditOf(address account) external view returns (uint256) {
         return _credit[account];
+    }
+
+    function activeLoansForDataset(bytes32 datasetId) external view returns (uint256) {
+        return _activeLoansForDataset[datasetId];
     }
 
     function isReleasable(bytes32 loanKey) external view returns (bool) {

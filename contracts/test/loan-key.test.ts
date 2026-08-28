@@ -1,8 +1,9 @@
 import { expect } from "chai";
 import { createHash, randomBytes } from "node:crypto";
 import hre from "hardhat";
-import type { Hex } from "viem";
+import { keccak256, toHex, type Hex } from "viem";
 import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import { datasetIdHash } from "../../src/lib/evm/dataset-key";
 import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
 
 /**
@@ -47,14 +48,24 @@ async function fixture() {
   };
   await grantKyb(wallets[0]);
   await grantKyb(wallets[1]);
-  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address]);
+  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, wallets[0].account.address]);
+  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address, registry.address]);
+  await registry.write.bindEscrow([escrow.address], { account: wallets[0].account });
+  const datasetId = "loan-key-dataset";
+  await registry.write.mint([
+    datasetIdHash(datasetId),
+    keccak256(toHex("loan-key-cid")),
+    keccak256(toHex("loan-key-merkle-root")),
+    1n,
+  ], { account: wallets[1].account });
+  const onChainDatasetId = await registry.read.datasetIdOf([wallets[1].account.address, datasetIdHash(datasetId)]);
   await usdc.write.mint([wallets[0].account.address, 1_000_000_000n]);
-  return { escrow, usdc, kyb, wallets };
+  return { escrow, usdc, kyb, wallets, onChainDatasetId };
 }
 
 describe("Dérivations partagées application ↔ contrat", () => {
   it("loanKeyFor reproduit exactement loanKeyOf on-chain", async () => {
-    const { escrow, usdc, wallets } = await loadFixture(fixture);
+    const { escrow, wallets } = await loadFixture(fixture);
 
     for (const wallet of wallets.slice(0, 3)) {
       for (const loanId of [
@@ -81,7 +92,7 @@ describe("Dérivations partagées application ↔ contrat", () => {
   });
 
   it("hashlockOf reproduit le hashlock recalculé par le contrat", async () => {
-    const { escrow, usdc, wallets } = await loadFixture(fixture);
+    const { escrow, usdc, wallets, onChainDatasetId } = await loadFixture(fixture);
     const [borrower, provider] = wallets;
 
     const preimage = randomBytes(32);
@@ -89,7 +100,7 @@ describe("Dérivations partagées application ↔ contrat", () => {
 
     const amount = 1_000_000n;
     await usdc.write.approve([escrow.address, amount], { account: borrower.account });
-    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash")], {
+    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash"), onChainDatasetId], {
       account: borrower.account,
     });
 
@@ -122,6 +133,6 @@ describe("Dérivations partagées application ↔ contrat", () => {
     expect(hashlockOf(preimage)).to.equal(
       `0x${createHash("sha256").update(preimage).digest("hex")}`,
     );
-    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v2");
+    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v3");
   });
 });

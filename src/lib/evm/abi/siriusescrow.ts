@@ -13,6 +13,11 @@ export const siriusescrowAbi = [
         "internalType": "contract SiriusKybRegistry",
         "name": "kyb_",
         "type": "address"
+      },
+      {
+        "internalType": "contract SiriusDatasetRegistry",
+        "name": "datasets_",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -68,6 +73,11 @@ export const siriusescrowAbi = [
   {
     "inputs": [],
     "name": "InvalidChallengePeriod",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidDataset",
     "type": "error"
   },
   {
@@ -467,6 +477,25 @@ export const siriusescrowAbi = [
   {
     "inputs": [
       {
+        "internalType": "bytes32",
+        "name": "datasetId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "activeLoansForDataset",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "account",
         "type": "address"
@@ -478,6 +507,19 @@ export const siriusescrowAbi = [
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "datasets",
+    "outputs": [
+      {
+        "internalType": "contract SiriusDatasetRegistry",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -541,6 +583,11 @@ export const siriusescrowAbi = [
           {
             "internalType": "bytes32",
             "name": "preimage",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "datasetId",
             "type": "bytes32"
           }
         ],
@@ -652,6 +699,11 @@ export const siriusescrowAbi = [
       {
         "internalType": "bytes32",
         "name": "loanIdHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "datasetId",
         "type": "bytes32"
       }
     ],

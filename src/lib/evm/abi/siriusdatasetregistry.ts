@@ -8,6 +8,11 @@ export const siriusdatasetregistryAbi = [
         "internalType": "contract SiriusKybRegistry",
         "name": "kyb_",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "admin_",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -30,8 +35,29 @@ export const siriusdatasetregistryAbi = [
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "datasetId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "activeLoans",
+        "type": "uint256"
+      }
+    ],
+    "name": "DatasetInUse",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "EmptyDatasetId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EscrowAlreadyBound",
     "type": "error"
   },
   {
@@ -56,6 +82,11 @@ export const siriusdatasetregistryAbi = [
   },
   {
     "inputs": [],
+    "name": "NotAdmin",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotProvider",
     "type": "error"
   },
@@ -68,6 +99,11 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "name": "UnknownDataset",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
     "type": "error"
   },
   {
@@ -133,6 +169,19 @@ export const siriusdatasetregistryAbi = [
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "escrow",
+        "type": "address"
+      }
+    ],
+    "name": "EscrowBound",
+    "type": "event"
+  },
+  {
     "inputs": [],
     "name": "DATASET_ID_DOMAIN",
     "outputs": [
@@ -169,6 +218,32 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "admin",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract ISiriusDatasetEscrow",
+        "name": "escrow_",
+        "type": "address"
+      }
+    ],
+    "name": "bindEscrow",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -212,6 +287,19 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "escrow",
+    "outputs": [
+      {
+        "internalType": "contract ISiriusDatasetEscrow",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -274,6 +362,30 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "name": "isLive",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "provider",
+        "type": "address"
+      }
+    ],
+    "name": "isLiveForProvider",
     "outputs": [
       {
         "internalType": "bool",

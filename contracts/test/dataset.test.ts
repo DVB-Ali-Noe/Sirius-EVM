@@ -17,7 +17,7 @@ async function fixture() {
     admin.account.address,
     verifier.account.address,
   ]);
-  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address]);
+  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address]);
   return { kyb, registry, admin, verifier, provider, other };
 }
 

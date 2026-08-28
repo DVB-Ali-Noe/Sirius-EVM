@@ -25,6 +25,7 @@ export function approveUsdcTransaction(amount: string): EvmTransactionRequest {
 
 export function lockUsdcTransaction(input: {
   provider: string;
+  datasetId: Hex;
   amount: string;
   hashlock: Hex;
   challengeDays: number;
@@ -35,7 +36,7 @@ export function lockUsdcTransaction(input: {
     data: encodeFunctionData({
       abi: siriusescrowAbi,
       functionName: "lock",
-      args: [getAddress(input.provider), BigInt(input.amount), input.hashlock, input.challengeDays, loanIdHash(input.loanId)],
+      args: [getAddress(input.provider), BigInt(input.amount), input.hashlock, input.challengeDays, loanIdHash(input.loanId), input.datasetId],
     }),
   };
 }

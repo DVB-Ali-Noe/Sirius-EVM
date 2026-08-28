@@ -87,6 +87,10 @@ test("la lecture du titre EVM attend la confirmation du mint", () => {
     finalize.indexOf("waitForTransactionReceipt") < finalize.indexOf("onChainDatasetId(terms, provider)"),
     "datasetIdOf ne doit pas être lu avant que la transaction mint soit confirmée",
   );
+  assert.ok(
+    finalize.indexOf("waitForTransactionReceipt") < finalize.indexOf("getTransaction"),
+    "la transaction ne doit pas être relue avant sa confirmation",
+  );
 });
 
 test("un identifiant EVM déterministe n'est pas confondu avec un titre mint", () => {

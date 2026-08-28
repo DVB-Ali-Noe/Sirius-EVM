@@ -6,6 +6,7 @@ import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
 import { datasetRegistryAddress, escrowAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
+import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
@@ -19,6 +20,7 @@ const MAX_RUNS_PER_WINDOW = 3;
 
 export async function prepareLoan(datasetId: string, borrower: string) {
   const borrowerAddress = normalizeAddress(borrower);
+  await requireCurrentEvmDeployment();
   // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
   // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
   // vérifient qu'elle EXISTE — sur un objet d'où elle vient d'être supprimée, ils
@@ -99,6 +101,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
       approveTransaction: approveUsdcTransaction(amountUsdcAtomic),
       lockTransaction: lockUsdcTransaction({
         provider: dataset.provider,
+        datasetId: dataset.evmDatasetId as Hex,
         amount: amountUsdcAtomic,
         hashlock,
         challengeDays: dataset.challengeDays,
@@ -113,6 +116,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
 export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?: string) {
   const borrowerAddress = normalizeAddress(borrower);
+  await requireCurrentEvmDeployment();
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
@@ -144,7 +148,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     if (current?.status === "ESCROWED" && current.evmLockTxHash?.toLowerCase() === submittedLockTxHash.toLowerCase()) return current;
     throw new AppError("Soumission de lock USDC concurrente", 409);
   }
-  if (!isBorrowableDatasetStatus(loan.dataset.status) || !loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
+  if (!loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
     throw new AppError("Dataset indisponible", 409);
   }
 
@@ -161,6 +165,8 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     !onChain ||
     !addressesEqual(onChain.borrower, borrowerAddress) ||
     !addressesEqual(onChain.provider, loan.provider) ||
+    onChain.datasetId.toLowerCase() !== loan.dataset.evmDatasetId.toLowerCase() ||
+    onChain.status !== 1 ||
     onChain.amountUsdcAtomic !== loan.amountUsdcAtomic ||
     onChain.hashlock.toLowerCase() !== loan.evmHashlock.toLowerCase()
   ) {

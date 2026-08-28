@@ -5,8 +5,10 @@ import { AppError } from "@/lib/app-error";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { siriusescrowAbi } from "./abi/siriusescrow";
 import { normalizeAddress, type CanonicalAddress } from "./address";
-import { escrowAddress as configuredEscrowAddress } from "./addresses";
+import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
+import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from "./addresses";
 import { getPublicClient } from "./client";
+import { datasetIdHash } from "./dataset-key";
 import { resolveServerNetwork } from "./networks";
 
 /**
@@ -35,6 +37,7 @@ export interface OnChainLoan {
   status: number;
   hashlock: Hex;
   preimage: Hex;
+  datasetId: Hex;
 }
 
 function escrowAddress(): CanonicalAddress {
@@ -61,6 +64,7 @@ export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
     status: loan.status,
     hashlock: loan.hashlock,
     preimage: loan.preimage,
+    datasetId: loan.datasetId,
   };
 }
 
@@ -71,24 +75,38 @@ export async function assertLoanScope(input: {
   loanKey: Hex;
   borrower: string;
   provider: string;
+  datasetId: string;
   amountUsdcAtomic: string;
   hashlock: Hex;
   minimumRemainingSeconds?: number;
 }): Promise<void> {
-  const ok = await getPublicClient().readContract({
+  const client = getPublicClient();
+  const provider = normalizeAddress(input.provider);
+  const [ok, loan, expectedDatasetId] = await Promise.all([
+    client.readContract({
     address: escrowAddress(),
     abi: siriusescrowAbi,
     functionName: "matchesScope",
     args: [
       input.loanKey,
       normalizeAddress(input.borrower),
-      normalizeAddress(input.provider),
+      provider,
       BigInt(input.amountUsdcAtomic),
       input.hashlock,
       BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS),
     ],
-  });
-  if (!ok) throw new AppError("Escrow on-chain inactif, hors scope ou trop proche de son expiration", 409);
+    }),
+    readLoan(input.loanKey),
+    client.readContract({
+      address: datasetRegistryAddress(),
+      abi: siriusdatasetregistryAbi,
+      functionName: "datasetIdOf",
+      args: [provider, datasetIdHash(input.datasetId)],
+    }),
+  ]);
+  if (!ok || !loan || loan.datasetId.toLowerCase() !== expectedDatasetId.toLowerCase()) {
+    throw new AppError("Escrow on-chain inactif, hors scope ou lié à un autre dataset", 409);
+  }
 }
 
 /**
