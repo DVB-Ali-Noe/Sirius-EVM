@@ -30,6 +30,13 @@ import { resolveServerNetwork } from "@/lib/evm/networks";
  */
 
 const VALIDITE_JOURS = 30;
+let attestationQueue: Promise<void> = Promise.resolve();
+
+function enqueueAttestation<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = attestationQueue.catch(() => {}).then(operation);
+  attestationQueue = queued.then(() => {}, () => {});
+  return queued;
+}
 
 function verifierAccount() {
   const key = process.env.SIRIUS_KYB_VERIFIER_KEY?.trim();
@@ -95,7 +102,7 @@ export async function prepareDemoAttestation(subject: string) {
 }
 
 /** Pose l'attestation on-chain avec la signature du sujet. Le vérificateur paie le gas. */
-export async function submitDemoAttestation(subject: string, expiresAt: number, signature: string) {
+async function submitDemoAttestationEnSerie(subject: string, expiresAt: number, signature: string) {
   if (!isDemoDeployment()) throw new AppError("Réservé aux instances de démonstration", 403);
   if (!/^0x[0-9a-fA-F]+$/.test(signature)) throw new AppError("Signature malformée", 400);
 
@@ -138,4 +145,8 @@ export async function submitDemoAttestation(subject: string, expiresAt: number, 
   if (!valide) throw new AppError("Attestation posée mais le registre la juge invalide", 502);
 
   return { subject: address, status: "ACCEPTED" as const, txHash: hash };
+}
+
+export function submitDemoAttestation(subject: string, expiresAt: number, signature: string) {
+  return enqueueAttestation(() => submitDemoAttestationEnSerie(subject, expiresAt, signature));
 }

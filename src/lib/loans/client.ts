@@ -2,6 +2,7 @@
 
 import { useWalletStore } from "@/stores/wallet";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
+import { waitForTransactionExternal } from "@/lib/wallet/manager";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import {
@@ -52,9 +53,10 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation du lock USDC échouée");
   }
-  await sendActiveTransaction(body.approveTransaction);
+  await sendActiveTransaction(body.approveTransaction, { waitForConfirmation: true });
   const lockTxHash = await sendActiveTransaction(body.lockTransaction);
   window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
+  await waitForTransactionExternal(lockTxHash);
   await submitLoanLock(body.loanId, lockTxHash);
 }
 

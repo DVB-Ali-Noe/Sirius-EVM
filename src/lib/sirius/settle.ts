@@ -129,7 +129,12 @@ export async function settlePreparedLoan(
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt },
-      data: resolution?.state === "cancelled" ? { status: "CANCELLED", cancelTxHash: resolution.txHash } : { status: "TRAINING" },
+      data:
+        resolution?.state === "settled"
+          ? { status: "SETTLED", settleTxHash: resolution.txHash, settledAt: new Date() }
+          : resolution?.state === "cancelled"
+            ? { status: "CANCELLED", cancelTxHash: resolution.txHash }
+            : { status: "TRAINING" },
     });
     throw error;
   }

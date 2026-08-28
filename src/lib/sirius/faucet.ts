@@ -32,6 +32,13 @@ const MONTANT_ETH = "0.0002";
 const SEUIL_ETH = parseEther("0.00005");
 /** Réserve du distributeur en dessous de laquelle on refuse plutôt que d'échouer à mi-course. */
 const RESERVE_MINIMALE = parseEther("0.0005");
+let distributionQueue: Promise<void> = Promise.resolve();
+
+function enqueueDistribution<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = distributionQueue.catch(() => {}).then(operation);
+  distributionQueue = queued.then(() => {}, () => {});
+  return queued;
+}
 
 function distributeurAccount() {
   // À défaut de clé dédiée, celle du vérificateur KYB : c'est le seul compte
@@ -58,7 +65,7 @@ export interface FaucetResult {
   eth: string | null;
 }
 
-export async function distribuerFondsDeTest(destinataire: string): Promise<FaucetResult> {
+async function distribuerFondsDeTestEnSerie(destinataire: string): Promise<FaucetResult> {
   if (!isDemoDeployment()) throw new AppError("Réservé aux instances de démonstration", 403);
 
   const address = normalizeAddress(destinataire);
@@ -99,11 +106,13 @@ export async function distribuerFondsDeTest(destinataire: string): Promise<Fauce
     chain,
     account,
   });
+  const usdcReceipt = await publicClient.waitForTransactionReceipt({ hash: usdcTxHash, confirmations: 1 });
+  if (usdcReceipt.status !== "success") throw new AppError("Frappe rejetée par la chaîne", 502);
 
   // On n'envoie de l'ETH qu'à qui en manque : le renvoyer à chaque appel viderait la
   // réserve au profit de gens déjà pourvus.
   const soldeEth = await publicClient.getBalance({ address });
-  let ethTxHash: string | null = null;
+  let ethTxHash: Hex | null = null;
   if (soldeEth < SEUIL_ETH) {
     ethTxHash = await wallet.sendTransaction({
       to: address,
@@ -111,10 +120,9 @@ export async function distribuerFondsDeTest(destinataire: string): Promise<Fauce
       chain,
       account,
     });
+    const ethReceipt = await publicClient.waitForTransactionReceipt({ hash: ethTxHash, confirmations: 1 });
+    if (ethReceipt.status !== "success") throw new AppError("Transfert ETH rejeté par la chaîne", 502);
   }
-
-  const recu = await publicClient.waitForTransactionReceipt({ hash: usdcTxHash, confirmations: 1 });
-  if (recu.status !== "success") throw new AppError("Frappe rejetée par la chaîne", 502);
 
   return {
     usdcTxHash,
@@ -122,4 +130,8 @@ export async function distribuerFondsDeTest(destinataire: string): Promise<Fauce
     usdc: MONTANT_USDC,
     eth: ethTxHash ? MONTANT_ETH : null,
   };
+}
+
+export function distribuerFondsDeTest(destinataire: string): Promise<FaucetResult> {
+  return enqueueDistribution(() => distribuerFondsDeTestEnSerie(destinataire));
 }

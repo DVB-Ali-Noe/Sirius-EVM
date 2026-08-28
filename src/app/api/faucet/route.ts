@@ -17,6 +17,11 @@ const faucetLimiter = new FixedWindowRateLimiter({
   maxPerKey: 1,
   maxGlobal: 120,
 });
+const faucetClientLimiter = new FixedWindowRateLimiter({
+  windowMs: 60 * 60_000,
+  maxPerKey: 10,
+  maxGlobal: 1_200,
+});
 
 export async function POST(req: Request) {
   try {
@@ -26,7 +31,8 @@ export async function POST(req: Request) {
     }
     // Clé de limitation sur l'adresse de session, pas sur l'IP seule : l'adresse est
     // ce que l'on sert, et elle a été prouvée par signature au moment de la connexion.
-    enforceRateLimit(faucetLimiter, requestClientKey(req, session.address));
+    enforceRateLimit(faucetLimiter, `subject:${session.address}`);
+    enforceRateLimit(faucetClientLimiter, requestClientKey(req));
     return NextResponse.json(await distribuerFondsDeTest(session.address));
   } catch (err) {
     return errorResponse(err);

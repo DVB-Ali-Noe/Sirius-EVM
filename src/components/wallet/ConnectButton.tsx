@@ -6,6 +6,7 @@ import { disconnectWallet } from "@/lib/wallet/manager";
 import { markWalletDisconnected } from "@/lib/wallet/intent";
 import { selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
+import { resolveClientNetwork } from "@/lib/evm/networks";
 import { openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
@@ -13,7 +14,7 @@ function truncate(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-const EXPECTED_NETWORK = "testnet";
+const EXPECTED_NETWORK = resolveClientNetwork();
 
 /** dropUp : ouvre le menu vers le haut (footer de sidebar, sinon clippé en bas de viewport). */
 export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {

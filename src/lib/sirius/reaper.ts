@@ -70,12 +70,6 @@ export async function runLoanReaper(now = new Date()): Promise<void> {
             continue;
           }
         } catch {
-          if (now.getTime() - loan.updatedAt.getTime() >= PENDING_REAPER_TTL_MS) {
-            await prisma.loan.updateMany({
-              where: { id: loan.id, status: "SUBMITTING", evmLockTxHash: loan.evmLockTxHash, updatedAt: loan.updatedAt },
-              data: { status: "CANCELLED" },
-            });
-          }
           continue;
         }
         await finalizeLoan(loan.id, loan.borrower);

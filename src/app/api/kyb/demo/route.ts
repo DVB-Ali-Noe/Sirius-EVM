@@ -2,10 +2,21 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
+import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
 import { prepareDemoAttestation, submitDemoAttestation } from "@/lib/sirius/kyb-demo";
 import { finalizeKybAcceptance } from "@/lib/sirius/kyb";
 
 export const runtime = "nodejs";
+const kybSubjectLimiter = new FixedWindowRateLimiter({
+  windowMs: 60 * 60_000,
+  maxPerKey: 3,
+  maxGlobal: 120,
+});
+const kybClientLimiter = new FixedWindowRateLimiter({
+  windowMs: 60 * 60_000,
+  maxPerKey: 20,
+  maxGlobal: 1_200,
+});
 
 /**
  * Attestation KYB parrainée, sur les instances de démonstration uniquement.
@@ -21,6 +32,8 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
+    enforceRateLimit(kybSubjectLimiter, `subject:${session.address}`);
+    enforceRateLimit(kybClientLimiter, requestClientKey(req));
     return NextResponse.json(await prepareDemoAttestation(session.address));
   } catch (err) {
     return errorResponse(err);
@@ -30,6 +43,8 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const session = requireAuth(req);
+    enforceRateLimit(kybSubjectLimiter, `subject:${session.address}`);
+    enforceRateLimit(kybClientLimiter, requestClientKey(req));
     const body = await readJson<{ expiresAt?: unknown; signature?: unknown }>(req);
 
     if (typeof body.expiresAt !== "number" || !Number.isSafeInteger(body.expiresAt)) {

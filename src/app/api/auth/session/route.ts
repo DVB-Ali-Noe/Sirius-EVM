@@ -7,7 +7,7 @@ export const runtime = "nodejs";
  * État de la session en cours, tel que le serveur le voit.
  *
  * Le store wallet du navigateur ne survit pas à un rechargement, alors que le cookie
- * de session, lui, dure vingt-quatre heures. Sans ce point d'interrogation, le client
+ * de session, lui, dure sept jours. Sans ce point d'interrogation, le client
  * n'a aucun moyen de savoir qu'il est encore authentifié : il redemande une signature
  * à chaque navigation, ou pire, considère la divergence comme un changement de compte
  * et détruit une session parfaitement valide.

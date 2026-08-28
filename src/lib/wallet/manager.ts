@@ -179,3 +179,32 @@ export async function sendTransactionExternal(transaction: Record<string, unknow
   if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Transaction EVM refusée par le wallet.");
   return hash;
 }
+
+export async function waitForTransactionExternal(
+  hash: string,
+  pollIntervalMs = 1_000,
+  timeoutMs = 5 * 60_000,
+): Promise<void> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Hash de transaction EVM invalide.");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error("Délai de confirmation EVM invalide.");
+  const wallet = provider();
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const receipt = await wallet.request({ method: "eth_getTransactionReceipt", params: [hash] });
+      if (receipt && typeof receipt === "object") {
+        const status = (receipt as { status?: unknown }).status;
+        if (status === "0x1" || status === "0x01") return;
+        if (typeof status === "string") throw new Error("Transaction EVM rejetée par la chaîne.");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Transaction EVM rejetée par la chaîne.") throw error;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Transaction EVM toujours en attente de confirmation. Attends avant de relancer l’emprunt.");
+    }
+    if (pollIntervalMs > 0) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, pollIntervalMs));
+    }
+  }
+}
