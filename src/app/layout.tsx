@@ -25,10 +25,30 @@ export const dynamic = "force-dynamic";
 // Rendues côté serveur, donc figées : ce sont elles qu'un moteur de recherche lit et
 // qu'un réseau social affiche en aperçu de lien. Le sélecteur de langue n'y change
 // rien, et un titre français sur un site anglophone se remarque avant la page.
+const ORIGINE = process.env.SIRIUS_APP_ORIGIN?.trim() || "https://sirius-data.tech";
+const TITRE = "Sirius — confidential data lending on EVM";
+const DESCRIPTION =
+  "Lend valuable datasets without ever exposing them. Training inside a TEE, USDC settlement, and an audit trail on EVM.";
+
 export const metadata: Metadata = {
-  title: "Sirius — confidential data lending on EVM",
-  description:
-    "Lend valuable datasets without ever exposing them. Training inside a TEE, USDC settlement, and an audit trail on EVM.",
+  // Sans base, Next rend les URL d'images en relatif — et un réseau social qui lit
+  // la page depuis ses propres serveurs ne sait alors pas les résoudre. L'aperçu
+  // arrive vide, ce qui est pire qu'une absence d'aperçu : le lien paraît cassé.
+  metadataBase: new URL(ORIGINE),
+  title: TITRE,
+  description: DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: "Sirius",
+    url: ORIGINE,
+    title: TITRE,
+    description: DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITRE,
+    description: DESCRIPTION,
+  },
 };
 
 export default function RootLayout({
