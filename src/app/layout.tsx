@@ -70,6 +70,18 @@ export const metadata: Metadata = {
     title: TITRE,
     description: DESCRIPTION,
   },
+  // Preuve de propriété du domaine demandée par Virtuals Protocol avant de rattacher
+  // le site à la page d'agent. Le jeton n'ouvre aucun accès et ne révèle rien : il
+  // atteste seulement qu'on peut modifier le contenu servi sur cette origine.
+  //
+  // Passe par le champ `verification` plutôt qu'une balise écrite à la main : Next
+  // rend alors la balise dans le <head> de chaque page, y compris celles ajoutées
+  // plus tard, sans que personne ait à y penser.
+  verification: {
+    other: {
+      "virtual-protocol-site-verification": "394fd0a65d807900243c60d41eb6d129",
+    },
+  },
 };
 
 export default function RootLayout({
