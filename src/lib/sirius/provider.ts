@@ -8,7 +8,7 @@ import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
-import { cidHash, datasetIdHash } from "@/lib/evm/dataset-key";
+import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { requireAcceptedKyb } from "./access";
@@ -38,22 +38,18 @@ function listingTerms(dataset: Awaited<ReturnType<typeof ownedDataset>>) {
   if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt || !dataset.sizeBytes) {
     throw new AppError("Dataset incomplet ou reçu runner absent", 409);
   }
-  // La racine Merkle est stockée sous sa forme canonique interne : 64 caractères
-  // hexadécimaux, sans préfixe. C'est cette chaîne exacte que `verifyRoot` compare
-  // au moment de déchiffrer, et le runner la reçoit telle quelle — la changer en base
-  // ferait échouer toute vérification d'intégrité.
-  //
-  // L'EVM, lui, attend un `bytes32`, donc préfixé. La conversion appartient donc à la
-  // frontière avec la chaîne, ici, et nulle part ailleurs. Sans elle, aucun dataset ne
-  // pouvait être publié : le contrôle rejetait la forme même que le runner produit.
-  const racineEvm = dataset.merkleRoot.startsWith("0x") ? dataset.merkleRoot : `0x${dataset.merkleRoot}`;
-  if (!/^0x[0-9a-fA-F]{64}$/.test(racineEvm)) {
+  // Même conversion que partout ailleurs, via la fonction partagée : la dupliquer
+  // est précisément ce qui a laissé le contrôle diverger entre deux fichiers.
+  let racineEvm: Hex;
+  try {
+    racineEvm = merkleRootAsBytes32(dataset.merkleRoot);
+  } catch {
     throw new AppError("Racine Merkle EVM invalide", 409);
   }
   return {
     datasetId: dataset.id,
     cid: dataset.ipfsCid,
-    merkleRoot: racineEvm as Hex,
+    merkleRoot: racineEvm,
     sizeBytes: dataset.sizeBytes,
   };
 }

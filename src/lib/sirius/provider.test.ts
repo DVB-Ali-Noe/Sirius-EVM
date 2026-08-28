@@ -20,21 +20,10 @@ import { join } from "node:path";
 
 const SOURCE = readFileSync(join(process.cwd(), "src", "lib", "sirius", "provider.ts"), "utf8");
 
-test("la racine Merkle est préfixée avant d'atteindre l'EVM", () => {
+test("la conversion de racine Merkle passe par la fonction partagée", () => {
   assert.ok(
-    SOURCE.includes('startsWith("0x")'),
-    "listingTerms doit accepter la forme canonique sans préfixe et la convertir",
-  );
-});
-
-test("la valeur validée est la forme préfixée, pas celle de la base", () => {
-  assert.ok(
-    /test\(racineEvm\)/.test(SOURCE),
-    "le contrôle doit porter sur la valeur convertie",
-  );
-  assert.ok(
-    !/test\(dataset\.merkleRoot\)/.test(SOURCE),
-    "contrôler dataset.merkleRoot directement rejetterait la forme que le runner produit",
+    SOURCE.includes("merkleRootAsBytes32(dataset.merkleRoot)"),
+    "dupliquée, la conversion a divergé entre deux fichiers et bloqué l'entraînement",
   );
 });
 

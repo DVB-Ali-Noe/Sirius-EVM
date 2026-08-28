@@ -5,7 +5,7 @@ import { normalizeAddress } from "./address";
 import { datasetRegistryAddress } from "./addresses";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { getPublicClient } from "./client";
-import { cidHash, datasetIdHash } from "./dataset-key";
+import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "./dataset-key";
 
 export async function assertDatasetScope(input: {
   datasetId: string;
@@ -13,7 +13,12 @@ export async function assertDatasetScope(input: {
   merkleRoot: string;
   cid: string;
 }): Promise<void> {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(input.merkleRoot)) {
+  // La racine arrive sous sa forme canonique, sans préfixe : c'est celle que le
+  // runner manipule. Le contrat attend un `bytes32`.
+  let racineEvm: Hex;
+  try {
+    racineEvm = merkleRootAsBytes32(input.merkleRoot);
+  } catch {
     throw new AppError("Racine Merkle EVM invalide", 409);
   }
   const provider = normalizeAddress(input.provider);
@@ -29,7 +34,7 @@ export async function assertDatasetScope(input: {
     address: registry,
     abi: siriusdatasetregistryAbi,
     functionName: "matchesScope",
-    args: [onChainId, provider, input.merkleRoot as Hex, cidHash(input.cid)],
+    args: [onChainId, provider, racineEvm, cidHash(input.cid)],
   });
   if (!matches) throw new AppError("Titre EVM du dataset inactif ou hors scope", 409);
 }
