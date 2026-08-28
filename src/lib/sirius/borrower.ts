@@ -20,7 +20,13 @@ const MAX_RUNS_PER_WINDOW = 3;
 
 export async function prepareLoan(datasetId: string, borrower: string) {
   const borrowerAddress = normalizeAddress(borrower);
-  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+  // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
+  // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
+  // vérifient qu'elle EXISTE — sur un objet d'où elle vient d'être supprimée, ils
+  // échouaient donc systématiquement, et aucun dataset ne pouvait être publié,
+  // emprunté ni réglé. On la réinclut ici, comme le prévoit `db.ts` : cet objet ne
+  // quitte pas le serveur.
+  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
   if (!isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId) {
     throw new AppError("Dataset EVM non disponible", 409);
@@ -101,7 +107,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
 export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?: string) {
   const borrowerAddress = normalizeAddress(borrower);
-  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
+  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   if (loan.status === "ESCROWED" && loan.evmLockTxHash) return loan;

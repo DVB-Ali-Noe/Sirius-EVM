@@ -47,3 +47,33 @@ test("les chemins runner reçoivent toujours la forme brute", () => {
     );
   }
 });
+
+/**
+ * Le `omit` global de `db.ts` retire `wrappedKey` de toute lecture Prisma, pour
+ * qu'elle ne puisse pas partir dans une réponse d'API. C'est une bonne protection,
+ * et elle a un effet de bord vicieux : tout contrôle qui vérifie la *présence* de ce
+ * champ échoue systématiquement, sur un objet d'où il vient d'être supprimé.
+ *
+ * Le jour où c'est arrivé, publication, emprunt, confirmation de lock et règlement
+ * refusaient tous avec « dataset incomplet » — sur des datasets parfaitement complets
+ * en base. Rien dans le message ne pointait vers la cause.
+ *
+ * Ce test lie les deux : quiconque teste `wrappedKey` doit l'avoir réincluse.
+ */
+test("toute lecture qui contrôle wrappedKey la réinclut explicitement", () => {
+  const fichiers = ["provider.ts", "borrower.ts", "settle.ts", "self-train.ts"];
+  const fautifs: string[] = [];
+
+  for (const nom of fichiers) {
+    const source = readFileSync(join(process.cwd(), "src", "lib", "sirius", nom), "utf8");
+    const controle = /wrappedKey\b/.test(source.replace(/omit:\s*\{\s*wrappedKey:\s*false\s*\}/g, ""));
+    const reinclut = /omit:\s*\{\s*wrappedKey:\s*false\s*\}/.test(source);
+    if (controle && !reinclut) fautifs.push(nom);
+  }
+
+  assert.deepEqual(
+    fautifs,
+    [],
+    `Ces fichiers testent wrappedKey sans la réinclure — le contrôle sera toujours faux :\n  ${fautifs.join("\n  ")}`,
+  );
+});

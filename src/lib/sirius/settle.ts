@@ -36,7 +36,13 @@ export async function prepareLoanResult(
   });
   if (claimed.count !== 1) throw new AppError("Loan non verrouillé ou déjà en cours", 409);
 
-  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
+  // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
+  // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
+  // vérifient qu'elle EXISTE — sur un objet d'où elle vient d'être supprimée, ils
+  // échouaient donc systématiquement, et aucun dataset ne pouvait être publié,
+  // emprunté ni réglé. On la réinclut ici, comme le prévoit `db.ts` : cet objet ne
+  // quitte pas le serveur.
+  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan || !loan.evmLoanKey || !loan.evmLockTxHash || !loan.evmLockBlock || !loan.amountUsdcAtomic) {
     throw new AppError("Lock USDC absent", 409);
   }

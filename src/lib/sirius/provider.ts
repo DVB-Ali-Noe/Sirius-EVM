@@ -21,7 +21,13 @@ export function isBorrowableDatasetStatus(status: DatasetStatus): boolean {
 }
 
 async function ownedDataset(datasetId: string, provider: string) {
-  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+  // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
+  // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
+  // vérifient qu'elle EXISTE — sur un objet d'où elle vient d'être supprimée, ils
+  // échouaient donc systématiquement, et aucun dataset ne pouvait être publié,
+  // emprunté ni réglé. On la réinclut ici, comme le prévoit `db.ts` : cet objet ne
+  // quitte pas le serveur.
+  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
   if (!addressesEqual(dataset.provider, provider)) throw new AppError("Wallet ≠ provider du dataset", 403);
   return dataset;
