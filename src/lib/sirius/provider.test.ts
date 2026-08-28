@@ -95,9 +95,10 @@ test("un identifiant EVM déterministe n'est pas confondu avec un titre mint", (
     SOURCE.indexOf("async function markDatasetListed"),
   );
   assert.ok(
-    lookup.indexOf('functionName: "getDataset"') < lookup.indexOf('functionName: "matchesScope"'),
+    lookup.indexOf('functionName: "isLive"') < lookup.indexOf('functionName: "matchesScope"'),
     "l'existence du titre doit être lue avant de vérifier son scope",
   );
+  assert.match(lookup, /functionName: "getDataset"[\s\S]*?\.catch\(\(\) => null\)/);
   assert.doesNotMatch(lookup, /onChainId === `0x\$\{"0"\.repeat\(64\)\}`/);
 });
 

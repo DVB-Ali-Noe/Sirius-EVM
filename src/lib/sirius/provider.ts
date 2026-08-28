@@ -3,7 +3,7 @@ import type { Hex } from "viem";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import type { DatasetStatus } from "@/generated/prisma/client";
-import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
+import { addressesEqual, isZeroAddress, normalizeAddress } from "@/lib/evm/address";
 import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
@@ -66,14 +66,20 @@ async function onChainDatasetId(terms: ReturnType<typeof listingTerms>, provider
     functionName: "datasetIdOf",
     args: [normalizeAddress(provider), datasetIdHash(terms.datasetId)],
   });
-  const onChainDataset = await client.readContract({
+  const live = await client.readContract({
     address: registry,
     abi: siriusdatasetregistryAbi,
-    functionName: "getDataset",
+    functionName: "isLive",
     args: [onChainId],
   });
-  if (addressesEqual(onChainDataset.provider, "0x0000000000000000000000000000000000000000")) return null;
-  if (onChainDataset.destroyedAt !== 0) {
+  if (!live) {
+    const onChainDataset = await client.readContract({
+      address: registry,
+      abi: siriusdatasetregistryAbi,
+      functionName: "getDataset",
+      args: [onChainId],
+    }).catch(() => null);
+    if (!onChainDataset || isZeroAddress(onChainDataset.provider)) return null;
     throw new AppError("Titre EVM déjà détruit : crée un nouveau dataset", 409);
   }
   const matchesScope = await client.readContract({
