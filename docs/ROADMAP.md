@@ -14,7 +14,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 ## Migration produit — en cours
 
-- [ ] Déployer les trois contrats durcis sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
+- [x] Déployer les trois contrats durcis sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
 - [ ] Configurer l'émetteur KYB externe et sa clé HSM/KMS ; l'application ne signe plus d'attestation KYB.
 - [ ] Financer et vérifier le compte EVM dérivé du runner, utilisé pour appeler `release` et `refund`.
 - [x] Brancher le wallet navigateur EVM sur les appels `mint`, `approve`, `lock`, `withdraw` et les attestations KYB.

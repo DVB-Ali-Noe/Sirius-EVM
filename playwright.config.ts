@@ -22,8 +22,22 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
+  // Les variables passaient en préfixe de la commande — une syntaxe que seul un shell
+  // POSIX interprète. Sous Windows, cmd.exe la lisait comme un exécutable nommé
+  // « NEXT_PUBLIC_SIRIUS_E2E=1 » et la suite ne démarrait pas du tout. `env` fait la
+  // même chose sans dépendre du shell qui lance la commande.
   webServer: {
-    command: `NEXT_PUBLIC_SIRIUS_E2E=1 SIRIUS_REAPER_ENABLED=false NEXT_PUBLIC_EVM_NETWORK=testnet EVM_NETWORK=testnet SIRIUS_APP_ORIGIN=${baseURL} pnpm exec next dev --hostname 127.0.0.1 --port ${port}`,
+    // Le binaire est appelé directement plutôt qu'à travers `pnpm exec`, comme le
+    // fait déjà `compose.yaml` : la suite ne dépend plus de la présence du bon
+    // gestionnaire de paquets dans le PATH de la machine qui la lance.
+    command: `node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port ${port}`,
+    env: {
+      NEXT_PUBLIC_SIRIUS_E2E: "1",
+      SIRIUS_REAPER_ENABLED: "false",
+      NEXT_PUBLIC_EVM_NETWORK: "testnet",
+      EVM_NETWORK: "testnet",
+      SIRIUS_APP_ORIGIN: baseURL,
+    },
     url: baseURL,
     reuseExistingServer: false,
     timeout: 180_000,

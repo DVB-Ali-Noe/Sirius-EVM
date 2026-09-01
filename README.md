@@ -43,7 +43,7 @@ Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). 
 
 Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
-Les contrats doivent être redéployés et configurés sur testnet ; le parcours réel navigateur/runner/contrats, un émetteur KYB externe et la CVM Phala restent à valider. La roadmap ne présente donc pas encore le produit comme déployé ni validé sur une chaîne publique.
+Les trois contrats sont déployés sur le testnet Robinhood et l'instance publique tourne en mode démonstration : le calcul confidentiel s'exécute dans le processus de l'application, sans enclave attestée. Le parcours réel navigateur/runner/contrats, un émetteur KYB externe et la CVM Phala restent à valider. La roadmap ne présente donc pas encore le produit comme validé sur une enclave réelle.
 
 ## Démarrage
 

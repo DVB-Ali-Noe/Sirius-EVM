@@ -1,7 +1,26 @@
 import { expect, test, type Page, type Route } from "playwright/test";
+import { formatUsdcAtomic, USDC_DECIMALS } from "@/lib/evm/usdc";
 
 const PROVIDER = "0x930f5a13d65b3e7e07431a38da30229562e3318b";
 const BORROWER = "0x37f98be7c9d48b5d39e449616e7c70e37e29db13";
+
+/**
+ * Les montants se dérivent de la précision du jeton au lieu d'être écrits en atomes.
+ *
+ * L'USDC du testnet Robinhood expose 18 décimales, celui de référence en expose 6.
+ * Un « 1750000 » figé ici valait 1,75 USDC sous l'ancienne hypothèse et s'affiche
+ * « 0.00000000000175 » sous la nouvelle — un test rouge qui accuse l'interface alors
+ * que c'est la fixture qui a vieilli. En passant par les mêmes fonctions que
+ * l'application, le test ne peut plus diverger d'elle en silence.
+ */
+function usdc(montant: string): string {
+  const [entier, decimales = ""] = montant.split(".");
+  return (BigInt(entier) * BigInt(10) ** BigInt(USDC_DECIMALS)
+    + BigInt(decimales.padEnd(USDC_DECIMALS, "0") || "0")).toString();
+}
+
+const PRIX_ATOMIQUE = usdc("1.75");
+const PRIX_AFFICHE = `${formatUsdcAtomic(PRIX_ATOMIQUE)} USDC`;
 
 interface DatasetFixture {
   id: string;
@@ -22,7 +41,7 @@ const listedDataset: DatasetFixture = {
   provider: PROVIDER,
   status: "LISTED",
   sizeBytes: 1_250_000,
-  priceUsdcAtomic: "1750000",
+  priceUsdcAtomic: PRIX_ATOMIQUE,
   challengeDays: 7,
   metrics: { rowCount: 48_000, columnCount: 24 },
 };
@@ -56,22 +75,22 @@ test("affiche le tableau de bord EVM d'un wallet authentifié", async ({ page })
   await page.goto("/dashboard");
   await connect(page, BORROWER, "borrower");
 
-  await expect(page.getByRole("heading", { name: "Tableau de bord" })).toBeVisible();
-  await expect(page.getByText("Confiance EVM")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByText("EVM trust")).toBeVisible();
   await page.getByRole("link", { name: "Marketplace" }).first().click();
   await expect(page).toHaveURL(/\/marketplace$/);
 });
 
 test("priorise les favoris du catalogue USDC", async ({ page }) => {
-  const another = { ...listedDataset, id: "dataset-other", name: "Crédit PME France", priceUsdcAtomic: "2500000" };
+  const another = { ...listedDataset, id: "dataset-other", name: "Crédit PME France", priceUsdcAtomic: usdc("2.5") };
   await page.route("**/api/datasets?status=LISTED", (route) => json(route, [another, listedDataset]));
 
   await page.goto("/marketplace");
   await expect(page.getByText("Crédit PME France")).toBeVisible();
-  await expect(page.getByText("1.75 USDC")).toBeVisible();
+  await expect(page.getByText(PRIX_AFFICHE)).toBeVisible();
 
   const targetCard = page.locator("main").getByText("Mobilité urbaine Europe").locator("../..");
-  await targetCard.getByRole("button", { name: "Ajouter aux favoris" }).click();
+  await targetCard.getByRole("button", { name: "Add to favorites" }).click();
   await expect(page.locator("main h3").first()).toHaveText("Mobilité urbaine Europe");
 });
 
@@ -85,7 +104,7 @@ test("présente des preuves vérifiables sur EVM", async ({ page }) => {
       id: "loan-audit",
       borrower: BORROWER,
       provider: PROVIDER,
-      amountUsdcAtomic: "1750000",
+      amountUsdcAtomic: PRIX_ATOMIQUE,
       status: "SETTLED",
       evmLockTxHash: lockTxHash,
       settleTxHash,
@@ -107,10 +126,10 @@ test("présente des preuves vérifiables sur EVM", async ({ page }) => {
   await page.goto("/audit");
   await connect(page, BORROWER, "borrower");
 
-  await expect(page.getByRole("heading", { name: "Registre d’audit" })).toBeVisible();
-  await expect(page.getByText("1.75 USDC")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Vérifier Lock USDC sur EVM" }))
+  await expect(page.getByRole("heading", { name: "Audit ledger" })).toBeVisible();
+  await expect(page.getByText(PRIX_AFFICHE)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Verify Lock USDC on EVM" }))
     .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/${lockTxHash}`);
-  await expect(page.getByRole("link", { name: "Vérifier Release USDC sur EVM" }))
+  await expect(page.getByRole("link", { name: "Verify Release USDC on EVM" }))
     .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/${settleTxHash}`);
 });
