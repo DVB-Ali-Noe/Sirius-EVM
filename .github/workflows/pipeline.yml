@@ -261,6 +261,14 @@ jobs:
           cat .vercel/project.json
 
       - name: Déployer
+        env:
+          # La version est épinglée plutôt que résolue par `@latest`. Deux raisons, et
+          # la première s'est produite : `@latest` a désigné une version que le registre
+          # npm ne servait pas encore, et le déploiement est mort sur un `ETARGET` qui
+          # n'avait rien à voir avec ce dépôt. La seconde est plus sourde : l'outil qui
+          # déploie ne doit pas changer de comportement entre deux passages sans que
+          # personne ne l'ait décidé. À relever délibérément.
+          CLI: vercel@59.11.0
         run: |
           # Le jeton est nettoyé comme les autres secrets : un retour à la ligne
           # collé sans le voir suffit à le rendre invalide, et l'API répond alors
@@ -271,14 +279,14 @@ jobs:
           # Contrôle explicite avant tout le reste : si le jeton n'ouvre aucune
           # porte, autant le savoir ici, avec un message qui le dit.
           echo "Identité du jeton :"
-          npx --yes vercel@latest whoami --token="$TOKEN"
+          npx --yes "$CLI" whoami --token="$TOKEN"
 
           # Chaque cible a son propre projet, donc son propre environnement de
           # production : les trois mêmes commandes servent aux deux, et il n'y a
           # aucune branche à déclarer ni métadonnée Git à joindre.
-          npx --yes vercel@latest pull --yes --environment=production --token="$TOKEN"
-          npx --yes vercel@latest build --prod --token="$TOKEN"
-          npx --yes vercel@latest deploy --prebuilt --prod --token="$TOKEN"
+          npx --yes "$CLI" pull --yes --environment=production --token="$TOKEN"
+          npx --yes "$CLI" build --prod --token="$TOKEN"
+          npx --yes "$CLI" deploy --prebuilt --prod --token="$TOKEN"
 
   vps:
     name: Reaper sur le VPS
