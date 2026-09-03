@@ -192,13 +192,20 @@ describe("SiriusEscrow USDC", () => {
     ).to.be.rejectedWith("InvalidUsdcContract");
 
     const feeUsdc = await hre.viem.deployContract("MockFeeUsdc");
-    const feeEscrow = await hre.viem.deployContract("SiriusEscrow", [feeUsdc.address, ctx.kyb.address, ctx.registry.address]);
+    const feeRegistry = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, ctx.admin.account.address]);
+    const feeEscrow = await hre.viem.deployContract("SiriusEscrow", [feeUsdc.address, ctx.kyb.address, feeRegistry.address]);
+    await feeRegistry.write.bindEscrow([feeEscrow.address], { account: ctx.admin.account });
+    const feeDatasetHash = datasetIdHash("fee-token-dataset");
+    await feeRegistry.write.mint([feeDatasetHash, DATASET_CID_HASH, DATASET_MERKLE_ROOT, 1n], {
+      account: ctx.provider.account,
+    });
+    const feeDatasetId = await feeRegistry.read.datasetIdOf([ctx.provider.account.address, feeDatasetHash]);
     const { hashlock } = teePreimage();
     await feeUsdc.write.mint([ctx.borrower.account.address, ONE_USDC]);
     await feeUsdc.write.approve([feeEscrow.address, ONE_USDC], { account: ctx.borrower.account });
 
     await expect(
-      feeEscrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("fee-token"), ctx.datasetId], {
+      feeEscrow.write.lock([ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("fee-token"), feeDatasetId], {
         account: ctx.borrower.account,
       }),
     ).to.be.rejectedWith("InexactTokenTransfer");
@@ -239,5 +246,25 @@ describe("SiriusEscrow USDC", () => {
 
     await ctx.escrow.write.release([loanKey, preimage], { account: ctx.stranger.account });
     await ctx.registry.write.destroy([datasetIdHash(DATASET_ID)], { account: ctx.provider.account });
+  });
+
+  it("refuse un lock tant que le registre n'est pas lié à cet escrow", async () => {
+    const ctx = await loadFixture(fixture);
+    const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, ctx.admin.account.address]);
+    const escrow = await hre.viem.deployContract("SiriusEscrow", [ctx.usdc.address, ctx.kyb.address, registry.address]);
+    const datasetHash = datasetIdHash("unbound-escrow-dataset");
+    await registry.write.mint([datasetHash, DATASET_CID_HASH, DATASET_MERKLE_ROOT, 1n], {
+      account: ctx.provider.account,
+    });
+    const datasetId = await registry.read.datasetIdOf([ctx.provider.account.address, datasetHash]);
+    const { hashlock } = teePreimage();
+    await ctx.usdc.write.approve([escrow.address, ONE_USDC], { account: ctx.borrower.account });
+
+    await expect(
+      escrow.write.lock(
+        [ctx.provider.account.address, ONE_USDC, hashlock, 7, loanIdHash("unbound-escrow"), datasetId],
+        { account: ctx.borrower.account },
+      ),
+    ).to.be.rejectedWith("DatasetEscrowMismatch");
   });
 });

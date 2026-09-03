@@ -6,6 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const datasets = [
   {
+    directory: "regression",
     name: "housing-prices",
     split: (rows) => rows.reduce(
       (groups, row, index) => {
@@ -16,6 +17,7 @@ const datasets = [
     ),
   },
   {
+    directory: "regression",
     name: "energy-demand",
     split: (rows) => {
       const boundary = Math.floor(rows.length * 0.8);
@@ -23,6 +25,7 @@ const datasets = [
     },
   },
   {
+    directory: "regression",
     name: "bike-sharing-demand",
     optional: true,
     split: (rows) => {
@@ -30,10 +33,21 @@ const datasets = [
       return [rows.slice(0, boundary), rows.slice(boundary)];
     },
   },
+  {
+    directory: "classification",
+    name: "credit-default",
+    split: (rows) => rows.reduce(
+      (groups, row, index) => {
+        groups[index % 5 === 4 ? 1 : 0].push(row);
+        return groups;
+      },
+      [[], []],
+    ),
+  },
 ];
 
-async function splitDataset({ name, optional, split }) {
-  const source = resolve(root, `public/examples/${name}.csv`);
+async function splitDataset({ directory, name, optional, split }) {
+  const source = resolve(root, `public/examples/${directory}/${name}.csv`);
   let content;
   try {
     content = await readFile(source, "utf8");
@@ -48,8 +62,8 @@ async function splitDataset({ name, optional, split }) {
   if (train.length < 100 || test.length < 20) throw new Error(`${name}: séparation train/test invalide`);
 
   await Promise.all([
-    writeFile(resolve(root, `public/examples/${name}-train.csv`), `${header}\n${train.join("\n")}\n`),
-    writeFile(resolve(root, `public/examples/${name}-test.csv`), `${header}\n${test.join("\n")}\n`),
+    writeFile(resolve(root, `public/examples/${directory}/${name}-train.csv`), `${header}\n${train.join("\n")}\n`),
+    writeFile(resolve(root, `public/examples/${directory}/${name}-test.csv`), `${header}\n${test.join("\n")}\n`),
   ]);
   console.log(`${name}: ${train.length} lignes train, ${test.length} lignes test`);
 }

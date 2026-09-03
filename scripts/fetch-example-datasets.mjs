@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const output = resolve(root, "public/examples/bike-sharing-demand.csv");
+const output = resolve(root, "public/examples/regression/bike-sharing-demand.csv");
 const source = "https://www.archive.ics.uci.edu/static/public/275/bike+sharing+dataset.zip";
 
 const columns = [

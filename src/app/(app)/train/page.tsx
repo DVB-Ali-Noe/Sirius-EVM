@@ -22,6 +22,14 @@ import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import {
+  DEFAULT_MODEL_SELECTION,
+  MODEL_OPTIONS,
+  modelSelection,
+  selectionForModelId,
+  type ModelId,
+  type ModelSelection,
+} from "@/lib/models/registry";
 
 interface Metrics {
   rowCount: number;
@@ -53,6 +61,8 @@ interface Loan {
   cancelTxHash: string | null;
   modelCid: string | null;
   runnerReceipt: string | null;
+  modelId: ModelId;
+  modelVersion: string;
   evmDeadline: string | null;
   createdAt: string;
   dataset: { name: string; runnerReceipt: string | null } | null;
@@ -65,6 +75,8 @@ interface Job {
   modelCid: string | null;
   runnerReceipt: string | null;
   metrics: Record<string, number> | null;
+  modelId: ModelId;
+  modelVersion: string;
   createdAt: string;
   dataset: { name: string } | null;
 }
@@ -105,6 +117,7 @@ export default function TrainPage() {
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
   const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
+  const [selfTrainModels, setSelfTrainModels] = useState<Record<string, ModelId>>({});
 
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -193,13 +206,13 @@ export default function TrainPage() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  async function selfTrain(dataset: Dataset) {
+  async function selfTrain(dataset: Dataset, model: ModelSelection) {
     const key = `train:${dataset.id}`;
     setError(null);
     setBusyKey(key, true);
     try {
       if (!dataset.runnerReceipt) throw new Error(t("Reçu confidentiel du dataset manquant"));
-      const res = await runSelfTrain(dataset.id, dataset.runnerReceipt);
+      const res = await runSelfTrain(dataset.id, dataset.runnerReceipt, model);
       deliver(res.jobId, { modelCid: res.modelCid, modelKey: res.modelKey });
       await refresh();
     } catch (err) {
@@ -217,10 +230,13 @@ export default function TrainPage() {
       if (!loan.dataset?.runnerReceipt || !loan.evmLockTxHash || !loan.evmLoanKey) {
         throw new Error(t("Preuve d’escrow ou reçu dataset manquant"));
       }
+      const model = modelSelection(loan.modelId, loan.modelVersion);
+      if (!model) throw new Error(t("Modèle ou version non autorisé"));
       const delivery = await runLoanJob({
         loanId: loan.id,
         datasetId: loan.datasetId,
         datasetReceipt: loan.dataset.runnerReceipt,
+        model,
       });
       deliver(loan.id, delivery);
       await refresh();
@@ -338,7 +354,7 @@ export default function TrainPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {trainable.map((d) => (
-              <Card key={d.id} className="flex items-center justify-between gap-4">
+              <Card key={d.id} className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <h3 className="truncate font-medium">{d.name}</h3>
                   <p className="mt-1 text-xs text-muted">
@@ -346,13 +362,19 @@ export default function TrainPage() {
                     {formatBytes(d.sizeBytes)}
                   </p>
                 </div>
-                <button
-                  onClick={() => selfTrain(d)}
-                  disabled={busy.has(`train:${d.id}`)}
-                  className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-                >
-                  {busy.has(`train:${d.id}`) ? t("Entraînement…") : t("Entraîner")}
-                </button>
+                <div className="flex flex-wrap items-end gap-3">
+                  <ModelSelector
+                    value={selfTrainModels[d.id] ?? DEFAULT_MODEL_SELECTION.modelId}
+                    onChange={(modelId) => setSelfTrainModels((models) => ({ ...models, [d.id]: modelId }))}
+                  />
+                  <button
+                    onClick={() => selfTrain(d, selectionForModelId(selfTrainModels[d.id] ?? DEFAULT_MODEL_SELECTION.modelId))}
+                    disabled={busy.has(`train:${d.id}`)}
+                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                  >
+                    {busy.has(`train:${d.id}`) ? t("Entraînement…") : t("Entraîner")}
+                  </button>
+                </div>
               </Card>
             ))}
           </div>
@@ -391,13 +413,17 @@ export default function TrainPage() {
                 <h3 className="truncate font-medium">{j.dataset?.name ?? t("Dataset")}</h3>
                 <Badge variant={JOB_VARIANT[j.status]}>{t(j.status)}</Badge>
                 <Badge variant="default">{t("Self-train")}</Badge>
+                <Badge variant="default">{j.modelId} v{j.modelVersion}</Badge>
               </div>
               {j.status === "DONE" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle livré")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                     <Field label={t("Modèle (CID)")} value={j.modelCid ? truncate(j.modelCid) : "—"} mono />
-                    <Field label="R²" value={j.metrics?.r2 != null ? j.metrics.r2.toFixed(4) : "—"} />
+                    <Field
+                      label={j.modelId === "linear_regression" ? "R²" : "Accuracy"}
+                      value={j.modelId === "linear_regression" ? (j.metrics?.r2?.toFixed(4) ?? "—") : (j.metrics?.accuracy?.toFixed(4) ?? "—")}
+                    />
                   </dl>
                   {delivered[j.id] && (
                     <button
@@ -422,6 +448,7 @@ export default function TrainPage() {
                     <h3 className="truncate font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_VARIANT[l.status]}>{t(l.status)}</Badge>
                     <Badge variant="default">{t("Emprunt")}</Badge>
+                    <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
                     <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
@@ -546,7 +573,7 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
-  const [prediction, setPrediction] = useState<number | null>(null);
+  const [prediction, setPrediction] = useState<ReturnType<typeof predictModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function evaluate() {
@@ -588,10 +615,23 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <Field label={t("Algorithme")} value={model.algo} mono />
+        <Field label={t("Version")} value={model.version} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
-        <Field label="R²" value={model.metrics.r2.toFixed(6)} />
-        <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
+        {model.algo === "linear_regression" ? (
+          <>
+            <Field label="R²" value={model.metrics.r2.toFixed(6)} />
+            <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
+            <Field label="MAE" value={model.metrics.mae.toFixed(6)} />
+          </>
+        ) : (
+          <>
+            <Field label="Accuracy" value={model.metrics.accuracy.toFixed(6)} />
+            <Field label="Precision" value={model.metrics.precision.toFixed(6)} />
+            <Field label="Recall" value={model.metrics.recall.toFixed(6)} />
+            <Field label="F1" value={model.metrics.f1.toFixed(6)} />
+          </>
+        )}
         <Field label="n" value={String(model.metrics.n)} />
       </dl>
       <div className="mt-2 text-xs text-muted">
@@ -619,11 +659,20 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
             {evaluating ? t("Évaluation…") : t("Évaluer")}
           </button>
         </div>
-        {evaluation && (
+        {evaluation?.algo === "linear_regression" && (
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
             <Field label="R²" value={evaluation.r2.toFixed(6)} />
             <Field label="RMSE" value={evaluation.rmse.toFixed(6)} />
             <Field label="MAE" value={evaluation.mae.toFixed(6)} />
+            <Field label={t("Lignes de test")} value={String(evaluation.n)} />
+          </dl>
+        )}
+        {evaluation?.algo === "logistic_regression" && (
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-5">
+            <Field label="Accuracy" value={evaluation.accuracy.toFixed(6)} />
+            <Field label="Precision" value={evaluation.precision.toFixed(6)} />
+            <Field label="Recall" value={evaluation.recall.toFixed(6)} />
+            <Field label="F1" value={evaluation.f1.toFixed(6)} />
             <Field label={t("Lignes de test")} value={String(evaluation.n)} />
           </dl>
         )}
@@ -651,9 +700,15 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
         >
           {t("Prédire")}
         </button>
-        {prediction !== null && (
+        {prediction?.algo === "linear_regression" && (
           <p className="mt-2 text-xs text-muted">
-            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.toFixed(6)} {model.target}</span>
+            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.value.toFixed(6)} {model.target}</span>
+          </p>
+        )}
+        {prediction?.algo === "logistic_regression" && (
+          <p className="mt-2 text-xs text-muted">
+            {t("Probabilité (classe 1)")} <span className="font-medium text-foreground">{prediction.probability.toFixed(6)}</span>
+            <span className="ml-3">{t("Classe prédite")} <span className="font-medium text-foreground">{prediction.label}</span></span>
           </p>
         )}
       </details>
@@ -676,6 +731,7 @@ function CatalogueCard({
   const { t } = useLocale();
   const [openForm, setOpenForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [modelId, setModelId] = useState<ModelId>(DEFAULT_MODEL_SELECTION.modelId);
 
   function reset() {
     setOpenForm(false);
@@ -685,7 +741,7 @@ function CatalogueCard({
     onError("");
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id });
+      await borrowDataset({ datasetId: dataset.id, model: selectionForModelId(modelId) });
       reset();
       await onBorrowed();
     } catch (err) {
@@ -721,6 +777,7 @@ function CatalogueCard({
       {openForm && (
         <div className="mt-4 border-t border-border pt-4">
           <div className="flex flex-wrap items-end gap-3">
+            <ModelSelector value={modelId} onChange={setModelId} />
             {advanced && (
               <p className="text-xs text-muted">{t("Termes provider verrouillés dans le reçu runner")}</p>
             )}
@@ -741,5 +798,22 @@ function CatalogueCard({
         </div>
       )}
     </Card>
+  );
+}
+
+function ModelSelector({ value, onChange }: { value: ModelId; onChange: (modelId: ModelId) => void }) {
+  return (
+    <label className="flex flex-col gap-1 text-xs text-muted">
+      Modèle
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as ModelId)}
+        className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+      >
+        {MODEL_OPTIONS.map((model) => (
+          <option key={model.id} value={model.id}>{model.label} · v{model.version}</option>
+        ))}
+      </select>
+    </label>
   );
 }

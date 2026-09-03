@@ -11,6 +11,7 @@ import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
 import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
+import type { ModelSelection } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 
@@ -18,7 +19,7 @@ const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
 
-export async function prepareLoan(datasetId: string, borrower: string) {
+export async function prepareLoan(datasetId: string, borrower: string, model: ModelSelection) {
   const borrowerAddress = normalizeAddress(borrower);
   await requireCurrentEvmDeployment();
   // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
@@ -81,6 +82,8 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         borrower: borrowerAddress,
         provider: dataset.provider,
         amountUsdcAtomic,
+        modelId: model.modelId,
+        modelVersion: model.modelVersion,
       },
     });
   });

@@ -48,6 +48,8 @@ model TrainingJob {
   datasetId String
   dataset   Dataset @relation(fields: [datasetId], references: [id])
   owner     String // adresse EVM du propriétaire (== dataset.provider)
+  modelId   String  @default("linear_regression")
+  modelVersion String @default("1.0.0")
 
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
@@ -71,6 +73,8 @@ model Loan {
   borrower  String // adresse EVM de l'emprunteur
   provider  String // adresse EVM du provider (dénormalisé pour les requêtes)
   amountUsdcAtomic String // montant USDC en unités atomiques
+  modelId   String @default("linear_regression")
+  modelVersion String @default("1.0.0")
 
   // Escrow USDC conditionnel
   evmLoanKey       String? @unique // clé bytes32 du prêt EVM
@@ -82,13 +86,14 @@ model Loan {
   // Résultat TEE préparé avant le release atomique
   jobId                  String?
   modelCid               String? // modèle entraîné chiffré, produit avant le règlement
-  attestationHash        String? // hash(attestation + résultat) gravé on-chain
+  attestationHash        String? // SHA-256 du payload TEE attesté
+  attestationPayload     String? // payload canonique lié au modèle, scope et hash de capsule
   attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
   runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
   settleTxHash           String? // release USDC
-  auditTxHash            String? // reçu d'audit signé depuis le runner isolé
+  auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
 
   status    LoanStatus @default(PENDING)

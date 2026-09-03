@@ -4,6 +4,7 @@ import { AppError } from "@/lib/app-error";
 import { deriveKey, getMasterKey, safeEqual } from "@/lib/crypto/encryption";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { DatasetRef } from "@/lib/tee/contract";
+import type { ModelId } from "@/lib/models/registry";
 
 export interface DatasetReceipt {
   version: 2;
@@ -24,6 +25,8 @@ export interface TrainingReceipt {
   datasetId: string;
   owner: string;
   modelCid: string;
+  modelId: ModelId;
+  modelVersion: string;
 }
 
 export interface LoanReceipt {
@@ -39,6 +42,8 @@ export interface LoanReceipt {
   escrow: string;
   amountUsdcAtomic: string;
   challengeDays: number;
+  modelId: ModelId;
+  modelVersion: string;
   deliveryPublicKey: string;
   releaseEnvelopeHash: string;
   attestationHash: string;

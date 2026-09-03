@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { gateModel } from "./output-gate";
-import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression } from "./train";
+import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression } from "./train";
+import { trainSelectedModel } from "./model-registry";
+import { modelSelection } from "@/lib/models/registry";
 
 function dataset(rows: number): Buffer {
   const lines = ["feature,target"];
@@ -24,23 +26,33 @@ test("accepte un dataset qui respecte le seuil de confidentialité", () => {
   assert.deepEqual(model.features, ["feature"]);
 });
 
+test("le registre runner n'accepte que les modèles et versions allowlistés", () => {
+  const selection = modelSelection("linear_regression", "1.0.0");
+  assert.deepEqual(selection, { modelId: "linear_regression", modelVersion: "1.0.0" });
+  assert.equal(modelSelection("gradient_boosting", "1.0.0"), null);
+  assert.equal(modelSelection("linear_regression", "2.0.0"), null);
+  assert.equal(trainSelectedModel(selection!, dataset(MIN_TRAINING_ROWS)).algo, "linear_regression");
+});
+
 test("livre le modèle attendu pour le jeu immobilier de démonstration", () => {
   const model = gateModel(
-    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/housing-prices.csv"))),
+    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/regression/housing-prices.csv"))),
   ).model;
 
-  assert.deepEqual(model, {
-    algo: "linear_regression",
-    target: "price_eur",
-    features: ["surface_m2", "rooms", "age_years", "distance_km", "energy_score"],
-    coefficients: [41076.6, 2941.28, 12162.4, -608.333, -4784.21, 364.224],
-    metrics: { r2: 0.974095, rmse: 25392.9, n: 140 },
-  });
+  assert.equal(model.algo, "linear_regression");
+  assert.equal(model.version, "1.0.0");
+  assert.equal(model.target, "price_eur");
+  assert.deepEqual(model.features, ["surface_m2", "rooms", "age_years", "distance_km", "energy_score"]);
+  assert.deepEqual(model.coefficients, [41076.6, 2941.28, 12162.4, -608.333, -4784.21, 364.224]);
+  assert.equal(model.metrics.r2, 0.974095);
+  assert.equal(model.metrics.rmse, 25392.9);
+  assert.ok(model.metrics.mae > 0);
+  assert.equal(model.metrics.n, 140);
 });
 
 test("entraîne le jeu de demande énergétique volumineux", () => {
   const model = gateModel(
-    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/energy-demand.csv"))),
+    trainLinearRegression(readFileSync(resolve(process.cwd(), "public/examples/regression/energy-demand.csv"))),
   ).model;
 
   assert.equal(model.metrics.n, 8_760);
@@ -55,4 +67,38 @@ test("borne le nombre de features avant le calcul quadratique", () => {
     lines.push([...featureNames.map((_, index) => row + index), row * 2].join(","));
   }
   assert.throws(() => trainLinearRegression(Buffer.from(lines.join("\n"))), /trop de features/);
+});
+
+test("entraîne une régression logistique binaire déterministe", () => {
+  const lines = ["feature,target"];
+  for (let row = 0; row < MIN_TRAINING_ROWS; row++) lines.push(`${row % 2},${row % 2}`);
+  const model = gateModel(trainLogisticRegression(Buffer.from(lines.join("\n")))).model;
+
+  assert.equal(model.algo, "logistic_regression");
+  assert.equal(model.version, "1.0.0");
+  assert.equal(model.metrics.n, MIN_TRAINING_ROWS);
+  assert.ok(model.metrics.accuracy > 0.99);
+  assert.ok(model.metrics.f1 > 0.99);
+});
+
+test("entraîne le jeu de défaut de crédit de démonstration", () => {
+  const model = gateModel(
+    trainLogisticRegression(readFileSync(resolve(process.cwd(), "public/examples/classification/credit-default-train.csv"))),
+  ).model;
+
+  assert.equal(model.algo, "logistic_regression");
+  assert.deepEqual(model.features, ["income_k_eur", "debt_ratio_pct", "credit_score", "late_payments"]);
+  assert.equal(model.target, "defaulted");
+  assert.equal(model.metrics.n, 120);
+  assert.ok(model.metrics.accuracy > 0.99);
+  assert.ok(model.metrics.f1 > 0.99);
+});
+
+test("refuse une cible logistique qui n'est pas strictement binaire", () => {
+  const lines = ["feature,target"];
+  for (let row = 0; row < MIN_TRAINING_ROWS; row++) lines.push(`${row},${row % 3}`);
+  assert.throws(
+    () => trainLogisticRegression(Buffer.from(lines.join("\n"))),
+    /strictement 0 ou 1/,
+  );
 });

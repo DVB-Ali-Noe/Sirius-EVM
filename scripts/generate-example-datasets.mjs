@@ -3,7 +3,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const output = resolve(root, "public/examples/energy-demand.csv");
+const regressionOutput = resolve(root, "public/examples/regression/energy-demand.csv");
+const classificationOutput = resolve(root, "public/examples/classification/credit-default.csv");
 
 let state = 42;
 function random() {
@@ -15,7 +16,7 @@ function peak(hour, center) {
   return Math.exp(-((hour - center) ** 2) / 4);
 }
 
-async function main() {
+function energyDemandRows() {
   const header = [
     "hour",
     "temperature_c",
@@ -61,9 +62,36 @@ async function main() {
     ].join(","));
   }
 
+  return rows;
+}
+
+function creditDefaultRows() {
+  const rows = ["income_k_eur,debt_ratio_pct,credit_score,late_payments,defaulted"];
+  for (let index = 0; index < 150; index++) {
+    const label = index % 2;
+    const cycle = Math.floor(index / 2);
+    const values = label === 1
+      ? [28 + (cycle * 7) % 21, 62 + (cycle * 11) % 25, 510 + (cycle * 13) % 80, 3 + cycle % 4, label]
+      : [72 + (cycle * 5) % 33, 12 + (cycle * 7) % 22, 690 + (cycle * 9) % 95, cycle % 2, label];
+    rows.push(values.join(","));
+  }
+  return rows;
+}
+
+async function writeDataset(output, rows) {
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, `${rows.join("\n")}\n`);
-  console.log(`Dataset synthétique écrit : ${output} (8760 lignes)`);
+}
+
+async function main() {
+  const energyRows = energyDemandRows();
+  const classificationRows = creditDefaultRows();
+  await Promise.all([
+    writeDataset(regressionOutput, energyRows),
+    writeDataset(classificationOutput, classificationRows),
+  ]);
+  console.log(`Dataset synthétique écrit : ${regressionOutput} (8760 lignes)`);
+  console.log(`Dataset synthétique écrit : ${classificationOutput} (150 lignes)`);
 }
 
 main().catch((error) => {

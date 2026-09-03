@@ -21,18 +21,37 @@ function toSigFigs(x: number, sig: number): number {
  * explicitement (ordre fixe → sérialisation déterministe + whitelist, aucun champ libre
  * où cacher un canal annexe). Un modèle déjà quantifié repasse à l'identique (idempotent).
  */
-export function quantizeModel(model: TrainedModel): TrainedModel {
-  return {
+export function quantizeModel<T extends TrainedModel>(model: T): T {
+  const base = {
     algo: model.algo,
+    version: model.version,
     target: model.target,
     features: model.features,
-    coefficients: model.coefficients.map((c) => toSigFigs(c, SIG_FIGS)),
+    coefficients: model.coefficients.map((coefficient) => toSigFigs(coefficient, SIG_FIGS)),
+  };
+  if (model.algo === "linear_regression") {
+    return {
+      ...base,
+      algo: "linear_regression",
+      metrics: {
+        r2: toSigFigs(model.metrics.r2, SIG_FIGS),
+        rmse: toSigFigs(model.metrics.rmse, SIG_FIGS),
+        mae: toSigFigs(model.metrics.mae, SIG_FIGS),
+        n: model.metrics.n,
+      },
+    } as T;
+  }
+  return {
+    ...base,
+    algo: "logistic_regression",
     metrics: {
-      r2: toSigFigs(model.metrics.r2, SIG_FIGS),
-      rmse: toSigFigs(model.metrics.rmse, SIG_FIGS),
+      accuracy: toSigFigs(model.metrics.accuracy, SIG_FIGS),
+      precision: toSigFigs(model.metrics.precision, SIG_FIGS),
+      recall: toSigFigs(model.metrics.recall, SIG_FIGS),
+      f1: toSigFigs(model.metrics.f1, SIG_FIGS),
       n: model.metrics.n,
     },
-  };
+  } as T;
 }
 
 /**
@@ -40,7 +59,7 @@ export function quantizeModel(model: TrainedModel): TrainedModel {
  * et renvoie le modèle gated (source unique post-gate) + son buffer canonique prêt à
  * chiffrer (= exactement la sérialisation de ce modèle). Lève si un plafond est dépassé.
  */
-export function gateModel(model: TrainedModel): { model: TrainedModel; buffer: Buffer } {
+export function gateModel<T extends TrainedModel>(model: T): { model: T; buffer: Buffer } {
   const gated = quantizeModel(model);
   // Pré-check bon marché avant de matérialiser le JSON (borne l'allocation, anti-DoS).
   if (gated.coefficients.length > MAX_COEFFICIENTS) {

@@ -17,9 +17,10 @@ chronological: the test period is later than the training period.
 | `last-mile-delivery` | 9,600 / 2,400 | `actual_duration_min` | Traffic interactions, rare incidents, queueing, weather and a late construction shift. |
 | `industrial-yield` | 15,600 / 3,900 | `yield_pct` | 31 numeric features (the MVP maximum), correlated sensors, nonlinear process windows, faults and supplier drift. |
 
-The MVP is a linear regression. A lower held-out R² is a valid result here: it
-means that the available linear features do not explain part of the real-world
-signal. Treat it as a model limitation to investigate, not as a dataset defect.
+These benchmarks target the linear-regression baseline. A lower held-out R² is a
+valid result here: it means that the available linear features do not explain
+part of the real-world signal. Treat it as a model limitation to investigate,
+not as a dataset defect.
 
 Regenerate all four datasets with:
 

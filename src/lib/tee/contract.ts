@@ -1,4 +1,5 @@
 import type { DatasetMetrics } from "@/lib/sirius/metrics";
+import type { ModelSelection } from "@/lib/models/registry";
 
 export const MAX_DATASET_BYTES = 16 * 1024 * 1024;
 export const DATASET_INGRESS_INFO_PREFIX = "sirius-dataset-ingress-v1:";
@@ -63,13 +64,13 @@ export interface DatasetRef {
 }
 
 /** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
-export interface TrainingInput extends DatasetRef {
+export type TrainingInput = DatasetRef & ModelSelection & {
   keyContext: string; // contexte de la clé du modèle livré (redérivable pour la livraison)
   filename: string; // nom du blob modèle sur IPFS
 }
 
 /** Entrée d'un self-train : le runner dérive lui-même la clé et le nom du modèle. */
-export interface SelfTrainingInput extends DatasetRef {
+export type SelfTrainingInput = DatasetRef & ModelSelection & {
   jobId: string;
   owner: string;
 }
@@ -79,7 +80,7 @@ export interface SelfTrainingInput extends DatasetRef {
  * nom de blob sont dérivés du `loanId` DANS le runner (pas de champ libre côté appelant) →
  * un modèle ne peut pas être chiffré sous le contexte d'un autre emprunt.
  */
-export interface LoanJobInput extends DatasetRef {
+export type LoanJobInput = DatasetRef & ModelSelection & {
   loanId: string;
   borrower: string;
 }

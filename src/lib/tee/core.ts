@@ -14,7 +14,7 @@ import {
 import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/merkle";
 import { computeMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
-import { trainLinearRegression } from "./train";
+import { trainSelectedModel } from "./model-registry";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
 import { evmEscrowBinding } from "./evm-binding";
@@ -134,7 +134,7 @@ async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: Datase
 /** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
 async function trainAndSeal(input: TrainingInput) {
   const plaintext = await decryptDataset(input);
-  const model = trainLinearRegression(plaintext);
+  const model = trainSelectedModel(input, plaintext);
   const { model: gated, buffer } = gateModel(model);
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);

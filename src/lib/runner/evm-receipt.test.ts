@@ -28,6 +28,8 @@ function payload(overrides: Record<string, unknown> = {}) {
     escrow: ESCROW_A,
     amountUsdcAtomic: "2500000",
     challengeDays: 7,
+    modelId: "linear_regression" as const,
+    modelVersion: "1.0.0",
     deliveryPublicKey: "cle-de-livraison",
     releaseEnvelopeHash: "f".repeat(64),
     attestationHash: "a".repeat(64),

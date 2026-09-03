@@ -108,7 +108,7 @@ test("présente des preuves vérifiables sur EVM", async ({ page }) => {
       status: "SETTLED",
       evmLockTxHash: lockTxHash,
       settleTxHash,
-      auditTxHash: null,
+      auditReceipt: null,
       cancelTxHash: null,
       attestationHash: "d".repeat(64),
       attestationComposeHash: null,

@@ -67,6 +67,11 @@ export const siriusescrowAbi = [
   },
   {
     "inputs": [],
+    "name": "DatasetEscrowMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InexactTokenTransfer",
     "type": "error"
   },
