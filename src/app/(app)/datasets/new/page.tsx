@@ -31,7 +31,7 @@ export default function NewDatasetPage() {
     setError(null);
     setLoadingExample(true);
     try {
-      const response = await fetch("/examples/housing-prices-train.csv");
+      const response = await fetch("/examples/regression/housing-prices-train.csv");
       if (!response.ok) throw new Error(t("Exemple indisponible"));
       const blob = await response.blob();
       const file = new File([blob], "housing-prices-train.csv", { type: "text/csv" });
@@ -211,7 +211,7 @@ export default function NewDatasetPage() {
               </button>{" "}
               {t("— 112 lignes d’entraînement, jeu de test séparé.")}{" "}
               <a
-                href="/examples/housing-prices-train.csv"
+                href="/examples/regression/housing-prices-train.csv"
                 download
                 className="underline underline-offset-4 transition-colors hover:text-foreground"
               >

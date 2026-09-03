@@ -4,6 +4,7 @@ import { prepareLoan } from "@/lib/sirius/borrower";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
+import { modelSelection } from "@/lib/models/registry";
 
 export const runtime = "nodejs";
 
@@ -32,12 +33,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    const { datasetId } = await readJson<Record<string, unknown>>(req);
+    const { datasetId, modelId, modelVersion } = await readJson<Record<string, unknown>>(req);
 
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
     }
-    const { loan, approveTransaction, lockTransaction } = await prepareLoan(datasetId, session.address);
+    const model = modelSelection(modelId, modelVersion);
+    if (!model) return NextResponse.json({ error: "Modèle ou version non autorisé" }, { status: 400 });
+    const { loan, approveTransaction, lockTransaction } = await prepareLoan(datasetId, session.address, model);
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction }, { status: 201 });
   } catch (err) {

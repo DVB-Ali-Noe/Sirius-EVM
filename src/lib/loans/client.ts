@@ -13,9 +13,11 @@ import {
   prepareAtomicLoanDelivery,
 } from "@/lib/runner/atomic-delivery-client";
 import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
+import type { ModelSelection } from "@/lib/models/registry";
 
 interface BorrowInput {
   datasetId: string;
+  model: ModelSelection;
 }
 
 function lockSubmissionStorageKey(loanId: string): string {
@@ -42,7 +44,7 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ datasetId: input.datasetId, ...input.model }),
   });
   const body = await prep.json() as {
     loanId?: string;
@@ -74,6 +76,7 @@ interface RunLoanInput {
   loanId: string;
   datasetId: string;
   datasetReceipt: string;
+  model: ModelSelection;
 }
 
 export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: string; modelKey: string }> {
@@ -83,7 +86,14 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
   const authorization = await issueRunnerGrant(
     "run-loan-job",
     { loanId: input.loanId, datasetId: input.datasetId },
-    [input.loanId, input.datasetId, input.datasetReceipt, deliveryPublicKey],
+    [
+      input.loanId,
+      input.datasetId,
+      input.datasetReceipt,
+      deliveryPublicKey,
+      input.model.modelId,
+      input.model.modelVersion,
+    ],
   );
   const response = await fetch(`/api/loans/${input.loanId}/run`, {
     method: "POST",

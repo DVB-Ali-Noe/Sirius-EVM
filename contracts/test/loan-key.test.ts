@@ -133,6 +133,6 @@ describe("Dérivations partagées application ↔ contrat", () => {
     expect(hashlockOf(preimage)).to.equal(
       `0x${createHash("sha256").update(preimage).digest("hex")}`,
     );
-    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v3");
+    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v4");
   });
 });

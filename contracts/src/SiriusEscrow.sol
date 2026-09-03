@@ -28,7 +28,7 @@ contract SiriusEscrow {
         bytes32 datasetId;
     }
 
-    string public constant VERSION = "sirius-escrow-usdc-v3";
+    string public constant VERSION = "sirius-escrow-usdc-v4";
     bytes32 public constant LOAN_KEY_DOMAIN = keccak256("sirius.escrow.loanKey.v1");
     uint8 public constant MIN_CHALLENGE_DAYS = 1;
     uint8 public constant MAX_CHALLENGE_DAYS = 30;
@@ -98,6 +98,7 @@ contract SiriusEscrow {
     error InexactTokenTransfer();
     error Sha256Unavailable();
     error InvalidDataset();
+    error DatasetEscrowMismatch();
 
     modifier nonReentrant() {
         if (_guard == 1) revert Reentrancy();
@@ -138,6 +139,7 @@ contract SiriusEscrow {
         if (amount > MAX_AMOUNT) revert AmountOverflow();
         if (provider == address(0) || provider == address(this)) revert InvalidProvider();
         if (provider == msg.sender) revert SelfDealing();
+        if (address(datasets.escrow()) != address(this)) revert DatasetEscrowMismatch();
         if (datasetId == bytes32(0) || !datasets.isLiveForProvider(datasetId, provider)) revert InvalidDataset();
         if (hashlock == bytes32(0) || hashlock == ZERO_PREIMAGE_HASH) revert InvalidHashlock();
         if (challengeDays < MIN_CHALLENGE_DAYS || challengeDays > MAX_CHALLENGE_DAYS) revert InvalidChallengePeriod();

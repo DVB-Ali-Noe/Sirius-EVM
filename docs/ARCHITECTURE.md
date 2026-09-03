@@ -10,7 +10,7 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
-| `SiriusEscrow` | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, `release` avant l'échéance, états exclusifs et crédit pull-only |
+| `SiriusEscrow` | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset, `release` avant l'échéance, états exclusifs et crédit pull-only |
 | `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
 | `SiriusDatasetRegistry` | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, tombstone après crypto-shredding |
 
@@ -24,7 +24,7 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
 5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge et le hash du `loanId`.
 6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
-7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Le borrower persiste cette capsule.
+7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Il atteste un payload canonique qui lie modèle/version, scope EVM, CID et hash de capsule ; en Phala, la quote TDX et son evidence sont vérifiées puis persistées. Le borrower persiste cette capsule.
 8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
 9. Si aucun modèle n'est livré, `refund(loanKey)` devient possible après l'échéance. Le borrower récupère ensuite son crédit avec `withdraw`.
 

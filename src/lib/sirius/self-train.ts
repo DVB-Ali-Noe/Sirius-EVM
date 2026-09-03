@@ -5,6 +5,7 @@ import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
+import type { ModelSelection } from "@/lib/models/registry";
 
 export interface SelfTrainResult {
   jobId: string;
@@ -30,6 +31,7 @@ export async function runSelfTrain(
   jobId: string,
   datasetReceipt: string,
   authorization: RunnerGrant,
+  model: ModelSelection,
 ): Promise<SelfTrainResult> {
   await requireAcceptedKyb(owner);
   const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
@@ -60,7 +62,7 @@ export async function runSelfTrain(
       throw new AppError("Quota d’entraînement atteint — réessaie plus tard", 429);
     }
     return tx.trainingJob.create({
-      data: { id: jobId, datasetId: dataset.id, owner, status: "RUNNING" },
+      data: { id: jobId, datasetId: dataset.id, owner, modelId: model.modelId, modelVersion: model.modelVersion, status: "RUNNING" },
     });
   });
 
@@ -74,6 +76,7 @@ export async function runSelfTrain(
       priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
       jobId: job.id,
+      ...model,
     }, datasetReceipt, authorization);
     modelCid = out.modelCid;
     const completed = await prisma.trainingJob.updateMany({

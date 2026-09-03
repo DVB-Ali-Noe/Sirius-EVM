@@ -1,5 +1,4 @@
 import "server-only";
-import { createHash } from "node:crypto";
 import {
   escrowHashlock,
   escrowLock,
@@ -8,13 +7,14 @@ import {
   runSelfTraining,
   selfTrainModelKey,
 } from "@/lib/tee/core";
-import { attest } from "@/lib/tee/attestation";
+import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { assertLoanScope, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { isValidUsdcAtomicAmount } from "@/lib/evm/usdc";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { canonicalSubject } from "@/lib/subject";
+import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
@@ -73,6 +73,12 @@ function datasetRef(body: Record<string, unknown>): DatasetRef {
     priceUsdcAtomic: usdcAmount(body, "priceUsdcAtomic"),
     challengeDays: boundedInteger(body, "challengeDays", 1, 30),
   };
+}
+
+function trainingModel(body: Record<string, unknown>): ModelSelection {
+  const selection = modelSelection(body.modelId, body.modelVersion);
+  if (!selection) throw new AppError("Modèle ou version non autorisé", 400);
+  return selection;
 }
 
 function ingressEnvelope(body: Record<string, unknown>): DatasetIngressEnvelope {
@@ -149,6 +155,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
     case "run-loan-job": {
       const dataset = datasetRef(body);
       const loanId = text(body, "loanId");
+      const model = trainingModel(body);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
@@ -156,7 +163,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         operation: op,
         datasetId: dataset.datasetId,
         loanId,
-        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, deliveryPublicKey],
+        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, deliveryPublicKey, model.modelId, model.modelVersion],
       });
       const borrower = canonicalSubject(subject);
       const loanKey = loanKeyFor(borrower, loanId);
@@ -178,13 +185,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         }),
       ]);
 
-      const result = await runEvmLoanJob({ ...dataset, loanId, borrower });
-      const attestation = attest(createHash("sha256")
-        .update(result.modelCid)
-        .update(dataset.merkleRoot)
-        .update(loanId)
-        .update(borrower)
-        .digest("hex"));
+      const result = await runEvmLoanJob({ ...dataset, ...model, loanId, borrower });
       const releaseEnvelope = encryptRunnerRelease(
         evmLoanModelKey(loanId, borrower),
         deliveryPublicKey,
@@ -193,6 +194,24 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         "evm-preimage",
       );
       const { chainId, escrow } = evmEscrowBinding();
+      const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
+      const attestation = await attestLoanExecution({
+        chainId,
+        escrow,
+        loanId,
+        loanKey,
+        datasetId: dataset.datasetId,
+        datasetCid: dataset.cid,
+        provider: datasetReceipt.owner,
+        borrower,
+        amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
+        challengeDays: datasetReceipt.challengeDays,
+        merkleRoot: dataset.merkleRoot,
+        modelId: model.modelId,
+        modelVersion: model.modelVersion,
+        modelCid: result.modelCid,
+        releaseEnvelopeHash,
+      });
       return {
         modelCid: result.modelCid,
         metrics: result.metrics,
@@ -211,8 +230,10 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           escrow,
           amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           challengeDays: datasetReceipt.challengeDays,
+          modelId: model.modelId,
+          modelVersion: model.modelVersion,
           deliveryPublicKey,
-          releaseEnvelopeHash: hashRunnerReleaseEnvelope(releaseEnvelope),
+          releaseEnvelopeHash,
           attestationHash: attestation.payloadHash,
         }),
       };
@@ -260,19 +281,30 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
     case "run-training": {
       const dataset = datasetRef(body);
       const jobId = text(body, "jobId");
+      const model = trainingModel(body);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         datasetId: dataset.datasetId,
         jobId,
-        intentParts: [dataset.datasetId, jobId, datasetReceiptToken],
+        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, model.modelId, model.modelVersion],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
         throw new AppError("Self-train réservé au propriétaire", 403);
       }
-      const result = await runSelfTraining({ ...dataset, jobId, owner: subject });
-      return { ...result, runnerReceipt: issueTrainingReceipt({ jobId, datasetId: dataset.datasetId, owner: subject, modelCid: result.modelCid }) };
+      const result = await runSelfTraining({ ...dataset, ...model, jobId, owner: subject });
+      return {
+        ...result,
+        runnerReceipt: issueTrainingReceipt({
+          jobId,
+          datasetId: dataset.datasetId,
+          owner: subject,
+          modelCid: result.modelCid,
+          modelId: model.modelId,
+          modelVersion: model.modelVersion,
+        }),
+      };
     }
 
     case "self-train-key": {
