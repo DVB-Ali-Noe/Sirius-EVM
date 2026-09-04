@@ -27,3 +27,10 @@ test("le règlement refuse un résultat sans preuve d’attestation", () => {
   assert.match(settlement, /!loan\.attestationPayload/);
   assert.match(settlement, /TEE_MODE === "phala"/);
 });
+
+test("le règlement reprend avec le hash attesté, pas une capsule navigateur", () => {
+  const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
+
+  assert.match(settlement, /payload\.releaseEnvelopeHash/);
+  assert.doesNotMatch(settlement, /releaseEnvelopeHash: string/);
+});

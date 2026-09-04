@@ -197,7 +197,6 @@ export async function prepareLoanResult(
 
 export async function settlePreparedLoan(
   loanId: string,
-  releaseEnvelopeHash: string,
   authorization: RunnerGrant,
 ): Promise<SettleResult> {
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
@@ -268,7 +267,7 @@ export async function settlePreparedLoan(
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
-      releaseEnvelopeHash,
+      payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
     );

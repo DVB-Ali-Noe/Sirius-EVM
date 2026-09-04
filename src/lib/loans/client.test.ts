@@ -17,3 +17,10 @@ test("le hash de lock est conservé avant l'attente de confirmation wallet", () 
     "l'API ne doit pas finaliser avant le reçu de confirmation",
   );
 });
+
+test("le règlement reprend après rechargement sans dépendre de la capsule locale", () => {
+  const resumption = SOURCE.slice(SOURCE.indexOf("export async function resumeLoanSettlement"));
+
+  assert.doesNotMatch(resumption, /hasAtomicLoanEnvelope|Capsule locale absente/);
+  assert.match(resumption, /await settleLoan\(loanId, runnerReceipt\)/);
+});

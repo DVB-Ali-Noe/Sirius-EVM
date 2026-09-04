@@ -6,10 +6,8 @@ import { waitForTransactionExternal } from "@/lib/wallet/manager";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import {
-  hasAtomicLoanEnvelope,
   openAtomicLoanEnvelope,
   persistAtomicLoanEnvelope,
-  persistedAtomicLoanEnvelopeHash,
   prepareAtomicLoanDelivery,
 } from "@/lib/runner/atomic-delivery-client";
 import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
@@ -109,17 +107,17 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
   if (!response.ok || !body.modelCid || !body.runnerReceipt || !body.releaseEnvelope) {
     throw new Error(body.error ?? "Échec du job confidentiel");
   }
-  const releaseEnvelopeHash = await persistAtomicLoanEnvelope(address, input.loanId, body.releaseEnvelope);
-  await settleLoan(input.loanId, body.runnerReceipt, releaseEnvelopeHash);
+  await persistAtomicLoanEnvelope(address, input.loanId, body.releaseEnvelope);
+  await settleLoan(input.loanId, body.runnerReceipt);
   return retrieveLoanKey(input.loanId, body.runnerReceipt);
 }
 
-async function settleLoan(loanId: string, runnerReceipt: string, releaseEnvelopeHash: string): Promise<void> {
-  const authorization = await issueRunnerGrant("settle-loan", { loanId }, [loanId, runnerReceipt, releaseEnvelopeHash]);
+async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> {
+  const authorization = await issueRunnerGrant("settle-loan", { loanId }, [loanId, runnerReceipt]);
   const response = await fetch(`/api/loans/${loanId}/settle`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorization, releaseEnvelopeHash }),
+    body: JSON.stringify({ authorization }),
   });
   const body = await response.json() as { error?: string };
   if (!response.ok) throw new Error(body.error ?? "Règlement USDC échoué");
@@ -128,10 +126,7 @@ async function settleLoan(loanId: string, runnerReceipt: string, releaseEnvelope
 export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {
   const address = useWalletStore.getState().address;
   if (!address) throw new Error("Wallet déconnecté");
-  if (!(await hasAtomicLoanEnvelope(address, loanId))) {
-    throw new Error("Capsule locale absente : relance le job avant règlement.");
-  }
-  await settleLoan(loanId, runnerReceipt, await persistedAtomicLoanEnvelopeHash(address, loanId));
+  await settleLoan(loanId, runnerReceipt);
   return retrieveLoanKey(loanId, runnerReceipt);
 }
 

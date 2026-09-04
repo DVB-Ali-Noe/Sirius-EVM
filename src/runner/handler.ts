@@ -260,7 +260,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         loanId,
-        intentParts: [loanId, loanReceiptToken, releaseEnvelopeHash],
+        intentParts: [loanId, loanReceiptToken],
       });
       if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       const { preimage } = escrowLock(loanId, receipt.borrower);
