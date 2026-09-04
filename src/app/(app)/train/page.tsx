@@ -126,6 +126,7 @@ export default function TrainPage() {
 
   // Ids dont la clé du modèle est déjà livrée → évite de re-fetcher à chaque refresh.
   const haveKey = useRef<Set<string>>(new Set());
+  const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -224,6 +225,8 @@ export default function TrainPage() {
 
   async function runJob(loan: Loan) {
     const key = `job:${loan.id}`;
+    if (activeLoanJobs.current.has(key)) return;
+    activeLoanJobs.current.add(key);
     setError(null);
     setBusyKey(key, true);
     try {
@@ -241,8 +244,15 @@ export default function TrainPage() {
       deliver(loan.id, delivery);
       await refresh();
     } catch (err) {
-      setError(messageOf(err));
+      const message = messageOf(err);
+      if (message === "Loan non verrouillé ou déjà en cours") {
+        await refresh().catch(() => {});
+        setError(t("Le job TEE est déjà en cours. Actualise dans quelques secondes."));
+      } else {
+        setError(message);
+      }
     } finally {
+      activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
     }
   }
