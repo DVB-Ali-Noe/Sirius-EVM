@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
-import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
+import { runSelfTrainingInRunner, validateTrainingInputInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
@@ -41,6 +41,16 @@ export async function runSelfTrain(
     throw new AppError("Dataset non finalisé (pas encore uploadé)", 409);
   }
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
+
+  await validateTrainingInputInRunner({
+    datasetId: dataset.id,
+    cid: dataset.ipfsCid,
+    wrappedKey: dataset.wrappedKey,
+    merkleRoot: dataset.merkleRoot,
+    priceUsdcAtomic: dataset.priceUsdcAtomic,
+    challengeDays: dataset.challengeDays,
+    ...model,
+  }, datasetReceipt);
 
   const job = await prisma.$transaction(async (tx) => {
     const now = Date.now();

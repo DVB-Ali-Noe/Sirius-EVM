@@ -31,6 +31,19 @@ test("les essais annulés ne consomment pas le quota d’emprunts", () => {
   assert.match(prepare, /status: \{ in: \["ESCROWED", "TRAINING", "SETTLING", "SETTLED"\] \}/);
 });
 
+test("le modèle est validé avant de créer un emprunt", () => {
+  const prepare = SOURCE.slice(SOURCE.indexOf("export async function prepareLoan"), SOURCE.indexOf("export async function finalizeLoan"));
+  const validation = prepare.indexOf("await validateTrainingInputInRunner");
+  const loan = prepare.indexOf("return tx.loan.create");
+  const hashlock = prepare.indexOf("await escrowHashlockInRunner");
+
+  assert.ok(validation >= 0, "le runner doit valider le modèle choisi");
+  assert.ok(loan >= 0, "le prêt doit être créé après la validation");
+  assert.ok(hashlock >= 0, "le hashlock doit être dérivé après la validation");
+  assert.ok(validation < loan, "un dataset incompatible ne doit pas créer de prêt");
+  assert.ok(validation < hashlock, "un dataset incompatible ne doit pas préparer le lock USDC");
+});
+
 test("le lock doit porter le titre EVM du dataset demandé", () => {
   const finalize = SOURCE.slice(SOURCE.indexOf("export async function finalizeLoan"));
 

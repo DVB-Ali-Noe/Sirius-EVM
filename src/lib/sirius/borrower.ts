@@ -10,7 +10,7 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
-import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
+import { escrowHashlockInRunner, validateTrainingInputInRunner } from "@/lib/tee/runner-client";
 import type { ModelSelection } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
@@ -33,7 +33,7 @@ export async function prepareLoan(datasetId: string, borrower: string, model: Mo
   if (!isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
-  if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.runnerReceipt) {
+  if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt) {
     throw new AppError("Dataset EVM incomplet", 409);
   }
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
@@ -50,6 +50,21 @@ export async function prepareLoan(datasetId: string, borrower: string, model: Mo
     args: [dataset.evmDatasetId as Hex],
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
+
+  try {
+    await validateTrainingInputInRunner({
+      datasetId: dataset.id,
+      cid: dataset.ipfsCid,
+      wrappedKey: dataset.wrappedKey,
+      merkleRoot: dataset.merkleRoot,
+      priceUsdcAtomic: dataset.priceUsdcAtomic,
+      challengeDays: dataset.challengeDays,
+      ...model,
+    }, dataset.runnerReceipt);
+  } catch (error) {
+    if (error instanceof AppError && error.status >= 500) throw error;
+    throw new AppError("Dataset incompatible avec le modèle sélectionné", 409);
+  }
 
   const loan = await prisma.$transaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([

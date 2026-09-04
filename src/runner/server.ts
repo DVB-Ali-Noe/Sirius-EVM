@@ -115,7 +115,7 @@ export async function handleRunnerRequest(
     }
     const expectedLength = declaredBodyLength(req, maxBodyBytes(op));
     const isUpload = op === "seal-dataset";
-    const isJob = op === "run-training" || op === "run-loan-job";
+    const isJob = op === "validate-training" || op === "run-training" || op === "run-loan-job";
     if (
       activeRequests >= MAX_CONCURRENT_REQUESTS ||
       (isUpload && activeUploads >= MAX_CONCURRENT_UPLOADS) ||

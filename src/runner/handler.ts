@@ -6,6 +6,7 @@ import {
   runEvmLoanJob,
   runSelfTraining,
   selfTrainModelKey,
+  validateTrainingInput,
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
@@ -105,6 +106,8 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       return { op, scope: { datasetId: text(body, "datasetId") } };
     case "escrow-hashlock":
       return { op, scope: { loanId: text(body, "loanId"), borrower: text(body, "borrower") } };
+    case "validate-training":
+      return { op, scope: { datasetId: text(body, "datasetId") } };
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
@@ -151,6 +154,15 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
 
     case "escrow-hashlock":
       return { hashlock: escrowHashlock(text(body, "loanId"), canonicalSubject(text(body, "borrower"))) };
+
+    case "validate-training": {
+      const dataset = datasetRef(body);
+      const model = trainingModel(body);
+      const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
+      verifyDatasetReceipt(datasetReceiptToken, dataset);
+      await validateTrainingInput({ ...dataset, ...model });
+      return {};
+    }
 
     case "run-loan-job": {
       const dataset = datasetRef(body);

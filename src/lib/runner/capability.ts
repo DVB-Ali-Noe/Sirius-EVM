@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 export type RunnerOperation =
   | "dataset-ingress-key"
   | "seal-dataset"
+  | "validate-training"
   | "run-training"
   | "escrow-hashlock"
   | "run-loan-job"

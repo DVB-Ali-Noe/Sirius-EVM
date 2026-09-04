@@ -23,6 +23,7 @@ import { AppError } from "@/lib/app-error";
 import type {
   DatasetIngressEnvelope,
   DatasetRef,
+  ModelValidationInput,
   TrainingInput,
   SelfTrainingInput,
   LoanJobInput,
@@ -139,6 +140,10 @@ async function trainAndSeal(input: TrainingInput) {
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
   return { modelCid: cid, model: gated };
+}
+
+export async function validateTrainingInput(input: ModelValidationInput): Promise<void> {
+  trainSelectedModel(input, await decryptDataset(input));
 }
 
 /** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */

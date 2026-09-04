@@ -27,11 +27,18 @@ test("accepte un dataset qui respecte le seuil de confidentialité", () => {
 });
 
 test("le registre runner n'accepte que les modèles et versions allowlistés", () => {
-  const selection = modelSelection("linear_regression", "1.0.0");
-  assert.deepEqual(selection, { modelId: "linear_regression", modelVersion: "1.0.0" });
+  const linear = modelSelection("linear_regression", "1.0.0");
+  const logistic = modelSelection("logistic_regression", "1.0.0");
+  assert.deepEqual(linear, { modelId: "linear_regression", modelVersion: "1.0.0" });
+  assert.deepEqual(logistic, { modelId: "logistic_regression", modelVersion: "1.0.0" });
   assert.equal(modelSelection("gradient_boosting", "1.0.0"), null);
   assert.equal(modelSelection("linear_regression", "2.0.0"), null);
-  assert.equal(trainSelectedModel(selection!, dataset(MIN_TRAINING_ROWS)).algo, "linear_regression");
+  assert.equal(trainSelectedModel(linear!, dataset(MIN_TRAINING_ROWS)).algo, "linear_regression");
+  const binary = Buffer.from([
+    "feature,target",
+    ...Array.from({ length: MIN_TRAINING_ROWS }, (_, index) => `${index % 2},${index % 2}`),
+  ].join("\n"));
+  assert.equal(trainSelectedModel(logistic!, binary).algo, "logistic_regression");
 });
 
 test("livre le modèle attendu pour le jeu immobilier de démonstration", () => {

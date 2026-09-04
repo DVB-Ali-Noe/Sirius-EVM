@@ -116,4 +116,32 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     hashlockBody,
   );
   assert.equal(wrongScope.status, 401);
+
+  const validationBody = JSON.stringify({
+    datasetId: "dataset-1",
+    cid: "bafy-dataset",
+    wrappedKey: "wrapped-key",
+    merkleRoot: "a".repeat(64),
+    priceUsdcAtomic: "1000000000000000000",
+    challengeDays: 7,
+    modelId: "other",
+    modelVersion: "1.0.0",
+    datasetReceipt: "not-read-before-model-validation",
+  });
+  const validation = await request(
+    "POST",
+    "/validate-training",
+    issueRunnerCapability("validate-training", { datasetId: "dataset-1" }),
+    validationBody,
+  );
+  assert.equal(validation.status, 400);
+  assert.deepEqual(validation.body, { error: "Modèle ou version non autorisé" });
+
+  const validationWrongScope = await request(
+    "POST",
+    "/validate-training",
+    issueRunnerCapability("validate-training", { datasetId: "dataset-2" }),
+    validationBody,
+  );
+  assert.equal(validationWrongScope.status, 401);
 });

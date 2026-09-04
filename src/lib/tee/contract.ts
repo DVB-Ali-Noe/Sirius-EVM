@@ -63,8 +63,10 @@ export interface DatasetRef {
   challengeDays: number;
 }
 
+export type ModelValidationInput = DatasetRef & ModelSelection;
+
 /** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
-export type TrainingInput = DatasetRef & ModelSelection & {
+export type TrainingInput = ModelValidationInput & {
   keyContext: string; // contexte de la clé du modèle livré (redérivable pour la livraison)
   filename: string; // nom du blob modèle sur IPFS
 }
