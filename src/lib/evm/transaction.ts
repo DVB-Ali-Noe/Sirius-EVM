@@ -30,13 +30,22 @@ export function lockUsdcTransaction(input: {
   hashlock: Hex;
   challengeDays: number;
   loanId: string;
+  trainingProfile: Hex;
 }): EvmTransactionRequest {
   return {
     to: escrowAddress(),
     data: encodeFunctionData({
       abi: siriusescrowAbi,
       functionName: "lock",
-      args: [getAddress(input.provider), BigInt(input.amount), input.hashlock, input.challengeDays, loanIdHash(input.loanId), input.datasetId],
+      args: [
+        getAddress(input.provider),
+        BigInt(input.amount),
+        input.hashlock,
+        input.challengeDays,
+        loanIdHash(input.loanId),
+        input.datasetId,
+        input.trainingProfile,
+      ],
     }),
   };
 }
@@ -46,13 +55,14 @@ export function mintDatasetTransaction(input: {
   cid: string;
   merkleRoot: Hex;
   sizeBytes: number;
+  trainingProfile: Hex;
 }): EvmTransactionRequest {
   return {
     to: datasetRegistryAddress(),
     data: encodeFunctionData({
       abi: siriusdatasetregistryAbi,
       functionName: "mint",
-      args: [datasetIdHash(input.datasetId), cidHash(input.cid), input.merkleRoot, BigInt(input.sizeBytes)],
+      args: [datasetIdHash(input.datasetId), cidHash(input.cid), input.merkleRoot, BigInt(input.sizeBytes), input.trainingProfile],
     }),
   };
 }

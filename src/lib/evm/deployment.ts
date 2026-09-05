@@ -6,8 +6,8 @@ import { addressesEqual } from "./address";
 import { datasetRegistryAddress, escrowAddress } from "./addresses";
 import { getPublicClient } from "./client";
 
-const ESCROW_VERSION = "sirius-escrow-usdc-v4";
-const DATASET_VERSION = "sirius-dataset-v3";
+const ESCROW_VERSION = "sirius-escrow-usdc-v5";
+const DATASET_VERSION = "sirius-dataset-v4";
 const CACHE_MS = 60_000;
 let verifiedAt = 0;
 let verification: Promise<void> | null = null;
@@ -29,7 +29,7 @@ async function verifyDeployment(): Promise<void> {
       !addressesEqual(linkedDatasets, datasets) ||
       !addressesEqual(linkedEscrow, escrow)
     ) {
-      throw new AppError("Contrats EVM incompatibles : redéploie SiriusEscrow v4 et SiriusDatasetRegistry v3", 503);
+      throw new AppError("Contrats EVM incompatibles : redéploie SiriusEscrow v5 et SiriusDatasetRegistry v4", 503);
     }
   } catch (error) {
     if (error instanceof AppError) throw error;

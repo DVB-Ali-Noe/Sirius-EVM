@@ -117,8 +117,9 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
   );
   assert.equal(wrongScope.status, 401);
 
-  const validationBody = JSON.stringify({
+  const trainingBody = JSON.stringify({
     datasetId: "dataset-1",
+    jobId: "job-1",
     cid: "bafy-dataset",
     wrappedKey: "wrapped-key",
     merkleRoot: "a".repeat(64),
@@ -128,20 +129,20 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     modelVersion: "1.0.0",
     datasetReceipt: "not-read-before-model-validation",
   });
-  const validation = await request(
+  const training = await request(
     "POST",
-    "/validate-training",
-    issueRunnerCapability("validate-training", { datasetId: "dataset-1" }),
-    validationBody,
+    "/run-training",
+    issueRunnerCapability("run-training", { datasetId: "dataset-1", jobId: "job-1" }),
+    trainingBody,
   );
-  assert.equal(validation.status, 400);
-  assert.deepEqual(validation.body, { error: "Modèle ou version non autorisé" });
+  assert.equal(training.status, 400);
+  assert.deepEqual(training.body, { error: "Modèle ou version non autorisé" });
 
-  const validationWrongScope = await request(
+  const trainingWrongScope = await request(
     "POST",
-    "/validate-training",
-    issueRunnerCapability("validate-training", { datasetId: "dataset-2" }),
-    validationBody,
+    "/run-training",
+    issueRunnerCapability("run-training", { datasetId: "dataset-2", jobId: "job-1" }),
+    trainingBody,
   );
-  assert.equal(validationWrongScope.status, 401);
+  assert.equal(trainingWrongScope.status, 401);
 });

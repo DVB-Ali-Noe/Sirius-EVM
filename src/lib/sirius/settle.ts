@@ -135,6 +135,11 @@ export async function prepareLoanResult(
     await prisma.loan.updateMany({ where: { id: loanId, status: "TRAINING", updatedAt: now }, data: { status: "ESCROWED" } });
     throw new AppError("Modèle ou version non autorisé", 409);
   }
+  const datasetModel = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!datasetModel || datasetModel.modelId !== model.modelId || datasetModel.modelVersion !== model.modelVersion) {
+    await prisma.loan.updateMany({ where: { id: loanId, status: "TRAINING", updatedAt: now }, data: { status: "ESCROWED" } });
+    throw new AppError("Profil d’entraînement du dataset incohérent", 409);
+  }
 
   let result: Awaited<ReturnType<typeof runLoanJobInRunner>> | undefined;
   try {
@@ -147,7 +152,7 @@ export async function prepareLoanResult(
         merkleRoot: dataset.merkleRoot,
         priceUsdcAtomic: dataset.priceUsdcAtomic,
         challengeDays: dataset.challengeDays,
-        ...model,
+        ...datasetModel,
       },
       dataset.runnerReceipt,
       deliveryPublicKey,

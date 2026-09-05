@@ -12,10 +12,8 @@ import {
 } from "@/lib/runner/atomic-delivery-client";
 import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { ModelSelection } from "@/lib/models/registry";
-
 interface BorrowInput {
   datasetId: string;
-  model: ModelSelection;
 }
 
 function lockSubmissionStorageKey(loanId: string): string {
@@ -42,7 +40,7 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ datasetId: input.datasetId, ...input.model }),
+    body: JSON.stringify({ datasetId: input.datasetId }),
   });
   const body = await prep.json() as {
     loanId?: string;

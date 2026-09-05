@@ -26,9 +26,10 @@ contract SiriusEscrow {
         bytes32 hashlock;
         bytes32 preimage;
         bytes32 datasetId;
+        bytes32 trainingProfile;
     }
 
-    string public constant VERSION = "sirius-escrow-usdc-v4";
+    string public constant VERSION = "sirius-escrow-usdc-v5";
     bytes32 public constant LOAN_KEY_DOMAIN = keccak256("sirius.escrow.loanKey.v1");
     uint8 public constant MIN_CHALLENGE_DAYS = 1;
     uint8 public constant MAX_CHALLENGE_DAYS = 30;
@@ -60,6 +61,7 @@ contract SiriusEscrow {
         uint256 amount,
         uint40 deadline,
         bytes32 hashlock,
+        bytes32 trainingProfile,
         uint64 seq
     );
     event LoanReleased(
@@ -129,7 +131,15 @@ contract SiriusEscrow {
     }
 
     /// @notice Lock an exact USDC amount. The borrower must approve this contract first.
-    function lock(address provider, uint256 amount, bytes32 hashlock, uint8 challengeDays, bytes32 loanIdHash, bytes32 datasetId)
+    function lock(
+        address provider,
+        uint256 amount,
+        bytes32 hashlock,
+        uint8 challengeDays,
+        bytes32 loanIdHash,
+        bytes32 datasetId,
+        bytes32 trainingProfile
+    )
         external
         nonReentrant
         returns (bytes32 loanKey)
@@ -140,7 +150,8 @@ contract SiriusEscrow {
         if (provider == address(0) || provider == address(this)) revert InvalidProvider();
         if (provider == msg.sender) revert SelfDealing();
         if (address(datasets.escrow()) != address(this)) revert DatasetEscrowMismatch();
-        if (datasetId == bytes32(0) || !datasets.isLiveForProvider(datasetId, provider)) revert InvalidDataset();
+        if (datasetId == bytes32(0) || trainingProfile == bytes32(0)
+            || !datasets.isLiveForProviderAndProfile(datasetId, provider, trainingProfile)) revert InvalidDataset();
         if (hashlock == bytes32(0) || hashlock == ZERO_PREIMAGE_HASH) revert InvalidHashlock();
         if (challengeDays < MIN_CHALLENGE_DAYS || challengeDays > MAX_CHALLENGE_DAYS) revert InvalidChallengePeriod();
         if (loanIdHash == bytes32(0)) revert InvalidLoanId();
@@ -160,10 +171,11 @@ contract SiriusEscrow {
         loan.status = Status.Locked;
         loan.hashlock = hashlock;
         loan.datasetId = datasetId;
+        loan.trainingProfile = trainingProfile;
         lockedUsdc += amount;
         unchecked { _activeLoansForDataset[datasetId] += 1; }
 
-        emit LoanLocked(loanKey, msg.sender, provider, amount, deadline, hashlock, _nextSeq());
+        emit LoanLocked(loanKey, msg.sender, provider, amount, deadline, hashlock, trainingProfile, _nextSeq());
     }
 
     /// @notice Publish a valid preimage and credit the provider atomically.
@@ -254,11 +266,13 @@ contract SiriusEscrow {
         address provider,
         uint256 amount,
         bytes32 hashlock,
+        bytes32 trainingProfile,
         uint256 minimumRemaining
     ) external view returns (bool) {
         Loan storage loan = _loans[loanKey];
         return loan.status == Status.Locked && loan.borrower == borrower && loan.provider == provider
             && uint256(loan.amount) == amount && loan.hashlock == hashlock
+            && loan.trainingProfile == trainingProfile
             && uint256(loan.deadline) > block.timestamp + minimumRemaining;
     }
 

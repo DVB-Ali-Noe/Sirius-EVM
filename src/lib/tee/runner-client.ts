@@ -11,7 +11,6 @@ import type {
   DatasetIngressEnvelope,
   DatasetIngressKey,
   DatasetRef,
-  ModelValidationInput,
   RunnerDeliveryEnvelope,
   RunnerReleaseEnvelope,
 } from "./contract";
@@ -90,11 +89,12 @@ export async function sealDatasetInRunner(
   sizeBytes: number,
   envelope: DatasetIngressEnvelope,
   authorization: RunnerGrant,
+  model: ModelSelection,
 ): Promise<AuthorizedSealDatasetResult> {
   return dispatchRunner(
     "seal-dataset",
     { datasetId },
-    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization },
+    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization, ...model },
   );
 }
 
@@ -105,17 +105,6 @@ export async function escrowHashlockInRunner(loanId: string, borrower: string): 
     { loanId, borrower },
   );
   return out.hashlock;
-}
-
-export async function validateTrainingInputInRunner(
-  input: ModelValidationInput,
-  datasetReceipt: string,
-): Promise<void> {
-  await dispatchRunner(
-    "validate-training",
-    { datasetId: input.datasetId },
-    { ...input, datasetReceipt },
-  );
 }
 
 export async function runLoanJobInRunner(

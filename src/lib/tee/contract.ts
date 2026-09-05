@@ -54,25 +54,23 @@ export interface EvmEscrowLock {
  */
 
 /** Référence d'un dataset chiffré au repos (ce que le Next connaît sans jamais déchiffrer). */
-export interface DatasetRef {
+export type DatasetRef = {
   datasetId: string; // contexte de wrap de la DEK
   cid: string; // blob chiffré sur IPFS
   wrappedKey: string; // DEK scellée
   merkleRoot: string; // intégrité vérifiée après déchiffrement
   priceUsdcAtomic: string; // termes provider authentifiés par le reçu runner (USDC, six décimales)
   challengeDays: number;
-}
-
-export type ModelValidationInput = DatasetRef & ModelSelection;
+} & ModelSelection;
 
 /** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
-export type TrainingInput = ModelValidationInput & {
+export type TrainingInput = DatasetRef & {
   keyContext: string; // contexte de la clé du modèle livré (redérivable pour la livraison)
   filename: string; // nom du blob modèle sur IPFS
 }
 
 /** Entrée d'un self-train : le runner dérive lui-même la clé et le nom du modèle. */
-export type SelfTrainingInput = DatasetRef & ModelSelection & {
+export type SelfTrainingInput = DatasetRef & {
   jobId: string;
   owner: string;
 }
@@ -82,7 +80,7 @@ export type SelfTrainingInput = DatasetRef & ModelSelection & {
  * nom de blob sont dérivés du `loanId` DANS le runner (pas de champ libre côté appelant) →
  * un modèle ne peut pas être chiffré sous le contexte d'un autre emprunt.
  */
-export type LoanJobInput = DatasetRef & ModelSelection & {
+export type LoanJobInput = DatasetRef & {
   loanId: string;
   borrower: string;
 }

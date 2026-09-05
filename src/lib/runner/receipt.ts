@@ -7,7 +7,7 @@ import type { DatasetRef } from "@/lib/tee/contract";
 import type { ModelId } from "@/lib/models/registry";
 
 export interface DatasetReceipt {
-  version: 2;
+  version: 3;
   kind: "dataset";
   datasetId: string;
   owner: string;
@@ -16,10 +16,12 @@ export interface DatasetReceipt {
   merkleRoot: string;
   priceUsdcAtomic: string;
   challengeDays: number;
+  modelId: ModelId;
+  modelVersion: string;
 }
 
 export interface TrainingReceipt {
-  version: 2;
+  version: 3;
   kind: "training";
   jobId: string;
   datasetId: string;
@@ -30,7 +32,7 @@ export interface TrainingReceipt {
 }
 
 export interface LoanReceipt {
-  version: 2;
+  version: 3;
   kind: "loan";
   loanId: string;
   datasetId: string;
@@ -52,7 +54,7 @@ export interface LoanReceipt {
 type Receipt = DatasetReceipt | TrainingReceipt | LoanReceipt;
 
 function receiptKey(): Buffer {
-  return deriveKey(getMasterKey(), "runner-receipt:hmac:v2");
+  return deriveKey(getMasterKey(), "runner-receipt:hmac:v3");
 }
 
 function issue(payload: Receipt): string {
@@ -75,7 +77,7 @@ function verify<T extends Receipt["kind"]>(token: string, kind: T): Extract<Rece
   } catch {
     throw new AppError("Reçu runner invalide", 401);
   }
-  if (receipt.version !== 2 || receipt.kind !== kind) throw new AppError("Reçu runner invalide", 401);
+  if (receipt.version !== 3 || receipt.kind !== kind) throw new AppError("Reçu runner invalide", 401);
   return receipt as Extract<Receipt, { kind: T }>;
 }
 
@@ -85,7 +87,7 @@ function wrappedKeyHash(wrappedKey: string): string {
 
 export function issueDatasetReceipt(owner: string, dataset: DatasetRef): string {
   return issue({
-    version: 2,
+    version: 3,
     kind: "dataset",
     datasetId: dataset.datasetId,
     owner,
@@ -94,6 +96,8 @@ export function issueDatasetReceipt(owner: string, dataset: DatasetRef): string 
     merkleRoot: dataset.merkleRoot,
     priceUsdcAtomic: dataset.priceUsdcAtomic,
     challengeDays: dataset.challengeDays,
+    modelId: dataset.modelId,
+    modelVersion: dataset.modelVersion,
   });
 }
 
@@ -105,7 +109,9 @@ export function verifyDatasetReceipt(token: string, dataset: DatasetRef): Datase
     receipt.wrappedKeyHash !== wrappedKeyHash(dataset.wrappedKey) ||
     receipt.merkleRoot !== dataset.merkleRoot ||
     receipt.priceUsdcAtomic !== dataset.priceUsdcAtomic ||
-    receipt.challengeDays !== dataset.challengeDays
+    receipt.challengeDays !== dataset.challengeDays ||
+    receipt.modelId !== dataset.modelId ||
+    receipt.modelVersion !== dataset.modelVersion
   ) {
     throw new AppError("Reçu dataset hors scope", 401);
   }
@@ -113,7 +119,7 @@ export function verifyDatasetReceipt(token: string, dataset: DatasetRef): Datase
 }
 
 export function issueTrainingReceipt(input: Omit<TrainingReceipt, "version" | "kind">): string {
-  return issue({ version: 2, kind: "training", ...input });
+  return issue({ version: 3, kind: "training", ...input });
 }
 
 export function verifyTrainingReceipt(token: string, jobId: string): TrainingReceipt {
@@ -123,7 +129,7 @@ export function verifyTrainingReceipt(token: string, jobId: string): TrainingRec
 }
 
 export function issueLoanReceipt(input: Omit<LoanReceipt, "version" | "kind">): string {
-  return issue({ version: 2, kind: "loan", ...input });
+  return issue({ version: 3, kind: "loan", ...input });
 }
 
 export function verifyLoanReceipt(token: string, loanId: string): LoanReceipt {

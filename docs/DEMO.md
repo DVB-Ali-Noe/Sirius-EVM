@@ -8,7 +8,7 @@ Copier l'environnement puis renseigner au minimum :
 - `ROBINHOOD_DEPLOYER_KEY` avec un compte testnet financé ;
 - `ROBINHOOD_TESTNET_RPC` si le RPC public ne convient pas ;
 - `NEXT_PUBLIC_SIRIUS_USDC_ADDRESS` et `SIRIUS_USDC_CODE_HASH`, issus de l'USDC testnet officiel ;
-- `SIRIUS_KYB_ADMIN`, `SIRIUS_KYB_VERIFIER` et `SIRIUS_SMOKE_PROVIDER_ADDRESS` ;
+- `SIRIUS_KYB_ADMIN`, `SIRIUS_KYB_VERIFIER`, `SIRIUS_SMOKE_PROVIDER_ADDRESS`, `SIRIUS_SMOKE_DATASET_ID` et `SIRIUS_SMOKE_MODEL_ID` ;
 - `SIRIUS_MASTER_KEY`, `SIRIUS_SESSION_SECRET` et `RUNNER_TRANSPORT_SECRET` ;
 - `PINATA_JWT` et `PINATA_GATEWAY` pour le parcours IPFS ;
 - les quatre adresses une fois le déploiement effectué : escrow, USDC, KYB et dataset.
@@ -49,13 +49,15 @@ SIRIUS_DATASET_ADDRESS="0x..."
 
 Le script vérifie le code de l'USDC configuré contre `SIRIUS_USDC_CODE_HASH` et refuse un escrow existant : chaque déploiement crée un nouveau trio KYB, escrow et dataset cohérent. L'émetteur KYB doit signer les attestations des wallets hors de l'application avant le smoke.
 
+Avant de remplacer les adresses d'une instance partagée, tous les prêts existants doivent être réglés ou remboursés. La migration bloque explicitement tant qu'un prêt est actif, suspend les anciens titres incompatibles, puis les datasets doivent être réimportés et publiés sur le nouveau registre.
+
 ## Smoke on-chain
 
 ```bash
 pnpm contracts:smoke
 ```
 
-Le smoke exige un borrower et un provider déjà attestés. Il exerce l'approbation USDC, le verrouillage, le release et le retrait du crédit. Il doit être exécuté avant d'intégrer les adresses dans une instance partagée.
+Le smoke exige un borrower et un provider déjà attestés, ainsi qu'un titre EVM live de ce provider (`SIRIUS_SMOKE_DATASET_ID`) dont le profil correspond à `SIRIUS_SMOKE_MODEL_ID`. Il exerce l'approbation USDC, le verrouillage, le release et le retrait du crédit. Il doit être exécuté avant d'intégrer les adresses dans une instance partagée.
 
 ## Parcours applicatif
 

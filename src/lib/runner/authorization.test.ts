@@ -6,6 +6,7 @@ import { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } fro
 import { buildDelegationMessage, encodeRunnerGrantHeader, parseRunnerGrantHeader } from "./authorization-contract";
 import { verifyRunnerGrant } from "./authorization";
 import { issueDatasetReceipt, verifyDatasetReceipt } from "./receipt";
+import type { DatasetRef } from "@/lib/tee/contract";
 
 before(() => {
   process.env.TEE_MODE = "stub";
@@ -61,8 +62,11 @@ test("le reçu de dataset lie les termes USDC au contenu scellé", () => {
     merkleRoot: "0xabc123",
     priceUsdcAtomic: "2500000",
     challengeDays: 7,
-  };
+    modelId: "linear_regression",
+    modelVersion: "1.0.0",
+  } as const satisfies DatasetRef;
   const receipt = issueDatasetReceipt("0x1111111111111111111111111111111111111111", dataset);
   assert.equal(verifyDatasetReceipt(receipt, dataset).priceUsdcAtomic, "2500000");
   assert.throws(() => verifyDatasetReceipt(receipt, { ...dataset, priceUsdcAtomic: "1" }), /hors scope/);
+  assert.throws(() => verifyDatasetReceipt(receipt, { ...dataset, modelId: "logistic_regression" }), /hors scope/);
 });

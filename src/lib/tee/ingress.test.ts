@@ -41,7 +41,7 @@ test("refuse une taille déclarée différente avant tout upload IPFS", async ()
   const content = new TextEncoder().encode("a,b\n1,2\n");
   const envelope = await encryptDatasetForRunner(content.buffer, "dataset-1", datasetIngressPublicKey());
   await assert.rejects(
-    () => sealDatasetEnvelope("dataset-1", envelope, content.byteLength + 1),
+    () => sealDatasetEnvelope("dataset-1", envelope, content.byteLength + 1, { modelId: "linear_regression", modelVersion: "1.0.0" }),
     /taille du fichier ne correspond pas/,
   );
 });

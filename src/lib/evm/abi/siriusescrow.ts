@@ -260,6 +260,12 @@ export const siriusescrowAbi = [
       },
       {
         "indexed": false,
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
         "internalType": "uint64",
         "name": "seq",
         "type": "uint64"
@@ -594,6 +600,11 @@ export const siriusescrowAbi = [
             "internalType": "bytes32",
             "name": "datasetId",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "trainingProfile",
+            "type": "bytes32"
           }
         ],
         "internalType": "struct SiriusEscrow.Loan",
@@ -710,6 +721,11 @@ export const siriusescrowAbi = [
         "internalType": "bytes32",
         "name": "datasetId",
         "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
       }
     ],
     "name": "lock",
@@ -761,6 +777,11 @@ export const siriusescrowAbi = [
       {
         "internalType": "bytes32",
         "name": "hashlock",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
         "type": "bytes32"
       },
       {

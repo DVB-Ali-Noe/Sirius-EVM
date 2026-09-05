@@ -34,7 +34,7 @@ export async function runSelfTrain(
   const res = await fetch("/api/train", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ datasetId, jobId, datasetReceipt, ...model, authorization }),
+    body: JSON.stringify({ datasetId, jobId, datasetReceipt, authorization }),
   });
   const body = (await res.json()) as {
     jobId?: string;

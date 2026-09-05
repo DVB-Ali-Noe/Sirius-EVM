@@ -6,7 +6,6 @@ import {
   runEvmLoanJob,
   runSelfTraining,
   selfTrainModelKey,
-  validateTrainingInput,
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
@@ -73,6 +72,7 @@ function datasetRef(body: Record<string, unknown>): DatasetRef {
     merkleRoot: text(body, "merkleRoot", 128),
     priceUsdcAtomic: usdcAmount(body, "priceUsdcAtomic"),
     challengeDays: boundedInteger(body, "challengeDays", 1, 30),
+    ...trainingModel(body),
   };
 }
 
@@ -106,8 +106,6 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       return { op, scope: { datasetId: text(body, "datasetId") } };
     case "escrow-hashlock":
       return { op, scope: { loanId: text(body, "loanId"), borrower: text(body, "borrower") } };
-    case "validate-training":
-      return { op, scope: { datasetId: text(body, "datasetId") } };
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
@@ -133,12 +131,21 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       const challengeDays = boundedInteger(body, "challengeDays", 1, 30);
       const sizeBytes = boundedInteger(body, "sizeBytes", 1, MAX_DATASET_BYTES);
       const envelope = ingressEnvelope(body);
+      const model = trainingModel(body);
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         datasetId,
-        intentParts: [datasetId, priceUsdcAtomic, String(challengeDays), String(sizeBytes), envelope.ciphertext],
+        intentParts: [
+          datasetId,
+          priceUsdcAtomic,
+          String(challengeDays),
+          String(sizeBytes),
+          envelope.ciphertext,
+          model.modelId,
+          model.modelVersion,
+        ],
       });
-      const result = await sealDatasetEnvelope(datasetId, envelope, sizeBytes);
+      const result = await sealDatasetEnvelope(datasetId, envelope, sizeBytes, model);
       return {
         ...result,
         runnerReceipt: issueDatasetReceipt(subject, {
@@ -148,6 +155,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           merkleRoot: result.merkleRoot,
           priceUsdcAtomic,
           challengeDays,
+          ...model,
         }),
       };
     }
@@ -155,19 +163,9 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
     case "escrow-hashlock":
       return { hashlock: escrowHashlock(text(body, "loanId"), canonicalSubject(text(body, "borrower"))) };
 
-    case "validate-training": {
-      const dataset = datasetRef(body);
-      const model = trainingModel(body);
-      const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
-      verifyDatasetReceipt(datasetReceiptToken, dataset);
-      await validateTrainingInput({ ...dataset, ...model });
-      return {};
-    }
-
     case "run-loan-job": {
       const dataset = datasetRef(body);
       const loanId = text(body, "loanId");
-      const model = trainingModel(body);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
@@ -175,7 +173,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         operation: op,
         datasetId: dataset.datasetId,
         loanId,
-        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, deliveryPublicKey, model.modelId, model.modelVersion],
+        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, deliveryPublicKey, dataset.modelId, dataset.modelVersion],
       });
       const borrower = canonicalSubject(subject);
       const loanKey = loanKeyFor(borrower, loanId);
@@ -186,6 +184,7 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           provider: datasetReceipt.owner,
           merkleRoot: dataset.merkleRoot,
           cid: dataset.cid,
+          model: dataset,
         }),
         assertLoanScope({
           loanKey,
@@ -194,10 +193,11 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           datasetId: dataset.datasetId,
           amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           hashlock,
+          model: dataset,
         }),
       ]);
 
-      const result = await runEvmLoanJob({ ...dataset, ...model, loanId, borrower });
+      const result = await runEvmLoanJob({ ...dataset, loanId, borrower });
       const releaseEnvelope = encryptRunnerRelease(
         evmLoanModelKey(loanId, borrower),
         deliveryPublicKey,
@@ -219,8 +219,8 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
         challengeDays: datasetReceipt.challengeDays,
         merkleRoot: dataset.merkleRoot,
-        modelId: model.modelId,
-        modelVersion: model.modelVersion,
+        modelId: dataset.modelId,
+        modelVersion: dataset.modelVersion,
         modelCid: result.modelCid,
         releaseEnvelopeHash,
       });
@@ -242,8 +242,8 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           escrow,
           amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           challengeDays: datasetReceipt.challengeDays,
-          modelId: model.modelId,
-          modelVersion: model.modelVersion,
+          modelId: dataset.modelId,
+          modelVersion: dataset.modelVersion,
           deliveryPublicKey,
           releaseEnvelopeHash,
           attestationHash: attestation.payloadHash,
@@ -293,19 +293,25 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
     case "run-training": {
       const dataset = datasetRef(body);
       const jobId = text(body, "jobId");
-      const model = trainingModel(body);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         datasetId: dataset.datasetId,
         jobId,
-        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, model.modelId, model.modelVersion],
+        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
         throw new AppError("Self-train réservé au propriétaire", 403);
       }
-      const result = await runSelfTraining({ ...dataset, ...model, jobId, owner: subject });
+      await assertDatasetScope({
+        datasetId: dataset.datasetId,
+        provider: datasetReceipt.owner,
+        merkleRoot: dataset.merkleRoot,
+        cid: dataset.cid,
+        model: dataset,
+      });
+      const result = await runSelfTraining({ ...dataset, jobId, owner: subject });
       return {
         ...result,
         runnerReceipt: issueTrainingReceipt({
@@ -313,8 +319,8 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           datasetId: dataset.datasetId,
           owner: subject,
           modelCid: result.modelCid,
-          modelId: model.modelId,
-          modelVersion: model.modelVersion,
+          modelId: dataset.modelId,
+          modelVersion: dataset.modelVersion,
         }),
       };
     }

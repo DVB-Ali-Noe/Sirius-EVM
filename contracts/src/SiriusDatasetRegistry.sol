@@ -47,15 +47,20 @@ contract SiriusDatasetRegistry {
         uint64 sizeBytes; //            slot 1
         bytes32 merkleRoot; //          slot 2
         bytes32 cidHash; //             slot 3
+        bytes32 trainingProfile; //     slot 4
     }
 
     // ---------------------------------------------------------------------------------
     // Constants
     // ---------------------------------------------------------------------------------
 
-    string public constant VERSION = "sirius-dataset-v3";
+    string public constant VERSION = "sirius-dataset-v4";
 
     bytes32 public constant DATASET_ID_DOMAIN = keccak256("sirius.dataset.id.v1");
+    bytes32 public constant LINEAR_REGRESSION_V1_PROFILE =
+        keccak256("sirius.training-profile.v1:linear_regression:1.0.0");
+    bytes32 public constant LOGISTIC_REGRESSION_V1_PROFILE =
+        keccak256("sirius.training-profile.v1:logistic_regression:1.0.0");
 
     /// @notice Ceiling mirroring `MAX_DATASET_BYTES` in the application (16 MiB).
     uint64 public constant MAX_SIZE_BYTES = 16 * 1024 * 1024;
@@ -83,7 +88,8 @@ contract SiriusDatasetRegistry {
         address indexed provider,
         bytes32 cidHash,
         bytes32 merkleRoot,
-        uint64 sizeBytes
+        uint64 sizeBytes,
+        bytes32 trainingProfile
     );
 
     /// @notice The title was tombstoned after crypto-shredding.
@@ -103,6 +109,7 @@ contract SiriusDatasetRegistry {
     error InvalidCid();
     error InvalidMerkleRoot();
     error InvalidSize();
+    error InvalidTrainingProfile();
     error ZeroAddress();
     error NotAdmin();
     error EscrowAlreadyBound();
@@ -143,7 +150,7 @@ contract SiriusDatasetRegistry {
     // ---------------------------------------------------------------------------------
 
     /// @notice Publish a dataset title. Requires a valid KYB — the gate is blocking.
-    function mint(bytes32 datasetIdHash, bytes32 cidHash, bytes32 merkleRoot, uint64 sizeBytes)
+    function mint(bytes32 datasetIdHash, bytes32 cidHash, bytes32 merkleRoot, uint64 sizeBytes, bytes32 trainingProfile)
         external
         returns (bytes32 id)
     {
@@ -152,6 +159,7 @@ contract SiriusDatasetRegistry {
         if (cidHash == bytes32(0)) revert InvalidCid();
         if (merkleRoot == bytes32(0)) revert InvalidMerkleRoot();
         if (sizeBytes == 0 || sizeBytes > MAX_SIZE_BYTES) revert InvalidSize();
+        if (!isSupportedTrainingProfile(trainingProfile)) revert InvalidTrainingProfile();
 
         id = datasetIdOf(msg.sender, datasetIdHash);
         Dataset storage dataset = _datasets[id];
@@ -162,12 +170,13 @@ contract SiriusDatasetRegistry {
         dataset.sizeBytes = sizeBytes;
         dataset.merkleRoot = merkleRoot;
         dataset.cidHash = cidHash;
+        dataset.trainingProfile = trainingProfile;
 
         unchecked {
             liveCount[msg.sender] += 1;
         }
 
-        emit DatasetMinted(id, msg.sender, cidHash, merkleRoot, sizeBytes);
+        emit DatasetMinted(id, msg.sender, cidHash, merkleRoot, sizeBytes, trainingProfile);
     }
 
     // ---------------------------------------------------------------------------------
@@ -217,15 +226,29 @@ contract SiriusDatasetRegistry {
         return dataset.provider == provider && dataset.destroyedAt == 0;
     }
 
+    function isSupportedTrainingProfile(bytes32 trainingProfile) public pure returns (bool) {
+        return trainingProfile == LINEAR_REGRESSION_V1_PROFILE || trainingProfile == LOGISTIC_REGRESSION_V1_PROFILE;
+    }
+
+    function isLiveForProviderAndProfile(bytes32 id, address provider, bytes32 trainingProfile)
+        external
+        view
+        returns (bool)
+    {
+        Dataset storage dataset = _datasets[id];
+        return dataset.provider == provider && dataset.destroyedAt == 0 && dataset.trainingProfile == trainingProfile;
+    }
+
     /// @notice Confirm a title matches what the runner holds, before it decrypts anything.
     /// @dev The counterpart of `matchesScope` on the escrow: one call, no history scan.
-    function matchesScope(bytes32 id, address provider, bytes32 merkleRoot, bytes32 cidHash)
+    function matchesScope(bytes32 id, address provider, bytes32 merkleRoot, bytes32 cidHash, bytes32 trainingProfile)
         external
         view
         returns (bool)
     {
         Dataset storage dataset = _datasets[id];
         return dataset.provider == provider && dataset.destroyedAt == 0
-            && dataset.merkleRoot == merkleRoot && dataset.cidHash == cidHash;
+            && dataset.merkleRoot == merkleRoot && dataset.cidHash == cidHash
+            && dataset.trainingProfile == trainingProfile;
     }
 }

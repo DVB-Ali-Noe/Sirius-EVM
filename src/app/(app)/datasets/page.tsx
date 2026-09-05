@@ -17,6 +17,7 @@ import {
 } from "@/lib/datasets/client";
 import { acceptKybCredential } from "@/lib/kyb/client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
 
 interface DatasetMetrics {
   rowCount: number;
@@ -35,6 +36,8 @@ interface Dataset {
   evmDatasetId: string | null;
   sizeBytes: number | null;
   metrics: DatasetMetrics | null;
+  modelId: ModelId | null;
+  modelVersion: string | null;
 }
 
 const STATUS_VARIANT: Record<DatasetStatus, BadgeVariant> = {
@@ -256,6 +259,7 @@ export default function DatasetsPage() {
                 <div className="flex items-center gap-2">
                   <h3 className="truncate font-medium">{d.name}</h3>
                   <Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL[d.status])}</Badge>
+                  <DatasetProfileBadge dataset={d} />
                 </div>
                 {d.description && <p className="mt-1 text-sm text-muted">{d.description}</p>}
                 <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
@@ -350,4 +354,10 @@ export default function DatasetsPage() {
       </div>
     </main>
   );
+}
+
+function DatasetProfileBadge({ dataset }: { dataset: Pick<Dataset, "modelId" | "modelVersion"> }) {
+  const { t } = useLocale();
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  return <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>;
 }

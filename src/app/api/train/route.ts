@@ -5,7 +5,6 @@ import { assertGrantSubject, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
-import { modelSelection } from "@/lib/models/registry";
 
 export const runtime = "nodejs";
 
@@ -28,13 +27,11 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    const { datasetId, jobId, datasetReceipt, authorization, modelId, modelVersion } = await readJson<{
+    const { datasetId, jobId, datasetReceipt, authorization } = await readJson<{
       datasetId?: unknown;
       jobId?: unknown;
       datasetReceipt?: unknown;
       authorization?: RunnerGrant;
-      modelId?: unknown;
-      modelVersion?: unknown;
     }>(req);
     if (
       typeof datasetId !== "string" ||
@@ -47,10 +44,8 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "Requête d’entraînement incomplète" }, { status: 400 });
     }
-    const model = modelSelection(modelId, modelVersion);
-    if (!model) return NextResponse.json({ error: "Modèle ou version non autorisé" }, { status: 400 });
     assertGrantSubject(session, authorization);
-    const result = await runSelfTrain(datasetId, session.address, jobId, datasetReceipt, authorization, model);
+    const result = await runSelfTrain(datasetId, session.address, jobId, datasetReceipt, authorization);
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     return errorResponse(err);

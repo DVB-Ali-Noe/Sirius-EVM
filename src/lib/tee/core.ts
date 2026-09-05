@@ -15,6 +15,7 @@ import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/me
 import { computeMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainSelectedModel } from "./model-registry";
+import { validateTrainingDataset } from "./train";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
 import { evmEscrowBinding } from "./evm-binding";
@@ -23,13 +24,13 @@ import { AppError } from "@/lib/app-error";
 import type {
   DatasetIngressEnvelope,
   DatasetRef,
-  ModelValidationInput,
   TrainingInput,
   SelfTrainingInput,
   LoanJobInput,
   SealDatasetResult,
   EvmEscrowLock,
 } from "./contract";
+import type { ModelSelection } from "@/lib/models/registry";
 
 /**
  * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
@@ -113,11 +114,13 @@ export async function sealDatasetEnvelope(
   datasetId: string,
   envelope: DatasetIngressEnvelope,
   expectedSizeBytes: number,
+  model: ModelSelection,
 ): Promise<SealDatasetResult> {
   const content = decryptDatasetIngress(datasetId, envelope);
   if (content.length !== expectedSizeBytes) {
     throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
   }
+  validateTrainingDataset(content, model);
   return sealDataset(datasetId, content);
 }
 
@@ -140,10 +143,6 @@ async function trainAndSeal(input: TrainingInput) {
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
   return { modelCid: cid, model: gated };
-}
-
-export async function validateTrainingInput(input: ModelValidationInput): Promise<void> {
-  trainSelectedModel(input, await decryptDataset(input));
 }
 
 /** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */

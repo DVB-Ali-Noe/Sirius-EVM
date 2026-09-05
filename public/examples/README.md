@@ -56,12 +56,13 @@ https://doi.org/10.24432/C5W894. Licence CC BY 4.0.
 
 Classification synthétique de défaut de crédit. Entraîne avec **Régression
 logistique binaire**, puis évalue avec le fichier de test : la cible `defaulted`
-est strictement encodée en `0` ou `1`. Les quatre variables numériques sont
-`income_k_eur`, `debt_ratio_pct`, `credit_score` et `late_payments`.
+est strictement encodée en `0` ou `1`. Les variables numériques sont le revenu,
+le ratio d'endettement, le score de crédit, les incidents de paiement,
+l'utilisation du crédit et l'ancienneté professionnelle.
 
-Le jeu contient 120 lignes d'entraînement et 30 lignes de test. Il est
-déterministe et volontairement séparable afin de vérifier facilement le flux
-complet, les métriques de classification et la probabilité retournée.
+Le jeu contient 480 lignes d'entraînement et 120 lignes de test. Il combine des
+profils qui se chevauchent et une part d'aléa : les métriques restent bonnes sans
+être parfaites, comme dans un cas de scoring réaliste.
 
 ## Évaluer un modèle livré
 

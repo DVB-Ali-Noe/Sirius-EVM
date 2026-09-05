@@ -23,12 +23,9 @@ import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import {
-  DEFAULT_MODEL_SELECTION,
-  MODEL_OPTIONS,
   modelSelection,
-  selectionForModelId,
+  modelDisplayName,
   type ModelId,
-  type ModelSelection,
 } from "@/lib/models/registry";
 
 interface Metrics {
@@ -42,12 +39,15 @@ interface Dataset {
   description: string | null;
   provider: string;
   status: "DRAFT" | "LISTING" | "LISTED" | "UNLISTED" | "PRIVATE" | "SUSPENDED";
+  evmDatasetId: string | null;
   ipfsCid: string | null;
   runnerReceipt: string | null;
   sizeBytes: number | null;
   priceUsdcAtomic: string | null;
   challengeDays: number;
   metrics: Metrics | null;
+  modelId: ModelId | null;
+  modelVersion: string | null;
 }
 
 interface Loan {
@@ -117,8 +117,6 @@ export default function TrainPage() {
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
   const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
-  const [selfTrainModels, setSelfTrainModels] = useState<Record<string, ModelId>>({});
-
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
   // que sa propre action (pas de collision entre self-train et lancement de job).
@@ -207,12 +205,14 @@ export default function TrainPage() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  async function selfTrain(dataset: Dataset, model: ModelSelection) {
+  async function selfTrain(dataset: Dataset) {
     const key = `train:${dataset.id}`;
     setError(null);
     setBusyKey(key, true);
     try {
       if (!dataset.runnerReceipt) throw new Error(t("Reçu confidentiel du dataset manquant"));
+      const model = modelSelection(dataset.modelId, dataset.modelVersion);
+      if (!model) throw new Error(t("Profil d’entraînement du dataset absent ou invalide"));
       const res = await runSelfTrain(dataset.id, dataset.runnerReceipt, model);
       deliver(res.jobId, { modelCid: res.modelCid, modelKey: res.modelKey });
       await refresh();
@@ -330,7 +330,9 @@ export default function TrainPage() {
     );
   }
 
-  const trainable = mine.filter((d) => d.ipfsCid && d.runnerReceipt);
+  const trainable = mine.filter(
+    (d) => d.ipfsCid && d.runnerReceipt && d.evmDatasetId && ["LISTED", "UNLISTED", "PRIVATE"].includes(d.status),
+  );
   const external = catalogue.filter((d) => d.provider !== address);
   const hasHistory = loans.length > 0 || jobs.length > 0;
 
@@ -359,33 +361,12 @@ export default function TrainPage() {
         </div>
         {trainable.length === 0 ? (
           <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Aucun dataset finalisé. Dépose-en un dans « Mes datasets ».")}
+            {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
           </p>
         ) : (
           <div className="flex flex-col gap-3">
             {trainable.map((d) => (
-              <Card key={d.id} className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <h3 className="truncate font-medium">{d.name}</h3>
-                  <p className="mt-1 text-xs text-muted">
-                    {d.metrics ? `${t("{count} lignes", { count: d.metrics.rowCount })} · ${t("{count} colonnes", { count: d.metrics.columnCount })} · ` : ""}
-                    {formatBytes(d.sizeBytes)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-end gap-3">
-                  <ModelSelector
-                    value={selfTrainModels[d.id] ?? DEFAULT_MODEL_SELECTION.modelId}
-                    onChange={(modelId) => setSelfTrainModels((models) => ({ ...models, [d.id]: modelId }))}
-                  />
-                  <button
-                    onClick={() => selfTrain(d, selectionForModelId(selfTrainModels[d.id] ?? DEFAULT_MODEL_SELECTION.modelId))}
-                    disabled={busy.has(`train:${d.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-                  >
-                    {busy.has(`train:${d.id}`) ? t("Entraînement…") : t("Entraîner")}
-                  </button>
-                </div>
-              </Card>
+              <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
             ))}
           </div>
         )}
@@ -486,10 +467,12 @@ export default function TrainPage() {
                   <button
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    aria-busy={busy.has(`job:${l.id}`)}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
-                    {busy.has(`job:${l.id}`)
-                      ? t("Job TEE…")
+                    {busy.has(`job:${l.id}`) ? (
+                      <><TeeSpinner />{t("TEE en cours…")}</>
+                    )
                       : l.status === "TRAINING"
                         ? t("Réessayer le job")
                         : t("Lancer le job (TEE)")}
@@ -575,6 +558,49 @@ export default function TrainPage() {
       </section>
     </main>
   );
+}
+
+function SelfTrainCard({
+  dataset,
+  busy,
+  onTrain,
+}: {
+  dataset: Dataset;
+  busy: boolean;
+  onTrain: (dataset: Dataset) => Promise<void>;
+}) {
+  const { t } = useLocale();
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+
+  return (
+    <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="truncate font-medium">{dataset.name}</h3>
+          <Badge variant={model ? "default" : "negative"}>
+            {model ? modelDisplayName(model) : t("Profil absent")}
+          </Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
+          {formatBytes(dataset.sizeBytes)}
+        </p>
+      </div>
+      <button
+        onClick={() => void onTrain(dataset)}
+        disabled={!model || busy}
+        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+        aria-busy={busy}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+      >
+        {busy ? <><TeeSpinner />{t("TEE en cours…")}</> : t("Entraîner")}
+      </button>
+    </Card>
+  );
+}
+
+function TeeSpinner() {
+  return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
 }
 
 function ModelInspection({ model }: { model: DeliveredModel }) {
@@ -741,7 +767,7 @@ function CatalogueCard({
   const { t } = useLocale();
   const [openForm, setOpenForm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [modelId, setModelId] = useState<ModelId>(DEFAULT_MODEL_SELECTION.modelId);
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
 
   function reset() {
     setOpenForm(false);
@@ -749,9 +775,13 @@ function CatalogueCard({
 
   async function confirm() {
     onError("");
+    if (!model) {
+      onError(t("Profil d’entraînement du dataset absent ou invalide"));
+      return;
+    }
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id, model: selectionForModelId(modelId) });
+      await borrowDataset({ datasetId: dataset.id });
       reset();
       await onBorrowed();
     } catch (err) {
@@ -766,6 +796,9 @@ function CatalogueCard({
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h3 className="truncate font-medium">{dataset.name}</h3>
+          <Badge variant={model ? "default" : "negative"}>
+            {model ? modelDisplayName(model) : t("Profil absent")}
+          </Badge>
           <p className="mt-1 text-xs text-muted">
             {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
             {formatBytes(dataset.sizeBytes)}
@@ -777,7 +810,9 @@ function CatalogueCard({
         {!openForm && (
           <button
             onClick={() => setOpenForm(true)}
-            className="shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20"
+            disabled={!model}
+            title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+            className="shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
           >
             {t("Emprunter")}
           </button>
@@ -787,7 +822,9 @@ function CatalogueCard({
       {openForm && (
         <div className="mt-4 border-t border-border pt-4">
           <div className="flex flex-wrap items-end gap-3">
-            <ModelSelector value={modelId} onChange={setModelId} />
+            <p className="text-xs text-muted">
+              {model ? t("Profil du dataset verrouillé : {model}", { model: modelDisplayName(model) }) : t("Profil d’entraînement manquant")}
+            </p>
             {advanced && (
               <p className="text-xs text-muted">{t("Termes provider verrouillés dans le reçu runner")}</p>
             )}
@@ -808,22 +845,5 @@ function CatalogueCard({
         </div>
       )}
     </Card>
-  );
-}
-
-function ModelSelector({ value, onChange }: { value: ModelId; onChange: (modelId: ModelId) => void }) {
-  return (
-    <label className="flex flex-col gap-1 text-xs text-muted">
-      Modèle
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as ModelId)}
-        className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent"
-      >
-        {MODEL_OPTIONS.map((model) => (
-          <option key={model.id} value={model.id}>{model.label} · v{model.version}</option>
-        ))}
-      </select>
-    </label>
   );
 }

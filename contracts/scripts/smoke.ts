@@ -4,7 +4,9 @@ import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, parseUnits, type Abi, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS } from "../../src/lib/evm/networks";
+import { datasetIdHash } from "../../src/lib/evm/dataset-key";
 import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
+import { DEFAULT_MODEL_SELECTION, modelSelectionForId, trainingProfileHash } from "../../src/lib/models/registry";
 
 const ARTIFACTS = resolve(__dirname, "..", "artifacts", "src");
 
@@ -16,6 +18,12 @@ function required(name: string): Hex {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} manquante`);
   return value as Hex;
+}
+
+function requiredText(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} manquante`);
+  return value;
 }
 
 function requiredAddress(name: string): `0x${string}` {
@@ -32,9 +40,11 @@ async function main() {
   const wallet = createWalletClient({ account, chain, transport });
 
   const escrow = required("NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS");
+  const datasets = required("NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS");
   const usdc = required("NEXT_PUBLIC_SIRIUS_USDC_ADDRESS");
   const kyb = required("NEXT_PUBLIC_SIRIUS_KYB_ADDRESS");
   const escrowAbi = abiOf("SiriusEscrow");
+  const datasetAbi = abiOf("SiriusDatasetRegistry");
   const kybAbi = abiOf("SiriusKybRegistry");
   const usdcAbi = [
     { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
@@ -43,6 +53,29 @@ async function main() {
   ] as const;
 
   const provider = requiredAddress("SIRIUS_SMOKE_PROVIDER_ADDRESS");
+  const smokeDatasetId = requiredText("SIRIUS_SMOKE_DATASET_ID");
+  const smokeModel = modelSelectionForId(process.env.SIRIUS_SMOKE_MODEL_ID ?? DEFAULT_MODEL_SELECTION.modelId);
+  if (!smokeModel) throw new Error("SIRIUS_SMOKE_MODEL_ID doit être linear_regression ou logistic_regression");
+  const trainingProfile = trainingProfileHash(smokeModel);
+  const onChainDatasetId = await publicClient.readContract({
+    address: datasets,
+    abi: datasetAbi,
+    functionName: "datasetIdOf",
+    args: [provider, datasetIdHash(smokeDatasetId)],
+  }) as Hex;
+  const onChainDataset = await publicClient.readContract({
+    address: datasets,
+    abi: datasetAbi,
+    functionName: "getDataset",
+    args: [onChainDatasetId],
+  }) as { provider: `0x${string}`; destroyedAt: bigint; trainingProfile: Hex };
+  if (
+    onChainDataset.provider.toLowerCase() !== provider.toLowerCase() ||
+    onChainDataset.destroyedAt !== 0n ||
+    onChainDataset.trainingProfile.toLowerCase() !== trainingProfile.toLowerCase()
+  ) {
+    throw new Error("Le dataset smoke doit être un titre EVM live du provider, avec le profil demandé");
+  }
   // Montant dérivé de la précision du réseau, jamais écrit en dur : l'USDC du
   // testnet a 18 décimales là où celui de référence en a 6. Un littéral figé passait
   // sous le plancher de l'escrow et faisait échouer le verrouillage sans que la
@@ -62,25 +95,30 @@ async function main() {
   };
 
   const nativeBalance = await publicClient.getBalance({ address: account.address });
-  const [borrowerUsdc, providerUsdcBefore, borrowerKyb, providerKyb, escrowKyb] = await Promise.all([
+  const [borrowerUsdc, providerUsdcBefore, borrowerKyb, providerKyb, escrowKyb, linkedDatasets, linkedEscrow] = await Promise.all([
     publicClient.readContract({ address: usdc, abi: usdcAbi, functionName: "balanceOf", args: [account.address] }),
     publicClient.readContract({ address: usdc, abi: usdcAbi, functionName: "balanceOf", args: [provider] }),
     publicClient.readContract({ address: kyb, abi: kybAbi, functionName: "isKybValid", args: [account.address] }),
     publicClient.readContract({ address: kyb, abi: kybAbi, functionName: "isKybValid", args: [provider] }),
     publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "kyb" }),
-  ]) as [bigint, bigint, boolean, boolean, `0x${string}`];
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "datasets" }),
+    publicClient.readContract({ address: datasets, abi: datasetAbi, functionName: "escrow" }),
+  ]) as [bigint, bigint, boolean, boolean, `0x${string}`, `0x${string}`, `0x${string}`];
   if (borrowerUsdc < amount) throw new Error(`USDC insuffisant : ${borrowerUsdc} < ${amount}`);
   if (!borrowerKyb || !providerKyb) throw new Error("Borrower et provider doivent avoir un KYB EVM valide");
   if (escrowKyb.toLowerCase() !== kyb.toLowerCase()) throw new Error("Escrow et registre KYB incohérents");
+  if (linkedDatasets.toLowerCase() !== datasets.toLowerCase()) throw new Error("Escrow et registre dataset incohérents");
+  if (linkedEscrow.toLowerCase() !== escrow.toLowerCase()) throw new Error("Registre dataset et escrow incohérents");
   console.log(`gas      : ${formatEther(nativeBalance)} ETH`);
   console.log(`USDC     : ${borrowerUsdc}`);
+  console.log(`profil   : ${smokeModel.modelId} ${smokeModel.modelVersion}`);
 
   await step("Approbation USDC", await wallet.writeContract({ address: usdc, abi: usdcAbi, functionName: "approve", args: [escrow, amount], chain, account }));
   await step("Lock USDC", await wallet.writeContract({
     address: escrow,
     abi: escrowAbi,
     functionName: "lock",
-    args: [provider, amount, hashlock, 7, loanIdHash(loanId)],
+    args: [provider, amount, hashlock, 7, loanIdHash(loanId), onChainDatasetId, trainingProfile],
     chain,
     account,
   }));
@@ -89,8 +127,16 @@ async function main() {
     status: number;
     amount: bigint;
     hashlock: Hex;
+    datasetId: Hex;
+    trainingProfile: Hex;
   };
-  if (locked.status !== 1 || locked.amount !== amount || locked.hashlock !== hashlock) {
+  if (
+    locked.status !== 1 ||
+    locked.amount !== amount ||
+    locked.hashlock !== hashlock ||
+    locked.datasetId.toLowerCase() !== onChainDatasetId.toLowerCase() ||
+    locked.trainingProfile.toLowerCase() !== trainingProfile.toLowerCase()
+  ) {
     throw new Error("Le lock USDC ne correspond pas aux termes attendus");
   }
 

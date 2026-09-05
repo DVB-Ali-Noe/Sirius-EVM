@@ -11,12 +11,7 @@ import { useFavoritesStore } from "@/stores/favorites";
 import { useWalletStore } from "@/stores/wallet";
 import { acceptKybCredential } from "@/lib/kyb/client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import {
-  DEFAULT_MODEL_SELECTION,
-  MODEL_OPTIONS,
-  selectionForModelId,
-  type ModelId,
-} from "@/lib/models/registry";
+import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
 
 interface Dataset {
   id: string;
@@ -27,6 +22,8 @@ interface Dataset {
   priceUsdcAtomic: string | null;
   challengeDays: number;
   metrics: { rowCount: number; columnCount: number } | null;
+  modelId: ModelId | null;
+  modelVersion: string | null;
   providerReputation?: {
     score: number;
     completedLoans: number;
@@ -167,15 +164,19 @@ function MarketCard({
 }) {
   const { t } = useLocale();
   const [busy, setBusy] = useState(false);
-  const [modelId, setModelId] = useState<ModelId>(DEFAULT_MODEL_SELECTION.modelId);
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
   const isFav = useFavoritesStore((s) => s.ids.includes(dataset.id));
   const toggleFav = useFavoritesStore((s) => s.toggle);
 
   async function borrow() {
     onError("");
+    if (!model) {
+      onError(t("Profil d’entraînement du dataset absent ou invalide"));
+      return;
+    }
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id, model: selectionForModelId(modelId) });
+      await borrowDataset({ datasetId: dataset.id });
       onBorrowed();
     } catch (err) {
       onError(messageOf(err));
@@ -200,6 +201,7 @@ function MarketCard({
             {isFav ? "★" : "☆"}
           </button>
           <Badge variant="positive">{t("LISTED")}</Badge>
+          <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
         </div>
       </div>
       {dataset.description && <p className="text-sm text-muted">{dataset.description}</p>}
@@ -220,21 +222,13 @@ function MarketCard({
       </p>
 
       <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="flex flex-col gap-1 text-xs text-muted">
-          {t("Modèle")}
-          <select
-            value={modelId}
-            onChange={(event) => setModelId(event.target.value as ModelId)}
-            className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent"
-          >
-            {MODEL_OPTIONS.map((model) => (
-              <option key={model.id} value={model.id}>{model.label} · v{model.version}</option>
-            ))}
-          </select>
-        </label>
+        <p className="text-xs text-muted">
+          {model ? t("Profil du dataset verrouillé") : t("Profil d’entraînement manquant")}
+        </p>
         <button
           onClick={borrow}
-          disabled={busy}
+          disabled={!model || busy}
+          title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="w-full rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50 sm:w-auto"
         >
           {busy ? t("Escrow…") : t("Emprunter")}

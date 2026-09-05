@@ -1,4 +1,4 @@
-import { MODEL_REGISTRY, type LinearRegressionModel, type LogisticRegressionModel } from "@/lib/models/registry";
+import { MODEL_REGISTRY, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
 import { parseCsv } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel;
@@ -66,6 +66,19 @@ function trainingColumns(csv: Buffer, target: string | undefined, deadline: numb
     throw new Error(`dataset trop petit pour préserver la confidentialité (min ${requiredRows} lignes)`);
   }
   return { header, rows, targetIdx, featureIdx };
+}
+
+export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): void {
+  const deadline = performance.now() + trainingTimeoutMs();
+  const { rows, targetIdx } = trainingColumns(csv, undefined, deadline);
+  if (
+    selection.modelId === "logistic_regression" &&
+    (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1") ||
+      !rows.some((row) => row[targetIdx] === "0") ||
+      !rows.some((row) => row[targetIdx] === "1"))
+  ) {
+    throw new Error("la cible de la régression logistique doit contenir les classes 0 et 1");
+  }
 }
 
 function invert(matrix: number[][], deadline: number): number[][] {

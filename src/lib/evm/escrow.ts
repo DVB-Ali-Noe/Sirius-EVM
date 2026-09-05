@@ -10,6 +10,7 @@ import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from
 import { getPublicClient } from "./client";
 import { datasetIdHash } from "./dataset-key";
 import { resolveServerNetwork } from "./networks";
+import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -38,6 +39,7 @@ export interface OnChainLoan {
   hashlock: Hex;
   preimage: Hex;
   datasetId: Hex;
+  trainingProfile: Hex;
 }
 
 function escrowAddress(): CanonicalAddress {
@@ -65,6 +67,7 @@ export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
     hashlock: loan.hashlock,
     preimage: loan.preimage,
     datasetId: loan.datasetId,
+    trainingProfile: loan.trainingProfile,
   };
 }
 
@@ -78,6 +81,7 @@ export async function assertLoanScope(input: {
   datasetId: string;
   amountUsdcAtomic: string;
   hashlock: Hex;
+  model: ModelSelection;
   minimumRemainingSeconds?: number;
 }): Promise<void> {
   const client = getPublicClient();
@@ -93,6 +97,7 @@ export async function assertLoanScope(input: {
       provider,
       BigInt(input.amountUsdcAtomic),
       input.hashlock,
+      trainingProfileHash(input.model),
       BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS),
     ],
     }),
@@ -104,7 +109,12 @@ export async function assertLoanScope(input: {
       args: [provider, datasetIdHash(input.datasetId)],
     }),
   ]);
-  if (!ok || !loan || loan.datasetId.toLowerCase() !== expectedDatasetId.toLowerCase()) {
+  if (
+    !ok ||
+    !loan ||
+    loan.datasetId.toLowerCase() !== expectedDatasetId.toLowerCase() ||
+    loan.trainingProfile.toLowerCase() !== trainingProfileHash(input.model).toLowerCase()
+  ) {
     throw new AppError("Escrow on-chain inactif, hors scope ou lié à un autre dataset", 409);
   }
 }

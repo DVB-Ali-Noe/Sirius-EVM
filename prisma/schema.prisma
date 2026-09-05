@@ -26,6 +26,8 @@ model Dataset {
   sizeBytes      Int?
   priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
   challengeDays  Int           @default(7) // délai avant remboursement possible
+  modelId        String?
+  modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
   status         DatasetStatus @default(DRAFT)

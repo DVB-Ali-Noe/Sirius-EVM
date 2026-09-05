@@ -10,12 +10,14 @@ import { MAX_DATASET_BYTES, type DatasetIngressKey } from "@/lib/tee/contract";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 
 export default function NewDatasetPage() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingExample, setLoadingExample] = useState(false);
+  const [modelId, setModelId] = useState<ModelId>("linear_regression");
   const fileRef = useRef<HTMLInputElement>(null);
   const { t } = useLocale();
 
@@ -31,10 +33,13 @@ export default function NewDatasetPage() {
     setError(null);
     setLoadingExample(true);
     try {
-      const response = await fetch("/examples/regression/housing-prices-train.csv");
+      const example = modelId === "linear_regression"
+        ? { path: "/examples/regression/housing-prices-train.csv", filename: "housing-prices-train.csv" }
+        : { path: "/examples/classification/credit-default-train.csv", filename: "credit-default-train.csv" };
+      const response = await fetch(example.path);
       if (!response.ok) throw new Error(t("Exemple indisponible"));
       const blob = await response.blob();
-      const file = new File([blob], "housing-prices-train.csv", { type: "text/csv" });
+      const file = new File([blob], example.filename, { type: "text/csv" });
       const transfer = new DataTransfer();
       transfer.items.add(file);
       if (fileRef.current) fileRef.current.files = transfer.files;
@@ -75,6 +80,7 @@ export default function NewDatasetPage() {
           sizeBytes: file.size,
           priceUsdc,
           challengeDays: Number(challengeDays),
+          modelId,
         }),
       });
       const init = (await initRes.json()) as {
@@ -83,6 +89,7 @@ export default function NewDatasetPage() {
         priceUsdcAtomic?: string;
         challengeDays?: number;
         sizeBytes?: number;
+        model?: { modelId: ModelId; modelVersion: string };
         error?: string;
       };
       if (
@@ -91,7 +98,8 @@ export default function NewDatasetPage() {
         !init.ingressKey ||
         !init.priceUsdcAtomic ||
         !init.challengeDays ||
-        init.sizeBytes !== file.size
+        init.sizeBytes !== file.size ||
+        !init.model
       ) {
         throw new Error(init.error ?? t("Échec de la préparation du dépôt"));
       }
@@ -106,6 +114,8 @@ export default function NewDatasetPage() {
           String(init.challengeDays),
           String(init.sizeBytes),
           envelope.ciphertext,
+          init.model.modelId,
+          init.model.modelVersion,
         ],
       );
       const uploadRes = await fetch(`/api/datasets/${init.datasetId}/upload`, {
@@ -190,6 +200,20 @@ export default function NewDatasetPage() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium" htmlFor="modelId">{t("Profil d’entraînement")}</label>
+            <select
+              id="modelId"
+              value={modelId}
+              onChange={(event) => setModelId(event.target.value as ModelId)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+            >
+              {MODEL_OPTIONS.map((model) => (
+                <option key={model.id} value={model.id}>{model.label} · v{model.version}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted">{t("Ce choix est vérifié sur le CSV puis verrouillé dans le titre EVM et chaque escrow.")}</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium">{t("Fichier CSV")}</label>
             <input
               ref={fileRef}
@@ -209,9 +233,9 @@ export default function NewDatasetPage() {
               >
                 {loadingExample ? t("Chargement…") : t("Charger le jeu d'exemple")}
               </button>{" "}
-              {t("— 112 lignes d’entraînement, jeu de test séparé.")}{" "}
+              {t(modelId === "linear_regression" ? "— 112 lignes d’entraînement, jeu de test séparé." : "— 480 lignes d’entraînement, jeu de test séparé.")}{" "}
               <a
-                href="/examples/regression/housing-prices-train.csv"
+                href={modelId === "linear_regression" ? "/examples/regression/housing-prices-train.csv" : "/examples/classification/credit-default-train.csv"}
                 download
                 className="underline underline-offset-4 transition-colors hover:text-foreground"
               >

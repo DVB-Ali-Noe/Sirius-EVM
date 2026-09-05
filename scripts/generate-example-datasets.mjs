@@ -12,6 +12,19 @@ function random() {
   return state / 2 ** 32;
 }
 
+function normal() {
+  const radius = Math.sqrt(-2 * Math.log(Math.max(random(), Number.MIN_VALUE)));
+  return radius * Math.cos(2 * Math.PI * random());
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function sigmoid(value) {
+  return value >= 0 ? 1 / (1 + Math.exp(-value)) : Math.exp(value) / (1 + Math.exp(value));
+}
+
 function peak(hour, center) {
   return Math.exp(-((hour - center) ** 2) / 4);
 }
@@ -66,14 +79,33 @@ function energyDemandRows() {
 }
 
 function creditDefaultRows() {
-  const rows = ["income_k_eur,debt_ratio_pct,credit_score,late_payments,defaulted"];
-  for (let index = 0; index < 150; index++) {
-    const label = index % 2;
-    const cycle = Math.floor(index / 2);
-    const values = label === 1
-      ? [28 + (cycle * 7) % 21, 62 + (cycle * 11) % 25, 510 + (cycle * 13) % 80, 3 + cycle % 4, label]
-      : [72 + (cycle * 5) % 33, 12 + (cycle * 7) % 22, 690 + (cycle * 9) % 95, cycle % 2, label];
-    rows.push(values.join(","));
+  const rows = ["income_k_eur,debt_ratio_pct,credit_score,late_payments,utilization_pct,employment_years,defaulted"];
+  for (let index = 0; index < 600; index++) {
+    const income = clamp(55 + normal() * 18, 18, 160);
+    const debtRatio = clamp(38 - 0.12 * (income - 55) + normal() * 18, 5, 95);
+    const creditScore = clamp(685 + 0.8 * (income - 55) - 1.4 * (debtRatio - 38) + normal() * 45, 300, 850);
+    const latePayments = clamp(Math.round(0.5 + 0.035 * (debtRatio - 35) + (690 - creditScore) / 90 + normal() * 0.8), 0, 8);
+    const utilization = clamp(40 + 0.55 * (debtRatio - 38) + normal() * 20, 3, 99);
+    const employmentYears = clamp(Math.round(6 + 0.08 * (income - 55) + normal() * 4), 0, 30);
+    const risk =
+      -1.1 +
+      0.033 * (debtRatio - 38) +
+      0.022 * (utilization - 40) -
+      0.012 * (creditScore - 680) +
+      0.35 * latePayments -
+      0.015 * (income - 55) -
+      0.04 * (employmentYears - 6) +
+      normal() * 0.7;
+    const defaulted = Number(random() < sigmoid(risk));
+    rows.push([
+      income.toFixed(2),
+      debtRatio.toFixed(2),
+      creditScore.toFixed(0),
+      latePayments,
+      utilization.toFixed(2),
+      employmentYears,
+      defaulted,
+    ].join(","));
   }
   return rows;
 }
@@ -91,7 +123,7 @@ async function main() {
     writeDataset(classificationOutput, classificationRows),
   ]);
   console.log(`Dataset synthétique écrit : ${regressionOutput} (8760 lignes)`);
-  console.log(`Dataset synthétique écrit : ${classificationOutput} (150 lignes)`);
+  console.log(`Dataset synthétique écrit : ${classificationOutput} (600 lignes)`);
 }
 
 main().catch((error) => {

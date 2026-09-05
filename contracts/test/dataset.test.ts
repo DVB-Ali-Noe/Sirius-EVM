@@ -8,6 +8,8 @@ const YEAR = 365 * 24 * 60 * 60;
 const CID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 const CID_HASH = cidHash(CID);
 const MERKLE_ROOT = keccak256(toHex("merkle-root-du-dataset"));
+const TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:linear_regression:1.0.0"));
+const LOGISTIC_TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:logistic_regression:1.0.0"));
 const SIZE = 1_250_000n;
 const ZERO_HASH = `0x${"00".repeat(32)}` as Hex;
 
@@ -47,8 +49,12 @@ async function grantKyb(
   await ctx.kyb.write.acceptAttestation([verifier, expiresAt, signature], { account: wallet.account });
 }
 
-async function mintDataset(ctx: Awaited<ReturnType<typeof fixture>>, datasetId = "ds-1") {
-  return ctx.registry.write.mint([datasetIdHash(datasetId), CID_HASH, MERKLE_ROOT, SIZE], {
+async function mintDataset(
+  ctx: Awaited<ReturnType<typeof fixture>>,
+  datasetId = "ds-1",
+  trainingProfile = TRAINING_PROFILE,
+) {
+  return ctx.registry.write.mint([datasetIdHash(datasetId), CID_HASH, MERKLE_ROOT, SIZE, trainingProfile], {
     account: ctx.provider.account,
   });
 }
@@ -162,6 +168,17 @@ describe("SiriusDatasetRegistry", () => {
   });
 
   describe("validation et portée", () => {
+    it("ancre le profil logistique autorisé dans le titre", async () => {
+      const ctx = await loadFixture(fixture);
+      await grantKyb(ctx, ctx.provider);
+      await mintDataset(ctx, "logistic", LOGISTIC_TRAINING_PROFILE);
+
+      const id = await onChainId(ctx, "logistic");
+      const dataset = await ctx.registry.read.getDataset([id]);
+      expect(dataset.trainingProfile).to.equal(LOGISTIC_TRAINING_PROFILE);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([LOGISTIC_TRAINING_PROFILE])).to.equal(true);
+    });
+
     it("rejette les métadonnées invalides", async () => {
       const ctx = await loadFixture(fixture);
       await grantKyb(ctx, ctx.provider);
@@ -173,20 +190,26 @@ describe("SiriusDatasetRegistry", () => {
       expect(() => cidHash("x".repeat(129))).to.throw("CID invalide");
 
       await expect(
-        ctx.registry.write.mint([ZERO_HASH, CID_HASH, MERKLE_ROOT, SIZE], { account }),
+        ctx.registry.write.mint([ZERO_HASH, CID_HASH, MERKLE_ROOT, SIZE, TRAINING_PROFILE], { account }),
       ).to.be.rejectedWith("EmptyDatasetId");
       await expect(
-        ctx.registry.write.mint([datasetIdHash("a"), ZERO_HASH, MERKLE_ROOT, SIZE], { account }),
+        ctx.registry.write.mint([datasetIdHash("a"), ZERO_HASH, MERKLE_ROOT, SIZE, TRAINING_PROFILE], { account }),
       ).to.be.rejectedWith("InvalidCid");
       await expect(
-        ctx.registry.write.mint([datasetIdHash("c"), CID_HASH, ZERO_HASH, SIZE], { account }),
+        ctx.registry.write.mint([datasetIdHash("c"), CID_HASH, ZERO_HASH, SIZE, TRAINING_PROFILE], { account }),
       ).to.be.rejectedWith("InvalidMerkleRoot");
 
       for (const size of [0n, 16n * 1024n * 1024n + 1n]) {
         await expect(
-          ctx.registry.write.mint([datasetIdHash(`d-${size}`), CID_HASH, MERKLE_ROOT, size], { account }),
+          ctx.registry.write.mint([datasetIdHash(`d-${size}`), CID_HASH, MERKLE_ROOT, size, TRAINING_PROFILE], { account }),
         ).to.be.rejectedWith("InvalidSize");
       }
+      await expect(
+        ctx.registry.write.mint([datasetIdHash("profile"), CID_HASH, MERKLE_ROOT, SIZE, ZERO_HASH], { account }),
+      ).to.be.rejectedWith("InvalidTrainingProfile");
+      await expect(
+        ctx.registry.write.mint([datasetIdHash("unknown-profile"), CID_HASH, MERKLE_ROOT, SIZE, keccak256(toHex("unknown"))], { account }),
+      ).to.be.rejectedWith("InvalidTrainingProfile");
     });
 
     it("matchesScope confirme le titre avant tout déchiffrement", async () => {
@@ -196,17 +219,18 @@ describe("SiriusDatasetRegistry", () => {
       const id = await onChainId(ctx, "ds-1");
       const provider = ctx.provider.account.address;
 
-      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, CID_HASH])).to.equal(true);
+      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, CID_HASH, TRAINING_PROFILE])).to.equal(true);
       expect(
-        await ctx.registry.read.matchesScope([id, ctx.other.account.address, MERKLE_ROOT, CID_HASH]),
+        await ctx.registry.read.matchesScope([id, ctx.other.account.address, MERKLE_ROOT, CID_HASH, TRAINING_PROFILE]),
       ).to.equal(false);
       expect(
-        await ctx.registry.read.matchesScope([id, provider, keccak256(toHex("autre")), CID_HASH]),
+        await ctx.registry.read.matchesScope([id, provider, keccak256(toHex("autre")), CID_HASH, TRAINING_PROFILE]),
       ).to.equal(false);
-      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, cidHash("autre-cid")])).to.equal(false);
+      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, cidHash("autre-cid"), TRAINING_PROFILE])).to.equal(false);
+      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, CID_HASH, keccak256(toHex("other-profile"))])).to.equal(false);
 
       await ctx.registry.write.destroy([datasetIdHash("ds-1")], { account: ctx.provider.account });
-      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, CID_HASH])).to.equal(false);
+      expect(await ctx.registry.read.matchesScope([id, provider, MERKLE_ROOT, CID_HASH, TRAINING_PROFILE])).to.equal(false);
     });
 
     it("n'expose aucun champ de texte libre", async () => {
@@ -215,7 +239,7 @@ describe("SiriusDatasetRegistry", () => {
         .filter((entry) => entry.type === "function" && entry.name === "mint")
         .flatMap((entry) => ("inputs" in entry ? entry.inputs.map((input) => input.name) : []));
 
-      expect(inputs).to.deep.equal(["datasetIdHash", "cidHash", "merkleRoot", "sizeBytes"]);
+      expect(inputs).to.deep.equal(["datasetIdHash", "cidHash", "merkleRoot", "sizeBytes", "trainingProfile"]);
       expect(inputs).to.not.include("name");
       expect(inputs).to.not.include("description");
     });

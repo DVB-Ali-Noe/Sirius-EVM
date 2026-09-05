@@ -94,11 +94,20 @@ test("entraîne le jeu de défaut de crédit de démonstration", () => {
   ).model;
 
   assert.equal(model.algo, "logistic_regression");
-  assert.deepEqual(model.features, ["income_k_eur", "debt_ratio_pct", "credit_score", "late_payments"]);
+  assert.deepEqual(model.features, [
+    "income_k_eur",
+    "debt_ratio_pct",
+    "credit_score",
+    "late_payments",
+    "utilization_pct",
+    "employment_years",
+  ]);
   assert.equal(model.target, "defaulted");
-  assert.equal(model.metrics.n, 120);
-  assert.ok(model.metrics.accuracy > 0.99);
-  assert.ok(model.metrics.f1 > 0.99);
+  assert.equal(model.metrics.n, 480);
+  assert.ok(model.metrics.accuracy > 0.7);
+  assert.ok(model.metrics.accuracy < 0.9);
+  assert.ok(model.metrics.f1 > 0.5);
+  assert.ok(model.metrics.f1 < 0.8);
 });
 
 test("refuse une cible logistique qui n'est pas strictement binaire", () => {

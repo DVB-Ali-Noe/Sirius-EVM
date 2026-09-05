@@ -55,10 +55,24 @@ export function selectionForModelId(modelId: ModelId): ModelSelection {
   return { modelId, modelVersion: MODEL_REGISTRY[modelId].version } as ModelSelection;
 }
 
+export function modelSelectionForId(modelId: unknown): ModelSelection | null {
+  if (typeof modelId !== "string" || !Object.hasOwn(MODEL_REGISTRY, modelId)) return null;
+  return selectionForModelId(modelId as ModelId);
+}
+
 export function modelSelection(modelId: unknown, modelVersion: unknown): ModelSelection | null {
-  if (typeof modelId !== "string" || typeof modelVersion !== "string" || !(modelId in MODEL_REGISTRY)) return null;
-  const selection = selectionForModelId(modelId as ModelId);
+  if (typeof modelVersion !== "string") return null;
+  const selection = modelSelectionForId(modelId);
+  if (!selection) return null;
   return selection.modelVersion === modelVersion ? selection : null;
+}
+
+export function trainingProfileHash(selection: ModelSelection): Hex {
+  return keccak256(stringToBytes(`sirius.training-profile.v1:${selection.modelId}:${selection.modelVersion}`));
+}
+
+export function modelDisplayName(selection: ModelSelection): string {
+  return `${MODEL_REGISTRY[selection.modelId].label} v${selection.modelVersion}`;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -129,3 +143,4 @@ export function parseDeliveredModel(value: unknown): DeliveredModel {
 
   throw new Error("Modèle déchiffré invalide");
 }
+import { keccak256, stringToBytes, type Hex } from "viem";

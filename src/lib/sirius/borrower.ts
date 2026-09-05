@@ -10,8 +10,8 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
-import { escrowHashlockInRunner, validateTrainingInputInRunner } from "@/lib/tee/runner-client";
-import type { ModelSelection } from "@/lib/models/registry";
+import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
+import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 
@@ -19,7 +19,7 @@ const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
 
-export async function prepareLoan(datasetId: string, borrower: string, model: ModelSelection) {
+export async function prepareLoan(datasetId: string, borrower: string) {
   const borrowerAddress = normalizeAddress(borrower);
   await requireCurrentEvmDeployment();
   // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
@@ -36,6 +36,8 @@ export async function prepareLoan(datasetId: string, borrower: string, model: Mo
   if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt) {
     throw new AppError("Dataset EVM incomplet", 409);
   }
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
@@ -50,21 +52,6 @@ export async function prepareLoan(datasetId: string, borrower: string, model: Mo
     args: [dataset.evmDatasetId as Hex],
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
-
-  try {
-    await validateTrainingInputInRunner({
-      datasetId: dataset.id,
-      cid: dataset.ipfsCid,
-      wrappedKey: dataset.wrappedKey,
-      merkleRoot: dataset.merkleRoot,
-      priceUsdcAtomic: dataset.priceUsdcAtomic,
-      challengeDays: dataset.challengeDays,
-      ...model,
-    }, dataset.runnerReceipt);
-  } catch (error) {
-    if (error instanceof AppError && error.status >= 500) throw error;
-    throw new AppError("Dataset incompatible avec le modèle sélectionné", 409);
-  }
 
   const loan = await prisma.$transaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([
@@ -124,6 +111,7 @@ export async function prepareLoan(datasetId: string, borrower: string, model: Mo
         hashlock,
         challengeDays: dataset.challengeDays,
         loanId: loan.id,
+        trainingProfile: trainingProfileHash(model),
       }),
     };
   } catch (error) {
@@ -169,6 +157,8 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   if (!loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
     throw new AppError("Dataset indisponible", 409);
   }
+  const lockedModel = modelSelection(loan.modelId, loan.modelVersion);
+  if (!lockedModel) throw new AppError("Profil d’entraînement du loan invalide", 409);
 
   const publicClient = getPublicClient();
   const receipt = await publicClient.waitForTransactionReceipt({ hash: submittedLockTxHash as Hex, confirmations: 1 });
@@ -184,6 +174,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     !addressesEqual(onChain.borrower, borrowerAddress) ||
     !addressesEqual(onChain.provider, loan.provider) ||
     onChain.datasetId.toLowerCase() !== loan.dataset.evmDatasetId.toLowerCase() ||
+    onChain.trainingProfile.toLowerCase() !== trainingProfileHash(lockedModel).toLowerCase() ||
     onChain.status !== 1 ||
     onChain.amountUsdcAtomic !== loan.amountUsdcAtomic ||
     onChain.hashlock.toLowerCase() !== loan.evmHashlock.toLowerCase()

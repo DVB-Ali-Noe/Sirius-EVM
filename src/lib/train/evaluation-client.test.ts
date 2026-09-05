@@ -91,7 +91,7 @@ test("évalue le modèle énergie sur sa période de test chronologique", () => 
   assert.ok(evaluation.rmse < 4);
 });
 
-test("évalue le modèle logistique sur le jeu de défaut de crédit tenu à l'écart", () => {
+test("évalue le modèle logistique sur un jeu de défaut bruité tenu à l'écart", () => {
   const model = gateModel(
     trainLogisticRegression(readFileSync(resolve(process.cwd(), "public/examples/classification/credit-default-train.csv"))),
   ).model;
@@ -101,7 +101,9 @@ test("évalue le modèle logistique sur le jeu de défaut de crédit tenu à l'�
   );
 
   assert.equal(evaluation.algo, "logistic_regression");
-  assert.equal(evaluation.n, 30);
-  assert.ok(evaluation.accuracy > 0.99);
-  assert.ok(evaluation.f1 > 0.99);
+  assert.equal(evaluation.n, 120);
+  assert.ok(evaluation.accuracy > 0.7);
+  assert.ok(evaluation.accuracy < 0.95);
+  assert.ok(evaluation.f1 > 0.45);
+  assert.ok(evaluation.f1 < 0.9);
 });

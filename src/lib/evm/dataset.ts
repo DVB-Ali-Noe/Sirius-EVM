@@ -6,12 +6,14 @@ import { datasetRegistryAddress } from "./addresses";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { getPublicClient } from "./client";
 import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "./dataset-key";
+import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 
 export async function assertDatasetScope(input: {
   datasetId: string;
   provider: string;
   merkleRoot: string;
   cid: string;
+  model: ModelSelection;
 }): Promise<void> {
   // La racine arrive sous sa forme canonique, sans préfixe : c'est celle que le
   // runner manipule. Le contrat attend un `bytes32`.
@@ -34,7 +36,7 @@ export async function assertDatasetScope(input: {
     address: registry,
     abi: siriusdatasetregistryAbi,
     functionName: "matchesScope",
-    args: [onChainId, provider, racineEvm, cidHash(input.cid)],
+    args: [onChainId, provider, racineEvm, cidHash(input.cid), trainingProfileHash(input.model)],
   });
   if (!matches) throw new AppError("Titre EVM du dataset inactif ou hors scope", 409);
 }
