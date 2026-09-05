@@ -1,4 +1,5 @@
 import { runLoanReaper } from "@/lib/sirius/reaper";
+import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -62,17 +63,18 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 async function main(): Promise<void> {
   const interval = resolveInterval();
+  await requireCurrentEvmDeployment();
   console.log(`[reaper] démarré, une passe toutes les ${interval} ms`);
 
   while (!arret) {
     const debut = Date.now();
     try {
       await runLoanReaper();
-    } catch (error) {
+    } catch {
       // Une passe qui échoue ne doit pas tuer le worker : la cause est presque
       // toujours transitoire — base indisponible, RPC qui refuse. La passe suivante
       // reprendra les mêmes prêts, puisque rien n'a été marqué comme traité.
-      console.error("[reaper] passe échouée, reprise à la suivante", error);
+      console.error("[reaper] passe échouée, reprise à la suivante");
     }
     if (arret) break;
     const reste = interval - (Date.now() - debut);
@@ -82,7 +84,7 @@ async function main(): Promise<void> {
   console.log("[reaper] arrêté proprement");
 }
 
-main().catch((error) => {
-  console.error("[reaper] arrêt sur erreur fatale", error);
+main().catch(() => {
+  console.error("[reaper] arrêt sur erreur fatale : vérifier la configuration et les contrats");
   process.exitCode = 1;
 });

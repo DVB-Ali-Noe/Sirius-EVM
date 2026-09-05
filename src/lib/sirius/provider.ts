@@ -223,7 +223,7 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
   });
   if (deleted.count !== 1) throw new AppError("Suppression impossible : emprunt actif ou état modifié", 409);
   if (dataset.ipfsCid) {
-    await unpinFromIpfs(dataset.ipfsCid).catch((error) => console.error(`[dataset] unpin ${datasetId} échoué`, error));
+    await unpinFromIpfs(dataset.ipfsCid).catch(() => console.error(`[dataset] unpin ${datasetId} échoué`));
   }
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
 }

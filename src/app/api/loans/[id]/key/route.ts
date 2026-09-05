@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loanModelKeyInRunner } from "@/lib/tee/runner-client";
 import { readLoan } from "@/lib/evm/escrow";
+import { loanEscrowBinding } from "@/lib/evm/history";
+import { addressesEqual } from "@/lib/evm/address";
 import { assertGrantSubject, requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
@@ -33,8 +35,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     ) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
-    const onChain = await readLoan(loan.evmLoanKey as `0x${string}`);
-    if (!onChain || onChain.status !== 2) return NextResponse.json({ error: "Préimage EVM indisponible" }, { status: 409 });
+    const onChain = await readLoan(loan.evmLoanKey as `0x${string}`, loanEscrowBinding(loan));
+    if (!onChain || onChain.status !== 2 || !addressesEqual(onChain.borrower, loan.borrower)) {
+      return NextResponse.json({ error: "Préimage EVM indisponible" }, { status: 409 });
+    }
     return NextResponse.json({
       modelCid: loan.modelCid,
       settleTxHash: loan.settleTxHash,

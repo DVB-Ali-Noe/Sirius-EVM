@@ -11,6 +11,8 @@ import { getPublicClient } from "./client";
 import { datasetIdHash } from "./dataset-key";
 import { resolveServerNetwork } from "./networks";
 import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { evmEscrowBinding, type EvmEscrowBinding } from "@/lib/tee/evm-binding";
+import { escrowReadAddress, legacyEscrowAbi } from "./history";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -50,13 +52,16 @@ function escrowAddress(): CanonicalAddress {
 // pur que la suite Hardhat importe pour croiser ces valeurs avec l'on-chain.
 export { hashlockOf, loanKeyFor, LOAN_KEY_DOMAIN } from "./loan-key";
 
-export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
-  const loan = await getPublicClient().readContract({
-    address: escrowAddress(),
-    abi: siriusescrowAbi,
-    functionName: "getLoan",
-    args: [loanKey],
-  });
+export async function readLoan(loanKey: Hex, binding = evmEscrowBinding()): Promise<OnChainLoan | null> {
+  const client = getPublicClient();
+  const address = escrowReadAddress(binding);
+  const version = await client.readContract({ address, abi: siriusescrowAbi, functionName: "VERSION" });
+  if (version !== "sirius-escrow-usdc-v5" && version !== "sirius-escrow-usdc-v4") {
+    throw new AppError("Version du contrat historique non supportée", 409);
+  }
+  const loan = version === "sirius-escrow-usdc-v4"
+    ? await client.readContract({ address, abi: legacyEscrowAbi, functionName: "getLoan", args: [loanKey] })
+    : await client.readContract({ address, abi: siriusescrowAbi, functionName: "getLoan", args: [loanKey] });
   if (loan.status === 0) return null;
   return {
     provider: normalizeAddress(loan.provider),
@@ -67,7 +72,7 @@ export async function readLoan(loanKey: Hex): Promise<OnChainLoan | null> {
     hashlock: loan.hashlock,
     preimage: loan.preimage,
     datasetId: loan.datasetId,
-    trainingProfile: loan.trainingProfile,
+    trainingProfile: "trainingProfile" in loan ? loan.trainingProfile as Hex : `0x${"0".repeat(64)}`,
   };
 }
 
@@ -162,47 +167,31 @@ export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigi
       args: [loanKey, preimage],
     });
     txHash = await client.writeContract(request);
-  } catch (error) {
+  } catch {
     // Une resoumission concurrente a pu passer entre la relecture et l'envoi.
     const recovered = await reconcileLoanEscrow(loanKey, fromBlock).catch(() => ({ state: "active" }) as const);
     if (recovered.state === "settled") return recovered.txHash;
     if (recovered.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
-    console.error("[evm] release échouée", error);
+    // Les erreurs viem contiennent calldata et préimage, même sans transaction minée.
+    console.error("[evm] release échouée");
     throw new AppError("Règlement on-chain du runner échoué", 502);
   }
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
-  if (receipt.status !== "success") throw new AppError("Règlement on-chain rejeté", 502);
-  return receipt.transactionHash;
-}
-
-/** Rembourse le borrower après expiration. */
-export async function refundEscrow(loanKey: Hex, fromBlock?: bigint): Promise<string> {
-  const existing = await reconcileLoanEscrow(loanKey, fromBlock);
-  if (existing.state === "cancelled") return existing.txHash;
-  if (existing.state === "settled") throw new AppError("Escrow on-chain déjà réglé", 409);
-
-  const client = walletClient();
-  const publicClient = getPublicClient();
-  const { request } = await publicClient.simulateContract({
-    account: client.account,
-    address: escrowAddress(),
-    abi: siriusescrowAbi,
-    functionName: "refund",
-    args: [loanKey],
-  });
-  const txHash = await client.writeContract(request);
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
-  if (receipt.status !== "success") throw new AppError("Remboursement on-chain rejeté", 502);
-  return receipt.transactionHash;
+  try {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    if (receipt.status !== "success") throw new AppError("Règlement on-chain rejeté", 502);
+    return receipt.transactionHash;
+  } catch {
+    throw new AppError("Confirmation du règlement indisponible : réconcilie le prêt", 502);
+  }
 }
 
 /**
  * État d'un prêt on-chain. Le hash de transaction est retrouvé uniquement depuis
  * le bloc du lock persistant ; aucun scan depuis le genesis n'est autorisé.
  */
-export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint): Promise<EscrowResolution> {
-  const loan = await readLoan(loanKey);
+export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, binding = evmEscrowBinding()): Promise<EscrowResolution> {
+  const loan = await readLoan(loanKey, binding);
   if (!loan) throw new AppError("Prêt inconnu du contrat escrow", 409);
   if (loan.status === STATUS_LOCKED) return { state: "active" };
 
@@ -214,7 +203,7 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint): Pro
   if (fromBlock === undefined) {
     throw new AppError("Bloc de lock requis pour retrouver la résolution on-chain", 409);
   }
-  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded", fromBlock);
+  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded", fromBlock, binding);
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
     : { state: "cancelled", txHash };
@@ -233,9 +222,10 @@ async function findLifecycleTxHash(
   loanKey: Hex,
   eventName: "LoanReleased" | "LoanRefunded",
   fromBlock: bigint,
+  binding: EvmEscrowBinding,
 ): Promise<string> {
   const client = getPublicClient();
-  const address = escrowAddress();
+  const address = escrowReadAddress(binding);
   const logs =
     eventName === "LoanReleased"
       ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })
@@ -249,9 +239,9 @@ async function findLifecycleTxHash(
 }
 
 /** Préimage publié, que le navigateur utilise pour ouvrir sa capsule. */
-export async function publishedPreimage(loanKey: Hex): Promise<Hex> {
+export async function publishedPreimage(loanKey: Hex, binding = evmEscrowBinding()): Promise<Hex> {
   const [revealed, preimage] = await getPublicClient().readContract({
-    address: escrowAddress(),
+    address: escrowReadAddress(binding),
     abi: siriusescrowAbi,
     functionName: "preimageOf",
     args: [loanKey],

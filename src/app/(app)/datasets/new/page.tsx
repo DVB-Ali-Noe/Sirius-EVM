@@ -69,7 +69,7 @@ export default function NewDatasetPage() {
       ) {
         throw new Error(t("Formulaire invalide"));
       }
-      if (file.size === 0 || file.size > MAX_DATASET_BYTES) throw new Error(t("Fichier trop volumineux (max 16 Mo)"));
+      if (file.size === 0 || file.size > MAX_DATASET_BYTES) throw new Error(t("Fichier vide ou trop volumineux (max 3 Mo)"));
 
       const initRes = await fetch("/api/datasets", {
         method: "POST",

@@ -200,8 +200,8 @@ export async function completeDatasetIngestion(
     if (claimed.count !== 1) throw new AppError("Le dataset a changé pendant le scellement", 409);
     return prisma.dataset.findUniqueOrThrow({ where: { id: dataset.id } });
   } catch (error) {
-    await unpinFromIpfs(cid).catch((unpinError) =>
-      console.error(`Unpin IPFS compensatoire échoué pour ${dataset.id}`, unpinError),
+    await unpinFromIpfs(cid).catch(() =>
+      console.error(`Unpin IPFS compensatoire échoué pour ${dataset.id}`),
     );
     throw error;
   }

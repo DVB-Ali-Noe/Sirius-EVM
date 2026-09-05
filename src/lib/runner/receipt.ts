@@ -5,6 +5,7 @@ import { deriveKey, getMasterKey, safeEqual } from "@/lib/crypto/encryption";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { DatasetRef } from "@/lib/tee/contract";
 import type { ModelId } from "@/lib/models/registry";
+import { trustedEscrowBinding } from "@/lib/evm/history";
 
 export interface DatasetReceipt {
   version: 3;
@@ -21,7 +22,7 @@ export interface DatasetReceipt {
 }
 
 export interface TrainingReceipt {
-  version: 3;
+  version: 2 | 3;
   kind: "training";
   jobId: string;
   datasetId: string;
@@ -32,7 +33,7 @@ export interface TrainingReceipt {
 }
 
 export interface LoanReceipt {
-  version: 3;
+  version: 2 | 3;
   kind: "loan";
   loanId: string;
   datasetId: string;
@@ -53,8 +54,8 @@ export interface LoanReceipt {
 
 type Receipt = DatasetReceipt | TrainingReceipt | LoanReceipt;
 
-function receiptKey(): Buffer {
-  return deriveKey(getMasterKey(), "runner-receipt:hmac:v3");
+function receiptKey(version: 2 | 3 = 3): Buffer {
+  return deriveKey(getMasterKey(), `runner-receipt:hmac:v${version}`);
 }
 
 function issue(payload: Receipt): string {
@@ -63,21 +64,22 @@ function issue(payload: Receipt): string {
   return `${body}.${signature}`;
 }
 
-function verify<T extends Receipt["kind"]>(token: string, kind: T): Extract<Receipt, { kind: T }> {
+function verify<T extends Receipt["kind"]>(token: string, kind: T, delivery = false): Extract<Receipt, { kind: T }> {
   const separator = token.indexOf(".");
   if (separator < 1 || token.length > 8_192) throw new AppError("Reçu runner invalide", 401);
   const body = token.slice(0, separator);
   const signature = Buffer.from(token.slice(separator + 1), "base64url");
-  const expected = createHmac("sha256", receiptKey()).update(body).digest();
-  if (!safeEqual(signature, expected)) throw new AppError("Reçu runner invalide", 401);
-
   let receipt: Receipt;
   try {
     receipt = JSON.parse(Buffer.from(body, "base64url").toString()) as Receipt;
   } catch {
     throw new AppError("Reçu runner invalide", 401);
   }
-  if (receipt.version !== 3 || receipt.kind !== kind) throw new AppError("Reçu runner invalide", 401);
+  if (!receipt || (receipt.version !== 3 && !(delivery && receipt.version === 2)) || receipt.kind !== kind) {
+    throw new AppError("Reçu runner invalide", 401);
+  }
+  const expected = createHmac("sha256", receiptKey(receipt.version)).update(body).digest();
+  if (!safeEqual(signature, expected)) throw new AppError("Reçu runner invalide", 401);
   return receipt as Extract<Receipt, { kind: T }>;
 }
 
@@ -123,7 +125,7 @@ export function issueTrainingReceipt(input: Omit<TrainingReceipt, "version" | "k
 }
 
 export function verifyTrainingReceipt(token: string, jobId: string): TrainingReceipt {
-  const receipt = verify(token, "training");
+  const receipt = verify(token, "training", true);
   if (receipt.jobId !== jobId) throw new AppError("Reçu d’entraînement hors scope", 401);
   return receipt;
 }
@@ -139,6 +141,14 @@ export function verifyLoanReceipt(token: string, loanId: string): LoanReceipt {
   if (receipt.chainId !== chainId || receipt.escrow !== escrow) {
     throw new AppError("Reçu d’emprunt émis pour une autre chaîne ou un autre contrat", 409);
   }
+  return receipt;
+}
+
+/** Les reçus historiques ne peuvent que relivrer un modèle déjà réglé. */
+export function verifyLoanDeliveryReceipt(token: string, loanId: string): LoanReceipt {
+  const receipt = verify(token, "loan", true);
+  if (receipt.loanId !== loanId) throw new AppError("Reçu d’emprunt hors scope", 401);
+  trustedEscrowBinding(receipt);
   return receipt;
 }
 

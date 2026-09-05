@@ -18,7 +18,8 @@ import { trainSelectedModel } from "./model-registry";
 import { validateTrainingDataset } from "./train";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
-import { evmEscrowBinding } from "./evm-binding";
+import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
+import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import type {
@@ -90,8 +91,8 @@ const evmEscrowKeyContext = (loanId: string, borrower: string) => {
  * Un emprunteur pouvait obtenir cette clé au terme d'un prêt bon marché, puis s'en
  * servir pour déchiffrer le modèle d'un prêt homonyme ailleurs, sans jamais payer.
  */
-const evmModelKeyContext = (loanId: string, borrower: string) => {
-  const { chainId, escrow } = evmEscrowBinding();
+const evmModelKeyContext = (loanId: string, borrower: string, binding = evmEscrowBinding()) => {
+  const { chainId, escrow } = trustedEscrowBinding(binding);
   return `model:loan:v2:${chainId}:${escrow}:${evmSubject(borrower)}:${loanId}`;
 };
 
@@ -198,8 +199,8 @@ export function escrowHashlock(loanId: string, borrower: string): `0x${string}` 
  * règlement. Le contexte est reconstruit ici depuis l'identifiant, jamais fourni par
  * l'appelant — même règle que `loanModelKey` sur le rail historique.
  */
-export function evmLoanModelKey(loanId: string, borrower: string): string {
-  return deliveryKey(evmModelKeyContext(loanId, borrower));
+export function evmLoanModelKey(loanId: string, borrower: string, binding?: EvmEscrowBinding): string {
+  return deliveryKey(evmModelKeyContext(loanId, borrower, binding));
 }
 
 /** Chiffre le modèle d'un emprunt EVM sous une clé liée à la chaîne et au contrat. */

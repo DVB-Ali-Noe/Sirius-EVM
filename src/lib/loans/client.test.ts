@@ -5,17 +5,14 @@ import { join } from "node:path";
 
 const SOURCE = readFileSync(join(process.cwd(), "src", "lib", "loans", "client.ts"), "utf8");
 
-test("le hash de lock est conservé avant l'attente de confirmation wallet", () => {
+test("le hash de lock est persisté et soumis immédiatement au serveur", () => {
   const borrow = SOURCE.slice(SOURCE.indexOf("export async function borrowDataset"), SOURCE.indexOf("export async function resumeLoanSubmission"));
 
   assert.ok(
-    borrow.indexOf("window.sessionStorage.setItem") < borrow.indexOf("await waitForTransactionExternal(lockTxHash)"),
+    borrow.indexOf("window.sessionStorage.setItem") < borrow.indexOf("await submitLoanLock"),
     "un hash déjà signé doit rester récupérable si la confirmation tarde",
   );
-  assert.ok(
-    borrow.indexOf("await waitForTransactionExternal(lockTxHash)") < borrow.indexOf("await submitLoanLock"),
-    "l'API ne doit pas finaliser avant le reçu de confirmation",
-  );
+  assert.doesNotMatch(borrow, /await waitForTransactionExternal/);
 });
 
 test("le règlement reprend après rechargement sans dépendre de la capsule locale", () => {

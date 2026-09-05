@@ -3,6 +3,7 @@ import { before, test } from "node:test";
 import { encryptDatasetForRunner } from "./ingress-client";
 import { datasetIngressPublicKey, decryptDatasetIngress } from "./ingress";
 import { sealDatasetEnvelope } from "./core";
+import { MAX_DATASET_BYTES } from "./contract";
 
 before(() => {
   process.env.TEE_MODE = "stub";
@@ -56,4 +57,14 @@ test("une clé d’ingestion qui ne correspond pas à l’empreinte épinglée e
   } finally {
     delete process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256;
   }
+});
+
+test("un dataset à la limite reste sous 4,5 MB après chiffrement et encodage JSON", async () => {
+  const content = new ArrayBuffer(MAX_DATASET_BYTES);
+  const envelope = await encryptDatasetForRunner(content, "dataset-max", datasetIngressPublicKey());
+  const body = JSON.stringify({ envelope, sizeBytes: MAX_DATASET_BYTES, name: "x".repeat(160),
+    modelId: "logistic_regression", modelVersion: "1.0.0", visibility: "PRIVATE" });
+  assert.ok(Buffer.byteLength(body) < 4_500_000);
+  assert.equal(decryptDatasetIngress("dataset-max", envelope).length, MAX_DATASET_BYTES);
+  await assert.rejects(() => encryptDatasetForRunner(new ArrayBuffer(MAX_DATASET_BYTES + 1), "dataset-max", datasetIngressPublicKey()), /Taille/);
 });

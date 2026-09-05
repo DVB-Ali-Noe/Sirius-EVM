@@ -84,6 +84,9 @@ model Loan {
   evmLockTxHash    String? // hash du lock ERC-20 soumis, confirmé quand le prêt est ESCROWED
   evmLockBlock     String? // bloc de lock, borne la lecture des événements
   evmDeadline      DateTime?
+  evmChainId       Int?
+  evmEscrowAddress String?
+  evmPreparedBlock String?
 
   // Résultat TEE préparé avant le release atomique
   jobId                  String?

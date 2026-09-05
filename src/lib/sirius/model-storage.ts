@@ -21,7 +21,7 @@ export async function unpinModelUnlessReferenced(
     ]);
     if (loan || trainingJob || activeLoan || activeTrainingJob) return;
     await unpinFromIpfs(modelCid);
-  } catch (error) {
-    console.error(`[model] unpin compensatoire échoué pour ${modelCid}`, error);
+  } catch {
+    console.error(`[model] unpin compensatoire échoué pour ${modelCid}`);
   }
 }

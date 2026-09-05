@@ -27,6 +27,8 @@ services:
       EVM_NETWORK: ${EVM_NETWORK:?EVM_NETWORK requis}
       EVM_RPC_URL: ${EVM_RPC_URL:-}
       SIRIUS_ESCROW_ADDRESS: ${SIRIUS_ESCROW_ADDRESS:?SIRIUS_ESCROW_ADDRESS requise}
+      SIRIUS_DATASET_ADDRESS: ${SIRIUS_DATASET_ADDRESS:?SIRIUS_DATASET_ADDRESS requise}
+      SIRIUS_LEGACY_ESCROW_ADDRESSES: ${SIRIUS_LEGACY_ESCROW_ADDRESSES:-}
 
     # Le reaper lit la base et interroge la chaîne. Il n'écrit aucun fichier, n'accepte
     # aucune connexion entrante et ne détient aucun secret d'enclave. Le durcissement

@@ -115,7 +115,7 @@ export async function POST(req: Request) {
       body.sizeBytes <= 0 ||
       body.sizeBytes > MAX_DATASET_BYTES
     ) {
-      return NextResponse.json({ error: "Fichier trop volumineux (max 16 Mo)" }, { status: 413 });
+      return NextResponse.json({ error: "Fichier vide ou trop volumineux (max 3 Mo)" }, { status: 413 });
     }
     const priceUsdcAtomic = priceUsdcToAtomic(body.priceUsdc);
     if (!priceUsdcAtomic) {

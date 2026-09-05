@@ -1,7 +1,8 @@
 import type { DatasetMetrics } from "@/lib/sirius/metrics";
 import type { ModelSelection } from "@/lib/models/registry";
 
-export const MAX_DATASET_BYTES = 16 * 1024 * 1024;
+// Le JSON chiffré en base64 doit rester sous les 4,5 Mo admis par Vercel.
+export const MAX_DATASET_BYTES = 3 * 1024 * 1024;
 export const DATASET_INGRESS_INFO_PREFIX = "sirius-dataset-ingress-v1:";
 
 export interface DatasetIngressKey {

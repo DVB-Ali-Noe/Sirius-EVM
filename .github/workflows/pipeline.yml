@@ -224,7 +224,12 @@ jobs:
       - name: Appliquer les migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: pnpm exec prisma migrate deploy
+          EVM_NETWORK: ${{ vars.EVM_NETWORK }}
+          EVM_RPC_URL: ${{ secrets.EVM_RPC_URL || vars.EVM_RPC_URL }}
+          SIRIUS_MIGRATION_ESCROW_ADDRESSES: ${{ vars.SIRIUS_MIGRATION_ESCROW_ADDRESSES }}
+        run: |
+          NODE_OPTIONS="--conditions=react-server" node --import tsx scripts/check-evm-migration.ts
+          pnpm exec prisma migrate deploy
 
   vercel:
     name: Front Vercel

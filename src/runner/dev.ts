@@ -7,7 +7,7 @@ async function main() {
   await startRunner();
 }
 
-void main().catch((error) => {
-  console.error("[runner] démarrage impossible", error);
+void main().catch(() => {
+  console.error("[runner] démarrage impossible : vérifier la configuration");
   process.exitCode = 1;
 });

@@ -12,6 +12,10 @@ export interface EvmTransactionRequest {
   data: Hex;
 }
 
+export function refundEscrowTransaction(loanKey: Hex, escrow: Address): EvmTransactionRequest {
+  return { to: escrow, data: encodeFunctionData({ abi: siriusescrowAbi, functionName: "refund", args: [loanKey] }) };
+}
+
 export function approveUsdcTransaction(amount: string): EvmTransactionRequest {
   return {
     to: usdcAddress(),

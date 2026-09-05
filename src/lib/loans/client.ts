@@ -2,7 +2,6 @@
 
 import { useWalletStore } from "@/stores/wallet";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
-import { waitForTransactionExternal } from "@/lib/wallet/manager";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import {
@@ -54,7 +53,7 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   await sendActiveTransaction(body.approveTransaction, { waitForConfirmation: true });
   const lockTxHash = await sendActiveTransaction(body.lockTransaction);
   window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
-  await waitForTransactionExternal(lockTxHash);
+  // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
   await submitLoanLock(body.loanId, lockTxHash);
 }
 
@@ -64,8 +63,14 @@ export async function resumeLoanSubmission(loanId: string, lockTxHash?: string):
 
 export async function cancelExpiredLoan(loanId: string): Promise<void> {
   const response = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
-  const body = await response.json() as { error?: string };
+  const body = await response.json() as { error?: string; transaction?: Record<string, unknown> };
   if (!response.ok) throw new Error(body.error ?? "Remboursement USDC échoué");
+  if (body.transaction) {
+    await sendActiveTransaction(body.transaction, { waitForConfirmation: true });
+    const confirmed = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
+    const result = await confirmed.json() as { error?: string; transaction?: unknown };
+    if (!confirmed.ok || result.transaction) throw new Error(result.error ?? "Remboursement à réconcilier");
+  }
 }
 
 interface RunLoanInput {

@@ -26,6 +26,7 @@ import {
   issueTrainingReceipt,
   verifyDatasetReceipt,
   verifyLoanReceipt,
+  verifyLoanDeliveryReceipt,
   verifyTrainingReceipt,
 } from "@/lib/runner/receipt";
 import {
@@ -272,18 +273,18 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       const loanId = text(body, "loanId");
       const loanReceiptToken = text(body, "loanReceipt", MAX_RECEIPT_LENGTH);
       const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
-      const receipt = verifyLoanReceipt(loanReceiptToken, loanId);
+      const receipt = verifyLoanDeliveryReceipt(loanReceiptToken, loanId);
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         loanId,
         intentParts: [loanId, loanReceiptToken, deliveryPublicKey],
       });
       if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Clé réservée au borrower", 403);
-      await publishedPreimage(receipt.loanKey as `0x${string}`);
+      await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
       return {
         modelCid: receipt.modelCid,
         modelKeyEnvelope: encryptRunnerDelivery(
-          evmLoanModelKey(loanId, receipt.borrower),
+          evmLoanModelKey(loanId, receipt.borrower, receipt),
           deliveryPublicKey,
           loanDeliveryContext(loanId, receipt.borrower),
         ),
