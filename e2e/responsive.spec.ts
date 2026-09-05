@@ -3,7 +3,10 @@ import { expect, test, type Page } from "playwright/test";
 const WALLET = "0x37f98be7c9d48b5d39e449616e7c70e37e29db13";
 const PROVIDER = "0x930f5a13d65b3e7e07431a38da30229562e3318b";
 const LONG_NAME = `Dataset_${"credit_default_".repeat(12)}`;
-const WIDTHS = [320, 390, 640, 768, 1024, 1440];
+const SCREENS = [
+  ...[320, 390, 640, 768, 1024, 1440].map((width) => ({ name: `${width}px`, width, fontSize: 16 })),
+  { name: "390px, texte agrandi", width: 390, fontSize: 20 },
+];
 
 const dataset = {
   id: "responsive-logistic",
@@ -122,8 +125,7 @@ async function connect(page: Page) {
 }
 
 async function expectContainedLayout(page: Page) {
-  const issues = await page.locator("main").evaluate(async (main) => {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const issues = await page.locator("main").evaluate((main) => {
     const issues: string[] = [];
     const visible = (element: Element) => element.getClientRects().length > 0;
     const describe = (element: Element) => `${element.tagName}: ${element.textContent?.trim().slice(0, 65)}`;
@@ -166,72 +168,76 @@ async function expectContainedLayout(page: Page) {
   expect(issues, `Affichage à ${page.viewportSize()?.width}px`).toEqual([]);
 }
 
-async function checkWidths(page: Page) {
-  for (const width of WIDTHS) {
-    await page.setViewportSize({ width, height: 900 });
-    await expectContainedLayout(page);
-  }
-  await page.setViewportSize({ width: 390, height: 900 });
-  await page.evaluate(() => { document.documentElement.style.fontSize = "20px"; });
-  await expectContainedLayout(page);
-}
+for (const screen of SCREENS) {
+  test.describe(`responsive : ${screen.name}`, () => {
+    test.use({ viewport: { width: screen.width, height: 900 } });
 
-test("responsive : les profils du catalogue restent dans leur carte", async ({ page }) => {
-  await page.goto("/marketplace");
-  await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
-  await expect(page.getByText("Régression logistique binaire v1.0.0", { exact: true })).toBeVisible();
-  await checkWidths(page);
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((fontSize) => {
+        document.addEventListener("DOMContentLoaded", () => {
+          document.documentElement.style.fontSize = `${fontSize}px`;
+        }, { once: true });
+      }, screen.fontSize);
+    });
 
-  const card = page.getByRole("heading", { name: linearDataset.name, exact: true }).locator("../..");
-  await card.getByRole("button", { name: "Add to favorites" }).click();
-  await expect(card.getByRole("button", { name: "Remove from favorites" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("main h3").first()).toHaveText(linearDataset.name);
-  await expect(card.getByRole("button", { name: "Borrow", exact: true })).toBeEnabled();
-});
+    test("les profils du catalogue restent dans leur carte", async ({ page }) => {
+      await page.goto("/marketplace");
+      await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
+      await expect(page.getByText("Régression logistique binaire v1.0.0", { exact: true })).toBeVisible();
+      await expectContainedLayout(page);
 
-test("responsive : titres et actions des datasets ne se chevauchent pas", async ({ page }) => {
-  await page.goto("/datasets");
-  await connect(page);
-  await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Incomplete upload" })).toBeDisabled();
-  await checkWidths(page);
-});
+      const card = page.getByRole("heading", { name: linearDataset.name, exact: true }).locator("../..");
+      await card.getByRole("button", { name: "Add to favorites" }).click();
+      await expect(card.getByRole("button", { name: "Remove from favorites" })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("main h3").first()).toHaveText(linearDataset.name);
+      await expect(card.getByRole("button", { name: "Borrow", exact: true })).toBeEnabled();
+    });
 
-test("responsive : tous les états des prêts et la récupération du lock restent lisibles", async ({ page }) => {
-  await page.goto("/train");
-  await connect(page);
-  await expect(page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true })).toBeVisible();
-  await checkWidths(page);
+    test("titres et actions des datasets ne se chevauchent pas", async ({ page }) => {
+      await page.goto("/datasets");
+      await connect(page);
+      await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Incomplete upload" })).toBeDisabled();
+      await expectContainedLayout(page);
+    });
 
-  const pending = page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true }).locator("../../../..");
-  await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeDisabled();
-  await pending.getByPlaceholder("Hash de la transaction lock").fill(`0x${"f".repeat(64)}`);
-  await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeEnabled();
-  await expectContainedLayout(page);
+    test("tous les états des prêts et la récupération du lock restent lisibles", async ({ page }) => {
+      await page.goto("/train");
+      await connect(page);
+      await expect(page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true })).toBeVisible();
+      await expectContainedLayout(page);
 
-  await page.getByRole("button", { name: "Borrow", exact: true }).first().click();
-  await expect(page.getByRole("button", { name: "Confirm escrow" })).toBeVisible();
-  await expectContainedLayout(page);
-});
+      const pending = page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true }).locator("../../../..");
+      await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeDisabled();
+      await pending.getByPlaceholder("Hash de la transaction lock").fill(`0x${"f".repeat(64)}`);
+      await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeEnabled();
+      await expectContainedLayout(page);
 
-test("responsive : le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
-  await page.goto("/datasets/new");
-  await page.getByLabel("Profil d’entraînement").selectOption("logistic_regression");
-  await page.locator('input[type="file"]').setInputFiles({
-    name: `${LONG_NAME}.csv`,
-    mimeType: "text/csv",
-    buffer: Buffer.from("feature,target\n1,0\n2,1\n"),
+      await page.getByRole("button", { name: "Borrow", exact: true }).first().click();
+      await expect(page.getByRole("button", { name: "Confirm escrow" })).toBeVisible();
+      await expectContainedLayout(page);
+    });
+
+    test("le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
+      await page.goto("/datasets/new");
+      await page.getByLabel("Profil d’entraînement").selectOption("logistic_regression");
+      await page.locator('input[type="file"]').setInputFiles({
+        name: `${LONG_NAME}.csv`,
+        mimeType: "text/csv",
+        buffer: Buffer.from("feature,target\n1,0\n2,1\n"),
+      });
+      await expect(page.getByLabel("Profil d’entraînement")).toHaveValue("logistic_regression");
+      await expectContainedLayout(page);
+    });
+
+    test("les preuves d’audit restent dans leur carte", async ({ page }) => {
+      await page.goto("/audit");
+      await connect(page);
+      await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
+      await expectContainedLayout(page);
+      await expect(page.getByRole("link", { name: "Verify Lock USDC on EVM" }))
+        .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/0x${"c".repeat(64)}`);
+    });
   });
-  await expect(page.getByLabel("Profil d’entraînement")).toHaveValue("logistic_regression");
-  await checkWidths(page);
-});
-
-test("responsive : les preuves d’audit restent dans leur carte", async ({ page }) => {
-  await page.goto("/audit");
-  await connect(page);
-  await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
-  await checkWidths(page);
-  await expect(page.getByRole("link", { name: "Verify Lock USDC on EVM" }))
-    .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/0x${"c".repeat(64)}`);
-});
+}
