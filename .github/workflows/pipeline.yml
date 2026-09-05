@@ -357,7 +357,7 @@ jobs:
           SSH_USER="$(printf '%s' "${{ secrets.VPS_USER }}" | tr -d '[:space:]')"
           sleep 5
           ssh "${SSH_USER}@${HOST}" \
-            "cd '${DOSSIER}' && docker compose -p '${PROJET}' ps --format '{{.Service}} {{.State}}' | grep -q 'reaper running'"
+            "cd '${DOSSIER}' && docker compose -p '${PROJET}' --env-file .env.vps ps --format '{{.Service}} {{.State}}' | grep -q 'reaper running'"
 
   fumee:
     name: Fumée
