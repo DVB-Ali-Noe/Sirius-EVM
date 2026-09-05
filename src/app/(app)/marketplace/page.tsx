@@ -107,8 +107,8 @@ export default function MarketplacePage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-8">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div>
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-64">
             <h1 className="text-2xl font-semibold tracking-tight">{t("Datasets disponibles")}</h1>
             <p className="mt-1 text-sm text-muted">
               {t("Emprunte l’accès via un escrow conditionnel. La donnée reste chiffrée — tu ne récupères qu’un modèle entraîné en TEE.")}
@@ -130,7 +130,7 @@ export default function MarketplacePage() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2">
           {datasets.length === 0 && (
             <p className="col-span-full py-8 text-center text-sm text-muted">
               {t("Aucun dataset listé pour l’instant.")}
@@ -187,8 +187,8 @@ function MarketCard({
 
   return (
     <Card className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-medium">{dataset.name}</h3>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="min-w-0 flex-1 font-medium">{dataset.name}</h3>
         <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => toggleFav(dataset.id)}
@@ -201,12 +201,12 @@ function MarketCard({
             {isFav ? "★" : "☆"}
           </button>
           <Badge variant="positive">{t("LISTED")}</Badge>
-          <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
         </div>
       </div>
+      <Badge className="self-start" variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
       {dataset.description && <p className="text-sm text-muted">{dataset.description}</p>}
 
-      <div className="flex gap-4 text-xs text-muted">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>{t("{count} lignes", { count: dataset.metrics?.rowCount ?? "—" })}</span>
         <span>{t("{count} colonnes", { count: dataset.metrics?.columnCount ?? "—" })}</span>
         <span>{formatBytes(dataset.sizeBytes)}</span>
@@ -221,15 +221,15 @@ function MarketCard({
         {t("Confiance EVM {score}/100 · {count} règlements", { score: dataset.providerReputation?.score ?? 0, count: dataset.providerReputation?.completedLoans ?? 0 })}
       </p>
 
-      <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <p className="text-xs text-muted">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-1">
+        <p className="min-w-0 flex-1 basis-40 text-xs text-muted">
           {model ? t("Profil du dataset verrouillé") : t("Profil d’entraînement manquant")}
         </p>
         <button
           onClick={borrow}
           disabled={!model || busy}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
-          className="w-full rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50 sm:w-auto"
+          className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
           {busy ? t("Escrow…") : t("Emprunter")}
         </button>

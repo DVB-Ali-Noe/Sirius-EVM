@@ -161,7 +161,7 @@ export default function NewDatasetPage() {
               name="name"
               required
               placeholder={t("Ex : Transactions e-commerce 2025")}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+              className="w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -171,7 +171,7 @@ export default function NewDatasetPage() {
             <input
               name="description"
               placeholder={t("Contenu, provenance, fraîcheur…")}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+              className="w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -184,7 +184,7 @@ export default function NewDatasetPage() {
               step="0.000001"
               defaultValue="10"
               required
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+              className="w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -196,7 +196,7 @@ export default function NewDatasetPage() {
               max="30"
               defaultValue="7"
               required
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+              className="w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -205,7 +205,7 @@ export default function NewDatasetPage() {
               id="modelId"
               value={modelId}
               onChange={(event) => setModelId(event.target.value as ModelId)}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
+              className="w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30"
             >
               {MODEL_OPTIONS.map((model) => (
                 <option key={model.id} value={model.id}>{model.label} · v{model.version}</option>
@@ -221,7 +221,7 @@ export default function NewDatasetPage() {
               type="file"
               accept=".csv,text/csv"
               required
-              className="text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-background hover:file:bg-accent/90"
+              className="w-full min-w-0 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-background hover:file:bg-accent/90"
             />
             <p className="text-xs text-muted">
               {t("Pas de données sous la main ?")}{" "}

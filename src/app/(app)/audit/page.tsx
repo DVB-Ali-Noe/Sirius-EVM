@@ -97,7 +97,7 @@ export default function AuditPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{t("Registre d’audit")}</h1>
           <p className="mt-1 text-sm text-muted">{t("Chaîne de preuves Sirius recoupable sur EVM.")}</p>
         </div>
-        <div className="flex gap-5 font-mono text-xs uppercase tracking-wider text-muted">
+        <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider text-muted">
           <span>{t("{count} réglés", { count: settled })}</span>
           <span>{t("{count} remboursés", { count: refunded })}</span>
           <span>{network}</span>
@@ -120,8 +120,8 @@ export default function AuditPage() {
         {loans.map((loan) => (
           <Card key={loan.id}>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1 basis-64">
+                <div className="flex flex-wrap items-center gap-2">
                   <h2 className="font-medium">{loan.dataset.name}</h2>
                   <Badge variant={STATUS_VARIANT[loan.status]}>{t(loan.status)}</Badge>
                 </div>

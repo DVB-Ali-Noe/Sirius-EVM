@@ -210,8 +210,8 @@ export default function DatasetsPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-64">
           <h1 className="text-2xl font-semibold tracking-tight">{t("Mes actifs data")}</h1>
           <p className="mt-1 text-sm text-muted">
             {t("{datasets} dataset{datasetSuffix} · {listed} public{publicSuffix}. Chaque titre est l'ancrage on-chain de ta donnée.", {
@@ -222,7 +222,7 @@ export default function DatasetsPage() {
             })}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {kybManquant === true && (
             <button
               onClick={handleOnboard}
@@ -254,10 +254,10 @@ export default function DatasetsPage() {
         )}
         {datasets.map((d) => (
           <Card key={d.id}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="truncate font-medium">{d.name}</h3>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1 basis-80">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="w-full font-medium">{d.name}</h3>
                   <Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL[d.status])}</Badge>
                   <DatasetProfileBadge dataset={d} />
                 </div>
@@ -276,7 +276,7 @@ export default function DatasetsPage() {
                 </dl>
               </div>
               {(d.status === "DRAFT" || d.status === "LISTING") && (
-                <div className="flex shrink-0 flex-col items-end gap-2">
+                <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
                   <button
                     onClick={() => handleList(d)}
                     disabled={pendingId === d.id || (d.status === "DRAFT" && !d.ipfsCid)}
@@ -303,8 +303,8 @@ export default function DatasetsPage() {
                 </div>
               )}
               {VISIBILITY_STATES.includes(d.status) && (
-                <div className="flex shrink-0 flex-col items-end gap-2">
-                  <div className="inline-flex rounded-lg border border-border p-0.5">
+                <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
+                  <div className="grid max-w-full grid-cols-3 rounded-lg border border-border p-0.5">
                     {VISIBILITY_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
@@ -334,7 +334,7 @@ export default function DatasetsPage() {
                 <button
                   onClick={() => handleDelete(d)}
                   disabled={pendingId === d.id}
-                  className="shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
+                  className="max-w-full rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                 >
                   {pendingId === d.id ? t("Réconciliation…") : t("Finaliser le titre")}
                 </button>

@@ -355,7 +355,7 @@ export default function TrainPage() {
 
       {/* Mes données — self-train, gratuit, sans escrow */}
       <section className="mb-10">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
           <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
         </div>
@@ -374,7 +374,7 @@ export default function TrainPage() {
 
       {/* Catalogue — emprunt via escrow */}
       <section className="mb-10">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Catalogue")}</h2>
           <span className="text-xs text-muted">{t("Emprunt · escrow USDC")}</span>
         </div>
@@ -400,8 +400,8 @@ export default function TrainPage() {
         <div className="flex flex-col gap-3">
           {jobs.map((j) => (
             <Card key={j.id}>
-              <div className="flex items-center gap-2">
-                <h3 className="truncate font-medium">{j.dataset?.name ?? t("Dataset")}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="w-full font-medium">{j.dataset?.name ?? t("Dataset")}</h3>
                 <Badge variant={JOB_VARIANT[j.status]}>{t(j.status)}</Badge>
                 <Badge variant="default">{t("Self-train")}</Badge>
                 <Badge variant="default">{j.modelId} v{j.modelVersion}</Badge>
@@ -433,10 +433,10 @@ export default function TrainPage() {
 
           {loans.map((l) => (
             <Card key={l.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1 basis-80">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_VARIANT[l.status]}>{t(l.status)}</Badge>
                     <Badge variant="default">{t("Emprunt")}</Badge>
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
@@ -458,7 +458,7 @@ export default function TrainPage() {
                   <button
                     onClick={() => refundLoan(l)}
                     disabled={busy.has(`refund:${l.id}`)}
-                    className="shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                   >
                     {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Récupérer l’escrow")}
                   </button>
@@ -468,7 +468,7 @@ export default function TrainPage() {
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
                     aria-busy={busy.has(`job:${l.id}`)}
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {busy.has(`job:${l.id}`) ? (
                       <><TeeSpinner />{t("TEE en cours…")}</>
@@ -482,23 +482,23 @@ export default function TrainPage() {
                   <button
                     onClick={() => resumeSubmission(l)}
                     disabled={busy.has(`submit:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Réconcilier l’escrow")}
                   </button>
                 )}
                 {(l.status === "PENDING" || (l.status === "CANCELLED" && !l.cancelTxHash)) && (
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row">
                     <input
                       value={lockRecoveryHashes[l.id] ?? ""}
                       onChange={(event) => setLockRecoveryHashes((previous) => ({ ...previous, [l.id]: event.target.value.trim() }))}
                       placeholder={t("Hash de la transaction lock")}
-                      className="min-w-0 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent sm:w-72"
+                      className="w-full min-w-0 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent sm:flex-1"
                     />
                     <button
                       onClick={() => resumeSubmission(l, lockRecoveryHashes[l.id])}
                       disabled={busy.has(`submit:${l.id}`) || !lockRecoveryHashes[l.id]}
-                      className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                      className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                     >
                       {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Récupérer le lock")}
                     </button>
@@ -508,7 +508,7 @@ export default function TrainPage() {
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {busy.has(`job:${l.id}`)
                       ? t("Règlement…")
@@ -573,10 +573,10 @@ function SelfTrainCard({
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
 
   return (
-    <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
+    <Card className="flex flex-wrap items-center justify-between gap-4">
+      <div className="min-w-0 flex-1 basis-80">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="truncate font-medium">{dataset.name}</h3>
+          <h3 className="w-full font-medium">{dataset.name}</h3>
           <Badge variant={model ? "default" : "negative"}>
             {model ? modelDisplayName(model) : t("Profil absent")}
           </Badge>
@@ -591,7 +591,7 @@ function SelfTrainCard({
         disabled={!model || busy}
         title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
         aria-busy={busy}
-        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+        className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
       >
         {busy ? <><TeeSpinner />{t("TEE en cours…")}</> : t("Entraîner")}
       </button>
@@ -717,14 +717,14 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
         <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Tester une prédiction")}</summary>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {model.features.map((feature) => (
-            <label key={feature} className="flex flex-col gap-1 text-xs text-muted">
+            <label key={feature} className="flex min-w-0 flex-col gap-1 text-xs text-muted">
               {feature}
               <input
                 type="number"
                 inputMode="decimal"
                 value={featureValues[feature] ?? ""}
                 onChange={(event) => setFeatureValues((values) => ({ ...values, [feature]: event.target.value }))}
-                className="rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
+                className="w-full min-w-0 rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
               />
             </label>
           ))}
@@ -793,9 +793,9 @@ function CatalogueCard({
 
   return (
     <Card>
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h3 className="truncate font-medium">{dataset.name}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-80">
+          <h3 className="font-medium">{dataset.name}</h3>
           <Badge variant={model ? "default" : "negative"}>
             {model ? modelDisplayName(model) : t("Profil absent")}
           </Badge>
@@ -812,7 +812,7 @@ function CatalogueCard({
             onClick={() => setOpenForm(true)}
             disabled={!model}
             title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
-            className="shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
+            className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
           >
             {t("Emprunter")}
           </button>
