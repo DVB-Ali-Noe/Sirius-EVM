@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "playwright/test";
+import { openLayoutPage } from "./helpers/layout";
 
 const WALLET = "0x37f98be7c9d48b5d39e449616e7c70e37e29db13";
 const PROVIDER = "0x930f5a13d65b3e7e07431a38da30229562e3318b";
@@ -172,16 +173,8 @@ for (const screen of SCREENS) {
   test.describe(`responsive : ${screen.name}`, () => {
     test.use({ viewport: { width: screen.width, height: 900 } });
 
-    test.beforeEach(async ({ page }) => {
-      await page.addInitScript((fontSize) => {
-        document.addEventListener("DOMContentLoaded", () => {
-          document.documentElement.style.fontSize = `${fontSize}px`;
-        }, { once: true });
-      }, screen.fontSize);
-    });
-
     test("les profils du catalogue restent dans leur carte", async ({ page }) => {
-      await page.goto("/marketplace");
+      await openLayoutPage(page, "/marketplace", screen.fontSize);
       await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
       await expect(page.getByText("Régression logistique binaire v1.0.0", { exact: true })).toBeVisible();
       await expectContainedLayout(page);
@@ -194,7 +187,7 @@ for (const screen of SCREENS) {
     });
 
     test("titres et actions des datasets ne se chevauchent pas", async ({ page }) => {
-      await page.goto("/datasets");
+      await openLayoutPage(page, "/datasets", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Incomplete upload" })).toBeDisabled();
@@ -202,7 +195,7 @@ for (const screen of SCREENS) {
     });
 
     test("tous les états des prêts et la récupération du lock restent lisibles", async ({ page }) => {
-      await page.goto("/train");
+      await openLayoutPage(page, "/train", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true })).toBeVisible();
@@ -220,7 +213,7 @@ for (const screen of SCREENS) {
     });
 
     test("le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
-      await page.goto("/datasets/new");
+      await openLayoutPage(page, "/datasets/new", screen.fontSize);
       await page.getByLabel("Profil d’entraînement").selectOption("logistic_regression");
       await page.locator('input[type="file"]').setInputFiles({
         name: `${LONG_NAME}.csv`,
@@ -232,7 +225,7 @@ for (const screen of SCREENS) {
     });
 
     test("les preuves d’audit restent dans leur carte", async ({ page }) => {
-      await page.goto("/audit");
+      await openLayoutPage(page, "/audit", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
       await expectContainedLayout(page);
