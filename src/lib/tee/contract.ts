@@ -1,6 +1,8 @@
 import type { DatasetMetrics } from "@/lib/sirius/metrics";
+import type { ModelSelection } from "@/lib/models/registry";
 
-export const MAX_DATASET_BYTES = 16 * 1024 * 1024;
+// Le JSON chiffré en base64 doit rester sous les 4,5 Mo admis par Vercel.
+export const MAX_DATASET_BYTES = 3 * 1024 * 1024;
 export const DATASET_INGRESS_INFO_PREFIX = "sirius-dataset-ingress-v1:";
 
 export interface DatasetIngressKey {
@@ -53,23 +55,23 @@ export interface EvmEscrowLock {
  */
 
 /** Référence d'un dataset chiffré au repos (ce que le Next connaît sans jamais déchiffrer). */
-export interface DatasetRef {
+export type DatasetRef = {
   datasetId: string; // contexte de wrap de la DEK
   cid: string; // blob chiffré sur IPFS
   wrappedKey: string; // DEK scellée
   merkleRoot: string; // intégrité vérifiée après déchiffrement
   priceUsdcAtomic: string; // termes provider authentifiés par le reçu runner (USDC, six décimales)
   challengeDays: number;
-}
+} & ModelSelection;
 
 /** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
-export interface TrainingInput extends DatasetRef {
+export type TrainingInput = DatasetRef & {
   keyContext: string; // contexte de la clé du modèle livré (redérivable pour la livraison)
   filename: string; // nom du blob modèle sur IPFS
 }
 
 /** Entrée d'un self-train : le runner dérive lui-même la clé et le nom du modèle. */
-export interface SelfTrainingInput extends DatasetRef {
+export type SelfTrainingInput = DatasetRef & {
   jobId: string;
   owner: string;
 }
@@ -79,7 +81,7 @@ export interface SelfTrainingInput extends DatasetRef {
  * nom de blob sont dérivés du `loanId` DANS le runner (pas de champ libre côté appelant) →
  * un modèle ne peut pas être chiffré sous le contexte d'un autre emprunt.
  */
-export interface LoanJobInput extends DatasetRef {
+export type LoanJobInput = DatasetRef & {
   loanId: string;
   borrower: string;
 }

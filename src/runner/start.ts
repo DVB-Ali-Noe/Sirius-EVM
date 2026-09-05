@@ -1,6 +1,6 @@
 import { startRunner } from "./server";
 
-void startRunner().catch((error) => {
-  console.error("[runner] démarrage impossible", error);
+void startRunner().catch(() => {
+  console.error("[runner] démarrage impossible : vérifier la configuration et l'identité TEE");
   process.exitCode = 1;
 });

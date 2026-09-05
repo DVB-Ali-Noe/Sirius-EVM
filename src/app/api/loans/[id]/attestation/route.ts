@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { verifyTdxQuote } from "@/lib/tee/quote";
 import type { QuoteVerification } from "@/lib/tee/quote";
+import { hashLoanAttestationPayload, parseLoanAttestationPayload } from "@/lib/tee/attestation";
+import { evmEscrowBinding } from "@/lib/tee/evm-binding";
+import type { LoanAttestationPayload } from "@/lib/tee/types";
 import { AppError, errorResponse } from "@/lib/errors";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 
@@ -36,28 +39,56 @@ async function verifyCachedAttestation(
   return value;
 }
 
-/**
- * Preuve d'exécution confidentielle d'un emprunt réglé : renvoie le hash gravé on-chain et,
- * en mode phala, la quote TDX + sa vérification (binding report_data == modèle + signature
- * Intel). Ouvert aux deux parties (borrower & provider). Le HMAC de release, lui, est vérifié
- * inline au règlement (settle) ; ici on expose la preuve MATÉRIELLE vérifiable indépendamment.
- */
+/** Preuve TEE liée au modèle, au scope de prêt et à la capsule livrée. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(attestationLimiter, `subject:${session.address}`);
     const { id } = await params;
-    const loan = await prisma.loan.findUnique({ where: { id } });
+    const loan = await prisma.loan.findUnique({ where: { id }, include: { dataset: true } });
     if (!loan) throw new AppError("Loan introuvable", 404);
     if (session.address !== loan.borrower && session.address !== loan.provider) {
       throw new AppError("Accès refusé : preuve réservée aux parties de l'emprunt", 403);
     }
-    if (loan.status !== "SETTLED" || !loan.attestationHash) {
+    if (loan.status !== "SETTLED" || !loan.attestationHash || !loan.attestationPayload) {
       throw new AppError("Emprunt pas encore réglé", 409);
     }
 
+    let payload: LoanAttestationPayload;
+    try {
+      payload = parseLoanAttestationPayload(loan.attestationPayload);
+    } catch {
+      throw new AppError("Preuve d’attestation invalide", 409);
+    }
+    const { chainId, escrow } = evmEscrowBinding();
+    if (
+      hashLoanAttestationPayload(loan.attestationPayload) !== loan.attestationHash ||
+      payload.chainId !== chainId ||
+      payload.escrow !== escrow ||
+      payload.loanId !== loan.id ||
+      payload.loanKey !== loan.evmLoanKey ||
+      payload.datasetId !== loan.datasetId ||
+      payload.datasetCid !== loan.dataset.ipfsCid ||
+      payload.provider !== loan.provider ||
+      payload.borrower !== loan.borrower ||
+      payload.amountUsdcAtomic !== loan.amountUsdcAtomic ||
+      payload.challengeDays !== loan.dataset.challengeDays ||
+      payload.merkleRoot !== loan.dataset.merkleRoot ||
+      payload.modelId !== loan.modelId ||
+      payload.modelVersion !== loan.modelVersion ||
+      payload.modelCid !== loan.modelCid
+    ) {
+      throw new AppError("Preuve d’attestation incohérente", 409);
+    }
+
     if (!loan.attestationQuote) {
-      return NextResponse.json({ payloadHash: loan.attestationHash, quote: null, verification: null });
+      return NextResponse.json({
+        payloadHash: loan.attestationHash,
+        payload,
+        auditReceipt: loan.auditReceipt,
+        quote: null,
+        verification: null,
+      });
     }
 
     // La vérif matérielle est sautée d'elle-même au simulateur (cf verifyTdxQuote).
@@ -73,6 +104,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     );
     return NextResponse.json({
       payloadHash: loan.attestationHash,
+      payload,
+      auditReceipt: loan.auditReceipt,
       quote: loan.attestationQuote,
       evidence,
       verification,

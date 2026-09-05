@@ -14,13 +14,17 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 ## Migration produit — en cours
 
-- [ ] Déployer les trois contrats durcis sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
+- [x] Déployer les trois contrats durcis sur Robinhood Chain testnet et renseigner leurs adresses dans `.env.local`.
 - [ ] Configurer l'émetteur KYB externe et sa clé HSM/KMS ; l'application ne signe plus d'attestation KYB.
-- [ ] Financer et vérifier le compte EVM dérivé du runner, utilisé pour appeler `release` et `refund`.
+- [ ] Financer et vérifier le compte EVM dérivé du runner, utilisé pour appeler `release` ; le wallet du borrower signe `refund`.
 - [x] Brancher le wallet navigateur EVM sur les appels `mint`, `approve`, `lock`, `withdraw` et les attestations KYB.
 - [x] Migrer les routes et écrans dataset, marketplace, entraînement, audit et wallet sur les données et événements EVM.
 - [x] Retirer les chemins historiques de l'application, du runner et du manifeste de déploiement.
 - [x] Remplacer le manifeste Phala par `EVM_NETWORK`, `EVM_RPC_URL` et les adresses de contrats EVM.
+- [x] Imposer le profil d'entraînement à l'upload et le lier au titre DatasetRegistry v4, à l'Escrow v5 et aux reçus du runner.
+- [x] Reprendre les locks abandonnés et conserver le déploiement des nouveaux prêts ; permettre la livraison des modèles historiques autorisés.
+- [x] Remboursement signé dans le wallet sans master key côté Next ; logs techniques sans préimage ni jeton RPC brut.
+- [x] Préflight de migration on-chain, protection contre les transactions en attente et limite d'upload compatible avec l'hébergement Vercel.
 - [ ] Ajouter des tests d'intégration navigateur/runner/contrats sur un nœud EVM local puis sur testnet.
 
 ## Validation testnet — à faire
@@ -32,6 +36,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.
 - [ ] Rejouer les reprises après timeout et les scénarios de conflit de réseau ou d'adresse de contrat.
+- [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs du [dernier audit local](AUDIT-CORRECTIFS.md) dans le navigateur.
 
 ## Phala et production — à faire
 

@@ -11,8 +11,12 @@ import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
 import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
+import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
+import { evmEscrowBinding } from "@/lib/tee/evm-binding";
+import { recoverUnsubmittedLoan } from "./recover-loan";
+import { assertLoanLockTransaction } from "@/lib/evm/history";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -32,9 +36,11 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   if (!isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
-  if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.runnerReceipt) {
+  if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt) {
     throw new AppError("Dataset EVM incomplet", 409);
   }
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
@@ -81,11 +87,15 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         borrower: borrowerAddress,
         provider: dataset.provider,
         amountUsdcAtomic,
+        modelId: model.modelId,
+        modelVersion: model.modelVersion,
       },
     });
   });
 
   try {
+    const binding = evmEscrowBinding();
+    const preparedBlock = await getPublicClient().getBlockNumber();
     const hashlock = await escrowHashlockInRunner(loan.id, borrowerAddress);
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
     const prepared = await prisma.loan.update({
@@ -93,6 +103,9 @@ export async function prepareLoan(datasetId: string, borrower: string) {
       data: {
         evmLoanKey: loanKey,
         evmHashlock: hashlock,
+        evmChainId: binding.chainId,
+        evmEscrowAddress: binding.escrow,
+        evmPreparedBlock: preparedBlock.toString(),
         evmDeadline: new Date(Date.now() + dataset.challengeDays * 86_400_000),
       },
     });
@@ -106,6 +119,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         hashlock,
         challengeDays: dataset.challengeDays,
         loanId: loan.id,
+        trainingProfile: trainingProfileHash(model),
       }),
     };
   } catch (error) {
@@ -116,7 +130,6 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
 export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?: string) {
   const borrowerAddress = normalizeAddress(borrower);
-  await requireCurrentEvmDeployment();
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
@@ -126,13 +139,25 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     throw new AppError("Emprunt déjà clôturé", 409);
   }
   if (!loan.evmLoanKey || !loan.evmHashlock || !loan.amountUsdcAtomic) throw new AppError("Emprunt EVM non préparé", 409);
-  const submittedLockTxHash = loan.evmLockTxHash ?? lockTxHash;
+  const submittedLockTxHash = lockTxHash ?? loan.evmLockTxHash;
   if (!submittedLockTxHash || !/^0x[0-9a-fA-F]{64}$/.test(submittedLockTxHash)) {
     throw new AppError("Hash de lock USDC manquant", 400);
   }
-  if (lockTxHash && loan.evmLockTxHash && loan.evmLockTxHash.toLowerCase() !== lockTxHash.toLowerCase()) {
-    throw new AppError("Hash de lock USDC différent de la soumission en cours", 409);
+  const replacingHash = loan.evmLockTxHash && loan.evmLockTxHash.toLowerCase() !== submittedLockTxHash.toLowerCase();
+  if (!loan.evmEscrowAddress || loan.evmEscrowAddress !== evmEscrowBinding().escrow || replacingHash) {
+    // Reprise d'un ancien lock : l'état et le contrat viennent de la chaîne,
+    // sans dépendre du profil du dataset désormais suspendu.
+    await recoverUnsubmittedLoan({ ...loan, evmLockTxHash: submittedLockTxHash }, { requireConfirmedLock: true });
+    const recovered = await prisma.loan.findUniqueOrThrow({ where: { id: loan.id } });
+    const confirmed = ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"].includes(recovered.status)
+      || (recovered.status === "CANCELLED" && Boolean(recovered.cancelTxHash));
+    if (!confirmed
+      || recovered.evmLockTxHash?.toLowerCase() !== submittedLockTxHash.toLowerCase()) {
+      throw new AppError("Lock USDC non confirmé : actualise son état", 409);
+    }
+    return recovered;
   }
+  await requireCurrentEvmDeployment();
   const submission = await prisma.loan.updateMany({
     where: {
       id: loan.id,
@@ -151,6 +176,8 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   if (!loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
     throw new AppError("Dataset indisponible", 409);
   }
+  const lockedModel = modelSelection(loan.modelId, loan.modelVersion);
+  if (!lockedModel) throw new AppError("Profil d’entraînement du loan invalide", 409);
 
   const publicClient = getPublicClient();
   const receipt = await publicClient.waitForTransactionReceipt({ hash: submittedLockTxHash as Hex, confirmations: 1 });
@@ -158,14 +185,24 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     publicClient.getTransaction({ hash: submittedLockTxHash as Hex }),
     readLoan(loan.evmLoanKey as Hex),
   ]);
-  if (receipt.status !== "success" || !addressesEqual(transaction.from, borrowerAddress) || !addressesEqual(transaction.to ?? "", escrowAddress())) {
-    throw new AppError("Transaction de lock USDC invalide", 409);
+  try {
+    if (receipt.status !== "success") throw new AppError("Transaction de lock USDC rejetée", 409);
+    assertLoanLockTransaction(transaction, { loanId, borrower: borrowerAddress, escrow: escrowAddress() });
+  } catch (error) {
+    // Un hash prouvé invalide ne doit pas empêcher la saisie du vrai lock.
+    // Les erreurs RPC, avant cette validation, conservent au contraire SUBMITTING.
+    await prisma.loan.updateMany({
+      where: { id: loan.id, status: "SUBMITTING", evmLockTxHash: submittedLockTxHash },
+      data: { status: "PENDING", evmLockTxHash: null },
+    });
+    throw error;
   }
   if (
     !onChain ||
     !addressesEqual(onChain.borrower, borrowerAddress) ||
     !addressesEqual(onChain.provider, loan.provider) ||
     onChain.datasetId.toLowerCase() !== loan.dataset.evmDatasetId.toLowerCase() ||
+    onChain.trainingProfile.toLowerCase() !== trainingProfileHash(lockedModel).toLowerCase() ||
     onChain.status !== 1 ||
     onChain.amountUsdcAtomic !== loan.amountUsdcAtomic ||
     onChain.hashlock.toLowerCase() !== loan.evmHashlock.toLowerCase()

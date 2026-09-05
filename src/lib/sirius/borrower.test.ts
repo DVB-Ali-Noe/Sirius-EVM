@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SOURCE = readFileSync(join(process.cwd(), "src", "lib", "sirius", "borrower.ts"), "utf8");
+const RUNNER_HANDLER = readFileSync(join(process.cwd(), "src", "runner", "handler.ts"), "utf8");
 
 test("la confirmation du lock précède les lectures EVM", () => {
   const finalize = SOURCE.slice(SOURCE.indexOf("export async function finalizeLoan"));
@@ -31,8 +32,35 @@ test("les essais annulés ne consomment pas le quota d’emprunts", () => {
   assert.match(prepare, /status: \{ in: \["ESCROWED", "TRAINING", "SETTLING", "SETTLED"\] \}/);
 });
 
+test("le profil verrouillé est porté dans le lock, sans pré-entraînement", () => {
+  const prepare = SOURCE.slice(SOURCE.indexOf("export async function prepareLoan"), SOURCE.indexOf("export async function finalizeLoan"));
+  const model = prepare.indexOf("const model = modelSelection");
+  const loan = prepare.indexOf("return tx.loan.create");
+  const hashlock = prepare.indexOf("await escrowHashlockInRunner");
+
+  assert.doesNotMatch(prepare, /validateTrainingInputInRunner/);
+  assert.ok(model >= 0, "le profil du dataset doit être validé côté serveur");
+  assert.ok(loan >= 0, "le prêt doit être créé après la validation");
+  assert.ok(hashlock >= 0, "le hashlock doit être dérivé après la création du prêt");
+  assert.ok(model < loan, "un profil absent ne doit pas créer de prêt");
+  assert.match(prepare, /trainingProfile: trainingProfileHash\(model\)/);
+});
+
 test("le lock doit porter le titre EVM du dataset demandé", () => {
   const finalize = SOURCE.slice(SOURCE.indexOf("export async function finalizeLoan"));
 
   assert.match(finalize, /onChain\.datasetId\.toLowerCase\(\) !== loan\.dataset\.evmDatasetId\.toLowerCase\(\)/);
+});
+
+test("le TEE confirme le scope du self-train avant le déchiffrement", () => {
+  const selfTraining = RUNNER_HANDLER.slice(
+    RUNNER_HANDLER.lastIndexOf('case "run-training"'),
+    RUNNER_HANDLER.lastIndexOf('case "self-train-key"'),
+  );
+  const scope = selfTraining.indexOf("await assertDatasetScope");
+  const training = selfTraining.indexOf("await runSelfTraining");
+
+  assert.ok(scope >= 0, "le titre EVM doit être vérifié");
+  assert.ok(training >= 0, "le runner doit entraîner le dataset");
+  assert.ok(scope < training, "le dataset ne doit pas être déchiffré avant sa vérification on-chain");
 });

@@ -9,6 +9,7 @@ import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
 import { publicDatasetMetrics } from "@/lib/sirius/metrics";
+import { modelSelectionForId } from "@/lib/models/registry";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
       sizeBytes?: unknown;
       priceUsdc?: unknown;
       challengeDays?: unknown;
+      modelId?: unknown;
     }>(req);
     if (typeof body.name !== "string" || body.name.trim() === "" || body.name.trim().length > MAX_NAME_LENGTH) {
       return NextResponse.json({ error: "Nom manquant" }, { status: 400 });
@@ -113,7 +115,7 @@ export async function POST(req: Request) {
       body.sizeBytes <= 0 ||
       body.sizeBytes > MAX_DATASET_BYTES
     ) {
-      return NextResponse.json({ error: "Fichier trop volumineux (max 16 Mo)" }, { status: 413 });
+      return NextResponse.json({ error: "Fichier vide ou trop volumineux (max 3 Mo)" }, { status: 413 });
     }
     const priceUsdcAtomic = priceUsdcToAtomic(body.priceUsdc);
     if (!priceUsdcAtomic) {
@@ -127,6 +129,10 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "Délai invalide (1 à 30 jours)" }, { status: 400 });
     }
+    const model = modelSelectionForId(body.modelId);
+    if (!model) {
+      return NextResponse.json({ error: "Profil d’entraînement obligatoire" }, { status: 400 });
+    }
 
     const upload = await beginDatasetIngestion({
       name: body.name.trim(),
@@ -135,6 +141,7 @@ export async function POST(req: Request) {
       sizeBytes: body.sizeBytes,
       priceUsdcAtomic,
       challengeDays,
+      model,
     });
 
     return NextResponse.json(upload, { status: 201 });

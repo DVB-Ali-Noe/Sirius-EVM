@@ -16,7 +16,11 @@ Le runner est la frontière de confiance : il détient la master key dstack, ouv
 - `RUNNER_TRANSPORT_SECRET` et `SIRIUS_APP_ORIGIN` ;
 - les variables dstack, RA-TLS et de limites déjà requises par le runner.
 
-Le compte EVM de règlement est dérivé dans le runner depuis la master key scellée. Il doit recevoir suffisamment d'ETH natif pour payer les appels `release` et `refund`. Sa clé privée ne doit jamais être injectée par variable d'environnement.
+Le compte EVM de règlement est dérivé dans le runner depuis la master key scellée. Il doit recevoir suffisamment d'ETH natif pour payer les appels `release`. Sa clé privée ne doit jamais être injectée par variable d'environnement. Le remboursement `refund` est signé par le wallet du borrower ; Next prépare et réconcilie cette transaction sans accéder à la master key.
+
+Après un changement d'escrow, conserver la master key et renseigner `SIRIUS_LEGACY_ESCROW_ADDRESSES` dans le runner comme dans Next et le worker pour relivrer les modèles des déploiements précédents.
+
+Le RPC de règlement est une dépendance de confiance : la simulation et l'envoi de `release` lui transmettent le préimage avant confirmation. Les logs applicatifs suppriment les détails Viem susceptibles de le contenir, mais cela ne garantit pas la confidentialité vis-à-vis d'un RPC hostile. Utiliser un RPC de confiance et ne pas considérer la seule simulation comme une preuve de règlement.
 
 ## Séquence de déploiement
 

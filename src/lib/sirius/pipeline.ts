@@ -7,6 +7,7 @@ import type { DatasetIngressEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
+import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 
 const DATASET_WINDOW_MS = 60 * 60_000;
 const ABANDONED_DRAFT_TTL_MS = 30 * 60_000;
@@ -21,6 +22,7 @@ export interface IngestInput {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  model: ModelSelection;
 }
 
 export interface AuthorizedDatasetUpload {
@@ -29,6 +31,7 @@ export interface AuthorizedDatasetUpload {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  model: ModelSelection;
 }
 
 /**
@@ -42,6 +45,7 @@ export async function beginDatasetIngestion({
   sizeBytes,
   priceUsdcAtomic,
   challengeDays,
+  model,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
   const dataset = await prisma.$transaction(async (tx) => {
@@ -69,7 +73,16 @@ export async function beginDatasetIngestion({
       throw new AppError("Quota d’ingestion atteint — réessaie plus tard", 429);
     }
     return tx.dataset.create({
-      data: { name, description, provider, sizeBytes, priceUsdcAtomic, challengeDays },
+      data: {
+        name,
+        description,
+        provider,
+        sizeBytes,
+        priceUsdcAtomic,
+        challengeDays,
+        modelId: model.modelId,
+        modelVersion: model.modelVersion,
+      },
     });
   });
   try {
@@ -80,6 +93,7 @@ export async function beginDatasetIngestion({
       priceUsdcAtomic: dataset.priceUsdcAtomic!,
       challengeDays: dataset.challengeDays,
       sizeBytes: dataset.sizeBytes,
+      model,
     };
   } catch (error) {
     await prisma.dataset.deleteMany({ where: { id: dataset.id, status: "DRAFT", ipfsCid: null } });
@@ -103,12 +117,16 @@ export async function authorizeDatasetUpload(
       sizeBytes: true,
       priceUsdcAtomic: true,
       challengeDays: true,
+      modelId: true,
+      modelVersion: true,
       ipfsCid: true,
       wrappedKey: true,
       keyDestroyedAt: true,
     },
   });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   if (dataset.provider !== provider) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
   if (
     dataset.status !== "DRAFT" ||
@@ -139,6 +157,7 @@ export async function authorizeDatasetUpload(
     sizeBytes: dataset.sizeBytes,
     priceUsdcAtomic: dataset.priceUsdcAtomic,
     challengeDays: dataset.challengeDays,
+    model,
   };
 }
 
@@ -154,6 +173,7 @@ export async function completeDatasetIngestion(
     dataset.sizeBytes,
     envelope,
     authorization,
+    dataset.model,
   );
   try {
     if (sizeBytes !== dataset.sizeBytes) {
@@ -180,8 +200,8 @@ export async function completeDatasetIngestion(
     if (claimed.count !== 1) throw new AppError("Le dataset a changé pendant le scellement", 409);
     return prisma.dataset.findUniqueOrThrow({ where: { id: dataset.id } });
   } catch (error) {
-    await unpinFromIpfs(cid).catch((unpinError) =>
-      console.error(`Unpin IPFS compensatoire échoué pour ${dataset.id}`, unpinError),
+    await unpinFromIpfs(cid).catch(() =>
+      console.error(`Unpin IPFS compensatoire échoué pour ${dataset.id}`),
     );
     throw error;
   }

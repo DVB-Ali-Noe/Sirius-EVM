@@ -147,7 +147,7 @@ export async function handleRunnerRequest(
     }
   } catch (err) {
     if (err instanceof AppError) return send(err.status, { error: err.message });
-    console.error("[runner]", err);
+    console.error("[runner] erreur interne");
     return send(500, { error: "Erreur runner" });
   }
 }
@@ -235,16 +235,16 @@ export async function startRunner(
     console.log(`[runner] empreinte SHA-256 de la clé d’ingestion : ${datasetIngressKeyFingerprint()}`);
     try {
       console.log(`[runner] compte de règlement EVM : ${runnerSettlementAddress()}`);
-    } catch (err) {
-      console.warn("[runner] compte de règlement EVM non configuré", err);
+    } catch {
+      console.warn("[runner] compte de règlement EVM non configuré");
     }
   }
   return server;
 }
 
 if (require.main === module) {
-  void startRunner().catch((error) => {
-    console.error("[runner] démarrage impossible", error);
+  void startRunner().catch(() => {
+    console.error("[runner] démarrage impossible : vérifier la configuration et l'identité TEE");
     process.exitCode = 1;
   });
 }

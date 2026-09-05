@@ -1,19 +1,34 @@
 # Pipeline unique : vérifier, puis migrer, puis déployer.
 #
 # Tout part d'ici, rien ne se déploie à la main. Vercel passe par la CLI plutôt que
-# par son intégration Git automatique, pour une raison précise : l'intégration déploie
-# sur chaque poussée, y compris quand les tests échouent. Ici le déploiement est un
-# `needs:` — il n'existe pas tant que la vérification n'est pas verte.
+# par son intégration Git, pour une raison précise : l'intégration déploie sur chaque
+# poussée, y compris quand les tests échouent. Ici le déploiement est un `needs:` —
+# il n'existe pas tant que la vérification n'est pas verte.
+#
+# Deux cibles, distinguées par la branche seule :
+#   staging → projet Vercel « sirius-evm-staging », base de recette, Compose « sirius-staging »
+#   main    → projet Vercel « sirius-evm » et sirius-data.tech, Compose « sirius »
+#
+# Deux projets Vercel plutôt qu'un seul avec des variables scopées par branche. Un
+# projet unique aurait imposé de passer les métadonnées Git à chaque déploiement CLI,
+# faute de quoi Vercel ne rattache le déploiement à aucune branche et applique les
+# variables d'un autre environnement — sans erreur, sans avertissement. Deux projets
+# rendent ce mode d'échec impossible : chacun n'a qu'un environnement de production,
+# et la seule chose qui varie ici est l'identifiant de projet écrit plus bas.
+#
+# Les secrets ne sont pas choisis par le workflow : chaque job déclare son
+# `environment:` et GitHub résout `secrets.*` dans celui-là. Une cible ne peut donc
+# pas atteindre les identifiants de l'autre, même en cas d'erreur d'expression.
 #
 # Ce que le pipeline ne fait PAS, volontairement : déployer les contrats, et mettre à
-# jour la CVM Phala. Voir la section 6 du plan de déploiement — ces deux gestes changent
-# une identité que l'application épingle, et doivent rester une décision humaine.
+# jour la CVM Phala. Ces deux gestes changent une identité que l'application épingle,
+# et doivent rester une décision humaine.
 
 name: pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 concurrency:
@@ -68,16 +83,73 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Seul Chromium est installé : la configuration Playwright ne déclare que ce
+      # projet, et tirer les deux autres moteurs coûterait une minute par passage
+      # pour des navigateurs que personne n'exécute.
+      - name: Installer Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Les e2e démarrent leur propre serveur de développement et interceptent les
+      # routes API : ils ne touchent ni la base ni la chaîne. Ils ne peuvent pas viser
+      # une instance déployée, car le pont de test qu'ils pilotent est interdit en
+      # production par `instrumentation-node.ts`.
+      - name: Tests end-to-end
+        run: pnpm test:e2e
+
+  cible:
+    name: Cible
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      environnement: ${{ steps.calcul.outputs.environnement }}
+      projet_compose: ${{ steps.calcul.outputs.projet_compose }}
+      projet_vercel: ${{ steps.calcul.outputs.projet_vercel }}
+      dossier_vps: ${{ steps.calcul.outputs.dossier_vps }}
+      url_publique: ${{ steps.calcul.outputs.url_publique }}
+      branche: ${{ steps.calcul.outputs.branche }}
+    steps:
+      # Un seul endroit décide de ce qui distingue les deux cibles. Répartir ces
+      # valeurs dans des expressions ternaires au fil des jobs les rendrait
+      # impossibles à relire, et une divergence entre deux d'entre elles déploierait
+      # le code d'une cible avec les ressources de l'autre.
+      - name: Résoudre la cible
+        id: calcul
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            {
+              echo "environnement=production"
+              echo "projet_compose=sirius"
+              echo "projet_vercel=prj_gmEKctb6EJcsErIQqamKiZNaK5vZ"
+              echo "dossier_vps=/opt/sirius"
+              echo "url_publique=https://sirius-data.tech"
+              echo "branche=main"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "environnement=staging"
+              echo "projet_compose=sirius-staging"
+              echo "projet_vercel=prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz"
+              echo "dossier_vps=/opt/sirius-staging"
+              echo "url_publique=https://sirius-evm-staging.vercel.app"
+              echo "branche=staging"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Annoncer la cible
+        run: |
+          echo "Environnement : ${{ steps.calcul.outputs.environnement }}"
+          echo "URL           : ${{ steps.calcul.outputs.url_publique }}"
+
   image:
-    name: Image du worker
-    needs: verify
-    if: github.ref == 'refs/heads/main'
+    name: Images
+    needs: [verify, cible]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest_worker: ${{ steps.worker.outputs.digest }}
+      digest_runner: ${{ steps.runner.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,22 +168,44 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Construire et publier
-        id: build
+      - name: Worker
+        id: worker
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.worker
           push: true
-          tags: ghcr.io/${{ steps.owner.outputs.lc }}/sirius-worker:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ghcr.io/${{ steps.owner.outputs.lc }}/sirius-worker:${{ needs.cible.outputs.branche }}-${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      # Le runner n'était bâti nulle part, alors que la CVM Phala ne peut lancer que
+      # ce qui a été publié. L'image est produite ici mais n'est jamais déployée par
+      # le pipeline : c'est `phala deploy`, à la main, qui la met en service, parce
+      # que chaque changement d'image change l'identité mesurée que l'application
+      # épingle et impose une nouvelle capture RA-TLS.
+      - name: Runner confidentiel
+        id: runner
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runner
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ steps.owner.outputs.lc }}/sirius-runner:${{ needs.cible.outputs.branche }}-${{ github.sha }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+      - name: Rappeler le digest du runner
+        run: |
+          echo "Image runner : ghcr.io/${{ steps.owner.outputs.lc }}/sirius-runner@${{ steps.runner.outputs.digest }}"
+          echo "Elle n'est pas déployée automatiquement — voir docs/PHALA.md."
 
   migrate:
     name: Migrations
-    needs: verify
-    if: github.ref == 'refs/heads/main'
+    needs: [verify, cible]
     runs-on: ubuntu-latest
+    environment: ${{ needs.cible.outputs.environnement }}
     steps:
       - uses: actions/checkout@v4
 
@@ -130,13 +224,18 @@ jobs:
       - name: Appliquer les migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: pnpm exec prisma migrate deploy
+          EVM_NETWORK: ${{ vars.EVM_NETWORK }}
+          EVM_RPC_URL: ${{ secrets.EVM_RPC_URL || vars.EVM_RPC_URL }}
+          SIRIUS_MIGRATION_ESCROW_ADDRESSES: ${{ vars.SIRIUS_MIGRATION_ESCROW_ADDRESSES }}
+        run: |
+          NODE_OPTIONS="--conditions=react-server" node --import tsx scripts/check-evm-migration.ts
+          pnpm exec prisma migrate deploy
 
   vercel:
     name: Front Vercel
-    needs: [verify, migrate]
-    if: github.ref == 'refs/heads/main'
+    needs: [verify, cible, migrate]
     runs-on: ubuntu-latest
+    environment: ${{ needs.cible.outputs.environnement }}
     steps:
       - uses: actions/checkout@v4
 
@@ -155,13 +254,26 @@ jobs:
       # pas des clés d'accès — et les passer par l'environnement laissait la CLI
       # échouer sur « Could not retrieve Project Settings » sans dire pourquoi.
       # Écrit en clair, le lien avec le projet ne peut plus être ambigu.
+      #
+      # C'est la seule ligne qui distingue les deux cibles côté Vercel : le reste du
+      # déploiement est rigoureusement identique.
       - name: Lier le projet
+        env:
+          PROJET: ${{ needs.cible.outputs.projet_vercel }}
         run: |
           mkdir -p .vercel
-          echo '{"projectId":"prj_gmEKctb6EJcsErIQqamKiZNaK5vZ","orgId":"team_lgHr4F4CMq1B8wXtrRe1fbvz"}' > .vercel/project.json
+          echo "{\"projectId\":\"${PROJET}\",\"orgId\":\"team_lgHr4F4CMq1B8wXtrRe1fbvz\"}" > .vercel/project.json
           cat .vercel/project.json
 
       - name: Déployer
+        env:
+          # La version est épinglée plutôt que résolue par `@latest`. Deux raisons, et
+          # la première s'est produite : `@latest` a désigné une version que le registre
+          # npm ne servait pas encore, et le déploiement est mort sur un `ETARGET` qui
+          # n'avait rien à voir avec ce dépôt. La seconde est plus sourde : l'outil qui
+          # déploie ne doit pas changer de comportement entre deux passages sans que
+          # personne ne l'ait décidé. À relever délibérément.
+          CLI: vercel@59.11.0
         run: |
           # Le jeton est nettoyé comme les autres secrets : un retour à la ligne
           # collé sans le voir suffit à le rendre invalide, et l'API répond alors
@@ -172,17 +284,20 @@ jobs:
           # Contrôle explicite avant tout le reste : si le jeton n'ouvre aucune
           # porte, autant le savoir ici, avec un message qui le dit.
           echo "Identité du jeton :"
-          npx --yes vercel@latest whoami --token="$TOKEN"
+          npx --yes "$CLI" whoami --token="$TOKEN"
 
-          npx --yes vercel@latest pull --yes --environment=production --token="$TOKEN"
-          npx --yes vercel@latest build --prod --token="$TOKEN"
-          npx --yes vercel@latest deploy --prebuilt --prod --token="$TOKEN"
+          # Chaque cible a son propre projet, donc son propre environnement de
+          # production : les trois mêmes commandes servent aux deux, et il n'y a
+          # aucune branche à déclarer ni métadonnée Git à joindre.
+          npx --yes "$CLI" pull --yes --environment=production --token="$TOKEN"
+          npx --yes "$CLI" build --prod --token="$TOKEN"
+          npx --yes "$CLI" deploy --prebuilt --prod --token="$TOKEN"
 
   vps:
     name: Reaper sur le VPS
-    needs: [image, migrate]
-    if: github.ref == 'refs/heads/main'
+    needs: [cible, image, migrate]
     runs-on: ubuntu-latest
+    environment: ${{ needs.cible.outputs.environnement }}
     # Le jeton du workflow suffit à tirer l'image : il est éphémère, limité à ce
     # passage, et évite d'entretenir un jeton personnel de longue durée dont
     # l'expiration casserait le déploiement sans prévenir.
@@ -194,7 +309,9 @@ jobs:
 
       - name: Déployer par SSH
         env:
-          DIGEST: ${{ needs.image.outputs.digest }}
+          DIGEST: ${{ needs.image.outputs.digest_worker }}
+          PROJET: ${{ needs.cible.outputs.projet_compose }}
+          DOSSIER: ${{ needs.cible.outputs.dossier_vps }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
 
@@ -214,27 +331,53 @@ jobs:
           printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-          scp deploy/vps/compose.yaml \
-            "${CIBLE}:/opt/sirius/compose.yaml"
+          scp deploy/vps/compose.yaml "${CIBLE}:${DOSSIER}/compose.yaml"
 
           ssh "${CIBLE}" bash -s <<EOF
           set -euo pipefail
-          cd /opt/sirius
+          cd "${DOSSIER}"
           # L'image est épinglée par digest : ce qui redémarre est exactement ce que
           # ce commit a produit, pas ce qu'un tag mutable désignera plus tard.
           sed -i "s|^SIRIUS_WORKER_IMAGE=.*|SIRIUS_WORKER_IMAGE=\"ghcr.io/${OWNER}/sirius-worker@${DIGEST}\"|" .env.vps
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          # Le VPS héberge d'autres projets. Le nom de projet est explicite pour que
-          # Compose ne touche qu'aux conteneurs Sirius, et aucun élagage global n'est
-          # lancé : « docker image prune » supprimerait les images pendantes des autres
-          # projets, ce qui n'est pas à nous de décider.
-          docker compose -p sirius --env-file .env.vps up --detach --pull always
+          # Le VPS héberge d'autres projets, et désormais deux piles Sirius. Le nom de
+          # projet est explicite pour que Compose ne touche qu'aux conteneurs de cette
+          # cible, et aucun élagage global n'est lancé : « docker image prune »
+          # supprimerait les images pendantes des autres projets, ce qui n'est pas à
+          # nous de décider.
+          docker compose -p "${PROJET}" --env-file .env.vps up --detach --pull always
           EOF
 
       - name: Vérifier que le reaper tourne
+        env:
+          PROJET: ${{ needs.cible.outputs.projet_compose }}
+          DOSSIER: ${{ needs.cible.outputs.dossier_vps }}
         run: |
           HOST="$(printf '%s' "${{ secrets.VPS_HOST }}" | tr -d '[:space:]')"
           SSH_USER="$(printf '%s' "${{ secrets.VPS_USER }}" | tr -d '[:space:]')"
           sleep 5
           ssh "${SSH_USER}@${HOST}" \
-            'cd /opt/sirius && docker compose -p sirius ps --format "{{.Service}} {{.State}}" | grep -q "reaper running"'
+            "cd '${DOSSIER}' && docker compose -p '${PROJET}' --env-file .env.vps ps --format '{{.Service}} {{.State}}' | grep -q 'reaper running'"
+
+  fumee:
+    name: Fumée
+    needs: [cible, vercel]
+    runs-on: ubuntu-latest
+    steps:
+      # Les tests end-to-end ne peuvent pas viser une instance déployée : le pont de
+      # test qu'ils pilotent dépend de NEXT_PUBLIC_SIRIUS_E2E, drapeau que
+      # `instrumentation-node.ts` refuse en production. Ce qui reste vérifiable de
+      # l'extérieur est donc ceci — l'instance répond, ce qui prouve au minimum que
+      # la porte de démarrage a été franchie et qu'aucune variable requise ne manque.
+      - name: L'instance répond
+        env:
+          URL: ${{ needs.cible.outputs.url_publique }}
+        run: |
+          for tentative in 1 2 3 4 5; do
+            CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$URL" || echo 000)"
+            echo "Tentative ${tentative} : HTTP ${CODE}"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::${URL} n'a pas répondu 200 — vérifier les journaux de démarrage Vercel."
+          exit 1

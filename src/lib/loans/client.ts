@@ -2,18 +2,15 @@
 
 import { useWalletStore } from "@/stores/wallet";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
-import { waitForTransactionExternal } from "@/lib/wallet/manager";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import {
-  hasAtomicLoanEnvelope,
   openAtomicLoanEnvelope,
   persistAtomicLoanEnvelope,
-  persistedAtomicLoanEnvelopeHash,
   prepareAtomicLoanDelivery,
 } from "@/lib/runner/atomic-delivery-client";
 import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
-
+import type { ModelSelection } from "@/lib/models/registry";
 interface BorrowInput {
   datasetId: string;
 }
@@ -42,7 +39,7 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ datasetId: input.datasetId }),
   });
   const body = await prep.json() as {
     loanId?: string;
@@ -56,7 +53,7 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
   await sendActiveTransaction(body.approveTransaction, { waitForConfirmation: true });
   const lockTxHash = await sendActiveTransaction(body.lockTransaction);
   window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
-  await waitForTransactionExternal(lockTxHash);
+  // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
   await submitLoanLock(body.loanId, lockTxHash);
 }
 
@@ -66,14 +63,21 @@ export async function resumeLoanSubmission(loanId: string, lockTxHash?: string):
 
 export async function cancelExpiredLoan(loanId: string): Promise<void> {
   const response = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
-  const body = await response.json() as { error?: string };
+  const body = await response.json() as { error?: string; transaction?: Record<string, unknown> };
   if (!response.ok) throw new Error(body.error ?? "Remboursement USDC échoué");
+  if (body.transaction) {
+    await sendActiveTransaction(body.transaction, { waitForConfirmation: true });
+    const confirmed = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
+    const result = await confirmed.json() as { error?: string; transaction?: unknown };
+    if (!confirmed.ok || result.transaction) throw new Error(result.error ?? "Remboursement à réconcilier");
+  }
 }
 
 interface RunLoanInput {
   loanId: string;
   datasetId: string;
   datasetReceipt: string;
+  model: ModelSelection;
 }
 
 export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: string; modelKey: string }> {
@@ -83,7 +87,14 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
   const authorization = await issueRunnerGrant(
     "run-loan-job",
     { loanId: input.loanId, datasetId: input.datasetId },
-    [input.loanId, input.datasetId, input.datasetReceipt, deliveryPublicKey],
+    [
+      input.loanId,
+      input.datasetId,
+      input.datasetReceipt,
+      deliveryPublicKey,
+      input.model.modelId,
+      input.model.modelVersion,
+    ],
   );
   const response = await fetch(`/api/loans/${input.loanId}/run`, {
     method: "POST",
@@ -99,17 +110,17 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
   if (!response.ok || !body.modelCid || !body.runnerReceipt || !body.releaseEnvelope) {
     throw new Error(body.error ?? "Échec du job confidentiel");
   }
-  const releaseEnvelopeHash = await persistAtomicLoanEnvelope(address, input.loanId, body.releaseEnvelope);
-  await settleLoan(input.loanId, body.runnerReceipt, releaseEnvelopeHash);
+  await persistAtomicLoanEnvelope(address, input.loanId, body.releaseEnvelope);
+  await settleLoan(input.loanId, body.runnerReceipt);
   return retrieveLoanKey(input.loanId, body.runnerReceipt);
 }
 
-async function settleLoan(loanId: string, runnerReceipt: string, releaseEnvelopeHash: string): Promise<void> {
-  const authorization = await issueRunnerGrant("settle-loan", { loanId }, [loanId, runnerReceipt, releaseEnvelopeHash]);
+async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> {
+  const authorization = await issueRunnerGrant("settle-loan", { loanId }, [loanId, runnerReceipt]);
   const response = await fetch(`/api/loans/${loanId}/settle`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorization, releaseEnvelopeHash }),
+    body: JSON.stringify({ authorization }),
   });
   const body = await response.json() as { error?: string };
   if (!response.ok) throw new Error(body.error ?? "Règlement USDC échoué");
@@ -118,10 +129,7 @@ async function settleLoan(loanId: string, runnerReceipt: string, releaseEnvelope
 export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {
   const address = useWalletStore.getState().address;
   if (!address) throw new Error("Wallet déconnecté");
-  if (!(await hasAtomicLoanEnvelope(address, loanId))) {
-    throw new Error("Capsule locale absente : relance le job avant règlement.");
-  }
-  await settleLoan(loanId, runnerReceipt, await persistedAtomicLoanEnvelopeHash(address, loanId));
+  await settleLoan(loanId, runnerReceipt);
   return retrieveLoanKey(loanId, runnerReceipt);
 }
 

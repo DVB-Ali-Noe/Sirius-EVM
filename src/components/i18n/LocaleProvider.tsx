@@ -227,7 +227,7 @@ const messages: Record<Locale, Record<string, string>> = {
     "Chiffrement & upload…": "Encrypting & uploading…",
     "Déposer le dataset": "Upload dataset",
     "Formulaire invalide": "Invalid form",
-    "Fichier trop volumineux (max 16 Mo)": "File too large (max 16 MB)",
+    "Fichier vide ou trop volumineux (max 3 Mo)": "File empty or too large (max 3 MB)",
     "Échec de la préparation du dépôt": "Upload preparation failed",
     "Échec de l’upload confidentiel": "Confidential upload failed",
     "RUNNING": "RUNNING",

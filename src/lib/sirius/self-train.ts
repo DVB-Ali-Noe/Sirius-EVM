@@ -5,6 +5,9 @@ import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
+import { modelSelection } from "@/lib/models/registry";
+import { assertDatasetScope } from "@/lib/evm/dataset";
+import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 
 export interface SelfTrainResult {
   jobId: string;
@@ -32,13 +35,32 @@ export async function runSelfTrain(
   authorization: RunnerGrant,
 ): Promise<SelfTrainResult> {
   await requireAcceptedKyb(owner);
+  await requireCurrentEvmDeployment();
   const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
   if (dataset.provider !== owner) throw new AppError("Self-train réservé au propriétaire du dataset", 403);
-  if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt || !dataset.priceUsdcAtomic) {
-    throw new AppError("Dataset non finalisé (pas encore uploadé)", 409);
+  if (
+    !dataset.ipfsCid ||
+    !dataset.merkleRoot ||
+    !dataset.wrappedKey ||
+    !dataset.runnerReceipt ||
+    !dataset.priceUsdcAtomic ||
+    !dataset.evmDatasetId ||
+    !["LISTED", "UNLISTED", "PRIVATE"].includes(dataset.status)
+  ) {
+    throw new AppError("Publie d’abord le titre EVM du dataset avant l’entraînement", 409);
   }
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
+
+  await assertDatasetScope({
+    datasetId: dataset.id,
+    provider: dataset.provider,
+    merkleRoot: dataset.merkleRoot,
+    cid: dataset.ipfsCid,
+    model,
+  });
 
   const job = await prisma.$transaction(async (tx) => {
     const now = Date.now();
@@ -60,7 +82,7 @@ export async function runSelfTrain(
       throw new AppError("Quota d’entraînement atteint — réessaie plus tard", 429);
     }
     return tx.trainingJob.create({
-      data: { id: jobId, datasetId: dataset.id, owner, status: "RUNNING" },
+      data: { id: jobId, datasetId: dataset.id, owner, modelId: model.modelId, modelVersion: model.modelVersion, status: "RUNNING" },
     });
   });
 
@@ -74,6 +96,7 @@ export async function runSelfTrain(
       priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
       jobId: job.id,
+      ...model,
     }, datasetReceipt, authorization);
     modelCid = out.modelCid;
     const completed = await prisma.trainingJob.updateMany({

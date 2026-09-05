@@ -1,115 +1,98 @@
-# Example datasets
+# Jeux de données d'exemple
 
-Sample data you can upload to Sirius to see a full loan run end to end, without
-having to prepare anything yourself.
+Jeux prêts à déposer dans Sirius pour exécuter un prêt complet sans préparer de
+données. Ils sont rangés par famille de modèle :
 
-## `housing-prices-train.csv` and `housing-prices-test.csv`
-
-Tabular regression: predict a property price from five numeric features.
-
-| Column | Meaning |
-|---|---|
-| `surface_m2` | Floor area in square metres |
-| `rooms` | Number of rooms |
-| `age_years` | Age of the building |
-| `distance_km` | Distance to the city centre |
-| `energy_score` | Energy rating, 0–100 |
-| `price_eur` | **Target** — the value the model learns to predict |
-
-The 140 rows are deterministically separated into 112 training rows and 28 test
-rows. Upload only `housing-prices-train.csv` to Sirius. Once the model is
-delivered, select `housing-prices-test.csv` in **Evaluate on a test CSV** to
-measure it on rows that were never used during training.
-
-The data is synthetic. It is generated from a deliberate linear relationship plus
-noise, so the result is strong without being suspiciously perfect. Real housing
-data would land closer to 0.80.
-
-## `bike-sharing-demand-train.csv` and `bike-sharing-demand-test.csv`
-
-Real-world tabular regression: predict the hourly number of bike rentals (`cnt`)
-from calendar and weather measurements. It contains 17,389 rows from the Capital
-Bikeshare system over 2011 and 2012.
-
-The file is a Sirius-compatible export of the UCI Bike Sharing dataset. The
-non-numeric date and record identifier are removed. `casual` and `registered` are
-also removed because they sum to `cnt`: keeping them would leak the answer into the
-features and make the model deceptively perfect.
-
-Source: Fanaee-T, H. (2013), *Bike Sharing*, UCI Machine Learning Repository,
-https://doi.org/10.24432/C5W894. Licensed under CC BY 4.0.
-
-The chronological 80/20 split keeps the final period exclusively for evaluation.
-Upload the `-train` file and retain the `-test` file locally for the delivered
-model's evaluation.
-
-Regenerate the source file and its split from the official UCI archive with:
-
-```bash
-pnpm datasets:fetch
+```text
+examples/
+├── regression/
+│   ├── housing-prices-*.csv
+│   ├── energy-demand-*.csv
+│   └── bike-sharing-demand-*.csv
+├── classification/
+│   └── credit-default-*.csv
+└── benchmarks/
 ```
 
-## `energy-demand-train.csv` and `energy-demand-test.csv`
+Chaque paire contient un fichier `-train.csv` à déposer et un fichier `-test.csv`
+à conserver localement pour évaluer le modèle livré.
 
-Synthetic, but realistic, hourly energy-demand regression with 8,760 rows. The
-target `energy_mwh` depends on weather, solar production, calendar signals and
-morning/evening demand peaks. It is useful to validate a larger file, several
-features and a model with an interpretable result.
+## Régression linéaire
 
-The first 7,008 hourly rows are training data; the final 1,752 rows are the
-chronological test period. This guards against accidentally measuring a model on
-the rows it has already seen.
+### `regression/housing-prices-train.csv` et `regression/housing-prices-test.csv`
 
-Regenerate it deterministically with:
+Régression tabulaire synthétique : prédire `price_eur` depuis `surface_m2`,
+`rooms`, `age_years`, `distance_km` et `energy_score`. Les 140 lignes sont
+séparées de façon déterministe en 112 lignes d'entraînement et 28 de test.
+
+### `regression/energy-demand-train.csv` et `regression/energy-demand-test.csv`
+
+Régression synthétique de demande d'énergie horaire. La cible `energy_mwh`
+dépend de la météo, du solaire, du calendrier et des pics de consommation. Les
+7 008 premières lignes entraînent le modèle ; les 1 752 dernières l'évaluent.
+
+Pour régénérer les jeux synthétiques et leurs séparations :
 
 ```bash
 pnpm datasets:generate
 ```
 
-To recreate only the splits after changing a source dataset:
+### `regression/bike-sharing-demand-train.csv` et `regression/bike-sharing-demand-test.csv`
+
+Régression réelle sur les locations de vélos horaires (`cnt`) depuis des mesures
+météo et calendaires. La source UCI est téléchargée puis séparée
+chronologiquement à 80/20. Les colonnes qui révèlent la cible sont retirées.
 
 ```bash
-pnpm datasets:split
+pnpm datasets:fetch
 ```
 
-## Testing a delivered model
+Source : Fanaee-T, H. (2013), *Bike Sharing*, UCI Machine Learning Repository,
+https://doi.org/10.24432/C5W894. Licence CC BY 4.0.
 
-The model's **training** R² and RMSE are informational only: they are calculated
-on the rows used to fit it. To validate it, download the model, then in Sirius
-open **Evaluate on a test CSV** and choose the matching `-test.csv` file. The
-evaluation (R², RMSE and MAE) is calculated locally in the browser; the test file
-is never uploaded.
+## Régression logistique binaire
 
-For one-off use, open **Test a prediction**, enter one numeric value for each
-feature, and Sirius returns the predicted value of the target column. The same
-model JSON can also be used outside Sirius: `prediction = coefficients[0] + Σ
-(coefficients[i + 1] × features[i])`.
+### `classification/credit-default-train.csv` et `classification/credit-default-test.csv`
 
-## Realistic benchmark suite
+Classification synthétique de défaut de crédit. Entraîne avec **Régression
+logistique binaire**, puis évalue avec le fichier de test : la cible `defaulted`
+est strictement encodée en `0` ou `1`. Les variables numériques sont le revenu,
+le ratio d'endettement, le score de crédit, les incidents de paiement,
+l'utilisation du crédit et l'ancienneté professionnelle.
 
-Four larger train/test pairs cover vehicle resale, retail demand, last-mile
-delivery and industrial yield. They deliberately include drift, outliers,
-nonlinearity and unobserved categorical context. See
-[`benchmarks/README.md`](benchmarks/README.md) and regenerate them with:
+Le jeu contient 480 lignes d'entraînement et 120 lignes de test. Il combine des
+profils qui se chevauchent et une part d'aléa : les métriques restent bonnes sans
+être parfaites, comme dans un cas de scoring réaliste.
+
+## Évaluer un modèle livré
+
+Les métriques d'entraînement sont informatives : elles portent sur les lignes
+utilisées pour ajuster le modèle. Après livraison, ouvre **Évaluer sur un CSV de
+test** et choisis le fichier `-test.csv` correspondant. Ce fichier reste dans le
+navigateur.
+
+- Régression linéaire : R², RMSE, MAE et valeur prédite.
+- Régression logistique : accuracy, precision, recall, F1, classe et probabilité.
+
+## Benchmarks réalistes
+
+Quatre paires plus volumineuses couvrent la revente automobile, la demande
+retail, la livraison du dernier kilomètre et le rendement industriel. Elles sont
+dans [`benchmarks/`](benchmarks/README.md) et se régénèrent avec :
 
 ```bash
 pnpm datasets:benchmarks
 ```
 
-## What Sirius expects from a dataset
+## Contraintes CSV
 
-- **CSV with a header row.**
-- **At least 100 rows.** Below that, a model could memorise individual records
-  rather than learn a pattern — the floor exists to protect the people behind the
-  data, not for statistical comfort.
-- **At least two numeric columns**, and at most 32.
-- **The target is the last numeric column.** Everything else is used as a feature.
-- Non-numeric columns are ignored rather than rejected, so an `id` or a `city`
-  name can stay in the file.
+- Une ligne d'en-tête, au moins 100 lignes et entre 2 et 32 colonnes numériques.
+- La cible est la dernière colonne numérique ; les autres colonnes numériques
+  servent de variables explicatives.
+- Pour la régression logistique, la cible doit contenir les deux classes et être
+  strictement écrite `0` ou `1`.
+- Les colonnes non numériques sont ignorées.
 
-## What actually happens to this file
-
-It is encrypted **in your browser**, before anything leaves your machine. The
-plaintext never reaches our servers — not once, not briefly. What we store on
-IPFS is a sealed blob, and what a borrower receives is a trained model, never
-the rows it was trained on.
+Le navigateur chiffre le fichier avant son envoi. Next.js ne reçoit jamais les
+données brutes : Sirius stocke un blob chiffré et le borrower ne reçoit que le
+modèle livré.

@@ -57,3 +57,4 @@ Thumbs.db
 /contracts/artifacts
 /contracts/cache
 /contracts/typechain-types
+.env*.local

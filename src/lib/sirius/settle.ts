@@ -6,8 +6,76 @@ import { runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client"
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { unpinModelUnlessReferenced } from "./model-storage";
+import { modelSelection } from "@/lib/models/registry";
+import type { ModelId } from "@/lib/models/registry";
+import { hashRunnerReleaseEnvelope } from "@/lib/runner/delivery";
+import {
+  hashLoanAttestationPayload,
+  parseLoanAttestationPayload,
+  serializeLoanAttestationPayload,
+} from "@/lib/tee/attestation";
+import { verifyTdxQuote } from "@/lib/tee/quote";
+import { evmEscrowBinding } from "@/lib/tee/evm-binding";
+import type { LoanAttestationPayload } from "@/lib/tee/types";
 
 const TRAINING_LEASE_MS = 90_000;
+
+async function verifyLoanAttestation(input: {
+  attestation: Awaited<ReturnType<typeof runLoanJobInRunner>>["attestation"];
+  loanId: string;
+  loanKey: string;
+  datasetId: string;
+  datasetCid: string;
+  provider: string;
+  borrower: string;
+  amountUsdcAtomic: string;
+  challengeDays: number;
+  merkleRoot: string;
+  modelId: ModelId;
+  modelVersion: string;
+  modelCid: string;
+  releaseEnvelope: RunnerReleaseEnvelope;
+}): Promise<void> {
+  const { chainId, escrow } = evmEscrowBinding();
+  const payload = serializeLoanAttestationPayload({
+    chainId,
+    escrow,
+    loanId: input.loanId,
+    loanKey: input.loanKey,
+    datasetId: input.datasetId,
+    datasetCid: input.datasetCid,
+    provider: input.provider,
+    borrower: input.borrower,
+    amountUsdcAtomic: input.amountUsdcAtomic,
+    challengeDays: input.challengeDays,
+    merkleRoot: input.merkleRoot,
+    modelId: input.modelId,
+    modelVersion: input.modelVersion,
+    modelCid: input.modelCid,
+    releaseEnvelopeHash: hashRunnerReleaseEnvelope(input.releaseEnvelope),
+  });
+  const attestation = input.attestation;
+  if (
+    attestation.signer !== "sirius-tee" ||
+    !/^[a-f0-9]{64}$/i.test(attestation.signature) ||
+    attestation.payload !== payload ||
+    attestation.payloadHash !== hashLoanAttestationPayload(payload)
+  ) {
+    throw new AppError("Attestation runner hors scope", 502);
+  }
+
+  if (process.env.TEE_MODE !== "phala") return;
+  const evidence = attestation.evidence;
+  if (!evidence) throw new AppError("Quote TDX runner manquante", 502);
+  const verification = await verifyTdxQuote(evidence.quote, attestation.payloadHash, evidence);
+  if (
+    verification.reportDataMatches !== true ||
+    verification.hardwareVerified !== true ||
+    verification.codeIdentityMatches !== true
+  ) {
+    throw new AppError("Quote TDX runner non authentifiée", 502);
+  }
+}
 
 export interface PreparedLoanResult {
   loanId: string;
@@ -32,7 +100,18 @@ export async function prepareLoanResult(
   });
   const claimed = await prisma.loan.updateMany({
     where: { id: loanId, status: "ESCROWED" },
-    data: { status: "TRAINING", updatedAt: now, modelCid: null, runnerReceipt: null, attestationHash: null },
+    data: {
+      status: "TRAINING",
+      updatedAt: now,
+      modelCid: null,
+      runnerReceipt: null,
+      attestationHash: null,
+      attestationPayload: null,
+      attestationQuote: null,
+      attestationEventLog: null,
+      attestationComposeHash: null,
+      auditReceipt: null,
+    },
   });
   if (claimed.count !== 1) throw new AppError("Loan non verrouillé ou déjà en cours", 409);
 
@@ -51,6 +130,16 @@ export async function prepareLoanResult(
     await prisma.loan.updateMany({ where: { id: loanId, status: "TRAINING", updatedAt: now }, data: { status: "ESCROWED" } });
     throw new AppError("Dataset EVM indisponible", 409);
   }
+  const model = modelSelection(loan.modelId, loan.modelVersion);
+  if (!model) {
+    await prisma.loan.updateMany({ where: { id: loanId, status: "TRAINING", updatedAt: now }, data: { status: "ESCROWED" } });
+    throw new AppError("Modèle ou version non autorisé", 409);
+  }
+  const datasetModel = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!datasetModel || datasetModel.modelId !== model.modelId || datasetModel.modelVersion !== model.modelVersion) {
+    await prisma.loan.updateMany({ where: { id: loanId, status: "TRAINING", updatedAt: now }, data: { status: "ESCROWED" } });
+    throw new AppError("Profil d’entraînement du dataset incohérent", 409);
+  }
 
   let result: Awaited<ReturnType<typeof runLoanJobInRunner>> | undefined;
   try {
@@ -63,15 +152,40 @@ export async function prepareLoanResult(
         merkleRoot: dataset.merkleRoot,
         priceUsdcAtomic: dataset.priceUsdcAtomic,
         challengeDays: dataset.challengeDays,
+        ...datasetModel,
       },
       dataset.runnerReceipt,
       deliveryPublicKey,
       authorization,
     );
-    if (!/^[a-f0-9]{64}$/i.test(result.attestation.payloadHash)) throw new AppError("Attestation runner invalide", 502);
+    await verifyLoanAttestation({
+      attestation: result.attestation,
+      loanId,
+      loanKey: loan.evmLoanKey,
+      datasetId: dataset.id,
+      datasetCid: dataset.ipfsCid,
+      provider: loan.provider,
+      borrower: loan.borrower,
+      amountUsdcAtomic: dataset.priceUsdcAtomic,
+      challengeDays: dataset.challengeDays,
+      merkleRoot: dataset.merkleRoot,
+      modelId: model.modelId,
+      modelVersion: model.modelVersion,
+      modelCid: result.modelCid,
+      releaseEnvelope: result.releaseEnvelope,
+    });
     const persisted = await prisma.loan.updateMany({
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
-      data: { modelCid: result.modelCid, runnerReceipt: result.runnerReceipt, attestationHash: result.attestation.payloadHash },
+      data: {
+        modelCid: result.modelCid,
+        runnerReceipt: result.runnerReceipt,
+        attestationHash: result.attestation.payloadHash,
+        attestationPayload: result.attestation.payload,
+        attestationQuote: result.attestation.evidence?.quote ?? null,
+        attestationEventLog: result.attestation.evidence?.eventLog ?? null,
+        attestationComposeHash: result.attestation.evidence?.composeHash ?? null,
+        auditReceipt: result.attestation.signature,
+      },
     });
     if (persisted.count !== 1) throw new AppError("Lease d’entraînement expiré", 409);
     return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt, releaseEnvelope: result.releaseEnvelope };
@@ -88,10 +202,9 @@ export async function prepareLoanResult(
 
 export async function settlePreparedLoan(
   loanId: string,
-  releaseEnvelopeHash: string,
   authorization: RunnerGrant,
 ): Promise<SettleResult> {
-  const loan = await prisma.loan.findUnique({ where: { id: loanId } });
+  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (loan.status === "SETTLED" && loan.modelCid && loan.runnerReceipt && loan.settleTxHash) {
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash };
@@ -101,9 +214,53 @@ export async function settlePreparedLoan(
     !loan.modelCid ||
     !loan.runnerReceipt ||
     !loan.evmLoanKey ||
-    !loan.evmLockBlock
+    !loan.evmLockBlock ||
+    !loan.attestationHash ||
+    !loan.attestationPayload
   ) {
-    throw new AppError("Résultat TEE non préparé", 409);
+    throw new AppError("Résultat TEE ou preuve d’attestation absente", 409);
+  }
+  let payload: LoanAttestationPayload;
+  try {
+    payload = parseLoanAttestationPayload(loan.attestationPayload);
+  } catch {
+    throw new AppError("Preuve d’attestation invalide", 409);
+  }
+  const { chainId, escrow } = evmEscrowBinding();
+  if (
+    hashLoanAttestationPayload(loan.attestationPayload) !== loan.attestationHash ||
+    payload.chainId !== chainId ||
+    payload.escrow !== escrow ||
+    payload.loanId !== loan.id ||
+    payload.loanKey !== loan.evmLoanKey ||
+    payload.datasetId !== loan.datasetId ||
+    payload.datasetCid !== loan.dataset.ipfsCid ||
+    payload.provider !== loan.provider ||
+    payload.borrower !== loan.borrower ||
+    payload.amountUsdcAtomic !== loan.amountUsdcAtomic ||
+    payload.challengeDays !== loan.dataset.challengeDays ||
+    payload.merkleRoot !== loan.dataset.merkleRoot ||
+    payload.modelId !== loan.modelId ||
+    payload.modelVersion !== loan.modelVersion ||
+    payload.modelCid !== loan.modelCid
+  ) {
+    throw new AppError("Preuve d’attestation incohérente", 409);
+  }
+  if (process.env.TEE_MODE === "phala") {
+    if (!loan.attestationQuote || !loan.attestationEventLog || !loan.attestationComposeHash) {
+      throw new AppError("Résultat TEE ou preuve d’attestation absente", 409);
+    }
+    const verification = await verifyTdxQuote(loan.attestationQuote, loan.attestationHash, {
+      eventLog: loan.attestationEventLog,
+      composeHash: loan.attestationComposeHash,
+    });
+    if (
+      verification.reportDataMatches !== true ||
+      verification.hardwareVerified !== true ||
+      verification.codeIdentityMatches !== true
+    ) {
+      throw new AppError("Quote TDX runner non authentifiée", 502);
+    }
   }
   const claimed = await prisma.loan.updateMany({
     where: { id: loanId, status: loan.status, runnerReceipt: loan.runnerReceipt },
@@ -115,7 +272,7 @@ export async function settlePreparedLoan(
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
-      releaseEnvelopeHash,
+      payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
     );

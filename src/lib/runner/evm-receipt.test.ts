@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { AppError } from "@/lib/app-error";
+import { decrypt, deriveKey, encrypt, getMasterKey } from "@/lib/crypto/encryption";
+import { evmLoanModelKey } from "@/lib/tee/core";
 
 const ESCROW_A = "0xc6a27dd5fdfdeda069b5634ca8d44416dfdb3f4f";
 const ESCROW_B = "0xae326acee10138d47623dc0caf9d8b4e970090b1";
@@ -28,6 +30,8 @@ function payload(overrides: Record<string, unknown> = {}) {
     escrow: ESCROW_A,
     amountUsdcAtomic: "2500000",
     challengeDays: 7,
+    modelId: "linear_regression" as const,
+    modelVersion: "1.0.0",
     deliveryPublicKey: "cle-de-livraison",
     releaseEnvelopeHash: "f".repeat(64),
     attestationHash: "a".repeat(64),
@@ -70,4 +74,44 @@ test("la capsule persistée doit être celle attestée", async () => {
   const receipt = m.verifyLoanReceipt(m.issueLoanReceipt(payload()), LOAN_ID);
   m.assertReleaseEnvelopeHash(receipt, "f".repeat(64));
   assert.throws(() => m.assertReleaseEnvelopeHash(receipt, "e".repeat(64)), AppError);
+});
+
+test("un modèle historique reste déchiffrable avec un reçu HMAC v2 après redéploiement", async () => {
+  const m = await receiptModule();
+  const model = Buffer.from('{"algorithm":"linear_regression","coefficients":[1,2]}');
+  const originalKey = deriveKey(getMasterKey(), `model:loan:v2:46630:${ESCROW_A}:${BORROWER}:${LOAN_ID}`);
+  const encrypted = encrypt(model, originalKey);
+  const body = Buffer.from(JSON.stringify({ ...payload(), version: 2, kind: "loan" })).toString("base64url");
+  const mac = createHmac("sha256", deriveKey(getMasterKey(), "runner-receipt:hmac:v2")).update(body).digest("base64url");
+  const token = `${body}.${mac}`;
+  process.env.SIRIUS_ESCROW_ADDRESS = ESCROW_B;
+  process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = ESCROW_A;
+  try {
+    assert.throws(() => m.verifyLoanReceipt(token, LOAN_ID), AppError);
+    const receipt = m.verifyLoanDeliveryReceipt(token, LOAN_ID);
+    const deliveredKey = Buffer.from(evmLoanModelKey(LOAN_ID, BORROWER, receipt), "base64");
+    assert.deepEqual(decrypt(encrypted, deliveredKey), model);
+    assert.throws(() => decrypt(encrypted, Buffer.from(evmLoanModelKey(LOAN_ID, BORROWER), "base64")));
+    process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = "";
+    assert.throws(() => m.verifyLoanDeliveryReceipt(token, LOAN_ID), AppError);
+    process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = ESCROW_A;
+    process.env.EVM_NETWORK = "mainnet";
+    assert.throws(() => m.verifyLoanDeliveryReceipt(token, LOAN_ID), AppError);
+  } finally {
+    delete process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES;
+    process.env.EVM_NETWORK = "testnet";
+  }
+});
+
+test("un reçu v3 historique autorise la livraison mais pas un nouveau règlement", async () => {
+  const m = await receiptModule();
+  const token = m.issueLoanReceipt(payload());
+  process.env.SIRIUS_ESCROW_ADDRESS = ESCROW_B;
+  process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = ESCROW_A;
+  try {
+    assert.equal(m.verifyLoanDeliveryReceipt(token, LOAN_ID).escrow, ESCROW_A);
+    assert.throws(() => m.verifyLoanReceipt(token, LOAN_ID), AppError);
+  } finally {
+    delete process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES;
+  }
 });

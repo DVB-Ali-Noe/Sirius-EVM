@@ -11,6 +11,7 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
+import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
@@ -38,6 +39,8 @@ function listingTerms(dataset: Awaited<ReturnType<typeof ownedDataset>>) {
   if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt || !dataset.sizeBytes) {
     throw new AppError("Dataset incomplet ou reçu runner absent", 409);
   }
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   // Même conversion que partout ailleurs, via la fonction partagée : la dupliquer
   // est précisément ce qui a laissé le contrôle diverger entre deux fichiers.
   let racineEvm: Hex;
@@ -51,6 +54,7 @@ function listingTerms(dataset: Awaited<ReturnType<typeof ownedDataset>>) {
     cid: dataset.ipfsCid,
     merkleRoot: racineEvm,
     sizeBytes: dataset.sizeBytes,
+    trainingProfile: trainingProfileHash(model),
   };
 }
 
@@ -83,7 +87,7 @@ async function onChainDatasetId(terms: ReturnType<typeof listingTerms>, provider
     address: registry,
     abi: siriusdatasetregistryAbi,
     functionName: "matchesScope",
-    args: [onChainId, normalizeAddress(provider), terms.merkleRoot, cidHash(terms.cid)],
+    args: [onChainId, normalizeAddress(provider), terms.merkleRoot, cidHash(terms.cid), terms.trainingProfile],
   });
   if (!matchesScope) throw new AppError("Titre EVM existant hors scope du dataset", 409);
   return onChainId;
@@ -219,7 +223,7 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
   });
   if (deleted.count !== 1) throw new AppError("Suppression impossible : emprunt actif ou état modifié", 409);
   if (dataset.ipfsCid) {
-    await unpinFromIpfs(dataset.ipfsCid).catch((error) => console.error(`[dataset] unpin ${datasetId} échoué`, error));
+    await unpinFromIpfs(dataset.ipfsCid).catch(() => console.error(`[dataset] unpin ${datasetId} échoué`));
   }
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
 }

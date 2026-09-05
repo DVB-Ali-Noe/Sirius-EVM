@@ -1,0 +1,50 @@
+import "server-only";
+import { prisma } from "@/lib/db";
+import { AppError } from "@/lib/app-error";
+import { readLoan } from "@/lib/evm/escrow";
+import { normalizeAddress } from "@/lib/evm/address";
+import { evmEscrowBinding } from "@/lib/tee/evm-binding";
+import { getPublicClient } from "@/lib/evm/client";
+
+export async function checkEvmMigration(): Promise<void> {
+  const schema = new URL(process.env.DATABASE_URL!).searchParams.get("schema");
+  if (schema && schema !== "public") throw new AppError("Préflight EVM : seul le schéma PostgreSQL public est supporté", 409);
+  const tables = await prisma.$queryRaw<{ present: boolean }[]>`
+    SELECT to_regclass('public."Loan"') IS NOT NULL AS present`;
+  if (!tables[0]?.present) return;
+  const applied = await prisma.$queryRaw<{ present: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM "_prisma_migrations"
+      WHERE migration_name = '20260905000000_add_dataset_training_profile'
+      AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS present`;
+  if (applied[0]?.present) return;
+  // Champs antérieurs à la migration : exécutable même sur l'ancien schéma.
+  const loans = await prisma.$queryRaw<{ id: string; evmLoanKey: string | null; evmLockTxHash: string | null }[]>`
+    SELECT id, "evmLoanKey", "evmLockTxHash" FROM "Loan"
+    WHERE status NOT IN ('SETTLED', 'CANCELLED') OR (status = 'CANCELLED' AND "cancelTxHash" IS NULL)`;
+  if (!loans.some((loan) => loan.evmLoanKey)) return;
+  const addresses = (process.env.SIRIUS_MIGRATION_ESCROW_ADDRESSES ?? "")
+    .split(",").map((value) => value.trim()).filter(Boolean).map((value) => normalizeAddress(value));
+  if (!addresses.length || !process.env.EVM_NETWORK) {
+    throw new AppError("Migration bloquée : renseigne EVM_NETWORK et SIRIUS_MIGRATION_ESCROW_ADDRESSES (tous les anciens escrows) pour vérifier les prêts, y compris CANCELLED", 409);
+  }
+  process.env.SIRIUS_ESCROW_ADDRESS = addresses[0];
+  process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = addresses.join(",");
+  const { chainId } = evmEscrowBinding();
+  if (await getPublicClient().getChainId() !== chainId) throw new AppError("RPC de migration sur un autre réseau", 409);
+  for (const loan of loans) {
+    if (!loan.evmLoanKey) continue;
+    if (loan.evmLockTxHash) {
+      const tx = await getPublicClient().getTransaction({ hash: loan.evmLockTxHash as `0x${string}` });
+      if (!tx.to || !addresses.includes(normalizeAddress(tx.to))) throw new AppError(`Ancien escrow non déclaré pour ${loan.id}`, 409);
+      try {
+        await getPublicClient().getTransactionReceipt({ hash: loan.evmLockTxHash as `0x${string}` });
+      } catch {
+        throw new AppError(`Migration bloquée : transaction de lock non confirmée pour ${loan.id}`, 409);
+      }
+    }
+    for (const escrow of addresses) {
+      const state = await readLoan(loan.evmLoanKey as `0x${string}`, { chainId, escrow });
+      if (state?.status === 1) throw new AppError(`Migration bloquée : escrow encore actif pour ${loan.id}, même si annulé en base`, 409);
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { useWalletStore } from "@/stores/wallet";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import type { RunnerDeliveryEnvelope } from "@/lib/tee/contract";
+import type { ModelSelection } from "@/lib/models/registry";
 
 export interface SelfTrainResult {
   jobId: string;
@@ -16,7 +17,11 @@ export interface SelfTrainResult {
  * Lance un self-train sur son propre dataset (MLaaS, sans escrow). Nécessite une
  * session authentifiée ; le backend vérifie la propriété du dataset.
  */
-export async function runSelfTrain(datasetId: string, datasetReceipt: string): Promise<SelfTrainResult> {
+export async function runSelfTrain(
+  datasetId: string,
+  datasetReceipt: string,
+  model: ModelSelection,
+): Promise<SelfTrainResult> {
   const { authenticated } = useWalletStore.getState();
   if (!authenticated) throw new Error("Authentifie-toi (Se connecter) pour entraîner.");
 
@@ -24,7 +29,7 @@ export async function runSelfTrain(datasetId: string, datasetReceipt: string): P
   const authorization = await issueRunnerGrant(
     "run-training",
     { datasetId, jobId },
-    [datasetId, jobId, datasetReceipt],
+    [datasetId, jobId, datasetReceipt, model.modelId, model.modelVersion],
   );
   const res = await fetch("/api/train", {
     method: "POST",

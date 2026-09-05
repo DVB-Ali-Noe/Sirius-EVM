@@ -77,6 +77,11 @@ export const siriusdatasetregistryAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidTrainingProfile",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "KybRequired",
     "type": "error"
   },
@@ -163,6 +168,12 @@ export const siriusdatasetregistryAbi = [
         "internalType": "uint64",
         "name": "sizeBytes",
         "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
       }
     ],
     "name": "DatasetMinted",
@@ -184,6 +195,32 @@ export const siriusdatasetregistryAbi = [
   {
     "inputs": [],
     "name": "DATASET_ID_DOMAIN",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "LINEAR_REGRESSION_V1_PROFILE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "LOGISTIC_REGRESSION_V1_PROFILE",
     "outputs": [
       {
         "internalType": "bytes32",
@@ -343,6 +380,11 @@ export const siriusdatasetregistryAbi = [
             "internalType": "bytes32",
             "name": "cidHash",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "trainingProfile",
+            "type": "bytes32"
           }
         ],
         "internalType": "struct SiriusDatasetRegistry.Dataset",
@@ -394,6 +436,54 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "provider",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
+      }
+    ],
+    "name": "isLiveForProviderAndProfile",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
+      }
+    ],
+    "name": "isSupportedTrainingProfile",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -449,6 +539,11 @@ export const siriusdatasetregistryAbi = [
         "internalType": "bytes32",
         "name": "cidHash",
         "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
       }
     ],
     "name": "matchesScope",
@@ -483,6 +578,11 @@ export const siriusdatasetregistryAbi = [
         "internalType": "uint64",
         "name": "sizeBytes",
         "type": "uint64"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
       }
     ],
     "name": "mint",

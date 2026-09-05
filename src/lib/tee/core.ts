@@ -14,10 +14,12 @@ import {
 import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/merkle";
 import { computeMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
-import { trainLinearRegression } from "./train";
+import { trainSelectedModel } from "./model-registry";
+import { validateTrainingDataset } from "./train";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
-import { evmEscrowBinding } from "./evm-binding";
+import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
+import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import type {
@@ -29,6 +31,7 @@ import type {
   SealDatasetResult,
   EvmEscrowLock,
 } from "./contract";
+import type { ModelSelection } from "@/lib/models/registry";
 
 /**
  * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
@@ -88,8 +91,8 @@ const evmEscrowKeyContext = (loanId: string, borrower: string) => {
  * Un emprunteur pouvait obtenir cette clé au terme d'un prêt bon marché, puis s'en
  * servir pour déchiffrer le modèle d'un prêt homonyme ailleurs, sans jamais payer.
  */
-const evmModelKeyContext = (loanId: string, borrower: string) => {
-  const { chainId, escrow } = evmEscrowBinding();
+const evmModelKeyContext = (loanId: string, borrower: string, binding = evmEscrowBinding()) => {
+  const { chainId, escrow } = trustedEscrowBinding(binding);
   return `model:loan:v2:${chainId}:${escrow}:${evmSubject(borrower)}:${loanId}`;
 };
 
@@ -112,11 +115,13 @@ export async function sealDatasetEnvelope(
   datasetId: string,
   envelope: DatasetIngressEnvelope,
   expectedSizeBytes: number,
+  model: ModelSelection,
 ): Promise<SealDatasetResult> {
   const content = decryptDatasetIngress(datasetId, envelope);
   if (content.length !== expectedSizeBytes) {
     throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
   }
+  validateTrainingDataset(content, model);
   return sealDataset(datasetId, content);
 }
 
@@ -134,7 +139,7 @@ async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: Datase
 /** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
 async function trainAndSeal(input: TrainingInput) {
   const plaintext = await decryptDataset(input);
-  const model = trainLinearRegression(plaintext);
+  const model = trainSelectedModel(input, plaintext);
   const { model: gated, buffer } = gateModel(model);
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
@@ -194,8 +199,8 @@ export function escrowHashlock(loanId: string, borrower: string): `0x${string}` 
  * règlement. Le contexte est reconstruit ici depuis l'identifiant, jamais fourni par
  * l'appelant — même règle que `loanModelKey` sur le rail historique.
  */
-export function evmLoanModelKey(loanId: string, borrower: string): string {
-  return deliveryKey(evmModelKeyContext(loanId, borrower));
+export function evmLoanModelKey(loanId: string, borrower: string, binding?: EvmEscrowBinding): string {
+  return deliveryKey(evmModelKeyContext(loanId, borrower, binding));
 }
 
 /** Chiffre le modèle d'un emprunt EVM sous une clé liée à la chaîne et au contrat. */

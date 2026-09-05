@@ -20,18 +20,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const session = requireAuth(req);
     enforceRateLimit(settlementLimiter, `subject:${session.address}`);
     const { id } = await params;
-    const { authorization, releaseEnvelopeHash } = await readJson<{
+    const { authorization } = await readJson<{
       authorization?: RunnerGrant;
-      releaseEnvelopeHash?: unknown;
     }>(req);
-    if (!authorization || typeof releaseEnvelopeHash !== "string" || !/^[a-f0-9]{64}$/.test(releaseEnvelopeHash)) {
-      return NextResponse.json({ error: "Autorisation ou accusé de capsule manquant" }, { status: 400 });
+    if (!authorization) {
+      return NextResponse.json({ error: "Autorisation manquante" }, { status: 400 });
     }
     assertGrantSubject(session, authorization);
     const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true } });
     if (!loan) return NextResponse.json({ error: "Loan introuvable" }, { status: 404 });
     assertOwner(session, loan.borrower);
-    return NextResponse.json(await settlePreparedLoan(id, releaseEnvelopeHash, authorization));
+    return NextResponse.json(await settlePreparedLoan(id, authorization));
   } catch (err) {
     return errorResponse(err);
   }

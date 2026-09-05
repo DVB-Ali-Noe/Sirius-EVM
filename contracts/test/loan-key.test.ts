@@ -6,6 +6,8 @@ import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox-viem/network
 import { datasetIdHash } from "../../src/lib/evm/dataset-key";
 import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
 
+const TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:linear_regression:1.0.0"));
+
 /**
  * Croise les dérivations TypeScript de l'application avec celles du contrat.
  *
@@ -57,6 +59,7 @@ async function fixture() {
     keccak256(toHex("loan-key-cid")),
     keccak256(toHex("loan-key-merkle-root")),
     1n,
+    TRAINING_PROFILE,
   ], { account: wallets[1].account });
   const onChainDatasetId = await registry.read.datasetIdOf([wallets[1].account.address, datasetIdHash(datasetId)]);
   await usdc.write.mint([wallets[0].account.address, 1_000_000_000n]);
@@ -100,7 +103,7 @@ describe("Dérivations partagées application ↔ contrat", () => {
 
     const amount = 1_000_000n;
     await usdc.write.approve([escrow.address, amount], { account: borrower.account });
-    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash"), onChainDatasetId], {
+    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash"), onChainDatasetId, TRAINING_PROFILE], {
       account: borrower.account,
     });
 
@@ -133,6 +136,6 @@ describe("Dérivations partagées application ↔ contrat", () => {
     expect(hashlockOf(preimage)).to.equal(
       `0x${createHash("sha256").update(preimage).digest("hex")}`,
     );
-    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v3");
+    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v5");
   });
 });

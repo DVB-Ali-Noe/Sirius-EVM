@@ -1,7 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
-import { getPublicClient } from "@/lib/evm/client";
 import {
   CHAIN_REAPER_LEASE_MS,
   PENDING_REAPER_TTL_MS,
@@ -9,10 +8,13 @@ import {
   SUBMISSION_REAPER_LEASE_MS,
   TRAINING_REAPER_LEASE_MS,
 } from "./reaper-policy";
-import { finalizeLoan } from "./borrower";
+import { recoverUnsubmittedLoan } from "./recover-loan";
+import { resolveLoanEscrow } from "@/lib/evm/history";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
+let afterId: string | null = null;
+let running: Promise<void> | null = null;
 
 export function startLoanReaper(): void {
   if (timer) return;
@@ -20,59 +22,39 @@ export function startLoanReaper(): void {
   if (!Number.isSafeInteger(interval) || interval < 5_000 || interval > 300_000) {
     throw new Error("SIRIUS_REAPER_INTERVAL_MS invalide");
   }
-  timer = setInterval(() => void runLoanReaper(), interval);
+  const run = () => { void runLoanReaper().catch(() => console.error("[reaper] passe indisponible, reprise à la suivante")); };
+  timer = setInterval(run, interval);
   timer.unref?.();
-  void runLoanReaper();
+  run();
 }
 
-export async function runLoanReaper(now = new Date()): Promise<void> {
+export function runLoanReaper(now = new Date()): Promise<void> {
+  if (!running) running = reapBatch(now).finally(() => { running = null; });
+  return running;
+}
+
+async function reapBatch(now: Date): Promise<void> {
   const loans = await prisma.loan.findMany({
     where: {
+      ...(afterId ? { id: { gt: afterId } } : {}),
       OR: [
         { status: "PENDING", createdAt: { lte: new Date(now.getTime() - PENDING_REAPER_TTL_MS) } },
         { status: "SUBMITTING", updatedAt: { lte: new Date(now.getTime() - SUBMISSION_REAPER_LEASE_MS) } },
+        { status: "CANCELLED", cancelTxHash: null, evmLoanKey: { not: null } },
         { status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_REAPER_LEASE_MS) } },
         { status: "SETTLING", updatedAt: { lte: new Date(now.getTime() - SETTLEMENT_REAPER_LEASE_MS) } },
         { status: { in: ["ESCROWED", "TRAINING", "SETTLING"] }, updatedAt: { lte: new Date(now.getTime() - CHAIN_REAPER_LEASE_MS) } },
       ],
     },
-    select: {
-      id: true,
-      borrower: true,
-      status: true,
-      evmLoanKey: true,
-      evmLockTxHash: true,
-      evmLockBlock: true,
-      modelCid: true,
-      updatedAt: true,
-    },
-    orderBy: { updatedAt: "asc" },
+    orderBy: { id: "asc" },
     take: BATCH_SIZE,
   });
+  // Le curseur avance aussi quand un prêt est actif ou son RPC échoue.
+  afterId = loans.length === BATCH_SIZE ? loans.at(-1)!.id : null;
   for (const loan of loans) {
     try {
-      if (loan.status === "PENDING") {
-        await prisma.loan.updateMany({ where: { id: loan.id, status: "PENDING", updatedAt: loan.updatedAt }, data: { status: "CANCELLED" } });
-        continue;
-      }
-      if (loan.status === "SUBMITTING") {
-        if (!loan.evmLockTxHash) {
-          await prisma.loan.updateMany({ where: { id: loan.id, status: "SUBMITTING", updatedAt: loan.updatedAt }, data: { status: "CANCELLED" } });
-          continue;
-        }
-        try {
-          const receipt = await getPublicClient().getTransactionReceipt({ hash: loan.evmLockTxHash as `0x${string}` });
-          if (receipt.status === "reverted") {
-            await prisma.loan.updateMany({
-              where: { id: loan.id, status: "SUBMITTING", evmLockTxHash: loan.evmLockTxHash, updatedAt: loan.updatedAt },
-              data: { status: "CANCELLED" },
-            });
-            continue;
-          }
-        } catch {
-          continue;
-        }
-        await finalizeLoan(loan.id, loan.borrower);
+      if (loan.status === "PENDING" || loan.status === "SUBMITTING" || loan.status === "CANCELLED") {
+        await recoverUnsubmittedLoan(loan);
         continue;
       }
       if (loan.status === "TRAINING" && !loan.modelCid) {
@@ -80,7 +62,7 @@ export async function runLoanReaper(now = new Date()): Promise<void> {
         continue;
       }
       if (!loan.evmLoanKey || !loan.evmLockBlock) continue;
-      const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock));
+      const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
       if (state.state === "active") continue;
       await prisma.loan.updateMany({
         where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
@@ -88,8 +70,8 @@ export async function runLoanReaper(now = new Date()): Promise<void> {
           ? { status: "SETTLED", settleTxHash: state.txHash, settledAt: new Date() }
           : { status: "CANCELLED", cancelTxHash: state.txHash },
       });
-    } catch (error) {
-      console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`, error);
+    } catch {
+      console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
     }
   }
 }

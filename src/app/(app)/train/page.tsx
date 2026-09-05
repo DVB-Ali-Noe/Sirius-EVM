@@ -22,6 +22,11 @@ import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import {
+  modelSelection,
+  modelDisplayName,
+  type ModelId,
+} from "@/lib/models/registry";
 
 interface Metrics {
   rowCount: number;
@@ -34,12 +39,15 @@ interface Dataset {
   description: string | null;
   provider: string;
   status: "DRAFT" | "LISTING" | "LISTED" | "UNLISTED" | "PRIVATE" | "SUSPENDED";
+  evmDatasetId: string | null;
   ipfsCid: string | null;
   runnerReceipt: string | null;
   sizeBytes: number | null;
   priceUsdcAtomic: string | null;
   challengeDays: number;
   metrics: Metrics | null;
+  modelId: ModelId | null;
+  modelVersion: string | null;
 }
 
 interface Loan {
@@ -53,6 +61,8 @@ interface Loan {
   cancelTxHash: string | null;
   modelCid: string | null;
   runnerReceipt: string | null;
+  modelId: ModelId;
+  modelVersion: string;
   evmDeadline: string | null;
   createdAt: string;
   dataset: { name: string; runnerReceipt: string | null } | null;
@@ -65,6 +75,8 @@ interface Job {
   modelCid: string | null;
   runnerReceipt: string | null;
   metrics: Record<string, number> | null;
+  modelId: ModelId;
+  modelVersion: string;
   createdAt: string;
   dataset: { name: string } | null;
 }
@@ -105,7 +117,6 @@ export default function TrainPage() {
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
   const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
-
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
   // que sa propre action (pas de collision entre self-train et lancement de job).
@@ -113,6 +124,7 @@ export default function TrainPage() {
 
   // Ids dont la clé du modèle est déjà livrée → évite de re-fetcher à chaque refresh.
   const haveKey = useRef<Set<string>>(new Set());
+  const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -199,7 +211,9 @@ export default function TrainPage() {
     setBusyKey(key, true);
     try {
       if (!dataset.runnerReceipt) throw new Error(t("Reçu confidentiel du dataset manquant"));
-      const res = await runSelfTrain(dataset.id, dataset.runnerReceipt);
+      const model = modelSelection(dataset.modelId, dataset.modelVersion);
+      if (!model) throw new Error(t("Profil d’entraînement du dataset absent ou invalide"));
+      const res = await runSelfTrain(dataset.id, dataset.runnerReceipt, model);
       deliver(res.jobId, { modelCid: res.modelCid, modelKey: res.modelKey });
       await refresh();
     } catch (err) {
@@ -211,22 +225,34 @@ export default function TrainPage() {
 
   async function runJob(loan: Loan) {
     const key = `job:${loan.id}`;
+    if (activeLoanJobs.current.has(key)) return;
+    activeLoanJobs.current.add(key);
     setError(null);
     setBusyKey(key, true);
     try {
       if (!loan.dataset?.runnerReceipt || !loan.evmLockTxHash || !loan.evmLoanKey) {
         throw new Error(t("Preuve d’escrow ou reçu dataset manquant"));
       }
+      const model = modelSelection(loan.modelId, loan.modelVersion);
+      if (!model) throw new Error(t("Modèle ou version non autorisé"));
       const delivery = await runLoanJob({
         loanId: loan.id,
         datasetId: loan.datasetId,
         datasetReceipt: loan.dataset.runnerReceipt,
+        model,
       });
       deliver(loan.id, delivery);
       await refresh();
     } catch (err) {
-      setError(messageOf(err));
+      const message = messageOf(err);
+      if (message === "Loan non verrouillé ou déjà en cours") {
+        await refresh().catch(() => {});
+        setError(t("Le job TEE est déjà en cours. Actualise dans quelques secondes."));
+      } else {
+        setError(message);
+      }
     } finally {
+      activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
     }
   }
@@ -304,7 +330,9 @@ export default function TrainPage() {
     );
   }
 
-  const trainable = mine.filter((d) => d.ipfsCid && d.runnerReceipt);
+  const trainable = mine.filter(
+    (d) => d.ipfsCid && d.runnerReceipt && d.evmDatasetId && ["LISTED", "UNLISTED", "PRIVATE"].includes(d.status),
+  );
   const external = catalogue.filter((d) => d.provider !== address);
   const hasHistory = loans.length > 0 || jobs.length > 0;
 
@@ -327,33 +355,18 @@ export default function TrainPage() {
 
       {/* Mes données — self-train, gratuit, sans escrow */}
       <section className="mb-10">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
           <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
         </div>
         {trainable.length === 0 ? (
           <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Aucun dataset finalisé. Dépose-en un dans « Mes datasets ».")}
+            {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
           </p>
         ) : (
           <div className="flex flex-col gap-3">
             {trainable.map((d) => (
-              <Card key={d.id} className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <h3 className="truncate font-medium">{d.name}</h3>
-                  <p className="mt-1 text-xs text-muted">
-                    {d.metrics ? `${t("{count} lignes", { count: d.metrics.rowCount })} · ${t("{count} colonnes", { count: d.metrics.columnCount })} · ` : ""}
-                    {formatBytes(d.sizeBytes)}
-                  </p>
-                </div>
-                <button
-                  onClick={() => selfTrain(d)}
-                  disabled={busy.has(`train:${d.id}`)}
-                  className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-                >
-                  {busy.has(`train:${d.id}`) ? t("Entraînement…") : t("Entraîner")}
-                </button>
-              </Card>
+              <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
             ))}
           </div>
         )}
@@ -361,7 +374,7 @@ export default function TrainPage() {
 
       {/* Catalogue — emprunt via escrow */}
       <section className="mb-10">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Catalogue")}</h2>
           <span className="text-xs text-muted">{t("Emprunt · escrow USDC")}</span>
         </div>
@@ -387,17 +400,21 @@ export default function TrainPage() {
         <div className="flex flex-col gap-3">
           {jobs.map((j) => (
             <Card key={j.id}>
-              <div className="flex items-center gap-2">
-                <h3 className="truncate font-medium">{j.dataset?.name ?? t("Dataset")}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="w-full font-medium">{j.dataset?.name ?? t("Dataset")}</h3>
                 <Badge variant={JOB_VARIANT[j.status]}>{t(j.status)}</Badge>
                 <Badge variant="default">{t("Self-train")}</Badge>
+                <Badge variant="default">{j.modelId} v{j.modelVersion}</Badge>
               </div>
               {j.status === "DONE" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle livré")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                     <Field label={t("Modèle (CID)")} value={j.modelCid ? truncate(j.modelCid) : "—"} mono />
-                    <Field label="R²" value={j.metrics?.r2 != null ? j.metrics.r2.toFixed(4) : "—"} />
+                    <Field
+                      label={j.modelId === "linear_regression" ? "R²" : "Accuracy"}
+                      value={j.modelId === "linear_regression" ? (j.metrics?.r2?.toFixed(4) ?? "—") : (j.metrics?.accuracy?.toFixed(4) ?? "—")}
+                    />
                   </dl>
                   {delivered[j.id] && (
                     <button
@@ -416,12 +433,13 @@ export default function TrainPage() {
 
           {loans.map((l) => (
             <Card key={l.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1 basis-80">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_VARIANT[l.status]}>{t(l.status)}</Badge>
                     <Badge variant="default">{t("Emprunt")}</Badge>
+                    <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
                     <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
@@ -440,7 +458,7 @@ export default function TrainPage() {
                   <button
                     onClick={() => refundLoan(l)}
                     disabled={busy.has(`refund:${l.id}`)}
-                    className="shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                   >
                     {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Récupérer l’escrow")}
                   </button>
@@ -449,10 +467,12 @@ export default function TrainPage() {
                   <button
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    aria-busy={busy.has(`job:${l.id}`)}
+                    className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
-                    {busy.has(`job:${l.id}`)
-                      ? t("Job TEE…")
+                    {busy.has(`job:${l.id}`) ? (
+                      <><TeeSpinner />{t("TEE en cours…")}</>
+                    )
                       : l.status === "TRAINING"
                         ? t("Réessayer le job")
                         : t("Lancer le job (TEE)")}
@@ -462,23 +482,23 @@ export default function TrainPage() {
                   <button
                     onClick={() => resumeSubmission(l)}
                     disabled={busy.has(`submit:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Réconcilier l’escrow")}
                   </button>
                 )}
                 {(l.status === "PENDING" || (l.status === "CANCELLED" && !l.cancelTxHash)) && (
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row">
                     <input
                       value={lockRecoveryHashes[l.id] ?? ""}
                       onChange={(event) => setLockRecoveryHashes((previous) => ({ ...previous, [l.id]: event.target.value.trim() }))}
                       placeholder={t("Hash de la transaction lock")}
-                      className="min-w-0 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent sm:w-72"
+                      className="w-full min-w-0 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent sm:flex-1"
                     />
                     <button
                       onClick={() => resumeSubmission(l, lockRecoveryHashes[l.id])}
                       disabled={busy.has(`submit:${l.id}`) || !lockRecoveryHashes[l.id]}
-                      className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                      className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                     >
                       {busy.has(`submit:${l.id}`) ? t("Réconciliation…") : t("Récupérer le lock")}
                     </button>
@@ -488,7 +508,7 @@ export default function TrainPage() {
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
-                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {busy.has(`job:${l.id}`)
                       ? t("Règlement…")
@@ -540,13 +560,56 @@ export default function TrainPage() {
   );
 }
 
+function SelfTrainCard({
+  dataset,
+  busy,
+  onTrain,
+}: {
+  dataset: Dataset;
+  busy: boolean;
+  onTrain: (dataset: Dataset) => Promise<void>;
+}) {
+  const { t } = useLocale();
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+
+  return (
+    <Card className="flex flex-wrap items-center justify-between gap-4">
+      <div className="min-w-0 flex-1 basis-80">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="w-full font-medium">{dataset.name}</h3>
+          <Badge variant={model ? "default" : "negative"}>
+            {model ? modelDisplayName(model) : t("Profil absent")}
+          </Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
+          {formatBytes(dataset.sizeBytes)}
+        </p>
+      </div>
+      <button
+        onClick={() => void onTrain(dataset)}
+        disabled={!model || busy}
+        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+        aria-busy={busy}
+        className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+      >
+        {busy ? <><TeeSpinner />{t("TEE en cours…")}</> : t("Entraîner")}
+      </button>
+    </Card>
+  );
+}
+
+function TeeSpinner() {
+  return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
+}
+
 function ModelInspection({ model }: { model: DeliveredModel }) {
   const { t } = useLocale();
   const [testFile, setTestFile] = useState<File | null>(null);
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
-  const [prediction, setPrediction] = useState<number | null>(null);
+  const [prediction, setPrediction] = useState<ReturnType<typeof predictModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function evaluate() {
@@ -588,10 +651,23 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <Field label={t("Algorithme")} value={model.algo} mono />
+        <Field label={t("Version")} value={model.version} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
-        <Field label="R²" value={model.metrics.r2.toFixed(6)} />
-        <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
+        {model.algo === "linear_regression" ? (
+          <>
+            <Field label="R²" value={model.metrics.r2.toFixed(6)} />
+            <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
+            <Field label="MAE" value={model.metrics.mae.toFixed(6)} />
+          </>
+        ) : (
+          <>
+            <Field label="Accuracy" value={model.metrics.accuracy.toFixed(6)} />
+            <Field label="Precision" value={model.metrics.precision.toFixed(6)} />
+            <Field label="Recall" value={model.metrics.recall.toFixed(6)} />
+            <Field label="F1" value={model.metrics.f1.toFixed(6)} />
+          </>
+        )}
         <Field label="n" value={String(model.metrics.n)} />
       </dl>
       <div className="mt-2 text-xs text-muted">
@@ -619,11 +695,20 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
             {evaluating ? t("Évaluation…") : t("Évaluer")}
           </button>
         </div>
-        {evaluation && (
+        {evaluation?.algo === "linear_regression" && (
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
             <Field label="R²" value={evaluation.r2.toFixed(6)} />
             <Field label="RMSE" value={evaluation.rmse.toFixed(6)} />
             <Field label="MAE" value={evaluation.mae.toFixed(6)} />
+            <Field label={t("Lignes de test")} value={String(evaluation.n)} />
+          </dl>
+        )}
+        {evaluation?.algo === "logistic_regression" && (
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-5">
+            <Field label="Accuracy" value={evaluation.accuracy.toFixed(6)} />
+            <Field label="Precision" value={evaluation.precision.toFixed(6)} />
+            <Field label="Recall" value={evaluation.recall.toFixed(6)} />
+            <Field label="F1" value={evaluation.f1.toFixed(6)} />
             <Field label={t("Lignes de test")} value={String(evaluation.n)} />
           </dl>
         )}
@@ -632,14 +717,14 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
         <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Tester une prédiction")}</summary>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {model.features.map((feature) => (
-            <label key={feature} className="flex flex-col gap-1 text-xs text-muted">
+            <label key={feature} className="flex min-w-0 flex-col gap-1 text-xs text-muted">
               {feature}
               <input
                 type="number"
                 inputMode="decimal"
                 value={featureValues[feature] ?? ""}
                 onChange={(event) => setFeatureValues((values) => ({ ...values, [feature]: event.target.value }))}
-                className="rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
+                className="w-full min-w-0 rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
               />
             </label>
           ))}
@@ -651,9 +736,15 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
         >
           {t("Prédire")}
         </button>
-        {prediction !== null && (
+        {prediction?.algo === "linear_regression" && (
           <p className="mt-2 text-xs text-muted">
-            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.toFixed(6)} {model.target}</span>
+            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.value.toFixed(6)} {model.target}</span>
+          </p>
+        )}
+        {prediction?.algo === "logistic_regression" && (
+          <p className="mt-2 text-xs text-muted">
+            {t("Probabilité (classe 1)")} <span className="font-medium text-foreground">{prediction.probability.toFixed(6)}</span>
+            <span className="ml-3">{t("Classe prédite")} <span className="font-medium text-foreground">{prediction.label}</span></span>
           </p>
         )}
       </details>
@@ -676,6 +767,7 @@ function CatalogueCard({
   const { t } = useLocale();
   const [openForm, setOpenForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const model = modelSelection(dataset.modelId, dataset.modelVersion);
 
   function reset() {
     setOpenForm(false);
@@ -683,6 +775,10 @@ function CatalogueCard({
 
   async function confirm() {
     onError("");
+    if (!model) {
+      onError(t("Profil d’entraînement du dataset absent ou invalide"));
+      return;
+    }
     setBusy(true);
     try {
       await borrowDataset({ datasetId: dataset.id });
@@ -697,9 +793,12 @@ function CatalogueCard({
 
   return (
     <Card>
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h3 className="truncate font-medium">{dataset.name}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-80">
+          <h3 className="font-medium">{dataset.name}</h3>
+          <Badge variant={model ? "default" : "negative"}>
+            {model ? modelDisplayName(model) : t("Profil absent")}
+          </Badge>
           <p className="mt-1 text-xs text-muted">
             {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
             {formatBytes(dataset.sizeBytes)}
@@ -711,7 +810,9 @@ function CatalogueCard({
         {!openForm && (
           <button
             onClick={() => setOpenForm(true)}
-            className="shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20"
+            disabled={!model}
+            title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+            className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
           >
             {t("Emprunter")}
           </button>
@@ -721,6 +822,9 @@ function CatalogueCard({
       {openForm && (
         <div className="mt-4 border-t border-border pt-4">
           <div className="flex flex-wrap items-end gap-3">
+            <p className="text-xs text-muted">
+              {model ? t("Profil du dataset verrouillé : {model}", { model: modelDisplayName(model) }) : t("Profil d’entraînement manquant")}
+            </p>
             {advanced && (
               <p className="text-xs text-muted">{t("Termes provider verrouillés dans le reçu runner")}</p>
             )}

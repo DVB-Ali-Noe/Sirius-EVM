@@ -1,21 +1,13 @@
 "use client";
 
+import { parseDeliveredModel, type DeliveredModel } from "@/lib/models/registry";
+
+export type { DeliveredModel } from "@/lib/models/registry";
+
 interface EncryptedModelPayload {
   ciphertext: string;
   iv: string;
   tag: string;
-}
-
-export interface DeliveredModel {
-  algo: "linear_regression";
-  target: string;
-  features: string[];
-  coefficients: number[];
-  metrics: {
-    r2: number;
-    rmse: number;
-    n: number;
-  };
 }
 
 function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
@@ -35,41 +27,10 @@ function concat(left: Uint8Array<ArrayBuffer>, right: Uint8Array<ArrayBuffer>): 
 function encryptedPayload(value: unknown): EncryptedModelPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Modèle chiffré invalide");
   const payload = value as Partial<EncryptedModelPayload>;
-  if (
-    typeof payload.ciphertext !== "string" ||
-    typeof payload.iv !== "string" ||
-    typeof payload.tag !== "string"
-  ) {
+  if (typeof payload.ciphertext !== "string" || typeof payload.iv !== "string" || typeof payload.tag !== "string") {
     throw new Error("Modèle chiffré invalide");
   }
   return payload as EncryptedModelPayload;
-}
-
-function deliveredModel(value: unknown): DeliveredModel {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Modèle déchiffré invalide");
-  const model = value as Partial<DeliveredModel>;
-  if (
-    model.algo !== "linear_regression" ||
-    typeof model.target !== "string" ||
-    !Array.isArray(model.features) ||
-    !model.features.every((feature) => typeof feature === "string") ||
-    model.features.length === 0 ||
-    model.features.length > 31 ||
-    !Array.isArray(model.coefficients) ||
-    model.coefficients.length !== model.features.length + 1 ||
-    !model.coefficients.every((coefficient) => typeof coefficient === "number" && Number.isFinite(coefficient)) ||
-    !model.metrics ||
-    typeof model.metrics.r2 !== "number" ||
-    !Number.isFinite(model.metrics.r2) ||
-    typeof model.metrics.rmse !== "number" ||
-    !Number.isFinite(model.metrics.rmse) ||
-    model.metrics.rmse < 0 ||
-    !Number.isSafeInteger(model.metrics.n) ||
-    model.metrics.n < 1
-  ) {
-    throw new Error("Modèle déchiffré invalide");
-  }
-  return model as DeliveredModel;
 }
 
 export async function decryptModelPayload(payload: unknown, modelKey: string): Promise<DeliveredModel> {
@@ -86,9 +47,7 @@ export async function decryptModelPayload(payload: unknown, modelKey: string): P
   } catch {
     throw new Error("Modèle chiffré invalide");
   }
-  if (rawKey.length !== 32 || iv.length !== 12 || tag.length !== 16) {
-    throw new Error("Modèle chiffré invalide");
-  }
+  if (rawKey.length !== 32 || iv.length !== 12 || tag.length !== 16) throw new Error("Modèle chiffré invalide");
 
   try {
     const key = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
@@ -97,7 +56,7 @@ export async function decryptModelPayload(payload: unknown, modelKey: string): P
       key,
       concat(ciphertext, tag),
     );
-    return deliveredModel(JSON.parse(new TextDecoder().decode(plaintext)));
+    return parseDeliveredModel(JSON.parse(new TextDecoder().decode(plaintext)));
   } catch {
     throw new Error("Déchiffrement du modèle impossible");
   }

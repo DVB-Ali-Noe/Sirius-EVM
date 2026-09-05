@@ -3,6 +3,8 @@ import { AppError } from "@/lib/app-error";
 import { isDemoDeployment } from "@/lib/deployment-mode";
 import { issueRunnerCapability, type RunnerOperation, type RunnerScope } from "@/lib/runner/capability";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import type { ModelSelection } from "@/lib/models/registry";
+import type { LoanExecutionAttestation } from "./types";
 import type {
   AuthorizedSealDatasetResult,
   AuthorizedTrainingResult,
@@ -87,11 +89,12 @@ export async function sealDatasetInRunner(
   sizeBytes: number,
   envelope: DatasetIngressEnvelope,
   authorization: RunnerGrant,
+  model: ModelSelection,
 ): Promise<AuthorizedSealDatasetResult> {
   return dispatchRunner(
     "seal-dataset",
     { datasetId },
-    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization },
+    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization, ...model },
   );
 }
 
@@ -105,14 +108,14 @@ export async function escrowHashlockInRunner(loanId: string, borrower: string): 
 }
 
 export async function runLoanJobInRunner(
-  input: Omit<DatasetRef, "datasetId"> & { datasetId: string; loanId: string },
+  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; loanId: string },
   datasetReceipt: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
 ): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
-  attestation: { payloadHash: string };
+  attestation: LoanExecutionAttestation;
   releaseEnvelope: RunnerReleaseEnvelope;
   runnerReceipt: string;
 }> {
@@ -151,7 +154,7 @@ export async function loanModelKeyInRunner(
 }
 
 export async function runSelfTrainingInRunner(
-  input: Omit<DatasetRef, "datasetId"> & { datasetId: string; jobId: string },
+  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
   datasetReceipt: string,
   authorization: RunnerGrant,
 ): Promise<AuthorizedTrainingResult> {
