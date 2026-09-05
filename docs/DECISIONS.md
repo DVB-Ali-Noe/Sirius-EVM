@@ -34,7 +34,7 @@ Une adresse possède une attestation KYB, indépendamment de son rôle. Le même
 
 ## D-7 — Registre de dataset, pas NFT
 
-Le titre on-chain est non transférable. Il contient uniquement le hash du CID du contenu déjà chiffré, son Merkle root et sa taille ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
+Le titre on-chain est non transférable. Il contient le hash du CID du contenu déjà chiffré, son Merkle root, sa taille et le hash du profil d'entraînement ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
 
 Le crypto-shredding détruit la clé de dataset et laisse un tombstone on-chain : la donnée devient irrécupérable, tandis que la preuve d'existence demeure auditable.
 
@@ -49,3 +49,15 @@ Le parcours produit est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, 
 ## D-10 — Production après validation réelle
 
 Avant le mainnet : déployer les trois contrats sur testnet, vérifier leurs adresses et ABI, financer le compte de règlement du runner, exécuter un prêt réel avec deux wallets et rejouer les scénarios de remboursement, récupération de modèle et crypto-shredding. Une revue de contrats indépendante est requise avant toute utilisation avec des fonds réels.
+
+## D-11 — Profil d'entraînement choisi par le provider
+
+Le dataset possède un profil modèle/version déclaré dès l'upload. Le runner valide le CSV pour ce profil ; DatasetRegistry v4 l'ancre et Escrow v5 exige le même profil au lock. Un dataset logistique ne devient pas linéaire par un choix du borrower. Ajouter un nouveau profil impose une version explicite du registre de modèles et une revue des contrats concernés.
+
+## D-12 — L'état local n'est pas une preuve on-chain
+
+Un hash absent ou un statut `CANCELLED` ne prouve ni l'absence de lock ni un remboursement. La reprise et le préflight de migration interrogent la chaîne ; une panne conserve l'incertitude. Un hash erroné n'est remplacé que sur preuve de la transaction correcte. Les anciens escrows sont explicitement autorisés, et leur compatibilité sert à la lecture et à la livraison, pas à signer de nouveaux règlements historiques.
+
+## D-13 — Déploiement applicatif distinct du déploiement Solidity
+
+Les correctifs de récupération, de remboursement wallet, de logs et de taille d'upload ne changent pas les contrats v5/v4. La mise à jour porte sur PostgreSQL, Next, le worker et le runner distant éventuel. Changer d'escrow sans nécessité rompt les références historiques ; conserver les adresses et les clés de chiffrement tant que le protocole Solidity n'évolue pas.

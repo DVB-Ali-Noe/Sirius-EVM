@@ -2,7 +2,7 @@
 
 ## Principe
 
-Sirius sépare strictement données, calcul et règlement. Le dataset reste chiffré sur IPFS, le calcul s'exécute dans un TEE Phala et les états économiques sont portés par trois contrats EVM sur Robinhood Chain.
+Sirius sépare données, calcul et règlement. Le dataset reste chiffré sur IPFS, le calcul confidentiel cible un TEE Phala et les états économiques sont portés par trois contrats EVM sur Robinhood Chain. Le mode démonstration sans `RUNNER_URL` exécute le runner dans Next : il ne fournit pas l'isolation d'une enclave et reste réservé aux données synthétiques ou non sensibles. La persistance applicative utilise PostgreSQL via Prisma.
 
 Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC et les adresses sont lus depuis l'environnement par [`src/lib/evm/networks.ts`](../src/lib/evm/networks.ts).
 
@@ -10,23 +10,23 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
-| `SiriusEscrow` | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset, `release` avant l'échéance, états exclusifs et crédit pull-only |
+| `SiriusEscrow` v5 | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset et au profil d'entraînement, `release` avant l'échéance, états exclusifs et crédit pull-only |
 | `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
-| `SiriusDatasetRegistry` | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, tombstone après crypto-shredding |
+| `SiriusDatasetRegistry` v4 | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, profil d'entraînement immuable, tombstone après crypto-shredding |
 
 Le titre n'est pas un NFT transférable : il représente la provenance d'un dataset et non un actif de spéculation.
 
 ## Parcours de règlement
 
-1. Le provider chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Next ne reçoit pas le CSV en clair.
+1. Le provider choisit le profil linéaire ou logistique et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
 2. Le runner scelle une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
 3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
-5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge et le hash du `loanId`.
+5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge, le hash du `loanId`, le titre dataset et son profil d'entraînement.
 6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
 7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Il atteste un payload canonique qui lie modèle/version, scope EVM, CID et hash de capsule ; en Phala, la quote TDX et son evidence sont vérifiées puis persistées. Le borrower persiste cette capsule.
 8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
-9. Si aucun modèle n'est livré, `refund(loanKey)` devient possible après l'échéance. Le borrower récupère ensuite son crédit avec `withdraw`.
+9. Si le prêt n'est pas réglé, `refund(loanKey)` devient possible après l'échéance. Next prépare la transaction, le wallet du borrower la signe, puis Next confirme son inclusion. Le borrower retire ensuite son crédit avec `withdraw` ; Next n'utilise aucune clé de règlement pour rembourser.
 
 Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc ni token à frais ni transfert silencieux. Il n'effectue aucun transfert externe pendant `release` ou `refund` : les fonds sont crédités puis retirés séparément.
 
@@ -42,7 +42,16 @@ Les attestations KYB utilisent EIP-712 : le domaine inclut lui aussi le `chainId
 - Le runner Phala est le seul détenteur de la master key dstack ; il ouvre le dataset, entraîne le modèle, génère le préimage et signe les reçus.
 - Next orchestre, persiste l'état applicatif et vérifie les attestations, mais ne reçoit ni la donnée brute ni les secrets de règlement.
 - `RUNNER_TRANSPORT_SECRET` authentifie le canal Next→runner sans conférer d'autorité métier.
-- Les grants wallet P-256 sont scopés, expirables et protégés contre le rejeu.
+- Le wallet autorise une délégation par signature EIP-191 ; les grants P-256 de cette délégation sont scopés, expirables et protégés contre le rejeu.
+- Le RPC de règlement reçoit le préimage lors de la simulation et de l'envoi avant inclusion : il doit être de confiance. La suppression des erreurs brutes dans les logs ne protège pas contre un RPC hostile.
+
+## Reprise et historique
+
+Chaque nouveau prêt conserve `evmChainId`, `evmEscrowAddress` et `evmPreparedBlock`. Les lectures historiques sont limitées aux escrows explicitement autorisés du même réseau. Un reçu HMAC v2 peut relivrer une clé après règlement, mais ne peut pas autoriser un nouvel entraînement ou règlement.
+
+Le reaper parcourt les prêts par lots avec un curseur stable. L'absence de hash en base ne suffit pas pour annuler : il vérifie l'escrow et récupère les transactions déjà minées. Un mauvais hash peut être remplacé sur preuve d'un vrai `lock` du même borrower et du même prêt. Les transitions concurrentes sont protégées par comparaison de l'état lu, et une panne RPC ne crée pas de confirmation locale.
+
+La pipeline exécute un préflight avant la migration des profils, y compris pour les prêts annulés sans preuve de remboursement. Une transaction connue encore en attente bloque la migration. Le schéma PostgreSQL supporté est `public`.
 
 ## Organisation du code
 

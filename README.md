@@ -25,7 +25,7 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 
 | Couche | Technologie |
 |---|---|
-| Application | Next.js 16 · React 19 · Tailwind 4 · Prisma / SQLite |
+| Application | Next.js 16 · React 19 · Tailwind 4 · Prisma / PostgreSQL |
 | Chaîne | Robinhood Chain, EVM Arbitrum Nitro · testnet `46630` · mainnet `4663` |
 | Contrats | Solidity `0.8.24` · Hardhat · viem |
 | Calcul confidentiel | Phala dstack, runner HTTP isolé, RA-TLS |
@@ -33,9 +33,9 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 
 ## Contrats EVM
 
-- `SiriusEscrow` : USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
+- `SiriusEscrow` v5 : USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
 - `SiriusKybRegistry` : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et invalidées durablement au retrait d'un vérificateur.
-- `SiriusDatasetRegistry` : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root et à sa taille.
+- `SiriusDatasetRegistry` v4 : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root, à sa taille et à son profil d'entraînement.
 
 Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). Les ABI TypeScript sont générées dans [`src/lib/evm/abi/`](src/lib/evm/abi).
 
@@ -44,6 +44,10 @@ Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). 
 Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
 Les trois contrats sont déployés sur le testnet Robinhood et l'instance publique tourne en mode démonstration : le calcul confidentiel s'exécute dans le processus de l'application, sans enclave attestée. Le parcours réel navigateur/runner/contrats, un émetteur KYB externe et la CVM Phala restent à valider. La roadmap ne présente donc pas encore le produit comme validé sur une enclave réelle.
+
+L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
+
+Les correctifs de reprise et de livraison historique sont applicatifs : **pas de redéploiement Solidity** si l'instance utilise déjà Escrow v5 et DatasetRegistry v4. Ils nécessitent une migration PostgreSQL additive et la mise à jour de Next et du worker, ainsi que du runner distant s'il est utilisé. Voir la [checklist staging](docs/DEMO.md#mise-à-jour-des-correctifs-sur-staging).
 
 ## Démarrage
 
@@ -65,7 +69,7 @@ pnpm contracts:deploy:testnet
 pnpm contracts:smoke
 ```
 
-Reporter les trois adresses affichées dans les variables `NEXT_PUBLIC_SIRIUS_*_ADDRESS`. La procédure détaillée est dans [docs/DEMO.md](docs/DEMO.md).
+Reporter les adresses affichées dans les variables serveur `SIRIUS_*_ADDRESS` **et** publiques `NEXT_PUBLIC_SIRIUS_*_ADDRESS`, sans changer l'USDC associé. La procédure détaillée est dans [docs/DEMO.md](docs/DEMO.md).
 
 ## Documentation
 
@@ -74,3 +78,4 @@ Reporter les trois adresses affichées dans les variables `NEXT_PUBLIC_SIRIUS_*_
 - [Roadmap](docs/ROADMAP.md)
 - [Démo et déploiement testnet](docs/DEMO.md)
 - [Runner Phala](docs/PHALA.md)
+- [Audit des correctifs et limites de validation](docs/AUDIT-CORRECTIFS.md)
