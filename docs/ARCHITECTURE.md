@@ -53,6 +53,10 @@ Le reaper parcourt les prêts par lots avec un curseur stable. L'absence de hash
 
 La pipeline exécute un préflight avant la migration des profils, y compris pour les prêts annulés sans preuve de remboursement. Une transaction connue encore en attente bloque la migration. Le schéma PostgreSQL supporté est `public`.
 
+La suppression d'un dataset conserve sa fiche d'audit (`DELETED`). `deletionReconciledAt` enregistre la fin du parcours applicatif, même si le titre est déjà détruit ou absent du registre courant et qu'aucune nouvelle transaction n'est nécessaire. `evmDestroyTxHash` reste réservé à une transaction réellement confirmée ; constater l'absence d'un titre dans le nouveau registre ne prouve pas sa destruction dans un ancien registre. Les suppressions non finalisées restent accessibles au provider. Un brouillon sans titre peut être supprimé sans RPC ; un ancien dataset sans profil valide doit être réimporté et ne peut pas être publié tel quel.
+
+La migration additive `20260906000000_reconcile_dataset_deletion` doit être appliquée avant de déployer ce code. Elle ne supprime aucune donnée et ne requiert aucun redéploiement des contrats.
+
 ## Organisation du code
 
 ```text

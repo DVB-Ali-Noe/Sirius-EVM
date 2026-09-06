@@ -146,18 +146,17 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
 }
 
 export async function prepareDatasetDestruction(datasetId: string, provider: string) {
-  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status === "DRAFT") return null;
   const activeLoan = await prisma.loan.findFirst({
     where: { datasetId, status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } },
     select: { id: true },
   });
   if (activeLoan) throw new AppError("Suppression impossible : emprunt actif", 409);
   if (!dataset.evmDatasetId) {
-    if (dataset.status === "DELETED") return null;
+    if (dataset.status === "DRAFT" || dataset.status === "DELETED") return null;
     throw new AppError("Titre EVM absent", 409);
   }
+  await requireCurrentEvmDeployment();
   const live = await getPublicClient().readContract({
     address: datasetRegistryAddress(),
     abi: siriusdatasetregistryAbi,
@@ -169,9 +168,12 @@ export async function prepareDatasetDestruction(datasetId: string, provider: str
 }
 
 export async function deleteDataset(datasetId: string, provider: string, txHash?: string) {
-  await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status !== "DRAFT") {
+  if (!dataset.evmDatasetId && (txHash || (dataset.status !== "DRAFT" && dataset.status !== "DELETED"))) {
+    throw new AppError("Titre EVM absent", 409);
+  }
+  if (dataset.evmDatasetId) {
+    await requireCurrentEvmDeployment();
     const registry = datasetRegistryAddress();
     const publicClient = getPublicClient();
     if (txHash) {
@@ -193,15 +195,21 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
   }
 
   if (dataset.status === "DELETED") {
-    if (!txHash || dataset.evmDestroyTxHash) return dataset;
+    if (dataset.deletionReconciledAt && (!txHash || dataset.evmDestroyTxHash)) return dataset;
     const finalized = await prisma.dataset.updateMany({
       where: {
         id: datasetId,
         provider: normalizeAddress(provider),
         status: "DELETED",
-        evmDestroyTxHash: null,
+        evmDestroyTxHash: dataset.evmDestroyTxHash,
+        deletionReconciledAt: dataset.deletionReconciledAt,
+        loans: { none: { status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } } },
       },
-      data: { evmDestroyTxHash: txHash },
+      // Un titre absent du registre courant ne prouve pas sa destruction sur un ancien registre.
+      data: {
+        deletionReconciledAt: dataset.deletionReconciledAt ?? new Date(),
+        ...(txHash && !dataset.evmDestroyTxHash ? { evmDestroyTxHash: txHash } : {}),
+      },
     });
     if (finalized.count !== 1) throw new AppError("Finalisation du titre EVM concurrente", 409);
     return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });
@@ -211,13 +219,14 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
     where: {
       id: datasetId,
       provider: normalizeAddress(provider),
-      status: { not: "DELETED" },
+      status: dataset.status,
       loans: { none: { status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } } },
     },
     data: {
       wrappedKey: null,
       status: "DELETED",
       keyDestroyedAt: new Date(),
+      deletionReconciledAt: new Date(),
       ...(txHash ? { evmDestroyTxHash: txHash } : {}),
     },
   });

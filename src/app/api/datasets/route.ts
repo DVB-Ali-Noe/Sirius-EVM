@@ -68,7 +68,12 @@ async function listerDatasets(req: Request) {
           provider: session.address,
           OR: [
             { status: { not: "DELETED" as const } },
-            { status: "DELETED" as const, evmDatasetId: { not: null }, evmDestroyTxHash: null },
+            {
+              status: "DELETED" as const,
+              evmDatasetId: { not: null },
+              evmDestroyTxHash: null,
+              deletionReconciledAt: null,
+            },
           ],
         };
   const datasets = await prisma.dataset.findMany({

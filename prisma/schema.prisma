@@ -20,6 +20,7 @@ model Dataset {
   evmMintTxHash   String? // hash de mint confirmé
   evmMintBlock    String? // bloc de mint, borne les recherches d'événements
   evmDestroyTxHash String? // hash de tombstone confirmé
+  deletionReconciledAt DateTime? // fin de suppression applicative ; distincte d'une preuve de transaction EVM
   ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
   wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
   merkleRoot     String? // racine Merkle des chunks (intégrité)

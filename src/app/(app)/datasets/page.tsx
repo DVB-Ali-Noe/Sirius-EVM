@@ -144,7 +144,7 @@ export default function DatasetsPage() {
     if (
       !window.confirm(
         dataset.status === "DELETED"
-          ? t("Finaliser la destruction du titre du dataset sur EVM ?")
+          ? t("Vérifier le titre dans le registre EVM courant et finaliser la suppression ? Les éventuels anciens registres ne seront pas modifiés.")
           : t("Supprimer ce dataset ? Sa clé de déchiffrement est détruite : la donnée devient définitivement irrécupérable."),
       )
     ) {
@@ -262,6 +262,11 @@ export default function DatasetsPage() {
                   <DatasetProfileBadge dataset={d} />
                 </div>
                 {d.description && <p className="mt-1 text-sm text-muted">{d.description}</p>}
+                {d.status !== "DELETED" && !modelSelection(d.modelId, d.modelVersion) && (
+                  <p className="mt-2 text-sm text-negative">
+                    {t("Ancien dataset sans profil valide : supprime-le et importe-le à nouveau en choisissant un entraînement.")}
+                  </p>
+                )}
                 <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
                   <Field label={t("Lignes")} value={d.metrics ? String(d.metrics.rowCount) : "—"} />
                   <Field label={t("Colonnes")} value={d.metrics ? String(d.metrics.columnCount) : "—"} />
@@ -279,12 +284,14 @@ export default function DatasetsPage() {
                 <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
                   <button
                     onClick={() => handleList(d)}
-                    disabled={pendingId === d.id || (d.status === "DRAFT" && !d.ipfsCid)}
+                    disabled={pendingId === d.id || !modelSelection(d.modelId, d.modelVersion) || (d.status === "DRAFT" && !d.ipfsCid)}
                     title={!d.ipfsCid ? t("Upload interrompu : supprime ce brouillon et recommence") : undefined}
                     className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
                   >
                     {pendingId === d.id
                       ? t("Publication…")
+                      : !modelSelection(d.modelId, d.modelVersion)
+                      ? t("Réimport requis")
                       : d.status === "LISTING"
                       ? t("Réconcilier…")
                       : d.ipfsCid
@@ -302,25 +309,27 @@ export default function DatasetsPage() {
                   )}
                 </div>
               )}
-              {VISIBILITY_STATES.includes(d.status) && (
+              {(VISIBILITY_STATES.includes(d.status) || (d.status === "SUSPENDED" && d.evmDatasetId)) && (
                 <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
-                  <div className="grid max-w-full grid-cols-3 rounded-lg border border-border p-0.5">
-                    {VISIBILITY_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => handleVisibility(d.id, opt.value)}
-                        disabled={pendingId === d.id || d.status === opt.value}
-                        title={t(opt.hint)}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-default ${
-                          d.status === opt.value
-                            ? "bg-accent text-background"
-                            : "text-muted hover:text-foreground disabled:opacity-50"
-                        }`}
-                      >
-                        {t(opt.label)}
-                      </button>
-                    ))}
-                  </div>
+                  {VISIBILITY_STATES.includes(d.status) && (
+                    <div className="grid max-w-full grid-cols-3 rounded-lg border border-border p-0.5">
+                      {VISIBILITY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => handleVisibility(d.id, opt.value)}
+                          disabled={pendingId === d.id || d.status === opt.value}
+                          title={t(opt.hint)}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-default ${
+                            d.status === opt.value
+                              ? "bg-accent text-background"
+                              : "text-muted hover:text-foreground disabled:opacity-50"
+                          }`}
+                        >
+                          {t(opt.label)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     onClick={() => handleDelete(d)}
                     disabled={pendingId === d.id}
@@ -336,7 +345,7 @@ export default function DatasetsPage() {
                   disabled={pendingId === d.id}
                   className="max-w-full rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                 >
-                  {pendingId === d.id ? t("Réconciliation…") : t("Finaliser le titre")}
+                  {pendingId === d.id ? t("Réconciliation…") : t("Finaliser la suppression")}
                 </button>
               )}
             </div>
