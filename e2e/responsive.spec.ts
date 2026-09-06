@@ -176,7 +176,7 @@ for (const screen of SCREENS) {
     test("les profils du catalogue restent dans leur carte", async ({ page }) => {
       await openLayoutPage(page, "/marketplace", screen.fontSize);
       await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
-      await expect(page.getByText("Régression logistique binaire v1.0.0", { exact: true })).toBeVisible();
+      await expect(page.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
       await expectContainedLayout(page);
 
       const card = page.getByRole("heading", { name: linearDataset.name, exact: true }).locator("../..");
@@ -202,9 +202,9 @@ for (const screen of SCREENS) {
       await expectContainedLayout(page);
 
       const pending = page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true }).locator("../../../..");
-      await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeDisabled();
-      await pending.getByPlaceholder("Hash de la transaction lock").fill(`0x${"f".repeat(64)}`);
-      await expect(pending.getByRole("button", { name: "Récupérer le lock" })).toBeEnabled();
+      await expect(pending.getByRole("button", { name: "Recover lock" })).toBeDisabled();
+      await pending.getByPlaceholder("Lock transaction hash").fill(`0x${"f".repeat(64)}`);
+      await expect(pending.getByRole("button", { name: "Recover lock" })).toBeEnabled();
       await expectContainedLayout(page);
 
       await page.getByRole("button", { name: "Borrow", exact: true }).first().click();
@@ -214,13 +214,15 @@ for (const screen of SCREENS) {
 
     test("le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
       await openLayoutPage(page, "/datasets/new", screen.fontSize);
-      await page.getByLabel("Profil d’entraînement").selectOption("logistic_regression");
+      await page.getByLabel("Training profile").selectOption("logistic_regression");
       await page.locator('input[type="file"]').setInputFiles({
         name: `${LONG_NAME}.csv`,
         mimeType: "text/csv",
         buffer: Buffer.from("feature,target\n1,0\n2,1\n"),
       });
-      await expect(page.getByLabel("Profil d’entraînement")).toHaveValue("logistic_regression");
+      await expect(page.getByLabel("Training profile")).toHaveValue("logistic_regression");
+      await expect(page.getByLabel("Training profile").locator("option:checked")).toHaveText("Binary logistic regression · v1.0.0");
+      await expect(page.getByText("— 480 training rows, separate test set.")).toBeVisible();
       await expectContainedLayout(page);
     });
 

@@ -22,9 +22,7 @@ import { LocaleProvider } from "@/components/i18n/LocaleProvider";
  */
 export const dynamic = "force-dynamic";
 
-// Rendues côté serveur, donc figées : ce sont elles qu'un moteur de recherche lit et
-// qu'un réseau social affiche en aperçu de lien. Le sélecteur de langue n'y change
-// rien, et un titre français sur un site anglophone se remarque avant la page.
+// Les métadonnées restent en anglais dès le rendu serveur, y compris les aperçus de lien.
 const ORIGINE_PAR_DEFAUT = "https://sirius-data.tech";
 
 /**
@@ -90,10 +88,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // Le serveur rend l'anglais ; LocaleProvider corrige l'attribut après hydratation
-    // si le visiteur a choisi le français. Un moteur de recherche et un lecteur d'écran
-    // ne lisent que cette valeur-ci, et Chrome propose de traduire une page qu'il croit
-    // francophone.
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <LocaleProvider>

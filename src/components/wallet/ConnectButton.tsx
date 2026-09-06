@@ -245,7 +245,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                   {authPending ? t("Signature…") : t("Se connecter")}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted">
-                  {authError ?? t("Signe pour prouver la possession du wallet")}
+                  {authError ? t(authError) : t("Signe pour prouver la possession du wallet")}
                 </span>
               </button>
             )}

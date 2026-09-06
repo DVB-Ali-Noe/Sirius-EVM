@@ -2,16 +2,16 @@ export const MODEL_REGISTRY = {
   linear_regression: {
     id: "linear_regression",
     version: "1.0.0",
-    label: "Régression linéaire",
-    description: "Prédit une valeur numérique continue.",
+    label: "Linear regression",
+    description: "Predicts a continuous numeric value.",
     metrics: ["R²", "RMSE", "MAE"],
   },
   logistic_regression: {
     id: "logistic_regression",
     version: "1.0.0",
-    label: "Régression logistique binaire",
-    description: "Classe une cible strictement encodée en 0 ou 1.",
-    metrics: ["Accuracy", "Precision", "Recall", "F1", "Probabilité"],
+    label: "Binary logistic regression",
+    description: "Classifies a target strictly encoded as 0 or 1.",
+    metrics: ["Accuracy", "Precision", "Recall", "F1", "Probability"],
   },
 } as const;
 

@@ -39,7 +39,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-muted transition-colors hover:text-foreground"
-            aria-label="Fermer"
+            aria-label="Close"
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path

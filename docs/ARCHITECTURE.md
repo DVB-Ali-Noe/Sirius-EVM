@@ -57,6 +57,12 @@ La suppression d'un dataset conserve sa fiche d'audit (`DELETED`). `deletionReco
 
 La migration additive `20260906000000_reconcile_dataset_deletion` doit être appliquée avant de déployer ce code. Elle ne supprime aucune donnée et ne requiert aucun redéploiement des contrats.
 
+## Langue de l'interface
+
+Le site est en anglais, y compris les profils d'entraînement, confirmations, info-bulles et erreurs affichées. `LocaleProvider` utilise `src/lib/i18n/english.ts` ; les erreurs de l'API sont traduites à l'affichage via `errors-en.ts`, sans changer les messages utilisés par la logique métier. Les noms et colonnes fournis par l'utilisateur restent inchangés. La documentation publique garde son dictionnaire anglais dédié.
+
+`pnpm test` contrôle les clés de traduction statiques, les paramètres et les erreurs dynamiques. Les tests navigateur vérifient aussi qu'un ancien choix de langue française ne réactive pas le français.
+
 ## Organisation du code
 
 ```text

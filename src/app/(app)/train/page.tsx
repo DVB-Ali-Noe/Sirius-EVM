@@ -748,7 +748,7 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
           </p>
         )}
       </details>
-      {error && <p className="mt-3 text-xs text-negative">{error}</p>}
+      {error && <p className="mt-3 text-xs text-negative">{t(error)}</p>}
     </div>
   );
 }

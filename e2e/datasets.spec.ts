@@ -37,6 +37,7 @@ function card(page: Page, name: string) {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("sirius-tour-seen", "1");
+    localStorage.setItem("sirius.locale", "fr");
     localStorage.removeItem("sirius-ui");
   });
   await page.route("**/api/**", async (route) => {
@@ -55,8 +56,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("la publication exige un profil valide mais la suppression du brouillon reste accessible", async ({ page }) => {
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(card(page, "Valid draft").getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
   for (const name of ["Legacy draft", "Invalid profile version"]) {
     const draft = card(page, name);
+    await expect(draft.getByText("Missing profile", { exact: true })).toBeVisible();
     await expect(draft.getByRole("button", { name: "Re-upload required" })).toBeDisabled();
     await expect(draft.getByRole("button", { name: "Delete draft" })).toBeEnabled();
     await expect(draft.getByText(/Legacy dataset without a valid profile/)).toBeVisible();
@@ -82,6 +86,6 @@ test("une erreur de finalisation garde la carte et permet de réessayer", async 
   });
   const deleted = card(page, "Deleted legacy dataset");
   await deleted.getByRole("button", { name: "Finalize deletion" }).click();
-  await expect(page.getByText("Contrats EVM Sirius indisponibles ou incompatibles", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sirius EVM contracts are unavailable or incompatible", { exact: true })).toBeVisible();
   await expect(deleted.getByRole("button", { name: "Finalize deletion" })).toBeEnabled();
 });
