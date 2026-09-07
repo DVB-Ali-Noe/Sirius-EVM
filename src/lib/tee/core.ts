@@ -15,7 +15,7 @@ import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/me
 import { computeMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainSelectedModel } from "./model-registry";
-import { validateTrainingDataset } from "./train";
+import { DatasetValidationError, validateTrainingDataset } from "./train";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
 import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
@@ -121,7 +121,17 @@ export async function sealDatasetEnvelope(
   if (content.length !== expectedSizeBytes) {
     throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
   }
-  validateTrainingDataset(content, model);
+  // Seul endroit où un motif de validation devient public : celui qui lit la réponse est
+  // celui qui vient de déposer le fichier. Le même contrôle pendant un entraînement reste
+  // opaque, sinon l'emprunteur apprendrait la forme d'une donnée qu'il n'a pas le droit de
+  // voir. Tout ce qui n'est pas imputable au fichier continue de remonter tel quel, et
+  // `errorResponse` s'en charge — une erreur technique peut porter un préimage ou un jeton.
+  try {
+    validateTrainingDataset(content, model);
+  } catch (error) {
+    if (error instanceof DatasetValidationError) throw new AppError(error.message, 400);
+    throw error;
+  }
   return sealDataset(datasetId, content);
 }
 

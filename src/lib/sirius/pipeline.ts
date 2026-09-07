@@ -166,15 +166,42 @@ export async function completeDatasetIngestion(
   envelope: DatasetIngressEnvelope,
   authorization: RunnerGrant,
 ) {
-  const { cid, wrappedKey, merkleRoot, metrics, sizeBytes, runnerReceipt } = await sealDatasetInRunner(
-    dataset.id,
-    dataset.priceUsdcAtomic,
-    dataset.challengeDays,
-    dataset.sizeBytes,
-    envelope,
-    authorization,
-    dataset.model,
-  );
+  let sealed;
+  try {
+    sealed = await sealDatasetInRunner(
+      dataset.id,
+      dataset.priceUsdcAtomic,
+      dataset.challengeDays,
+      dataset.sizeBytes,
+      envelope,
+      authorization,
+      dataset.model,
+    );
+  } catch (error) {
+    // Un fichier refusé laissait un brouillon sans lignes ni colonnes, dont le bouton de
+    // publication est désactivé : l'interface conseille déjà de le supprimer et de
+    // recommencer. On fait le geste à la place du fournisseur.
+    //
+    // Uniquement sur un refus imputable au fichier. Sur une panne passagère du runner, le
+    // brouillon reste et l'upload se retente — supprimer là ferait perdre le formulaire
+    // pour une raison qui n'a rien à voir avec ce qu'il contient.
+    if (error instanceof AppError && error.status === 400) {
+      await prisma.dataset
+        .deleteMany({
+          where: {
+            id: dataset.id,
+            provider: dataset.provider,
+            status: "DRAFT",
+            ipfsCid: null,
+            wrappedKey: null,
+            evmDatasetId: null,
+          },
+        })
+        .catch(() => console.error(`Nettoyage du brouillon refusé impossible pour ${dataset.id}`));
+    }
+    throw error;
+  }
+  const { cid, wrappedKey, merkleRoot, metrics, sizeBytes, runnerReceipt } = sealed;
   try {
     if (sizeBytes !== dataset.sizeBytes) {
       throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);

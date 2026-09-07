@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { gateModel } from "./output-gate";
-import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression } from "./train";
+import { DatasetValidationError, MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "./train";
 import { trainSelectedModel } from "./model-registry";
 import { modelSelection } from "@/lib/models/registry";
+import { translateEnglish } from "@/lib/i18n/english";
 
 function dataset(rows: number): Buffer {
   const lines = ["feature,target"];
@@ -117,4 +118,44 @@ test("refuse une cible logistique qui n'est pas strictement binaire", () => {
     () => trainLogisticRegression(Buffer.from(lines.join("\n"))),
     /strictement 0 ou 1/,
   );
+});
+
+test("une erreur imputable au fichier est distinguable d'une panne technique", () => {
+  // Ce que ce test protège : à l'upload, ces motifs remontent en 400 avec leur message ;
+  // pendant un entraînement ils restent opaques. La distinction ne tient qu'au type, donc
+  // repasser l'un d'eux en `Error` nu redonnerait « Internal error » à l'utilisateur sans
+  // qu'aucun autre test ne s'en aperçoive.
+  const binaire = ["feature,target"];
+  for (let row = 0; row < MIN_TRAINING_ROWS; row++) binaire.push(`${row},${row % 3}`);
+
+  const cas: [string, () => unknown][] = [
+    ["cible logistique non binaire", () =>
+      validateTrainingDataset(Buffer.from(binaire.join("\n")), modelSelection("logistic_regression", "1.0.0")!)],
+    ["dataset trop court", () => trainLinearRegression(dataset(MIN_TRAINING_ROWS - 1))],
+    ["en-têtes dupliqués", () => trainLinearRegression(Buffer.from("a,a\n1,2\n3,4"))],
+  ];
+
+  for (const [nom, appel] of cas) {
+    assert.throws(appel, (error: unknown) => {
+      assert.ok(error instanceof DatasetValidationError, `${nom} : type attendu DatasetValidationError`);
+      return true;
+    });
+  }
+});
+
+test("chaque motif de validation a une traduction anglaise", () => {
+  // Le message traverse le runner puis `errorResponse` avant d'atteindre l'écran. S'il n'est
+  // pas dans le dictionnaire, l'utilisateur lit du français au milieu d'une interface anglaise.
+  const motifs = [
+    "dataset insuffisant",
+    "en-têtes CSV invalides",
+    "au moins 2 colonnes numériques requises",
+    "colonne cible non numérique",
+    "la cible de la régression logistique doit contenir les classes 0 et 1",
+    `trop de features numériques (max ${MAX_TRAINING_FEATURES})`,
+    `dataset trop petit pour préserver la confidentialité (min ${MIN_TRAINING_ROWS} lignes)`,
+  ];
+  for (const motif of motifs) {
+    assert.notEqual(translateEnglish(motif), motif, `motif non traduit : ${motif}`);
+  }
 });

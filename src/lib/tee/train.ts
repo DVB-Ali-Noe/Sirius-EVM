@@ -14,6 +14,15 @@ const LOGISTIC_ITERATIONS = 200;
 const LOGISTIC_LEARNING_RATE = 0.1;
 const LOGISTIC_L2 = 0.01;
 
+/**
+ * Erreur imputable au fichier fourni, pas au système.
+ *
+ * Elle n'est convertie en réponse 400 qu'à l'ingestion, où celui qui lit le message est
+ * celui qui a déposé le fichier. Pendant un entraînement, elle reste opaque : le lecteur
+ * serait alors l'emprunteur, et le motif décrirait la donnée du fournisseur.
+ */
+export class DatasetValidationError extends Error {}
+
 function isNum(value: string): boolean {
   const number = Number(value);
   return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
@@ -45,25 +54,25 @@ interface TrainingColumns {
 function trainingColumns(csv: Buffer, target: string | undefined, deadline: number): TrainingColumns {
   const table = parseCsv(csv.toString("utf-8"));
   assertWithinDeadline(deadline);
-  if (table.length < 2) throw new Error("dataset insuffisant");
+  if (table.length < 2) throw new DatasetValidationError("dataset insuffisant");
 
   const [header, ...rows] = table;
   if (new Set(header).size !== header.length || header.some((column) => !column)) {
-    throw new Error("en-têtes CSV invalides");
+    throw new DatasetValidationError("en-têtes CSV invalides");
   }
   const numeric = numericColumns(header, rows);
-  if (numeric.length < 2) throw new Error("au moins 2 colonnes numériques requises");
+  if (numeric.length < 2) throw new DatasetValidationError("au moins 2 colonnes numériques requises");
   if (numeric.length > MAX_TRAINING_FEATURES + 1) {
-    throw new Error(`trop de features numériques (max ${MAX_TRAINING_FEATURES})`);
+    throw new DatasetValidationError(`trop de features numériques (max ${MAX_TRAINING_FEATURES})`);
   }
 
   const targetIdx = target ? header.indexOf(target) : numeric[numeric.length - 1];
-  if (!numeric.includes(targetIdx)) throw new Error("colonne cible non numérique");
+  if (!numeric.includes(targetIdx)) throw new DatasetValidationError("colonne cible non numérique");
   const featureIdx = numeric.filter((column) => column !== targetIdx);
   const parameterCount = featureIdx.length + 1;
   const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER);
   if (rows.length < requiredRows) {
-    throw new Error(`dataset trop petit pour préserver la confidentialité (min ${requiredRows} lignes)`);
+    throw new DatasetValidationError(`dataset trop petit pour préserver la confidentialité (min ${requiredRows} lignes)`);
   }
   return { header, rows, targetIdx, featureIdx };
 }
@@ -77,7 +86,7 @@ export function validateTrainingDataset(csv: Buffer, selection: ModelSelection):
       !rows.some((row) => row[targetIdx] === "0") ||
       !rows.some((row) => row[targetIdx] === "1"))
   ) {
-    throw new Error("la cible de la régression logistique doit contenir les classes 0 et 1");
+    throw new DatasetValidationError("la cible de la régression logistique doit contenir les classes 0 et 1");
   }
 }
 
@@ -175,10 +184,10 @@ export function trainLogisticRegression(csv: Buffer, target?: string): LogisticR
   const deadline = performance.now() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   if (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1")) {
-    throw new Error("la cible de la régression logistique doit être strictement 0 ou 1");
+    throw new DatasetValidationError("la cible de la régression logistique doit être strictement 0 ou 1");
   }
   const labels = rows.map((row) => Number(row[targetIdx]));
-  if (!labels.includes(0) || !labels.includes(1)) throw new Error("la cible binaire doit contenir les classes 0 et 1");
+  if (!labels.includes(0) || !labels.includes(1)) throw new DatasetValidationError("la cible binaire doit contenir les classes 0 et 1");
 
   const parameterCount = featureIdx.length + 1;
   if (rows.length * parameterCount * LOGISTIC_ITERATIONS > MAX_TRAINING_OPERATIONS) {
