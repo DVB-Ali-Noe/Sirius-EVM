@@ -18,6 +18,8 @@ import {
 import { acceptKybCredential } from "@/lib/kyb/client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
+import { transactionExplorerUrl } from "@/lib/evm/explorer";
+import { resolveClientNetwork } from "@/lib/evm/networks";
 
 interface DatasetMetrics {
   rowCount: number;
@@ -34,6 +36,7 @@ interface Dataset {
   ipfsCid: string | null;
   merkleRoot: string | null;
   evmDatasetId: string | null;
+  evmMintTxHash: string | null;
   sizeBytes: number | null;
   metrics: DatasetMetrics | null;
   modelId: ModelId | null;
@@ -74,6 +77,7 @@ export default function DatasetsPage() {
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { t } = useLocale();
+  const network = resolveClientNetwork();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -260,6 +264,21 @@ export default function DatasetsPage() {
                   <h3 className="w-full font-medium">{d.name}</h3>
                   <Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL[d.status])}</Badge>
                   <DatasetProfileBadge dataset={d} />
+                  {/* Volontairement hors du mode avancé. L'en-tête de la page annonce que chaque
+                      titre est l'ancrage on-chain de la donnée ; ranger la preuve derrière un
+                      réglage revenait à faire cette promesse sans donner le moyen de la vérifier,
+                      au propriétaire précisément. */}
+                  {d.evmMintTxHash && (
+                    <a
+                      href={transactionExplorerUrl(network, d.evmMintTxHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={t("Vérifier l’ancrage on-chain de {name}", { name: d.name })}
+                      className="text-xs font-medium text-accent transition-colors hover:text-accent/80"
+                    >
+                      {t("Vérifier l’ancrage")} ↗
+                    </a>
+                  )}
                 </div>
                 {d.description && <p className="mt-1 text-sm text-muted">{d.description}</p>}
                 {d.status !== "DELETED" && !modelSelection(d.modelId, d.modelVersion) && (
@@ -275,7 +294,7 @@ export default function DatasetsPage() {
                     <>
                       <Field label="CID" value={d.ipfsCid ? truncate(d.ipfsCid) : "—"} mono />
                       <Field label="Merkle" value={d.merkleRoot ? truncate(d.merkleRoot) : "—"} mono />
-                      <Field label="Titre EVM" value={d.evmDatasetId ? truncate(d.evmDatasetId) : "—"} mono />
+                      <Field label={t("Titre EVM")} value={d.evmDatasetId ? truncate(d.evmDatasetId) : "—"} mono />
                     </>
                   )}
                 </dl>
