@@ -13,6 +13,15 @@ import { acceptKybCredential } from "@/lib/kyb/client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
 
+/** Statuts pendant lesquels des fonds sont déjà engagés sur ce dataset. */
+const LOAN_EN_COURS = new Set(["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"]);
+
+interface ActiveLoan {
+  datasetId: string;
+  borrower: string;
+  status: string;
+}
+
 interface Dataset {
   id: string;
   name: string;
@@ -78,6 +87,32 @@ export default function MarketplacePage() {
     refresh();
   }, [refresh]);
 
+  // Datasets sur lesquels ce compte a déjà un prêt en cours. Emprunter deux fois le même
+  // dataset est légitime — on ne le bloque pas — mais rien ne distinguait l'intention du
+  // double-clic, et un second escrow se serait ouvert en silence.
+  const [datasetsDejaEmpruntes, setDatasetsDejaEmpruntes] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!address) return;
+    let actif = true;
+    void fetch("/api/loans")
+      .then((r) => (r.ok ? (r.json() as Promise<ActiveLoan[]>) : null))
+      .then((prets) => {
+        if (!actif || !prets) return;
+        setDatasetsDejaEmpruntes(
+          new Set(
+            prets
+              .filter((pret) => pret.borrower === address && LOAN_EN_COURS.has(pret.status))
+              .map((pret) => pret.datasetId),
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      actif = false;
+    };
+  }, [address, datasets]);
+
   // L'attestation est posée automatiquement à la connexion. Ce bouton n'est donc
   // qu'un secours : il n'apparaît que si elle manque encore, ce qui n'arrive qu'en
   // cas d'échec de ce chemin-là.
@@ -137,7 +172,13 @@ export default function MarketplacePage() {
             </p>
           )}
           {sorted.map((d) => (
-            <MarketCard key={d.id} dataset={d} onBorrowed={refresh} onError={setError} />
+            <MarketCard
+              key={d.id}
+              dataset={d}
+              dejaEmprunte={Boolean(address) && datasetsDejaEmpruntes.has(d.id)}
+              onBorrowed={refresh}
+              onError={setError}
+            />
           ))}
         </div>
         {nextCursor && (
@@ -155,10 +196,12 @@ export default function MarketplacePage() {
 
 function MarketCard({
   dataset,
+  dejaEmprunte,
   onBorrowed,
   onError,
 }: {
   dataset: Dataset;
+  dejaEmprunte: boolean;
   onBorrowed: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
@@ -172,6 +215,16 @@ function MarketCard({
     onError("");
     if (!model) {
       onError(t("Profil d’entraînement du dataset absent ou invalide"));
+      return;
+    }
+    if (
+      dejaEmprunte &&
+      !window.confirm(
+        t("Tu as déjà un emprunt en cours sur ce dataset. En ouvrir un second bloquera {price} USDC de plus. Continuer ?", {
+          price: dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "?",
+        }),
+      )
+    ) {
       return;
     }
     setBusy(true);

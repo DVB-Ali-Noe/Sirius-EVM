@@ -49,6 +49,11 @@ export default function WalletPage() {
           : t("{usdc} USDC envoyés.", { usdc: recu.usdc }),
       );
       await refresh();
+      // Sans cet effacement, la confirmation restait à l'écran indéfiniment. Le solde
+      // continuait de bouger — un emprunt, un retrait — et « 1000 USDC envoyés » finissait
+      // affiché à côté d'un solde qui ne correspondait plus, ce qui se lit comme un échec
+      // du virement alors qu'il a bien eu lieu.
+      window.setTimeout(() => setFundsMessage(null), 8_000);
     } catch (err) {
       setFundsMessage(t(err instanceof Error ? err.message : "Ajout de fonds indisponible"));
     } finally {
