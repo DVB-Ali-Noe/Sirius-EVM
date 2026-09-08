@@ -71,6 +71,9 @@ const VISIBILITY_OPTIONS = [
 
 const VISIBILITY_STATES: DatasetStatus[] = ["LISTED", "UNLISTED", "PRIVATE"];
 
+/** Statuts pour lesquels la page de preuve publique répond ; ailleurs elle renvoie 404. */
+const PARTAGEABLE: DatasetStatus[] = ["LISTED", "UNLISTED"];
+
 export default function DatasetsPage() {
   const advanced = useUiStore((s) => s.advanced);
   const connected = useWalletStore((s) => s.connected);
@@ -278,6 +281,16 @@ export default function DatasetsPage() {
                     >
                       {t("Vérifier l’ancrage")} ↗
                     </a>
+                  )}
+                  {/* La page de preuve s'ouvre sans compte : c'est le lien qu'un fournisseur
+                      envoie à un acheteur qui évalue, ou qu'il colle dans un fil. */}
+                  {d.evmMintTxHash && PARTAGEABLE.includes(d.status) && (
+                    <Link
+                      href={`/proof/${d.id}`}
+                      className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+                    >
+                      {t("Page de preuve publique")}
+                    </Link>
                   )}
                 </div>
                 {d.description && <p className="mt-1 text-sm text-muted">{d.description}</p>}

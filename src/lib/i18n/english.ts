@@ -7,6 +7,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Ce choix est vérifié sur le CSV puis verrouillé dans le titre EVM et chaque escrow.": "This choice is checked against the CSV, then locked into the EVM title and each escrow.",
   "Suppression…": "Deleting…",
   "Titre EVM": "EVM title",
+  "Page de preuve publique": "Public proof page",
   "Tu as déjà un emprunt en cours sur ce dataset. En ouvrir un second bloquera {price} USDC de plus. Continuer ?": "You already have an active loan on this dataset. Opening a second one will lock a further {price} USDC. Continue?",
   "Vérifier l’ancrage": "Verify anchor",
   "Vérifier l’ancrage on-chain de {name}": "Verify the on-chain anchor of {name}",
