@@ -287,9 +287,10 @@ export default function DatasetsPage() {
                   {d.evmMintTxHash && PARTAGEABLE.includes(d.status) && (
                     <Link
                       href={`/proof/${d.id}`}
-                      className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+                      aria-label={t("Ouvrir la page de preuve publique de {name}", { name: d.name })}
+                      className="text-xs font-medium text-accent transition-colors hover:text-accent/80"
                     >
-                      {t("Page de preuve publique")}
+                      {t("Preuve publique")} ↗
                     </Link>
                   )}
                 </div>
