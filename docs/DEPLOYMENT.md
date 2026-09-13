@@ -79,6 +79,18 @@ Une valeur vide ou `[SENSITIVE]` issue d'un export Vercel ne constitue pas un se
 
 ## Vérifier sans déployer
 
+### Échec du job Migrations
+
+`check-evm-migration.ts` s'exécute **avant** `prisma migrate deploy`. S'il échoue, le déploiement Vercel est ignoré ; ce n'est pas une erreur du build front. La base vient du secret GitHub `DATABASE_URL` de l'environnement ciblé (`staging` pour la branche staging), pas du lien Vercel local.
+
+Le préflight annonce chaque étape PostgreSQL puis RPC. La dernière étape affichée situe l'échec ; le diagnostic ne publie que des codes connus, jamais l'URL de connexion, les messages bruts du pilote ou les jetons RPC. Par exemple, `28P01` indique un refus d'authentification, `42P01` une table absente, `ENETUNREACH` un réseau inaccessible et `TlsConnectionError` un échec TLS. Ne pas appliquer les migrations ni contourner le préflight avant d'avoir identifié la cause.
+
+L'avertissement de `pg-connection-string` sur `sslmode=require` annonce un futur changement de comportement ; il ne prouve pas un échec TLS. `sslmode=verify-full` rend explicite le comportement actuellement utilisé, mais ne répare ni les identifiants, ni le réseau, ni le schéma SQL. Ne pas désactiver la vérification des certificats pour faire passer ce contrôle.
+
+Le log staging signalé le 13 septembre ne contient que l'ancien message générique. Sa cause PostgreSQL/RPC reste à confirmer avec un run contenant ces diagnostics ; aucun secret distant n'a été modifié pour cette amélioration.
+
+### Contrôles locaux
+
 ```bash
 node scripts/deployment-target.mjs staging
 node scripts/deployment-target.mjs main

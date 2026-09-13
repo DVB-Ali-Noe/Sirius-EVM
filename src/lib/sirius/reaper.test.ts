@@ -235,6 +235,21 @@ test("la migration bloque aussi un CANCELLED qui possède encore un escrow actif
   assert.equal(updates.length, 0);
 });
 
+test("le préflight situe une panne SQL avant tout appel au RPC", async () => {
+  const steps: string[] = [];
+  const failure = Object.assign(new Error("SECRET_SYNTHETIQUE"), { code: "42P01" });
+  let reads = 0;
+  stubDb(prisma, "$queryRaw", async () => {
+    if (++reads === 1) return [{ present: true }];
+    throw failure;
+  });
+  mock.method(client, "getChainId", async () => assert.fail("Le RPC ne doit pas être appelé après une panne SQL"));
+  await assert.rejects(() => checkMigration((step) => steps.push(step)), (error) => error === failure);
+  assert.equal(steps.at(-1), "PostgreSQL : lecture de l'historique des migrations Prisma");
+  assert.ok(!steps.join(" ").includes("SECRET_SYNTHETIQUE"));
+  assert.equal(updates.length, 0);
+});
+
 test("une erreur de règlement ne divulgue pas le préimage dans les logs", async () => {
   process.env.TEE_MODE = "stub";
   process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 9).toString("base64");
