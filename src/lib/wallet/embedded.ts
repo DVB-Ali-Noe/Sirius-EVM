@@ -142,7 +142,11 @@ export async function connectEmbedded(): Promise<{ address: string; chainId: str
  * connexion sans que personne ne l'ait demandée.
  */
 export function embeddedProvider(): Eip1193Provider | null {
-  const provider = instance?.provider;
+  // La session compte autant que l'objet : après un `logout()`, le SDK peut encore exposer
+  // un provider, et le rendre ferait croire à une session ouverte — l'application signerait
+  // alors sous une adresse dont l'utilisateur vient de sortir.
+  if (!instance?.connected) return null;
+  const provider = instance.provider;
   return provider ? (provider as Eip1193Provider) : null;
 }
 
@@ -161,6 +165,18 @@ export function embeddedConnected(): boolean {
 export async function disconnectEmbedded(): Promise<void> {
   if (!instance?.connected) return;
   await instance.logout();
+}
+
+/**
+ * Bascule de chaîne par le SDK plutôt que par le provider.
+ *
+ * Une extension reçoit `wallet_switchEthereumChain` et peut proposer d'ajouter la chaîne si
+ * elle ne la connaît pas. Ici la liste est figée à la configuration : il n'y a rien à
+ * ajouter, seulement à désigner laquelle est active.
+ */
+async function switchEmbeddedChain(chainId: string): Promise<void> {
+  const web3auth = await client();
+  await web3auth.switchChain({ chainId });
 }
 
 /**
@@ -206,4 +222,8 @@ export async function restoreEmbedded(): Promise<boolean> {
 // Déclaré au chargement du module plutôt qu'après connexion : le lecteur rend `null` tant
 // qu'aucune session n'est ouverte, et l'enregistrer tôt évite une fenêtre où le provider
 // existe sans que `selectedProvider()` sache le trouver.
-registerEmbeddedWallet(embeddedProvider);
+registerEmbeddedWallet({
+  provider: embeddedProvider,
+  switchChain: switchEmbeddedChain,
+  logout: disconnectEmbedded,
+});

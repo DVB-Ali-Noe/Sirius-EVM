@@ -1,7 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { embeddedSelected, selectedProvider } from "@/lib/wallet/discovery";
+import { embeddedSelected, embeddedWallet, selectedProvider } from "@/lib/wallet/discovery";
 import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
@@ -42,6 +42,16 @@ export async function ensureExpectedChain(wallet = provider()): Promise<void> {
   const expected = chainHex(chain.id);
   const current = await wallet.request({ method: "eth_chainId" });
   if (typeof current === "string" && current.toLowerCase() === expected) return;
+
+  // Le portefeuille embarqué ne connaît que les chaînes déclarées à sa configuration : il
+  // n'y a rien à lui ajouter, seulement à désigner laquelle est active. Et il le fait par
+  // son SDK, pas par une méthode EIP-1193 que son provider n'expose pas.
+  const embarque = embeddedSelected() ? embeddedWallet() : null;
+  if (embarque) {
+    await embarque.switchChain(expected);
+    return;
+  }
+
   try {
     await wallet.request({ method: "wallet_switchEthereumChain", params: [{ chainId: expected }] });
   } catch (error) {
@@ -71,6 +81,10 @@ export async function ensureExpectedChain(wallet = provider()): Promise<void> {
  * connexion, d'une méthode absente, où l'on retombe sur l'ancien comportement.
  */
 async function demanderChoixDuCompte(wallet: Eip1193Provider): Promise<void> {
+  // Un portefeuille embarqué n'a qu'un compte, dérivé de l'identité sociale : il n'existe
+  // aucun sélecteur à rouvrir. Demander la permission afficherait au mieux rien, au pire
+  // une erreur là où l'utilisateur attend une connexion.
+  if (embeddedSelected()) return;
   try {
     await wallet.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
   } catch (error) {
@@ -106,6 +120,18 @@ export function getExternalWallet(): Eip1193Provider | null {
 }
 
 export async function disconnectWallet(): Promise<void> {
+  // Il n'y a pas de permission à retirer à un portefeuille embarqué — aucune extension ne
+  // nous a rien accordé — mais une session du SDK à fermer. Sans cela la révocation
+  // échouerait en silence, la session resterait ouverte, et le rechargement suivant
+  // reconnecterait l'utilisateur qui venait de partir.
+  //
+  // Le SDK absent vaut session déjà fermée : c'est le cas d'une reprise qui a échoué, et
+  // il n'y a alors rien à fermer. Passer au repli ferait échouer une déconnexion que
+  // l'utilisateur a pourtant demandée.
+  if (embeddedSelected()) {
+    await embeddedWallet()?.logout().catch(() => {});
+    return;
+  }
   await provider().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => {});
 }
 
