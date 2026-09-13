@@ -181,15 +181,16 @@ async function attendrePret(web3auth: Web3Auth): Promise<void> {
 
 export async function connectEmbedded(): Promise<{ address: string; chainId: string }> {
   const web3auth = await client();
-  if (!web3auth.connected) {
+  let connexion = web3auth.connected ? web3auth.connection : null;
+  if (!connexion) {
     await attendrePret(web3auth);
-    await borner(
+    connexion = await borner(
       web3auth.connectTo(WALLET_CONNECTORS.AUTH, { authConnection: AUTH_CONNECTION.GOOGLE }),
       "La connexion Google n’a pas abouti — réessaie.",
     );
   }
 
-  const provider = web3auth.provider;
+  const provider = connexion?.ethereumProvider;
   if (!provider) throw new Error("Connexion Google interrompue.");
   notifyWalletChange();
 
@@ -215,7 +216,11 @@ export function embeddedProvider(): Eip1193Provider | null {
   // un provider, et le rendre ferait croire à une session ouverte — l'application signerait
   // alors sous une adresse dont l'utilisateur vient de sortir.
   if (!instance?.connected) return null;
-  const provider = instance.provider;
+
+  // On passe par `connection`, et non par `web3auth.provider`. Ce dernier compile — l'interface
+  // le promet — mais la classe ne définit qu'un *setter* : la lecture rend `undefined` à
+  // l'exécution, quoi qu'il arrive. Le type ne protège de rien ici.
+  const provider = instance.connection?.ethereumProvider;
   return provider ? (provider as Eip1193Provider) : null;
 }
 
