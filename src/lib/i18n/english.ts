@@ -81,6 +81,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Signature EVM refusée par le wallet.": "The wallet declined the signature.",
   "Connexion Google indisponible sur cette instance.": "Google sign-in is not available on this instance.",
   "Connexion Google interrompue.": "Google sign-in was interrupted.",
+  "Connexion Google indisponible — réessaie dans un instant.": "Google sign-in is not ready — try again in a moment.",
   "La connexion Google n’a pas abouti — réessaie.": "Google sign-in did not complete — try again.",
   "Aucun compte n’a été créé.": "No account was created.",
   "Session Google fermée — reconnecte-toi.": "Your Google session has closed — sign in again.",
