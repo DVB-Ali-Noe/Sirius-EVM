@@ -33,13 +33,25 @@ export function assertMutationOrigin(req: Request): string {
   const expected = expectedOrigin(req);
   if (["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase())) return expected;
   const requestOrigin = req.headers.get("origin");
-  if (!requestOrigin || normalizedOrigin(requestOrigin) !== expected) {
+  if (!requestOrigin) {
     throw new AppError("Origine de requête non autorisée", 403);
+  }
+  const origin = normalizedOrigin(requestOrigin);
+  if (origin !== expected) {
+    const aliases = (process.env.SIRIUS_APP_ORIGIN_ALIASES ?? "")
+      .split(",")
+      .map((alias) => alias.trim())
+      .filter(Boolean)
+      .map(normalizedOrigin);
+    if (origin !== new URL(req.url).origin || !aliases.includes(origin)) {
+      throw new AppError("Origine de requête non autorisée", 403);
+    }
   }
   const fetchSite = req.headers.get("sec-fetch-site");
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
     throw new AppError("Contexte de requête non autorisé", 403);
   }
+  // Les alias partagent le domaine signé que le runner reconnaît déjà.
   return expected;
 }
 

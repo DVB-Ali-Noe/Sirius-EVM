@@ -1,7 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { embeddedSelected, embeddedWallet, selectedProvider } from "@/lib/wallet/discovery";
+import { embeddedSelected, embeddedWallet, selectedProvider, selectedWalletRdns } from "@/lib/wallet/discovery";
 import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
@@ -18,11 +18,13 @@ function provider(): Eip1193Provider {
   const choisi = selectedProvider();
   if (choisi?.request) return choisi;
 
-  // Le repli ci-dessous suppose qu'une extension finira par répondre. Le portefeuille
-  // embarqué, lui, n'est jamais dans `window.ethereum` : y retomber ferait signer une
-  // extension à la place de la session sociale, donc sous une autre adresse que celle
-  // affichée. Mieux vaut dire que la session est fermée.
+  // Un choix explicite qui ne se résout pas interdit le repli : retomber sur
+  // `window.ethereum` ferait signer une extension à la place du portefeuille affiché.
+  // Le cas embarqué est nommé à part parce qu'il a une cause et un remède précis —
+  // la session sociale s'est fermée, il faut la rouvrir — là où une extension
+  // simplement pas encore annoncée ne dit rien de tel à l'utilisateur.
   if (embeddedSelected()) throw new Error("Session Google fermée — reconnecte-toi.");
+  if (selectedWalletRdns()) throw new Error("Le wallet sélectionné est indisponible.");
 
   const candidate = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
   if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe Phantom, MetaMask, Rabby ou Coinbase Wallet.");
@@ -95,8 +97,7 @@ async function demanderChoixDuCompte(wallet: Eip1193Provider): Promise<void> {
   }
 }
 
-export async function connectExternalWallet(): Promise<{ address: string; chainId: string }> {
-  const wallet = provider();
+export async function connectExternalWallet(wallet = provider()): Promise<{ address: string; chainId: string }> {
   await ensureExpectedChain(wallet);
   await demanderChoixDuCompte(wallet);
   const accounts = await wallet.request({ method: "eth_requestAccounts" });
@@ -111,11 +112,11 @@ export function getExternalWallet(): Eip1193Provider | null {
   // Le portefeuille choisi d'abord : sans ça, la synchronisation et la lecture du
   // solde repartiraient sur `window.ethereum` — donc sur une autre extension que
   // celle avec laquelle l'utilisateur s'est connecté.
-  const choisi = selectedProvider();
-  if (choisi) return choisi;
-  // Même raison que dans `provider()` : une session sociale fermée ne doit pas être
-  // remplacée en silence par l'extension installée.
-  if (embeddedSelected()) return null;
+  // Un choix explicite interdit le repli, quel qu'il soit : une extension qui ne s'est pas
+  // encore annoncée et une session sociale fermée produisent la même situation, et dans les
+  // deux cas retomber sur `window.ethereum` ferait signer un compte que rien n'affiche.
+  const selected = selectedProvider();
+  if (selectedWalletRdns()) return selected;
   return (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
 }
 
@@ -206,9 +207,14 @@ export async function signTypedDataExternal(payload: unknown, address: string): 
   return signature;
 }
 
-export async function sendTransactionExternal(transaction: Record<string, unknown>, address: string): Promise<string> {
+export async function sendTransactionExternal(
+  transaction: Record<string, unknown>,
+  address: string,
+  assertCurrent?: () => void,
+): Promise<string> {
   const wallet = provider();
   await ensureExpectedChain(wallet);
+  assertCurrent?.();
   const hash = await wallet.request({
     method: "eth_sendTransaction",
     params: [{ ...transaction, from: pourLeWallet(address) }],

@@ -5,13 +5,14 @@ import { useWalletStore } from "@/stores/wallet";
 
 export async function sendActiveTransaction(
   transaction: Record<string, unknown>,
-  options: { waitForConfirmation?: boolean } = {},
+  options: { waitForConfirmation?: boolean; assertCurrent?: () => void } = {},
 ): Promise<string> {
   const { source, authenticated, address } = useWalletStore.getState();
   if (!source) throw new Error("Connecte un wallet.");
   if (!authenticated) throw new Error("Authentifie-toi avant de signer.");
   if (!address) throw new Error("Adresse du wallet indisponible.");
-  const hash = await sendTransactionExternal(transaction, address);
+  options.assertCurrent?.();
+  const hash = await sendTransactionExternal(transaction, address, options.assertCurrent);
   if (options.waitForConfirmation) {
     await waitForTransactionExternal(hash);
   }

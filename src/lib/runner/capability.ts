@@ -5,7 +5,7 @@ export type RunnerOperation =
   | "dataset-ingress-key"
   | "seal-dataset"
   | "run-training"
-  | "escrow-hashlock"
+  | "prepare-escrow-lock"
   | "run-loan-job"
   | "settle-loan"
   | "loan-model-key"

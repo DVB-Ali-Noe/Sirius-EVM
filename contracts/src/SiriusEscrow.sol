@@ -29,7 +29,16 @@ contract SiriusEscrow {
         bytes32 trainingProfile;
     }
 
-    string public constant VERSION = "sirius-escrow-usdc-v5";
+    struct LockAuthorization {
+        uint40 deadline;
+        bytes signature;
+    }
+
+    string public constant VERSION = "sirius-escrow-usdc-v6";
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant LOCK_AUTHORIZATION_TYPEHASH =
+        keccak256("LockAuthorization(bytes32 termsHash,uint40 deadline)");
     bytes32 public constant LOAN_KEY_DOMAIN = keccak256("sirius.escrow.loanKey.v1");
     uint8 public constant MIN_CHALLENGE_DAYS = 1;
     uint8 public constant MAX_CHALLENGE_DAYS = 30;
@@ -46,6 +55,7 @@ contract SiriusEscrow {
     IERC20 public immutable usdc;
     SiriusKybRegistry public immutable kyb;
     SiriusDatasetRegistry public immutable datasets;
+    address public immutable lockAuthorizer;
     mapping(bytes32 => Loan) private _loans;
     mapping(bytes32 => uint256) private _activeLoansForDataset;
     mapping(address => uint256) private _credit;
@@ -101,6 +111,8 @@ contract SiriusEscrow {
     error Sha256Unavailable();
     error InvalidDataset();
     error DatasetEscrowMismatch();
+    error InvalidLockAuthorization();
+    error LockAuthorizationExpired();
 
     modifier nonReentrant() {
         if (_guard == 1) revert Reentrancy();
@@ -109,11 +121,12 @@ contract SiriusEscrow {
         _guard = 0;
     }
 
-    constructor(IERC20 usdc_, SiriusKybRegistry kyb_, SiriusDatasetRegistry datasets_) {
+    constructor(IERC20 usdc_, SiriusKybRegistry kyb_, SiriusDatasetRegistry datasets_, address lockAuthorizer_) {
         if (address(usdc_) == address(0)) revert ZeroAddress();
         if (address(usdc_).code.length == 0) revert InvalidUsdcContract();
         if (address(kyb_) == address(0)) revert ZeroAddress();
         if (address(datasets_) == address(0)) revert ZeroAddress();
+        if (lockAuthorizer_ == address(0)) revert ZeroAddress();
 
         // The floor follows the token, not the chain. Reading decimals() here also proves
         // the address answers like an ERC-20 before a single loan can exist.
@@ -124,6 +137,7 @@ contract SiriusEscrow {
         usdc = usdc_;
         kyb = kyb_;
         datasets = datasets_;
+        lockAuthorizer = lockAuthorizer_;
     }
 
     function loanKeyOf(address borrower, bytes32 loanIdHash) public pure returns (bytes32) {
@@ -138,7 +152,8 @@ contract SiriusEscrow {
         uint8 challengeDays,
         bytes32 loanIdHash,
         bytes32 datasetId,
-        bytes32 trainingProfile
+        bytes32 trainingProfile,
+        LockAuthorization calldata authorization
     )
         external
         nonReentrant
@@ -156,6 +171,10 @@ contract SiriusEscrow {
         if (challengeDays < MIN_CHALLENGE_DAYS || challengeDays > MAX_CHALLENGE_DAYS) revert InvalidChallengePeriod();
         if (loanIdHash == bytes32(0)) revert InvalidLoanId();
         if (!kyb.isKybValid(msg.sender) || !kyb.isKybValid(provider)) revert KybRequired();
+        _requireLockAuthorization(
+            keccak256(abi.encode(msg.sender, provider, amount, hashlock, challengeDays, loanIdHash, datasetId, trainingProfile)),
+            authorization
+        );
 
         loanKey = loanKeyOf(msg.sender, loanIdHash);
         Loan storage loan = _loans[loanKey];
@@ -176,6 +195,29 @@ contract SiriusEscrow {
         unchecked { _activeLoansForDataset[datasetId] += 1; }
 
         emit LoanLocked(loanKey, msg.sender, provider, amount, deadline, hashlock, trainingProfile, _nextSeq());
+    }
+
+    function _requireLockAuthorization(bytes32 termsHash, LockAuthorization calldata authorization) private view {
+        if (block.timestamp >= authorization.deadline) revert LockAuthorizationExpired();
+        bytes calldata signature = authorization.signature;
+        if (signature.length != 65) revert InvalidLockAuthorization();
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly ("memory-safe") {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 0x20))
+            v := byte(0, calldataload(add(signature.offset, 0x40)))
+        }
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+            || (v != 27 && v != 28)) revert InvalidLockAuthorization();
+        bytes32 domain = keccak256(abi.encode(
+            DOMAIN_TYPEHASH, keccak256("SiriusEscrow"), keccak256("6"), block.chainid, address(this)
+        ));
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\x19\x01", domain, keccak256(abi.encode(LOCK_AUTHORIZATION_TYPEHASH, termsHash, authorization.deadline))
+        ));
+        if (ecrecover(digest, v, r, s) != lockAuthorizer) revert InvalidLockAuthorization();
     }
 
     /// @notice Publish a valid preimage and credit the provider atomically.

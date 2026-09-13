@@ -6,6 +6,7 @@ import { siriuskybregistryAbi } from "./abi/siriuskybregistry";
 import { datasetRegistryAddress, escrowAddress, kybRegistryAddress, usdcAddress } from "./addresses";
 import { cidHash, datasetIdHash } from "./dataset-key";
 import { loanIdHash } from "./loan-key";
+import type { LockAuthorization } from "./lock-authorization";
 
 export interface EvmTransactionRequest {
   to: Address;
@@ -35,6 +36,7 @@ export function lockUsdcTransaction(input: {
   challengeDays: number;
   loanId: string;
   trainingProfile: Hex;
+  authorization: LockAuthorization;
 }): EvmTransactionRequest {
   return {
     to: escrowAddress(),
@@ -49,6 +51,7 @@ export function lockUsdcTransaction(input: {
         loanIdHash(input.loanId),
         input.datasetId,
         input.trainingProfile,
+        input.authorization,
       ],
     }),
   };

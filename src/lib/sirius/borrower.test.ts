@@ -36,7 +36,7 @@ test("le profil verrouillé est porté dans le lock, sans pré-entraînement", (
   const prepare = SOURCE.slice(SOURCE.indexOf("export async function prepareLoan"), SOURCE.indexOf("export async function finalizeLoan"));
   const model = prepare.indexOf("const model = modelSelection");
   const loan = prepare.indexOf("return tx.loan.create");
-  const hashlock = prepare.indexOf("await escrowHashlockInRunner");
+  const hashlock = prepare.indexOf("await prepareEscrowLockInRunner");
 
   assert.doesNotMatch(prepare, /validateTrainingInputInRunner/);
   assert.ok(model >= 0, "le profil du dataset doit être validé côté serveur");

@@ -104,6 +104,11 @@ const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
 };
 
 export default function TrainPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <TrainPageContent key={identity} />;
+}
+
+function TrainPageContent() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
@@ -112,6 +117,10 @@ export default function TrainPage() {
 
   const [mine, setMine] = useState<Dataset[]>([]);
   const [catalogue, setCatalogue] = useState<Dataset[]>([]);
+  const [cursors, setCursors] = useState<{ mine: string | null; catalogue: string | null }>({ mine: null, catalogue: null });
+  const [paging, setPaging] = useState<Set<string>>(new Set());
+  const pageRequests = useRef(new Set<string>());
+  const refreshGeneration = useRef(0);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
@@ -147,6 +156,8 @@ export default function TrainPage() {
   };
 
   const refresh = useCallback(async () => {
+    if (!mounted.current) return;
+    const generation = ++refreshGeneration.current;
     if (!address || !authenticated) {
       setMine([]);
       setCatalogue([]);
@@ -167,7 +178,8 @@ export default function TrainPage() {
     const catData: Dataset[] = catRes.ok ? await catRes.json() : [];
     const loanData: Loan[] = loansRes.ok ? await loansRes.json() : [];
     const jobData: Job[] = jobsRes.ok ? await jobsRes.json() : [];
-    if (!mounted.current) return;
+    if (!mounted.current || generation !== refreshGeneration.current) return;
+    setCursors({ mine: mineRes.headers.get("x-sirius-next-cursor"), catalogue: catRes.headers.get("x-sirius-next-cursor") });
     setMine(mineData);
     setCatalogue(catData);
     setLoans(loanData);
@@ -201,9 +213,33 @@ export default function TrainPage() {
   }, [address, authenticated]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setTimeout(() => void refresh().catch((error) => { if (mounted.current) setError(messageOf(error)); }), 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
+
+  async function loadMore(kind: "mine" | "catalogue") {
+    const cursor = cursors[kind];
+    if (!cursor || pageRequests.current.has(kind)) return;
+    const generation = refreshGeneration.current;
+    pageRequests.current.add(kind);
+    setPaging(new Set(pageRequests.current));
+    try {
+      const query = new URLSearchParams({ cursor });
+      if (kind === "catalogue") query.set("status", "LISTED");
+      const response = await fetch(`/api/datasets?${query}`);
+      if (!response.ok) throw new Error("Chargement des datasets impossible");
+      const page = await response.json() as Dataset[];
+      if (!mounted.current || generation !== refreshGeneration.current) return;
+      const setter = kind === "mine" ? setMine : setCatalogue;
+      setter((current) => [...current, ...page.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setCursors((current) => ({ ...current, [kind]: response.headers.get("x-sirius-next-cursor") }));
+    } catch (error) {
+      if (mounted.current && generation === refreshGeneration.current) setError(messageOf(error));
+    } finally {
+      pageRequests.current.delete(kind);
+      if (mounted.current) setPaging(new Set(pageRequests.current));
+    }
+  }
 
   async function selfTrain(dataset: Dataset) {
     const key = `train:${dataset.id}`;
@@ -370,6 +406,11 @@ export default function TrainPage() {
             ))}
           </div>
         )}
+        {cursors.mine && (
+          <button onClick={() => void loadMore("mine")} disabled={paging.has("mine")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
+            {paging.has("mine") ? t("Chargement…") : t("Afficher plus")}
+          </button>
+        )}
       </section>
 
       {/* Catalogue — emprunt via escrow */}
@@ -388,6 +429,11 @@ export default function TrainPage() {
               <CatalogueCard key={d.id} dataset={d} advanced={advanced} onBorrowed={refresh} onError={setError} />
             ))}
           </div>
+        )}
+        {cursors.catalogue && (
+          <button onClick={() => void loadMore("catalogue")} disabled={paging.has("catalogue")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
+            {paging.has("catalogue") ? t("Chargement…") : t("Afficher plus")}
+          </button>
         )}
       </section>
 

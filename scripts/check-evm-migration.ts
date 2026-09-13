@@ -1,14 +1,15 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/db";
 import { checkEvmMigration } from "../src/lib/sirius/migration-check";
-import { AppError } from "../src/lib/app-error";
+import { postgresConnectionSummary, preflightErrorMessage } from "./preflight-diagnostics";
 
 async function main() {
   try {
-    await checkEvmMigration();
+    console.log(`[préflight EVM] ${postgresConnectionSummary(process.env.DATABASE_URL)}`);
+    await checkEvmMigration((step) => console.log(`[préflight EVM] ${step}`));
     console.log("Préflight EVM validé");
   } catch (error) {
-    console.error(error instanceof AppError ? error.message : "Préflight EVM impossible : vérifier la base et le RPC");
+    console.error(preflightErrorMessage(error));
     process.exitCode = 1;
   } finally {
     await prisma.$disconnect();

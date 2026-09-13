@@ -155,3 +155,26 @@ test("la bascule de réseau passe par le SDK quand la session est sociale", asyn
   assert.deepEqual(bascules, [expectedChainId()]);
   assert.deepEqual(requests, ["eth_chainId"]);
 });
+
+test("un retrait invalidé pendant la vérification du réseau n'est pas envoyé", async () => {
+  let invalidated = false;
+  let sends = 0;
+  const wallet: Eip1193Provider = {
+    request: async ({ method }) => {
+      if (method === "eth_chainId") { invalidated = true; return expectedChainId(); }
+      sends++;
+      return `0x${"12".repeat(32)}`;
+    },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: wallet } });
+  try {
+    await assert.rejects(sendTransactionExternal({}, "0x1111111111111111111111111111111111111111", () => {
+      if (invalidated) throw new Error("Wallet changed");
+    }), /Wallet changed/);
+    assert.equal(sends, 0);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});

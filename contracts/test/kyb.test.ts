@@ -33,7 +33,7 @@ async function signAttestation(
   return signer.signTypedData({
     domain: {
       name: "SiriusKybRegistry",
-      version: "1",
+      version: "2",
       chainId,
       verifyingContract: ctx.kyb.address,
     },
@@ -43,10 +43,11 @@ async function signAttestation(
         { name: "verifier", type: "address" },
         { name: "expiresAt", type: "uint40" },
         { name: "nonce", type: "uint256" },
+        { name: "verifierEpoch", type: "uint64" },
       ],
     },
     primaryType: "KybAttestation",
-    message: { subject, verifier, expiresAt, nonce },
+    message: { subject, verifier, expiresAt, nonce, verifierEpoch: await ctx.kyb.read.verifierEpoch([verifier]) },
   });
 }
 
@@ -249,3 +250,26 @@ describe("SiriusKybRegistry", () => {
     });
   });
 });
+
+for (const sponsored of [false, true]) {
+  describe(`Époque du vérificateur (${sponsored ? "parrainé" : "direct"})`, () => {
+    it("refuse une signature inutilisée de l'époque précédente et accepte une nouvelle signature", async () => {
+      const ctx = await loadFixture(fixture);
+      const subject = ctx.subject.account.address;
+      const verifier = ctx.verifier.account.address;
+      const expiresAt = (await time.latest()) + YEAR;
+      const signer = sponsored ? ctx.subject : ctx.verifier;
+      const stale = await signAttestation(ctx, signer, subject, verifier, expiresAt);
+      await ctx.kyb.write.removeVerifier([verifier], { account: ctx.admin.account });
+      await ctx.kyb.write.addVerifier([verifier], { account: ctx.admin.account });
+      const submit = (signature: Hex) => sponsored
+        ? ctx.kyb.write.attestWithConsent([subject, expiresAt, signature], { account: ctx.verifier.account })
+        : ctx.kyb.write.acceptAttestation([verifier, expiresAt, signature], { account: ctx.subject.account });
+      await expect(submit(stale)).to.be.rejectedWith(sponsored ? "InvalidSubjectSignature" : "InvalidVerifierSignature");
+      expect(await ctx.kyb.read.isKybValid([subject])).to.equal(false);
+      const fresh = await signAttestation(ctx, signer, subject, verifier, expiresAt);
+      await submit(fresh);
+      expect(await ctx.kyb.read.isKybValid([subject])).to.equal(true);
+    });
+  });
+}

@@ -3,7 +3,7 @@
 import { Web3Auth } from "@web3auth/modal";
 import { WEB3AUTH_NETWORK, CHAIN_NAMESPACES, WALLET_CONNECTORS, AUTH_CONNECTION } from "@web3auth/modal";
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { registerEmbeddedWallet } from "@/lib/wallet/discovery";
+import { notifyWalletChange, registerEmbeddedWallet } from "@/lib/wallet/discovery";
 import type { Eip1193Provider } from "@/lib/wallet/manager";
 
 /**
@@ -123,6 +123,7 @@ export async function connectEmbedded(): Promise<{ address: string; chainId: str
 
   const provider = web3auth.provider;
   if (!provider) throw new Error("Connexion Google interrompue.");
+  notifyWalletChange();
 
   const accounts = await provider.request({ method: "eth_accounts" });
   if (!Array.isArray(accounts) || typeof accounts[0] !== "string") {
@@ -211,6 +212,7 @@ export async function restoreEmbedded(): Promise<boolean> {
   if (!clientId()) return false;
   try {
     const web3auth = await client();
+    if (web3auth.connected) notifyWalletChange();
     return web3auth.connected;
   } catch {
     // Reprise impossible — réseau coupé, session expirée côté SDK. L'utilisateur reste

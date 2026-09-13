@@ -1,0 +1,38 @@
+import { pathToFileURL } from "node:url";
+
+const targets = {
+  main: {
+    environnement: "production",
+    projet_compose: "sirius",
+    projet_vercel: "prj_gmEKctb6EJcsErIQqamKiZNaK5vZ",
+    dossier_vps: "/opt/sirius",
+    url_publique: "https://sirius-data.tech",
+    origines_alias: "https://sirius-evm.vercel.app,https://sirius-evm-byezzaali-gmailcoms-projects.vercel.app",
+  },
+  staging: {
+    environnement: "staging",
+    projet_compose: "sirius-staging",
+    projet_vercel: "prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz",
+    dossier_vps: "/opt/sirius-staging",
+    url_publique: "https://sirius-evm-staging.vercel.app",
+    origines_alias: "https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app",
+  },
+};
+
+export function deploymentTarget(ref) {
+  const branch = typeof ref === "string" ? ref.replace(/^refs\/heads\//, "") : "";
+  if (!Object.hasOwn(targets, branch)) {
+    throw new Error("Branche de déploiement refusée : seules main et staging sont autorisées.");
+  }
+  return { branche: branch, ...targets[branch] };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const target = deploymentTarget(process.argv[2]);
+    for (const [key, value] of Object.entries(target)) console.log(`${key}=${value}`);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+}

@@ -9,12 +9,17 @@ import {
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { assertLoanScope, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
+import { assertLoanScope, authorizeEscrowLock, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { isValidUsdcAtomicAmount } from "@/lib/evm/usdc";
-import { loanKeyFor } from "@/lib/evm/loan-key";
+import { loanIdHash, loanKeyFor } from "@/lib/evm/loan-key";
+import { normalizeAddress } from "@/lib/evm/address";
+import { datasetIdHash } from "@/lib/evm/dataset-key";
+import { datasetRegistryAddress } from "@/lib/evm/addresses";
+import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
+import { getPublicClient } from "@/lib/evm/client";
 import { canonicalSubject } from "@/lib/subject";
-import { modelSelection, type ModelSelection } from "@/lib/models/registry";
+import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
@@ -105,8 +110,8 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       return { op, scope: {} };
     case "seal-dataset":
       return { op, scope: { datasetId: text(body, "datasetId") } };
-    case "escrow-hashlock":
-      return { op, scope: { loanId: text(body, "loanId"), borrower: text(body, "borrower") } };
+    case "prepare-escrow-lock":
+      return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId"), borrower: text(body, "borrower") } };
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
@@ -161,8 +166,26 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       };
     }
 
-    case "escrow-hashlock":
-      return { hashlock: escrowHashlock(text(body, "loanId"), canonicalSubject(text(body, "borrower"))) };
+    case "prepare-escrow-lock": {
+      const dataset = datasetRef(body);
+      const loanId = text(body, "loanId");
+      const borrower = canonicalSubject(text(body, "borrower"));
+      const receipt = verifyDatasetReceipt(text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), dataset);
+      const provider = normalizeAddress(receipt.owner);
+      if (provider === borrower) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
+      await assertDatasetScope({ ...dataset, provider, model: dataset });
+      const onChainDatasetId = await getPublicClient().readContract({
+        address: datasetRegistryAddress(), abi: siriusdatasetregistryAbi, functionName: "datasetIdOf",
+        args: [provider, datasetIdHash(dataset.datasetId)],
+      });
+      const hashlock = escrowHashlock(loanId, borrower);
+      const authorization = await authorizeEscrowLock({
+        borrower, provider, amount: BigInt(receipt.priceUsdcAtomic), hashlock,
+        challengeDays: receipt.challengeDays, loanIdHash: loanIdHash(loanId),
+        datasetId: onChainDatasetId, trainingProfile: trainingProfileHash(dataset),
+      }, boundedInteger(body, "authorizationDeadline", 1, 2 ** 40 - 1));
+      return { hashlock, authorization };
+    }
 
     case "run-loan-job": {
       const dataset = datasetRef(body);

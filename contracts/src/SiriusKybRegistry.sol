@@ -38,7 +38,7 @@ contract SiriusKybRegistry {
     // Constants
     // ---------------------------------------------------------------------------------
 
-    string public constant VERSION = "sirius-kyb-v2";
+    string public constant VERSION = "sirius-kyb-v3";
 
     /// @dev EIP-712. The domain embeds `chainId` and `verifyingContract`, so an attestation
     ///      signed for the testnet registry can never be replayed against the mainnet one —
@@ -47,7 +47,7 @@ contract SiriusKybRegistry {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     bytes32 private constant ATTESTATION_TYPEHASH =
-        keccak256("KybAttestation(address subject,address verifier,uint40 expiresAt,uint256 nonce)");
+        keccak256("KybAttestation(address subject,address verifier,uint40 expiresAt,uint256 nonce,uint64 verifierEpoch)");
 
     /// @dev Magic value returned by a compliant contract signer (ERC-1271).
     bytes4 private constant ERC1271_MAGIC = 0x1626ba7e;
@@ -242,7 +242,7 @@ contract SiriusKybRegistry {
         returns (bytes32)
     {
         bytes32 structHash =
-            keccak256(abi.encode(ATTESTATION_TYPEHASH, subject, verifier, expiresAt, nonce));
+            keccak256(abi.encode(ATTESTATION_TYPEHASH, subject, verifier, expiresAt, nonce, verifierEpoch[verifier]));
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
     }
 
@@ -253,7 +253,7 @@ contract SiriusKybRegistry {
             abi.encode(
                 DOMAIN_TYPEHASH,
                 keccak256(bytes("SiriusKybRegistry")),
-                keccak256(bytes("1")),
+                keccak256(bytes("2")),
                 block.chainid,
                 address(this)
             )

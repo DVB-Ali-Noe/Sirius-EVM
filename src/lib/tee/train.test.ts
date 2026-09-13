@@ -159,3 +159,18 @@ test("chaque motif de validation a une traduction anglaise", () => {
     assert.notEqual(translateEnglish(motif), motif, `motif non traduit : ${motif}`);
   }
 });
+
+for (const [modelId, rows] of [["linear_regression", 19_999], ["logistic_regression", 4_000]] as const) {
+  test(`l'ingestion refuse le budget excessif pour ${modelId}`, () => {
+    const header = Array.from({ length: 32 }, (_, index) => `f${index}`).join(",");
+    const csv = Buffer.from([header, ...Array.from({ length: rows }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
+    assert.ok(csv.length < 3 * 1024 * 1024);
+    const selection = modelSelection(modelId, "1.0.0")!;
+    for (const run of [() => validateTrainingDataset(csv, selection), () => trainSelectedModel(selection, csv)]) {
+      assert.throws(run, (error) => error instanceof DatasetValidationError && /budget de calcul/.test(error.message));
+    }
+    const limit = Math.floor(20_000_000 / (32 * (modelId === "linear_regression" ? 32 : 200)));
+    const boundary = Buffer.from([header, ...Array.from({ length: limit }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
+    assert.doesNotThrow(() => validateTrainingDataset(boundary, selection));
+  });
+}

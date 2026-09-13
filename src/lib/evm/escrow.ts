@@ -13,6 +13,7 @@ import { resolveServerNetwork } from "./networks";
 import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { evmEscrowBinding, type EvmEscrowBinding } from "@/lib/tee/evm-binding";
 import { escrowReadAddress, legacyEscrowAbi } from "./history";
+import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTerms, type LockAuthorization } from "./lock-authorization";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -56,7 +57,7 @@ export async function readLoan(loanKey: Hex, binding = evmEscrowBinding()): Prom
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
   const version = await client.readContract({ address, abi: siriusescrowAbi, functionName: "VERSION" });
-  if (version !== "sirius-escrow-usdc-v5" && version !== "sirius-escrow-usdc-v4") {
+  if (!["sirius-escrow-usdc-v6", "sirius-escrow-usdc-v5", "sirius-escrow-usdc-v4"].includes(version)) {
     throw new AppError("Version du contrat historique non supportée", 409);
   }
   const loan = version === "sirius-escrow-usdc-v4"
@@ -137,6 +138,22 @@ function settlementAccount() {
 
 export function runnerSettlementAddress(): CanonicalAddress {
   return normalizeAddress(settlementAccount().address);
+}
+
+export async function authorizeEscrowLock(terms: LockTerms, deadline: number): Promise<LockAuthorization> {
+  const now = Math.floor(Date.now() / 1_000);
+  if (!Number.isSafeInteger(deadline) || deadline <= now || deadline > now + LOCK_AUTHORIZATION_TTL_SECONDS) {
+    throw new AppError("Autorisation de lock expirée ou trop longue", 409);
+  }
+  const binding = evmEscrowBinding();
+  const account = settlementAccount();
+  const authorizer = await getPublicClient().readContract({
+    address: normalizeAddress(binding.escrow), abi: siriusescrowAbi, functionName: "lockAuthorizer",
+  });
+  if (normalizeAddress(authorizer) !== normalizeAddress(account.address)) {
+    throw new AppError("Le contrat escrow ne reconnaît pas le signataire du runner", 503);
+  }
+  return { deadline, signature: await account.signTypedData(lockAuthorizationTypedData(terms, binding, deadline)) };
 }
 
 function walletClient() {

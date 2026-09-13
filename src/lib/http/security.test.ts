@@ -87,3 +87,33 @@ test("les mutations exigent l'origine canonique", () => {
     else process.env.SIRIUS_APP_ORIGIN = previous;
   }
 });
+
+test("un alias explicite conserve le domaine signé et exige une requête de même origine", () => {
+  const previousOrigin = process.env.SIRIUS_APP_ORIGIN;
+  const previousAliases = process.env.SIRIUS_APP_ORIGIN_ALIASES;
+  process.env.SIRIUS_APP_ORIGIN = "https://sirius-data.tech";
+  process.env.SIRIUS_APP_ORIGIN_ALIASES = " https://sirius-evm.vercel.app , https://www.sirius-data.tech ";
+  const request = (origin: string, url = "https://sirius-evm.vercel.app/api/auth/challenge", fetchSite = "same-origin") =>
+    new Request(url, {
+      method: "POST",
+      headers: { origin, "sec-fetch-site": fetchSite },
+    });
+
+  try {
+    assert.equal(assertMutationOrigin(request("https://sirius-evm.vercel.app")), "https://sirius-data.tech");
+    assert.throws(() => assertMutationOrigin(request("https://evil.vercel.app")), /Origine/);
+    assert.throws(() => assertMutationOrigin(request("https://sirius-evm.vercel.app.evil.example")), /Origine/);
+    assert.throws(() => assertMutationOrigin(request("http://sirius-evm.vercel.app")), /Origine/);
+    assert.throws(() => assertMutationOrigin(request("https://sirius-evm.vercel.app:8443")), /Origine/);
+    assert.throws(() => assertMutationOrigin(request("https://sirius-evm.vercel.app", "https://sirius-data.tech/api/auth/challenge")), /Origine/);
+    assert.throws(() => assertMutationOrigin(request("https://sirius-evm.vercel.app", undefined, "cross-site")), /Contexte/);
+
+    process.env.SIRIUS_APP_ORIGIN_ALIASES = "";
+    assert.throws(() => assertMutationOrigin(request("https://sirius-evm.vercel.app")), /Origine/);
+  } finally {
+    if (previousOrigin === undefined) delete process.env.SIRIUS_APP_ORIGIN;
+    else process.env.SIRIUS_APP_ORIGIN = previousOrigin;
+    if (previousAliases === undefined) delete process.env.SIRIUS_APP_ORIGIN_ALIASES;
+    else process.env.SIRIUS_APP_ORIGIN_ALIASES = previousAliases;
+  }
+});
