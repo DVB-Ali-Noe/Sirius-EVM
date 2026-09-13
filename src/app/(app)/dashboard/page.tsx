@@ -98,9 +98,13 @@ function DashboardPageContent() {
   };
 
   useEffect(() => {
+    // `authenticated` en dépendance, et pas seulement l'adresse : la première signature
+    // déclenche l'attestation KYB puis, sur un compte neuf, l'approvisionnement. Les deux
+    // arrivent après ce premier affichage, et sans cette relecture l'utilisateur resterait
+    // devant un solde nul alors que les fonds sont déjà sur la chaîne.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial, setState post-await
     refresh();
-  }, [refresh]);
+  }, [refresh, authenticated]);
 
   useEffect(() => {
     if (!address || !authenticated) return;

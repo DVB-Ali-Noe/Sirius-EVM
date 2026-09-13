@@ -37,6 +37,16 @@ export async function registerNode() {
       "NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS",
     ];
 
+    // Ce qu'une instance de démonstration doit fournir pour tenir sa promesse : la
+    // maison paie le gas du visiteur, sur les deux postes et depuis deux comptes
+    // distincts. Les exiger ici transforme une panne silencieuse en refus de démarrer —
+    // sans la clé du faucet, « Ajouter des fonds » se rabattrait sur MoonPay, qui n'a
+    // rien à vendre sur un testnet, et le visiteur lirait « indisponible » sans que
+    // personne ne sache pourquoi.
+    if (DEMO) {
+      requises.push("SIRIUS_FAUCET_KEY", "SIRIUS_KYB_VERIFIER_KEY");
+    }
+
     // Ce que seule une instance adossée à une enclave réelle peut fournir. En
     // démonstration ces valeurs n'existent pas encore — les exiger reviendrait à
     // interdire la démonstration.
