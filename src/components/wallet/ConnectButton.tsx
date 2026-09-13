@@ -27,6 +27,8 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const [open, setOpen] = useState(false);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectPending, setConnectPending] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const wrongNetwork = !!network && network !== EXPECTED_NETWORK;
@@ -80,9 +82,17 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   // Le SDK social n'est chargé qu'au clic, dans `openEmbeddedWallet`. Le menu se ferme
   // avant : la fenêtre Google s'ouvre par-dessus, et laisser le menu derrière elle donnait
   // l'impression que le clic n'avait rien déclenché.
-  const handleEmbedded = () => {
-    setOpen(false);
-    openEmbeddedWallet();
+  const handleEmbedded = async () => {
+    setConnectPending(true);
+    setConnectError(null);
+    try {
+      await openEmbeddedWallet();
+      setOpen(false);
+    } catch (error) {
+      setConnectError(messageOf(error));
+    } finally {
+      setConnectPending(false);
+    }
   };
 
   const handleExternal = (rdns?: string) => {
@@ -134,12 +144,18 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                 <>
                   <button
                     type="button"
-                    onClick={handleEmbedded}
-                    className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5"
+                    onClick={() => void handleEmbedded()}
+                    disabled={connectPending}
+                    className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5 disabled:opacity-60"
                   >
-                    <span className="text-sm font-medium text-foreground">{t("Continuer avec Google")}</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {connectPending ? t("Connexion…") : t("Continuer avec Google")}
+                    </span>
                     <span className="mt-0.5 block text-xs text-muted">{t("Sans crypto, en un clic")}</span>
                   </button>
+                  {connectError && (
+                    <p role="alert" className="px-4 pb-3 text-xs text-negative">{t(connectError)}</p>
+                  )}
                   <div className="border-t border-border" />
                 </>
               )}

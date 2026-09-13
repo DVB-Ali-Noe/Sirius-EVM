@@ -86,9 +86,9 @@ export function openWalletModal(): void {
  * Côté serveur, la source reste « external » : c'est une EOA qui a signé, et rien dans
  * Sirius n'a besoin de savoir d'où venait sa clé.
  */
-export function openEmbeddedWallet(): void {
+export function openEmbeddedWallet(): Promise<void> {
   clearWalletDisconnected();
-  void (async () => {
+  return (async () => {
     const { connectEmbedded } = await import("@/lib/wallet/embedded");
     const { address, chainId } = await connectEmbedded();
     if (walletDisconnectedByUser()) return;
@@ -100,7 +100,13 @@ export function openEmbeddedWallet(): void {
       useWalletStore.getState().address === normalized &&
       useWalletStore.getState().network === networkForChain(chainId),
     );
-  })().catch((error) => console.error("Connexion Google échouée", error));
+  })().catch((error) => {
+    // Journalisé *et* relancé : la console sert au diagnostic, mais l'utilisateur qui vient
+    // de cliquer doit voir qu'il s'est passé quelque chose. Un bouton silencieux se lit
+    // comme un bouton cassé, et c'est exactement ce qu'on a vécu en recette.
+    console.error("Connexion Google échouée", error);
+    throw error;
+  });
 }
 
 export function WalletConnector() {
