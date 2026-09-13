@@ -33,8 +33,44 @@ interface AnnouncedWallet {
 
 const CLE_CHOIX = "sirius.wallet.rdns";
 
+/**
+ * Identifiant du portefeuille embarqué dans cette table.
+ *
+ * EIP-6963 est une annonce faite par les extensions ; un portefeuille embarqué ne s'annonce
+ * pas. On lui réserve donc un `rdns` que personne d'autre ne peut revendiquer, pour qu'il
+ * soit choisi, mémorisé et retrouvé exactement comme les autres.
+ *
+ * Il vit ici et non dans `embedded.ts` pour que ce module puisse le reconnaître sans
+ * importer le SDK : l'importer chargerait plusieurs centaines de kilo-octets sur toutes les
+ * pages, y compris pour les visiteurs qui n'utiliseront jamais la connexion sociale.
+ */
+export const EMBEDDED_RDNS = "com.sirius.embedded";
+
+/** Sans Client ID, la connexion sociale n'est pas proposée du tout. */
+export function embeddedConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim());
+}
+
+/** Vrai si c'est le portefeuille embarqué que l'utilisateur a choisi. */
+export function embeddedSelected(): boolean {
+  return selectedWalletRdns() === EMBEDDED_RDNS;
+}
+
 const decouverts = new Map<string, AnnouncedWallet>();
 let ecouteDemarree = false;
+
+/**
+ * Lecteur du provider embarqué, posé par `embedded.ts` au moment où il est chargé.
+ *
+ * L'inversion est délibérée : c'est le SDK qui se déclare ici, et non ce module qui va le
+ * chercher. Sans elle, `selectedProvider()` — appelé à chaque rendu, partout — entraînerait
+ * le SDK dans le bundle de chaque page.
+ */
+let lireEmbarque: (() => Eip1193Provider | null) | null = null;
+
+export function registerEmbeddedWallet(lecteur: () => Eip1193Provider | null): void {
+  lireEmbarque = lecteur;
+}
 
 function demarrerEcoute(): void {
   if (ecouteDemarree || typeof window === "undefined") return;
@@ -105,6 +141,12 @@ export function selectedProvider(): Eip1193Provider | null {
   if (typeof window === "undefined") return null;
   const rdns = selectedWalletRdns();
   if (!rdns) return null;
+
+  // Le portefeuille embarqué n'est pas dans la table des annonces : il n'en fait jamais.
+  // Tant que `embedded.ts` n'a pas été chargé, le lecteur est absent et l'appelant reçoit
+  // `null` — ce qui est la bonne réponse, puisqu'il n'y a effectivement aucune session
+  // sociale ouverte à ce moment-là.
+  if (rdns === EMBEDDED_RDNS) return lireEmbarque?.() ?? null;
 
   const connu = decouverts.get(rdns)?.provider;
   if (connu) return connu;

@@ -7,6 +7,7 @@ import { hasRunnerDelegation } from "@/lib/runner/authorization-client";
 import { tryNormalizeAddress } from "@/lib/evm/address";
 import { EVM_CHAIN_IDS, resolveClientNetwork, type EvmNetwork } from "@/lib/evm/networks";
 import { connectExternalWallet, getExternalWallet } from "@/lib/wallet/manager";
+import { EMBEDDED_RDNS, embeddedSelected, selectWallet } from "@/lib/wallet/discovery";
 import { useWalletStore } from "@/stores/wallet";
 
 function networkForChain(chainId: unknown): string {
@@ -68,19 +69,46 @@ export function openWalletModal(): void {
   }).catch((error) => console.error("Connexion wallet EVM échouée", error));
 }
 
+/**
+ * Ouvre la connexion sociale et adopte le compte obtenu.
+ *
+ * Le SDK n'est chargé qu'ici, à l'instant du clic : il pèse plusieurs centaines de
+ * kilo-octets, et l'immense majorité des visiteurs d'une page publique ne s'en servira
+ * jamais. Un import statique l'aurait mis dans le bundle de chaque page.
+ *
+ * Le choix n'est mémorisé qu'après une connexion réussie. Une fenêtre Google refermée sans
+ * rien valider ne doit pas laisser l'application convaincue qu'un portefeuille embarqué est
+ * sélectionné — elle refuserait alors l'extension que l'utilisateur voulait peut-être.
+ *
+ * Côté serveur, la source reste « external » : c'est une EOA qui a signé, et rien dans
+ * Sirius n'a besoin de savoir d'où venait sa clé.
+ */
+export function openEmbeddedWallet(): void {
+  clearWalletDisconnected();
+  void (async () => {
+    const { connectEmbedded } = await import("@/lib/wallet/embedded");
+    const { address, chainId } = await connectEmbedded();
+    const normalized = tryNormalizeAddress(address);
+    if (!normalized) throw new Error("Adresse EVM invalide.");
+    selectWallet(EMBEDDED_RDNS);
+    useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
+    void synchroniserSession(normalized);
+  })().catch((error) => console.error("Connexion Google échouée", error));
+}
+
 export function WalletConnector() {
   const setConnected = useWalletStore((state) => state.setConnected);
   const setDisconnected = useWalletStore((state) => state.setDisconnected);
   const setNetwork = useWalletStore((state) => state.setNetwork);
 
   useEffect(() => {
-    const wallet = getExternalWallet();
-    if (!wallet) return;
     let active = true;
+    let wallet: ReturnType<typeof getExternalWallet> = null;
     const sync = async () => {
       // L'utilisateur s'est déconnecté : le portefeuille reste peut-être autorisé,
       // mais le reconnecter d'office annulerait son geste sous ses yeux.
       if (walletDisconnectedByUser()) return;
+      if (!wallet) return;
       const [accounts, chainId] = await Promise.all([
         wallet.request({ method: "eth_accounts" }),
         wallet.request({ method: "eth_chainId" }),
@@ -100,7 +128,7 @@ export function WalletConnector() {
         setDisconnected();
         return;
       }
-      void wallet.request({ method: "eth_chainId" }).then((chainId) => {
+      void wallet?.request({ method: "eth_chainId" }).then((chainId) => {
         setConnected(address, networkForChain(chainId), "external");
         void synchroniserSession(address);
       });
@@ -109,13 +137,27 @@ export function WalletConnector() {
       void invalidateWalletSession();
       setNetwork(networkForChain(chainId));
     };
-    wallet.on?.("accountsChanged", onAccountsChanged);
-    wallet.on?.("chainChanged", onChainChanged);
-    void sync();
+    // Le portefeuille embarqué garde sa session dans le stockage du navigateur, mais le
+    // store ne persiste pas : sans cette reprise, un rechargement ramènerait une page
+    // déconnectée alors que la session, elle, est toujours ouverte des deux côtés. On ne
+    // charge le SDK que si c'est bien lui que l'utilisateur avait choisi.
+    const demarrer = async () => {
+      if (embeddedSelected()) {
+        const { restoreEmbedded } = await import("@/lib/wallet/embedded");
+        await restoreEmbedded();
+      }
+      if (!active) return;
+      wallet = getExternalWallet();
+      if (!wallet) return;
+      wallet.on?.("accountsChanged", onAccountsChanged);
+      wallet.on?.("chainChanged", onChainChanged);
+      await sync();
+    };
+    void demarrer();
     return () => {
       active = false;
-      wallet.removeListener?.("accountsChanged", onAccountsChanged);
-      wallet.removeListener?.("chainChanged", onChainChanged);
+      wallet?.removeListener?.("accountsChanged", onAccountsChanged);
+      wallet?.removeListener?.("chainChanged", onChainChanged);
     };
   }, [setConnected, setDisconnected, setNetwork]);
 
