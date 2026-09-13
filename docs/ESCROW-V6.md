@@ -22,6 +22,8 @@ Après confirmation de l'approbation USDC, le navigateur appelle `POST /api/loan
 
 Les anciens sélecteurs `lock` v4/v5 restent décodables uniquement pour l'historique. Le contrat v6 ne propose aucun chemin de lock sans autorisation. `release`, `refund`, les crédits et la dérivation des clés historiques conservent leur fonctionnement.
 
+Le worker reaper peut démarrer sur le couple Escrow v5 / DatasetRegistry v4 existant et continuer ses réconciliations pendant la transition. Il vérifie les versions et les liaisons réciproques avec un contrôle distinct de celui des nouveaux prêts, qui restent réservés à v6. Le contrôle de lecture du worker ne valide pas le cache des nouvelles préparations.
+
 ## Déploiement et migration staging
 
 Un merge de code ne transforme pas les contrats existants. Le contrat escrow est immuable et le registre dataset ne peut lier qu'un escrow, une seule fois : **un nouvel escrow v6 et un nouveau registre v4 associé sont nécessaires**. Le script de déploiement existant crée aussi un registre KYB ; prévoir de nouvelles attestations si le mode KYB gouverné est utilisé. Le token USDC peut rester le même.

@@ -88,6 +88,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Contrat du lock absent": "Lock contract missing",
   "Contrats EVM Sirius indisponibles ou incompatibles": "Sirius EVM contracts are unavailable or incompatible",
   "Contrats EVM incompatibles : déploie SiriusEscrow v6 et un SiriusDatasetRegistry v4 associé": "Incompatible EVM contracts: deploy SiriusEscrow v6 and a linked SiriusDatasetRegistry v4",
+  "Contrats du reaper incompatibles : escrow v5 ou v6 et registre dataset v4 lié requis": "Incompatible reaper contracts: escrow v5 or v6 and a linked dataset registry v4 are required",
   "Corps de requête manquant": "Request body missing",
   "Curseur invalide": "Invalid pagination cursor",
   "DATABASE_URL manquante": "DATABASE_URL missing",

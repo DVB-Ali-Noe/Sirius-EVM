@@ -89,7 +89,29 @@ Le diagnostic conserve les codes SQLSTATE valides, même absents du dictionnaire
 
 L'avertissement de `pg-connection-string` sur `sslmode=require` annonce un futur changement de comportement ; il ne prouve pas un échec TLS. `sslmode=verify-full` rend explicite le comportement actuellement utilisé, mais ne répare ni les identifiants, ni le réseau, ni le schéma SQL. Ne pas désactiver la vérification des certificats pour faire passer ce contrôle.
 
-Les deux logs staging signalés le 13 septembre ont d'abord affiché le message générique, puis seulement `P2010` à la détection de `Loan`. Le second situe l'échec sur la première requête PostgreSQL, avant le RPC ; `P2010` seul ne distingue pas une erreur de connexion d'une erreur SQL. La première liste de diagnostics masquait certains SQLSTATE : ce défaut a été reproduit avec le vrai client Prisma et son adaptateur, puis corrigé. La cause distante reste à confirmer avec le code natif et son motif ; aucun secret distant n'a été modifié.
+Les premiers logs staging du 13 septembre ont affiché le message générique, puis seulement `P2010` à la détection de `Loan`. La première liste de diagnostics masquait certains SQLSTATE : ce défaut a été reproduit avec le vrai client Prisma et son adaptateur, puis corrigé.
+
+Le troisième log confirme la cause : **Neon, connexion via pooler, SQLSTATE `53000`, quota de temps de calcul dépassé**. Le serveur refuse la connexion avant toute lecture applicative ou vérification EVM. Modifier la requête SQL, les certificats ou relancer les jobs ne rétablit pas le quota.
+
+Pour remettre staging en service :
+
+1. Ouvrir le projet concerné dans la console Neon et vérifier sa consommation et sa période de facturation.
+2. Rétablir sa capacité de calcul. Sur l'offre gratuite, la suspension prend fin au renouvellement mensuel du quota ou au passage à une offre payante ; voir la [documentation officielle Neon](https://github.com/neondatabase/website/blob/main/content/faqs/free-plan-limits-and-quotas.md). La suspension pour quota ne supprime pas les données.
+3. Une fois la connexion disponible, relancer les jobs échoués de la pipeline staging. Le préflight pourra alors poursuivre les contrôles SQL et EVM habituels.
+
+La consommation est aussi à examiner côté worker : `src/worker/reaper.ts` interroge la base toutes les 30 secondes par défaut, même sans prêt à traiter. S'il fonctionne en continu sur cette base, il peut empêcher la mise en veille Neon après cinq minutes d'inactivité ; c'est une piste fondée sur le code, pas une mesure de consommation du compte. Voir [la gestion des computes Neon](https://neon.com/docs/manage/endpoints/). Ne pas arrêter un worker chargé de prêts actifs sans prévoir leur suivi. Aucun worker, quota, abonnement ou secret distant n'a été modifié pendant ce diagnostic.
+
+### Échec du contrôle du reaper sur le VPS
+
+Après rétablissement de Neon, le run staging du 13 septembre valide les migrations, Vercel et les smokes, mais échoue sur « Vérifier que le reaper tourne ». L'ancienne commande terminait par `grep -q 'reaper running'` : un conteneur arrêté ou en redémarrage donnait seulement un code 1, sans état ni logs. La première ligne `HOST=...` affichée par GitHub n'identifie pas la commande fautive.
+
+Une incompatibilité de démarrage a été reproduite avec la configuration **distante** de Vercel staging, puis vérifiée sur le testnet : Escrow `0xede81141d007593d4bfce2de4778f753d167700e` est v5 et DatasetRegistry `0x18a6594a7a5b227b87808c733c40067d20357618` est v4 ; leurs liaisons réciproques sont correctes. Le worker appelait le contrôle v6 des nouveaux prêts et refusait donc ces contrats pourtant lisibles par son moteur de réconciliation.
+
+Le worker utilise désormais un contrôle de lecture dédié qui accepte l'escrow v5 ou v6 avec le registre v4 correctement lié. Ce contrôle n'alimente pas le cache d'autorisation des nouveaux prêts : ceux-ci exigent toujours v6. Les erreurs métier de démarrage sont affichées sans exposer les erreurs RPC brutes.
+
+`deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle vérifie le processus en cours d'exécution, pas la réussite de toutes les réconciliations futures.
+
+Le fichier `/opt/sirius-staging/.env.vps` doit rester cohérent avec la configuration de l'application ; il n'a pas été consulté ni modifié pendant cette correction. Le correctif doit être publié pour reconstruire l'image worker et déployer son nouveau digest. Relancer uniquement l'ancien job VPS réutiliserait l'ancienne image.
 
 ### Contrôles locaux
 
