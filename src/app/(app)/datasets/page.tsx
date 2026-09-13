@@ -75,10 +75,8 @@ const VISIBILITY_STATES: DatasetStatus[] = ["LISTED", "UNLISTED", "PRIVATE"];
 const PARTAGEABLE: DatasetStatus[] = ["LISTED", "UNLISTED"];
 
 export default function DatasetsPage() {
-  const address = useWalletStore((s) => s.address);
-  const authenticated = useWalletStore((s) => s.authenticated);
-  const network = useWalletStore((s) => s.network);
-  return <DatasetsContent key={`${address}:${network}:${authenticated}`} />;
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <DatasetsContent key={identity} />;
 }
 
 function DatasetsContent() {

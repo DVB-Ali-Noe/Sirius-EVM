@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { verifyTdxQuote } from "@/lib/tee/quote";
 import type { QuoteVerification } from "@/lib/tee/quote";
 import { hashLoanAttestationPayload, parseLoanAttestationPayload } from "@/lib/tee/attestation";
-import { evmEscrowBinding } from "@/lib/tee/evm-binding";
+import { loanEscrowBinding } from "@/lib/evm/history";
 import type { LoanAttestationPayload } from "@/lib/tee/types";
 import { AppError, errorResponse } from "@/lib/errors";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
@@ -60,7 +60,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     } catch {
       throw new AppError("Preuve d’attestation invalide", 409);
     }
-    const { chainId, escrow } = evmEscrowBinding();
+    const { chainId, escrow } = loanEscrowBinding(loan);
     if (
       hashLoanAttestationPayload(loan.attestationPayload) !== loan.attestationHash ||
       payload.chainId !== chainId ||

@@ -19,13 +19,13 @@ Provider                 Robinhood Chain                     Borrower
   │    crédit provider          │                               │
 ```
 
-Le runner ne révèle le préimage qu'après avoir produit le modèle et une capsule persistable par le borrower. `release` crédite alors le provider dans la même transaction ; `refund` restitue les fonds au borrower après l'échéance si aucun préimage n'a été publié.
+Le runner ne révèle le préimage qu'après avoir produit le modèle et une capsule persistable par le borrower. `release` crédite alors le provider dans la même transaction ; `refund` crédite le borrower après l'échéance si aucun préimage n'a été publié. Wallet et Dashboard affichent ces crédits et proposent leur retrait vers le compte connecté, séparément du solde wallet.
 
 ## Stack
 
 | Couche | Technologie |
 |---|---|
-| Application | Next.js 16 · React 19 · Tailwind 4 · Prisma / PostgreSQL |
+| Application | Next.js 16.3.5 · React 19 · Tailwind 4 · Prisma / PostgreSQL |
 | Chaîne | Robinhood Chain, EVM Arbitrum Nitro · testnet `46630` · mainnet `4663` |
 | Contrats | Solidity `0.8.24` · Hardhat · viem |
 | Calcul confidentiel | Phala dstack, runner HTTP isolé, RA-TLS |
@@ -34,7 +34,7 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 ## Contrats EVM
 
 - `SiriusEscrow` v6 : autorisation de lock EIP-712 du runner, USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
-- `SiriusKybRegistry` : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et invalidées durablement au retrait d'un vérificateur.
+- `SiriusKybRegistry` v3 : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et liées à l’époque du vérificateur (domaine EIP-712 version `2`).
 - `SiriusDatasetRegistry` v4 : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root, à sa taille et à son profil d'entraînement.
 
 Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). Les ABI TypeScript sont générées dans [`src/lib/evm/abi/`](src/lib/evm/abi).
@@ -89,3 +89,5 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Audit des correctifs et limites de validation](docs/AUDIT-CORRECTIFS.md)
 - [Audit staging du 12 septembre et suivi](docs/AUDIT-STAGING-2026-09-12.md)
 - [Correctifs F1–F4 et migration Escrow v6](docs/ESCROW-V6.md)
+
+- [Correctifs de l’audit du 13 septembre et validation](docs/AUDIT-CORRECTIFS-2026-09-13.md)

@@ -26,7 +26,7 @@ Le worker reaper peut démarrer sur le couple Escrow v5 / DatasetRegistry v4 exi
 
 ## Déploiement et migration staging
 
-Un merge de code ne transforme pas les contrats existants. Le contrat escrow est immuable et le registre dataset ne peut lier qu'un escrow, une seule fois : **un nouvel escrow v6 et un nouveau registre v4 associé sont nécessaires**. Le script de déploiement existant crée aussi un registre KYB ; prévoir de nouvelles attestations si le mode KYB gouverné est utilisé. Le token USDC peut rester le même.
+Un merge de code ne transforme pas les contrats existants. Le contrat escrow est immuable et le registre dataset ne peut lier qu'un escrow, une seule fois : **un nouvel escrow v6 et un nouveau registre v4 associé sont nécessaires**. Le script de déploiement crée aussi un registre KYB. Le correctif A8 du 13 septembre fait passer le registre strict à **v3**, avec un domaine EIP-712 version **2** et le champ signé `uint64 verifierEpoch`. Prévoir de nouvelles attestations si le mode KYB gouverné est utilisé ; une signature de l’ancien registre est inutilisable sur le nouveau. Le registre ouvert de démonstration reste distinct et ne fournit pas ces garanties. Le token USDC peut rester le même.
 
 Procédure pour l'opérateur, dans une fenêtre de maintenance :
 
@@ -38,7 +38,8 @@ Procédure pour l'opérateur, dans une fenêtre de maintenance :
 6. Ce préflight **indépendant des migrations Prisma déjà appliquées** vérifie v6 et les liaisons, le réseau RPC, la déclaration des historiques, l'absence de prêts applicatifs ouverts sur les anciens déploiements et l'absence de fonds encore verrouillés dans chacun des anciens escrows déclarés. Un prêt portant une trace EVM mais dépourvu de réseau ou d'adresse d'escrow doit être réconcilié, même marqué `CANCELLED` ou `SETTLED` : les anciennes migrations ne remplissent pas ces colonnes rétroactivement. Le préflight ne modifie ni base ni chaîne. Une panne ou un doute bloque sa validation.
 7. Configurer les mêmes adresses dans Next, le worker et le runner. Garder les anciens escrows autorisés et la master key pour la livraison des modèles historiques. Avec Phala, reconstruire et réattester l'image/compose ; le compte public doit rester celui attendu par v6.
 8. Réimporter et publier les datasets utilisés pour les nouveaux prêts dans le nouveau registre, avec de nouveaux titres applicatifs. Les titres et identifiants de l'ancien registre ne sont pas migrés automatiquement. Une ancienne migration Prisma déjà appliquée ne suspend pas une deuxième fois les anciennes fiches ; retirer celles-ci du catalogue avant la réouverture.
-9. Vérifier un prêt complet avec deux wallets EOA : login, approve, renouvellement de l'autorisation, lock, entraînement, release et livraison. Vérifier également la suppression sans prêt actif et la livraison d'un modèle historique déjà réglé, puis rouvrir les emprunts.
+9. Avec le registre strict, vérifier `VERSION = sirius-kyb-v3` et produire les nouveaux consentements pour les deux wallets. Le parrainage navigateur renvoie le domaine complet et refuse un ancien registre strict ; le script `contracts:attest-kyb` lit directement le digest on-chain.
+10. Vérifier un prêt complet avec deux wallets EOA : login, approve, renouvellement de l'autorisation, lock, entraînement, release, livraison et retrait du crédit provider. Après un remboursement, vérifier aussi le retrait borrower depuis Wallet. Vérifier également la suppression sans prêt actif et la livraison d'un modèle historique déjà réglé, puis rouvrir les emprunts.
 
 Le préflight est une observation à un instant donné : il ne peut pas prédire une transaction diffusée ensuite sur un ancien contrat immuable. Maintenir la maintenance jusqu'à la fin de la bascule. La pipeline existante ne déploie pas automatiquement les contrats et son préflight de migration des profils ne remplace pas `contracts:check-upgrade`.
 
@@ -68,3 +69,5 @@ pnpm contracts:check-upgrade
 - Le typage applicatif, le lint et le build sont vérifiés séparément. Le `tsc -p contracts/tsconfig.json` supplémentaire expose des problèmes de typage du harness Hardhat (`unknown` pour les lectures d'artefacts, augmentation Chai manquante), également dans les fichiers KYB/dataset non modifiés ; il n'est pas déclaré passant. La compilation Solidity et les tests Hardhat passent.
 
 Aucun smoke distant, changement de variable Vercel, déploiement Solidity ou commande Git n'a été exécuté pour ces correctifs.
+
+Les constats A1–A9, les tests supplémentaires et les mises à jour de dépendances sont suivis dans [les correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13.md). Les chiffres ci-dessus décrivent la passe F1–F4, pas la suite étendue.

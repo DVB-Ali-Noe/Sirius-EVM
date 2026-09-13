@@ -39,17 +39,18 @@ async function fixture() {
     const nonce = await kyb.read.nonces([subject]);
     const chainId = await (await hre.viem.getPublicClient()).getChainId();
     const signature = await verifier.signTypedData({
-      domain: { name: "SiriusKybRegistry", version: "1", chainId, verifyingContract: kyb.address },
+      domain: { name: "SiriusKybRegistry", version: "2", chainId, verifyingContract: kyb.address },
       types: {
         KybAttestation: [
           { name: "subject", type: "address" },
           { name: "verifier", type: "address" },
           { name: "expiresAt", type: "uint40" },
           { name: "nonce", type: "uint256" },
+        { name: "verifierEpoch", type: "uint64" },
         ],
       },
       primaryType: "KybAttestation",
-      message: { subject, verifier: verifier.account.address, expiresAt, nonce },
+      message: { subject, verifier: verifier.account.address, expiresAt, nonce, verifierEpoch: await kyb.read.verifierEpoch([verifier.account.address]) },
     });
     await kyb.write.acceptAttestation([verifier.account.address, expiresAt, signature], { account: wallet.account });
   };

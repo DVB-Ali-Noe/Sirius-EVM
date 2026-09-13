@@ -65,6 +65,9 @@ jobs:
       - name: Installer
         run: pnpm install --frozen-lockfile
 
+      - name: Audit des dépendances
+        run: pnpm audit:deps
+
       - name: Préparer les jeux synthétiques de test
         run: pnpm datasets:generate
 

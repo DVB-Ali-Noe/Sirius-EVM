@@ -7,7 +7,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [x] Définition de Robinhood Chain testnet `46630` et mainnet `4663` dans `src/lib/evm/networks.ts`.
 - [x] Client RPC `viem`, normalisation EVM des adresses, validation des montants USDC et vérification de signatures EVM.
 - [x] `SiriusEscrow` : verrouillage USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, release avant échéance, remboursement, crédits pull-only et transferts sûrs.
-- [x] `SiriusKybRegistry` : attestations KYB EIP-712, révocation durable, expiration et gestion des vérificateurs.
+- [x] `SiriusKybRegistry` v3 : attestations KYB EIP-712 liées à l’époque du vérificateur, révocation durable, expiration et gestion des vérificateurs.
 - [x] `SiriusDatasetRegistry` : ancrage d'un dataset chiffré, KYB bloquant et tombstone après destruction.
 - [x] Tests Hardhat, scripts de compilation, export ABI, déploiement et smoke test USDC.
 - [x] Liaison EVM dans le runner : dérivation du préimage liée au contrat et au réseau, contrôle KYB + `matchesScope` + escrow, règlement et re-livraison de clé modèle.
@@ -39,9 +39,21 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 Preuves, priorités et limites : [audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
 
+## Correctifs locaux — audit du 13 septembre
+
+- [x] Afficher et retirer les crédits des escrows courants et historiques dans Wallet et Dashboard (A1).
+- [x] Refuser dès l’ingestion les CSV dont le coût dépasse le budget du profil (A2).
+- [x] Invalider les logins tardifs, données et soldes lors d’un changement d’identité wallet (A3–A5).
+- [x] Paginer les datasets privés et le catalogue sur Entraîner (A6).
+- [x] Séparer les quotas de préparation/soumission KYB et reconnaître l’émetteur du parrainage (A7).
+- [x] Lier les signatures KYB strictes à l’époque du vérificateur, y compris avant leur première consommation (A8).
+- [x] Vérifier les preuves historiques contre le déploiement autorisé du prêt (A9).
+
+Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13.md).
+
 ## Validation testnet — à faire
 
-- [ ] Effectuer la [migration Escrow v6](ESCROW-V6.md), exécuter son préflight indépendant et republier les datasets avant réouverture.
+- [ ] Effectuer la [migration Escrow v6 / KYB strict v3](ESCROW-V6.md), exécuter son préflight indépendant et republier les datasets avant réouverture.
 
 - [ ] Déployer et exécuter `pnpm contracts:smoke` avec les adresses réellement publiées.
 - [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.

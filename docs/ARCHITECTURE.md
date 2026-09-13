@@ -11,7 +11,7 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
 | `SiriusEscrow` v6 | Règlement d'un prêt | Autorisation EIP-712 des conditions du lock par le runner, USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset et au profil d'entraînement, `release` avant l'échéance, états exclusifs et crédit pull-only |
-| `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
+| `SiriusKybRegistry` v3 | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
 | `SiriusDatasetRegistry` v4 | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, profil d'entraînement immuable, tombstone après crypto-shredding |
 
 Le titre n'est pas un NFT transférable : il représente la provenance d'un dataset et non un actif de spéculation.
@@ -19,14 +19,14 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 ## Parcours de règlement
 
 1. Le provider choisit le profil linéaire ou logistique et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
-2. Le runner scelle une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
+2. Le runner valide le CSV et le budget d’opérations du profil avant de sceller une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
 3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
 5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge, le hash du `loanId`, le titre dataset, son profil d'entraînement et une autorisation EIP-712 du runner, renouvelée après l'approbation USDC.
 6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
 7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Il atteste un payload canonique qui lie modèle/version, scope EVM, CID et hash de capsule ; en Phala, la quote TDX et son evidence sont vérifiées puis persistées. Le borrower persiste cette capsule.
 8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
-9. Si le prêt n'est pas réglé, `refund(loanKey)` devient possible après l'échéance. Next prépare la transaction, le wallet du borrower la signe, puis Next confirme son inclusion. Le borrower retire ensuite son crédit avec `withdraw` ; Next n'utilise aucune clé de règlement pour rembourser.
+9. Si le prêt n'est pas réglé, `refund(loanKey)` devient possible après l'échéance. Next prépare la transaction, le wallet du borrower la signe, puis Next confirme son inclusion. Le borrower retire ensuite son crédit depuis Wallet ou Dashboard avec `withdrawFor(session.address)` ; Next n'utilise aucune clé de règlement pour rembourser.
 
 Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc ni token à frais ni transfert silencieux. Il n'effectue aucun transfert externe pendant `release` ou `refund` : les fonds sont crédités puis retirés séparément.
 
@@ -34,7 +34,7 @@ Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc
 
 Le préimage est dérivé dans le TEE avec le `chainId`, l'adresse du contrat escrow, le borrower et le `loanId`. Cette liaison empêche qu'un préimage révélé sur un déploiement ou un réseau ouvre une capsule destinée à un autre.
 
-Les attestations KYB utilisent EIP-712 : le domaine inclut lui aussi le `chainId` et l'adresse de `SiriusKybRegistry`.
+Les attestations KYB strictes v3 utilisent EIP-712 : le domaine version `2` inclut le `chainId` et l’adresse de `SiriusKybRegistry`. Le message inclut `verifierEpoch` en plus du sujet, du vérificateur, de l’expiration et du nonce ; retirer puis réactiver un vérificateur ne réactive aucune ancienne signature inutilisée.
 
 L'authentification HTTP utilise un domaine canonique propre au déploiement. La branche résout ce domaine et ses alias dans `scripts/deployment-target.mjs` ; la pipeline les synchronise avant de construire Next. Les alias autorisés partagent le domaine signé du runner, mais pas leurs cookies ni leur IndexedDB. Le navigateur vérifie la clé d'ingestion contre `NEXT_PUBLIC_SIRIUS_APP_ORIGIN`, figée au build, et contre son empreinte épinglée. Les origines de staging et main restent disjointes. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -48,9 +48,11 @@ L'authentification HTTP utilise un domaine canonique propre au déploiement. La 
 - Restaurer un wallet et une session sur `/` ne déclenche aucune redirection : l'accueil garde le blob ; le dashboard s'ouvre par navigation explicite.
 - Le RPC de règlement reçoit le préimage lors de la simulation et de l'envoi avant inclusion : il doit être de confiance. La suppression des erreurs brutes dans les logs ne protège pas contre un RPC hostile.
 
+Les états des pages privées et des soldes sont recréés selon une révision de connexion et l’authentification. Le login contrôle cette révision et le provider après chaque attente ; les écritures du cookie de connexion/déconnexion sont sérialisées. Entraîner charge ses listes par pages de 24, sans charger tout le catalogue en mémoire.
+
 ## Reprise et historique
 
-Chaque nouveau prêt conserve `evmChainId`, `evmEscrowAddress` et `evmPreparedBlock`. Les lectures historiques sont limitées aux escrows explicitement autorisés du même réseau. Un reçu HMAC v2 peut relivrer une clé après règlement, mais ne peut pas autoriser un nouvel entraînement ou règlement.
+Chaque nouveau prêt conserve `evmChainId`, `evmEscrowAddress` et `evmPreparedBlock`. Les lectures historiques sont limitées aux escrows explicitement autorisés du même réseau. Les crédits et les preuves d’attestation utilisent eux aussi les déploiements historiques autorisés ; une panne de lecture d’un ancien crédit n’empêche pas d’afficher les autres. Les décimales du crédit sont lues sur le token de chaque escrow. Un reçu HMAC v2 peut relivrer une clé après règlement, mais ne peut pas autoriser un nouvel entraînement ou règlement.
 
 Le reaper parcourt les prêts par lots avec un curseur stable. L'absence de hash en base ne suffit pas pour annuler : il vérifie l'escrow et récupère les transactions déjà minées. Un mauvais hash peut être remplacé sur preuve d'un vrai `lock` du même borrower et du même prêt. Les transitions concurrentes sont protégées par comparaison de l'état lu, et une panne RPC ne crée pas de confirmation locale.
 

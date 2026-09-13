@@ -79,3 +79,15 @@ Le login exige la preuve EOA consommée par la délégation. Accepter ERC-1271 u
 ## D-17 — L'ouverture d'un escrow exige des conditions autorisées
 
 Escrow v6 impose un permis EIP-712 court du runner portant sur toutes les conditions du lock et son domaine réseau/contrat. Le runner dérive le hashlock et vérifie le reçu provider ; Next contrôle l'admission et la visibilité en base. Le permis est renouvelé après approve sans dépasser la réservation du prêt. Les anciens contrats sont immuables : [la migration v6](ESCROW-V6.md) possède son propre préflight, distinct des migrations Prisma.
+
+## D-18 — Identité des opérations asynchrones
+
+Une révision monotone identifie la connexion wallet, y compris un aller-retour A → B → A ou un remplacement du provider à adresse identique. Les pages privées sont recréées sur cette révision et l’état authentifié. Une vérification de login obsolète ferme le cookie éventuellement créé avant de permettre un nouveau login.
+
+## D-19 — Époque signée et retraits historiques
+
+Le registre strict v3 signe `verifierEpoch` sous le domaine EIP-712 version `2`. Cette rupture nécessite un nouveau déploiement et de nouveaux consentements. Les escrows historiques déclarés restent lisibles pour les preuves et les crédits ; un retrait cible le bénéficiaire de la session avec `withdrawFor`, sans transfert vers une adresse libre saisie dans le navigateur.
+
+## D-20 — Budget à l’ingestion
+
+Le plafond de 20 millions d’opérations est partagé par validation et entraînement. Un fichier qui le dépasse est refusé avant scellement. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.

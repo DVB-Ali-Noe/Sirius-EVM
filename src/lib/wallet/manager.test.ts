@@ -69,3 +69,26 @@ test("une transaction en attente trop longue reste récupérable", async () => {
     else Reflect.deleteProperty(globalThis, "window");
   }
 });
+
+test("un retrait invalidé pendant la vérification du réseau n'est pas envoyé", async () => {
+  let invalidated = false;
+  let sends = 0;
+  const wallet: Eip1193Provider = {
+    request: async ({ method }) => {
+      if (method === "eth_chainId") { invalidated = true; return expectedChainId(); }
+      sends++;
+      return `0x${"12".repeat(32)}`;
+    },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: wallet } });
+  try {
+    await assert.rejects(sendTransactionExternal({}, "0x1111111111111111111111111111111111111111", () => {
+      if (invalidated) throw new Error("Wallet changed");
+    }), /Wallet changed/);
+    assert.equal(sends, 0);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});

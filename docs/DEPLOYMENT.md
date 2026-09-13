@@ -129,3 +129,13 @@ pnpm test:e2e
 Les deux premières commandes affichent uniquement la cible versionnée, sans lire de secret, changer de branche ou appeler Git. Le smoke distant `node scripts/smoke-auth.mjs staging` vise exclusivement le déploiement staging ; son résultat dépend du code et de la configuration déjà publiés, pas des modifications locales.
 
 Les tests locaux ne prouvent pas que DNS, Vercel, la base et Phala sont correctement configurés à distance. Un domaine absent ou inaccessible fait échouer le smoke même si son alias Vercel répond. Les constats ouverts et l'état observé de staging sont dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+
+## Correctifs du 13 septembre
+
+Next et `eslint-config-next` sont alignés sur `16.3.5`. Après changement de branche, réinstaller avec `pnpm install --frozen-lockfile` avant de lancer Next ; ne pas partager un ancien `node_modules` ou bundle entre ces versions. Le bloc généré par Next dans `AGENTS.md` ne change pas la règle du projet : ce fichier reste exclu du suivi.
+
+La vérification CI exécute `pnpm audit:deps`. Les alertes modérées, hautes et critiques bloquent ; les alertes faibles restent visibles. Au 13 septembre, une alerte faible `elliptic` n’a pas de correction publiée. Voir [le suivi des correctifs](AUDIT-CORRECTIFS-2026-09-13.md).
+
+Changer de compte, de provider ou de réseau invalide désormais une connexion en cours et recrée les états privés. Cela ne remplace pas la déconnexion/reconnexion nécessaire quand les secrets, la base ou le domaine d’un même localhost changent avec la branche.
+
+Le registre KYB strict passe à v3 (domaine EIP-712 `2`, époque signée). La migration reste indépendante du déploiement Next. Garder les anciens escrows dans `SIRIUS_LEGACY_ESCROW_ADDRESSES` pour les crédits et les preuves, et tester le retrait dans Wallet après release/refund.

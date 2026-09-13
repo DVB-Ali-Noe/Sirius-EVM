@@ -171,9 +171,14 @@ export async function signTypedDataExternal(payload: unknown, address: string): 
   return signature;
 }
 
-export async function sendTransactionExternal(transaction: Record<string, unknown>, address: string): Promise<string> {
+export async function sendTransactionExternal(
+  transaction: Record<string, unknown>,
+  address: string,
+  assertCurrent?: () => void,
+): Promise<string> {
   const wallet = provider();
   await ensureExpectedChain(wallet);
+  assertCurrent?.();
   const hash = await wallet.request({
     method: "eth_sendTransaction",
     params: [{ ...transaction, from: pourLeWallet(address) }],

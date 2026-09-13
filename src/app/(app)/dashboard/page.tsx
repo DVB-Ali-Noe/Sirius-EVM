@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useWalletStore } from "@/stores/wallet";
@@ -42,6 +43,11 @@ const SHORTCUTS = [
 ];
 
 export default function DashboardPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <DashboardPageContent key={identity} />;
+}
+
+function DashboardPageContent() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
@@ -160,6 +166,8 @@ export default function DashboardPage() {
           {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
         </div>
       </Card>
+
+      <EscrowCredits onWithdraw={refresh} />
 
       {reputation && (
         <Card className="mb-8">

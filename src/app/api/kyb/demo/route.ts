@@ -32,7 +32,7 @@ const kybClientLimiter = new FixedWindowRateLimiter({
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    enforceRateLimit(kybSubjectLimiter, `subject:${session.address}`);
+    enforceRateLimit(kybSubjectLimiter, `prepare:${session.address}`);
     enforceRateLimit(kybClientLimiter, requestClientKey(req));
     return NextResponse.json(await prepareDemoAttestation(session.address));
   } catch (err) {
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const session = requireAuth(req);
-    enforceRateLimit(kybSubjectLimiter, `subject:${session.address}`);
+    enforceRateLimit(kybSubjectLimiter, `submit:${session.address}`);
     enforceRateLimit(kybClientLimiter, requestClientKey(req));
     const body = await readJson<{ expiresAt?: unknown; signature?: unknown }>(req);
 
@@ -57,7 +57,7 @@ export async function PUT(req: Request) {
     const resultat = await submitDemoAttestation(session.address, body.expiresAt, body.signature);
     // Réutilise le chemin normal pour la persistance, afin que l'état applicatif soit
     // le même qu'après une attestation posée hors de l'application.
-    await finalizeKybAcceptance(session.address, resultat.txHash ?? undefined);
+    await finalizeKybAcceptance(session.address, resultat.txHash ?? undefined, resultat.verifier);
     return NextResponse.json(resultat);
   } catch (err) {
     return errorResponse(err);
