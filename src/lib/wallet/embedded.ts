@@ -1,7 +1,14 @@
 "use client";
 
 import { Web3Auth } from "@web3auth/modal";
-import { WEB3AUTH_NETWORK, CHAIN_NAMESPACES, WALLET_CONNECTORS, AUTH_CONNECTION } from "@web3auth/modal";
+import {
+  WEB3AUTH_NETWORK,
+  CHAIN_NAMESPACES,
+  WALLET_CONNECTORS,
+  AUTH_CONNECTION,
+  CONNECTOR_EVENTS,
+  CONNECTOR_STATUS,
+} from "@web3auth/modal";
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
 import { notifyWalletChange, registerEmbeddedWallet } from "@/lib/wallet/discovery";
 import type { Eip1193Provider } from "@/lib/wallet/manager";
@@ -139,9 +146,43 @@ function borner<T>(promesse: Promise<T>, message: string): Promise<T> {
   });
 }
 
+/**
+ * Attend que le connecteur social soit réellement utilisable.
+ *
+ * `init()` rend la main avant que ses connecteurs aient fini de s'initialiser. Enchaîner
+ * directement sur `connectTo` tombe alors sur « connector is not ready » — et le SDK lève
+ * cette erreur dans une promesse qu'il ne chaîne pas à celle qu'il rend, donc l'appelant
+ * n'apprend rien et l'interface attend un résultat qui n'arrivera jamais.
+ *
+ * On écoute donc l'état plutôt que de le supposer. Le contrôle est refait après la pose de
+ * l'écouteur : entre le premier test et l'abonnement, l'événement a pu passer.
+ */
+const DELAI_PRET_MS = 20_000;
+
+async function attendrePret(web3auth: Web3Auth): Promise<void> {
+  if (web3auth.status !== CONNECTOR_STATUS.NOT_READY) return;
+  await new Promise<void>((resolve, reject) => {
+    const nettoyer = () => {
+      clearTimeout(minuteur);
+      web3auth.off(CONNECTOR_EVENTS.READY, pret);
+    };
+    const pret = () => {
+      nettoyer();
+      resolve();
+    };
+    const minuteur = setTimeout(() => {
+      nettoyer();
+      reject(new Error("Connexion Google indisponible — réessaie dans un instant."));
+    }, DELAI_PRET_MS);
+    web3auth.on(CONNECTOR_EVENTS.READY, pret);
+    if (web3auth.status !== CONNECTOR_STATUS.NOT_READY) pret();
+  });
+}
+
 export async function connectEmbedded(): Promise<{ address: string; chainId: string }> {
   const web3auth = await client();
   if (!web3auth.connected) {
+    await attendrePret(web3auth);
     await borner(
       web3auth.connectTo(WALLET_CONNECTORS.AUTH, { authConnection: AUTH_CONNECTION.GOOGLE }),
       "La connexion Google n’a pas abouti — réessaie.",
