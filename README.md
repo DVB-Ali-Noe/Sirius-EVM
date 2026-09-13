@@ -33,7 +33,7 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 
 ## Contrats EVM
 
-- `SiriusEscrow` v5 : USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
+- `SiriusEscrow` v6 : autorisation de lock EIP-712 du runner, USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
 - `SiriusKybRegistry` : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et invalidées durablement au retrait d'un vérificateur.
 - `SiriusDatasetRegistry` v4 : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root, à sa taille et à son profil d'entraînement.
 
@@ -47,7 +47,7 @@ Les trois contrats sont déployés sur le testnet Robinhood et l'instance publiq
 
 L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
 
-Les correctifs de reprise et de livraison historique sont applicatifs : **pas de redéploiement Solidity** si l'instance utilise déjà Escrow v5 et DatasetRegistry v4. Ils nécessitent une migration PostgreSQL additive et la mise à jour de Next et du worker, ainsi que du runner distant s'il est utilisé. Voir la [checklist staging](docs/DEMO.md#mise-à-jour-des-correctifs-sur-staging).
+Les corrections F1–F4 sont locales : le login est EOA-only et les nouveaux locks exigent Escrow v6. **Un nouvel escrow et un nouveau registre dataset associé doivent être déployés** avant les nouveaux emprunts. La livraison des modèles déjà réglés conserve ses anciens escrows et sa master key. Voir la [procédure de migration v6](docs/ESCROW-V6.md).
 
 ## Démarrage
 
@@ -57,6 +57,7 @@ cp .env.example .env.local
 pnpm contracts:compile
 pnpm contracts:test
 pnpm contracts:abi
+pnpm datasets:generate
 pnpm test
 pnpm lint
 pnpm build
@@ -71,11 +72,20 @@ pnpm contracts:smoke
 
 Reporter les adresses affichées dans les variables serveur `SIRIUS_*_ADDRESS` **et** publiques `NEXT_PUBLIC_SIRIUS_*_ADDRESS`, sans changer l'USDC associé. La procédure détaillée est dans [docs/DEMO.md](docs/DEMO.md).
 
+## Branches et connexion
+
+`staging` déploie `sirius-evm-staging.vercel.app` ; `main` déploie `sirius-data.tech` avec `sirius-evm.vercel.app` comme alias. La pipeline configure automatiquement le domaine du sign-in et celui du navigateur avant chaque build. Fusionner sur main ne nécessite pas de modifier ces variables à la main et ne bascule pas le réseau EVM sur mainnet.
+
+Le rechargement de l'accueil conserve le blob et restaure la session sans redirection automatique vers le dashboard. Les erreurs de challenge affichent désormais leur cause. Les fichiers `.env*`, le lien `.vercel` et le stockage du navigateur persistent lors d'un changement de branche : voir le [guide de déploiement et des pièges de branche](docs/DEPLOYMENT.md).
+
 ## Documentation
 
 - [Architecture EVM](docs/ARCHITECTURE.md)
 - [Décisions techniques](docs/DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Démo et déploiement testnet](docs/DEMO.md)
+- [Branches, origines et authentification](docs/DEPLOYMENT.md)
 - [Runner Phala](docs/PHALA.md)
 - [Audit des correctifs et limites de validation](docs/AUDIT-CORRECTIFS.md)
+- [Audit staging du 12 septembre et suivi](docs/AUDIT-STAGING-2026-09-12.md)
+- [Correctifs F1–F4 et migration Escrow v6](docs/ESCROW-V6.md)

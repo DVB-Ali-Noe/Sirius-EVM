@@ -61,3 +61,21 @@ Un hash absent ou un statut `CANCELLED` ne prouve ni l'absence de lock ni un rem
 ## D-13 — Déploiement applicatif distinct du déploiement Solidity
 
 Les correctifs de récupération, de remboursement wallet, de logs et de taille d'upload ne changent pas les contrats v5/v4. La mise à jour porte sur PostgreSQL, Next, le worker et le runner distant éventuel. Changer d'escrow sans nécessité rompt les références historiques ; conserver les adresses et les clés de chiffrement tant que le protocole Solidity n'évolue pas.
+
+## D-14 — La branche cible configure les origines
+
+Staging et main possèdent des projets Vercel et environnements GitHub distincts. `scripts/deployment-target.mjs` résout explicitement leurs ressources ; les références inconnues sont refusées. La pipeline synchronise les origines serveur et navigateur avant le build, puis contrôle les challenges après déploiement. Les `NEXT_PUBLIC_*` sont recompilées pour chaque cible. Le nom main n'active pas mainnet.
+
+Les alias sont une liste exacte, jamais un joker Vercel. Ils partagent le domaine canonique signé attendu par le runner. Le contrôle de la clé d'ingestion utilise ce même domaine, pour qu'une connexion réussie sur un alias ne soit pas suivie d'un refus d'upload. Les secrets restent séparés par environnement. Les détails et les pièges de changement de branche sont dans [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## D-15 — Connexion, session et navigation sont distinctes
+
+La restauration automatique du provider et du cookie ne doit pas naviguer vers le dashboard. L'accueil garde le blob après rechargement. Une erreur HTTP du challenge est affichée avec sa cause au lieu d'être remplacée par « Sign-in challenge rejected ». Un refus de signature nettoie la tentative locale et permet un nouvel essai.
+
+## D-16 — Même preuve de compte au login et dans le runner
+
+Le login exige la preuve EOA consommée par la délégation. Accepter ERC-1271 uniquement à la connexion créait des sessions inutilisables ensuite ; les comptes contractuels sont donc refusés explicitement jusqu'à un support de bout en bout.
+
+## D-17 — L'ouverture d'un escrow exige des conditions autorisées
+
+Escrow v6 impose un permis EIP-712 court du runner portant sur toutes les conditions du lock et son domaine réseau/contrat. Le runner dérive le hashlock et vérifie le reçu provider ; Next contrôle l'admission et la visibilité en base. Le permis est renouvelé après approve sans dépasser la réservation du prêt. Les anciens contrats sont immuables : [la migration v6](ESCROW-V6.md) possède son propre préflight, distinct des migrations Prisma.

@@ -25,9 +25,23 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [x] Reprendre les locks abandonnés et conserver le déploiement des nouveaux prêts ; permettre la livraison des modèles historiques autorisés.
 - [x] Remboursement signé dans le wallet sans master key côté Next ; logs techniques sans préimage ni jeton RPC brut.
 - [x] Préflight de migration on-chain, protection contre les transactions en attente et limite d'upload compatible avec l'hébergement Vercel.
+- [x] Configurer automatiquement les origines du sign-in par branche, avec des alias explicites et des builds navigateur distincts.
+- [x] Conserver le blob au rechargement de l'accueil et afficher les causes des erreurs d'authentification.
+- [x] Tester la sélection des cibles, l'isolation des origines et la clé d'ingestion sur les alias ; ajouter un smoke de challenge à la pipeline.
 - [ ] Ajouter des tests d'intégration navigateur/runner/contrats sur un nœud EVM local puis sur testnet.
 
+## Correctifs locaux — audit du 12 septembre
+
+- [x] Réabonner le connecteur aux événements du wallet sélectionné (F1).
+- [x] Invalider les réponses datasets obsolètes après changement de compte, y compris la pagination (F2).
+- [x] Harmoniser le login avec les délégations EOA ; refuser clairement les comptes contractuels non supportés (F3).
+- [x] Exiger une autorisation EIP-712 du runner pour les locks v6, avec renouvellement borné après approve (F4).
+
+Preuves, priorités et limites : [audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+
 ## Validation testnet — à faire
+
+- [ ] Effectuer la [migration Escrow v6](ESCROW-V6.md), exécuter son préflight indépendant et republier les datasets avant réouverture.
 
 - [ ] Déployer et exécuter `pnpm contracts:smoke` avec les adresses réellement publiées.
 - [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.
@@ -36,7 +50,8 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.
 - [ ] Rejouer les reprises après timeout et les scénarios de conflit de réseau ou d'adresse de contrat.
-- [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs du [dernier audit local](AUDIT-CORRECTIFS.md) dans le navigateur.
+- [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs de [l'audit du 5 septembre](AUDIT-CORRECTIFS.md) dans le navigateur.
+- [ ] Valider après publication les challenges sur le domaine staging et ses alias, puis répéter après fusion sur main ; vérifier DNS et session réelle. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Phala et production — à faire
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { AppError } from "@/lib/app-error";
-import { recoverWalletAddress, verifyWalletSignature } from "./signature";
+import { recoverWalletAddress, verifyLoginSignature, verifyWalletSignature } from "./signature";
 
 // Compte déterministe : la clé n'a aucune valeur, elle ne sert qu'au test.
 const PRIVATE_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as const;
@@ -19,6 +19,15 @@ const CHALLENGE = [
   "Delegation expires at: 1755183600000",
   "Challenge: header.signature",
 ].join("\n");
+
+test("le login accepte la même preuve EOA que le runner et refuse un compte contractuel", async () => {
+  const contract = "0x1111111111111111111111111111111111111111";
+  const message = CHALLENGE.replace(ADDRESS, contract);
+  const signature = await account.signMessage({ message });
+  await assert.rejects(verifyLoginSignature({ address: contract, message, signature }), /comptes contractuels/);
+  await assert.rejects(verifyLoginSignature({ address: contract, message, signature: `${signature}00` }), /comptes contractuels/);
+  assert.equal(await verifyLoginSignature({ address: ADDRESS, message, signature }), ADDRESS);
+});
 
 test("l'adresse est reconstruite depuis la seule signature, sans clé publique", async () => {
   const signature = await account.signMessage({ message: CHALLENGE });

@@ -26,6 +26,7 @@ export async function registerNode() {
     const requises = [
       "SIRIUS_SESSION_SECRET",
       "SIRIUS_APP_ORIGIN",
+      "NEXT_PUBLIC_SIRIUS_APP_ORIGIN",
       "SIRIUS_ESCROW_ADDRESS",
       "SIRIUS_USDC_ADDRESS",
       "SIRIUS_KYB_ADDRESS",
@@ -53,6 +54,13 @@ export async function registerNode() {
 
     for (const name of requises) {
       if (!process.env[name]) throw new Error(`${name} obligatoire en production`);
+    }
+
+    if (
+      process.env.SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "") !==
+      process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "")
+    ) {
+      throw new Error("Les origines publique et serveur de Sirius doivent être identiques");
     }
 
     // Le reaper tourne désormais comme worker autonome, hors du processus web. En

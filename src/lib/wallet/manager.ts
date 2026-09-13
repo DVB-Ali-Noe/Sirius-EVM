@@ -1,7 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { selectedProvider } from "@/lib/wallet/discovery";
+import { selectedProvider, selectedWalletRdns } from "@/lib/wallet/discovery";
 import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
@@ -17,6 +17,7 @@ function provider(): Eip1193Provider {
   // un portefeuille qu'il n'a pas demandé.
   const choisi = selectedProvider();
   if (choisi?.request) return choisi;
+  if (selectedWalletRdns()) throw new Error("Le wallet sélectionné est indisponible.");
 
   const candidate = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
   if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe Phantom, MetaMask, Rabby ou Coinbase Wallet.");
@@ -75,8 +76,7 @@ async function demanderChoixDuCompte(wallet: Eip1193Provider): Promise<void> {
   }
 }
 
-export async function connectExternalWallet(): Promise<{ address: string; chainId: string }> {
-  const wallet = provider();
+export async function connectExternalWallet(wallet = provider()): Promise<{ address: string; chainId: string }> {
   await ensureExpectedChain(wallet);
   await demanderChoixDuCompte(wallet);
   const accounts = await wallet.request({ method: "eth_requestAccounts" });
@@ -91,7 +91,9 @@ export function getExternalWallet(): Eip1193Provider | null {
   // Le portefeuille choisi d'abord : sans ça, la synchronisation et la lecture du
   // solde repartiraient sur `window.ethereum` — donc sur une autre extension que
   // celle avec laquelle l'utilisateur s'est connecté.
-  return selectedProvider() ?? (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
+  const selected = selectedProvider();
+  if (selectedWalletRdns()) return selected;
+  return (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
 }
 
 export async function disconnectWallet(): Promise<void> {

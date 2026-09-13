@@ -10,7 +10,7 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
-| `SiriusEscrow` v5 | Règlement d'un prêt | USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset et au profil d'entraînement, `release` avant l'échéance, états exclusifs et crédit pull-only |
+| `SiriusEscrow` v6 | Règlement d'un prêt | Autorisation EIP-712 des conditions du lock par le runner, USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset et au profil d'entraînement, `release` avant l'échéance, états exclusifs et crédit pull-only |
 | `SiriusKybRegistry` | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
 | `SiriusDatasetRegistry` v4 | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, profil d'entraînement immuable, tombstone après crypto-shredding |
 
@@ -22,7 +22,7 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 2. Le runner scelle une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
 3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
-5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge, le hash du `loanId`, le titre dataset et son profil d'entraînement.
+5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge, le hash du `loanId`, le titre dataset, son profil d'entraînement et une autorisation EIP-712 du runner, renouvelée après l'approbation USDC.
 6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
 7. Après l'entraînement, le runner chiffre la clé modèle dans une capsule liée à une clé ECDH du navigateur et au préimage. Il atteste un payload canonique qui lie modèle/version, scope EVM, CID et hash de capsule ; en Phala, la quote TDX et son evidence sont vérifiées puis persistées. Le borrower persiste cette capsule.
 8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement.
@@ -36,13 +36,16 @@ Le préimage est dérivé dans le TEE avec le `chainId`, l'adresse du contrat es
 
 Les attestations KYB utilisent EIP-712 : le domaine inclut lui aussi le `chainId` et l'adresse de `SiriusKybRegistry`.
 
+L'authentification HTTP utilise un domaine canonique propre au déploiement. La branche résout ce domaine et ses alias dans `scripts/deployment-target.mjs` ; la pipeline les synchronise avant de construire Next. Les alias autorisés partagent le domaine signé du runner, mais pas leurs cookies ni leur IndexedDB. Le navigateur vérifie la clé d'ingestion contre `NEXT_PUBLIC_SIRIUS_APP_ORIGIN`, figée au build, et contre son empreinte épinglée. Les origines de staging et main restent disjointes. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Frontières de confiance
 
 - Le navigateur chiffre le dataset avant transit et conserve la clé privée ECDH non exportable de livraison.
 - Le runner Phala est le seul détenteur de la master key dstack ; il ouvre le dataset, entraîne le modèle, génère le préimage et signe les reçus.
 - Next orchestre, persiste l'état applicatif et vérifie les attestations, mais ne reçoit ni la donnée brute ni les secrets de règlement.
-- `RUNNER_TRANSPORT_SECRET` authentifie le canal Next→runner sans conférer d'autorité métier.
-- Le wallet autorise une délégation par signature EIP-191 ; les grants P-256 de cette délégation sont scopés, expirables et protégés contre le rejeu.
+- `RUNNER_TRANSPORT_SECRET` authentifie le canal Next→runner. Pour préparer un lock, Next fait autorité sur le prêt et sa visibilité en base ; le runner vérifie le reçu provider, le titre et les conditions avant de signer.
+- Le login et le runner acceptent les comptes EOA ; les comptes contractuels sont refusés explicitement. Le wallet autorise une délégation par signature EIP-191 ; les grants P-256 de cette délégation sont scopés, expirables et protégés contre le rejeu.
+- Restaurer un wallet et une session sur `/` ne déclenche aucune redirection : l'accueil garde le blob ; le dashboard s'ouvre par navigation explicite.
 - Le RPC de règlement reçoit le préimage lors de la simulation et de l'envoi avant inclusion : il doit être de confiance. La suppression des erreurs brutes dans les logs ne protège pas contre un RPC hostile.
 
 ## Reprise et historique
@@ -83,7 +86,9 @@ La migration applicative est EVM-only. La validation sur testnet avec des wallet
 
 ## Sécurité et production
 
-- L'émetteur KYB signe hors de Next et du runner, idéalement depuis un HSM/KMS. Sans lui, aucun wallet ne peut obtenir de KYB depuis l'application.
+- En mode strict, l'émetteur KYB signe hors de Next et du runner, idéalement depuis un HSM/KMS. La démonstration testnet possède un chemin de parrainage distinct, dont la clé ne doit pas être réutilisée en production réelle.
 - Les contrats sont testés localement, mais ne sont pas déclarés prêts mainnet sans déploiement testnet, revue externe et parcours réel complet.
 - Le runner Phala doit être déployé avec RA-TLS, quote TDX, replay RTMR3 et valeurs d'attestation épinglées côté Next.
 - Les adresses de contrat, le réseau attendu et le RPC sont des paramètres de déploiement : aucune valeur vide ne doit atteindre une instance de production.
+
+Le passage de v5 à v6 exige un nouveau registre, la clôture des anciens prêts actifs et le préflight distinct `contracts:check-upgrade`. Voir [ESCROW-V6.md](ESCROW-V6.md).

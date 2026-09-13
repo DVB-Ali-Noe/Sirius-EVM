@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { LANDING_RETURN_KEY } from "@/lib/landing-navigation";
 
 const NAV = [
   { href: "/dashboard", label: "Tableau de bord" },
@@ -30,7 +29,6 @@ function ExitButton({ className = "" }: { className?: string }) {
   return (
     <Link
       href="/"
-      onClick={() => window.sessionStorage.setItem(LANDING_RETURN_KEY, "true")}
       aria-label={t("Quitter vers l'accueil")}
       title={t("Quitter")}
       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[2rem] text-muted transition-colors hover:bg-background hover:text-foreground ${className}`}

@@ -21,6 +21,7 @@ let cancel: typeof import("./cancel").cancelExpiredLoan;
 let reap: typeof import("./reaper").runLoanReaper;
 let checkMigration: typeof import("./migration-check").checkEvmMigration;
 let finalize: typeof import("./borrower").finalizeLoan;
+let checkUpgrade: typeof import("./escrow-upgrade").checkEscrowUpgrade;
 let status = 1;
 let updates: { where: Record<string, unknown>; data: Record<string, unknown> }[];
 const restoreDb: (() => void)[] = [];
@@ -53,6 +54,7 @@ function transaction(to = ESCROW) {
   return { hash: HASH, from: BORROWER, to, input: lockUsdcTransaction({
     provider: PROVIDER, datasetId: DATASET, amount: loan().amountUsdcAtomic,
     hashlock: HASH, challengeDays: 7, loanId: "loan-1", trainingProfile: trainingProfileHash(MODEL),
+    authorization: { deadline: 300, signature: "0x" },
   }).data };
 }
 
@@ -65,6 +67,7 @@ before(async () => {
   ({ runLoanReaper: reap } = await import("./reaper"));
   ({ checkEvmMigration: checkMigration } = await import("./migration-check"));
   ({ finalizeLoan: finalize } = await import("./borrower"));
+  ({ checkEscrowUpgrade: checkUpgrade } = await import("./escrow-upgrade"));
 });
 
 beforeEach(() => {
@@ -76,7 +79,7 @@ beforeEach(() => {
   status = 1;
   updates = [];
   mock.method(client, "readContract", async ({ address, functionName }: { address: string; functionName: string }) => {
-    if (functionName === "VERSION") return address.toLowerCase() === PROVIDER ? "sirius-dataset-v4" : "sirius-escrow-usdc-v5";
+    if (functionName === "VERSION") return address.toLowerCase() === PROVIDER ? "sirius-dataset-v4" : "sirius-escrow-usdc-v6";
     if (functionName === "datasets") return PROVIDER;
     if (functionName === "escrow") return ESCROW;
     return onChain();
@@ -94,6 +97,35 @@ beforeEach(() => {
 afterEach(() => {
   mock.restoreAll();
   while (restoreDb.length) restoreDb.pop()!();
+});
+
+test("le préflight v6 bloque les prêts et locks historiques même après les migrations Prisma", async () => {
+  process.env.SIRIUS_LEGACY_ESCROW_ADDRESSES = OLD_ESCROW;
+  let historicalAddress = OLD_ESCROW;
+  let pending = 0;
+  let unbound = 0;
+  let locked = BigInt(0);
+  stubDb(prisma.loan, "findMany", async () => [{ evmEscrowAddress: historicalAddress, evmChainId: 46630 }]);
+  stubDb(prisma.loan, "count", async ({ where }: { where: Record<string, unknown> }) => where.AND ? unbound : pending);
+  mock.method(client, "readContract", async ({ address, functionName }: { address: string; functionName: string }) => {
+    if (functionName === "VERSION") return address.toLowerCase() === PROVIDER ? "sirius-dataset-v4" : "sirius-escrow-usdc-v6";
+    if (functionName === "datasets") return PROVIDER;
+    if (functionName === "escrow") return ESCROW;
+    if (functionName === "accounting") return [locked, BigInt(0), locked, BigInt(0)];
+    throw new Error(functionName);
+  });
+  await checkUpgrade();
+  unbound = 1;
+  await assert.rejects(checkUpgrade(), /sans déploiement, même clôturés/);
+  unbound = 0;
+  pending = 1;
+  await assert.rejects(checkUpgrade(), /terminer les prêts/);
+  pending = 0;
+  locked = BigInt(1);
+  await assert.rejects(checkUpgrade(), /fonds encore verrouillés/);
+  locked = BigInt(0);
+  historicalAddress = PROVIDER as Hex;
+  await assert.rejects(checkUpgrade(), /historique non déclaré/);
 });
 
 test("récupère un lock confirmé avec son déploiement", async () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyChallenge } from "@/lib/auth/challenge";
 import { authenticationOrigin } from "@/lib/auth/origin";
-import { verifyWalletSignatureAllowingContracts } from "@/lib/evm/signature";
+import { verifyLoginSignature } from "@/lib/evm/signature";
 import { tryNormalizeAddress } from "@/lib/evm/address";
 import { setSession, type SessionSource } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     // Le challenge lie la string signée à `address` (HMAC + non-expiré) ; la
     // signature prouve la possession de la clé. Les deux échouent en 401.
-    const verifiedAddress = await verifyWalletSignatureAllowingContracts({
+    const verifiedAddress = await verifyLoginSignature({
       address: normalizedAddress,
       signature: authenticatedSignature,
       message: authenticatedMessage,

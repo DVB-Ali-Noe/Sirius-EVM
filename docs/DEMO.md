@@ -13,6 +13,15 @@ Copier l'environnement puis renseigner au minimum :
 - `PINATA_JWT` et `PINATA_GATEWAY` pour le parcours IPFS ;
 - les quatre adresses une fois le déploiement effectué : escrow, USDC, KYB et dataset.
 
+La pipeline configure `SIRIUS_APP_ORIGIN`, `SIRIUS_APP_ORIGIN_ALIASES` et
+`NEXT_PUBLIC_SIRIUS_APP_ORIGIN` depuis la branche, avant le build et le déploiement.
+Staging utilise `https://sirius-evm-staging.vercel.app` ; main utilise
+`https://sirius-data.tech` et ses alias Vercel. Un merge ne nécessite pas de recopier
+ces valeurs. Le runner distant garde le même domaine canonique que son application.
+En local, conserver l'origine localhost et une origine publique vide.
+Voir [DEPLOYMENT.md](DEPLOYMENT.md) pour la matrice, le refus 403 du challenge et les
+fichiers ignorés qui persistent lors d'un changement de branche.
+
 Ne jamais utiliser de clé mainnet pour une démo.
 
 ## Vérification locale des contrats
@@ -22,9 +31,12 @@ pnpm install --frozen-lockfile
 pnpm contracts:compile
 pnpm contracts:test
 pnpm contracts:abi
+pnpm datasets:generate
 ```
 
 Ces commandes valident les contrats et régénèrent les ABI TypeScript. Elles ne déploient rien.
+
+Pour Escrow v6 et les correctifs F1–F4, suivre d’abord [la procédure de migration dédiée](ESCROW-V6.md). Les étapes historiques v5 ci-dessous ne remplacent pas son préflight.
 
 ## Déploiement testnet
 
@@ -32,7 +44,7 @@ Ces commandes valident les contrats et régénèrent les ABI TypeScript. Elles n
 pnpm contracts:deploy:testnet
 ```
 
-Le script affiche les adresses de `SiriusEscrow`, `SiriusKybRegistry` et `SiriusDatasetRegistry`. Reporter ces valeurs dans `.env.local` :
+Le constructeur v6 exige `SIRIUS_LOCK_AUTHORIZER`, l’adresse publique du compte de règlement du runner. Le script affiche les adresses de `SiriusEscrow`, `SiriusKybRegistry` et `SiriusDatasetRegistry`. Reporter ces valeurs dans `.env.local` :
 
 ```dotenv
 NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="0x..."
@@ -78,14 +90,16 @@ Le VPS doit également définir `SIRIUS_DATASET_ADDRESS`. Redéployer le worker 
 
 ## Mise à jour des correctifs sur staging
 
+La checklist qui suit concerne les correctifs applicatifs du **5 septembre**. Pour les corrections F1–F4 du 13 septembre, le nouveau contrat v6 et son registre associé sont nécessaires : voir [ESCROW-V6.md](ESCROW-V6.md).
+
 Cette mise à jour ne change aucun contrat Solidity. Conserver Escrow v5, DatasetRegistry v4, KYB et le token existants ; ne pas relancer `contracts:deploy:testnet` ni `contracts:bootstrap-demo` pour ces correctifs.
 
 1. Sauvegarder la base PostgreSQL ciblée. Si la migration des profils est encore en attente, suivre les contrôles de prêts ci-dessus pendant une fenêtre de maintenance ; ne pas utiliser `migrate reset` ni contourner les statuts.
-2. Dans le projet Vercel **`sirius-evm-staging`**, utiliser l'environnement **Production** choisi par la pipeline. Ajouter `SIRIUS_LEGACY_ESCROW_ADDRESSES` avec tous les anciens escrows de cette base, sans remplacer `SIRIUS_ESCROW_ADDRESS` par une ancienne adresse.
+2. Dans le projet Vercel **`sirius-evm-staging`**, utiliser l'environnement **Production** choisi par la pipeline. Les origines du sign-in y sont synchronisées automatiquement. Ajouter `SIRIUS_LEGACY_ESCROW_ADDRESSES` avec tous les anciens escrows de cette base, sans remplacer `SIRIUS_ESCROW_ADDRESS` par une ancienne adresse.
 3. Dans `.env.vps` du worker staging, renseigner le même réseau, le même escrow courant, `SIRIUS_DATASET_ADDRESS` et la même liste historique. La pipeline redéploie le worker ; le frontend seul ne suffit pas.
 4. Dans les variables GitHub de l'environnement **staging**, renseigner `EVM_NETWORK=testnet`, éventuellement `EVM_RPC_URL`, et `SIRIUS_MIGRATION_ESCROW_ADDRESSES` (escrows historiques et courant). Ces variables ne sont pas récupérées automatiquement depuis Vercel. Un RPC contenant un jeton doit rester un secret GitHub, pas une variable ordinaire.
 5. Relancer la pipeline sur le code mis à jour : tests → migration additive → déploiement Vercel/worker. Si `RUNNER_URL` est vide, le runner local de démonstration est mis à jour avec Next. Si un runner Phala distant est utilisé, mettre à jour son image et sa liste historique séparément, conserver sa master key et réépingler ses mesures RA-TLS.
-6. Vérifier dans le navigateur : login, upload linéaire/logistique, profil imposé à l'emprunt, animation pendant le calcul, reprise après rechargement, livraison d'un modèle historique, puis remboursement d'un prêt expiré et retrait du crédit.
+6. Le smoke de la pipeline contrôle les challenges sur les domaines autorisés et le refus de l'autre branche. Vérifier aussi dans le navigateur : login, accueil conservé au rechargement, upload linéaire/logistique, profil imposé à l'emprunt, animation pendant le calcul, reprise, livraison historique, puis remboursement d'un prêt expiré et retrait du crédit.
 
 Repères issus du déploiement staging communiqué le 5 septembre 2026, à comparer aux paramètres de l'instance avant toute modification :
 
@@ -105,7 +119,7 @@ Ne jamais copier la clé privée du déployeur vers le frontend. Le mot de passe
 pnpm contracts:smoke
 ```
 
-Le smoke exige un borrower et un provider déjà attestés, ainsi qu'un titre EVM live de ce provider (`SIRIUS_SMOKE_DATASET_ID`) dont le profil correspond à `SIRIUS_SMOKE_MODEL_ID`. Il exerce l'approbation USDC, le verrouillage, le release et le retrait du crédit. Il doit être exécuté avant d'intégrer les adresses dans une instance partagée.
+Depuis v6, ce smoke exige un escrow testnet dédié dont le déployeur est l’autorisateur ; il refuse l’escrow du runner avant toute transaction. Le parcours applicatif valide le vrai runner sans exporter sa clé. Le smoke exige aussi un borrower et un provider déjà attestés, ainsi qu'un titre EVM live de ce provider (`SIRIUS_SMOKE_DATASET_ID`) dont le profil correspond à `SIRIUS_SMOKE_MODEL_ID`. Il exerce l'approbation USDC, le verrouillage, le release et le retrait du crédit. Il doit être exécuté avant d'intégrer les adresses dans une instance partagée.
 
 ## Parcours applicatif
 

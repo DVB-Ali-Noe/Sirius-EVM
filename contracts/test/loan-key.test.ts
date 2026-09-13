@@ -1,3 +1,4 @@
+import { authorizedLockArgs } from "./helpers/lock";
 import { expect } from "chai";
 import { createHash, randomBytes } from "node:crypto";
 import hre from "hardhat";
@@ -51,7 +52,7 @@ async function fixture() {
   await grantKyb(wallets[0]);
   await grantKyb(wallets[1]);
   const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, wallets[0].account.address]);
-  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address, registry.address]);
+  const escrow = await hre.viem.deployContract("SiriusEscrow", [usdc.address, kyb.address, registry.address, wallets[2].account.address]);
   await registry.write.bindEscrow([escrow.address], { account: wallets[0].account });
   const datasetId = "loan-key-dataset";
   await registry.write.mint([
@@ -103,7 +104,7 @@ describe("Dérivations partagées application ↔ contrat", () => {
 
     const amount = 1_000_000n;
     await usdc.write.approve([escrow.address, amount], { account: borrower.account });
-    await escrow.write.lock([provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash"), onChainDatasetId, TRAINING_PROFILE], {
+    await escrow.write.lock(await authorizedLockArgs(wallets[2], escrow.address, borrower.account.address, [provider.account.address, amount, hashlock, 7, loanIdHash("loan-hash"), onChainDatasetId, TRAINING_PROFILE]), {
       account: borrower.account,
     });
 
@@ -136,6 +137,6 @@ describe("Dérivations partagées application ↔ contrat", () => {
     expect(hashlockOf(preimage)).to.equal(
       `0x${createHash("sha256").update(preimage).digest("hex")}`,
     );
-    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v5");
+    expect(await escrow.read.VERSION()).to.equal("sirius-escrow-usdc-v6");
   });
 });

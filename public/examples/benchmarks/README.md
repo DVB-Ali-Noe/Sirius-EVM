@@ -27,3 +27,13 @@ Regenerate all four datasets with:
 ```bash
 pnpm datasets:benchmarks
 ```
+
+Use `sirius-evm-staging.vercel.app` for staging. The `sirius-evm.vercel.app`
+alias belongs to main, regardless of the branch open in your editor. Uploaded
+datasets and delivered models belong to their deployment; switching branches
+does not move them. See the [deployment guide](../../../docs/DEPLOYMENT.md).
+
+These files are safe synthetic inputs for the local demo runner, which decrypts
+inside the Next process when `RUNNER_URL` is unset. Confidential production data
+requires a separately validated Phala runner. Regenerating these benchmarks is
+separate from `pnpm datasets:generate`, which prepares the smaller test fixtures.

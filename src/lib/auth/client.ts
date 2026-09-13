@@ -17,36 +17,41 @@ export async function signInWithWallet(): Promise<void> {
   const { address, source } = useWalletStore.getState();
   if (!address || !source) throw new Error("Aucun wallet connecté");
 
-  const runnerSessionPublicKey = await beginRunnerDelegation();
-  const chalRes = await fetch("/api/auth/challenge", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address, runnerSessionPublicKey }),
-  });
-  if (!chalRes.ok) {
+  try {
+    const runnerSessionPublicKey = await beginRunnerDelegation();
+    const chalRes = await fetch("/api/auth/challenge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, runnerSessionPublicKey }),
+    });
+    if (!chalRes.ok) {
+      const body = await chalRes.json().catch(() => null);
+      throw new Error(typeof body?.error === "string" ? body.error : "Challenge refusé");
+    }
+    const { challenge } = await chalRes.json();
+
+    const { signature } = await signMessageExternal(challenge, address);
+
+    const verifyRes = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, signature, message: challenge, source }),
+    });
+    if (!verifyRes.ok) {
+      const body = await verifyRes.json().catch(() => null);
+      throw new Error(typeof body?.error === "string" ? body.error : "Authentification refusée");
+    }
+
+    await activateRunnerDelegation({
+      message: challenge,
+      walletSignature: signature,
+      sessionPublicKey: runnerSessionPublicKey,
+    });
+    useWalletStore.getState().setAuthenticated(true);
+  } catch (error) {
     await clearRunnerDelegation();
-    throw new Error("Challenge refusé");
+    throw error;
   }
-  const { challenge } = await chalRes.json();
-
-  const { signature } = await signMessageExternal(challenge, address);
-
-  const verifyRes = await fetch("/api/auth/verify", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address, signature, message: challenge, source }),
-  });
-  if (!verifyRes.ok) {
-    await clearRunnerDelegation();
-    throw new Error("Authentification refusée");
-  }
-
-  await activateRunnerDelegation({
-    message: challenge,
-    walletSignature: signature,
-    sessionPublicKey: runnerSessionPublicKey,
-  });
-  useWalletStore.getState().setAuthenticated(true);
 
   // Posé dans la foulée, pendant que le portefeuille est encore sous la main.
   // L'escrow l'exigera de toute façon ; le découvrir au moment de verrouiller des

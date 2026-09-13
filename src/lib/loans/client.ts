@@ -51,7 +51,13 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
     throw new Error(body.error ?? "Préparation du lock USDC échouée");
   }
   await sendActiveTransaction(body.approveTransaction, { waitForConfirmation: true });
-  const lockTxHash = await sendActiveTransaction(body.lockTransaction);
+  const renewal = await fetch(`/api/loans/${body.loanId}/authorize`, { method: "POST" });
+  const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; error?: string };
+  if (!renewal.ok || !authorized.lockTransaction) throw new Error(authorized.error ?? "Autorisation du lock refusée");
+  if (!authorized.authorizationDeadline || authorized.authorizationDeadline * 1_000 <= Date.now()) {
+    throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation USDC reste acquise.");
+  }
+  const lockTxHash = await sendActiveTransaction(authorized.lockTransaction);
   window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
   // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
   await submitLoanLock(body.loanId, lockTxHash);

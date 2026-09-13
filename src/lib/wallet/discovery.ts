@@ -35,6 +35,18 @@ const CLE_CHOIX = "sirius.wallet.rdns";
 
 const decouverts = new Map<string, AnnouncedWallet>();
 let ecouteDemarree = false;
+let choixSession: string | null | undefined;
+const abonnements = new Set<() => void>();
+
+function notifier(): void {
+  for (const abonnement of abonnements) abonnement();
+}
+
+export function subscribeWalletChanges(listener: () => void): () => void {
+  abonnements.add(listener);
+  detectedWallets();
+  return () => { abonnements.delete(listener); };
+}
 
 function demarrerEcoute(): void {
   if (ecouteDemarree || typeof window === "undefined") return;
@@ -43,8 +55,10 @@ function demarrerEcoute(): void {
     const detail = (event as CustomEvent<AnnouncedWallet>).detail;
     // L'annonce vient d'une extension tierce : on ne fait confiance ni à sa forme ni
     // à sa complétude, d'où les vérifications malgré ce que promet le type.
-    if (detail?.info?.rdns && typeof detail.provider === "object" && detail.provider !== null) {
+    if (typeof detail?.info?.rdns === "string" && typeof detail.provider?.request === "function") {
+      const previous = decouverts.get(detail.info.rdns)?.provider;
       decouverts.set(detail.info.rdns, detail);
+      if (previous !== detail.provider) notifier();
     }
   });
 }
@@ -71,6 +85,7 @@ export async function waitForWallets(delaiMs = 300): Promise<WalletInfo[]> {
 }
 
 export function selectedWalletRdns(): string | null {
+  if (choixSession !== undefined) return choixSession;
   try {
     return window.localStorage.getItem(CLE_CHOIX);
   } catch {
@@ -79,20 +94,24 @@ export function selectedWalletRdns(): string | null {
 }
 
 export function selectWallet(rdns: string): void {
+  choixSession = rdns;
   try {
     window.localStorage.setItem(CLE_CHOIX, rdns);
   } catch {
     // Stockage indisponible : le choix ne survivra pas au rechargement, mais il doit
     // valoir pour la session en cours plutôt que faire échouer la connexion.
   }
+  notifier();
 }
 
 export function clearSelectedWallet(): void {
+  choixSession = null;
   try {
     window.localStorage.removeItem(CLE_CHOIX);
   } catch {
     // Voir ci-dessus.
   }
+  notifier();
 }
 
 /**

@@ -32,9 +32,8 @@ on:
   pull_request:
 
 concurrency:
-  # Une poussée qui en suit une autre annule la précédente : inutile de déployer un
-  # commit déjà dépassé, et deux déploiements concurrents sur le même VPS se marchent
-  # dessus. En revanche on ne coupe jamais un déploiement déjà commencé sur main.
+  # Les PR peuvent être annulées ; un déploiement en cours termine ses migrations
+  # et ses mises à jour avant que le suivant démarre sur la même branche.
   group: pipeline-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -65,6 +64,9 @@ jobs:
 
       - name: Installer
         run: pnpm install --frozen-lockfile
+
+      - name: Préparer les jeux synthétiques de test
+        run: pnpm datasets:generate
 
       - name: Typage
         run: pnpm exec tsc --noEmit
@@ -106,34 +108,22 @@ jobs:
       projet_vercel: ${{ steps.calcul.outputs.projet_vercel }}
       dossier_vps: ${{ steps.calcul.outputs.dossier_vps }}
       url_publique: ${{ steps.calcul.outputs.url_publique }}
+      origines_alias: ${{ steps.calcul.outputs.origines_alias }}
       branche: ${{ steps.calcul.outputs.branche }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       # Un seul endroit décide de ce qui distingue les deux cibles. Répartir ces
       # valeurs dans des expressions ternaires au fil des jobs les rendrait
       # impossibles à relire, et une divergence entre deux d'entre elles déploierait
       # le code d'une cible avec les ressources de l'autre.
       - name: Résoudre la cible
         id: calcul
-        run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            {
-              echo "environnement=production"
-              echo "projet_compose=sirius"
-              echo "projet_vercel=prj_gmEKctb6EJcsErIQqamKiZNaK5vZ"
-              echo "dossier_vps=/opt/sirius"
-              echo "url_publique=https://sirius-data.tech"
-              echo "branche=main"
-            } >> "$GITHUB_OUTPUT"
-          else
-            {
-              echo "environnement=staging"
-              echo "projet_compose=sirius-staging"
-              echo "projet_vercel=prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz"
-              echo "dossier_vps=/opt/sirius-staging"
-              echo "url_publique=https://sirius-evm-staging.vercel.app"
-              echo "branche=staging"
-            } >> "$GITHUB_OUTPUT"
-          fi
+        run: node scripts/deployment-target.mjs "$GITHUB_REF" >> "$GITHUB_OUTPUT"
 
       - name: Annoncer la cible
         run: |
@@ -267,6 +257,9 @@ jobs:
 
       - name: Déployer
         env:
+          APP_ORIGIN: ${{ needs.cible.outputs.url_publique }}
+          APP_ORIGIN_ALIASES: ${{ needs.cible.outputs.origines_alias }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           # La version est épinglée plutôt que résolue par `@latest`. Deux raisons, et
           # la première s'est produite : `@latest` a désigné une version que le registre
           # npm ne servait pas encore, et le déploiement est mort sur un `ETARGET` qui
@@ -279,12 +272,18 @@ jobs:
           # collé sans le voir suffit à le rendre invalide, et l'API répond alors
           # « Could not retrieve Project Settings » — un message qui accuse le
           # projet là où le coupable est l'identifiant.
-          TOKEN="$(printf '%s' "${{ secrets.VERCEL_TOKEN }}" | tr -d '[:space:]')"
+          TOKEN="$(printf '%s' "$VERCEL_TOKEN" | tr -d '[:space:]')"
 
           # Contrôle explicite avant tout le reste : si le jeton n'ouvre aucune
           # porte, autant le savoir ici, avec un message qui le dit.
           echo "Identité du jeton :"
           npx --yes "$CLI" whoami --token="$TOKEN"
+
+          # Ces origines publiques viennent de la branche cible, jamais des secrets
+          # copiés depuis un autre projet. Elles doivent exister au build et au runtime.
+          npx --yes "$CLI" env add SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
+          npx --yes "$CLI" env add SIRIUS_APP_ORIGIN_ALIASES production --force --yes --no-sensitive --value="$APP_ORIGIN_ALIASES" --token="$TOKEN"
+          npx --yes "$CLI" env add NEXT_PUBLIC_SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
 
           # Chaque cible a son propre projet, donc son propre environnement de
           # production : les trois mêmes commandes servent aux deux, et il n'y a
@@ -364,11 +363,12 @@ jobs:
     needs: [cible, vercel]
     runs-on: ubuntu-latest
     steps:
-      # Les tests end-to-end ne peuvent pas viser une instance déployée : le pont de
-      # test qu'ils pilotent dépend de NEXT_PUBLIC_SIRIUS_E2E, drapeau que
-      # `instrumentation-node.ts` refuse en production. Ce qui reste vérifiable de
-      # l'extérieur est donc ceci — l'instance répond, ce qui prouve au minimum que
-      # la porte de démarrage a été franchie et qu'aucune variable requise ne manque.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: L'instance répond
         env:
           URL: ${{ needs.cible.outputs.url_publique }}
@@ -381,3 +381,8 @@ jobs:
           done
           echo "::error::${URL} n'a pas répondu 200 — vérifier les journaux de démarrage Vercel."
           exit 1
+
+      - name: Vérifier les challenges de connexion sur les domaines de la cible
+        env:
+          BRANCHE: ${{ needs.cible.outputs.branche }}
+        run: node scripts/smoke-auth.mjs "$BRANCHE"

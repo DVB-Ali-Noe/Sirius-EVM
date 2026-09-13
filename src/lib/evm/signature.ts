@@ -57,40 +57,11 @@ export async function verifyWalletSignature({
   return claimed;
 }
 
-/**
- * Variante tolérante aux comptes contractuels (Safe, ZeroDev — mis en avant par
- * Robinhood Chain, dont les trois EntryPoints ERC-4337 sont déployés).
- *
- * ⚠ Frontière d'architecture : contrairement à `verifyWalletSignature`, celle-ci
- * exige un `eth_call` vers `isValidSignature`. Elle est donc **interdite dans le
- * runner TEE** : lui ouvrir un accès réseau sortant introduirait une nouvelle racine
- * de confiance et coupleraient la disponibilité de l'enclave au séquenceur, qui est
- * unique et centralisé. Réservée aux routes Next, jamais au chemin confidentiel.
- */
-export async function verifyWalletSignatureAllowingContracts(
-  input: WalletSignatureInput,
-): Promise<CanonicalAddress> {
-  const claimed = normalizeAddress(input.address);
-  const hex = assertSignatureShape(input.signature);
-
+/** Le login doit produire la même preuve EOA que les délégations du runner. */
+export async function verifyLoginSignature(input: WalletSignatureInput): Promise<CanonicalAddress> {
   try {
-    const recovered = await recoverWalletAddress(input.message, hex);
-    if (addressesEqual(claimed, recovered)) return claimed;
+    return await verifyWalletSignature(input);
   } catch {
-    // Une signature de smart account n'est pas récupérable : on bascule sur ERC-1271.
+    throw new AppError("Le wallet doit signer directement avec ce compte. Les comptes contractuels ne sont pas pris en charge.", 401);
   }
-
-  const { getPublicClient } = await import("./client");
-  let valid = false;
-  try {
-    valid = await getPublicClient().verifyMessage({
-      address: claimed,
-      message: input.message,
-      signature: hex,
-    });
-  } catch {
-    throw new AppError("Signature invalide", 401);
-  }
-  if (!valid) throw new AppError("Signature invalide", 401);
-  return claimed;
 }

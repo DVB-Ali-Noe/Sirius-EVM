@@ -6,6 +6,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS } from "../../src/lib/evm/networks";
 import { datasetIdHash } from "../../src/lib/evm/dataset-key";
 import { hashlockOf, loanIdHash, loanKeyFor } from "../../src/lib/evm/loan-key";
+import { lockAuthorizationTypedData } from "../../src/lib/evm/lock-authorization";
 import { DEFAULT_MODEL_SELECTION, modelSelectionForId, trainingProfileHash } from "../../src/lib/models/registry";
 
 const ARTIFACTS = resolve(__dirname, "..", "artifacts", "src");
@@ -45,6 +46,10 @@ async function main() {
   const kyb = required("NEXT_PUBLIC_SIRIUS_KYB_ADDRESS");
   const escrowAbi = abiOf("SiriusEscrow");
   const datasetAbi = abiOf("SiriusDatasetRegistry");
+  const authorizer = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "lockAuthorizer" }) as Hex;
+  if (authorizer.toLowerCase() !== account.address.toLowerCase()) {
+    throw new Error("Ce smoke exige un escrow testnet dédié dont le déployeur autorise les locks. Pour l'escrow du runner, valider le parcours applicatif sans exporter sa clé.");
+  }
   const kybAbi = abiOf("SiriusKybRegistry");
   const usdcAbi = [
     { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
@@ -114,11 +119,16 @@ async function main() {
   console.log(`profil   : ${smokeModel.modelId} ${smokeModel.modelVersion}`);
 
   await step("Approbation USDC", await wallet.writeContract({ address: usdc, abi: usdcAbi, functionName: "approve", args: [escrow, amount], chain, account }));
+  const deadline = Number((await publicClient.getBlock()).timestamp) + 300;
+  const signature = await account.signTypedData(lockAuthorizationTypedData({
+    borrower: account.address, provider, amount, hashlock, challengeDays: 7,
+    loanIdHash: loanIdHash(loanId), datasetId: onChainDatasetId, trainingProfile,
+  }, { chainId: chain.id, escrow }, deadline));
   await step("Lock USDC", await wallet.writeContract({
     address: escrow,
     abi: escrowAbi,
     functionName: "lock",
-    args: [provider, amount, hashlock, 7, loanIdHash(loanId), onChainDatasetId, trainingProfile],
+    args: [provider, amount, hashlock, 7, loanIdHash(loanId), onChainDatasetId, trainingProfile, { deadline, signature }],
     chain,
     account,
   }));

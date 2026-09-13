@@ -15,6 +15,7 @@ import type {
   RunnerReleaseEnvelope,
 } from "./contract";
 import { attestedRunnerFetch } from "./ra-tls-client";
+import type { LockAuthorization } from "@/lib/evm/lock-authorization";
 
 const RUNNER_TIMEOUT_MS = 60_000;
 
@@ -98,13 +99,15 @@ export async function sealDatasetInRunner(
   );
 }
 
-export async function escrowHashlockInRunner(loanId: string, borrower: string): Promise<`0x${string}`> {
-  const out = await dispatchRunner<{ hashlock: `0x${string}` }>(
-    "escrow-hashlock",
-    { loanId, borrower },
-    { loanId, borrower },
-  );
-  return out.hashlock;
+export async function prepareEscrowLockInRunner(
+  dataset: DatasetRef,
+  datasetReceipt: string,
+  loanId: string,
+  borrower: string,
+  authorizationDeadline: number,
+): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization }> {
+  return dispatchRunner("prepare-escrow-lock", { datasetId: dataset.datasetId, loanId, borrower },
+    { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline });
 }
 
 export async function runLoanJobInRunner(
