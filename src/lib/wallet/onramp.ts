@@ -38,3 +38,40 @@ export async function addFunds(): Promise<FondsAjoutes> {
 
   throw new Error(typeof body.error === "string" ? body.error : "Ajout de fonds indisponible");
 }
+
+/**
+ * Approvisionne un compte qui n'a jamais rien eu, sans en faire une étape.
+ *
+ * Un visiteur qui arrive par une connexion sociale reçoit une adresse neuve : zéro ETH,
+ * zéro USDC, et un catalogue qu'il peut lire sans rien pouvoir en faire. Le bouton
+ * « Ajouter des fonds » existe, mais il suppose de comprendre qu'il faut cliquer dessus
+ * avant d'essayer quoi que ce soit — exactement la marche que la connexion Google
+ * cherchait à supprimer.
+ *
+ * Trois précautions, qui sont tout l'intérêt de ne pas réutiliser `addFunds` :
+ *
+ * 1. Seulement à solde nul. Le faucet frappe l'USDC sans condition ; l'appeler à chaque
+ *    connexion distribuerait mille jetons de plus à qui en a déjà. Un solde natif à zéro
+ *    est la marque d'un compte qui n'a jamais servi.
+ * 2. Aucune fenêtre. `addFunds` ouvre MoonPay quand le faucet répond 503 ; une fenêtre
+ *    que personne n'a demandée serait au mieux surprenante, au pire bloquée par le
+ *    navigateur puisqu'aucun clic ne la précède.
+ * 3. Un plafond de patience. Le faucet attend deux reçus ; si la chaîne traîne, la
+ *    connexion ne doit pas rester suspendue pour autant.
+ *
+ * Ne lève jamais. L'utilisateur est connecté, c'est ce qu'il demandait ; s'il manque de
+ * fonds, le bouton reste là pour les réclamer.
+ */
+export async function ensureStarterFunds(address: string): Promise<void> {
+  try {
+    const { fetchGasBalance } = await import("@/lib/evm/balance");
+    const { wei } = await fetchGasBalance(address);
+    if (wei !== "0") return;
+
+    const abandon = AbortSignal.timeout(20_000);
+    await fetch("/api/faucet", { method: "POST", signal: abandon });
+  } catch {
+    // Silence volontaire : ni un faucet épuisé, ni une instance sans faucet, ni une
+    // lecture de solde impossible ne justifient d'interrompre une connexion réussie.
+  }
+}
