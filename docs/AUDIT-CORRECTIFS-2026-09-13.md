@@ -28,6 +28,10 @@ Le correctif A7 inclut un défaut supplémentaire découvert pendant la correcti
 
 Les API et providers des tests navigateur sont simulés. Les tests de contrats utilisent Hardhat et des fonds locaux. Ces résultats ne prouvent pas encore le parcours complet PostgreSQL/Phala/contrats publics. Le typage autonome du harness Hardhat n’est pas un contrôle déclaré passant ; le typage applicatif et les tests Solidity le sont.
 
+La première passe Chromium ci-dessus utilisait le dossier de développement et sa configuration locale. Le run GitHub suivant a révélé trois échecs A1/A5 dus à l’adresse USDC absente de l’environnement de test. Ces trois échecs ont été reproduits dans une copie sans `.env*` et sans variables métier héritées. Le correctif ajoute uniquement une adresse factice serveur/navigateur à Playwright, sans modifier les mocks, les assertions, les timeouts ni le code applicatif. Voir [le diagnostic CI](DEPLOYMENT.md#échec-des-tests-de-solde-en-ci).
+
+Après ce correctif, **62/62 tests Chromium passent en 28,9 secondes** dans cette copie isolée, avec `CI=1`, un seul worker et les délais habituels. Aucun retry n’a été nécessaire. Le typage applicatif et le lint de la configuration passent également. Cette reproduction locale ne remplace pas la validation du prochain run GitHub sur Linux.
+
 ## Dépendances
 
 Next et `eslint-config-next` passent à **16.3.5**. Les overrides corrigent les dépendances transitives affectées, en conservant l’arête `@phala/dstack-sdk → @noble/hashes 1.8.0` nécessaire à ses imports. Les remplacements de versions majeures d’outillage ont été qualifiés par installation/génération Prisma, compilation Solidity, tests Hardhat et build ; aucun déploiement ou appel de publication de source sur un explorateur n’a été effectué.

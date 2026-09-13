@@ -139,3 +139,11 @@ La vérification CI exécute `pnpm audit:deps`. Les alertes modérées, hautes e
 Changer de compte, de provider ou de réseau invalide désormais une connexion en cours et recrée les états privés. Cela ne remplace pas la déconnexion/reconnexion nécessaire quand les secrets, la base ou le domaine d’un même localhost changent avec la branche.
 
 Le registre KYB strict passe à v3 (domaine EIP-712 `2`, époque signée). La migration reste indépendante du déploiement Next. Garder les anciens escrows dans `SIRIUS_LEGACY_ESCROW_ADDRESSES` pour les crédits et les preuves, et tester le retrait dans Wallet après release/refund.
+
+### Échec des tests de solde en CI
+
+Les premiers tests A1/A5 passaient localement grâce à l’adresse USDC de `.env.local`, absente du job GitHub de vérification. `fetchUsdcBalance` résout cette adresse avant d’appeler `eth_call` : sans elle, le mock ne reçoit jamais la lecture. Les tests Wallet/Dashboard attendent donc une réponse retardée qui n’existe pas ; celui du retrait confirme le crédit à zéro mais ne peut pas afficher le nouveau solde.
+
+`playwright.config.ts` définit désormais une adresse USDC factice identique dans `SIRIUS_USDC_ADDRESS` et `NEXT_PUBLIC_SIRIUS_USDC_ADDRESS` pour son serveur de test. Ces valeurs remplacent celles du terminal ou des `.env` locaux et ne configurent aucun déploiement. Il ne faut pas ajouter de secrets de staging à ce job ni augmenter les timeouts pour résoudre ce cas.
+
+Après une modification des tests E2E, vérifier aussi depuis une copie sans `.env*`, avec un environnement de processus nettoyé et un seul worker. Une suite verte dans le dossier de développement ne suffit pas à valider la configuration CI.
