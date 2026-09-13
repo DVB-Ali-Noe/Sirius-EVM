@@ -68,3 +68,30 @@ test("un dataset à la limite reste sous 4,5 MB après chiffrement et encodage J
   assert.equal(decryptDatasetIngress("dataset-max", envelope).length, MAX_DATASET_BYTES);
   await assert.rejects(() => encryptDatasetForRunner(new ArrayBuffer(MAX_DATASET_BYTES + 1), "dataset-max", datasetIngressPublicKey()), /Taille/);
 });
+
+test("un alias utilise la clé du domaine canonique de son build, jamais celle de l'autre branche", async () => {
+  const previousOrigin = process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN;
+  const previousLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN = "https://sirius-data.tech";
+  Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "https://sirius-evm.vercel.app" } });
+  const content = new TextEncoder().encode("a,b\n1,2\n").buffer;
+  const key = { ...datasetIngressPublicKey(), origin: "https://sirius-data.tech" };
+
+  try {
+    const envelope = await encryptDatasetForRunner(content, "dataset-alias", key);
+    assert.deepEqual(decryptDatasetIngress("dataset-alias", envelope), Buffer.from(content));
+    await assert.rejects(
+      encryptDatasetForRunner(content, "dataset-alias", { ...key, origin: "https://sirius-evm-staging.vercel.app" }),
+      /liée à cette origine/,
+    );
+
+    delete process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN;
+    await assert.rejects(encryptDatasetForRunner(content, "dataset-local", key), /liée à cette origine/);
+    await encryptDatasetForRunner(content, "dataset-local", { ...key, origin: "https://sirius-evm.vercel.app" });
+  } finally {
+    if (previousOrigin === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN;
+    else process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN = previousOrigin;
+    if (previousLocation) Object.defineProperty(globalThis, "location", previousLocation);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
+});

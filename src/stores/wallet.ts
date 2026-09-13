@@ -4,6 +4,7 @@ export type WalletRole = "provider" | "borrower" | null;
 export type WalletSource = "external" | null;
 
 interface WalletState {
+  revision: number;
   address: string | null;
   network: string | null;
   connected: boolean;
@@ -26,6 +27,7 @@ interface WalletState {
 
 // Pas de persistance : l'état reflète le provider EIP-1193 live.
 export const useWalletStore = create<WalletState>((set) => ({
+  revision: 0,
   address: null,
   network: null,
   connected: false,
@@ -36,9 +38,10 @@ export const useWalletStore = create<WalletState>((set) => ({
   mfaEnabled: false,
   setConnected: (address, network, source) =>
     // Un nouveau wallet invalide toute session précédente → on repart non authentifié / non sécurisé.
-    set({ address, network, source, connected: true, connecting: false, authenticated: false, mfaEnabled: false }),
+    set((state) => ({ revision: state.revision + 1, address, network, source, connected: true, connecting: false, authenticated: false, mfaEnabled: false })),
   setDisconnected: () =>
-    set({
+    set((state) => ({
+      revision: state.revision + 1,
       address: null,
       network: null,
       connected: false,
@@ -47,9 +50,9 @@ export const useWalletStore = create<WalletState>((set) => ({
       source: null,
       authenticated: false,
       mfaEnabled: false,
-    }),
+    })),
   setConnecting: (connecting) => set({ connecting }),
-  setNetwork: (network) => set({ network }),
+  setNetwork: (network) => set((state) => state.network === network ? state : { network, revision: state.revision + 1, authenticated: false }),
   setRole: (role) => set({ role }),
   setAuthenticated: (authenticated) => set({ authenticated }),
   setMfaEnabled: (mfaEnabled) => set({ mfaEnabled }),

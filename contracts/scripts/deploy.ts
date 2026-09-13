@@ -133,6 +133,8 @@ async function main() {
   const admin = kybOuvert ? account.address : requireRole("SIRIUS_KYB_ADMIN", account.address);
   const verifier = kybOuvert ? account.address : requireRole("SIRIUS_KYB_VERIFIER", account.address);
   const usdc = requireAddress("SIRIUS_USDC_ADDRESS");
+  const lockAuthorizer = requireAddress("SIRIUS_LOCK_AUTHORIZER");
+  if (lockAuthorizer === "0x0000000000000000000000000000000000000000") throw new Error("SIRIUS_LOCK_AUTHORIZER ne peut pas être nulle");
   const expectedUsdcCodeHash = requireCodeHash("SIRIUS_USDC_CODE_HASH");
   if (!kybOuvert && admin.toLowerCase() === verifier.toLowerCase()) {
     throw new Error(
@@ -213,8 +215,9 @@ async function main() {
   const kyb = kybOuvert
     ? await deploy("SiriusOpenKybRegistry")
     : await deploy("SiriusKybRegistry", [admin, verifier]);
-  const datasets = await deploy("SiriusDatasetRegistry", [kyb, admin]);
-  const escrow = await deploy("SiriusEscrow", [usdc, kyb, datasets]);
+  // Ce rôle ne sert qu'à la liaison unique ; le déployeur effectue la transaction.
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, account.address]);
+  const escrow = await deploy("SiriusEscrow", [usdc, kyb, datasets, lockAuthorizer]);
   const bindEscrowHash = await walletClient.writeContract({
     address: datasets,
     abi: artifact("SiriusDatasetRegistry").abi,
@@ -237,6 +240,8 @@ async function main() {
 
   // Contrôle de bon sens : chaque contrat répond et part d'un état vierge.
   const escrowAbi = artifact("SiriusEscrow").abi;
+  const deployedAuthorizer = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "lockAuthorizer" }) as Hex;
+  if (deployedAuthorizer.toLowerCase() !== lockAuthorizer.toLowerCase()) throw new Error("Signataire de lock incorrect");
   const kybAbi = artifact(kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry").abi;
   const datasetAbi = artifact("SiriusDatasetRegistry").abi;
 

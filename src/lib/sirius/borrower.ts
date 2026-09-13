@@ -10,7 +10,8 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
 import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
-import { escrowHashlockInRunner } from "@/lib/tee/runner-client";
+import { prepareEscrowLockInRunner } from "@/lib/tee/runner-client";
+import { lockAuthorizationDeadline } from "./lock-policy";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
@@ -96,7 +97,11 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   try {
     const binding = evmEscrowBinding();
     const preparedBlock = await getPublicClient().getBlockNumber();
-    const hashlock = await escrowHashlockInRunner(loan.id, borrowerAddress);
+    const { hashlock, authorization } = await prepareEscrowLockInRunner({
+      datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
+      priceUsdcAtomic: amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
+    }, dataset.runnerReceipt, loan.id, borrowerAddress,
+    lockAuthorizationDeadline(loan.createdAt));
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
     const prepared = await prisma.loan.update({
       where: { id: loan.id },
@@ -120,12 +125,47 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         challengeDays: dataset.challengeDays,
         loanId: loan.id,
         trainingProfile: trainingProfileHash(model),
+        authorization,
       }),
     };
   } catch (error) {
     await prisma.loan.deleteMany({ where: { id: loan.id, status: "PENDING" } });
     throw error;
   }
+}
+
+export async function renewLoanLock(loanId: string, borrower: string) {
+  const address = normalizeAddress(borrower);
+  await requireCurrentEvmDeployment();
+  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
+  if (!loan) throw new AppError("Loan introuvable", 404);
+  if (!addressesEqual(loan.borrower, address)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
+  const dataset = loan.dataset;
+  const binding = evmEscrowBinding();
+  if (loan.status !== "PENDING" || loan.evmLockTxHash || !loan.evmLoanKey ||
+    loan.evmChainId !== binding.chainId || loan.evmEscrowAddress !== binding.escrow) {
+    throw new AppError("Emprunt déjà soumis ou déploiement modifié", 409);
+  }
+  const deadline = lockAuthorizationDeadline(loan.createdAt);
+  const model = modelSelection(loan.modelId, loan.modelVersion);
+  if (!model || !isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId || !dataset.ipfsCid ||
+    !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt || dataset.priceUsdcAtomic !== loan.amountUsdcAtomic ||
+    dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion) {
+    throw new AppError("Dataset EVM non disponible", 409);
+  }
+  if (await readLoan(loan.evmLoanKey as Hex)) throw new AppError("Emprunt déjà verrouillé", 409);
+  const { hashlock, authorization } = await prepareEscrowLockInRunner({
+    datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
+    priceUsdcAtomic: loan.amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
+  }, dataset.runnerReceipt, loan.id, address, deadline);
+  if (hashlock !== loan.evmHashlock) throw new AppError("Hashlock du runner modifié", 409);
+  return {
+    authorizationDeadline: authorization.deadline,
+    lockTransaction: lockUsdcTransaction({
+      provider: loan.provider, datasetId: dataset.evmDatasetId as Hex, amount: loan.amountUsdcAtomic,
+      hashlock, challengeDays: dataset.challengeDays, loanId, trainingProfile: trainingProfileHash(model), authorization,
+    }),
+  };
 }
 
 export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?: string) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { SecureAccountCard } from "@/components/wallet/SecureAccount";
@@ -12,6 +13,11 @@ import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 export default function WalletPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <WalletPageContent key={identity} />;
+}
+
+function WalletPageContent() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
@@ -119,6 +125,8 @@ export default function WalletPage() {
           {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
         </div>
       </Card>
+
+      <EscrowCredits onWithdraw={refresh} />
 
       <SecureAccountCard />
     </main>

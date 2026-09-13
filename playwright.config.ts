@@ -2,6 +2,7 @@ import { defineConfig, devices } from "playwright/test";
 
 const port = 3100;
 const baseURL = `http://127.0.0.1:${port}`;
+const mockUsdcAddress = "0x5555555555555555555555555555555555555555";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -36,6 +37,9 @@ export default defineConfig({
       SIRIUS_REAPER_ENABLED: "false",
       NEXT_PUBLIC_EVM_NETWORK: "testnet",
       EVM_NETWORK: "testnet",
+      // Les mocks interceptent eth_call, mais la construction de l'appel exige une adresse.
+      SIRIUS_USDC_ADDRESS: mockUsdcAddress,
+      NEXT_PUBLIC_SIRIUS_USDC_ADDRESS: mockUsdcAddress,
       SIRIUS_APP_ORIGIN: baseURL,
     },
     url: baseURL,

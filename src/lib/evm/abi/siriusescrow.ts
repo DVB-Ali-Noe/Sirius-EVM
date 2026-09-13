@@ -18,6 +18,11 @@ export const siriusescrowAbi = [
         "internalType": "contract SiriusDatasetRegistry",
         "name": "datasets_",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "lockAuthorizer_",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -97,6 +102,11 @@ export const siriusescrowAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidLockAuthorization",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidPreimage",
     "type": "error"
   },
@@ -140,6 +150,11 @@ export const siriusescrowAbi = [
       }
     ],
     "name": "LoanNotLocked",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LockAuthorizationExpired",
     "type": "error"
   },
   {
@@ -726,6 +741,23 @@ export const siriusescrowAbi = [
         "internalType": "bytes32",
         "name": "trainingProfile",
         "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint40",
+            "name": "deadline",
+            "type": "uint40"
+          },
+          {
+            "internalType": "bytes",
+            "name": "signature",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct SiriusEscrow.LockAuthorization",
+        "name": "authorization",
+        "type": "tuple"
       }
     ],
     "name": "lock",
@@ -737,6 +769,19 @@ export const siriusescrowAbi = [
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lockAuthorizer",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

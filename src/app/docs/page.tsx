@@ -5,7 +5,6 @@ import Link from "next/link";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { APP_BACKGROUND_BLOB_Z, useBlobStore } from "@/stores/blob";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { LANDING_RETURN_KEY } from "@/lib/landing-navigation";
 import { EscrowLifecycleDiagram, FairExchangeDiagram, OverviewDiagram } from "./diagrams";
 
 const DOCUMENTATION_EN: Record<string, string> = {
@@ -206,7 +205,6 @@ export default function DocsPage() {
   const setTargetZ = useBlobStore((s) => s.setTargetZ);
   const { locale, t } = useLocale();
   const d: Translate = (value) => locale === "en" ? DOCUMENTATION_EN[value] ?? value : value;
-  const returnToLanding = () => window.sessionStorage.setItem(LANDING_RETURN_KEY, "true");
 
   useEffect(() => {
     setTargetZ(APP_BACKGROUND_BLOB_Z);
@@ -217,7 +215,7 @@ export default function DocsPage() {
     <div className="relative z-10 min-h-full text-foreground">
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <Link href="/" onClick={returnToLanding} className="text-lg font-semibold tracking-tight">Sirius</Link>
+          <Link href="/" className="text-lg font-semibold tracking-tight">Sirius</Link>
           <span className="hidden text-sm text-muted sm:inline">/ {t("Documentation")}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -439,7 +437,7 @@ export default function DocsPage() {
                   {d("Un registre KYB ouvert de démonstration accepte toute adresse : il ne vérifie aucune entreprise. Un registre gouverné exige des attestations d’un émetteur externe.")}
                 </p>
                 <p className="mt-6 text-sm">
-                  <Link href="/" onClick={returnToLanding} className="text-foreground underline underline-offset-4 hover:text-muted">{d("← Retour à l’accueil")}</Link>
+                  <Link href="/" className="text-foreground underline underline-offset-4 hover:text-muted">{d("← Retour à l’accueil")}</Link>
                 </p>
               </div>
             </div>

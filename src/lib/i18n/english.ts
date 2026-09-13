@@ -2,6 +2,22 @@ import { ERROR_MESSAGES_EN } from "./errors-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
+  "Le wallet a changé. Relance l’opération.": "Your wallet changed. Start the operation again.",
+  "Actualiser": "Refresh",
+  "Migration du registre KYB requise": "KYB registry migration required",
+  "Version d’escrow non prise en charge": "Unsupported escrow version",
+  "Crédits escrow indisponibles": "Escrow credits unavailable",
+  "La session ne correspond pas au wallet connecté": "The session does not match the connected wallet",
+  "USDC à retirer": "USDC available to withdraw",
+  "Les règlements et remboursements sont crédités ici. Retire-les pour les recevoir dans ton wallet ; le gas est à ta charge.": "Settlements and refunds are credited here. Withdraw them to your wallet; you pay the gas fee.",
+  "Ancien escrow": "Previous escrow",
+  "Escrow courant": "Current escrow",
+  "Retrait en cours…": "Withdrawing…",
+  "Retirer": "Withdraw",
+
+  "Une connexion est déjà en cours": "A sign-in is already in progress",
+  "Le wallet a changé pendant la connexion. Réessaie.": "Your wallet changed during sign-in. Please try again.",
+  "Chargement des datasets impossible": "Unable to load datasets",
   "modèle": "model",
   "Profil d’entraînement": "Training profile",
   "Ce choix est vérifié sur le CSV puis verrouillé dans le titre EVM et chaque escrow.": "This choice is checked against the CSV, then locked into the EVM title and each escrow.",

@@ -1,5 +1,7 @@
 # Audit des correctifs — 5 septembre 2026
 
+Ce rapport conserve les résultats historiques du 5 septembre. Les modifications de connexion et de configuration par branche du 12 septembre sont décrites dans [DEPLOYMENT.md](DEPLOYMENT.md) ; leurs validations ne remplacent pas rétroactivement celles ci-dessous. Les nouveaux constats ouverts figurent dans [l'audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+
 ## Périmètre et résultat
 
 Relecture des correctifs applicatifs de staging : prêts, escrow historique, runner, remboursements, upload, worker et migrations. La relecture sécurité a été effectuée séparément de l'implémentation, puis les cas signalés ont été reproduits avec des transactions et une base simulées.

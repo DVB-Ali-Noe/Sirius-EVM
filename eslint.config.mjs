@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "src/generated/**",
     // Toolchain Solidity : compilée et testée par Hardhat, avec son propre tsconfig.
     "contracts/**",
+    "test-results/**",
+    "playwright-report/**",
   ]),
   {
     // Code Three.js / r3f : useFrame mute caméra, refs et uniforms par conception

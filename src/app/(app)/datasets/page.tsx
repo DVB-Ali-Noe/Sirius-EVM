@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
@@ -75,6 +75,11 @@ const VISIBILITY_STATES: DatasetStatus[] = ["LISTED", "UNLISTED", "PRIVATE"];
 const PARTAGEABLE: DatasetStatus[] = ["LISTED", "UNLISTED"];
 
 export default function DatasetsPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <DatasetsContent key={identity} />;
+}
+
+function DatasetsContent() {
   const advanced = useUiStore((s) => s.advanced);
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
@@ -86,21 +91,40 @@ export default function DatasetsPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      request.current?.abort();
+    };
+  }, []);
 
   // Dépend de l'adresse : les datasets sont scopés à l'identité authentifiée
   // (un changement de wallet doit re-fetcher, pas garder l'ancienne liste).
   const loadPage = useCallback(async (cursor: string | null, append: boolean) => {
+    if (!mounted.current) return;
+    request.current?.abort();
     if (!address || !authenticated) {
       setDatasets([]);
       setNextCursor(null);
       return;
     }
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    const res = await fetch(`/api/datasets${query}`);
-    if (!res.ok) return;
-    const page = await res.json() as Dataset[];
-    setDatasets((current) => append ? [...current, ...page] : page);
-    setNextCursor(res.headers.get("x-sirius-next-cursor"));
+    const controller = new AbortController();
+    request.current = controller;
+    try {
+      const res = await fetch(`/api/datasets${query}`, { signal: controller.signal });
+      if (!res.ok) throw new Error("Chargement des datasets impossible");
+      const page = await res.json() as Dataset[];
+      if (controller.signal.aborted) return;
+      setDatasets((current) => append ? [...current, ...page] : page);
+      setNextCursor(res.headers.get("x-sirius-next-cursor"));
+    } catch (error) {
+      if (!controller.signal.aborted) setError(messageOf(error));
+    }
   }, [address, authenticated]);
 
   const refresh = useCallback(() => loadPage(null, false), [loadPage]);

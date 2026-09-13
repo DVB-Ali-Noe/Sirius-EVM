@@ -7,7 +7,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [x] Définition de Robinhood Chain testnet `46630` et mainnet `4663` dans `src/lib/evm/networks.ts`.
 - [x] Client RPC `viem`, normalisation EVM des adresses, validation des montants USDC et vérification de signatures EVM.
 - [x] `SiriusEscrow` : verrouillage USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, release avant échéance, remboursement, crédits pull-only et transferts sûrs.
-- [x] `SiriusKybRegistry` : attestations KYB EIP-712, révocation durable, expiration et gestion des vérificateurs.
+- [x] `SiriusKybRegistry` v3 : attestations KYB EIP-712 liées à l’époque du vérificateur, révocation durable, expiration et gestion des vérificateurs.
 - [x] `SiriusDatasetRegistry` : ancrage d'un dataset chiffré, KYB bloquant et tombstone après destruction.
 - [x] Tests Hardhat, scripts de compilation, export ABI, déploiement et smoke test USDC.
 - [x] Liaison EVM dans le runner : dérivation du préimage liée au contrat et au réseau, contrôle KYB + `matchesScope` + escrow, règlement et re-livraison de clé modèle.
@@ -25,9 +25,35 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [x] Reprendre les locks abandonnés et conserver le déploiement des nouveaux prêts ; permettre la livraison des modèles historiques autorisés.
 - [x] Remboursement signé dans le wallet sans master key côté Next ; logs techniques sans préimage ni jeton RPC brut.
 - [x] Préflight de migration on-chain, protection contre les transactions en attente et limite d'upload compatible avec l'hébergement Vercel.
+- [x] Configurer automatiquement les origines du sign-in par branche, avec des alias explicites et des builds navigateur distincts.
+- [x] Conserver le blob au rechargement de l'accueil et afficher les causes des erreurs d'authentification.
+- [x] Tester la sélection des cibles, l'isolation des origines et la clé d'ingestion sur les alias ; ajouter un smoke de challenge à la pipeline.
 - [ ] Ajouter des tests d'intégration navigateur/runner/contrats sur un nœud EVM local puis sur testnet.
 
+## Correctifs locaux — audit du 12 septembre
+
+- [x] Réabonner le connecteur aux événements du wallet sélectionné (F1).
+- [x] Invalider les réponses datasets obsolètes après changement de compte, y compris la pagination (F2).
+- [x] Harmoniser le login avec les délégations EOA ; refuser clairement les comptes contractuels non supportés (F3).
+- [x] Exiger une autorisation EIP-712 du runner pour les locks v6, avec renouvellement borné après approve (F4).
+
+Preuves, priorités et limites : [audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+
+## Correctifs locaux — audit du 13 septembre
+
+- [x] Afficher et retirer les crédits des escrows courants et historiques dans Wallet et Dashboard (A1).
+- [x] Refuser dès l’ingestion les CSV dont le coût dépasse le budget du profil (A2).
+- [x] Invalider les logins tardifs, données et soldes lors d’un changement d’identité wallet (A3–A5).
+- [x] Paginer les datasets privés et le catalogue sur Entraîner (A6).
+- [x] Séparer les quotas de préparation/soumission KYB et reconnaître l’émetteur du parrainage (A7).
+- [x] Lier les signatures KYB strictes à l’époque du vérificateur, y compris avant leur première consommation (A8).
+- [x] Vérifier les preuves historiques contre le déploiement autorisé du prêt (A9).
+
+Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13.md).
+
 ## Validation testnet — à faire
+
+- [ ] Effectuer la [migration Escrow v6 / KYB strict v3](ESCROW-V6.md), exécuter son préflight indépendant et republier les datasets avant réouverture.
 
 - [ ] Déployer et exécuter `pnpm contracts:smoke` avec les adresses réellement publiées.
 - [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.
@@ -36,7 +62,8 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.
 - [ ] Rejouer les reprises après timeout et les scénarios de conflit de réseau ou d'adresse de contrat.
-- [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs du [dernier audit local](AUDIT-CORRECTIFS.md) dans le navigateur.
+- [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs de [l'audit du 5 septembre](AUDIT-CORRECTIFS.md) dans le navigateur.
+- [ ] Valider après publication les challenges sur le domaine staging et ses alias, puis répéter après fusion sur main ; vérifier DNS et session réelle. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Phala et production — à faire
 

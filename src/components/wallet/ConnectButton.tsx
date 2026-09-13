@@ -6,6 +6,7 @@ import { disconnectWallet } from "@/lib/wallet/manager";
 import { markWalletDisconnected } from "@/lib/wallet/intent";
 import { embeddedConfigured, selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
+import { messageOf } from "@/lib/errors-client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { openEmbeddedWallet, openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -51,10 +52,8 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
       await signInWithWallet();
       setOpen(false);
     } catch (error) {
-      // Affiché tel quel : c'est le portefeuille qui parle, et lui seul sait
-      // pourquoi il a refusé. Un message générique nous a coûté une soirée.
-      console.error("[sirius] signature refusée", error);
-      setAuthError(error instanceof Error ? error.message : "Échec — réessaie");
+      console.error("[sirius] authentification échouée", error);
+      setAuthError(messageOf(error));
     } finally {
       setAuthPending(false);
     }
@@ -252,10 +251,11 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                   {authPending ? t("Signature…") : t("Se connecter")}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted">
-                  {authError ? t(authError) : t("Signe pour prouver la possession du wallet")}
+                  {t("Signe pour prouver la possession du wallet")}
                 </span>
               </button>
             )}
+            {authError && <p role="alert" className="px-4 py-3 text-xs text-negative">{t(authError)}</p>}
             <button
               onClick={handleDisconnect}
               className="w-full px-4 py-3 text-left text-sm font-medium text-negative transition-colors hover:bg-negative/10"
