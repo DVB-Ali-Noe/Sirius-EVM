@@ -1,7 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { selectedProvider } from "@/lib/wallet/discovery";
+import { embeddedSelected, selectedProvider } from "@/lib/wallet/discovery";
 import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
@@ -17,6 +17,12 @@ function provider(): Eip1193Provider {
   // un portefeuille qu'il n'a pas demandé.
   const choisi = selectedProvider();
   if (choisi?.request) return choisi;
+
+  // Le repli ci-dessous suppose qu'une extension finira par répondre. Le portefeuille
+  // embarqué, lui, n'est jamais dans `window.ethereum` : y retomber ferait signer une
+  // extension à la place de la session sociale, donc sous une autre adresse que celle
+  // affichée. Mieux vaut dire que la session est fermée.
+  if (embeddedSelected()) throw new Error("Session Google fermée — reconnecte-toi.");
 
   const candidate = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
   if (!candidate?.request) throw new Error("Aucun wallet EVM détecté. Installe Phantom, MetaMask, Rabby ou Coinbase Wallet.");
@@ -91,7 +97,12 @@ export function getExternalWallet(): Eip1193Provider | null {
   // Le portefeuille choisi d'abord : sans ça, la synchronisation et la lecture du
   // solde repartiraient sur `window.ethereum` — donc sur une autre extension que
   // celle avec laquelle l'utilisateur s'est connecté.
-  return selectedProvider() ?? (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
+  const choisi = selectedProvider();
+  if (choisi) return choisi;
+  // Même raison que dans `provider()` : une session sociale fermée ne doit pas être
+  // remplacée en silence par l'extension installée.
+  if (embeddedSelected()) return null;
+  return (window as unknown as { ethereum?: Eip1193Provider }).ethereum ?? null;
 }
 
 export async function disconnectWallet(): Promise<void> {

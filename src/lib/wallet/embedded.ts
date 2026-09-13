@@ -3,6 +3,7 @@
 import { Web3Auth } from "@web3auth/modal";
 import { WEB3AUTH_NETWORK, CHAIN_NAMESPACES, WALLET_CONNECTORS, AUTH_CONNECTION } from "@web3auth/modal";
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
+import { registerEmbeddedWallet } from "@/lib/wallet/discovery";
 import type { Eip1193Provider } from "@/lib/wallet/manager";
 
 /**
@@ -22,22 +23,8 @@ import type { Eip1193Provider } from "@/lib/wallet/manager";
  * « session Google » dans Sirius, seulement une adresse qui a signé.
  */
 
-/**
- * Identifiant de ce portefeuille dans la table de découverte.
- *
- * EIP-6963 est une annonce faite par les extensions ; un portefeuille embarqué ne s'annonce
- * pas. On lui réserve donc un `rdns` qui ne peut appartenir à personne d'autre, pour que
- * `selectedProvider()` le retrouve exactement comme les autres.
- */
-export const EMBEDDED_RDNS = "com.sirius.embedded";
-
 function clientId(): string | null {
   return process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim() || null;
-}
-
-/** Le bouton ne doit pas exister sur une instance où la connexion sociale n'est pas configurée. */
-export function embeddedConfigured(): boolean {
-  return Boolean(clientId());
 }
 
 /**
@@ -139,7 +126,7 @@ export async function connectEmbedded(): Promise<{ address: string; chainId: str
 
   const accounts = await provider.request({ method: "eth_accounts" });
   if (!Array.isArray(accounts) || typeof accounts[0] !== "string") {
-    throw new Error("Aucun compte n'a été créé.");
+    throw new Error("Aucun compte n’a été créé.");
   }
   const chainId = await provider.request({ method: "eth_chainId" });
   if (typeof chainId !== "string") throw new Error("Réseau EVM indisponible.");
@@ -192,3 +179,31 @@ export async function embeddedUserEmail(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Rouvre la session sociale d'un rechargement de page.
+ *
+ * Le store du portefeuille ne persiste pas — il doit refléter le provider vivant — alors
+ * que le SDK, lui, garde sa session dans le stockage du navigateur. Sans cette reprise,
+ * l'utilisateur reviendrait sur une page déconnectée en ayant toujours une session ouverte
+ * des deux côtés, et le cookie de Sirius le contredirait.
+ *
+ * Rend `true` si une session a effectivement été retrouvée. Une absence n'est pas une
+ * erreur : c'est le cas normal du premier passage.
+ */
+export async function restoreEmbedded(): Promise<boolean> {
+  if (!clientId()) return false;
+  try {
+    const web3auth = await client();
+    return web3auth.connected;
+  } catch {
+    // Reprise impossible — réseau coupé, session expirée côté SDK. L'utilisateur reste
+    // déconnecté et peut recliquer ; échouer bruyamment ici bloquerait le rendu de la page.
+    return false;
+  }
+}
+
+// Déclaré au chargement du module plutôt qu'après connexion : le lecteur rend `null` tant
+// qu'aucune session n'est ouverte, et l'enregistrer tôt évite une fenêtre où le provider
+// existe sans que `selectedProvider()` sache le trouver.
+registerEmbeddedWallet(embeddedProvider);
