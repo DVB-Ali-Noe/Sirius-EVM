@@ -83,11 +83,13 @@ Une valeur vide ou `[SENSITIVE]` issue d'un export Vercel ne constitue pas un se
 
 `check-evm-migration.ts` s'exécute **avant** `prisma migrate deploy`. S'il échoue, le déploiement Vercel est ignoré ; ce n'est pas une erreur du build front. La base vient du secret GitHub `DATABASE_URL` de l'environnement ciblé (`staging` pour la branche staging), pas du lien Vercel local.
 
-Le préflight annonce chaque étape PostgreSQL puis RPC. La dernière étape affichée situe l'échec ; le diagnostic ne publie que des codes connus, jamais l'URL de connexion, les messages bruts du pilote ou les jetons RPC. Par exemple, `28P01` indique un refus d'authentification, `42P01` une table absente, `ENETUNREACH` un réseau inaccessible et `TlsConnectionError` un échec TLS. Ne pas appliquer les migrations ni contourner le préflight avant d'avoir identifié la cause.
+Le préflight décrit l'hébergeur déduit du domaine, l'indice de pooler, le port et le mode TLS, sans afficher l'hôte ni les identifiants. Un hébergeur inconnu ou un pooler non détecté reste indéterminé. Il annonce ensuite chaque étape PostgreSQL puis RPC : la dernière étape affichée situe l'échec.
+
+Le diagnostic conserve les codes SQLSTATE valides, même absents du dictionnaire de traduction. Le motif natif PostgreSQL est limité à une ligne, après masquage des URL et des composants de `DATABASE_URL` (y compris les identifiants encodés). L'objet d'erreur Prisma/RPC complet n'est jamais journalisé. Par exemple, `28P01` indique un refus d'authentification, `42P01` une table absente et `57P03` un serveur qui ne peut pas encore accepter de connexion. Voir les [codes PostgreSQL](https://www.postgresql.org/docs/current/errcodes-appendix.html). Ne pas appliquer les migrations ni contourner le préflight avant d'avoir identifié la cause.
 
 L'avertissement de `pg-connection-string` sur `sslmode=require` annonce un futur changement de comportement ; il ne prouve pas un échec TLS. `sslmode=verify-full` rend explicite le comportement actuellement utilisé, mais ne répare ni les identifiants, ni le réseau, ni le schéma SQL. Ne pas désactiver la vérification des certificats pour faire passer ce contrôle.
 
-Le log staging signalé le 13 septembre ne contient que l'ancien message générique. Sa cause PostgreSQL/RPC reste à confirmer avec un run contenant ces diagnostics ; aucun secret distant n'a été modifié pour cette amélioration.
+Les deux logs staging signalés le 13 septembre ont d'abord affiché le message générique, puis seulement `P2010` à la détection de `Loan`. Le second situe l'échec sur la première requête PostgreSQL, avant le RPC ; `P2010` seul ne distingue pas une erreur de connexion d'une erreur SQL. La première liste de diagnostics masquait certains SQLSTATE : ce défaut a été reproduit avec le vrai client Prisma et son adaptateur, puis corrigé. La cause distante reste à confirmer avec le code natif et son motif ; aucun secret distant n'a été modifié.
 
 ### Contrôles locaux
 
