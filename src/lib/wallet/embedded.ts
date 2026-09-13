@@ -91,6 +91,10 @@ async function client(): Promise<Web3Auth> {
       // installées. Sirius a déjà la sienne dans `discovery.ts`, et deux sélecteurs
       // concurrents rendraient le portefeuille effectivement utilisé imprévisible.
       multiInjectedProviderDiscovery: false,
+      // Le SDK expédie sa télémétrie à Segment. Un produit dont l'argument est que personne
+      // ne voit les données de ses utilisateurs ne peut pas envoyer leurs gestes à un tiers,
+      // et notre CSP le bloquerait de toute façon — autant ne pas l'émettre.
+      disableAnalytics: true,
     });
     await web3auth.init();
     instance = web3auth;
@@ -115,10 +119,33 @@ async function client(): Promise<Web3Auth> {
  * l'utilisateur a déjà fait ce choix en cliquant « Continuer avec Google », et lui
  * présenter une seconde fenêtre de sélection serait un pas de plus pour rien.
  */
+/**
+ * Plafond d'attente de l'ouverture de session.
+ *
+ * Large à dessein : derrière se trouve un écran Google où quelqu'un tape un mot de passe et
+ * valide peut-être un second facteur. Couper court transformerait une connexion lente en
+ * échec.
+ *
+ * Il existe néanmoins, parce que le SDK sait rejeter dans une promesse qu'il ne chaîne pas à
+ * celle qu'il rend : l'appelant n'apprend alors jamais l'échec et l'interface reste sur
+ * « Connexion… » indéfiniment. C'est exactement ce qu'a produit une iframe bloquée.
+ */
+const DELAI_CONNEXION_MS = 3 * 60_000;
+
+function borner<T>(promesse: Promise<T>, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const minuteur = setTimeout(() => reject(new Error(message)), DELAI_CONNEXION_MS);
+    promesse.then(resolve, reject).finally(() => clearTimeout(minuteur));
+  });
+}
+
 export async function connectEmbedded(): Promise<{ address: string; chainId: string }> {
   const web3auth = await client();
   if (!web3auth.connected) {
-    await web3auth.connectTo(WALLET_CONNECTORS.AUTH, { authConnection: AUTH_CONNECTION.GOOGLE });
+    await borner(
+      web3auth.connectTo(WALLET_CONNECTORS.AUTH, { authConnection: AUTH_CONNECTION.GOOGLE }),
+      "La connexion Google n’a pas abouti — réessaie.",
+    );
   }
 
   const provider = web3auth.provider;
