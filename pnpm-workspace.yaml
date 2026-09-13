@@ -40,6 +40,9 @@ overrides:
   'diff@>=7 <8.0.3': '8.0.3'
   'mocha>serialize-javascript': '7.0.5'
   'hardhat>uuid': '11.1.1'
+  # Même avis que ci-dessus (GHSA-w5hq-g745-h8pq), par l'arête que le SDK de
+  # connexion sociale amène : @web3auth/modal > @metamask/* > @metamask/utils > uuid 9.
+  '@metamask/utils>uuid': '11.1.1'
   'hardhat>adm-zip': '0.6.1'
   '@prisma/config>deepmerge-ts': '8.0.0'
   '@nomicfoundation/hardhat-verify>undici': '6.28.0'

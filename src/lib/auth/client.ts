@@ -3,6 +3,7 @@
 import { useWalletStore } from "@/stores/wallet";
 import { getExternalWallet, signMessageExternal } from "@/lib/wallet/manager";
 import { ensureKybAttested } from "@/lib/kyb/client";
+import { ensureStarterFunds } from "@/lib/wallet/onramp";
 import {
   activateRunnerDelegation,
   beginRunnerDelegation,
@@ -76,7 +77,11 @@ export async function signInWithWallet(): Promise<void> {
   } finally {
     signingIn = false;
   }
+  // L'ordre compte : l'attestation est parrainée et ne réclame aucun ETH, alors que tout
+  // le reste en exige. Financer d'abord marcherait aussi, mais attester d'abord garantit
+  // qu'un faucet vide laisse tout de même un compte en règle.
   await ensureKybAttested(address, assertCurrent);
+  await ensureStarterFunds(address);
 }
 
 export function invalidateWalletSession(): Promise<void> {
