@@ -60,16 +60,37 @@ const decouverts = new Map<string, AnnouncedWallet>();
 let ecouteDemarree = false;
 
 /**
- * Lecteur du provider embarqué, posé par `embedded.ts` au moment où il est chargé.
+ * Les opérations du portefeuille embarqué qui ne passent pas par EIP-1193.
  *
- * L'inversion est délibérée : c'est le SDK qui se déclare ici, et non ce module qui va le
- * chercher. Sans elle, `selectedProvider()` — appelé à chaque rendu, partout — entraînerait
- * le SDK dans le bundle de chaque page.
+ * Un portefeuille embarqué n'a ni sélecteur de comptes ni permissions accordées à un site :
+ * `wallet_requestPermissions` et `wallet_revokePermissions` n'y ont pas d'équivalent, et
+ * changer de chaîne se demande au SDK plutôt qu'au provider. Ces trois gestes doivent donc
+ * être fournis à part.
  */
-let lireEmbarque: (() => Eip1193Provider | null) | null = null;
+export interface EmbeddedWallet {
+  /** `null` tant qu'aucune session n'est ouverte. */
+  provider(): Eip1193Provider | null;
+  switchChain(chainId: string): Promise<void>;
+  logout(): Promise<void>;
+}
 
-export function registerEmbeddedWallet(lecteur: () => Eip1193Provider | null): void {
-  lireEmbarque = lecteur;
+/**
+ * Implémentation posée par `embedded.ts` au moment où il est chargé.
+ *
+ * L'inversion est délibérée : c'est le SDK qui se déclare ici, et non ce module — ni
+ * `manager.ts` — qui va le chercher. Tous deux sont importés par à peu près tout le reste
+ * de l'application ; un import direct entraînerait le SDK dans le bundle de chaque page,
+ * y compris pour les visiteurs qui ne se connecteront jamais.
+ */
+let embarque: EmbeddedWallet | null = null;
+
+export function registerEmbeddedWallet(wallet: EmbeddedWallet): void {
+  embarque = wallet;
+}
+
+/** `null` tant que `embedded.ts` n'a pas été chargé — donc tant qu'il n'a pas servi. */
+export function embeddedWallet(): EmbeddedWallet | null {
+  return embarque;
 }
 
 function demarrerEcoute(): void {
@@ -146,7 +167,7 @@ export function selectedProvider(): Eip1193Provider | null {
   // Tant que `embedded.ts` n'a pas été chargé, le lecteur est absent et l'appelant reçoit
   // `null` — ce qui est la bonne réponse, puisqu'il n'y a effectivement aucune session
   // sociale ouverte à ce moment-là.
-  if (rdns === EMBEDDED_RDNS) return lireEmbarque?.() ?? null;
+  if (rdns === EMBEDDED_RDNS) return embarque?.provider() ?? null;
 
   const connu = decouverts.get(rdns)?.provider;
   if (connu) return connu;
