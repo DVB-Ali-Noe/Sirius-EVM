@@ -121,4 +121,20 @@ export async function registerNode() {
     const { startLoanReaper } = await import("@/lib/sirius/reaper");
     startLoanReaper();
   }
+
+  // Annonce le compte de règlement, comme le runner autonome le fait à son démarrage.
+  //
+  // Escrow v6 grave dans son constructeur l'unique adresse autorisée à signer un lock, et
+  // cette adresse est dérivée de la master key. Quand le runner tourne dans ce processus,
+  // c'est donc ici — et nulle part ailleurs — qu'on peut la lire sans sortir la clé de
+  // l'environnement. Une instance qui délègue à un runner distant ne la connaît pas :
+  // le sien vient de sa propre clé, et l'afficher d'ici induirait en erreur.
+  if (!process.env.RUNNER_URL) {
+    try {
+      const { runnerSettlementAddress } = await import("@/lib/evm/escrow");
+      console.log(`[sirius] compte de règlement EVM (runner in-process) : ${runnerSettlementAddress()}`);
+    } catch {
+      // Pas de master key exploitable dans ce processus : rien à annoncer.
+    }
+  }
 }
