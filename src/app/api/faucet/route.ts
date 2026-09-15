@@ -12,10 +12,14 @@ export const runtime = "nodejs";
  * un seul visiteur en boucle la viderait pour tous les autres. Une demande par heure
  * et par compte suffit largement — mille USDC couvrent des centaines d'emprunts.
  */
+// Le plafond global borne ce que l'instance peut perdre en une heure, quel que soit le
+// nombre d'adresses : avec des comptes créés en un clic, l'adresse n'est plus une
+// contrainte. À 0,0002 ETH la distribution, trente par heure font 0,006 ETH — un
+// incident coûte une soirée, pas la réserve.
 const faucetLimiter = new FixedWindowRateLimiter({
   windowMs: 60 * 60_000,
   maxPerKey: 1,
-  maxGlobal: 120,
+  maxGlobal: 30,
 });
 const faucetClientLimiter = new FixedWindowRateLimiter({
   windowMs: 60 * 60_000,

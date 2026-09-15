@@ -85,6 +85,8 @@ export const EN_MESSAGES: Record<string, string> = {
   "La connexion Google n’a pas abouti — réessaie.": "Google sign-in did not complete — try again.",
   "Aucun compte n’a été créé.": "No account was created.",
   "Session Google fermée — reconnecte-toi.": "Your Google session has closed — sign in again.",
+  "Réseau Web3Auth inconnu — vérifie NEXT_PUBLIC_WEB3AUTH_NETWORK.": "Unknown Web3Auth network — check NEXT_PUBLIC_WEB3AUTH_NETWORK.",
+  "Fonds de démarrage non reçus : {reason}": "Starter funds not received: {reason}",
   "Pour changer de compte, sélectionne-le directement dans ton wallet — l'application suivra.": "To use another account, pick it directly in your wallet — the app will follow.",
   "Recherche des wallets…": "Looking for wallets…",
   "Pas de données sous la main ?": "No data at hand?",

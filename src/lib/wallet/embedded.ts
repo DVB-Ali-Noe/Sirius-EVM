@@ -43,9 +43,11 @@ function clientId(): string | null {
  */
 function reseauEmbarque() {
   const demande = process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK?.trim();
-  return demande === "sapphire_mainnet"
-    ? WEB3AUTH_NETWORK.SAPPHIRE_MAINNET
-    : WEB3AUTH_NETWORK.SAPPHIRE_DEVNET;
+  if (demande === "sapphire_mainnet") return WEB3AUTH_NETWORK.SAPPHIRE_MAINNET;
+  if (!demande || demande === "sapphire_devnet") return WEB3AUTH_NETWORK.SAPPHIRE_DEVNET;
+  // Une faute de frappe retombait sur le devnet et donnait à chacun une adresse jetable,
+  // sans rien signaler. Mieux vaut refuser la connexion et nommer la variable.
+  throw new Error("Réseau Web3Auth inconnu — vérifie NEXT_PUBLIC_WEB3AUTH_NETWORK.");
 }
 
 /**

@@ -63,15 +63,30 @@ export async function addFunds(): Promise<FondsAjoutes> {
  * fonds, le bouton reste là pour les réclamer.
  */
 export async function ensureStarterFunds(address: string): Promise<void> {
+  const { useWalletStore } = await import("@/stores/wallet");
+  const marquer = useWalletStore.getState().setStarterFunds;
+  marquer("pending");
   try {
     const { fetchGasBalance } = await import("@/lib/evm/balance");
     const { wei } = await fetchGasBalance(address);
-    if (wei !== "0") return;
+    if (wei !== "0") {
+      marquer("skipped");
+      return;
+    }
 
     const abandon = AbortSignal.timeout(20_000);
-    await fetch("/api/faucet", { method: "POST", signal: abandon });
+    const response = await fetch("/api/faucet", { method: "POST", signal: abandon });
+    if (response.ok) {
+      marquer("funded");
+      return;
+    }
+    // Le motif du refus est celui du serveur — rationnement, réserve à sec, instance sans
+    // faucet — et il est sûr à afficher : ce sont des AppError. On ne l'invente pas.
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    marquer({ failed: typeof body?.error === "string" ? body.error : "Ajout de fonds indisponible" });
   } catch {
-    // Silence volontaire : ni un faucet épuisé, ni une instance sans faucet, ni une
-    // lecture de solde impossible ne justifient d'interrompre une connexion réussie.
+    // Ne lève jamais : l'utilisateur est connecté, c'est ce qu'il demandait. Mais l'écran
+    // doit savoir que rien n'est arrivé, sinon il attend des fonds qui ne viendront pas.
+    marquer({ failed: "Ajout de fonds indisponible" });
   }
 }
