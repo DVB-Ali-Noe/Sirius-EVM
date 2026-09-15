@@ -366,7 +366,7 @@ test("les logs de réconciliation et les réponses API ne divulguent pas les jet
   const response = errorResponse(rpcError);
   assert.equal(response.status, 500);
   assert.ok(!(await response.text()).includes(token));
-  assert.deepEqual(logs, [["[reaper] prêt EVM loan-1 non réconcilié"], ["[api] erreur interne"]]);
+  assert.deepEqual(logs, [["[reaper] prêt EVM loan-1 non réconcilié"], ["[api] erreur interne (Error)"]]);
 });
 
 test("une panne de base du reaper planifié est capturée et la passe suivante reprend", async () => {

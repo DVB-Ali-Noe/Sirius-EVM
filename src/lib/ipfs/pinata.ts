@@ -1,4 +1,5 @@
 import "server-only";
+import { AppError } from "@/lib/app-error";
 
 const UPLOAD_ENDPOINT = "https://uploads.pinata.cloud/v3/files";
 
@@ -37,11 +38,45 @@ export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUplo
   return { cid: payload.cid, size: payload.size };
 }
 
-/** Récupère le blob chiffré depuis le gateway IPFS. */
+/** Une tentative de lecture, bornée dans le temps. */
+const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_ATTEMPTS = 3;
+const FETCH_BACKOFF_MS = [400, 1_200];
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Récupère le blob chiffré depuis le gateway IPFS.
+ *
+ * Le gateway public de Pinata met plusieurs secondes à répondre et refuse les rafales
+ * venant d'adresses partagées — celles d'un hébergeur serverless, précisément. Une seule
+ * réponse 429 ou 5xx faisait tomber le téléchargement d'un modèle pourtant livré et payé,
+ * sous un « erreur interne » qui n'accusait personne.
+ *
+ * On retente donc sur les refus transitoires, avec un délai par tentative pour ne pas
+ * rester suspendu, et on termine sur une AppError : son message est sûr — pas d'URL, pas
+ * de jeton — et son statut dit la vérité, le stockage est indisponible, pas le serveur en
+ * faute. Un 404 n'est pas transitoire et ne se retente pas.
+ */
 export async function fetchFromIpfs(cid: string): Promise<Buffer> {
-  const res = await fetch(`${getGateway()}/ipfs/${cid}`);
-  if (!res.ok) throw new Error(`IPFS fetch échoué (${res.status}) pour ${cid}`);
-  return Buffer.from(await res.arrayBuffer());
+  const url = `${getGateway()}/ipfs/${cid}`;
+  let lastStatus: number | null = null;
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      if (res.status === 404) throw new AppError("Fichier introuvable sur IPFS", 404);
+      lastStatus = res.status;
+      if (res.status !== 429 && res.status < 500) break;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      // Réseau coupé ou délai dépassé : transitoire, on retente comme un 5xx.
+      lastStatus = null;
+    }
+    if (attempt < FETCH_ATTEMPTS) await wait(FETCH_BACKOFF_MS[attempt - 1]);
+  }
+  console.error(`[ipfs] lecture échouée après ${FETCH_ATTEMPTS} tentatives${lastStatus ? ` (dernier statut ${lastStatus})` : ""}`);
+  throw new AppError("Stockage IPFS indisponible — réessaie dans un instant.", 503);
 }
 
 const FILES_API = "https://api.pinata.cloud/v3/files/public";
