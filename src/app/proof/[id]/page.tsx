@@ -27,12 +27,21 @@ import { formatBytes } from "@/lib/format";
 
 export const runtime = "nodejs";
 
-/** Public et Semi-privé seulement. Privé, brouillon et supprimé restent invisibles. */
-const VISIBLE = ["LISTED", "UNLISTED"] as const;
+/**
+ * Public et Semi-privé, plus les datasets archivés qui ont un titre on-chain.
+ *
+ * Une migration de contrats retire les anciens titres du catalogue, mais elle ne
+ * défait rien de ce qui a été ancré : la transaction, la racine Merkle et le profil
+ * restent vérifiables. Un lien de preuve partagé — dans un fil, dans un dossier —
+ * doit donc continuer d'ouvrir, en disant que la licence n'est plus proposée.
+ * Privé, brouillon et supprimé restent invisibles.
+ */
+const VISIBLE = ["LISTED", "UNLISTED", "SUSPENDED"] as const;
 
 async function datasetPublic(id: string) {
   const dataset = await prisma.dataset.findUnique({ where: { id } });
   if (!dataset || !VISIBLE.includes(dataset.status as (typeof VISIBLE)[number])) return null;
+  if (dataset.status === "SUSPENDED" && !dataset.evmDatasetId) return null;
   return dataset;
 }
 
@@ -89,6 +98,12 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
       <p className="text-xs uppercase tracking-[0.11em] text-muted">On-chain proof</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{dataset.name}</h1>
       {dataset.description && <p className="mt-2 text-sm text-muted">{dataset.description}</p>}
+
+      {dataset.status === "SUSPENDED" && (
+        <p className="mt-4 inline-block rounded-md border border-border bg-surface px-3 py-1.5 text-xs uppercase tracking-wider text-muted">
+          Archived — no longer available for licensing. The on-chain anchor below stands.
+        </p>
+      )}
 
       <p className="mt-6 max-w-prose text-sm text-muted">
         This dataset is anchored on {network === "mainnet" ? "Robinhood Chain" : "Robinhood Chain testnet"}.

@@ -32,6 +32,8 @@ const MONTANT_ETH = "0.0002";
 const SEUIL_ETH = parseEther("0.00005");
 /** Réserve du distributeur en dessous de laquelle on refuse plutôt que d'échouer à mi-course. */
 const RESERVE_MINIMALE = parseEther("0.0005");
+/** En dessous, on prévient avant de refuser : le temps de recharger, pas de constater. */
+const RESERVE_ALERTE = parseEther("0.004");
 let distributionQueue: Promise<void> = Promise.resolve();
 
 function enqueueDistribution<T>(operation: () => Promise<T>): Promise<T> {
@@ -82,6 +84,11 @@ async function distribuerFondsDeTestEnSerie(destinataire: string): Promise<Fauce
   // frappe l'USDC puis échoue sur l'ETH laisserait le visiteur avec des jetons qu'il
   // ne peut pas dépenser, ce qui est pire que de ne rien lui donner.
   const reserve = await publicClient.getBalance({ address: account.address });
+  if (reserve < RESERVE_ALERTE) {
+    // Journal seulement : sur un hébergeur serverless c'est le seul canal qui survit à la
+    // requête, et une alerte n'a pas à interrompre la distribution en cours.
+    console.warn(`[faucet] réserve basse : ${formatEther(reserve)} ETH — recharger ${account.address}`);
+  }
   if (reserve < RESERVE_MINIMALE) {
     throw new AppError(
       `Distributeur épuisé (${formatEther(reserve)} ETH) — préviens l'équipe pour qu'elle le recharge`,

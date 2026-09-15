@@ -66,6 +66,18 @@ export async function registerNode() {
       if (!process.env[name]) throw new Error(`${name} obligatoire en production`);
     }
 
+    // Le devnet de Web3Auth fait tourner ses clés : un compte créé dessus finit inaccessible,
+    // avec ses datasets. Acceptable sur une recette hébergée en *.vercel.app, pas sur le
+    // domaine public — et une valeur absente ou mal orthographiée retombe justement sur le
+    // devnet, sans erreur. D'où un refus explicite plutôt qu'un défaut silencieux.
+    if (
+      process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim() &&
+      process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK?.trim() !== "sapphire_mainnet" &&
+      !/^https:\/\/[a-z0-9-]+\.vercel\.app\/?$/i.test(process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim() ?? "")
+    ) {
+      throw new Error("NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet obligatoire hors staging");
+    }
+
     if (
       process.env.SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "") !==
       process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "")
