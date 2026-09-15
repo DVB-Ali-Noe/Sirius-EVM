@@ -77,9 +77,17 @@ function trainingColumns(csv: Buffer, target: string | undefined, deadline: numb
   return { header, rows, targetIdx, featureIdx };
 }
 
+function assertTrainingBudget(rows: number, parameters: number, logistic: boolean): void {
+  const operations = rows * parameters * (logistic ? LOGISTIC_ITERATIONS : parameters);
+  if (operations > MAX_TRAINING_OPERATIONS) {
+    throw new DatasetValidationError("budget de calcul dépassé : réduis le nombre de lignes ou de features");
+  }
+}
+
 export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): void {
   const deadline = performance.now() + trainingTimeoutMs();
-  const { rows, targetIdx } = trainingColumns(csv, undefined, deadline);
+  const { rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline);
+  assertTrainingBudget(rows.length, featureIdx.length + 1, selection.modelId === "logistic_regression");
   if (
     selection.modelId === "logistic_regression" &&
     (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1") ||
@@ -121,9 +129,7 @@ export function trainLinearRegression(csv: Buffer, target?: string): LinearRegre
   const deadline = performance.now() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   const parameterCount = featureIdx.length + 1;
-  if (rows.length * parameterCount * parameterCount > MAX_TRAINING_OPERATIONS) {
-    throw new Error("budget de calcul dépassé : réduis le nombre de lignes ou de features");
-  }
+  assertTrainingBudget(rows.length, parameterCount, false);
 
   const xtx = Array.from({ length: parameterCount }, (_, row) =>
     Array.from({ length: parameterCount }, (_, column) => (row === column ? RIDGE : 0)),
@@ -190,9 +196,7 @@ export function trainLogisticRegression(csv: Buffer, target?: string): LogisticR
   if (!labels.includes(0) || !labels.includes(1)) throw new DatasetValidationError("la cible binaire doit contenir les classes 0 et 1");
 
   const parameterCount = featureIdx.length + 1;
-  if (rows.length * parameterCount * LOGISTIC_ITERATIONS > MAX_TRAINING_OPERATIONS) {
-    throw new Error("budget de calcul dépassé : réduis le nombre de lignes ou de features");
-  }
+  assertTrainingBudget(rows.length, parameterCount, true);
   const values = rows.map((row) => featureIdx.map((column) => Number(row[column])));
   const means = Array<number>(featureIdx.length).fill(0);
   for (let row = 0; row < values.length; row++) {

@@ -43,6 +43,11 @@ const STATUS_VARIANT: Record<AuditLoan["status"], BadgeVariant> = {
 };
 
 export default function AuditPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <AuditPageContent key={identity} />;
+}
+
+function AuditPageContent() {
   const connected = useWalletStore((state) => state.connected);
   const authenticated = useWalletStore((state) => state.authenticated);
   const { locale, t } = useLocale();

@@ -64,6 +64,7 @@ export async function resolveLoanEscrow(loan: Parameters<typeof loanEscrowBindin
 export const legacyEscrowAbi = parseAbi([
   "function getLoan(bytes32 loanKey) view returns ((address provider, uint96 amount, address borrower, uint40 deadline, uint8 status, bytes32 hashlock, bytes32 preimage, bytes32 datasetId))",
   "function lock(address provider, uint256 amount, bytes32 hashlock, uint8 challengeDays, bytes32 loanIdHash, bytes32 datasetId) returns (bytes32 loanKey)",
+  "function lock(address provider, uint256 amount, bytes32 hashlock, uint8 challengeDays, bytes32 loanIdHash, bytes32 datasetId, bytes32 trainingProfile) returns (bytes32 loanKey)",
 ]);
 
 export function assertLoanLockTransaction(

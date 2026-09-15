@@ -33,17 +33,18 @@ async function grantKyb(
   const nonce = await ctx.kyb.read.nonces([subject]);
   const chainId = await (await hre.viem.getPublicClient()).getChainId();
   const signature = (await ctx.verifier.signTypedData({
-    domain: { name: "SiriusKybRegistry", version: "1", chainId, verifyingContract: ctx.kyb.address },
+    domain: { name: "SiriusKybRegistry", version: "2", chainId, verifyingContract: ctx.kyb.address },
     types: {
       KybAttestation: [
         { name: "subject", type: "address" },
         { name: "verifier", type: "address" },
         { name: "expiresAt", type: "uint40" },
         { name: "nonce", type: "uint256" },
+        { name: "verifierEpoch", type: "uint64" },
       ],
     },
     primaryType: "KybAttestation",
-    message: { subject, verifier, expiresAt, nonce },
+    message: { subject, verifier, expiresAt, nonce, verifierEpoch: await ctx.kyb.read.verifierEpoch([verifier]) },
   })) as Hex;
 
   await ctx.kyb.write.acceptAttestation([verifier, expiresAt, signature], { account: wallet.account });

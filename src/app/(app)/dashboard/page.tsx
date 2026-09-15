@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useWalletStore } from "@/stores/wallet";
@@ -42,9 +43,15 @@ const SHORTCUTS = [
 ];
 
 export default function DashboardPage() {
+  const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
+  return <DashboardPageContent key={identity} />;
+}
+
+function DashboardPageContent() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
+  const starterFunds = useWalletStore((s) => s.starterFunds);
   const { locale, t } = useLocale();
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
@@ -92,9 +99,13 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    // `authenticated` en dépendance, et pas seulement l'adresse : la première signature
+    // déclenche l'attestation KYB puis, sur un compte neuf, l'approvisionnement. Les deux
+    // arrivent après ce premier affichage, et sans cette relecture l'utilisateur resterait
+    // devant un solde nul alors que les fonds sont déjà sur la chaîne.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial, setState post-await
     refresh();
-  }, [refresh]);
+  }, [refresh, authenticated]);
 
   useEffect(() => {
     if (!address || !authenticated) return;
@@ -158,8 +169,15 @@ export default function DashboardPage() {
             {fundsPending ? t("Envoi en cours…") : t("Ajouter des fonds")}
           </button>
           {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
+          {!fundsMessage && typeof starterFunds === "object" && (
+            <p className="max-w-[16rem] text-right text-xs text-negative">
+              {t("Fonds de démarrage non reçus : {reason}", { reason: t(starterFunds.failed) })}
+            </p>
+          )}
         </div>
       </Card>
+
+      <EscrowCredits onWithdraw={refresh} />
 
       {reputation && (
         <Card className="mb-8">

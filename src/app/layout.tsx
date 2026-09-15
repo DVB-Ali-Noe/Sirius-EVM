@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import SharedBlob from "@/components/layout/SharedBlob";
 import { WalletConnector } from "@/components/wallet/WalletConnector";
-import { LandingRedirect } from "@/components/layout/LandingRedirect";
 import { StoreHydrator } from "@/components/layout/StoreHydrator";
 import { E2eWalletBridge } from "@/components/testing/E2eWalletBridge";
 import { LocaleProvider } from "@/components/i18n/LocaleProvider";
@@ -95,7 +94,6 @@ export default function RootLayout({
           <WalletConnector />
           <E2eWalletBridge />
           <StoreHydrator />
-          <LandingRedirect />
           {children}
         </LocaleProvider>
       </body>

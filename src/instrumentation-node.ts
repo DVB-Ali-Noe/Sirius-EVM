@@ -26,6 +26,7 @@ export async function registerNode() {
     const requises = [
       "SIRIUS_SESSION_SECRET",
       "SIRIUS_APP_ORIGIN",
+      "NEXT_PUBLIC_SIRIUS_APP_ORIGIN",
       "SIRIUS_ESCROW_ADDRESS",
       "SIRIUS_USDC_ADDRESS",
       "SIRIUS_KYB_ADDRESS",
@@ -35,6 +36,16 @@ export async function registerNode() {
       "NEXT_PUBLIC_SIRIUS_KYB_ADDRESS",
       "NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS",
     ];
+
+    // Ce qu'une instance de démonstration doit fournir pour tenir sa promesse : la
+    // maison paie le gas du visiteur, sur les deux postes et depuis deux comptes
+    // distincts. Les exiger ici transforme une panne silencieuse en refus de démarrer —
+    // sans la clé du faucet, « Ajouter des fonds » se rabattrait sur MoonPay, qui n'a
+    // rien à vendre sur un testnet, et le visiteur lirait « indisponible » sans que
+    // personne ne sache pourquoi.
+    if (DEMO) {
+      requises.push("SIRIUS_FAUCET_KEY", "SIRIUS_KYB_VERIFIER_KEY");
+    }
 
     // Ce que seule une instance adossée à une enclave réelle peut fournir. En
     // démonstration ces valeurs n'existent pas encore — les exiger reviendrait à
@@ -53,6 +64,25 @@ export async function registerNode() {
 
     for (const name of requises) {
       if (!process.env[name]) throw new Error(`${name} obligatoire en production`);
+    }
+
+    // Le devnet de Web3Auth fait tourner ses clés : un compte créé dessus finit inaccessible,
+    // avec ses datasets. Acceptable sur une recette hébergée en *.vercel.app, pas sur le
+    // domaine public — et une valeur absente ou mal orthographiée retombe justement sur le
+    // devnet, sans erreur. D'où un refus explicite plutôt qu'un défaut silencieux.
+    if (
+      process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim() &&
+      process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK?.trim() !== "sapphire_mainnet" &&
+      !/^https:\/\/[a-z0-9-]+\.vercel\.app\/?$/i.test(process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim() ?? "")
+    ) {
+      throw new Error("NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet obligatoire hors staging");
+    }
+
+    if (
+      process.env.SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "") !==
+      process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim().replace(/\/+$/, "")
+    ) {
+      throw new Error("Les origines publique et serveur de Sirius doivent être identiques");
     }
 
     // Le reaper tourne désormais comme worker autonome, hors du processus web. En

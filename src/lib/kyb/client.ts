@@ -14,7 +14,8 @@ export type KybRole = "provider" | "borrower";
  * Retourne `false` si l'instance ne propose pas ce parrainage, pour que l'appelant
  * remonte l'erreur d'origine plutôt qu'un message trompeur.
  */
-export async function attestViaSponsor(): Promise<boolean> {
+export async function attestViaSponsor(assertCurrent: () => void = () => {}): Promise<boolean> {
+  assertCurrent();
   const preparation = await fetch("/api/kyb/demo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -38,6 +39,7 @@ export async function attestViaSponsor(): Promise<boolean> {
     message: Record<string, unknown> & { expiresAt: number };
   };
 
+  assertCurrent();
   const signature = await signTypedDataWithActiveWallet({
     domain: payload.domain,
     types: payload.types,
@@ -45,6 +47,7 @@ export async function attestViaSponsor(): Promise<boolean> {
     message: payload.message,
   });
 
+  assertCurrent();
   const soumission = await fetch("/api/kyb/demo", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -103,14 +106,15 @@ export async function acceptKybCredential(role: KybRole): Promise<void> {
  * Ne lève jamais : un échec ici ne doit pas annuler une connexion réussie. Le bouton
  * de secours reste affiché tant que l'attestation manque.
  */
-export async function ensureKybAttested(address: string): Promise<void> {
+export async function ensureKybAttested(address: string, assertCurrent: () => void = () => {}): Promise<void> {
   try {
     const statut = await fetch(`/api/account/status?address=${encodeURIComponent(address)}`);
     if (statut.ok) {
       const { known } = (await statut.json()) as { known?: unknown };
       if (known === true) return;
     }
-    await attestViaSponsor();
+    assertCurrent();
+    await attestViaSponsor(assertCurrent);
   } catch {
     // Silence volontaire : l'utilisateur est connecté, c'est ce qu'il demandait.
   }

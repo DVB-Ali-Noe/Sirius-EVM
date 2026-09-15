@@ -60,7 +60,7 @@ export async function prepareKybAcceptance(subject: string) {
   throw new AppError("KYB externe requis avant toute attestation on-chain", 503);
 }
 
-export async function finalizeKybAcceptance(subject: string, txHash?: string) {
+export async function finalizeKybAcceptance(subject: string, txHash?: string, transactionSender = subject) {
   const address = normalizeAddress(subject);
   const registry = kybRegistryAddress();
   const publicClient = getPublicClient();
@@ -69,7 +69,7 @@ export async function finalizeKybAcceptance(subject: string, txHash?: string) {
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as Hex, confirmations: 1 });
     if (receipt.status !== "success") throw new AppError("Transaction KYB rejetée", 409);
     const transaction = await publicClient.getTransaction({ hash: txHash as Hex });
-    if (!addressesEqual(transaction.from, address) || !addressesEqual(transaction.to ?? "", registry)) {
+    if (!addressesEqual(transaction.from, normalizeAddress(transactionSender)) || !addressesEqual(transaction.to ?? "", registry)) {
       throw new AppError("Transaction KYB non émise par le wallet connecté", 403);
     }
   }

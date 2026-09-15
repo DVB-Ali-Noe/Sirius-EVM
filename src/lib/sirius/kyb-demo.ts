@@ -67,6 +67,10 @@ export async function prepareDemoAttestation(subject: string) {
   const verifier = verifierAccount();
   const { chain } = resolveServerNetwork();
 
+  const client = getPublicClient();
+  const version = await client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "VERSION" });
+  if (version !== "sirius-kyb-v3") throw new AppError("Migration du registre KYB requise", 503);
+  const epoch = await client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "verifierEpoch", args: [verifier.address] });
   const nonce = await getPublicClient().readContract({
     address: registry,
     abi: siriuskybregistryAbi,
@@ -79,7 +83,7 @@ export async function prepareDemoAttestation(subject: string) {
   return {
     domain: {
       name: "SiriusKybRegistry",
-      version: "1",
+      version: "2",
       chainId: chain.id,
       verifyingContract: registry,
     },
@@ -89,6 +93,7 @@ export async function prepareDemoAttestation(subject: string) {
         { name: "verifier", type: "address" },
         { name: "expiresAt", type: "uint40" },
         { name: "nonce", type: "uint256" },
+        { name: "verifierEpoch", type: "uint64" },
       ],
     },
     primaryType: "KybAttestation" as const,
@@ -97,6 +102,7 @@ export async function prepareDemoAttestation(subject: string) {
       verifier: normalizeAddress(verifier.address),
       expiresAt,
       nonce: (nonce as bigint).toString(),
+      verifierEpoch: epoch.toString(),
     },
   };
 }
@@ -118,7 +124,7 @@ async function submitDemoAttestationEnSerie(subject: string, expiresAt: number, 
     functionName: "isKybValid",
     args: [address],
   });
-  if (dejaValide) return { subject: address, status: "ACCEPTED" as const, txHash: null };
+  if (dejaValide) return { subject: address, status: "ACCEPTED" as const, txHash: null, verifier: verifier.address };
 
   const wallet = createWalletClient({ account: verifier, chain, transport: http(rpcUrl) });
   const hash = await wallet.writeContract({
@@ -144,7 +150,7 @@ async function submitDemoAttestationEnSerie(subject: string, expiresAt: number, 
   });
   if (!valide) throw new AppError("Attestation posée mais le registre la juge invalide", 502);
 
-  return { subject: address, status: "ACCEPTED" as const, txHash: hash };
+  return { subject: address, status: "ACCEPTED" as const, txHash: hash, verifier: verifier.address };
 }
 
 export function submitDemoAttestation(subject: string, expiresAt: number, signature: string) {

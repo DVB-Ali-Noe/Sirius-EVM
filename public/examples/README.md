@@ -17,6 +17,11 @@ examples/
 Chaque paire contient un fichier `-train.csv` à déposer et un fichier `-test.csv`
 à conserver localement pour évaluer le modèle livré.
 
+Sur staging, utiliser `sirius-evm-staging.vercel.app`. `sirius-evm.vercel.app`
+est un alias de main, indépendamment de la branche ouverte dans l'éditeur.
+Les jeux de test sont réutilisables ; les comptes, datasets publiés et clés restent
+propres à chaque environnement. Voir [le guide des branches](../../docs/DEPLOYMENT.md).
+
 ## Régression linéaire
 
 ### `regression/housing-prices-train.csv` et `regression/housing-prices-test.csv`
@@ -36,6 +41,10 @@ Pour régénérer les jeux synthétiques et leurs séparations :
 ```bash
 pnpm datasets:generate
 ```
+
+La commande recrée aussi les fixtures nécessaires à `pnpm test`. La pipeline la
+lance avant les tests : un fichier `energy-demand*.csv` absent de `regression/`
+ne doit pas être compensé par une modification du modèle ou de ses métriques.
 
 ### `regression/bike-sharing-demand-train.csv` et `regression/bike-sharing-demand-test.csv`
 
@@ -93,6 +102,7 @@ pnpm datasets:benchmarks
   strictement écrite `0` ou `1`.
 - Les colonnes non numériques sont ignorées.
 
-Le navigateur chiffre le fichier avant son envoi. Next.js ne reçoit jamais les
-données brutes : Sirius stocke un blob chiffré et le borrower ne reçoit que le
-modèle livré.
+Le navigateur chiffre le fichier avant son envoi. Avec un runner Phala distant et
+attesté, Next.js ne reçoit pas les données brutes. En démonstration sans
+`RUNNER_URL`, le runner s'exécute dans Next et y déchiffre le CSV : utiliser des
+données synthétiques ou non sensibles. Le borrower ne reçoit que le modèle livré.

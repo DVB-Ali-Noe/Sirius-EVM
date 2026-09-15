@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { disconnectWallet } from "@/lib/wallet/manager";
 import { markWalletDisconnected } from "@/lib/wallet/intent";
-import { selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
+import { embeddedConfigured, selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
 import { signInWithWallet, signOut } from "@/lib/auth/client";
+import { messageOf } from "@/lib/errors-client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
-import { openWalletModal } from "./WalletConnector";
+import { openEmbeddedWallet, openWalletModal } from "./WalletConnector";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 function truncate(address: string): string {
@@ -26,6 +27,8 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const [open, setOpen] = useState(false);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectPending, setConnectPending] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const wrongNetwork = !!network && network !== EXPECTED_NETWORK;
@@ -51,10 +54,8 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
       await signInWithWallet();
       setOpen(false);
     } catch (error) {
-      // Affiché tel quel : c'est le portefeuille qui parle, et lui seul sait
-      // pourquoi il a refusé. Un message générique nous a coûté une soirée.
-      console.error("[sirius] signature refusée", error);
-      setAuthError(error instanceof Error ? error.message : "Échec — réessaie");
+      console.error("[sirius] authentification échouée", error);
+      setAuthError(messageOf(error));
     } finally {
       setAuthPending(false);
     }
@@ -76,6 +77,22 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     void waitForWallets()
       .then(setWallets)
       .finally(() => setScanning(false));
+  };
+
+  // Le SDK social n'est chargé qu'au clic, dans `openEmbeddedWallet`. Le menu se ferme
+  // avant : la fenêtre Google s'ouvre par-dessus, et laisser le menu derrière elle donnait
+  // l'impression que le clic n'avait rien déclenché.
+  const handleEmbedded = async () => {
+    setConnectPending(true);
+    setConnectError(null);
+    try {
+      await openEmbeddedWallet();
+      setOpen(false);
+    } catch (error) {
+      setConnectError(messageOf(error));
+    } finally {
+      setConnectPending(false);
+    }
   };
 
   const handleExternal = (rdns?: string) => {
@@ -123,20 +140,25 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div role="menu" className={`absolute z-50 ${menuPos} ${menuWidth} ${dropUp ? "rounded-[2rem]" : "w-72 rounded-xl"} overflow-hidden border border-border bg-surface shadow-xl`}>
-              <button
-                type="button"
-                disabled
-                className="block w-full cursor-not-allowed px-4 py-3 text-left opacity-60"
-              >
-                <span className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-foreground">{t("Continuer avec Google")}</span>
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
-                    {t("Bientôt disponible")}
-                  </span>
-                </span>
-                <span className="mt-0.5 block text-xs text-muted">{t("Sans crypto, en un clic")}</span>
-              </button>
-              <div className="border-t border-border" />
+              {embeddedConfigured() && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleEmbedded()}
+                    disabled={connectPending}
+                    className="block w-full px-4 py-3 text-left transition-colors hover:bg-white/5 disabled:opacity-60"
+                  >
+                    <span className="text-sm font-medium text-foreground">
+                      {connectPending ? t("Connexion…") : t("Continuer avec Google")}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted">{t("Sans crypto, en un clic")}</span>
+                  </button>
+                  {connectError && (
+                    <p role="alert" className="px-4 pb-3 text-xs text-negative">{t(connectError)}</p>
+                  )}
+                  <div className="border-t border-border" />
+                </>
+              )}
               {scanning && wallets.length === 0 && (
                 <div className="px-4 py-3 text-xs text-muted">{t("Recherche des wallets…")}</div>
               )}
@@ -245,10 +267,11 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                   {authPending ? t("Signature…") : t("Se connecter")}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted">
-                  {authError ? t(authError) : t("Signe pour prouver la possession du wallet")}
+                  {t("Signe pour prouver la possession du wallet")}
                 </span>
               </button>
             )}
+            {authError && <p role="alert" className="px-4 py-3 text-xs text-negative">{t(authError)}</p>}
             <button
               onClick={handleDisconnect}
               className="w-full px-4 py-3 text-left text-sm font-medium text-negative transition-colors hover:bg-negative/10"

@@ -1,5 +1,6 @@
 import { runLoanReaper } from "@/lib/sirius/reaper";
-import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
+import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
+import { AppError } from "@/lib/app-error";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -25,7 +26,7 @@ const MAX_INTERVAL_MS = 300_000;
 function resolveInterval(): number {
   const interval = Number(process.env.SIRIUS_REAPER_INTERVAL_MS ?? 30_000);
   if (!Number.isSafeInteger(interval) || interval < MIN_INTERVAL_MS || interval > MAX_INTERVAL_MS) {
-    throw new Error(
+    throw new AppError(
       `SIRIUS_REAPER_INTERVAL_MS invalide : attendu un entier entre ${MIN_INTERVAL_MS} et ${MAX_INTERVAL_MS} ms`,
     );
   }
@@ -63,7 +64,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 async function main(): Promise<void> {
   const interval = resolveInterval();
-  await requireCurrentEvmDeployment();
+  await requireReaperEvmDeployment();
   console.log(`[reaper] démarré, une passe toutes les ${interval} ms`);
 
   while (!arret) {
@@ -84,7 +85,9 @@ async function main(): Promise<void> {
   console.log("[reaper] arrêté proprement");
 }
 
-main().catch(() => {
-  console.error("[reaper] arrêt sur erreur fatale : vérifier la configuration et les contrats");
+main().catch((error) => {
+  console.error(error instanceof AppError
+    ? `[reaper] arrêt : ${error.message}`
+    : "[reaper] arrêt sur erreur fatale : vérifier la configuration et les contrats");
   process.exitCode = 1;
 });

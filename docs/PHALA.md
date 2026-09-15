@@ -18,11 +18,19 @@ Le runner est la frontière de confiance : il détient la master key dstack, ouv
 
 Le compte EVM de règlement est dérivé dans le runner depuis la master key scellée. Il doit recevoir suffisamment d'ETH natif pour payer les appels `release`. Sa clé privée ne doit jamais être injectée par variable d'environnement. Le remboursement `refund` est signé par le wallet du borrower ; Next prépare et réconcilie cette transaction sans accéder à la master key.
 
+## Branches et domaine signé
+
+Chaque environnement possède son runner et ses clés. Son `SIRIUS_APP_ORIGIN` doit correspondre au domaine canonique de Next : `https://sirius-evm-staging.vercel.app` sur staging, `https://sirius-data.tech` sur main. Les alias HTTP restent configurés dans Next ; ils ne changent pas le domaine des délégations ni de la clé d'ingestion.
+
+La pipeline construit l'image runner et synchronise les origines de Next, mais ne change pas automatiquement le compose de la CVM. Une fusion sur main ne doit ni réutiliser les clés de staging ni promouvoir une image dont les mesures n'ont pas été validées. Conserver les clés existantes lorsqu'on change seulement le frontend ; les détails de branche sont dans [DEPLOYMENT.md](DEPLOYMENT.md).
+
 Après un changement d'escrow, conserver la master key et renseigner `SIRIUS_LEGACY_ESCROW_ADDRESSES` dans le runner comme dans Next et le worker pour relivrer les modèles des déploiements précédents.
 
 Le RPC de règlement est une dépendance de confiance : la simulation et l'envoi de `release` lui transmettent le préimage avant confirmation. Les logs applicatifs suppriment les détails Viem susceptibles de le contenir, mais cela ne garantit pas la confidentialité vis-à-vis d'un RPC hostile. Utiliser un RPC de confiance et ne pas considérer la seule simulation comme une preuve de règlement.
 
 ## Séquence de déploiement
+
+Avec Escrow v6, récupérer d’abord l’adresse publique du compte de règlement du runner pour `SIRIUS_LOCK_AUTHORIZER`. Une CVM nouvelle doit initialiser son identité avant le déploiement de cet escrow ; une CVM existante conserve sa master key. La transition depuis v5 suit [ESCROW-V6.md](ESCROW-V6.md), avec clôture des anciens prêts avant changement d’adresses.
 
 1. Compiler, tester et déployer les contrats sur testnet.
 2. Poser les adresses testnet d'escrow, KYB et dataset dans l'environnement du runner et dans l'application.

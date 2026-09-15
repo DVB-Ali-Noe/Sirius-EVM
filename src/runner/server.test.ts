@@ -104,13 +104,15 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
 
   const hashlockBody = JSON.stringify({
     loanId: "loan-2",
+    datasetId: "dataset-1",
     borrower: "rBorrower",
   });
   const wrongScope = await request(
     "POST",
-    "/escrow-hashlock",
-    issueRunnerCapability("escrow-hashlock", {
+    "/prepare-escrow-lock",
+    issueRunnerCapability("prepare-escrow-lock", {
       loanId: "loan-1",
+      datasetId: "dataset-1",
       borrower: "rBorrower",
     }),
     hashlockBody,
