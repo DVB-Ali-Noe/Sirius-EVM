@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
@@ -224,7 +224,65 @@ void main() {
 }
 `;
 
+/**
+ * Profil de rendu, décidé une fois au montage.
+ *
+ * Le blob dessine près de 300 000 points, chacun passé par plusieurs bruits de Perlin à
+ * chaque image, puis un flou de bloom plein écran — en continu, sur toutes les pages. Un
+ * GPU de téléphone n'y arrive pas : tout saccade, y compris le défilement de la landing
+ * dont le zoom est lié au scroll. Sur écran tactile ou machine modeste on garde le même
+ * dessin avec quatre fois moins de points, sans bloom, à un DPR plafonné et à trente
+ * images par seconde : l'œil ne voit pas la différence sur six pouces, le GPU si.
+ *
+ * « Réduire les animations » va plus loin : plus aucune image n'est rendue sans raison,
+ * seulement quand le scroll ou l'application déplacent la caméra.
+ */
+interface RenderProfile {
+  density: number;
+  haloLayers: number;
+  bloom: boolean;
+  dpr: [number, number];
+  antialias: boolean;
+  /** Intervalle entre deux images ; `null` = rendu continu. */
+  frameIntervalMs: number | null;
+  motion: boolean;
+}
+
+function detectProfile(): RenderProfile {
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const narrow = window.innerWidth < 768;
+  const cores = navigator.hardwareConcurrency ?? 8;
+  const motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (coarse || narrow || cores <= 4) {
+    return { density: 0.25, haloLayers: 8, bloom: false, dpr: [1, 1.5], antialias: false, frameIntervalMs: 1000 / 30, motion };
+  }
+  return { density: 1, haloLayers: 20, bloom: true, dpr: [1, 2], antialias: true, frameIntervalMs: null, motion };
+}
+
+/**
+ * Cadence des images en rendu à la demande : une image à chaque changement d'état du
+ * blob (scroll de la landing, zoom de l'app, dézoom de sortie), plus une cadence fixe
+ * tant que les animations sont permises. Sans le premier abonnement, la caméra ne
+ * suivrait plus le scroll ; sans la cadence, le blob serait figé.
+ */
+function FrameDriver({ profile }: { profile: RenderProfile }) {
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    const unsubscribe = useBlobStore.subscribe(() => invalidate());
+    invalidate();
+    const timer = profile.motion && profile.frameIntervalMs !== null
+      ? window.setInterval(() => invalidate(), profile.frameIntervalMs)
+      : null;
+    return () => {
+      unsubscribe();
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [invalidate, profile]);
+  return null;
+}
+
 function StreakParticles({
+  profile,
   timeRef,
   impulseRef,
   clickTypeRef,
@@ -234,6 +292,7 @@ function StreakParticles({
   clickModeRef,
   formationRef,
 }: {
+  profile: RenderProfile;
   timeRef: React.RefObject<number>;
   impulseRef: React.RefObject<number>;
   clickTypeRef: React.RefObject<number>;
@@ -256,7 +315,7 @@ function StreakParticles({
 
     let streakId = 0;
 
-    const skinCount = 95000;
+    const skinCount = Math.round(95000 * profile.density);
     for (let i = 0; i < skinCount; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
@@ -277,7 +336,7 @@ function StreakParticles({
 
     streakId = 1;
 
-    const haloLayers = 20;
+    const haloLayers = profile.haloLayers;
     const maxHaloSpread = 0.126;
     const addHalo = (x: number, y: number, z: number, fade: number, alphaCore: number, depth: number, id: number, haloType = 4.0) => {
       for (let h = 0; h < haloLayers; h++) {
@@ -299,7 +358,7 @@ function StreakParticles({
       }
     };
 
-    const rimExtraCount = 85000;
+    const rimExtraCount = Math.round(85000 * profile.density);
     for (let i = 0; i < rimExtraCount; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.PI / 2 + (Math.random() - 0.5) * 0.52;
@@ -318,7 +377,7 @@ function StreakParticles({
       lt.push(1.0);
     }
 
-    const ultraRimCount = 75000;
+    const ultraRimCount = Math.round(75000 * profile.density);
     for (let i = 0; i < ultraRimCount; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.PI / 2 + (Math.random() - 0.5) * 0.174;
@@ -397,7 +456,7 @@ function StreakParticles({
       depthLayers: new Float32Array(dl),
       layerTypes: new Float32Array(lt),
     };
-  }, []);
+  }, [profile]);
 
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
@@ -446,14 +505,16 @@ function StreakParticles({
   );
 }
 
-function BlobScene() {
+function BlobScene({ profile }: { profile: RenderProfile }) {
   const timeRef = useRef(0);
   const impulseRef = useRef(0);
   const clickTypeRef = useRef(0);
   const visibleLayerRef = useRef(0);
   const clickDirRef = useRef(new THREE.Vector3(0, 0, 1));
   const clickModeRef = useRef(1.0);
-  const formationRef = useRef(0);
+  // Sans animation, le blob apparaît déjà formé : l'éclosion demanderait des images
+  // que ce mode ne rend pas.
+  const formationRef = useRef(profile.motion ? 0 : 1);
   const { camera } = useThree();
 
   useFrame((_, rawDelta) => {
@@ -472,9 +533,10 @@ function BlobScene() {
       const raw = Math.min(1, Math.max(0, (blob.scrollProgress - 0.03) / 0.77));
       const progress = raw * raw;
       const targetZ = 2.8 - progress * 2.7;
-      // Suit le scroll au pixel (écart minime → snap).
+      // Suit le scroll au pixel (écart minime → snap). Sans animation, on se cale
+      // directement : le lissage aurait besoin d'images suivantes qui ne viendront pas.
       const gap = targetZ - camera.position.z;
-      camera.position.z = Math.abs(gap) > 0.05 ? camera.position.z + gap * Math.min(1, 10 * delta) : targetZ;
+      camera.position.z = profile.motion && Math.abs(gap) > 0.05 ? camera.position.z + gap * Math.min(1, 10 * delta) : targetZ;
     } else if (blob.dezoomActive) {
       camera.position.z += (2.8 - camera.position.z) * 3.5 * delta;
       blob.setDezoomProgress(Math.min(1, (camera.position.z - 0.1) / 2.7));
@@ -499,17 +561,23 @@ function BlobScene() {
 
   return (
     <>
-      <StreakParticles timeRef={timeRef} impulseRef={impulseRef} clickTypeRef={clickTypeRef} clickSeedRef={clickSeedRef} visibleLayerRef={visibleLayerRef} clickDirRef={clickDirRef} clickModeRef={clickModeRef} formationRef={formationRef} />
+      <FrameDriver profile={profile} />
+      <StreakParticles profile={profile} timeRef={timeRef} impulseRef={impulseRef} clickTypeRef={clickTypeRef} clickSeedRef={clickSeedRef} visibleLayerRef={visibleLayerRef} clickDirRef={clickDirRef} clickModeRef={clickModeRef} formationRef={formationRef} />
 
-      <EffectComposer>
-        <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.9} intensity={0.15} mipmapBlur />
-      </EffectComposer>
+      {profile.bloom && (
+        <EffectComposer>
+          <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.9} intensity={0.15} mipmapBlur />
+        </EffectComposer>
+      )}
     </>
   );
 }
 
 export default function Blob() {
   const [ready, setReady] = useState(false);
+  // Ce composant n'est chargé que côté client (`ssr: false`) : `window` est disponible.
+  const [profile] = useState(detectProfile);
+  const continuous = profile.motion && profile.frameIntervalMs === null;
 
   return (
     <>
@@ -519,11 +587,12 @@ export default function Blob() {
       >
         <Canvas
           camera={{ position: [0, 0, 2.8], fov: 50 }}
-          gl={{ antialias: true, alpha: true }}
-          dpr={[1, 2]}
+          gl={{ antialias: profile.antialias, alpha: true }}
+          dpr={profile.dpr}
+          frameloop={continuous ? "always" : "demand"}
           onCreated={() => requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)))}
         >
-          <BlobScene />
+          <BlobScene profile={profile} />
         </Canvas>
       </div>
     </>

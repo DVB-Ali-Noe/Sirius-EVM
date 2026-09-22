@@ -138,7 +138,7 @@ export default function NewDatasetPage() {
   return (
     <main className="mx-auto w-full max-w-xl px-6 py-8">
       <div className="mb-6">
-        <Link href="/datasets" className="text-sm text-muted transition-colors hover:text-foreground">
+        <Link href="/datasets" className="inline-flex min-h-10 items-center text-sm text-muted transition-colors hover:text-foreground">
           {t("← Mes actifs data")}
         </Link>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{t("Déposer un dataset")}</h1>
@@ -229,7 +229,7 @@ export default function NewDatasetPage() {
                 type="button"
                 onClick={loadExample}
                 disabled={loadingExample}
-                className="underline underline-offset-4 transition-colors hover:text-foreground disabled:opacity-50"
+                className="py-2 underline underline-offset-4 transition-colors hover:text-foreground disabled:opacity-50"
               >
                 {loadingExample ? t("Chargement…") : t("Charger le jeu d'exemple")}
               </button>{" "}
@@ -237,7 +237,7 @@ export default function NewDatasetPage() {
               <a
                 href={modelId === "linear_regression" ? "/examples/regression/housing-prices-train.csv" : "/examples/classification/credit-default-train.csv"}
                 download
-                className="underline underline-offset-4 transition-colors hover:text-foreground"
+                className="py-2 underline underline-offset-4 transition-colors hover:text-foreground"
               >
                 {t("Télécharger")}
               </a>
