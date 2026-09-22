@@ -29,6 +29,49 @@ const team = [
   },
 ];
 
+/** Compte X du projet : sa seule présence publique hors du site. */
+const X_HANDLE = "Sirius_data";
+
+const X_GLYPH = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+  </svg>
+);
+
+/**
+ * Lien vers X. En icône seule en haut de page, où il doit se voir dès l'arrivée sans
+ * concurrencer le bouton de connexion ; avec le handle en pied de page, où il y a la place.
+ */
+function XLink({ variant }: { variant: "icon" | "footer" }) {
+  const { t } = useLocale();
+  const label = t("Suivre Sirius sur X");
+  if (variant === "icon") {
+    return (
+      <a
+        href={`https://x.com/${X_HANDLE}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={label}
+        title={label}
+        className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface hover:text-foreground"
+      >
+        {X_GLYPH}
+      </a>
+    );
+  }
+  return (
+    <a
+      href={`https://x.com/${X_HANDLE}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline"
+    >
+      {X_GLYPH}
+      <span>@{X_HANDLE}</span>
+    </a>
+  );
+}
+
 /** Avatar circulaire. */
 function AvatarCard({
   name,
@@ -94,9 +137,12 @@ function PageBottom() {
       </section>
 
       <footer className="relative z-10 flex flex-col items-center gap-3 border-t border-border px-6 py-8 text-center">
-        <Link href="/docs" className="text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
-          {t("Documentation")}
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link href="/docs" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
+            {t("Documentation")}
+          </Link>
+          <XLink variant="footer" />
+        </div>
         <p className="text-xs tracking-widest text-muted">{t("Sirius — data lending confidentiel sur EVM")}</p>
       </footer>
     </div>
@@ -190,6 +236,7 @@ export default function Home() {
   return (
     <main className="relative z-10 text-foreground">
       <div className="fixed right-0 top-0 z-30 flex items-center gap-2 p-6 sm:p-8">
+        <XLink variant="icon" />
         <ConnectButton />
       </div>
 
@@ -228,7 +275,7 @@ export default function Home() {
                 )}
                 <Link
                   href="/docs"
-                  className="text-sm font-medium text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                  className="py-2 text-sm font-medium text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline"
                 >
                   {t("Lire la documentation")}
                 </Link>

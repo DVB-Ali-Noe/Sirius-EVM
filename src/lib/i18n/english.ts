@@ -95,6 +95,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Télécharger": "Download",
   "Exemple indisponible": "Example unavailable",
   "Tableau de bord": "Dashboard",
+  "Suivre Sirius sur X": "Follow Sirius on X",
   "Entraîner": "Train",
   "Mes datasets": "My datasets",
   "Quitter vers l'accueil": "Back to home",
