@@ -47,6 +47,17 @@ body::-webkit-scrollbar {
   display: none;
 }
 
+/* Sur un écran tactile, Safari iOS zoome sur tout champ dont la police fait moins de
+   16 px, et l'utilisateur se retrouve à devoir dézoomer après chaque saisie. La règle est
+   hors couche exprès : elle doit l'emporter sur les utilitaires `text-sm` des champs. */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

@@ -247,7 +247,7 @@ function MarketCard({
             onClick={() => toggleFav(dataset.id)}
             aria-label={isFav ? t("Retirer des favoris") : t("Ajouter aux favoris")}
             aria-pressed={isFav}
-            className={`text-lg leading-none transition-colors ${
+            className={`-my-2 flex h-10 w-10 items-center justify-center rounded-full text-lg leading-none transition-colors ${
               isFav ? "text-foreground" : "text-muted-foreground hover:text-muted"
             }`}
           >
