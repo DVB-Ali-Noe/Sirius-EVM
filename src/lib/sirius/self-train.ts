@@ -8,6 +8,7 @@ import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
 import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 
 export interface SelfTrainResult {
   jobId: string;
@@ -39,6 +40,7 @@ export async function runSelfTrain(
   const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
   if (dataset.provider !== owner) throw new AppError("Self-train réservé au propriétaire du dataset", 403);
+  const runner = await assertCurrentRunner(dataset);
   if (
     !dataset.ipfsCid ||
     !dataset.merkleRoot ||
@@ -82,7 +84,7 @@ export async function runSelfTrain(
       throw new AppError("Quota d’entraînement atteint — réessaie plus tard", 429);
     }
     return tx.trainingJob.create({
-      data: { id: jobId, datasetId: dataset.id, owner, modelId: model.modelId, modelVersion: model.modelVersion, status: "RUNNING" },
+      data: { id: jobId, datasetId: dataset.id, owner, modelId: model.modelId, modelVersion: model.modelVersion, status: "RUNNING", ...runner },
     });
   });
 

@@ -18,6 +18,7 @@ import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -43,6 +44,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
+  const runner = await assertCurrentRunner(dataset);
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
   // Le contrat exige les deux KYB. Sans ce contrôle, l'échec surviendrait après
@@ -90,6 +92,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         amountUsdcAtomic,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
+        ...runner,
       },
     });
   });
@@ -154,6 +157,8 @@ export async function renewLoanLock(loanId: string, borrower: string) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
   if (await readLoan(loan.evmLoanKey as Hex)) throw new AppError("Emprunt déjà verrouillé", 409);
+  await assertCurrentRunner(loan);
+  await assertCurrentRunner(dataset);
   const { hashlock, authorization } = await prepareEscrowLockInRunner({
     datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
     priceUsdcAtomic: loan.amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,

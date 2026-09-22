@@ -41,4 +41,6 @@ export interface RunnerRaTlsEvidence extends TdxEvidence {
   certificateSha256: string;
   ingressKeySha256: string;
   masterKeyChainSha256: string;
+  settlementAddress: string;
+  bootstrapOnly: boolean;
 }

@@ -4,6 +4,8 @@
 
 Les corrections F1–F4 du 13 septembre ajoutent une migration contractuelle distincte : lire [ESCROW-V6.md](ESCROW-V6.md) avant de publier la nouvelle version. Le choix automatique des origines ne déploie pas les contrats.
 
+**Point de reprise Phala au 20 septembre :** la CVM de production a été déployée et vérifiée en amorçage, mais aucune bascule Next, base, contrats ou reaper n’a été effectuée dans cette intégration. Les accès de production sont à récupérer par Noé dans `.env.phala-production-secrets` (encore vide au dernier contrôle local). L’export `.env.phala-production-current` contient des valeurs `[SENSITIVE]` inutilisables. Lire [le point de reprise et l’ordre des opérations](PHALA.md#reprendre-ici--20-septembre-2026) avant tout déploiement main.
+
 ## Une cible par branche
 
 [`scripts/deployment-target.mjs`](../scripts/deployment-target.mjs) est la source de vérité utilisée par [la pipeline](../.github/workflows/pipeline.yml).
@@ -27,6 +29,8 @@ Les deux projets Vercel utilisent chacun leur environnement **Production**. Cela
 **Branche `main`, environnement Vercel Production et réseau EVM mainnet sont trois notions distinctes.** Le réseau et les contrats restent ceux de chaque environnement. Fusionner sur main ne déploie pas de contrats, ne change pas le token et n'active pas mainnet.
 
 ## Ce qui se passe après une fusion
+
+La cible fixe aussi `SIRIUS_REQUIRE_PHALA` : `true` sur main, `false` sur staging. La production applicative exige donc le runner Phala même si le réseau reste testnet. Avant la première fusion de cette évolution sur main, terminer le runbook [PHALA.md](PHALA.md) et configurer les mesures et le runner actif ; les secrets de démonstration ne sont pas convertis automatiquement. Staging conserve le mode in-process pour les données non sensibles. Aucun sélecteur de runner n’est exposé.
 
 1. Le push sur `staging` ou `main` déclenche les tests, le typage, le lint, le build et les tests navigateur. Une PR seule ne déploie rien.
 2. La référence exacte résout le projet Vercel, l'environnement GitHub, le dossier VPS et les origines. Une branche inconnue, un tag ou une référence de PR est refusé ; aucun fallback vers staging.

@@ -1,8 +1,10 @@
 import { isDemoDeployment } from "@/lib/deployment-mode";
+import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
 
 const DEMO = isDemoDeployment();
 
 export async function registerNode() {
+  assertApplicationRunnerConfiguration();
   if (process.env.NODE_ENV === "production") {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");

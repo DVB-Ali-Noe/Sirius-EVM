@@ -8,6 +8,7 @@ import { assertGrantSubject, requireAuth, assertOwner } from "@/lib/auth/require
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 
 export const runtime = "nodejs";
@@ -69,6 +70,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (loan.status !== "SETTLED" || !loan.modelCid || !loan.runnerReceipt || !loan.settleTxHash) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
+    await assertCurrentRunner(loan);
     const delivery = await loanModelKeyInRunner(
       id,
       loan.runnerReceipt,

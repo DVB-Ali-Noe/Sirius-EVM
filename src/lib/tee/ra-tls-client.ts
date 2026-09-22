@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, type X509Certificate } from "node:crypto";
 import { Agent, request, type RequestOptions } from "node:https";
 import { isIP } from "node:net";
 import {
@@ -9,7 +9,8 @@ import {
   type PeerCertificate,
 } from "node:tls";
 import { verifyTdxQuote } from "./quote";
-import type { RunnerRaTlsEvidence } from "./types";
+import { parseRunnerRaTlsEvidence } from "./ra-tls-evidence";
+import { certificateFromDer, certificatePem } from "./certificate";
 
 const ATTESTATION_CACHE_MS = 5 * 60 * 1_000;
 const ATTESTATION_MAX_BYTES = 2 * 1024 * 1024;
@@ -116,11 +117,6 @@ function sha256Hex(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-function certificatePem(raw: Buffer): string {
-  const base64 = raw.toString("base64").match(/.{1,64}/g)?.join("\n") ?? "";
-  return `-----BEGIN CERTIFICATE-----\n${base64}\n-----END CERTIFICATE-----\n`;
-}
-
 function certificateChain(peer: DetailedPeerCertificate): string[] {
   const chain: string[] = [];
   const seen = new Set<string>();
@@ -145,25 +141,6 @@ function assertCertificateHostname(certificate: X509Certificate, hostname: strin
   }
 }
 
-function parseEvidence(raw: Buffer): RunnerRaTlsEvidence {
-  const parsed = JSON.parse(raw.toString("utf8")) as Partial<RunnerRaTlsEvidence>;
-  if (
-    !parsed ||
-    typeof parsed.quote !== "string" ||
-    typeof parsed.eventLog !== "string" ||
-    typeof parsed.composeHash !== "string" ||
-    typeof parsed.certificateSha256 !== "string" ||
-    typeof parsed.ingressKeySha256 !== "string" ||
-    typeof parsed.masterKeyChainSha256 !== "string" ||
-    !/^[0-9a-f]{64}$/i.test(parsed.certificateSha256) ||
-    !/^[0-9a-f]{64}$/i.test(parsed.ingressKeySha256) ||
-    !/^[0-9a-f]{64}$/i.test(parsed.masterKeyChainSha256)
-  ) {
-    throw new Error("Évidence RA-TLS runner invalide");
-  }
-  return parsed as RunnerRaTlsEvidence;
-}
-
 function assertPinnedHash(name: string, actual: string, expected: string | undefined): void {
   const normalized = expected?.trim().toLowerCase();
   if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
@@ -185,10 +162,10 @@ async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
     throw new Error(`Bootstrap RA-TLS en échec (${response.status})`);
   }
 
-  const leaf = new X509Certificate(response.certificate.raw);
+  const leaf = certificateFromDer(response.certificate.raw);
   assertCertificateHostname(leaf, baseUrl.hostname);
   const certificateSha256 = sha256Hex(leaf.raw);
-  const evidence = parseEvidence(response.body);
+  const evidence = parseRunnerRaTlsEvidence(response.body);
   if (evidence.certificateSha256.toLowerCase() !== certificateSha256) {
     throw new Error("La quote RA-TLS ne cible pas le certificat présenté");
   }
@@ -260,13 +237,13 @@ async function transportFor(baseUrl: URL): Promise<AttestedTransport> {
 
 export async function attestedRunnerFetch(
   url: URL,
-  init: { body: string; headers: HeadersInit; method: "POST"; timeoutMs: number },
+  init: { body?: string; headers?: HeadersInit; method: "POST" | "GET"; timeoutMs: number },
 ): Promise<Response> {
   if (url.protocol !== "https:") throw new Error("Transport RA-TLS réservé à HTTPS");
   const transport = await transportFor(url);
-  const body = Buffer.from(init.body);
+  const body = init.body === undefined ? undefined : Buffer.from(init.body);
   const headers = new Headers(init.headers);
-  headers.set("content-length", String(body.length));
+  if (body) headers.set("content-length", String(body.length));
   try {
     const response = await bufferedRequest(url, {
       agent: transport.agent,

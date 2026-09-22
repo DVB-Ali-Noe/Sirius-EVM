@@ -2,7 +2,7 @@
  * Mode de déploiement de l'instance.
  *
  * Une instance « démonstration » est construite comme la production mais servie sur
- * un réseau de test, sans enclave attestée. Elle existe parce que `NODE_ENV` ne dit
+ * un réseau de test, avec ou sans enclave attestée. Elle existe parce que `NODE_ENV` ne dit
  * qu'une chose — le code est compilé pour être servi — là où plusieurs contrôles en
  * supposaient une autre : que l'instance EST le produit final, sur mainnet, derrière
  * un TEE dont les mesures sont épinglées.
@@ -19,6 +19,7 @@
  * où le réseau n'est pas encore résolu. Il ne peut en revanche rien débloquer sur
  * mainnet — `instrumentation-node.ts` refuse de démarrer dans ce cas, et c'est ce
  * refus, pas cette fonction, qui tient la garantie.
+ * SIRIUS_REQUIRE_PHALA impose séparément une enclave sur main, même sur testnet.
  */
 export function isDemoDeployment(): boolean {
   if (process.env.SIRIUS_DEPLOYMENT_MODE === "demo") return true;

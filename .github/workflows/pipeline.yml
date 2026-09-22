@@ -107,6 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environnement: ${{ steps.calcul.outputs.environnement }}
+      phala_requis: ${{ steps.calcul.outputs.phala_requis }}
       projet_compose: ${{ steps.calcul.outputs.projet_compose }}
       projet_vercel: ${{ steps.calcul.outputs.projet_vercel }}
       dossier_vps: ${{ steps.calcul.outputs.dossier_vps }}
@@ -262,6 +263,7 @@ jobs:
         env:
           APP_ORIGIN: ${{ needs.cible.outputs.url_publique }}
           APP_ORIGIN_ALIASES: ${{ needs.cible.outputs.origines_alias }}
+          PHALA_REQUIRED: ${{ needs.cible.outputs.phala_requis }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           # La version est épinglée plutôt que résolue par `@latest`. Deux raisons, et
           # la première s'est produite : `@latest` a désigné une version que le registre
@@ -287,9 +289,10 @@ jobs:
           npx --yes "$CLI" env add SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
           npx --yes "$CLI" env add SIRIUS_APP_ORIGIN_ALIASES production --force --yes --no-sensitive --value="$APP_ORIGIN_ALIASES" --token="$TOKEN"
           npx --yes "$CLI" env add NEXT_PUBLIC_SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
+          npx --yes "$CLI" env add SIRIUS_REQUIRE_PHALA production --force --yes --no-sensitive --value="$PHALA_REQUIRED" --token="$TOKEN"
 
           # Chaque cible a son propre projet, donc son propre environnement de
-          # production : les trois mêmes commandes servent aux deux, et il n'y a
+          # production : les mêmes commandes servent aux deux, et il n'y a
           # aucune branche à déclarer ni métadonnée Git à joindre.
           npx --yes "$CLI" pull --yes --environment=production --token="$TOKEN"
           npx --yes "$CLI" build --prod --token="$TOKEN"

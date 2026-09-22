@@ -31,6 +31,8 @@ model Dataset {
   modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
+  runnerKind     RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
   status         DatasetStatus @default(DRAFT)
   keyDestroyedAt DateTime? // horodatage du crypto-shredding (DEK détruite, data irrécupérable)
   createdAt      DateTime      @default(now())
@@ -57,6 +59,8 @@ model TrainingJob {
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
+  runnerKind    RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
 
   status      TrainingStatus @default(PENDING)
   createdAt   DateTime       @default(now())
@@ -98,6 +102,8 @@ model Loan {
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
   runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
+  runnerKind             RunnerKind @default(UNKNOWN)
+  runnerDeploymentId     String?
   settleTxHash           String? // release USDC
   auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
@@ -192,6 +198,12 @@ enum DatasetStatus {
   PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
   SUSPENDED
   DELETED // crypto-shreddé : clé détruite, data irrécupérable ; ligne gardée pour l'audit
+}
+
+enum RunnerKind {
+  UNKNOWN
+  DEVELOPMENT
+  PHALA
 }
 
 enum LoanStatus {

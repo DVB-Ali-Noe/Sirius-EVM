@@ -6,9 +6,11 @@ const SHA384_HEX = /^[0-9a-f]{96}$/i;
 const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const MAX_EVENT_LOG_BYTES = 2 * 1024 * 1024;
 const MAX_EVENT_COUNT = 10_000;
+const DSTACK_RUNTIME_EVENT_TYPE = 0x08000001;
 
 interface DstackEvent {
   imr: number;
+  event_type: number;
   digest: string;
   event: string;
   event_payload: string;
@@ -37,19 +39,40 @@ function parseEventLog(raw: string): DstackEvent[] {
       !event ||
       typeof event !== "object" ||
       !Number.isInteger(Reflect.get(event, "imr")) ||
+      Reflect.get(event, "imr") < 0 || Reflect.get(event, "imr") > 3 ||
+      !Number.isInteger(Reflect.get(event, "event_type")) ||
+      Reflect.get(event, "event_type") < 0 || Reflect.get(event, "event_type") > 0xffffffff ||
       typeof Reflect.get(event, "digest") !== "string" ||
       typeof Reflect.get(event, "event") !== "string" ||
       typeof Reflect.get(event, "event_payload") !== "string"
     ) {
       throw new Error("Entrée d’event-log TDX invalide");
     }
-    const digest = Reflect.get(event, "digest") as string;
-    if (!SHA384_HEX.test(digest)) throw new Error("Digest d’event-log TDX invalide");
+    let digest = Reflect.get(event, "digest") as string;
+    const eventType = Reflect.get(event, "event_type") as number;
+    const name = Reflect.get(event, "event") as string;
+    const payload = Reflect.get(event, "event_payload") as string;
+    if (eventType === DSTACK_RUNTIME_EVENT_TYPE) {
+      if (!/^(?:[0-9a-f]{2})*$/i.test(payload)) throw new Error("Payload d’event-log TDX invalide");
+      const typeBytes = Buffer.alloc(4);
+      typeBytes.writeUInt32LE(eventType);
+      // Format dstack : type natif x86, ':', nom UTF-8, ':', payload binaire.
+      // Recalculer lie le payload à RTMR3, même quand dstack omet le digest.
+      const computed = createHash("sha384").update(typeBytes).update(":").update(name)
+        .update(":").update(Buffer.from(payload, "hex")).digest("hex");
+      if (digest && (!SHA384_HEX.test(digest) || !equalHex(digest, computed))) {
+        throw new Error("Digest d’event-log TDX incohérent");
+      }
+      digest = computed;
+    } else if (!SHA384_HEX.test(digest)) {
+      throw new Error("Digest d’event-log TDX invalide");
+    }
     return {
       imr: Reflect.get(event, "imr") as number,
+      event_type: eventType,
       digest: digest.toLowerCase(),
-      event: Reflect.get(event, "event") as string,
-      event_payload: Reflect.get(event, "event_payload") as string,
+      event: name,
+      event_payload: payload,
     };
   });
 }
@@ -77,7 +100,8 @@ export function verifyEventLogIdentity(
     replayedRtMr3,
     eventLogMatches: equalHex(replayedRtMr3, measuredRtMr3.toLowerCase()),
     composeEventMatches: events.some(
-      (event) => event.imr === 3 && event.event === "compose-hash" && equalHex(event.event_payload, composeHash),
+      (event) => event.imr === 3 && event.event_type === DSTACK_RUNTIME_EVENT_TYPE &&
+        event.event === "compose-hash" && equalHex(event.event_payload, composeHash),
     ),
   };
 }

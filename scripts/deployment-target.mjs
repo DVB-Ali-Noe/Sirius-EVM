@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 const targets = {
   main: {
     environnement: "production",
+    phala_requis: "true",
     projet_compose: "sirius",
     projet_vercel: "prj_gmEKctb6EJcsErIQqamKiZNaK5vZ",
     dossier_vps: "/opt/sirius",
@@ -11,6 +12,7 @@ const targets = {
   },
   staging: {
     environnement: "staging",
+    phala_requis: "false",
     projet_compose: "sirius-staging",
     projet_vercel: "prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz",
     dossier_vps: "/opt/sirius-staging",

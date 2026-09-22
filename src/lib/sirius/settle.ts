@@ -1,4 +1,5 @@
 import "server-only";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
@@ -143,6 +144,8 @@ export async function prepareLoanResult(
 
   let result: Awaited<ReturnType<typeof runLoanJobInRunner>> | undefined;
   try {
+    const runner = await assertCurrentRunner(loan);
+    await assertCurrentRunner(dataset);
     result = await runLoanJobInRunner(
       {
         loanId,
@@ -185,6 +188,7 @@ export async function prepareLoanResult(
         attestationEventLog: result.attestation.evidence?.eventLog ?? null,
         attestationComposeHash: result.attestation.evidence?.composeHash ?? null,
         auditReceipt: result.attestation.signature,
+        ...runner,
       },
     });
     if (persisted.count !== 1) throw new AppError("Lease d’entraînement expiré", 409);
@@ -209,6 +213,7 @@ export async function settlePreparedLoan(
   if (loan.status === "SETTLED" && loan.modelCid && loan.runnerReceipt && loan.settleTxHash) {
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash };
   }
+  await assertCurrentRunner(loan);
   if (
     (loan.status !== "TRAINING" && loan.status !== "SETTLING") ||
     !loan.modelCid ||

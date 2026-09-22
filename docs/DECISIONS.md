@@ -91,3 +91,11 @@ Le registre strict v3 signe `verifierEpoch` sous le domaine EIP-712 version `2`.
 ## D-20 — Budget à l’ingestion
 
 Le plafond de 20 millions d’opérations est partagé par validation et entraînement. Un fichier qui le dépasse est refusé avant scellement. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
+
+## D-21 — Phala unique en production, sans sélecteur VPS
+
+Décision validée pour l’intégration de septembre 2026 : Phala est l’unique runner de production, y compris lorsque la chaîne est le testnet. Le runner in-process ou VPS reste réservé au développement/staging avec des données synthétiques ou non sensibles, piloté par l’environnement. Aucun sélecteur dans l’interface et aucune bascule automatique après une panne Phala. Le VPS de production conserve le reaper.
+
+La nouvelle master key naît dans l’enclave ; celle de Vercel n’y est jamais importée. L’immuabilité de `lockAuthorizer` exige donc un nouvel escrow v6 et un registre dataset associé, même si la production utilisait déjà v6. Les anciens escrows restent autorisés pour les crédits et preuves ; les anciens modèles nécessitent la préservation séparée de leur environnement et de leurs clés. Les datasets destinés au nouveau runner sont réimportés.
+
+La provenance `runnerKind` et `runnerDeploymentId` est enregistrée sur les datasets, entraînements et prêts. Les anciennes lignes restent `UNKNOWN`, sans provenance Phala fabriquée rétroactivement. Le mode VPS économique sera étudié si un client le demande ; sa [spécification différée](RUNNER-MULTI-BACKEND.md) n’est pas le périmètre actuel. État et reprise : [PHALA.md](PHALA.md).

@@ -2,6 +2,8 @@
 
 Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signifie que la brique est implémentée localement, pas qu'elle a été validée sur un réseau public.
 
+**Reprise au 20 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--20-septembre-2026). La CVM a été vérifiée en amorçage le 19 septembre ; le site, les contrats et la base n’ont pas basculé. Noé doit renseigner les deux accès de production dans `.env.phala-production-secrets`, encore vide au dernier contrôle local. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
+
 ## Socle EVM — implémenté
 
 - [x] Définition de Robinhood Chain testnet `46630` et mainnet `4663` dans `src/lib/evm/networks.ts`.
@@ -65,11 +67,22 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 - [ ] Appliquer `20260905010000_track_loan_deployment` et configurer l'historique des escrows sur staging ; valider les correctifs de [l'audit du 5 septembre](AUDIT-CORRECTIFS.md) dans le navigateur.
 - [ ] Valider après publication les challenges sur le domaine staging et ses alias, puis répéter après fusion sur main ; vérifier DNS et session réelle. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## Phala et production — à faire
+## Phala et production — en cours
 
-- [ ] Construire et publier l'image immuable du runner.
-- [ ] Déployer une CVM Phala stable, capturer les mesures RA-TLS et épingler les valeurs côté Next.
-- [ ] Vérifier la persistance de la master key et du compte de règlement EVM au redémarrage de la même CVM.
+- [x] Préparer le mode d’amorçage Phala sans contrats, avec refus de toutes les opérations métier.
+- [x] Vérifier l’identité de règlement et les liaisons EVM avant activation du runner.
+- [x] Imposer Phala sur la cible main indépendamment du testnet et tracer la provenance des datasets, entraînements et prêts.
+- [x] Préparer le préflight de bascule et le [runbook Phala](PHALA.md), sans sélecteur VPS ; la validation complète en mode actif reste à réaliser.
+
+- [x] Construire et publier l'image immuable du runner (`phala-ratls-20260919`, registre privé GHCR, digest `sha256:fbc137a97f16213f331ce54916a5053f17c97a06d3f614c8b127365b526c5e19`).
+- [x] Amorcer la CVM de production, vérifier la quote Intel et le Compose mesuré, confirmer le transport RA-TLS et le refus des opérations métier.
+- [x] Vérifier la persistance de l’identité dérivée de la master key et du compte de règlement EVM au redémarrage de la même CVM.
+- [ ] Récupérer et valider `DATABASE_URL` et `PINATA_JWT` de production via le fichier local privé ; lire l’état des prêts, entraînements et modèles historiques.
+- [ ] Confirmer le mode KYB et le signataire de déploiement, puis déployer les nouveaux contrats avec l’autorisateur attesté de Phala ; conserver l’escrow `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0` en legacy pour ses crédits.
+- [ ] Financer l’adresse de règlement Phala en ETH testnet et activer la CVM existante avec les nouvelles adresses.
+- [ ] Recapturer les mesures RA-TLS actives et épingler les valeurs côté Next ; les mesures d’amorçage ne conviennent pas à la réouverture.
+- [ ] Appliquer `20260919000000_track_runner_provenance` en maintenance, réimporter les datasets et préserver l’accès séparé aux modèles historiques.
+- [ ] Synchroniser la configuration Next/reaper, reconstruire et déployer l’application, puis valider les préflights et le parcours navigateur à deux wallets.
 - [ ] Exécuter le smoke RA-TLS avec un RPC EVM et des contrats testnet.
 - [ ] Faire revoir les contrats et le flux de règlement avant activation mainnet.
 - [ ] Obtenir une validation manuelle complète avant toute utilisation avec des fonds réels.

@@ -6,6 +6,7 @@ import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (job.status !== "DONE" || !job.modelCid || !job.runnerReceipt) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
+    await assertCurrentRunner(job);
     const modelKeyEnvelope = await selfTrainModelKeyInRunner(
       id,
       job.runnerReceipt,

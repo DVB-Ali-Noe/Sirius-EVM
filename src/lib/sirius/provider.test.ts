@@ -97,6 +97,7 @@ function deletionFixture(options: {
     "@/lib/evm/transaction": { destroyDatasetTransaction: () => ({ to: REGISTRY, data: "0xdeadbeef" }) },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async (cid: string) => { unpins.push(cid); } },
     "@/lib/models/registry": {},
+    "@/lib/runner/provenance": {},
     "./access": {},
   };
   const exports = {};
