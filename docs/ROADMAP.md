@@ -19,9 +19,11 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 ## Facturation du compute — priorité avant redéploiement
 
 - [ ] Formaliser le devis fixe garanti : prix dataset, prix compute, total, bénéficiaires, profil, limites et expiration ; définir les tarifs et la trésorerie.
+- [ ] Fixer un tarif minimum prudent couvrant une faible fréquentation ; définir le périmètre du PnL sans compter les fonds clients ni les apports comme des bénéfices.
+- [ ] Imposer des budgets durables par job et globaux, une réservation atomique avant dépense, des plafonds de gas/reprises et un coupe-circuit ; séparer la trésorerie des wallets opérationnels et borner les frais fournisseur après arrêt.
 - [ ] Préparer l’estimation à partir de caractéristiques authentifiées par le runner et de benchmarks synthétiques ; prévenir Noé avant tout benchmark Phala payant.
-- [ ] Faire évoluer l’escrow, version v7 pressentie, pour bloquer les deux postes avant calcul et créditer séparément provider/Sirius au règlement.
-- [ ] Définir et implémenter les remboursements et reprises sans surcoût automatique, y compris lors d’une panne du runner.
+- [x] Implémenter séparément [Escrow v7](ESCROW-V7.md), son ABI et ses tests locaux : deux prix bloqués, répartition provider/Sirius, retenue plafonnée par reçus signés et remboursement à échéance sans runner. Aucun déploiement ni branchement applicatif v7 effectué.
+- [ ] Implémenter la politique MVP d’échec : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés ; préserver les reprises sans surcoût et la récupération en cas de panne du runner.
 - [ ] Aligner autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et préflights ; préserver les déploiements historiques.
 - [ ] Valider localement les protections de paiement et le parcours complet avant le nouveau déploiement testnet.
 
