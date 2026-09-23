@@ -99,3 +99,11 @@ Décision validée pour l’intégration de septembre 2026 : Phala est l’uniqu
 La nouvelle master key naît dans l’enclave ; celle de Vercel n’y est jamais importée. L’immuabilité de `lockAuthorizer` exige donc un nouvel escrow v6 et un registre dataset associé, même si la production utilisait déjà v6. Les anciens escrows restent autorisés pour les crédits et preuves ; les anciens modèles nécessitent la préservation séparée de leur environnement et de leurs clés. Les datasets destinés au nouveau runner sont réimportés.
 
 La provenance `runnerKind` et `runnerDeploymentId` est enregistrée sur les datasets, entraînements et prêts. Les anciennes lignes restent `UNKNOWN`, sans provenance Phala fabriquée rétroactivement. Le mode VPS économique sera étudié si un client le demande ; sa [spécification différée](RUNNER-MULTI-BACKEND.md) n’est pas le périmètre actuel. État et reprise : [PHALA.md](PHALA.md).
+
+## D-22 — Préparer le prépaiement du compute avant le prochain déploiement
+
+Le 23 septembre 2026, Noé demande de reprendre la facturation du compute au borrower avant les nouveaux contrats Phala. Orientation MVP : devis fixe garanti en USDC, distinction dataset/compute, verrouillage du total avant entraînement et crédits séparés pour le provider et la trésorerie Sirius au règlement. Aucun supplément automatique ; Sirius assume l’erreur d’estimation. Les frais réseau restent séparés. La politique de remboursement intégral en cas d’échec sans livraison et sa récupération à échéance sont à formaliser.
+
+La tarification doit couvrir le calcul et une part des frais de disponibilité et de stockage. Les tarifs, le destinataire des frais, les coefficients de benchmark et les détails de remboursement restent à définir. Les montants illustratifs de la conversation ne sont pas des tarifs validés. L’escrow v6 actuel ne répartit pas ces frais ; v7 est la version pressentie, non implémentée et non déployée. Voir [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
+
+Cette priorité remplace l’enchaînement immédiat de D-21 vers un nouvel escrow v6 pour changer seulement le runner. La CVM demeure arrêtée pendant la préparation locale. Avant toute nouvelle utilisation Phala, y compris un benchmark, annoncer à Noé le moment et le coût estimé. Préserver les anciens contrats, crédits et modèles pendant cette évolution.

@@ -2,6 +2,8 @@
 
 État local sur staging au 13 septembre 2026. Aucun contrat ni environnement distant n'a été modifié pendant cette correction. Les observations initiales sont conservées dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
 
+**Priorité de reprise du 23 septembre :** avant un nouveau déploiement pour Phala, concevoir et implémenter la [facturation du compute au borrower](COMPUTE-BILLING.md). V7 est pressentie ; aucun changement de cette nature n’est encore implémenté. Ce document conserve les garanties et procédures v6 comme référence historique : il ne déclenche pas un redéploiement v6 intermédiaire. Lire [PHALA.md](PHALA.md) pour l’état actuel et la contrainte de crédits.
+
 ## Front et authentification
 
 - **F1** : la découverte EIP-6963 notifie les changements de provider ; le connecteur détache les anciens listeners, s'abonne au wallet choisi et ignore les retours obsolètes. Une annonce tardive est prise en compte. Un changement de compte est appliqué avant l'attente réseau pour ne pas être perdu si `chainChanged` arrive immédiatement après.

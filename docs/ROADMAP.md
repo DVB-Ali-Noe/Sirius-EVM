@@ -2,7 +2,9 @@
 
 Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signifie que la brique est implémentée localement, pas qu'elle a été validée sur un réseau public.
 
-**Reprise au 20 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--20-septembre-2026). La CVM a été vérifiée en amorçage le 19 septembre ; le site, les contrats et la base n’ont pas basculé. Noé doit renseigner les deux accès de production dans `.env.phala-production-secrets`, encore vide au dernier contrôle local. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
+**Prochain chantier demandé par Noé : [faire prépayer le compute au borrower](COMPUTE-BILLING.md).** Préparer un devis fixe signé en USDC, son verrouillage avant calcul, la répartition provider/Sirius et les remboursements. Cette évolution est à traiter **avant tout nouveau déploiement de contrats pour Phala** ; ne pas reprendre directement le redéploiement v6 envisagé auparavant. Phala reste arrêté pendant la préparation locale.
+
+**Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). La CVM a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé, mais les modèles de 5 prêts et 8 entraînements restent à préserver. Le KYB ouvert actuel est confirmé ; le choix du compte de déploiement a été demandé à Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
 
 ## Socle EVM — implémenté
 
@@ -13,6 +15,17 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 - [x] `SiriusDatasetRegistry` : ancrage d'un dataset chiffré, KYB bloquant et tombstone après destruction.
 - [x] Tests Hardhat, scripts de compilation, export ABI, déploiement et smoke test USDC.
 - [x] Liaison EVM dans le runner : dérivation du préimage liée au contrat et au réseau, contrôle KYB + `matchesScope` + escrow, règlement et re-livraison de clé modèle.
+
+## Facturation du compute — priorité avant redéploiement
+
+- [ ] Formaliser le devis fixe garanti : prix dataset, prix compute, total, bénéficiaires, profil, limites et expiration ; définir les tarifs et la trésorerie.
+- [ ] Préparer l’estimation à partir de caractéristiques authentifiées par le runner et de benchmarks synthétiques ; prévenir Noé avant tout benchmark Phala payant.
+- [ ] Faire évoluer l’escrow, version v7 pressentie, pour bloquer les deux postes avant calcul et créditer séparément provider/Sirius au règlement.
+- [ ] Définir et implémenter les remboursements et reprises sans surcoût automatique, y compris lors d’une panne du runner.
+- [ ] Aligner autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et préflights ; préserver les déploiements historiques.
+- [ ] Valider localement les protections de paiement et le parcours complet avant le nouveau déploiement testnet.
+
+Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 
 ## Migration produit — en cours
 
@@ -77,8 +90,9 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 - [x] Construire et publier l'image immuable du runner (`phala-ratls-20260919`, registre privé GHCR, digest `sha256:fbc137a97f16213f331ce54916a5053f17c97a06d3f614c8b127365b526c5e19`).
 - [x] Amorcer la CVM de production, vérifier la quote Intel et le Compose mesuré, confirmer le transport RA-TLS et le refus des opérations métier.
 - [x] Vérifier la persistance de l’identité dérivée de la master key et du compte de règlement EVM au redémarrage de la même CVM.
-- [ ] Récupérer et valider `DATABASE_URL` et `PINATA_JWT` de production via le fichier local privé ; lire l’état des prêts, entraînements et modèles historiques.
-- [ ] Confirmer le mode KYB et le signataire de déploiement, puis déployer les nouveaux contrats avec l’autorisateur attesté de Phala ; conserver l’escrow `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0` en legacy pour ses crédits.
+- [x] Récupérer et valider `DATABASE_URL` de production via le fichier local privé ; lire l’état des prêts, entraînements et références de modèles historiques.
+- [x] Valider `PINATA_JWT` de production : correspondance des 15 CID attendus, upload/lecture/suppression d’un fichier synthétique chiffré ; configurer Pinata dans le fichier Phala local.
+- [ ] Après validation de la facturation compute, choisir le signataire et déployer la version de contrats retenue avec l’autorisateur attesté de Phala ; conserver le KYB ouvert testnet actuel et les escrows historiques, dont `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`.
 - [ ] Financer l’adresse de règlement Phala en ETH testnet et activer la CVM existante avec les nouvelles adresses.
 - [ ] Recapturer les mesures RA-TLS actives et épingler les valeurs côté Next ; les mesures d’amorçage ne conviennent pas à la réouverture.
 - [ ] Appliquer `20260919000000_track_runner_provenance` en maintenance, réimporter les datasets et préserver l’accès séparé aux modèles historiques.

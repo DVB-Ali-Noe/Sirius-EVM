@@ -4,35 +4,65 @@ Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle
 
 `main` impose `SIRIUS_REQUIRE_PHALA=true`, même sur testnet. Staging et le développement peuvent conserver `TEE_MODE=stub` sans `RUNNER_URL` pour les données synthétiques ou non sensibles. Il n’y a ni sélecteur utilisateur, ni repli automatique vers ce mode en cas de panne Phala. La présence d’un runner distant en production impose HTTPS et l’attestation, même en mode démonstration.
 
-## Reprendre ici — 20 septembre 2026
+## Reprendre ici — 23 septembre 2026
 
-**Prochaine action : attendre que Noé renseigne les deux accès de production dans `.env.phala-production-secrets`, puis vérifier leur cible sans afficher leurs valeurs.** Noé n’a pas de sauvegarde `.env` faisant foi, mais peut retrouver les accès chez leurs fournisseurs. Le fichier a été créé à la racine du dépôt, en permissions `0600`, exclu de Git et Docker. Au contrôle local du 20 septembre, `DATABASE_URL` et `PINATA_JWT` sont encore vides. Ne pas lui redemander les secrets dans le chat.
+**CVM arrêtée à la demande de Noé le 23 septembre à 01:27 (Europe/Paris).** L’API confirme `status: stopped`, `in_progress: false`, avec le même app ID. Le disque et la CVM sont conservés ; aucun redéploiement de contrats ou de CVM n’a été réalisé dans cette passe. Les frais de calcul sont coupés ; le disque reste facturé `0.002780` USD/h, soit environ 0,067 USD/jour ou 2 USD pour 30 jours. Le tarif de la machine allumée est `0.060780` USD/h (`0.058000` calcul + `0.002780` disque). Voir la [tarification Phala](https://cloud.phala.com/about/pricing).
+
+**Consigne de Noé sur les crédits :** prévenir avant toute prochaine opération utilisant Phala, en indiquant quand elle aura lieu et son coût estimé. Ne pas redémarrer automatiquement la CVM pour un contrôle ou une reprise ; préparer les opérations locales pendant son arrêt. Ne pas supprimer ni recréer la CVM pour éviter les frais du disque sans demande explicite.
+
+**Prochaine action demandée par Noé : préparer et implémenter la [facturation du compute au borrower](COMPUTE-BILLING.md), avant tout nouveau déploiement de contrats pour Phala.** Retenir un devis fixe signé, le verrouillage du prix dataset + compute avant démarrage et une répartition provider/Sirius au règlement. La version v7 est pressentie ; aucune modification Solidity ni tarification n’est encore implémentée. Le choix du signataire et la bascule deviennent des étapes ultérieures. Phala reste arrêté pendant la préparation locale.
+
+Les deux accès sont renseignés et validés dans `.env.phala-production-secrets`, en permissions `0600`, couvert par les exclusions Git et Docker. `DATABASE_URL` a été vérifiée le 23 septembre par connexion TLS et transaction en lecture seule ; les deux identifiants de datasets publics et leurs titres EVM correspondent à `sirius-data.tech`, sans correspondance avec le catalogue staging. Pinata a été validé le même jour et son JWT reporté dans `.env.phala`, avec la gateway de production. Ne pas redemander les secrets dans le chat.
+
+État observé en base de production le 23 septembre, à revérifier en maintenance avant toute bascule :
+
+- Prêts : 5 `SETTLED`, 5 `CANCELLED`, aucun prêt actif.
+- Entraînements personnels : 8 `DONE`, aucun entraînement actif.
+- Datasets : 2 `LISTED`, 2 `DRAFT`, 5 `SUSPENDED`, 21 `DELETED`.
+- Modèles historiques : 5 prêts et 8 entraînements portent un `modelCid` ; leur téléchargement et leur re-livraison n’ont pas été testés.
+- Déploiements des prêts : réseau `46630`, 8 prêts sur `0xede81141d007593d4bfce2de4778f753d167700e` et 2 sur `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`. Conserver ces deux escrows dans l’historique et vérifier les autres adresses déjà autorisées.
+- Dernière migration appliquée : `20260906000000_reconcile_dataset_deletion`. La migration de provenance `20260919000000_track_runner_provenance` reste à appliquer.
+
+Contrôles Pinata et infrastructure du 23 septembre :
+
+- Authentification Pinata HTTP 200 ; les 15 CID distincts attendus sont présents dans le compte : 2 datasets publiés, 5 modèles de prêts, 8 modèles d’entraînements.
+- La gateway de production répond HTTP 200 aux lectures HEAD d’un dataset et d’un modèle historiques. Cela ne vérifie pas leur déchiffrement ni leur re-livraison de clé.
+- Test avec un petit fichier synthétique chiffré AES-256-GCM : upload, téléchargement avec empreinte SHA-256 identique, suppression et absence du fichier de test dans le compte vérifiés. Aucun fichier métier supprimé.
+- Avant son arrêt demandé par Noé, la CVM existante était `running`, toujours en amorçage. La capture RA-TLS a vérifié à nouveau la quote matérielle ; les cinq mesures, l’empreinte d’ingestion et le compte de règlement étaient identiques à ceux du 19 septembre. Solde de règlement : 0 ETH testnet.
+- Le KYB actuel est ouvert : `0x8fce2282ea1b70255881588920f1fc999915fe58`, `OPEN_EXPIRY = 4102444800`, bytecode identique à `SiriusOpenKybRegistry` local. Conserver ce mode pour la démonstration testnet, sauf décision explicite de le changer.
+- Le précédent déployeur de l’escrow de production est `0x9016cbe5a101a2c753923fdd766fd67e2077b67f` (création `0xe3b0e1e73e7ece8e3b40c2feeb3417ad00dd36069ed3b71c24870e4c419125ee`). La clé `ROBINHOOD_DEPLOYER_KEY` présente dans l’ancien `.env` correspond à un autre compte, `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919`, doté d’environ 0,00791466 ETH testnet. Le choix de ce signataire a été demandé à Noé et reste en attente ; ne pas employer silencieusement cette ancienne clé.
+- À la demande de Noé, les soldes et les clés locales ont été contrôlés au bloc `122948152` : le compte local détient `0.007914660088247486` ETH et `101960` USDC testnet, le précédent déployeur `0.00377673347` ETH et 0 USDC, Phala 0 ETH et 0 USDC. Parmi les 7 fichiers `.env*` locaux et l’environnement du processus inspectés, seule la clé du compte local a été retrouvée. Les clés faucet/KYB de l’export Vercel restent masquées ; elles ne permettent pas de confirmer la disponibilité de la clé du précédent déployeur. La clé du runner reste dans l’enclave.
+- USDC confirmé à 18 décimales ; empreinte du bytecode `0x4f86dc6f206ef3e02a21709f2e8330bf1439c450abe88b6a6cb1af071e6f9965`. Compilation Solidity et 46 tests Hardhat réussis.
+
+Les mots de passe PostgreSQL staging et production ont été partagés dans la conversation : prévoir leur rotation coordonnée dans Neon, les fichiers privés, Vercel, GitHub et le reaper. Aucune rotation ni modification distante n’a été effectuée pendant ce contrôle.
 
 - `DATABASE_URL` sert aux contrôles de migration et à l’application ; **ne pas l’envoyer à Phala**.
-- `PINATA_JWT` permet au runner de stocker les fichiers chiffrés. Une fois sa cible vérifiée, le reporter dans `.env.phala` pour l’envoi chiffré à la CVM.
+- `PINATA_JWT` permet au runner de stocker les fichiers chiffrés. Sa copie validée est dans `.env.phala` pour le futur envoi chiffré à la CVM ; aucune mise à jour distante de la CVM n’a encore été faite.
 - Ce fichier de collecte contient seulement deux variables : ce n’est pas une configuration complète de déploiement.
 
-La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès GitHub/GHCR privé ont déjà été configurés. Ne pas recommencer ces autorisations sauf si un contrôle constate leur expiration. L’image a été publiée et la CVM vérifiée le **19 septembre** ; aucun nouveau contrôle distant n’a été exécuté le 20 septembre. La CVM n’a pas été arrêtée à la fin de la session : vérifier son état et les crédits à la reprise. Le tarif observé figure ci-dessous.
+La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès GitHub/GHCR privé ont déjà été configurés. Ne pas recommencer ces autorisations sauf si un contrôle constate leur expiration. L’image a été publiée le **19 septembre** ; la CLI Phala et la CVM en amorçage ont été revérifiées le 23 septembre, puis la CVM a été arrêtée à la demande de Noé. Le solde de crédits du compte Phala n’a pas été contrôlé lors de cette passe. Le tarif initialement observé figure ci-dessous.
 
-**Restent non effectués :** contrôle de la base de production, nouveaux contrats liés à Phala, financement du compte de règlement, activation métier de la CVM, migration Prisma, configuration/déploiement Next et reaper, parcours navigateur complet. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
+**Restent non effectués :** conception et implémentation de la facturation compute, calibration des tarifs, choix de la trésorerie et du signataire, préservation vérifiée des modèles historiques, nouveaux contrats liés à Phala, financement du compte de règlement, activation métier de la CVM, migration Prisma, configuration/déploiement Next et reaper, parcours navigateur complet. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
 
 ### Fichiers locaux à conserver
 
 | Fichier | Rôle et limites |
 |---|---|
-| `.env.phala-production-secrets` | Collecte des deux accès que Noé récupère à la source ; encore vide au dernier contrôle. |
-| `.env.phala` | Configuration privée de la CVM existante : secret de transport et accès GHCR déjà présents ; JWT Pinata et nouvelles adresses de contrats à compléter. Ne pas écraser ce fichier ni régénérer ses secrets à la reprise. Aucune master key injectée. |
+| `.env.phala-production-secrets` | Deux accès de production renseignés et validés le 23 septembre. Permissions `0600`. |
+| `.env.phala` | Configuration privée de la CVM existante : secret de transport et accès GHCR conservés ; JWT Pinata validé et gateway de production ajoutés le 23 septembre. Nouvelles adresses de contrats à compléter. Ne pas écraser ce fichier ni régénérer ses secrets à la reprise. Aucune master key injectée. |
 | `.env.phala-production-current` | Export Vercel de production du 19 septembre, incomplet : six valeurs masquées par `[SENSITIVE]` (`DATABASE_URL`, `PINATA_JWT`, `SIRIUS_FAUCET_KEY`, `SIRIUS_KYB_VERIFIER_KEY`, `SIRIUS_MASTER_KEY`, `SIRIUS_SESSION_SECRET`). Ne pas l’utiliser tel quel pour un déploiement. |
 | `.env.production.local` et `.env` | Configurations anciennes ou de développement ; leur nom ne prouve pas leur cible. Ne pas en déduire les secrets de production ou le bon signataire de déploiement. |
 | `.env.phala-next` | Fichier prévu par le runbook pour la future configuration applicative complète ; sa préparation reste à faire. |
 
 ### Ordre de reprise
 
-1. Contrôler les accès récupérés et lire l’état de la base avant toute mutation : prêts ouverts, entraînements en cours, datasets publiés, modèles historiques et escrows référencés. La lecture on-chain déjà réalisée ne remplace pas cette vérification. Préserver l’accès historique aux modèles et aux crédits.
-2. Confirmer le mode KYB actuel et le signataire de déploiement autorisé. Le mode ouvert est une hypothèse non validée ; ne pas changer implicitement de politique KYB. La cible reste **Robinhood testnet `46630`**, pas mainnet.
-3. Préparer la maintenance, déployer une fois les nouveaux contrats avec l’adresse publique attestée de Phala et financer cette adresse en ETH testnet. Ne jamais récupérer ni importer sa clé privée.
-4. Compléter `.env.phala`, passer le booléen d’amorçage à `"false"` dans le Compose, puis mettre à jour **la même CVM**. Recapturer les mesures actives, vérifier le Compose brut et la stabilité de l’identité avant de configurer Next.
-5. Préparer l’environnement applicatif complet, sauvegarder puis migrer la base en maintenance, suspendre/réimporter les anciens datasets et conserver les escrows legacy. Synchroniser Next et le reaper, reconstruire le frontend, exécuter les préflights puis le parcours réel à deux wallets avant réouverture.
+1. Reprendre [COMPUTE-BILLING.md](COMPUTE-BILLING.md) : formaliser puis implémenter localement devis, prépaiement, répartition et remboursement. Mettre à jour les contrôles de version et les tests. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
+2. Préparer les benchmarks et annoncer à Noé leur créneau et leur coût avant toute utilisation de Phala. Calibrer les tarifs et vérifier la stabilité de l’identité lors de la reprise de la même CVM.
+3. Préserver l’accès historique aux modèles et aux crédits, sauvegarder puis relire l’état de la base avant toute mutation : le contrôle du 23 septembre est une observation ponctuelle. Vérifier prêts ouverts, entraînements en cours, datasets publiés, modèles historiques et escrows référencés.
+4. Choisir le signataire de déploiement et la trésorerie compute. Le mode KYB ouvert actuel est confirmé ; ne pas changer implicitement de politique KYB. La cible reste **Robinhood testnet `46630`**, pas mainnet.
+5. Après validation de la facturation, préparer la maintenance, déployer la version retenue avec l’adresse publique attestée de Phala et financer cette adresse en ETH testnet. Ne jamais récupérer ni importer sa clé privée.
+6. Après information de Noé sur l’utilisation et le coût Phala, compléter `.env.phala`, passer le booléen d’amorçage à `"false"` dans le Compose, puis mettre à jour **la même CVM** avec l’image contenant les changements validés. Recapturer les mesures actives, vérifier le Compose brut et la stabilité de l’identité avant de configurer Next.
+7. Préparer l’environnement applicatif complet, migrer la base en maintenance, suspendre/réimporter les anciens datasets et conserver les escrows legacy. Synchroniser Next et le reaper, reconstruire le frontend, exécuter les préflights adaptés à la nouvelle version puis le parcours réel à deux wallets avant réouverture.
 
 Les commandes détaillées et les conditions de chaque étape suivent dans ce document. Ne pas utiliser les mesures d’amorçage pour ouvrir la production.
 
@@ -125,6 +155,8 @@ Conserver les valeurs publiques retournées : adresse `SIRIUS_LOCK_AUTHORIZER`, 
 Les clés `getKey` sont dérivées sous l’app ID dstack et le chemin stable `sirius/master/v1`. Mettre à jour la même CVM, sans recréer une application ni changer ce chemin. L’activation vérifie le signataire attendu ; un changement de clé bloque le démarrage au lieu de rendre silencieusement les données inaccessibles.
 
 ## Déployer puis activer
+
+**Prérequis ajouté le 23 septembre :** la procédure ci-dessous décrit la bascule d’identité préparée pour v6. Elle doit être adaptée à la version avec [facturation compute](COMPUTE-BILLING.md) avant exécution. Les contrats v6 actuels ne répartissent pas un prix compute ; ne pas suivre directement cette section pour un redéploiement intermédiaire.
 
 1. Avant de remplacer un déploiement existant, maintenir une fenêtre de maintenance : arrêter les nouvelles préparations, attendre les transactions wallet en vol, terminer ou rembourser les anciens prêts et terminer les entraînements personnels. Sauvegarder la base et l’environnement historique séparément.
 2. Avec l’adresse publique capturée dans `SIRIUS_LOCK_AUTHORIZER`, suivre [ESCROW-V6.md](ESCROW-V6.md) pour déployer un nouvel escrow et son nouveau registre dataset. Le script crée également le registre KYB ; renouveler les attestations/consentements nécessaires. Ne pas utiliser le signataire du déployeur comme substitut de celui de Phala.

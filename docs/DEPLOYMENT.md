@@ -4,7 +4,9 @@
 
 Les corrections F1–F4 du 13 septembre ajoutent une migration contractuelle distincte : lire [ESCROW-V6.md](ESCROW-V6.md) avant de publier la nouvelle version. Le choix automatique des origines ne déploie pas les contrats.
 
-**Point de reprise Phala au 20 septembre :** la CVM de production a été déployée et vérifiée en amorçage, mais aucune bascule Next, base, contrats ou reaper n’a été effectuée dans cette intégration. Les accès de production sont à récupérer par Noé dans `.env.phala-production-secrets` (encore vide au dernier contrôle local). L’export `.env.phala-production-current` contient des valeurs `[SENSITIVE]` inutilisables. Lire [le point de reprise et l’ordre des opérations](PHALA.md#reprendre-ici--20-septembre-2026) avant tout déploiement main.
+**Priorité avant le prochain déploiement :** préparer et implémenter la [facturation du compute au borrower](COMPUTE-BILLING.md), avec devis fixe signé et prépaiement dataset + compute. Adapter contrats, runner, application, migrations et préflights avant de reprendre la bascule Phala. V7 est pressentie, non implémentée ; ne pas redéployer v6 pour le seul changement de runner entre-temps.
+
+**Point de reprise Phala au 23 septembre :** la CVM de production a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque est conservé et reste facturé. Prévenir Noé avant toute nouvelle utilisation de Phala, avec son moment et son coût estimé. Aucune bascule Next, base, contrats ou reaper n’a été effectuée dans cette intégration. Les accès de production sont validés dans `.env.phala-production-secrets` ; Pinata est aussi configuré dans le fichier local `.env.phala`. Aucun prêt ni entraînement actif observé ; les modèles historiques restent à préserver. Le KYB actuel est ouvert sur testnet ; le compte de déploiement reste à choisir. L’export `.env.phala-production-current` contient toujours des valeurs `[SENSITIVE]` inutilisables. Lire [le point de reprise et l’ordre des opérations](PHALA.md#reprendre-ici--23-septembre-2026) avant tout déploiement main.
 
 ## Une cible par branche
 
