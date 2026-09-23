@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { setTimeout as delay } from "node:timers/promises";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL manquante");
@@ -33,12 +34,21 @@ export const prisma =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
+function isTransactionConflict(error: unknown, depth = 0): boolean {
+  if (!error || typeof error !== "object" || depth > 4) return false;
+  const value = error as { code?: string; sqlState?: string; originalCode?: string; kind?: string; cause?: unknown };
+  return value.code === "P2034" || value.kind === "TransactionWriteConflict"
+    || [value.code, value.sqlState, value.originalCode].some((code) => code === "40001" || code === "40P01")
+    || isTransactionConflict(value.cause, depth + 1);
+}
+
 export async function serializableTransaction<T>(action: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(action, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
-      if ((error as { code?: string }).code !== "P2034" || attempt === 2) throw error;
+      if (!isTransactionConflict(error) || attempt === 2) throw error;
+      await delay(10 * 2 ** attempt + Math.floor(Math.random() * 10));
     }
   }
 }

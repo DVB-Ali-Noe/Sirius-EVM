@@ -106,8 +106,20 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   let uploads = 0;
   let reads = 0;
   let failFetch = false;
+  let dropNextTransaction = false;
+  const runnerBroadcasts: string[] = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if ((url === process.env.EVM_RPC_URL || url === `${process.env.EVM_RPC_URL}/`) && typeof init?.body === "string") {
+      const rpc = JSON.parse(init.body) as { method: string; id: number; params: string[] };
+      if (rpc.method === "eth_sendRawTransaction" && (dropNextTransaction || runnerBroadcasts.length)) {
+        runnerBroadcasts.push(rpc.params[0]);
+        if (dropNextTransaction) {
+          dropNextTransaction = false;
+          return Response.json({ jsonrpc: "2.0", id: rpc.id, error: { code: -32000, message: "synthetic connection lost before broadcast" } });
+        }
+      }
+    }
     if (url === "https://uploads.pinata.cloud/v3/files") {
       const file = (init!.body as FormData).get("file") as File;
       const bytes = Buffer.from(await file.arrayBuffer());
@@ -182,11 +194,79 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const produced = uploads;
   assert.equal((await run(quotes[0]) as typeof result).modelCid, result.modelCid);
   assert.equal(uploads, produced, "la reprise ne repinne pas le modèle");
+  const recovered = await handleRunnerOp("recover-loan-job", { loanId: "success", billingQuote: quotes[0] }) as {
+    state: string; result: typeof result;
+  };
+  assert.equal(recovered.state, "ready");
+  assert.equal(recovered.result.modelCid, result.modelCid);
+  assert.equal(recovered.result.runnerReceipt, result.runnerReceipt);
+  assert.equal(uploads, produced, "la reprise sans grant ne recalcule pas");
+  await assert.rejects(handleRunnerOp("recover-loan-job", { loanId: "autre", billingQuote: quotes[0] }), /scope/);
+  for (let i = 0; i < 20; i++) {
+    assert.deepEqual(await handleRunnerOp("recover-loan-job", { loanId: "timeout", billingQuote: quotes[2] }), { state: "missing" });
+  }
   const keyRequest = async (settleTxHash: string) => ({ loanId: "success", loanReceipt: result.runnerReceipt,
     deliveryPublicKey: delivery.publicKey,
     authorization: await issueRunnerGrant("loan-model-key", { loanId: "success" }, ["success", result.runnerReceipt, delivery.publicKey]),
     settleTxHash });
   await assert.rejects(handleRunnerOp("loan-model-key", await keyRequest(`0x${"00".repeat(32)}`)), /confirmé/i);
+  // Next a perdu la réponse : seules les données préalables au calcul subsistent.
+  process.env.DATABASE_URL = "postgresql://synthetic:synthetic@127.0.0.1:1/unused";
+  process.env.RUNNER_URL = "http://runner.test.invalid";
+  process.env.RUNNER_TRANSPORT_SECRET = Buffer.alloc(32, 9).toString("base64");
+  const runnerFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.startsWith("http://runner.test.invalid/")) {
+      const op = url.split("/").at(-1)!;
+      if (op === "dataset-ingress-key") return Response.json((await import("@/lib/tee/ingress")).datasetIngressPublicKey());
+      try { return Response.json(await handleRunnerOp(op as Parameters<typeof handleRunnerOp>[0], JSON.parse(String(init?.body)))); }
+      catch (error) { return Response.json({ error: (error as Error).message }, { status: (error as { status?: number }).status ?? 500 }); }
+    }
+    return runnerFetch(input, init);
+  };
+  const { prisma } = await import("@/lib/db");
+  const { currentRunnerProvenance } = await import("@/lib/runner/provenance");
+  const provenance = await currentRunnerProvenance();
+  const localLoan: Record<string, unknown> = {
+    id: "success", datasetId: dataset.datasetId, borrower: borrower.address.toLowerCase(), provider: provider.toLowerCase(),
+    status: "TRAINING", modelCid: null, runnerReceipt: null, updatedAt: new Date(0),
+    billingQuote: JSON.stringify(quotes[0]), billingQuoteHash: (await import("./quote")).computeQuoteHash(quotes[0].quote),
+    amountUsdcAtomic: totalQuoteAmount(quotes[0].quote), evmHashlock: quotes[0].quote.hashlock,
+    evmLoanKey: loanKeyFor(borrower.address, "success"), evmLockBlock: String(lockBlocks[0]),
+    evmChainId: chain.id, evmEscrowAddress: escrow.toLowerCase(), modelId: dataset.modelId, modelVersion: dataset.modelVersion,
+    ...provenance, dataset: { ...dataset, id: dataset.datasetId, ipfsCid: dataset.cid, ...provenance },
+  };
+  const originalDb = { findMany: prisma.loan.findMany, findUnique: prisma.loan.findUnique, updateMany: prisma.loan.updateMany };
+  Reflect.set(prisma.loan, "findMany", async () => [{ ...localLoan }]);
+  Reflect.set(prisma.loan, "findUnique", async () => ({ ...localLoan }));
+  Reflect.set(prisma.loan, "updateMany", async ({ where, data }: { where: Record<string, unknown>; data: object }) => {
+    if (where.status !== localLoan.status || (where.modelCid === null && localLoan.modelCid !== null)) return { count: 0 };
+    Object.assign(localLoan, data, { updatedAt: new Date() });
+    return { count: 1 };
+  });
+  try {
+    dropNextTransaction = true;
+    await (await import("@/lib/sirius/reaper")).runLoanReaper();
+    assert.equal(localLoan.status, "TRAINING", "le premier envoi perdu reste récupérable");
+    assert.equal(runnerBroadcasts.length, 1);
+    const clock = Date.now;
+    const retryAt = clock() + 31000;
+    try {
+      Date.now = () => retryAt;
+      await (await import("@/lib/sirius/reaper")).runLoanReaper();
+    } finally { Date.now = clock; }
+    assert.equal(localLoan.status, "SETTLED", "le reaper récupère et règle sans nouveau grant");
+    assert.equal(localLoan.modelCid, result.modelCid);
+    assert.equal(uploads, produced, "aucun recalcul après perte de la réponse Next");
+    assert.equal(runnerBroadcasts.length, 2);
+    assert.equal(runnerBroadcasts[0], runnerBroadcasts[1], "la transaction perdue est rediffusée à l’identique sur l’EVM");
+  } finally {
+    for (const [key, value] of Object.entries(originalDb)) Reflect.set(prisma.loan, key, value);
+    await prisma.$disconnect();
+    globalThis.fetch = runnerFetch;
+    delete process.env.RUNNER_URL;
+  }
   async function settle() {
     return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt,
       releaseEnvelopeHash: result.releaseEnvelopeHash, lockBlock: String(lockBlocks[0]) });

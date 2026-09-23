@@ -4,9 +4,9 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs responsables et portes de sortie, les pistes de financement et les recommandations à arbitrer. Les dates cibles et pistes commerciales n'y valent pas validation technique ni financement acquis.
 
-**Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des risques encore ouverts. Tarifs réels, comptabilité, plafonds fournisseurs, reprise après crash, sauvegardes et validation Phala restent nécessaires avant activation. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
+**Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des risques encore ouverts. La [reprise locale](RECOVERY-OPERATIONS.md) couvre désormais les réponses Next perdues, les rediffusions identiques et les quotas PostgreSQL entre processus. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) ajoute sauvegarde réelle/restauration locale, copie des modèles, images et chiffrage. Tarifs complets, comptabilité, plafonds fournisseurs, anciennes clés et validation Phala restent nécessaires avant activation. Les identifiants PostgreSQL sont conservés à la demande de Noé. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
 
-**Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). La CVM a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé, mais les modèles de 5 prêts et 8 entraînements restent à préserver. Le KYB ouvert actuel est confirmé ; le choix du compte de déploiement a été demandé à Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
+**Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). L'arrêt de la CVM demandé par Noé est confirmé à 13:13 UTC ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé ; les blobs des modèles de 5 prêts et 8 entraînements sont sauvegardés, leur re-livraison de clé reste à prouver. Le KYB ouvert actuel est confirmé ; le compte local de déploiement/trésorerie est confirmé par Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
 
 ## Socle EVM — implémenté
 
@@ -21,17 +21,20 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 ## Facturation du compute — priorité avant redéploiement
 
 - [x] Formaliser et signer le devis : prix dataset/compute, total, bénéficiaires, profil, limites, barème d’échec et expiration. Afficher et faire accepter avant paiement.
-- [ ] Valider les tarifs commerciaux et choisir la trésorerie.
+- [x] Retenir le compte local `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` pour le déploiement et la trésorerie testnet, selon le choix de Noé.
+- [x] Préparer le chiffrage Phala et le banc de benchmarks synthétiques sans activer la CVM.
+- [ ] Valider les tarifs commerciaux complets et le plafond financé des essais.
 - [ ] Fixer un tarif minimum prudent couvrant une faible fréquentation ; définir le périmètre du PnL sans compter les fonds clients ni les apports comme des bénéfices.
 - [x] Implémenter localement les [budgets runner persistants](RUNNER-BUDGETS.md) : réservation atomique par opération, plafonds de gas, intention/nonce/hash durables, tentative unique, cache des modèles et coupe-circuit. Aucune activation distante.
 - [x] Réserver le parcours complet avant devis, conserver le budget de clôture après coupe-circuit et interrompre le worker de calcul à sa limite.
 - [ ] Raccorder la comptabilité réconciliée, séparer les comptes effectifs, imposer un superviseur extérieur et borner les dépenses fournisseurs après arrêt.
-- [ ] Préparer l’estimation à partir de caractéristiques authentifiées par le runner et de benchmarks synthétiques ; prévenir Noé avant tout benchmark Phala payant.
+- [ ] Calibrer sur Phala l'estimation préparée avec les caractéristiques authentifiées du dataset et le banc synthétique local ; prévenir Noé du créneau et du coût avant tout benchmark payant.
 - [x] Implémenter séparément [Escrow v7](ESCROW-V7.md), son ABI et ses tests locaux : deux prix bloqués, répartition provider/Sirius, retenue plafonnée par reçus signés et remboursement à échéance sans runner. Branchement applicatif local effectué ; aucun déploiement public.
-- [x] Implémenter localement la politique MVP d'échec mesuré : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés. La reprise des transactions confirmées et la clôture autonome des résultats persistés sont testées ; le crash avant persistance et les transactions introuvables restent à traiter.
+- [x] Implémenter localement la politique MVP d'échec mesuré : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés. La reprise des transactions confirmées et la clôture autonome des résultats persistés sont testées ; la réponse Next perdue est récupérable ; le crash avant checkpoint runner et les intentions encore introuvables après trois envois restent des limites.
 - [x] Raccorder autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et contrôles de version ; conserver la lecture des historiques. Migration additive préparée, non appliquée à distance.
 - [x] Tester le runner et les contrats sur EVM locale : paiement, calcul, règlement, échec/remboursement, échéance, cache et coupe-circuit. Tester l’acceptation et les transactions navigateur avec wallet simulé.
-- [ ] Valider la migration PostgreSQL et le parcours visuel à deux wallets, puis RA-TLS/testnet avant réouverture.
+- [x] Valider les migrations additives avec historiques et les quotas sur PostgreSQL 17, entre huit processus.
+- [ ] Valider le parcours visuel à deux wallets et RA-TLS/testnet avant réouverture.
 
 Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 
@@ -42,8 +45,15 @@ Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 - [x] S-03/S-04 : régler sans nouvelle action du borrower après persistance du modèle ; exiger le devis v7 et reconstruire les transactions v6.
 - [x] S-05/S-08 : filtrer les réponses dataset et cesser de conserver la clé enveloppée dans le cache actif du scellement.
 - [x] S-06/S-07/S-09 : éviter la saturation ciblée des challenges, sérialiser les quotas PostgreSQL et préserver les réservations anti-rejeu en cours d'écriture.
-- [x] Ajouter les régressions locales, `test:billing` et le typage v7 à la CI.
-- [ ] Valider la finalité et les pannes sur le réseau cible, les courses sur PostgreSQL et entre processus, la reprise après crash avant persistance et le traitement des anciennes sauvegardes de clés.
+- [x] Ajouter les régressions locales, `test:billing`, `test:postgres`, `test:operations` et le typage v7 à la CI.
+- [x] Récupérer les résultats durables du runner après perte de réponse Next ; tester le reaper sans nouveau grant.
+- [x] Ajouter un journal chiffré des transactions, trois envois identiques au maximum, une politique commune de finalité et les outils opérateur.
+- [x] Tester les quotas PostgreSQL et l’anti-rejeu entre huit processus ; corriger la reprise des conflits au commit.
+- [x] Préparer sauvegarde cohérente et nettoyage des caches de clés SQLite ; corriger la promesse de suppression dans l’interface.
+- [x] Sauvegarder la base réelle sous chiffrement, restaurer sur PostgreSQL 18 local et vérifier les migrations avec toutes les lignes historiques.
+- [x] Copier et relire les 13 blobs de modèles historiques ; contrôler les crédits dus des deux anciens escrows.
+- [x] Préparer le superviseur extérieur, le contrôle des environnements et les images ; corriger les paramètres du reaper v7.
+- [ ] Valider finalité/pannes sur le réseau cible, restauration du volume runner, copie de sauvegarde hors machine, re-livraison des clés historiques et traitement des anciennes sauvegardes.
 
 Preuves et limites : [rapport complet](AUDIT-2026-09-23.md). Les tests locaux couvrent les correctifs principaux ; ils ne remplacent pas les validations distantes ni une garantie de finalité ou d'effacement cryptographique.
 
@@ -112,7 +122,7 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 - [x] Vérifier la persistance de l’identité dérivée de la master key et du compte de règlement EVM au redémarrage de la même CVM.
 - [x] Récupérer et valider `DATABASE_URL` de production via le fichier local privé ; lire l’état des prêts, entraînements et références de modèles historiques.
 - [x] Valider `PINATA_JWT` de production : correspondance des 15 CID attendus, upload/lecture/suppression d’un fichier synthétique chiffré ; configurer Pinata dans le fichier Phala local.
-- [ ] Après validation de la facturation compute, choisir le signataire et déployer la version de contrats retenue avec l’autorisateur attesté de Phala ; conserver le KYB ouvert testnet actuel et les escrows historiques, dont `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`.
+- [ ] Après validation de la facturation compute, utiliser le signataire confirmé et déployer la version de contrats retenue avec l’autorisateur attesté de Phala ; conserver le KYB ouvert testnet actuel et les escrows historiques, dont `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`.
 - [ ] Financer l’adresse de règlement Phala en ETH testnet et activer la CVM existante avec les nouvelles adresses.
 - [ ] Recapturer les mesures RA-TLS actives et épingler les valeurs côté Next ; les mesures d’amorçage ne conviennent pas à la réouverture.
 - [ ] Appliquer les migrations de provenance `20260919000000_track_runner_provenance` et de facturation `20260923000000_add_compute_billing` en maintenance, réimporter les datasets et préserver l'accès séparé aux modèles historiques.

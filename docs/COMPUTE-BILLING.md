@@ -2,7 +2,7 @@
 
 Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** [Escrow v7](ESCROW-V7.md), les [budgets durables](RUNNER-BUDGETS.md) et le [parcours devis → prépaiement → calcul → règlement/remboursement](BILLING-INTEGRATION.md) sont implémentés localement. Les tarifs réels, la comptabilité et les plafonds fournisseurs restent à valider ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
 
-**Activation toujours bloquée.** Les [correctifs locaux de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) couvrent la reprise des transactions confirmées, le règlement des résultats v7 persistés, le devis obligatoire, la livraison différée et le cache actif de `wrappedKey`. Restent le crash entre calcul et persistance, la finalité/RPC, les anciennes sauvegardes de clés, les courses entre instances et la validation économique. Phala reste arrêté ; aucune migration ni activation distante n'a été effectuée.
+**Activation toujours bloquée.** Les [correctifs locaux de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) couvrent la reprise des transactions confirmées, le règlement des résultats v7 persistés, le devis obligatoire, la livraison différée et le cache actif de `wrappedKey`. La récupération des résultats durables et les courses PostgreSQL ont été validées localement. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) apporte le chiffrage et la restauration/migration sur une copie réelle. Restent la coupure avant checkpoint runner, la finalité/RPC, les anciennes clés et la validation économique complète. Phala reste arrêté ; aucune migration ni activation distante n'a été effectuée.
 
 ## Objectif et orientation
 
@@ -17,10 +17,10 @@ Le périmètre initial concerne les prêts borrower/provider. La facturation des
 ## État actuel à prendre en compte
 
 - Le mode par défaut reste v6 : prix dataset seul et crédit provider. Le mode explicite `SIRIUS_BILLING_VERSION=7` exige le nouveau contrat et le devis signé avec ses deux montants.
-- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve le budget de clôture avant émission du devis, exige l'acceptation du devis v7, vérifie les conditions avant calcul et mesure les échecs. Elle réconcilie les transactions confirmées ; un crash avant persistance du résultat peut encore empêcher la clôture. Une migration Prisma additive est préparée, sans modification distante.
+- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve le budget de clôture avant émission du devis, exige l'acceptation du devis v7, vérifie les conditions avant calcul et mesure les échecs. Elle récupère le résultat durable après perte de la réponse Next et réconcilie les transactions ; une coupure avant le checkpoint SQLite du runner peut encore empêcher la clôture. Une migration Prisma additive est préparée et vérifiée sur une copie locale de la base réelle, sans modification distante.
 - Le contrat crédite un forfait compute par profil, avec minimum commun, lors du `release`. Le reaper peut déclencher ce règlement sans nouveau grant du borrower dès que le résultat v7 est persisté. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
 - L’ingestion impose 20 millions d’opérations au maximum. Le job v7 ajoute un délai global de 1 à 30 secondes et un worker terminable, sans remplacer les plafonds fournisseur et le superviseur d’infrastructure.
-- Aucun budget réel, tarif commercial, compte de trésorerie choisi ou plafond fournisseur actif n’est introduit par les fixtures de tests.
+- Aucun budget réel, tarif commercial ou plafond fournisseur actif n’est introduit par les fixtures de tests. Noé a choisi le compte `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` pour le déploiement et la trésorerie testnet.
 
 ## Parcours cible
 
@@ -55,7 +55,7 @@ prix compute = max(tarif minimum prudent,
                    + marge de sécurité et marge commerciale)
 ```
 
-Phala facture la machine pendant qu’elle est allumée, même sans entraînement, et le disque tant qu’il est conservé. Le dernier relevé consigné pour la CVM Sirius indiquait `0.058000` USD/h de calcul et `0.002780` USD/h de disque ; ces montants n’ont pas été revalidés pendant l’audit local du 23 septembre. Facturer uniquement les secondes actives d’un job ne couvre pas nécessairement les périodes d’inactivité. Vérifier la [tarification Phala](https://cloud.phala.com/about/pricing) avant activation.
+Phala facture la machine pendant qu’elle est allumée, même sans entraînement, et le disque tant qu’il est conservé. La [préparation opérationnelle du 23 septembre](OPERATIONS-PREPARATION.md#coûts-préparés) a vérifié `0.058000` USD/h de calcul et `0.002780` USD/h pour les 20 Go de disque, et prépare des scénarios reproductibles avec `pnpm ops:costs`. Ce relevé ne couvre pas les autres fournisseurs et ne fixe aucun tarif commercial. Facturer uniquement les secondes actives d’un job ne couvre pas nécessairement les périodes d’inactivité. Revérifier la [tarification Phala](https://cloud.phala.com/about/pricing) avant activation.
 
 Le minimum doit être calculé avec une hypothèse de fréquentation basse, puis appliqué à tous les emprunts. Les frais fixes déjà affectés aux jobs ne sont pas comptés une deuxième fois. Aucun volume minimal de clients n’est garanti : même un tarif élevé ne couvre pas une période sans vente. Aucun supplément rétroactif ne corrige cette période.
 
@@ -110,17 +110,17 @@ Le prix minimum et ces plafonds répondent à deux problèmes différents : la r
 
 ## Travail à reprendre
 
-1. Résoudre les risques restants du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) : crash après calcul avant persistance, transaction diffusée introuvable, finalité du réseau, anciennes sauvegardes de clés et courses entre instances. Les correctifs locaux et leurs régressions ne valent pas validation distante.
-2. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Choisir la trésorerie compute et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
-3. Vérifier et imposer les plafonds des fournisseurs, la réserve de frais fixes/arrêt et un superviseur d’uptime indépendant. Raccorder la comptabilité réconciliée et préparer une procédure de reprise du registre sans remise à zéro. Ces limites déjà connues sont distinctes des défauts confirmés par l’audit.
-4. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les **293 tests applicatifs, 79 tests contrats, 62 tests navigateur et le parcours EVM local** réussissent ; ces tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) ne prouvent pas la reprise et la facturation complètes en production.
+1. Résoudre les risques restants du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) : coupure avant checkpoint runner, transaction toujours introuvable après les reprises bornées, finalité du réseau, restauration du volume runner et anciennes copies de clés. Les quotas PostgreSQL et l'anti-rejeu ont été validés entre huit processus ; la coordination de plusieurs CVM n'est pas couverte.
+2. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Intégrer la trésorerie confirmée et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
+3. Vérifier et imposer les plafonds des fournisseurs et la réserve de frais fixes/arrêt. Le superviseur extérieur est préparé, mais reste à installer, configurer et surveiller avant tout démarrage autorisé. Raccorder la comptabilité réconciliée et valider la reprise du registre sans remise à zéro.
+4. Copier la sauvegarde chiffrée hors machine et valider le parcours navigateur complet. La restauration PostgreSQL 18 et les migrations sur une copie réelle sont vérifiées. Les validations [locales](BILLING-INTEGRATION.md#validation-locale-et-limites) totalisent 302 tests applicatifs et 8 tests des outils d'exploitation lors de la dernière passe ; les passes précédentes couvrent aussi 79 tests contrats, 62 tests navigateur et le parcours EVM local. Elles ne prouvent pas la reprise et la facturation complètes en production.
 5. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
-6. Après correction des bloqueurs et validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Préparer le déploiement de la version retenue avec facturation, puis la validation du parcours complet à deux wallets ; aucune de ces opérations distantes n’est effectuée par ce travail documentaire.
+6. Après correction des bloqueurs et validation de cette fonctionnalité, prouver la re-livraison des clés des 13 modèles historiques dont les blobs sont sauvegardés, puis refaire un snapshot pendant la maintenance décrite dans [PHALA.md](PHALA.md). Publier et figer les images, préparer les contrats de facturation, les migrations et le parcours complet à deux wallets. Aucune de ces opérations distantes n'est effectuée par cette préparation.
 
 ## Contraintes de reprise
 
 - La CVM est **arrêtée à la demande de Noé** ; préparer le chantier localement. Ne pas la redémarrer pour coder ou tester localement, ni lancer un benchmark Phala sans l’avoir prévenu du moment et du budget.
 - Aucun nouveau déploiement Solidity, changement de base distante ou activation de Phala n’a été effectué pour cette facturation.
-- Les identités restent distinctes : le déployeur paie la création des contrats ; le compte EVM dérivé dans Phala autorise les prêts et paie le gas des règlements ; la trésorerie reçoit les revenus compute. L’adresse de trésorerie doit être choisie explicitement.
+- Le compte local confirmé par Noé assure déploiement et trésorerie testnet ; le compte EVM dérivé dans Phala reste distinct et autorise les prêts puis paie le gas des règlements. Aucune clé de déploiement n’est injectée dans la CVM.
 - Conserver le KYB ouvert pour la démonstration testnet actuelle. Le mode VPS reste une [spécification différée](RUNNER-MULTI-BACKEND.md).
 - Conserver les accès privés et les historiques existants ; ne publier aucun secret dans ces documents. Aucune commande Git sans demande explicite de Noé.

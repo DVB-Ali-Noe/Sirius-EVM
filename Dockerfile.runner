@@ -23,7 +23,10 @@ COPY --from=dependencies --chown=node:node /workspace/node_modules ./node_module
 COPY --from=dependencies --chown=node:node /workspace/package.json /workspace/tsconfig.json ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts/runner-budget.ts ./scripts/runner-budget.ts
-RUN mkdir -p /var/lib/sirius-runner/replay && chown -R node:node /var/lib/sirius-runner
+COPY --chown=node:node scripts/runner-transactions.ts ./scripts/runner-transactions.ts
+RUN mkdir -p /var/lib/sirius-runner/replay /var/lib/sirius-runner/budget \
+    && chmod 700 /var/lib/sirius-runner/budget \
+    && chown -R node:node /var/lib/sirius-runner
 
 USER node
 EXPOSE 4100

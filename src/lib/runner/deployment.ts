@@ -7,6 +7,8 @@ import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { resolveServerNetwork } from "@/lib/evm/networks";
+import { confirmedBlock } from "@/lib/evm/finality";
+import { billingEnabled } from "@/lib/billing/config";
 
 export async function verifyRunnerDeployment(settlementAddress: string): Promise<void> {
   const address = normalizeAddress(settlementAddress);
@@ -28,4 +30,5 @@ export async function verifyRunnerDeployment(settlementAddress: string): Promise
     !addressesEqual(usdc, usdcAddress())) {
     throw new AppError("Le réseau ou les contrats ne correspondent pas à l’identité du runner", 503);
   }
+  if (billingEnabled()) await confirmedBlock(client);
 }

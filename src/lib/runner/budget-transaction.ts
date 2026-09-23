@@ -6,6 +6,7 @@ export interface BudgetedTransactionIO {
   prepare(): Promise<{ serialized: Hex; nonce: number }>;
   send(serialized: Hex): Promise<Hex>;
   confirm(hash: Hex): Promise<"success" | "reverted" | "pending">;
+  seal?(serialized: Hex): string;
 }
 
 export async function sendBudgetedTransaction(
@@ -30,7 +31,7 @@ export async function sendBudgetedTransaction(
     hash = keccak256(prepared.serialized);
     // Le hash signé et le nonce sont durables AVANT le premier appel d’envoi RPC.
     try {
-      ledger.recordTransaction(id, fingerprint, hash, prepared.nonce);
+      ledger.recordTransaction(id, fingerprint, hash, prepared.nonce, io.seal?.(prepared.serialized));
     } catch (error) {
       ledger.failUnsentTransaction(id, fingerprint);
       throw error;

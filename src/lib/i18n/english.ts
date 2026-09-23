@@ -236,7 +236,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Hors catalogue, empruntable par lien direct": "Outside the catalog, borrowable through a direct link",
   "Toi seul (self-train)": "Only you (self-train)",
   "Vérifier le titre dans le registre EVM courant et finaliser la suppression ? Les éventuels anciens registres ne seront pas modifiés.": "Check the title in the current EVM registry and finalize deletion? Any previous registries will remain unchanged.",
-  "Supprimer ce dataset ? Sa clé de déchiffrement est détruite : la donnée devient définitivement irrécupérable.": "Delete this dataset? Its decryption key will be destroyed: data will become permanently unrecoverable.",
+  "Supprimer ce dataset ? Sa clé active sera supprimée et son titre désactivé. Les sauvegardes et les modèles déjà livrés ne sont pas effacés.": "Delete this dataset? Its active key will be removed and its title deactivated. Backups and previously delivered models will not be erased.",
   "Échec du changement de visibilité": "Visibility change failed",
   "← Mes actifs data": "← My data assets",
   "Déposer un dataset": "Upload a dataset",

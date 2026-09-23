@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { assertApplicationRunnerConfiguration, runnerEndpoint } from "./config";
+import { assertApplicationRunnerConfiguration, assertReaperRunnerConfiguration, runnerEndpoint } from "./config";
 import { validateRunnerConfiguration } from "@/runner/config";
 
 const saved = { ...process.env };
@@ -50,6 +50,19 @@ test("Next exige les mesures Phala et refuse la master key historique", () => {
   assert.doesNotThrow(assertApplicationRunnerConfiguration);
   process.env.SIRIUS_MASTER_KEY = "ancienne-cle";
   assert.throws(assertApplicationRunnerConfiguration, /Retirer SIRIUS_MASTER_KEY/);
+});
+
+test("le reaper v7 exige le runner distant et ses mesures avant de démarrer", () => {
+  assert.doesNotThrow(assertReaperRunnerConfiguration);
+  process.env.SIRIUS_BILLING_VERSION = "7";
+  assert.throws(assertReaperRunnerConfiguration, /Runner distant obligatoire/);
+  Object.assign(process.env, { TEE_MODE: "phala", RUNNER_URL: "https://runner.example", RUNNER_TRANSPORT_SECRET: "transport" });
+  assert.throws(assertReaperRunnerConfiguration, /SIRIUS_EXPECTED_MRTD/);
+  for (const key of ["SIRIUS_EXPECTED_MRTD", "SIRIUS_EXPECTED_RTMR3"]) process.env[key] = "11".repeat(48);
+  for (const key of ["SIRIUS_EXPECTED_COMPOSE_HASH", "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256"]) process.env[key] = "22".repeat(32);
+  assert.doesNotThrow(assertReaperRunnerConfiguration);
+  process.env.SIRIUS_MASTER_KEY = "ancienne-cle";
+  assert.throws(assertReaperRunnerConfiguration, /Retirer SIRIUS_MASTER_KEY/);
 });
 
 test("la CVM peut amorcer son identité sans contrats, mais ne peut pas les omettre à l’activation", () => {

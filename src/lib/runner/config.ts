@@ -1,5 +1,6 @@
 import "server-only";
 import { isDemoDeployment } from "@/lib/deployment-mode";
+import { billingEnabled } from "@/lib/billing/config";
 
 export function requiresPhalaRunner(): boolean {
   const flag = process.env.SIRIUS_REQUIRE_PHALA;
@@ -44,4 +45,10 @@ export function assertApplicationRunnerConfiguration(): void {
     }
   }
   if (!process.env.RUNNER_TRANSPORT_SECRET) throw new Error("RUNNER_TRANSPORT_SECRET obligatoire pour le runner Phala");
+}
+
+export function assertReaperRunnerConfiguration(): void {
+  if (!billingEnabled()) return;
+  if (!runnerEndpoint()) throw new Error("Runner distant obligatoire pour le reaper v7");
+  assertApplicationRunnerConfiguration();
 }

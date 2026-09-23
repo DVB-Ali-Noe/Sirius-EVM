@@ -3,7 +3,7 @@ import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
-import { runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
+import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { unpinModelUnlessReferenced } from "./model-storage";
@@ -99,6 +99,39 @@ export interface PreparedLoanResult {
 
 export interface SettleResult extends Omit<PreparedLoanResult, "releaseEnvelope"> {
   settleTxHash: string;
+}
+
+export async function recoverLoanResult(loanId: string): Promise<boolean> {
+  const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
+  if (!loan || loan.modelCid || !["ESCROWED", "TRAINING", "SETTLING"].includes(loan.status)) return false;
+  const signed = loanBillingQuote(loan);
+  if (!signed || !loan.evmLoanKey || !loan.amountUsdcAtomic) return false;
+  const runner = await assertCurrentRunner(loan);
+  const recovered = await recoverLoanJobInRunner(loanId, signed);
+  if (recovered.state !== "ready") return false;
+  const { result } = recovered;
+  const model = modelSelection(loan.modelId, loan.modelVersion);
+  if (!model || !loan.dataset.ipfsCid || !loan.dataset.merkleRoot) throw new AppError("Dataset de reprise incohérent", 409);
+  await verifyLoanAttestation({
+    attestation: result.attestation, loanId, loanKey: loan.evmLoanKey, datasetId: loan.datasetId,
+    datasetCid: loan.dataset.ipfsCid, provider: loan.provider, borrower: loan.borrower,
+    amountUsdcAtomic: loan.amountUsdcAtomic, billingQuoteHash: loan.billingQuoteHash!,
+    challengeDays: loan.dataset.challengeDays, merkleRoot: loan.dataset.merkleRoot, ...model,
+    modelCid: result.modelCid, releaseEnvelope: result.releaseEnvelope,
+    releaseEnvelopeHash: result.releaseEnvelopeHash, deliveryPublicKey: recovered.deliveryPublicKey,
+  });
+  const persisted = await prisma.loan.updateMany({
+    where: { id: loanId, status: loan.status, modelCid: null, updatedAt: loan.updatedAt },
+    data: {
+      status: "TRAINING", modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
+      attestationHash: result.attestation.payloadHash, attestationPayload: result.attestation.payload,
+      attestationQuote: result.attestation.evidence?.quote ?? null,
+      attestationEventLog: result.attestation.evidence?.eventLog ?? null,
+      attestationComposeHash: result.attestation.evidence?.composeHash ?? null,
+      auditReceipt: result.attestation.signature, ...runner,
+    },
+  });
+  return persisted.count === 1;
 }
 
 export async function prepareLoanResult(
@@ -290,9 +323,10 @@ export async function settlePreparedLoan(
       throw new AppError("Quote TDX runner non authentifiée", 502);
     }
   }
+  const claimedAt = new Date(Math.max(Date.now(), loan.updatedAt.getTime() + 1));
   const claimed = await prisma.loan.updateMany({
-    where: { id: loanId, status: loan.status, runnerReceipt: loan.runnerReceipt },
-    data: { status: "SETTLING", updatedAt: new Date() },
+    where: { id: loanId, status: loan.status, runnerReceipt: loan.runnerReceipt, updatedAt: loan.updatedAt },
+    data: { status: "SETTLING", updatedAt: claimedAt },
   });
   if (claimed.count !== 1) throw new AppError("Règlement déjà en cours", 409);
 
@@ -305,7 +339,7 @@ export async function settlePreparedLoan(
       authorization,
     );
     const updated = await prisma.loan.updateMany({
-      where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt },
+      where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
       data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date() },
     });
     if (updated.count !== 1) throw new AppError("Règlement USDC confirmé mais état local incohérent", 409);
@@ -313,7 +347,7 @@ export async function settlePreparedLoan(
   } catch (error) {
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
-      where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt },
+      where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
       data:
         resolution?.state === "settled"
           ? { status: "SETTLED", settleTxHash: resolution.txHash, settledAt: new Date() }

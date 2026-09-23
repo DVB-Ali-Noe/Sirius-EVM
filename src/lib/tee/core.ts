@@ -241,15 +241,17 @@ export async function runBilledEvmLoanJob(input: LoanJobInput, quote: ComputeQuo
   return budgetRunnerJob("training", training.keyContext, training, async () => {
     const startedAt = Date.now();
     const started = performance.now();
-    let success = false;
+    let result: { modelCid: string; metrics: Record<string, number> } | undefined;
     try {
       const { modelCid, model } = await trainAndSeal(training, AbortSignal.timeout(quote.maxExecutionMs), quote.maxDatasetBytes);
-      success = true;
-      return { modelCid, metrics: model.metrics };
+      result = { modelCid, metrics: model.metrics };
+      return result;
     } finally {
       // Une mesure absente après crash ne devient jamais la consommation maximale du devis.
       const elapsedMs = Math.min(quote.maxExecutionMs, Math.max(0, Math.floor(performance.now() - started)));
-      ledger.recordExecutionEvidence(scope, JSON.stringify({ version: 1, quoteHash: scope.fingerprint, startedAt, elapsedMs, success }));
+      ledger.recordExecutionEvidence(scope,
+        JSON.stringify({ version: 1, quoteHash: scope.fingerprint, startedAt, elapsedMs, success: Boolean(result) }),
+        result ? JSON.stringify(result) : undefined);
     }
   });
 }

@@ -13,6 +13,7 @@ import type {
   DatasetRef,
   RunnerDeliveryEnvelope,
   RunnerReleaseEnvelope,
+  RecoveredLoanResult,
 } from "./contract";
 import { attestedRunnerFetch } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
@@ -115,6 +116,10 @@ export async function settleLoanInRunner(
     { loanId },
     { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}) },
   );
+}
+
+export async function recoverLoanJobInRunner(loanId: string, billingQuote: SignedComputeQuote): Promise<RecoveredLoanResult> {
+  return dispatchRunner("recover-loan-job", { loanId }, { loanId, billingQuote });
 }
 
 export async function loanModelKeyInRunner(

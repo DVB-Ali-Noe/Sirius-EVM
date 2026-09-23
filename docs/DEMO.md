@@ -120,7 +120,7 @@ Repères issus du déploiement staging communiqué le 5 septembre 2026, à compa
 
 Pour ces deux escrows uniquement : la liste historique contient l'ancien ; la liste de migration contient l'ancien **et** le courant, séparés par une virgule. Ajouter tout autre déploiement réellement utilisé par cette base.
 
-Ne jamais copier la clé privée du déployeur vers le frontend. Le mot de passe PostgreSQL précédemment partagé hors du gestionnaire de secrets doit être remplacé dans Neon puis mis à jour dans Vercel, GitHub et le worker. Ne pas changer la master key du runner pour effectuer cette rotation de mot de passe.
+Ne jamais copier la clé privée du déployeur vers le frontend. Les identifiants PostgreSQL sont conservés à la demande de Noé ; l'ancienne note évoquant un partage hors du gestionnaire de secrets n'a pas été étayée. Préserver aussi les clés historiques du runner. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) décrit la sauvegarde et les contrôles réalisés sans rotation ni activation distante.
 
 ## Smoke on-chain
 
@@ -141,10 +141,11 @@ L'upload est limité à **3 Mio de CSV**, afin que l'enveloppe chiffrée encodé
 ```bash
 pnpm test
 pnpm test:billing
+pnpm test:operations
 pnpm lint
 pnpm build
 docker compose --env-file .env.local up --detach --wait --build
 pnpm runner:smoke
 ```
 
-Validation locale du 23 septembre après correctifs : 293 tests applicatifs, 79 tests contrats, 62 tests navigateur, un parcours EVM v7, lint, typages application/v7 et build réussis. Avant activation, valider les pannes encore ouvertes, le parcours à deux vrais wallets, les remboursements/retraits et RA-TLS sur Phala actif et testnet. Ce guide ne prouve aucune de ces validations distantes.
+Validations du 23 septembre : dernière passe réussie avec 302 tests applicatifs, 8 tests des outils d'exploitation, lint, typage applicatif et build. Les passes précédentes couvrent aussi 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM v7 et PostgreSQL 17 entre huit processus. La sauvegarde réelle a été restaurée et migrée sur PostgreSQL 18 local. Avant activation, valider les pannes encore ouvertes, le parcours à deux vrais wallets, les remboursements/retraits et RA-TLS sur Phala actif et testnet. Ce guide ne prouve aucune de ces validations distantes.

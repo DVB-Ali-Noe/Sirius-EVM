@@ -49,6 +49,7 @@ Thumbs.db
 
 # TEE / clés locales (key-store dev)
 /.keys/
+/.ops/
 *.pem
 
 /src/generated/prisma

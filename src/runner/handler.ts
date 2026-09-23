@@ -28,8 +28,8 @@ import { verifyRunnerGrant } from "@/lib/runner/authorization";
 import { budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
-import { totalQuoteAmount } from "@/lib/billing/quote";
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
+import { recoverBilledLoanResult } from "@/lib/billing/recovery";
 import {
   assertReleaseEnvelopeHash,
   issueDatasetReceipt,
@@ -41,7 +41,6 @@ import {
   verifyTrainingReceipt,
 } from "@/lib/runner/receipt";
 import {
-  deferredLoanDeliveryCommitment,
   encryptRunnerDelivery,
   encryptRunnerRelease,
   hashRunnerReleaseEnvelope,
@@ -122,6 +121,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
+    case "recover-loan-job":
     case "loan-model-key":
       return { op, scope: { loanId: text(body, "loanId") } };
     case "run-training":
@@ -134,7 +134,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 }
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
-  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key")) return executeRunnerOp(op, body);
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
   return budgetRunnerRequest(() => executeRunnerOp(op, body));
 }
 
@@ -246,6 +246,11 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           }),
         ]);
 
+        if (signedQuote) {
+          requireBillingBudget().prepareWorkflowResult(quoteWorkflow(signedQuote.quote), JSON.stringify({
+            datasetCid: dataset.cid, merkleRoot: dataset.merkleRoot, deliveryPublicKey,
+          }));
+        }
         let result;
         try {
           result = signedQuote
@@ -258,14 +263,17 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           }
           throw error;
         }
-        const releaseEnvelope = signedQuote ? undefined : encryptRunnerRelease(
+        if (signedQuote) {
+          const recovered = await recoverBilledLoanResult(signedQuote);
+          if (recovered.state !== "ready") throw new AppError("Résultat durable manquant", 503);
+          return recovered.result;
+        }
+        const releaseEnvelope = encryptRunnerRelease(
           evmLoanModelKey(loanId, borrower), deliveryPublicKey,
           loanDeliveryContext(loanId, borrower), preimage, "evm-preimage",
         );
         const { chainId, escrow } = evmEscrowBinding();
-        const releaseEnvelopeHash = signedQuote
-          ? deferredLoanDeliveryCommitment(loanKey, result.modelCid, deliveryPublicKey)
-          : hashRunnerReleaseEnvelope(releaseEnvelope!);
+        const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
         const attestation = await attestLoanExecution({
           chainId,
           escrow,
@@ -275,8 +283,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           datasetCid: dataset.cid,
           provider: datasetReceipt.owner,
           borrower,
-          amountUsdcAtomic: signedQuote ? totalQuoteAmount(signedQuote.quote) : datasetReceipt.priceUsdcAtomic,
-          ...(signedQuote ? { billingQuoteHash: quoteWorkflow(signedQuote.quote).fingerprint } : {}),
+          amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           challengeDays: datasetReceipt.challengeDays,
           merkleRoot: dataset.merkleRoot,
           modelId: dataset.modelId,
@@ -301,8 +308,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
             loanKey,
             chainId,
             escrow,
-            amountUsdcAtomic: signedQuote ? totalQuoteAmount(signedQuote.quote) : datasetReceipt.priceUsdcAtomic,
-            ...(signedQuote ? { billingQuote: signedQuote } : {}),
+            amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
             challengeDays: datasetReceipt.challengeDays,
             modelId: dataset.modelId,
             modelVersion: dataset.modelVersion,
@@ -313,6 +319,18 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         };
       };
       return signedQuote ? withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(execute)) : execute();
+    }
+
+    case "recover-loan-job": {
+      if (!billingEnabled()) throw new AppError("Reprise réservée aux prêts v7", 409);
+      const loanId = text(body, "loanId");
+      const signed = await runnerComputeQuote(body.billingQuote);
+      if (signed.quote.loanId !== loanId) throw new AppError("Devis compute hors scope", 409);
+      const ledger = requireBillingBudget();
+      const scope = quoteWorkflow(signed.quote);
+      if (!ledger.workflowResult(scope)) return { state: "missing" };
+      if (!ledger.executionEvidence(scope)) return { state: "pending" };
+      return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(() => recoverBilledLoanResult(signed)));
     }
 
     case "settle-loan": {

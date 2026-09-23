@@ -20,6 +20,8 @@ import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { boundedGas } from "@/lib/runner/gas-policy";
 import type { BudgetLedger } from "@/lib/runner/budget-ledger";
+import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
+import { assertCanonicalReceipt, confirmedBlock } from "./finality";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -119,11 +121,15 @@ export async function assertLoanScope(input: {
   const provider = normalizeAddress(input.provider);
   if (input.billingQuote) {
     const quote = input.billingQuote;
-    const ok = await client.readContract({
+    const block = await confirmedBlock(client, runnerBudget()?.policy.gas.confirmations);
+    const request = {
       address: escrowAddress(), abi: siriusescrowv7Abi, functionName: "matchesScope",
       args: [input.loanKey, quoteTermsHash(quote), BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS)],
-    });
-    if (!ok || quote.borrower !== normalizeAddress(input.borrower) || quote.provider !== provider
+    } as const;
+    const [confirmed, current] = await Promise.all([
+      client.readContract({ ...request, blockNumber: block.number! }), client.readContract(request),
+    ]);
+    if (!confirmed || !current || quote.borrower !== normalizeAddress(input.borrower) || quote.provider !== provider
       || quote.hashlock !== input.hashlock || quote.datasetId !== input.datasetId
       || quote.modelId !== input.model.modelId || quote.modelVersion !== input.model.modelVersion) {
       throw new AppError("Escrow on-chain inactif, hors scope ou lié à un autre dataset", 409);
@@ -200,7 +206,8 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
   if (ledger.policy.chainId !== binding.chainId || ledger.policy.wallet !== account.address.toLowerCase()) {
     throw new AppError("Identité du compte opérationnel différente du budget", 503);
   }
-  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address);
+  const send = (serializedTransaction: Hex) => walletClient().sendRawTransaction({ serializedTransaction });
+  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address, send);
   const address = escrowAddress();
   const data = encodeFunctionData({ abi: siriusescrowAbi, functionName: "release", args: [loanKey, preimage] });
   const id = `release:${binding.chainId}:${address}:${loanKey.toLowerCase()}`;
@@ -212,6 +219,7 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
   }
   const publicClient = getPublicClient();
   return sendBudgetedTransaction(ledger, id, fingerprint, {
+    seal: (serialized) => sealRunnerTransaction(id, fingerprint, serialized),
     async prepare() {
       if (await publicClient.getChainId() !== binding.chainId) throw new Error("RPC chain mismatch");
       const [estimate, gasPrice, balance, nonce] = await Promise.all([
@@ -227,7 +235,7 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
       });
       return { serialized, nonce };
     },
-    send: (serializedTransaction) => walletClient().sendRawTransaction({ serializedTransaction }),
+    send,
     async confirm(hash) {
       if (await publicClient.getChainId() !== binding.chainId) return "pending";
       const receipt = await publicClient.waitForTransactionReceipt({
@@ -235,6 +243,7 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
       });
       if (receipt.transactionHash.toLowerCase() !== hash || receipt.from.toLowerCase() !== ledger.policy.wallet
         || receipt.to?.toLowerCase() !== address) return "pending";
+      await assertCanonicalReceipt(publicClient, receipt, ledger.policy.gas.confirmations);
       return receipt.status;
     },
   });
@@ -302,6 +311,14 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, bind
     throw new AppError("Bloc de lock requis pour retrouver la résolution on-chain", 409);
   }
   const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : loan.status === 4 ? "LoanFailed" : "LoanRefunded", fromBlock, binding, Boolean(loan.billing));
+  if (loan.billing) {
+    const client = getPublicClient();
+    if (await client.getChainId() !== binding.chainId) throw new AppError("RPC sur un autre réseau", 503);
+    const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
+    if (receipt.status !== "success" || receipt.to?.toLowerCase() !== escrowReadAddress(binding)
+      || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) throw new AppError("Résolution on-chain non confirmée", 409);
+    await assertCanonicalReceipt(client, receipt);
+  }
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
     : { state: "cancelled", txHash, ...(loan.billing ? {
@@ -375,13 +392,7 @@ export async function publishedFinalizedPreimage(
     || receipt.to?.toLowerCase() !== address || transaction.to?.toLowerCase() !== address) {
     throw new AppError("Règlement on-chain non confirmé", 409);
   }
-  const [block, tip] = await Promise.all([
-    client.getBlock({ blockNumber: receipt.blockNumber }),
-    client.getBlockNumber({ cacheTime: 0 }),
-  ]);
-  if (block.hash !== receipt.blockHash || tip - receipt.blockNumber + BigInt(1) < BigInt(confirmations)) {
-    throw new AppError("Règlement on-chain non confirmé", 409);
-  }
+  await assertCanonicalReceipt(client, receipt, confirmations);
   let call;
   try { call = decodeFunctionData({ abi: siriusescrowv7Abi, data: transaction.input }); }
   catch { throw new AppError("Transaction de règlement invalide", 409); }

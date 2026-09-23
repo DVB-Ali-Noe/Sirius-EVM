@@ -2,6 +2,8 @@ import "server-only";
 import { keccak256, type Address, type Hex, type PublicClient } from "viem";
 import { AppError } from "@/lib/app-error";
 import type { BudgetLedger } from "./budget-ledger";
+import { openRunnerTransaction } from "./transaction-journal";
+import { assertCanonicalReceipt } from "@/lib/evm/finality";
 
 const UNSENT_LEASE_MS = 5 * 60_000;
 
@@ -10,7 +12,11 @@ export async function reconcileRunnerTransactions(
   client: PublicClient,
   chainId: number,
   wallet: Address,
+  rebroadcast?: (serialized: Hex) => Promise<Hex>,
 ): Promise<void> {
+  if (ledger.policy.chainId !== chainId || ledger.policy.wallet !== wallet.toLowerCase()) {
+    throw new AppError("Identité du compte opérationnel différente du budget", 503);
+  }
   if (await client.getChainId() !== chainId) throw new AppError("RPC sur un autre réseau", 503);
   for (const operation of ledger.pendingTransactions()) {
     if (!operation.txHash) {
@@ -23,19 +29,25 @@ export async function reconcileRunnerTransactions(
     }
     let receipt;
     try { receipt = await client.getTransactionReceipt({ hash: operation.txHash as Hex }); }
-    catch { continue; }
-    const [transaction, block, tip] = await Promise.all([
-      client.getTransaction({ hash: operation.txHash as Hex }),
-      client.getBlock({ blockNumber: receipt.blockNumber }),
-      client.getBlockNumber({ cacheTime: 0 }),
-    ]);
-    if (block.hash !== receipt.blockHash || receipt.transactionHash.toLowerCase() !== operation.txHash
+    catch {
+      if (rebroadcast) {
+        const ciphertext = ledger.claimTransactionRebroadcast(operation.id, operation.fingerprint);
+        if (ciphertext) {
+          const raw = await openRunnerTransaction(ciphertext, operation, ledger.policy);
+          try { await rebroadcast(raw); } catch { /* Le même hash reste réservé après perte de réponse. */ }
+        }
+      }
+      continue;
+    }
+    const transaction = await client.getTransaction({ hash: operation.txHash as Hex });
+    if (receipt.transactionHash.toLowerCase() !== operation.txHash
       || receipt.from.toLowerCase() !== wallet.toLowerCase() || receipt.to?.toLowerCase() !== parts[3]
       || transaction.from.toLowerCase() !== wallet.toLowerCase() || transaction.to?.toLowerCase() !== parts[3]
       || transaction.nonce !== operation.nonce || keccak256(transaction.input) !== operation.fingerprint) {
       throw new AppError("Transaction runner hors scope : intervention requise", 503);
     }
-    if (tip - receipt.blockNumber + BigInt(1) < BigInt(ledger.policy.gas.confirmations)) continue;
+    try { await assertCanonicalReceipt(client, receipt, ledger.policy.gas.confirmations); }
+    catch { continue; }
     ledger.finish(operation.id, operation.fingerprint, receipt.status === "success");
   }
 }

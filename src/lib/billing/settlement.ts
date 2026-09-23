@@ -9,6 +9,8 @@ import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
 import { boundedGas } from "@/lib/runner/gas-policy";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
+import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
+import { assertCanonicalReceipt } from "@/lib/evm/finality";
 import { quoteWorkflow, requireBillingBudget } from "./runner";
 import { executionReceiptTypedData, failureFee, quoteTermsHash, type ComputeQuote } from "./quote";
 
@@ -18,9 +20,13 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
   const client = getPublicClient();
   const { chain, rpcUrl } = resolveServerNetwork();
   if (chain.id !== quote.chainId || account.address.toLowerCase() !== quote.runner) throw new AppError("Devis compute hors scope", 409);
-  await reconcileRunnerTransactions(ledger, client, quote.chainId, account.address);
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl, { retryCount: 0, timeout: 20000 }) });
-  return sendBudgetedTransaction(ledger, `${kind}:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data), {
+  const send = (serializedTransaction: Hex) => wallet.sendRawTransaction({ serializedTransaction });
+  await reconcileRunnerTransactions(ledger, client, quote.chainId, account.address, send);
+  const id = `${kind}:${quote.chainId}:${quote.escrow}:${loanKey}`;
+  const fingerprint = keccak256(data);
+  return sendBudgetedTransaction(ledger, id, fingerprint, {
+    seal: (serialized) => sealRunnerTransaction(id, fingerprint, serialized),
     async prepare() {
       if (await client.getChainId() !== quote.chainId) throw new AppError("RPC sur un autre réseau", 409);
       const [estimate, price, balance, nonce] = await Promise.all([
@@ -34,12 +40,13 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
         type: "eip1559", maxPriorityFeePerGas: BigInt(0),
       }) };
     },
-    send: (serializedTransaction) => wallet.sendRawTransaction({ serializedTransaction }),
+    send,
     async confirm(hash) {
       if (await client.getChainId() !== quote.chainId) return "pending";
       const receipt = await client.waitForTransactionReceipt({ hash, confirmations: ledger.policy.gas.confirmations, timeout: 15000, retryCount: 0 });
       if (receipt.transactionHash.toLowerCase() !== hash || receipt.from.toLowerCase() !== quote.runner
         || receipt.to?.toLowerCase() !== quote.escrow) return "pending";
+      await assertCanonicalReceipt(client, receipt, ledger.policy.gas.confirmations);
       return receipt.status;
     },
   }, quoteWorkflow(quote));

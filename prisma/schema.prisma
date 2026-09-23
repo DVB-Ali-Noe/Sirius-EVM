@@ -22,7 +22,7 @@ model Dataset {
   evmDestroyTxHash String? // hash de tombstone confirmé
   deletionReconciledAt DateTime? // fin de suppression applicative ; distincte d'une preuve de transaction EVM
   ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
-  wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
+  wrappedKey     String? // DEK enveloppée ; sa suppression active ne purge pas les sauvegardes.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
   priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
@@ -34,7 +34,7 @@ model Dataset {
   runnerKind     RunnerKind @default(UNKNOWN)
   runnerDeploymentId String?
   status         DatasetStatus @default(DRAFT)
-  keyDestroyedAt DateTime? // horodatage du crypto-shredding (DEK détruite, data irrécupérable)
+  keyDestroyedAt DateTime? // suppression de la copie active de DEK enveloppée
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -204,7 +204,7 @@ enum DatasetStatus {
   UNLISTED // « Semi-privé » : hors catalogue, empruntable par lien direct
   PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
   SUSPENDED
-  DELETED // crypto-shreddé : clé détruite, data irrécupérable ; ligne gardée pour l'audit
+  DELETED // clé active supprimée ; ligne gardée pour l'audit
 }
 
 enum RunnerKind {

@@ -63,7 +63,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-/** Prépare le tombstone EVM à signer par le provider avant le crypto-shredding. */
+/** Prépare le tombstone EVM à signer par le provider avant suppression de la clé active. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -78,7 +78,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 }
 
-/** Suppression par crypto-shredding : détruit la clé, dépine puis ancre le tombstone EVM. */
+/** Vérifie le tombstone EVM, retire la clé active et dépine le dataset. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);

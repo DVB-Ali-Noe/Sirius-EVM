@@ -5,6 +5,11 @@
 .pnpm-store
 AGENTS.md
 CLAUDE.md
+.vercel
+.keys
+.ops
+playwright-report
+test-results
 node_modules
 prisma/dev.db
 prisma/dev.db-journal

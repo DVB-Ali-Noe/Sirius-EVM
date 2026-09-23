@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { mkdtempSync, rmSync, chmodSync, renameSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, chmodSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
@@ -12,6 +12,8 @@ import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-tr
 import { boundedGas } from "./gas-policy";
 import { reconcileRunnerTransactions } from "./transaction-recovery";
 import type { PublicClient } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { openRunnerTransaction, sealRunnerTransaction } from "./transaction-journal";
 
 const wallet = `0x${"12".repeat(20)}`;
 const directories: string[] = [];
@@ -43,7 +45,7 @@ function fixture(change: (p: BudgetPolicy) => void = () => {}) {
   change(p);
   initializeBudgetLedger(path, p);
   function open() {
-    const ledger = new BudgetLedger(path, p.chainId, wallet);
+    const ledger = new BudgetLedger(path, p.chainId, p.wallet);
     ledgers.push(ledger);
     return ledger;
   }
@@ -290,12 +292,67 @@ test("un reçu canonique finalisé libère une transaction réservée après tim
     getTransactionReceipt: async () => ({ blockNumber: BigInt(10), blockHash, transactionHash: hash,
       from: wallet, to: escrow, status: "success" }),
     getTransaction: async () => ({ from: wallet, to: escrow, nonce: 7, input }),
-    getBlock: async () => ({ hash: blockHash }),
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({ hash: blockHash, number: blockNumber }),
     getBlockNumber: async () => BigInt(11),
   } as unknown as PublicClient;
   await reconcileRunnerTransactions(open(), client, 46630, wallet as `0x${string}`);
   assert.equal(ledger.find(id, fingerprint)?.state, "succeeded");
   ledger.reserve("next", "next", "transaction");
+});
+
+test("la rediffusion après crash conserve octets, nonce, frais et budget, avec trois envois au maximum", async () => {
+  process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 17).toString("base64");
+  const account = privateKeyToAccount(`0x${"17".repeat(32)}`);
+  const { ledger, open } = fixture((p) => { p.wallet = account.address.toLowerCase(); });
+  const escrow = `0x${"34".repeat(20)}` as Hex;
+  const id = `release:46630:${escrow}:0x${"56".repeat(32)}`;
+  const data = "0x1234" as Hex;
+  const fingerprint = keccak256(data);
+  const raw = await account.signTransaction({ chainId: 46630, type: "eip1559", to: escrow, data,
+    nonce: 7, gas: BigInt(100), maxFeePerGas: BigInt(1000), maxPriorityFeePerGas: BigInt(0), value: BigInt(0) });
+  ledger.reserve(id, fingerprint, "transaction");
+  const ciphertext = sealRunnerTransaction(id, fingerprint, raw);
+  assert.ok(!ciphertext.includes(raw.slice(2)));
+  ledger.recordTransaction(id, fingerprint, keccak256(raw), 7, ciphertext);
+  const restarted = open();
+  const operation = restarted.find(id, fingerprint)!;
+  assert.equal(await openRunnerTransaction(ciphertext, operation, restarted.policy), raw);
+  await assert.rejects(openRunnerTransaction(ciphertext, { ...operation, nonce: 8 }, restarted.policy), /Journal/);
+  const originalNow = Date.now;
+  const snapshot = ledger.snapshot();
+  const sent: Hex[] = [];
+  const client = {
+    getChainId: async () => 46630,
+    getTransactionReceipt: async () => { throw new Error("introuvable"); },
+  } as unknown as PublicClient;
+  try {
+    await reconcileRunnerTransactions(restarted, client, 46630, account.address, async (value) => { sent.push(value); return keccak256(value); });
+    assert.equal(sent.length, 0);
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      Date.now = () => operation.createdAt + attempt * 31000;
+      await reconcileRunnerTransactions(restarted, client, 46630, account.address, async (value) => { sent.push(value); return keccak256(value); });
+    }
+    assert.deepEqual(sent, [raw, raw]);
+    assert.deepEqual(ledger.snapshot(), snapshot);
+    assert.equal(ledger.find(id, fingerprint)?.state, "reserved");
+  } finally { Date.now = originalNow; }
+});
+
+test("résultat et consommation v7 restent récupérables après redémarrage sans clé dataset ni nouvelle exécution", () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  const context = JSON.stringify({ datasetCid: "bafy-dataset", merkleRoot: "abc", deliveryPublicKey: "public" });
+  ledger.prepareWorkflowResult(workflow, context);
+  assert.throws(() => ledger.prepareWorkflowResult(workflow, "autre"), /hors scope/);
+  ledger.reserve("training", "input", "training", workflow);
+  const result = JSON.stringify({ modelCid: "bafy-model", metrics: { n: 20 } });
+  const evidence = JSON.stringify({ success: true, quoteHash: workflow.fingerprint });
+  ledger.recordExecutionEvidence(workflow, evidence, result);
+  assert.deepEqual({ ...open().workflowResult(workflow) }, { context, result });
+  assert.equal(open().executionEvidence(workflow), evidence);
+  assert.equal(open().find("training", "input")?.state, "succeeded");
+  assert.equal(open().diagnostics().incompleteJobs, 0);
+  assert.throws(() => ledger.recordExecutionEvidence(workflow, "{}", "{}"), /déjà fixée/);
 });
 
 test("le gas signé borne unités, prix, dépense et solde ETH", () => {
@@ -413,4 +470,31 @@ test("deux processus ne peuvent promettre la même dernière réserve de clôtur
   const results = await Promise.all(["first", "second"].map((id) => run(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script, path, id])));
   assert.deepEqual(results.map((r) => r.stdout).sort(), ["admitted", "blocked"]);
   assert.equal(ledger.snapshot().allocatedUsd, BigInt(1116));
+});
+
+test("la sauvegarde capture le WAL sans réinitialiser les engagements et refuse tout écrasement", () => {
+  const { ledger, path, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  ledger.reserve("running", "scope", "training", workflow);
+  const destination = `${path}.backup`;
+  ledger.backup(destination);
+  assert.throws(() => ledger.backup(destination), /EEXIST/);
+  const backup = new BudgetLedger(destination, p.chainId, p.wallet);
+  ledgers.push(backup);
+  assert.deepEqual(backup.snapshot(), ledger.snapshot());
+  assert.equal(backup.find("running", "scope")?.state, "reserved");
+  assert.equal(backup.diagnostics().incompleteJobs, 1);
+  assert.equal(backup.workflowPayload(workflow.id), "signed");
+});
+
+test("le nettoyage hors service retire un ancien résultat de scellement sans effacer les engagements", () => {
+  const { ledger, path, open } = fixture();
+  const sentinel = "synthetic-old-wrapped-key-cache";
+  ledger.reserve("old-seal", "scope", "seal");
+  ledger.finish("old-seal", "scope", true, JSON.stringify({ wrappedKey: sentinel }));
+  const before = ledger.snapshot();
+  ledger.sanitizeKeyCache();
+  assert.equal(open().find("old-seal", "scope")?.result, null);
+  assert.deepEqual(ledger.snapshot(), before);
+  assert.equal(readFileSync(path).includes(Buffer.from(sentinel)), false);
 });

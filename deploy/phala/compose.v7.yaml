@@ -1,0 +1,16 @@
+# Fusionner avec compose.yaml après préparation du volume et validation de l'image.
+services:
+  runner:
+    image: ${SIRIUS_RUNNER_IMAGE:?Image v7 immuable requise}
+    environment:
+      RUNNER_BOOTSTRAP_ONLY: "false"
+      SIRIUS_BILLING_VERSION: "7"
+      RUNNER_BUDGET_FILE: /var/lib/sirius-runner/budget/ledger.sqlite
+      RUNNER_BILLING_POLICY_FILE: /var/lib/sirius-runner/budget/billing-policy.json
+      SIRIUS_EVM_FINALITY: finalized
+      SIRIUS_EVM_CONFIRMATIONS: ${SIRIUS_EVM_CONFIRMATIONS:?Profondeur validée requise}
+    volumes:
+      - runner_budget:/var/lib/sirius-runner/budget
+
+volumes:
+  runner_budget:

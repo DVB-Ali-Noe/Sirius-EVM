@@ -7,6 +7,7 @@ import { usdcAddress } from "@/lib/evm/addresses";
 import { erc20Abi } from "@/lib/evm/abi/erc20";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
+import { confirmedBlock } from "@/lib/evm/finality";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { MAX_DATASET_BYTES, type DatasetRef } from "@/lib/tee/contract";
 import { runnerBudget } from "@/lib/runner/budget";
@@ -32,10 +33,7 @@ async function reclaimExpiredUnpaidQuotes(): Promise<void> {
   const ledger = requireBillingBudget();
   const client = getPublicClient();
   if (await client.getChainId() !== ledger.policy.chainId) throw new AppError("RPC sur un autre réseau", 503);
-  const tip = await client.getBlockNumber({ cacheTime: 0 });
-  const depth = BigInt(ledger.policy.gas.confirmations);
-  if (tip + BigInt(1) < depth) return;
-  const stable = await client.getBlock({ blockNumber: tip - depth + BigInt(1) });
+  const stable = await confirmedBlock(client, ledger.policy.gas.confirmations);
   for (const workflow of ledger.expiredUnusedWorkflows(Number(stable.timestamp) * 1000)) {
     let signed: SignedComputeQuote;
     try { signed = JSON.parse(workflow.payload) as SignedComputeQuote; }

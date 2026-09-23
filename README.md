@@ -44,13 +44,15 @@ Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). 
 
 Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
-Le dernier état distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; l'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats, le KYB externe et les historiques restent à valider. Cet état distant n'a pas été réinterrogé pendant l'audit local.
+Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats, le KYB externe et la re-livraison des clés historiques restent à valider.
 
 L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
 
 Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et accepté, prépaiement, calcul borné, règlement ou remboursement, budget réservé jusqu'à la clôture. Le mode par défaut reste v6 ; v7 exige `SIRIUS_BILLING_VERSION=7`, des politiques et un registre persistants. La migration Prisma est préparée, non appliquée à distance. Aucun tarif commercial n'est fixé.
 
-**Activation toujours bloquée :** les correctifs locaux couvrent les transactions confirmées après timeout, le règlement autonome d'un résultat v7 persisté, le devis obligatoire et le filtrage des réponses API. Restent le crash entre calcul et persistance, la finalité/RPC sur le réseau cible, les anciennes sauvegardes de clés, les validations PostgreSQL/Phala et la calibration économique. Voir le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
+**Reprise et exploitation préparées :** le résultat v7 enregistré dans SQLite est récupérable après perte de la réponse Next ; les transactions signées sont journalisées sous chiffrement et rediffusées à l'identique dans une limite de trois envois. Les quotas PostgreSQL et l'anti-rejeu sont éprouvés entre huit processus. Une sauvegarde chiffrée de la base réelle a été restaurée et migrée sur PostgreSQL 18 local ; les 13 blobs de modèles historiques ont été copiés et vérifiés. Les images et le superviseur d'arrêt sont préparés localement. Voir la [reprise](docs/RECOVERY-OPERATIONS.md) et la [préparation de l'exploitation](docs/OPERATIONS-PREPARATION.md).
+
+**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, la copie de sauvegarde hors machine et l'accès aux clés historiques, les plafonds fournisseurs, les tarifs et la validation Phala complète. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
 
 La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows, crédits et clés des modèles historiques séparément de la nouvelle identité Phala.
 
@@ -65,11 +67,12 @@ pnpm contracts:abi
 pnpm datasets:generate
 pnpm test
 pnpm test:billing
+pnpm test:operations
 pnpm lint
 pnpm build
 ```
 
-Validation locale du 23 septembre après correctifs : **293 tests applicatifs, 79 tests contrats, 62 tests navigateur et un parcours EVM de facturation réussis**, ainsi que lint, typages application/v7 et build. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
+Validations du 23 septembre : **302 tests applicatifs, 8 tests des outils d'exploitation, lint, typage applicatif et build réussis** lors de la dernière passe. Les passes précédentes ont aussi validé 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM de facturation et les admissions PostgreSQL 17 entre huit processus. La restauration réelle et ses migrations ont été vérifiées sur PostgreSQL 18 local. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
 
 Après résolution des bloqueurs et validation de la migration, le guide de déploiement testnet prévoit `ROBINHOOD_DEPLOYER_KEY` et éventuellement `EVM_RPC_URL` pour le script de déploiement (`ROBINHOOD_TESTNET_RPC` concerne le réseau Hardhat), puis :
 
@@ -92,6 +95,8 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Roadmap](docs/ROADMAP.md)
 - [Plan produit et passage au mainnet](docs/MAINNET-PLAN.md)
 - [Audit approfondi du 23 septembre — suivi des correctifs](docs/AUDIT-2026-09-23.md)
+- [Reprise des résultats, transactions et registres](docs/RECOVERY-OPERATIONS.md)
+- [Préparation de l'exploitation, sauvegardes et coûts](docs/OPERATIONS-PREPARATION.md)
 - [Intégration du parcours de facturation](docs/BILLING-INTEGRATION.md)
 - [Politique de facturation et protection du PnL](docs/COMPUTE-BILLING.md)
 - [Escrow v7](docs/ESCROW-V7.md) et [budgets persistants du runner](docs/RUNNER-BUDGETS.md)

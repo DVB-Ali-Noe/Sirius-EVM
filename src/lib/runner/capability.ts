@@ -7,6 +7,7 @@ export type RunnerOperation =
   | "run-training"
   | "prepare-escrow-lock"
   | "run-loan-job"
+  | "recover-loan-job"
   | "settle-loan"
   | "loan-model-key"
   | "self-train-key";
