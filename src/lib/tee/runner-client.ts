@@ -92,7 +92,8 @@ export async function runLoanJobInRunner(
   modelCid: string;
   metrics: Record<string, number>;
   attestation: LoanExecutionAttestation;
-  releaseEnvelope: RunnerReleaseEnvelope;
+  releaseEnvelope?: RunnerReleaseEnvelope;
+  releaseEnvelopeHash: string;
   runnerReceipt: string;
 }> {
   return dispatchRunner(
@@ -107,12 +108,12 @@ export async function settleLoanInRunner(
   loanReceipt: string,
   releaseEnvelopeHash: string,
   lockBlock: string,
-  authorization: RunnerGrant,
+  authorization?: RunnerGrant,
 ): Promise<{ settleTxHash: string }> {
   return dispatchRunner(
     "settle-loan",
     { loanId },
-    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, authorization },
+    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}) },
   );
 }
 
@@ -121,11 +122,12 @@ export async function loanModelKeyInRunner(
   loanReceipt: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
+  settleTxHash?: string,
 ): Promise<{ modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope }> {
   return dispatchRunner(
     "loan-model-key",
     { loanId },
-    { loanId, loanReceipt, deliveryPublicKey, authorization },
+    { loanId, loanReceipt, deliveryPublicKey, authorization, ...(settleTxHash ? { settleTxHash } : {}) },
   );
 }
 

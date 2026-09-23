@@ -1,6 +1,6 @@
 # Démo EVM locale et testnet
 
-**État au 23 septembre 2026 :** le [parcours v7](BILLING-INTEGRATION.md) est intégré localement et son test EVM isolé passe. L'[audit approfondi](AUDIT-2026-09-23.md) identifie cependant des défauts non corrigés ; l'activation reste bloquée. Phala est arrêté. Les commandes de déploiement et de démarrage ci-dessous sont des procédures pour une future opération validée, pas des actions effectuées pendant l'audit.
+**État au 23 septembre 2026 :** le [parcours v7](BILLING-INTEGRATION.md) est intégré localement et son test EVM isolé passe. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) décrit les correctifs et les limites encore bloquantes. Phala est arrêté. Les commandes de déploiement et de démarrage ci-dessous sont des procédures pour une future opération validée, pas des actions effectuées pendant ces correctifs.
 
 Pour reproduire uniquement le parcours de facturation local, `pnpm test:billing` compile les contrats et démarre son nœud Hardhat isolé avec token synthétique, worker réel et IPFS simulé. Il ne requiert ni portefeuille public financé, ni Pinata réel, ni Phala. Les valeurs de prix et de budget de ses fixtures ne sont pas des tarifs commerciaux.
 
@@ -147,4 +147,4 @@ docker compose --env-file .env.local up --detach --wait --build
 pnpm runner:smoke
 ```
 
-Validation locale du 23 septembre : 289 tests applicatifs, 78 tests contrats, un parcours EVM v7, lint, typages application/v7 et build réussis. Les nouveaux scénarios de l'audit révèlent des défauts non couverts par ces suites. Après correction, valider le parcours à deux wallets, l'abandon, les confirmations perdues, les remboursements/retraits, puis RA-TLS sur Phala actif et testnet. Ce guide ne prouve aucune de ces validations distantes.
+Validation locale du 23 septembre après correctifs : 293 tests applicatifs, 79 tests contrats, 62 tests navigateur, un parcours EVM v7, lint, typages application/v7 et build réussis. Avant activation, valider les pannes encore ouvertes, le parcours à deux vrais wallets, les remboursements/retraits et RA-TLS sur Phala actif et testnet. Ce guide ne prouve aucune de ces validations distantes.

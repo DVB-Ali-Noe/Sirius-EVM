@@ -26,6 +26,18 @@ export async function verifyBorrowQuote(value: unknown, scope: { loanId: string;
   return signed;
 }
 
+export async function escrowBillingVersion(): Promise<6 | 7> {
+  const wallet = getExternalWallet();
+  if (!wallet) throw new Error("Wallet déconnecté");
+  const chain = chainForNetwork(resolveClientNetwork());
+  const client = createPublicClient({ chain, transport: custom(wallet) });
+  if (await client.getChainId() !== chain.id) throw new Error("RPC sur un autre réseau");
+  const version = await client.readContract({ address: escrowAddress(), abi: siriusescrowv7Abi, functionName: "VERSION" });
+  if (version === "sirius-escrow-usdc-v7") return 7;
+  if (version === "sirius-escrow-usdc-v6") return 6;
+  throw new Error("Version d’escrow non prise en charge");
+}
+
 export function quotedTransactions(signed: SignedComputeQuote) {
   return {
     approve: {

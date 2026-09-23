@@ -58,7 +58,7 @@ function fixture() {
     "server-only": {}, "@/lib/errors": { AppError },
     "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
     "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
-    "@/lib/db": { prisma: {
+    "@/lib/db": { serializableTransaction: async (fn: (value: typeof tx) => unknown) => fn(tx), prisma: {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
       trainingJob: { updateMany: async () => ({ count: 1 }) },
@@ -140,7 +140,7 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
     "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
     "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
-    "@/lib/db": { prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
+    "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }), prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
     "@/lib/tee/runner-client": {
       datasetIngressKeyInRunner: async () => ({ publicKey: "public-key" }),
       sealDatasetInRunner: async () => {

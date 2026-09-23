@@ -29,7 +29,12 @@ export async function sendBudgetedTransaction(
     }
     hash = keccak256(prepared.serialized);
     // Le hash signé et le nonce sont durables AVANT le premier appel d’envoi RPC.
-    ledger.recordTransaction(id, fingerprint, hash, prepared.nonce);
+    try {
+      ledger.recordTransaction(id, fingerprint, hash, prepared.nonce);
+    } catch (error) {
+      ledger.failUnsentTransaction(id, fingerprint);
+      throw error;
+    }
     try {
       const receivedHash = await io.send(prepared.serialized);
       if (receivedHash.toLowerCase() !== hash) throw new Error("RPC hash mismatch");

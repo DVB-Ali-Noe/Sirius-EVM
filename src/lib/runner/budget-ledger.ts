@@ -31,6 +31,7 @@ interface Database {
   exec(sql: string): void;
   prepare(sql: string): {
     get(...args: SqlValue[]): Row | undefined;
+    all(...args: SqlValue[]): Row[];
     run(...args: SqlValue[]): { changes: number | bigint };
   };
   close(): void;
@@ -43,7 +44,7 @@ function database(path: string): Database {
   };
   const db = new sqlite.DatabaseSync(path);
   try {
-    db.exec("PRAGMA busy_timeout = 3000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;");
+    db.exec("PRAGMA busy_timeout = 3000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA secure_delete = ON;");
     return db;
   } catch (error) {
     db.close();
@@ -118,9 +119,11 @@ export interface BudgetOperation {
   result: string | null;
   txHash: string | null;
   nonce: number | null;
+  createdAt: number;
 }
 
 export interface WorkflowBudget { id: string; fingerprint: string }
+export interface UnusedWorkflow extends WorkflowBudget { payload: string }
 const WORKFLOW_SCHEMA = `
   CREATE TABLE IF NOT EXISTS workflows (
     id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, valid_until INTEGER NOT NULL,
@@ -159,6 +162,8 @@ export class BudgetLedger {
       }
       this.assertFile();
       this.db.exec(WORKFLOW_SCHEMA);
+      this.db.prepare("UPDATE operations SET result = NULL WHERE kind = 'seal' AND result IS NOT NULL").run();
+      this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch (error) {
       this.db.close();
       throw error;
@@ -208,6 +213,7 @@ export class BudgetLedger {
     return {
       id, fingerprint, kind: row.kind as BudgetKind, state: row.state as BudgetOperation["state"],
       result: row.result as string | null, txHash: row.tx_hash as string | null, nonce: row.nonce as number | null,
+      createdAt: row.created_at as number,
     };
   }
 
@@ -264,6 +270,23 @@ export class BudgetLedger {
     });
   }
 
+  pendingTransactions(): BudgetOperation[] {
+    this.assertFile();
+    const rows = this.db.prepare("SELECT id, fingerprint FROM operations WHERE kind = 'transaction' AND state = 'reserved'").all() as Array<{ id: string; fingerprint: string }>;
+    return rows.map(({ id, fingerprint }) => this.find(id, fingerprint)!);
+  }
+
+  failUnsentTransaction(id: string, fingerprint: string, minimumAgeMs = 0): boolean {
+    return this.atomic(() => {
+      const operation = this.find(id, fingerprint);
+      if (!operation || operation.kind !== "transaction" || operation.state !== "reserved" || operation.txHash
+        || Date.now() - operation.createdAt < minimumAgeMs) return false;
+      this.db.prepare("UPDATE operations SET state = 'failed' WHERE id = ?").run(id);
+      this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
+      return true;
+    });
+  }
+
   finish(id: string, fingerprint: string, succeeded: boolean, result: string | null = null): void {
     if (result !== null && Buffer.byteLength(result) > 65536) throw new AppError("Résultat runner trop volumineux", 503);
     this.atomic(() => {
@@ -294,6 +317,13 @@ export class BudgetLedger {
       .run(String(allocatedUsd + usd), String(allocatedWei + wei));
   }
 
+  private workflowAllocation(): { usd: bigint; wei: bigint } {
+    const wei = BigInt(this.policy.gas.maxTransactionWei) * BigInt(2);
+    const scale = BigInt("1000000000000000000");
+    const gasUsd = ((BigInt(this.policy.gas.maxTransactionWei) * BigInt(this.policy.gas.ethUsdMicrosUpperBound) + scale - BigInt(1)) / scale) * BigInt(2);
+    return { usd: BigInt(this.policy.costsUsdMicros.training) + BigInt(this.policy.costsUsdMicros.request) * BigInt(16) + gasUsd, wei };
+  }
+
   private workflow(scope: WorkflowBudget): Row {
     const row = this.db.prepare("SELECT * FROM workflows WHERE id = ?").get(scope.id);
     if (!row || row.fingerprint !== scope.fingerprint) throw new AppError("Budget de clôture hors scope", 409);
@@ -303,6 +333,28 @@ export class BudgetLedger {
   workflowPayload(id: string): string | null {
     this.assertFile();
     return this.db.prepare("SELECT payload FROM workflows WHERE id = ?").get(id)?.payload as string | undefined ?? null;
+  }
+
+  expiredUnusedWorkflows(now: number, limit = 32): UnusedWorkflow[] {
+    this.assertFile();
+    return this.db.prepare(`SELECT w.id, w.fingerprint, w.payload FROM workflows w
+      WHERE CAST(json_extract(w.payload, '$.quote.expiresAt') AS INTEGER) * 1000 < ?
+      AND NOT EXISTS (SELECT 1 FROM operation_workflows o WHERE o.workflow_id = w.id)
+      ORDER BY json_extract(w.payload, '$.quote.expiresAt') LIMIT ?`).all(now, limit) as unknown as UnusedWorkflow[];
+  }
+
+  releaseUnusedWorkflow(scope: WorkflowBudget): boolean {
+    return this.atomic(() => {
+      this.workflow(scope);
+      if (this.db.prepare("SELECT operation_id FROM operation_workflows WHERE workflow_id = ?").get(scope.id)) return false;
+      const { allocatedUsd, allocatedWei } = this.accounting();
+      const allocation = this.workflowAllocation();
+      if (allocatedUsd < allocation.usd || allocatedWei < allocation.wei) throw new AppError("Comptabilité runner indisponible", 503);
+      this.db.prepare("DELETE FROM workflows WHERE id = ? AND fingerprint = ?").run(scope.id, scope.fingerprint);
+      this.db.prepare("UPDATE budget SET allocated_usd = ?, allocated_wei = ? WHERE id = 1")
+        .run(String(allocatedUsd - allocation.usd), String(allocatedWei - allocation.wei));
+      return true;
+    });
   }
 
   reserveWorkflow(scope: WorkflowBudget, payload: string, validUntil: number, availableGasWei: bigint): void {
@@ -317,11 +369,9 @@ export class BudgetLedger {
       if (Buffer.byteLength(payload) > 16384 || !integer(validUntil, Date.now() + 1, this.policy.validUntil)) {
         throw new AppError("Politique de coûts trop courte pour clôturer le prêt", 503);
       }
-      const wei = BigInt(this.policy.gas.maxTransactionWei) * BigInt(2);
+      const { usd, wei } = this.workflowAllocation();
       if (this.accounting().allocatedWei + wei > availableGasWei) throw new AppError("Liquidités ETH insuffisantes pour réserver la clôture", 503);
-      const scale = BigInt("1000000000000000000");
-      const gasUsd = ((BigInt(this.policy.gas.maxTransactionWei) * BigInt(this.policy.gas.ethUsdMicrosUpperBound) + scale - BigInt(1)) / scale) * BigInt(2);
-      this.allocate(BigInt(this.policy.costsUsdMicros.training) + BigInt(this.policy.costsUsdMicros.request) * BigInt(16) + gasUsd, wei);
+      this.allocate(usd, wei);
       this.db.prepare("INSERT INTO workflows VALUES (?, ?, ?, ?, 16, 1, 2)")
         .run(scope.id, scope.fingerprint, payload, validUntil);
     });

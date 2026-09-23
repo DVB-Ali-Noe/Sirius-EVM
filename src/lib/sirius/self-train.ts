@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -64,7 +64,7 @@ export async function runSelfTrain(
     model,
   });
 
-  const job = await prisma.$transaction(async (tx) => {
+  const job = await serializableTransaction(async (tx) => {
     const now = Date.now();
     const since = new Date(now - 3_600_000);
     await tx.trainingJob.updateMany({

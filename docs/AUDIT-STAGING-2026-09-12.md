@@ -1,6 +1,6 @@
 # Audit de staging — 12 septembre 2026
 
-> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. Le nouvel [audit approfondi](AUDIT-2026-09-23.md) recense des défauts ouverts dans le code actuel, dont le parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
+> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. L'[audit approfondi](AUDIT-2026-09-23.md) inclut un suivi des correctifs locaux et des limites restantes du parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
 
 Audit du code local après les correctifs de connexion, de navigation et de configuration par branche. Le dossier est resté sur `staging`. Aucune commande Git, publication, migration distante ni transaction sur un réseau public n'a été exécutée.
 

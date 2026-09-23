@@ -9,7 +9,7 @@ import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { unpinModelUnlessReferenced } from "./model-storage";
 import { modelSelection } from "@/lib/models/registry";
 import type { ModelId } from "@/lib/models/registry";
-import { hashRunnerReleaseEnvelope } from "@/lib/runner/delivery";
+import { deferredLoanDeliveryCommitment, hashRunnerReleaseEnvelope } from "@/lib/runner/delivery";
 import {
   hashLoanAttestationPayload,
   parseLoanAttestationPayload,
@@ -36,10 +36,19 @@ async function verifyLoanAttestation(input: {
   modelId: ModelId;
   modelVersion: string;
   modelCid: string;
-  releaseEnvelope: RunnerReleaseEnvelope;
+  releaseEnvelope?: RunnerReleaseEnvelope;
+  releaseEnvelopeHash: string;
+  deliveryPublicKey: string;
   billingQuoteHash?: string;
 }): Promise<void> {
   const { chainId, escrow } = evmEscrowBinding();
+  if (!input.billingQuoteHash && !input.releaseEnvelope) throw new AppError("Capsule de release incompatible", 409);
+  const expectedDeliveryHash = input.billingQuoteHash
+    ? deferredLoanDeliveryCommitment(input.loanKey, input.modelCid, input.deliveryPublicKey)
+    : hashRunnerReleaseEnvelope(input.releaseEnvelope!);
+  if (input.releaseEnvelopeHash !== expectedDeliveryHash || (input.billingQuoteHash && input.releaseEnvelope)) {
+    throw new AppError("Accusé de capsule invalide", 409);
+  }
   const payload = serializeLoanAttestationPayload({
     chainId,
     escrow,
@@ -55,7 +64,7 @@ async function verifyLoanAttestation(input: {
     modelId: input.modelId,
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
-    releaseEnvelopeHash: hashRunnerReleaseEnvelope(input.releaseEnvelope),
+    releaseEnvelopeHash: expectedDeliveryHash,
     ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   });
   const attestation = input.attestation;
@@ -85,7 +94,7 @@ export interface PreparedLoanResult {
   loanId: string;
   modelCid: string;
   runnerReceipt: string;
-  releaseEnvelope: RunnerReleaseEnvelope;
+  releaseEnvelope?: RunnerReleaseEnvelope;
 }
 
 export interface SettleResult extends Omit<PreparedLoanResult, "releaseEnvelope"> {
@@ -182,6 +191,8 @@ export async function prepareLoanResult(
       modelVersion: model.modelVersion,
       modelCid: result.modelCid,
       releaseEnvelope: result.releaseEnvelope,
+      releaseEnvelopeHash: result.releaseEnvelopeHash,
+      deliveryPublicKey,
     });
     const persisted = await prisma.loan.updateMany({
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
@@ -198,7 +209,8 @@ export async function prepareLoanResult(
       },
     });
     if (persisted.count !== 1) throw new AppError("Lease d’entraînement expiré", 409);
-    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt, releaseEnvelope: result.releaseEnvelope };
+    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
+      ...(billingQuote ? {} : { releaseEnvelope: result.releaseEnvelope }) };
   } catch (error) {
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
@@ -215,10 +227,11 @@ export async function prepareLoanResult(
 
 export async function settlePreparedLoan(
   loanId: string,
-  authorization: RunnerGrant,
+  authorization?: RunnerGrant,
 ): Promise<SettleResult> {
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: true } });
   if (!loan) throw new AppError("Loan introuvable", 404);
+  if (!authorization && !loanBillingQuote(loan)) throw new AppError("Autorisation runner manquante", 401);
   if (loan.status === "SETTLED" && loan.modelCid && loan.runnerReceipt && loan.settleTxHash) {
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash };
   }

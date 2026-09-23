@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressKeyInRunner, sealDatasetInRunner } from "@/lib/tee/runner-client";
@@ -50,7 +50,7 @@ export async function beginDatasetIngestion({
 }: IngestInput) {
   await requireAcceptedKyb(provider);
   const runner = await currentRunnerProvenance();
-  const dataset = await prisma.$transaction(async (tx) => {
+  const dataset = await serializableTransaction(async (tx) => {
     const now = Date.now();
     const since = new Date(now - DATASET_WINDOW_MS);
     await tx.dataset.deleteMany({

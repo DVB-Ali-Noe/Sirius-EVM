@@ -6,6 +6,7 @@ import { getPublicClient } from "@/lib/evm/client";
 import { usdcAddress } from "@/lib/evm/addresses";
 import { erc20Abi } from "@/lib/evm/abi/erc20";
 import { loanKeyFor } from "@/lib/evm/loan-key";
+import { readLoan } from "@/lib/evm/escrow";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { MAX_DATASET_BYTES, type DatasetRef } from "@/lib/tee/contract";
 import { runnerBudget } from "@/lib/runner/budget";
@@ -25,6 +26,28 @@ export function requireBillingBudget() {
   const account = settlementAccount();
   if (!ledger || ledger.policy.wallet !== account.address.toLowerCase()) throw new AppError("Budget de facturation non configuré pour ce runner", 503);
   return ledger;
+}
+
+async function reclaimExpiredUnpaidQuotes(): Promise<void> {
+  const ledger = requireBillingBudget();
+  const client = getPublicClient();
+  if (await client.getChainId() !== ledger.policy.chainId) throw new AppError("RPC sur un autre réseau", 503);
+  const tip = await client.getBlockNumber({ cacheTime: 0 });
+  const depth = BigInt(ledger.policy.gas.confirmations);
+  if (tip + BigInt(1) < depth) return;
+  const stable = await client.getBlock({ blockNumber: tip - depth + BigInt(1) });
+  for (const workflow of ledger.expiredUnusedWorkflows(Number(stable.timestamp) * 1000)) {
+    let signed: SignedComputeQuote;
+    try { signed = JSON.parse(workflow.payload) as SignedComputeQuote; }
+    catch { throw new AppError("Budget de clôture hors scope", 503); }
+    const quote = parseComputeQuote(signed.quote);
+    if (computeQuoteHash(quote) !== workflow.fingerprint || quote.chainId !== ledger.policy.chainId
+      || quote.runner !== ledger.policy.wallet || quote.expiresAt >= Number(stable.timestamp)) {
+      throw new AppError("Budget de clôture hors scope", 503);
+    }
+    if (await readLoan(loanKeyFor(quote.borrower, quote.loanId), quote)) continue;
+    ledger.releaseUnusedWorkflow(workflow);
+  }
 }
 
 export function assertQuoteDataset(quote: ComputeQuote, dataset: DatasetRef, receipt: string, borrower: string, loanId: string): void {
@@ -58,6 +81,7 @@ export async function prepareComputeQuote(input: {
       || signed.quote.provider !== input.provider.toLowerCase()) throw new AppError("Devis compute hors scope", 409);
     return signed;
   }
+  await reclaimExpiredUnpaidQuotes();
   const policy = billingPolicy();
   const token = usdcAddress();
   const decimals = await getPublicClient().readContract({ address: token, abi: erc20Abi, functionName: "decimals" });

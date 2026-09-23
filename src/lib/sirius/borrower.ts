@@ -1,6 +1,6 @@
 import "server-only";
 import type { Hex } from "viem";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
 import { datasetRegistryAddress, escrowAddress } from "@/lib/evm/addresses";
@@ -62,7 +62,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
 
-  const loan = await prisma.$transaction(async (tx) => {
+  const loan = await serializableTransaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([
       tx.loan.count({ where: { borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] } } }),
       tx.loan.count({
@@ -102,7 +102,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
   try {
     const binding = evmEscrowBinding();
-    const preparedBlock = await getPublicClient().getBlockNumber();
+    const preparedBlock = await getPublicClient().getBlockNumber({ cacheTime: 0 });
     const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
       datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
@@ -200,7 +200,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
-  if (loan.status === "ESCROWED" && loan.evmLockTxHash) return loan;
+  if (loan.status === "ESCROWED" && loan.evmLockTxHash) return prisma.loan.findUniqueOrThrow({ where: { id: loanId } });
   const recoverableCancellation = loan.status === "CANCELLED" && !loan.cancelTxHash;
   if (loan.status !== "PENDING" && loan.status !== "SUBMITTING" && !recoverableCancellation) {
     throw new AppError("Emprunt déjà clôturé", 409);

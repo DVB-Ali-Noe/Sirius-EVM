@@ -2,13 +2,13 @@
 
 Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** [Escrow v7](ESCROW-V7.md), les [budgets durables](RUNNER-BUDGETS.md) et le [parcours devis → prépaiement → calcul → règlement/remboursement](BILLING-INTEGRATION.md) sont implémentés localement. Les tarifs réels, la comptabilité et les plafonds fournisseurs restent à valider ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
 
-**Activation bloquée après l’[audit du 23 septembre 2026](AUDIT-2026-09-23.md).** Les défauts confirmés restent **non corrigés** : une confirmation RPC perdue après remboursement peut bloquer le wallet runner ; un borrower peut abandonner après calcul réussi puis récupérer tout son prépaiement ; l’omission du devis dans les réponses API contourne sa confirmation et réactive les transactions fournies par le serveur. En outre, le cache d’ingestion conserve une copie de `wrappedKey` après suppression Prisma : le crypto-shredding n’est pas garanti. Voir les [déclencheurs et effets constatés](BILLING-INTEGRATION.md#défauts-confirmés-avant-activation). Phala reste arrêté ; cette mise à jour ne modifie aucun comportement métier ni environnement distant.
+**Activation toujours bloquée.** Les [correctifs locaux de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) couvrent la reprise des transactions confirmées, le règlement des résultats v7 persistés, le devis obligatoire, la livraison différée et le cache actif de `wrappedKey`. Restent le crash entre calcul et persistance, la finalité/RPC, les anciennes sauvegardes de clés, les courses entre instances et la validation économique. Phala reste arrêté ; aucune migration ni activation distante n'a été effectuée.
 
 ## Objectif et orientation
 
 Le borrower doit connaître et accepter le prix du dataset et celui de l’entraînement avant tout calcul. Pour le MVP, retenir un **devis fixe garanti en USDC**, bloqué en escrow avant démarrage. Aucun supplément automatique ni prélèvement supplémentaire pendant un job. Une erreur d’estimation doit rester dans un budget préalablement réservé ; elle ne donne jamais droit à des dépenses ou reprises illimitées.
 
-**Orientation demandée par Noé le 23 septembre :** augmenter le tarif minimum pour tous les emprunts afin de couvrir une faible fréquentation, et empêcher qu’erreurs ou abus puissent vider les wallets ou créer des dépenses non couvertes. L’objectif est un PnL non négatif. Les protections ci-dessous restent à compléter et intégrer ; un tarif élevé, une réserve de trésorerie ou un seuil d’alerte ne prouvent pas à eux seuls cet objectif.
+**Orientation demandée par Noé le 23 septembre :** augmenter le tarif minimum pour tous les emprunts afin de couvrir une faible fréquentation, et empêcher qu’erreurs ou abus puissent vider les wallets ou créer des dépenses non couvertes. L’objectif est un PnL non négatif. Les réservations et plafonds locaux sont intégrés ; leur calibration, la comptabilité et les contrôles fournisseurs restent à compléter. Un tarif élevé, une réserve de trésorerie ou un seuil d’alerte ne prouvent pas à eux seuls cet objectif.
 
 Le devis distingue le prix du provider, le prix du compute et leur total. Les frais réseau en ETH sont affichés séparément et restent des estimations du wallet. Les USDC versés à Sirius rémunèrent son service ; ils ne rechargent pas automatiquement le compte Phala, dont la facture reste payée par l’opérateur.
 
@@ -17,8 +17,8 @@ Le périmètre initial concerne les prêts borrower/provider. La facturation des
 ## État actuel à prendre en compte
 
 - Le mode par défaut reste v6 : prix dataset seul et crédit provider. Le mode explicite `SIRIUS_BILLING_VERSION=7` exige le nouveau contrat et le devis signé avec ses deux montants.
-- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve le budget de clôture avant émission du devis, demande son acceptation lorsqu’il est présent, vérifie les conditions avant calcul et mesure les échecs. Les défauts de confirmation et de reprise empêchent encore de garantir le parcours complet. Une migration Prisma additive est préparée, sans modification distante.
-- Le contrat crédite un forfait compute par profil, avec minimum commun, lors du `release`. Le calcul réussi ne déclenche pas seul ce règlement : le grant ultérieur du borrower reste nécessaire. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
+- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve le budget de clôture avant émission du devis, exige l'acceptation du devis v7, vérifie les conditions avant calcul et mesure les échecs. Elle réconcilie les transactions confirmées ; un crash avant persistance du résultat peut encore empêcher la clôture. Une migration Prisma additive est préparée, sans modification distante.
+- Le contrat crédite un forfait compute par profil, avec minimum commun, lors du `release`. Le reaper peut déclencher ce règlement sans nouveau grant du borrower dès que le résultat v7 est persisté. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
 - L’ingestion impose 20 millions d’opérations au maximum. Le job v7 ajoute un délai global de 1 à 30 secondes et un worker terminable, sans remplacer les plafonds fournisseur et le superviseur d’infrastructure.
 - Aucun budget réel, tarif commercial, compte de trésorerie choisi ou plafond fournisseur actif n’est introduit par les fixtures de tests.
 
@@ -61,9 +61,9 @@ Le minimum doit être calculé avec une hypothèse de fréquentation basse, puis
 
 Le minimum facturé, les marges, la répartition des frais fixes et la convention USD/USDC restent à définir. Les `0,01 USDC` évoqués dans la conversation étaient un exemple d’affichage, pas un tarif validé. Aucun coefficient de performance Phala n’a encore été mesuré pour ce devis. La mesure du temps moyen ou du percentile 95 sert à fixer le prix ; elle ne remplace pas un plafond de dépense effectivement imposé.
 
-## Admission financière et protection des fonds — intégration en cours
+## Admission financière et protection des fonds — intégration locale
 
-Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les devis v7 et la réservation du budget de clôture sont raccordés localement, sans garantir que la reprise puisse atteindre le règlement. Les exigences ci-dessous restent la cible complète : outre les défauts de l’audit, la comptabilité réconciliée, les coûts réels et les contrôles fournisseurs restent à raccorder.
+Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats d'entraînement et coupe-circuit. Les devis v7 et la réservation du budget de clôture sont raccordés localement, sans garantir que la reprise puisse atteindre le règlement dans toutes les pannes. Les exigences ci-dessous restent la cible complète : les limites restantes du suivi d'audit, la comptabilité réconciliée, les coûts réels et les contrôles fournisseurs restent à traiter.
 
 ### PnL et trésorerie
 
@@ -110,10 +110,10 @@ Le prix minimum et ces plafonds répondent à deux problèmes différents : la r
 
 ## Travail à reprendre
 
-1. Corriger les bloqueurs de l’[audit](AUDIT-2026-09-23.md) : réconcilier une intention même après clôture du prêt, traiter la consommation d’un calcul réussi abandonné, refuser un devis absent en v7 et coordonner la suppression des clés enveloppées conservées dans le registre et ses copies. Ajouter les scénarios reproduits aux tests avant toute activation.
+1. Résoudre les risques restants du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) : crash après calcul avant persistance, transaction diffusée introuvable, finalité du réseau, anciennes sauvegardes de clés et courses entre instances. Les correctifs locaux et leurs régressions ne valent pas validation distante.
 2. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Choisir la trésorerie compute et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
 3. Vérifier et imposer les plafonds des fournisseurs, la réserve de frais fixes/arrêt et un superviseur d’uptime indépendant. Raccorder la comptabilité réconciliée et préparer une procédure de reprise du registre sans remise à zéro. Ces limites déjà connues sont distinctes des défauts confirmés par l’audit.
-4. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les **289 tests applicatifs, 78 tests contrats et le parcours EVM local** réussissaient, mais ne couvraient pas les trois scénarios de facturation des PoC supplémentaires. Les tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) ne prouvent donc pas encore la reprise et la facturation complètes.
+4. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les **293 tests applicatifs, 79 tests contrats, 62 tests navigateur et le parcours EVM local** réussissent ; ces tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) ne prouvent pas la reprise et la facturation complètes en production.
 5. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
 6. Après correction des bloqueurs et validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Préparer le déploiement de la version retenue avec facturation, puis la validation du parcours complet à deux wallets ; aucune de ces opérations distantes n’est effectuée par ce travail documentaire.
 

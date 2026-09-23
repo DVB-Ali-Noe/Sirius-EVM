@@ -1,6 +1,6 @@
 # Décisions
 
-Lecture actualisée au 23 septembre 2026 : les décisions décrivent la cible et les choix validés, pas une certification de leur réalisation. L'[audit approfondi](AUDIT-2026-09-23.md) identifie neuf constats ouverts. L'intégration locale v7 existe ; l'activation, les tarifs et les plafonds fournisseurs restent à valider. Phala reste arrêté.
+Lecture actualisée au 23 septembre 2026 : les décisions décrivent la cible et les choix validés, pas une certification de leur réalisation. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les neuf constats initiaux des correctifs locaux et des limites restantes. L'activation, les tarifs et les plafonds fournisseurs restent à valider. Phala reste arrêté.
 
 ## D-1 — Nouveau dépôt et migration EVM explicite
 
@@ -22,11 +22,11 @@ Cette séparation réduit les surfaces d'autorité : l'escrow n'a ni admin ni up
 
 ## D-4 — Fair-exchange par hashlock et paiements pull-only
 
-Le TEE ne révèle un préimage SHA-256 qu'après production du modèle. `release` publie ce préimage et crédite le provider dans la même transaction. La capsule du borrower exige le préimage, ce qui lie livraison et règlement.
+Le TEE ne révèle un préimage SHA-256 qu'après production du modèle. `release` publie ce préimage et crédite le provider dans la même transaction. En v6, la capsule du borrower exige le préimage. En v7, le runner ne remet aucune capsule avant règlement et livre la clé seulement après vérification du reçu canonique et des confirmations configurées.
 
 Les fonds sont retirés par `withdraw` après crédit. Un provider qui rejette les transferts ne peut donc ni casser une libération ni provoquer une réentrance pendant le changement d'état.
 
-**Limite ouverte S-02 :** le préimage est transmis au RPC avant confirmation. Un règlement avorté ou inclus après échéance peut le divulguer sans créditer le provider. L'atomicité de la transaction réussie ne constitue donc pas encore une garantie de fair-exchange face à ces scénarios. Revoir les hypothèses de livraison, de délai et de finalité avant activation.
+**Limite ouverte S-02 :** le préimage est transmis au RPC avant confirmation. Un règlement avorté ou inclus après échéance peut le divulguer sans créditer le provider. Le parcours v7 évite de donner au borrower la capsule correspondante avant règlement, mais le nombre configuré de confirmations ne constitue pas une garantie de finalité irréversible. Valider les hypothèses RPC et de finalité avant activation.
 
 ## D-5 — Séparation de domaine obligatoire
 
@@ -40,7 +40,7 @@ Une adresse possède une attestation KYB, indépendamment de son rôle. Le même
 
 Le titre on-chain est non transférable. Il contient le hash du CID du contenu déjà chiffré, son Merkle root, sa taille et le hash du profil d'entraînement ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
 
-La cible est un crypto-shredding de la clé dataset avec tombstone on-chain et preuve d'existence conservée. **L'implémentation actuelle ne garantit pas l'irrécupérabilité :** la suppression Prisma laisse une copie de `wrappedKey` dans le registre du runner (S-08). Le tombstone bloque le parcours normal, mais ne prouve pas l'effacement cryptographique des caches et sauvegardes.
+La cible est un crypto-shredding de la clé dataset avec tombstone on-chain et preuve d'existence conservée. Le scellement ne met plus `wrappedKey` en cache et l'ouverture du registre purge les anciennes copies actives. **L'implémentation actuelle ne garantit pas l'irrécupérabilité :** les anciennes sauvegardes et copies du WAL restent hors de cette purge (S-08). Le tombstone bloque le parcours normal, sans prouver leur effacement.
 
 ## D-8 — TEE-first
 
@@ -122,4 +122,4 @@ Un escrow remboursable ou un apport financier n’est pas un bénéfice ; les ch
 
 Le [contrat v7 local](ESCROW-V7.md), les [budgets durables du runner](RUNNER-BUDGETS.md) et le [parcours applicatif](BILLING-INTEGRATION.md) sont raccordés, avec réservation de la clôture avant devis et mesure plafonnée des échecs. La comptabilité réconciliée, les tarifs réels et les plafonds fournisseurs de [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent nécessaires ; aucun registre réel ni budget de production n’est activé. Ces exigences ne donnent pas autorisation de redémarrer Phala, supprimer le stockage historique, financer un wallet ou modifier les abonnements distants.
 
-L'audit du 23 septembre montre aussi que la réservation n'assure pas à elle seule la clôture : une confirmation RPC perdue peut bloquer le wallet (S-01), un calcul réussi abandonné peut être remboursé intégralement (S-03), et l'absence de devis peut réactiver le parcours client historique (S-04). Ces défauts restent ouverts. Leur correction doit conserver le choix MVP : aucune facturation de consommation future et aucun remboursement financé par une réserve commerciale activé implicitement.
+Le suivi de l'audit ajoute la réconciliation des transactions confirmées, le règlement des résultats v7 persistés sans nouveau grant et le refus d'un devis v7 absent. La réservation ne garantit toujours pas la clôture après un crash entre calcul et persistance, ni la récupération d'une transaction diffusée mais introuvable. Le choix MVP demeure : aucune facturation de consommation future et aucun remboursement financé par une réserve commerciale activé implicitement.

@@ -61,7 +61,7 @@ export async function runBudgetedOperation<T>(
   }
   try {
     const result = await action();
-    ledger.finish(id, fingerprint, true, kind === "request" ? null : JSON.stringify(result));
+    ledger.finish(id, fingerprint, true, kind === "training" ? JSON.stringify(result) : null);
     return result;
   } catch (error) {
     ledger.finish(id, fingerprint, false);

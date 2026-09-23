@@ -835,13 +835,13 @@ function CatalogueCard({
 
   async function confirm() {
     onError("");
-    if (!model) {
+    if (!model || !dataset.priceUsdcAtomic) {
       onError(t("Profil d’entraînement du dataset absent ou invalide"));
       return;
     }
     setBusy(true);
     try {
-      if (!await borrowDataset({ datasetId: dataset.id, confirmQuote })) return;
+      if (!await borrowDataset({ datasetId: dataset.id, priceUsdcAtomic: dataset.priceUsdcAtomic!, confirmQuote })) return;
       reset();
       await onBorrowed();
     } catch (err) {
@@ -871,7 +871,7 @@ function CatalogueCard({
         {!openForm && (
           <button
             onClick={() => setOpenForm(true)}
-            disabled={!model}
+            disabled={!model || !dataset.priceUsdcAtomic}
             title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
             className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
           >

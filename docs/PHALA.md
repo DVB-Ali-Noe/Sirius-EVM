@@ -6,7 +6,7 @@ Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle
 
 ## Reprendre ici — 23 septembre 2026
 
-**Mise à jour après audit local :** l'[audit approfondi](AUDIT-2026-09-23.md) identifie des bloqueurs de reprise, de facturation, de livraison et de suppression des clés. Ils restent non corrigés. L'intégration v7 locale ne suffit pas à activer le runner ; suivre l'ordre de correction du rapport avant tarifs, migration et bascule. Aucun contrôle distant, changement de secret ou redémarrage Phala n'a été effectué pendant cet audit. Les observations distantes ci-dessous conservent leur date et leur périmètre d'origine.
+**Mise à jour locale après correctifs :** le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) couvre la reprise des transactions confirmées, la livraison v7 après confirmation, le règlement des résultats persistés et le devis obligatoire. Le crash avant persistance, la finalité, les anciennes sauvegardes de clés et les tests entre instances restent bloquants. Aucun contrôle distant, changement de secret ou redémarrage Phala n'a été effectué pendant ces correctifs. Les observations distantes ci-dessous conservent leur date et leur périmètre d'origine.
 
 **CVM arrêtée à la demande de Noé le 23 septembre à 01:27 (Europe/Paris).** L’API confirme `status: stopped`, `in_progress: false`, avec le même app ID. Le disque et la CVM sont conservés ; aucun redéploiement de contrats ou de CVM n’a été réalisé dans cette passe. Les frais de calcul sont coupés ; le disque reste facturé `0.002780` USD/h, soit environ 0,067 USD/jour ou 2 USD pour 30 jours. Le tarif de la machine allumée est `0.060780` USD/h (`0.058000` calcul + `0.002780` disque). Voir la [tarification Phala](https://cloud.phala.com/about/pricing).
 
@@ -58,7 +58,7 @@ La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès 
 
 ### Ordre de reprise
 
-1. Corriger les constats de l'[audit local](AUDIT-2026-09-23.md), en particulier la réconciliation des intentions, l'abandon après calcul et le devis côté client. Compléter les tests de l'[intégration v7](BILLING-INTEGRATION.md), puis finaliser tarifs, comptabilité, plafonds fournisseurs et procédure de reprise. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
+1. Résoudre les limites restantes du [suivi de l'audit local](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) : crash avant persistance, transaction introuvable, finalité/RPC, anciennes copies de clés et concurrence entre instances. Valider ces scénarios et l'[intégration v7](BILLING-INTEGRATION.md), puis finaliser tarifs, comptabilité, plafonds fournisseurs et procédure de reprise. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
 2. Préparer les benchmarks et annoncer à Noé leur créneau et leur coût avant toute utilisation de Phala. Calibrer les tarifs et vérifier la stabilité de l’identité lors de la reprise de la même CVM.
 3. Préserver l’accès historique aux modèles et aux crédits, sauvegarder puis relire l’état de la base avant toute mutation : le contrôle du 23 septembre est une observation ponctuelle. Vérifier prêts ouverts, entraînements en cours, datasets publiés, modèles historiques et escrows référencés.
 4. Choisir le signataire de déploiement et la trésorerie compute. Le mode KYB ouvert actuel est confirmé ; ne pas changer implicitement de politique KYB. La cible reste **Robinhood testnet `46630`**, pas mainnet.

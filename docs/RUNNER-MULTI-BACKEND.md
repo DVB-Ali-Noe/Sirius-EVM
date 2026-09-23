@@ -20,7 +20,7 @@ Statut au 23 septembre 2026 : non implémenté, toujours différé et à réexam
 
 Escrow v6 comme v7 accepte un seul `lockAuthorizer` immuable et le registre dataset ne lie qu’un escrow. Avec les contrats actuels, des signataires séparés nécessitent des couples escrow/registre dataset séparés. Il faudrait adapter les titres, les contrôles de déploiement/KYB, le reaper, les transactions wallet, les historiques et les préflights. Ne pas mutualiser les clés pour contourner cette contrainte.
 
-Prévoir l’exploitation du service VPS : limites CPU/RAM, admission, persistance, sauvegarde des clés, restauration et tests de panne. Les devis, budgets et intentions de règlement doivent rester liés au bon déploiement ; les plafonds économiques globaux ne doivent pas être multipliés par le nombre de backends. Le nettoyage anti-rejeu actuel n’est pas sûr entre processus partageant son répertoire (S-09). Une nouvelle architecture de contrats serait une décision distincte, avec sa propre revue.
+Prévoir l’exploitation du service VPS : limites CPU/RAM, admission, persistance, sauvegarde des clés, restauration et tests de panne. Les devis, budgets et intentions de règlement doivent rester liés au bon déploiement ; les plafonds économiques globaux ne doivent pas être multipliés par le nombre de backends. Le nettoyage anti-rejeu ignore désormais les réservations vides ou incomplètes ; une validation multiprocessus réelle reste nécessaire (S-09). Une nouvelle architecture de contrats serait une décision distincte, avec sa propre revue.
 
 ## Validation requise
 

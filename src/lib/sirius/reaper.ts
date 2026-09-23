@@ -10,6 +10,7 @@ import {
 } from "./reaper-policy";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { resolveLoanEscrow } from "@/lib/evm/history";
+import { settlePreparedLoan } from "./settle";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -59,6 +60,10 @@ async function reapBatch(now: Date): Promise<void> {
       }
       if (loan.status === "TRAINING" && !loan.modelCid) {
         await prisma.loan.updateMany({ where: { id: loan.id, status: "TRAINING", updatedAt: loan.updatedAt }, data: { status: "ESCROWED" } });
+        continue;
+      }
+      if ((loan.status === "TRAINING" || loan.status === "SETTLING") && loan.modelCid && loan.billingQuoteHash) {
+        await settlePreparedLoan(loan.id);
         continue;
       }
       if (!loan.evmLoanKey || !loan.evmLockBlock) continue;

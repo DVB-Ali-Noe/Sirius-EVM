@@ -15,11 +15,11 @@ Provider                 Robinhood Chain                     Borrower
   │                             │                               │
   │           Phala TEE : déchiffre, entraîne, atteste          │
   │                             │                               │
-  │◄── SiriusEscrow.release ────┼── préimage public ───────────►│ capsule ouverte
+  │◄── SiriusEscrow.release ────┼── règlement confirmé ─────────►│ clé livrée en v7
   │    crédit provider          │                               │
 ```
 
-Le runner produit le modèle et une capsule persistable avant de soumettre `release`. Si cette transaction réussit, le provider est crédité ; v7 crédite aussi la trésorerie compute. `refund` reste possible après l'échéance si le prêt est encore verrouillé, en déduisant les frais déjà attestés on-chain en v7. Wallet et Dashboard permettent le retrait séparé des crédits. Le préimage est présent dans la transaction avant sa confirmation : les limites de livraison et de reprise sont détaillées dans [l'audit du 23 septembre](docs/AUDIT-2026-09-23.md).
+En v6, le runner produit une capsule que le préimage publié permet d'ouvrir. En v7, il ne transmet pas cette capsule à Next : la clé du modèle est livrée après vérification du règlement canonique et des confirmations configurées. `release` crédite le provider et, en v7, la trésorerie compute. `refund` reste possible après l'échéance si le prêt est encore verrouillé, en déduisant les frais déjà attestés on-chain en v7. Wallet et Dashboard permettent le retrait séparé des crédits. Le préimage est transmis au RPC avant inclusion ; les limites de finalité sont détaillées dans le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 ## Stack
 
@@ -50,7 +50,7 @@ L'upload impose un profil (`linear_regression` ou `logistic_regression`, version
 
 Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et accepté, prépaiement, calcul borné, règlement ou remboursement, budget réservé jusqu'à la clôture. Le mode par défaut reste v6 ; v7 exige `SIRIUS_BILLING_VERSION=7`, des politiques et un registre persistants. La migration Prisma est préparée, non appliquée à distance. Aucun tarif commercial n'est fixé.
 
-**Activation bloquée par les constats de l'[audit approfondi](docs/AUDIT-2026-09-23.md)** : reprise après timeout, calcul abandonné non facturé, préimage avant règlement irréversible et devis facultatif côté client, notamment. Les copies de clés empêchent aussi de garantir le crypto-shredding. Tarifs, comptabilité et plafonds fournisseurs restent nécessaires pour protéger le PnL.
+**Activation toujours bloquée :** les correctifs locaux couvrent les transactions confirmées après timeout, le règlement autonome d'un résultat v7 persisté, le devis obligatoire et le filtrage des réponses API. Restent le crash entre calcul et persistance, la finalité/RPC sur le réseau cible, les anciennes sauvegardes de clés, les validations PostgreSQL/Phala et la calibration économique. Voir le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows, crédits et clés des modèles historiques séparément de la nouvelle identité Phala.
 
@@ -69,7 +69,7 @@ pnpm lint
 pnpm build
 ```
 
-Validation locale du 23 septembre : **289 tests applicatifs, 78 tests contrats et un parcours EVM de facturation réussis**, ainsi que lint, typages application/v7 et build. Les scénarios supplémentaires de l'audit révèlent des défauts non couverts par ces suites. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
+Validation locale du 23 septembre après correctifs : **293 tests applicatifs, 79 tests contrats, 62 tests navigateur et un parcours EVM de facturation réussis**, ainsi que lint, typages application/v7 et build. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
 
 Après résolution des bloqueurs et validation de la migration, le guide de déploiement testnet prévoit `ROBINHOOD_DEPLOYER_KEY` et éventuellement `EVM_RPC_URL` pour le script de déploiement (`ROBINHOOD_TESTNET_RPC` concerne le réseau Hardhat), puis :
 
@@ -91,7 +91,7 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Décisions techniques](docs/DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Plan produit et passage au mainnet](docs/MAINNET-PLAN.md)
-- [Audit approfondi du 23 septembre — constats ouverts](docs/AUDIT-2026-09-23.md)
+- [Audit approfondi du 23 septembre — suivi des correctifs](docs/AUDIT-2026-09-23.md)
 - [Intégration du parcours de facturation](docs/BILLING-INTEGRATION.md)
 - [Politique de facturation et protection du PnL](docs/COMPUTE-BILLING.md)
 - [Escrow v7](docs/ESCROW-V7.md) et [budgets persistants du runner](docs/RUNNER-BUDGETS.md)

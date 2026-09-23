@@ -69,7 +69,7 @@ export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfi
   if (!hash) {
     const startBlock = loan.evmPreparedBlock ?? dataset.evmMintBlock;
     if (!startBlock) throw new AppError("Bloc de préparation absent : récupère le hash du lock", 409);
-    const tip = await client.getBlockNumber();
+    const tip = await client.getBlockNumber({ cacheTime: 0 });
     for (let from = BigInt(startBlock); from <= tip && !hash; from += BigInt(2_000)) {
       const to = from + BigInt(1_999) < tip ? from + BigInt(1_999) : tip;
       const logs = await client.request({

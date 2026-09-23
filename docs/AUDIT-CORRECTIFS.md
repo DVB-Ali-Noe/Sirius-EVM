@@ -1,8 +1,8 @@
 # Audit des correctifs — 5 septembre 2026
 
-> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. Le nouvel [audit approfondi](AUDIT-2026-09-23.md) recense des défauts ouverts dans le code actuel, dont le parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
+> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. L'[audit approfondi](AUDIT-2026-09-23.md) inclut un suivi des correctifs locaux et des limites restantes du parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
 
-Ce rapport conserve les résultats historiques du 5 septembre. Les modifications de connexion et de configuration par branche du 12 septembre sont décrites dans [DEPLOYMENT.md](DEPLOYMENT.md) ; leurs validations ne remplacent pas rétroactivement celles ci-dessous. Les nouveaux constats ouverts figurent dans [l'audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+Ce rapport conserve les résultats historiques du 5 septembre. Les modifications de connexion et de configuration par branche du 12 septembre sont décrites dans [DEPLOYMENT.md](DEPLOYMENT.md) ; leurs validations ne remplacent pas rétroactivement celles ci-dessous. Les constats ultérieurs et leurs correctifs figurent dans [l'audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md) et [l'audit du 23 septembre](AUDIT-2026-09-23.md).
 
 ## Périmètre et résultat
 

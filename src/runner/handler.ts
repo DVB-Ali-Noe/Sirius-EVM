@@ -10,7 +10,7 @@ import {
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { assertLoanScope, authorizeEscrowLock, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
+import { assertLoanScope, authorizeEscrowLock, publishedFinalizedPreimage, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { isValidUsdcAtomicAmount } from "@/lib/evm/usdc";
 import { loanIdHash, loanKeyFor } from "@/lib/evm/loan-key";
@@ -27,7 +27,7 @@ import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
 import { budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
-import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, runnerComputeQuote } from "@/lib/billing/runner";
+import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
 import { totalQuoteAmount } from "@/lib/billing/quote";
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
 import {
@@ -41,6 +41,7 @@ import {
   verifyTrainingReceipt,
 } from "@/lib/runner/receipt";
 import {
+  deferredLoanDeliveryCommitment,
   encryptRunnerDelivery,
   encryptRunnerRelease,
   hashRunnerReleaseEnvelope,
@@ -257,15 +258,14 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           }
           throw error;
         }
-        const releaseEnvelope = encryptRunnerRelease(
-          evmLoanModelKey(loanId, borrower),
-          deliveryPublicKey,
-          loanDeliveryContext(loanId, borrower),
-          preimage,
-          "evm-preimage",
+        const releaseEnvelope = signedQuote ? undefined : encryptRunnerRelease(
+          evmLoanModelKey(loanId, borrower), deliveryPublicKey,
+          loanDeliveryContext(loanId, borrower), preimage, "evm-preimage",
         );
         const { chainId, escrow } = evmEscrowBinding();
-        const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
+        const releaseEnvelopeHash = signedQuote
+          ? deferredLoanDeliveryCommitment(loanKey, result.modelCid, deliveryPublicKey)
+          : hashRunnerReleaseEnvelope(releaseEnvelope!);
         const attestation = await attestLoanExecution({
           chainId,
           escrow,
@@ -290,7 +290,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           attestation,
           loanKey,
           hashlock,
-          releaseEnvelope,
+          ...(releaseEnvelope ? { releaseEnvelope } : {}),
+          releaseEnvelopeHash,
           runnerReceipt: issueLoanReceipt({
             loanId,
             datasetId: dataset.datasetId,
@@ -320,21 +321,25 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const releaseEnvelopeHash = text(body, "releaseEnvelopeHash", 64);
       const receipt = verifyLoanReceipt(loanReceiptToken, loanId);
       assertReleaseEnvelopeHash(receipt, releaseEnvelopeHash);
-      const { subject } = await verifyRunnerGrant(body.authorization, {
-        operation: op,
-        loanId,
-        intentParts: [loanId, loanReceiptToken],
-      });
-      if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       const { preimage } = escrowLock(loanId, receipt.borrower);
       const lockBlock = BigInt(text(body, "lockBlock", 20));
       if (billingEnabled()) {
         const signedQuote = await runnerComputeQuote(receipt.billingQuote);
         if (signedQuote.quote.loanId !== loanId || signedQuote.quote.borrower !== receipt.borrower) throw new AppError("Devis compute hors scope", 409);
+        if (body.authorization) {
+          const { subject } = await verifyRunnerGrant(body.authorization, {
+            operation: op, loanId, intentParts: [loanId, loanReceiptToken],
+          });
+          if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
+        }
         return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => ({
           settleTxHash: await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock),
         })));
       }
+      const { subject } = await verifyRunnerGrant(body.authorization, {
+        operation: op, loanId, intentParts: [loanId, loanReceiptToken],
+      });
+      if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       return { settleTxHash: await settleEscrow(receipt.loanKey as `0x${string}`, preimage, lockBlock) };
     }
 
@@ -350,7 +355,14 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       });
       if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Clé réservée au borrower", 403);
       const deliver = async () => {
-        await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
+        if (receipt.billingQuote) {
+          const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
+          const settleTxHash = text(body, "settleTxHash", 66);
+          if (!/^0x[0-9a-fA-F]{64}$/.test(settleTxHash)) throw new AppError("Hash de règlement invalide", 400);
+          await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
+            settleTxHash as `0x${string}`, signed.quote,
+            requireBillingBudget().policy.gas.confirmations);
+        } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
         return {
           modelCid: receipt.modelCid,
           modelKeyEnvelope: encryptRunnerDelivery(

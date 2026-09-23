@@ -1,5 +1,5 @@
 import "server-only";
-import { createWalletClient, encodeFunctionData, http, keccak256, parseAbiItem, type Hex } from "viem";
+import { createWalletClient, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbiItem, type Hex } from "viem";
 import { AppError } from "@/lib/app-error";
 import { settlementAccount } from "./runner-account";
 import { siriusescrowAbi } from "./abi/siriusescrow";
@@ -17,6 +17,7 @@ import { escrowReadAddress, legacyEscrowAbi } from "./history";
 import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTerms, type LockAuthorization } from "./lock-authorization";
 import { runnerBudget } from "@/lib/runner/budget";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { boundedGas } from "@/lib/runner/gas-policy";
 import type { BudgetLedger } from "@/lib/runner/budget-ledger";
 
@@ -199,6 +200,7 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
   if (ledger.policy.chainId !== binding.chainId || ledger.policy.wallet !== account.address.toLowerCase()) {
     throw new AppError("Identité du compte opérationnel différente du budget", 503);
   }
+  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address);
   const address = escrowAddress();
   const data = encodeFunctionData({ abi: siriusescrowAbi, functionName: "release", args: [loanKey, preimage] });
   const id = `release:${binding.chainId}:${address}:${loanKey.toLowerCase()}`;
@@ -353,5 +355,40 @@ export async function publishedPreimage(loanKey: Hex, binding = evmEscrowBinding
     args: [loanKey],
   });
   if (!revealed) throw new AppError("Préimage pas encore publié", 409);
+  return preimage;
+}
+
+export async function publishedFinalizedPreimage(
+  loanKey: Hex,
+  settleTxHash: Hex,
+  binding: EvmEscrowBinding,
+  confirmations: number,
+): Promise<Hex> {
+  const client = getPublicClient();
+  if (await client.getChainId() !== binding.chainId) throw new AppError("RPC sur un autre réseau", 503);
+  const [receipt, transaction] = await Promise.all([
+    client.getTransactionReceipt({ hash: settleTxHash }),
+    client.getTransaction({ hash: settleTxHash }),
+  ]).catch(() => { throw new AppError("Règlement on-chain non confirmé", 409); });
+  const address = escrowReadAddress(binding);
+  if (receipt.status !== "success" || receipt.transactionHash.toLowerCase() !== settleTxHash.toLowerCase()
+    || receipt.to?.toLowerCase() !== address || transaction.to?.toLowerCase() !== address) {
+    throw new AppError("Règlement on-chain non confirmé", 409);
+  }
+  const [block, tip] = await Promise.all([
+    client.getBlock({ blockNumber: receipt.blockNumber }),
+    client.getBlockNumber({ cacheTime: 0 }),
+  ]);
+  if (block.hash !== receipt.blockHash || tip - receipt.blockNumber + BigInt(1) < BigInt(confirmations)) {
+    throw new AppError("Règlement on-chain non confirmé", 409);
+  }
+  let call;
+  try { call = decodeFunctionData({ abi: siriusescrowv7Abi, data: transaction.input }); }
+  catch { throw new AppError("Transaction de règlement invalide", 409); }
+  if (call.functionName !== "release" || call.args[0].toLowerCase() !== loanKey.toLowerCase()) {
+    throw new AppError("Transaction de règlement invalide", 409);
+  }
+  const preimage = await publishedPreimage(loanKey, binding);
+  if (call.args[1].toLowerCase() !== preimage.toLowerCase()) throw new AppError("Transaction de règlement invalide", 409);
   return preimage;
 }

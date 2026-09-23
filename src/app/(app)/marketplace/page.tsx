@@ -215,7 +215,7 @@ function MarketCard({
 
   async function borrow() {
     onError("");
-    if (!model) {
+    if (!model || !dataset.priceUsdcAtomic) {
       onError(t("Profil d’entraînement du dataset absent ou invalide"));
       return;
     }
@@ -229,7 +229,7 @@ function MarketCard({
     }
     setBusy(true);
     try {
-      if (!await borrowDataset({ datasetId: dataset.id, confirmQuote })) return;
+      if (!await borrowDataset({ datasetId: dataset.id, priceUsdcAtomic: dataset.priceUsdcAtomic!, confirmQuote })) return;
       onBorrowed();
     } catch (err) {
       onError(messageOf(err));
@@ -281,7 +281,7 @@ function MarketCard({
         </p>
         <button
           onClick={borrow}
-          disabled={!model || busy}
+          disabled={!model || !dataset.priceUsdcAtomic || busy}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >

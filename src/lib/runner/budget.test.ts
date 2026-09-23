@@ -10,6 +10,8 @@ import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type Budget
 import { budgetFingerprint, runBudgetedOperation, runnerBudget } from "./budget";
 import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { boundedGas } from "./gas-policy";
+import { reconcileRunnerTransactions } from "./transaction-recovery";
+import type { PublicClient } from "viem";
 
 const wallet = `0x${"12".repeat(20)}`;
 const directories: string[] = [];
@@ -258,7 +260,7 @@ test("une politique périmée pendant la préparation empêche l’envoi", async
       prepare: async () => { Date.now = () => ledger.policy.validUntil + 1; return { serialized, nonce: 1 }; },
       send: async () => { assert.fail("envoi avec prix périmé"); },
     })), /périmée/);
-    assert.equal(ledger.find("a", "a")?.state, "reserved");
+    assert.equal(ledger.find("a", "a")?.state, "failed");
   } finally { Date.now = originalNow; }
 });
 
@@ -270,6 +272,30 @@ test("une confirmation reste réconciliable après péremption de la politique",
     Date.now = () => ledger.policy.validUntil + 1;
     assert.equal(await sendBudgetedTransaction(open(), "a", "a", io()), txHash);
   } finally { Date.now = originalNow; }
+});
+
+test("un reçu canonique finalisé libère une transaction réservée après timeout", async () => {
+  const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "2000"; });
+  const escrow = `0x${"34".repeat(20)}`;
+  const loanKey = `0x${"56".repeat(32)}`;
+  const id = `release:46630:${escrow}:${loanKey}`;
+  const input = "0x1234" as Hex;
+  const fingerprint = keccak256(input);
+  const hash = `0x${"78".repeat(32)}` as Hex;
+  const blockHash = `0x${"9a".repeat(32)}`;
+  ledger.reserve(id, fingerprint, "transaction");
+  ledger.recordTransaction(id, fingerprint, hash, 7);
+  const client = {
+    getChainId: async () => 46630,
+    getTransactionReceipt: async () => ({ blockNumber: BigInt(10), blockHash, transactionHash: hash,
+      from: wallet, to: escrow, status: "success" }),
+    getTransaction: async () => ({ from: wallet, to: escrow, nonce: 7, input }),
+    getBlock: async () => ({ hash: blockHash }),
+    getBlockNumber: async () => BigInt(11),
+  } as unknown as PublicClient;
+  await reconcileRunnerTransactions(open(), client, 46630, wallet as `0x${string}`);
+  assert.equal(ledger.find(id, fingerprint)?.state, "succeeded");
+  ledger.reserve("next", "next", "transaction");
 });
 
 test("le gas signé borne unités, prix, dépense et solde ETH", () => {
@@ -309,6 +335,21 @@ test("le devis réserve calcul, requêtes et deux transactions avant toute conso
   assert.deepEqual(ledger.snapshot(), reserved, "aucune double allocation ou marge recréée");
   assert.throws(() => resumed.reserve("third", "third", "transaction", workflow), /épuisé/);
   assert.throws(() => resumed.reserve("retry-training", "input", "training", workflow), /épuisé/);
+});
+
+test("un devis expiré jamais verrouillé restitue exactement son budget réservé", () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  const payload = JSON.stringify({ quote: { expiresAt: Math.floor(Date.now() / 1000) - 1 } });
+  ledger.reserveWorkflow(workflow, payload, p.validUntil, BigInt(p.gas.totalWei));
+  assert.equal(open().expiredUnusedWorkflows(Date.now()).length, 1);
+  assert.equal(open().releaseUnusedWorkflow(workflow), true);
+  assert.deepEqual(ledger.snapshot(), { allocatedUsd: BigInt(0), allocatedWei: BigInt(0), failures: 0 });
+  assert.equal(ledger.workflowPayload(workflow.id), null);
+  ledger.reserveWorkflow(workflow, payload, p.validUntil, BigInt(p.gas.totalWei));
+  ledger.reserve("used", "used", "request", workflow);
+  ledger.finish("used", "used", true);
+  assert.equal(open().releaseUnusedWorkflow(workflow), false);
+  assert.equal(ledger.snapshot().allocatedUsd, BigInt(1116));
 });
 
 test("un devis non couvert jusqu’à clôture ne consomme aucune réservation partielle", () => {

@@ -8,6 +8,7 @@ import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
 import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
 import { boundedGas } from "@/lib/runner/gas-policy";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { quoteWorkflow, requireBillingBudget } from "./runner";
 import { executionReceiptTypedData, failureFee, quoteTermsHash, type ComputeQuote } from "./quote";
 
@@ -17,6 +18,7 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
   const client = getPublicClient();
   const { chain, rpcUrl } = resolveServerNetwork();
   if (chain.id !== quote.chainId || account.address.toLowerCase() !== quote.runner) throw new AppError("Devis compute hors scope", 409);
+  await reconcileRunnerTransactions(ledger, client, quote.chainId, account.address);
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl, { retryCount: 0, timeout: 20000 }) });
   return sendBudgetedTransaction(ledger, `${kind}:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data), {
     async prepare() {

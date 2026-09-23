@@ -83,6 +83,12 @@ jobs:
       - name: Tests des contrats
         run: pnpm contracts:test
 
+      - name: Tests de facturation v7
+        run: pnpm test:billing
+
+      - name: Typage des tests v7
+        run: pnpm exec tsc --noEmit -p contracts/tsconfig.v7.json
+
       # Le build est la dernière barrière : il attrape ce qu'aucun test unitaire ne
       # voit, par exemple un module serveur importé par un composant client.
       - name: Build

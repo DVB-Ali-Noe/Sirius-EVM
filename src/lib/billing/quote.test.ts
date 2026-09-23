@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { decodeFunctionData, encodeAbiParameters, type Hex } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { borrowDataset } from "@/lib/loans/client";
 import { useWalletStore } from "@/stores/wallet";
@@ -76,7 +76,7 @@ test("la retenue vient de la durée mesurée et reste plafonnée, jamais du forf
   for (const elapsed of [-1, 1.5, 10001, NaN]) assert.throws(() => failureFee(q, elapsed), /invalide/);
 });
 
-for (const scenario of ["accept", "decline", "changed", "wallet", "missing"] as const) {
+for (const scenario of ["accept", "decline", "changed", "wallet", "missing", "omitted"] as const) {
   test(`pré paiement navigateur : ${scenario}`, async (t) => {
     const signed = await sign();
     const env = { ...process.env };
@@ -88,7 +88,10 @@ for (const scenario of ["accept", "decline", "changed", "wallet", "missing"] as 
       ethereum: { request: async ({ method, params }: { method: string; params?: Array<{ to: string; data: Hex }> }) => {
         if (method === "eth_chainId") return "0xb626";
         if (method === "eth_call") return params![0].to === signed.quote.usdc
-          ? encodeAbiParameters([{ type: "uint8" }], [6]) : encodeAbiParameters([{ type: "address" }], [runner.address]);
+          ? encodeAbiParameters([{ type: "uint8" }], [6])
+          : params![0].data === encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "VERSION" })
+            ? encodeAbiParameters([{ type: "string" }], ["sirius-escrow-usdc-v7"])
+            : encodeAbiParameters([{ type: "address" }], [runner.address]);
         if (method === "eth_getTransactionReceipt") return { status: "0x1" };
         if (method === "eth_sendTransaction") {
           assert.equal(accepted, true, "aucune transaction avant acceptation");
@@ -102,7 +105,8 @@ for (const scenario of ["accept", "decline", "changed", "wallet", "missing"] as 
     useWalletStore.getState().setConnected(signed.quote.borrower, "testnet", "external");
     useWalletStore.getState().setAuthenticated(true);
     mock.method(globalThis, "fetch", async (input: string) => {
-      if (input === "/api/loans") return Response.json({ loanId: "loan", billingQuote: signed, approveTransaction: { data: "untrusted" }, lockTransaction: { data: "untrusted" } });
+      if (input === "/api/loans") return Response.json({ loanId: "loan", ...(scenario === "omitted" ? {} : { billingQuote: signed }),
+        approveTransaction: { data: "untrusted" }, lockTransaction: { data: "untrusted" } });
       if (input.endsWith("/authorize")) return Response.json({
         lockTransaction: { data: "untrusted" }, authorizationDeadline: signed.quote.expiresAt,
         billingQuote: scenario === "changed" ? { ...signed, quote: { ...signed.quote, computeAmount: "700000" } } : signed,
@@ -118,7 +122,7 @@ for (const scenario of ["accept", "decline", "changed", "wallet", "missing"] as 
       for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
       Object.assign(process.env, env);
     });
-    const result = borrowDataset({ datasetId: "dataset", confirmQuote: scenario === "missing" ? undefined : async (q) => {
+    const result = borrowDataset({ datasetId: "dataset", priceUsdcAtomic: signed.quote.datasetAmount, confirmQuote: scenario === "missing" ? undefined : async (q) => {
       assert.deepEqual(q, signed.quote);
       if (scenario === "decline") return false;
       if (scenario === "wallet") useWalletStore.getState().setDisconnected();
@@ -128,6 +132,7 @@ for (const scenario of ["accept", "decline", "changed", "wallet", "missing"] as 
     if (scenario === "changed") await assert.rejects(result, /scope/);
     else if (scenario === "wallet") await assert.rejects(result, /wallet/);
     else if (scenario === "missing") await assert.rejects(result, /Acceptation/);
+    else if (scenario === "omitted") await assert.rejects(result, /Devis compute absent/);
     else assert.equal(await result, scenario === "accept");
     assert.equal(sent.length, scenario === "accept" ? 2 : scenario === "changed" ? 1 : 0);
     if (sent[0]) {

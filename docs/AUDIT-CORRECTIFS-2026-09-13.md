@@ -1,6 +1,6 @@
 # Correctifs de l’audit staging — 13 septembre 2026
 
-> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. Le nouvel [audit approfondi](AUDIT-2026-09-23.md) recense des défauts ouverts dans le code actuel, dont le parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
+> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. L'[audit approfondi](AUDIT-2026-09-23.md) inclut un suivi des correctifs locaux et des limites restantes du parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
 
 Les neuf constats A1–A9 sont corrigés dans le code local de staging. Aucun déploiement distant, changement de secret, transaction publique, commit, push ou commande Git n’a été exécuté pendant cette passe. Le code Solidity et la configuration distante constituent deux états distincts.
 

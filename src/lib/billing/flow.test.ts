@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { DatasetRef, RunnerReleaseEnvelope } from "@/lib/tee/contract";
+import type { DatasetRef } from "@/lib/tee/contract";
 import type { BudgetPolicy } from "@/lib/runner/budget-ledger";
 import type { SignedComputeQuote } from "./quote";
 
@@ -176,17 +176,25 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   }
   assert.ok(runnerBudget()!.snapshot().failures >= 1);
   await assert.rejects(prepare("blocked"), /Coupe-circuit/);
-  const result = await run(quotes[0]) as { modelCid: string; runnerReceipt: string; releaseEnvelope: RunnerReleaseEnvelope };
+  const result = await run(quotes[0]) as { modelCid: string; runnerReceipt: string; releaseEnvelopeHash: string; releaseEnvelope?: unknown };
   assert.ok(result.modelCid);
+  assert.equal(result.releaseEnvelope, undefined, "aucune capsule avant règlement v7");
   const produced = uploads;
   assert.equal((await run(quotes[0]) as typeof result).modelCid, result.modelCid);
   assert.equal(uploads, produced, "la reprise ne repinne pas le modèle");
-  const { hashRunnerReleaseEnvelope } = await import("@/lib/runner/delivery");
+  const keyRequest = async (settleTxHash: string) => ({ loanId: "success", loanReceipt: result.runnerReceipt,
+    deliveryPublicKey: delivery.publicKey,
+    authorization: await issueRunnerGrant("loan-model-key", { loanId: "success" }, ["success", result.runnerReceipt, delivery.publicKey]),
+    settleTxHash });
+  await assert.rejects(handleRunnerOp("loan-model-key", await keyRequest(`0x${"00".repeat(32)}`)), /confirmé/i);
   async function settle() {
-    const authorization = await issueRunnerGrant("settle-loan", { loanId: "success" }, ["success", result.runnerReceipt]);
-    return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt, releaseEnvelopeHash: hashRunnerReleaseEnvelope(result.releaseEnvelope), lockBlock: String(lockBlocks[0]), authorization });
+    return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt,
+      releaseEnvelopeHash: result.releaseEnvelopeHash, lockBlock: String(lockBlocks[0]) });
   }
-  const settled = await settle();
+  const settled = await settle() as { settleTxHash: string };
+  const delivered = await handleRunnerOp("loan-model-key", await keyRequest(settled.settleTxHash)) as { modelCid: string; modelKeyEnvelope: unknown };
+  assert.equal(delivered.modelCid, result.modelCid);
+  assert.ok(delivered.modelKeyEnvelope);
   const nonce = await client.getTransactionCount({ address: runner.address });
   assert.deepEqual(await settle(), settled);
   assert.equal(await client.getTransactionCount({ address: runner.address }), nonce);

@@ -4,7 +4,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs responsables et portes de sortie, les pistes de financement et les recommandations à arbitrer. Les dates cibles et pistes commerciales n'y valent pas validation technique ni financement acquis.
 
-**Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. L'[audit du 23 septembre](AUDIT-2026-09-23.md) identifie des défauts ouverts de facturation, reprise, livraison, admission et effacement. Leur correction précède les tarifs réels, la comptabilité et les plafonds fournisseurs nécessaires à l'activation. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
+**Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des risques encore ouverts. Tarifs réels, comptabilité, plafonds fournisseurs, reprise après crash, sauvegardes et validation Phala restent nécessaires avant activation. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
 
 **Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). La CVM a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé, mais les modèles de 5 prêts et 8 entraînements restent à préserver. Le KYB ouvert actuel est confirmé ; le choix du compte de déploiement a été demandé à Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
 
@@ -28,23 +28,24 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 - [ ] Raccorder la comptabilité réconciliée, séparer les comptes effectifs, imposer un superviseur extérieur et borner les dépenses fournisseurs après arrêt.
 - [ ] Préparer l’estimation à partir de caractéristiques authentifiées par le runner et de benchmarks synthétiques ; prévenir Noé avant tout benchmark Phala payant.
 - [x] Implémenter séparément [Escrow v7](ESCROW-V7.md), son ABI et ses tests locaux : deux prix bloqués, répartition provider/Sirius, retenue plafonnée par reçus signés et remboursement à échéance sans runner. Branchement applicatif local effectué ; aucun déploiement public.
-- [x] Implémenter localement la politique MVP d'échec mesuré : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés. La reprise après timeout et la facturation d'un calcul réussi abandonné restent défectueuses (S-01/S-03).
+- [x] Implémenter localement la politique MVP d'échec mesuré : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés. La reprise des transactions confirmées et la clôture autonome des résultats persistés sont testées ; le crash avant persistance et les transactions introuvables restent à traiter.
 - [x] Raccorder autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et contrôles de version ; conserver la lecture des historiques. Migration additive préparée, non appliquée à distance.
 - [x] Tester le runner et les contrats sur EVM locale : paiement, calcul, règlement, échec/remboursement, échéance, cache et coupe-circuit. Tester l’acceptation et les transactions navigateur avec wallet simulé.
 - [ ] Valider la migration PostgreSQL et le parcours visuel à deux wallets, puis RA-TLS/testnet avant réouverture.
 
 Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 
-## Audit approfondi du 23 septembre — correctifs à faire
+## Audit approfondi du 23 septembre — suivi
 
-- [ ] S-01 : réconcilier les intentions de transaction après succès on-chain et perte de réponse, indépendamment du statut du prêt.
-- [ ] S-02 : sécuriser l'échéance de divulgation du préimage et revoir livraison, RPC et finalité ensemble.
-- [ ] S-03/S-04 : clôturer un calcul abandonné selon la politique acceptée et exiger le devis v7 avant toute transaction wallet.
-- [ ] S-05/S-08 : filtrer tous les retours API et traiter les copies de clés lors de la suppression.
-- [ ] S-06/S-07/S-09 : corriger saturation ciblée du login, quotas concurrentiels et nettoyage anti-rejeu entre processus.
-- [ ] Intégrer les régressions, `test:billing` et le typage v7 à la CI ; valider les courses sur PostgreSQL et entre processus réels.
+- [x] S-01 : réconcilier les transactions runner confirmées avant un nouvel envoi, indépendamment du statut du prêt.
+- [x] S-02 : ne livrer la clé v7 qu'après vérification du règlement canonique et des confirmations configurées.
+- [x] S-03/S-04 : régler sans nouvelle action du borrower après persistance du modèle ; exiger le devis v7 et reconstruire les transactions v6.
+- [x] S-05/S-08 : filtrer les réponses dataset et cesser de conserver la clé enveloppée dans le cache actif du scellement.
+- [x] S-06/S-07/S-09 : éviter la saturation ciblée des challenges, sérialiser les quotas PostgreSQL et préserver les réservations anti-rejeu en cours d'écriture.
+- [x] Ajouter les régressions locales, `test:billing` et le typage v7 à la CI.
+- [ ] Valider la finalité et les pannes sur le réseau cible, les courses sur PostgreSQL et entre processus, la reprise après crash avant persistance et le traitement des anciennes sauvegardes de clés.
 
-Preuves et limites : [rapport complet](AUDIT-2026-09-23.md). Les 289 tests applicatifs, 78 tests contrats et le parcours EVM local passent, mais ne couvrent pas tous ces scénarios. Aucun correctif de cet audit n'est déclaré livré.
+Preuves et limites : [rapport complet](AUDIT-2026-09-23.md). Les tests locaux couvrent les correctifs principaux ; ils ne remplacent pas les validations distantes ni une garantie de finalité ou d'effacement cryptographique.
 
 ## Migration produit — en cours
 
@@ -87,12 +88,12 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 
 ## Validation testnet — à faire
 
-- [ ] Après correction de l'audit, préparer la [migration v7](BILLING-INTEGRATION.md), exécuter les préflights et republier les datasets avant réouverture. La procédure v6 reste historique ; aucun déploiement v6 intermédiaire n'est prévu.
+- [ ] Après validation des risques encore ouverts, préparer la [migration v7](BILLING-INTEGRATION.md), exécuter les préflights et republier les datasets avant réouverture. La procédure v6 reste historique ; aucun déploiement v6 intermédiaire n'est prévu.
 
 - [ ] Déployer les contrats retenus et valider le parcours applicatif v7 avec le vrai runner et les adresses publiées. `pnpm contracts:smoke` reste réservé au smoke historique v6 et refuse v7.
 - [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.
 - [ ] Publier un dataset chiffré, verrouiller un prêt en USDC, entraîner dans le TEE et régler avec `release`.
-- [ ] Vérifier l'ouverture de la capsule uniquement après publication du préimage.
+- [ ] Vérifier sur le réseau cible la capsule historique v6 et la livraison de clé v7 après règlement confirmé.
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.
 - [ ] Rejouer les reprises après timeout et les scénarios de conflit de réseau ou d'adresse de contrat.
