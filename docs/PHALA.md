@@ -10,7 +10,7 @@ Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle
 
 **Consigne de Noé sur les crédits :** prévenir avant toute prochaine opération utilisant Phala, en indiquant quand elle aura lieu et son coût estimé. Ne pas redémarrer automatiquement la CVM pour un contrôle ou une reprise ; préparer les opérations locales pendant son arrêt. Ne pas supprimer ni recréer la CVM pour éviter les frais du disque sans demande explicite.
 
-**Prochaine action demandée par Noé : terminer la [facturation du compute au borrower](COMPUTE-BILLING.md), avant tout nouveau déploiement de contrats pour Phala.** Le [premier livrable v7](ESCROW-V7.md) est implémenté séparément en local : contrat, tests et ABI. Les [budgets durables du runner](RUNNER-BUDGETS.md) sont également implémentés localement. L’application, le devis et le parcours runner v7 restent à intégrer ; aucun registre réel, tarif ni déploiement v7 n’est actif. Le choix du signataire et la bascule restent des étapes ultérieures. Phala reste arrêté pendant la préparation locale.
+**Prochaine action demandée par Noé : terminer la [facturation du compute au borrower](COMPUTE-BILLING.md), avant tout nouveau déploiement de contrats pour Phala.** Le [premier livrable v7](ESCROW-V7.md) est implémenté séparément en local : contrat, tests et ABI. Les [budgets durables du runner](RUNNER-BUDGETS.md) sont également implémentés localement. L’[application, le devis et le parcours runner v7](BILLING-INTEGRATION.md) sont maintenant raccordés localement, avec budget de clôture réservé ; aucun registre réel, tarif ni déploiement public v7 n’est actif. Le choix du signataire et la bascule restent des étapes ultérieures. Phala reste arrêté pendant la préparation locale.
 
 Les deux accès sont renseignés et validés dans `.env.phala-production-secrets`, en permissions `0600`, couvert par les exclusions Git et Docker. `DATABASE_URL` a été vérifiée le 23 septembre par connexion TLS et transaction en lecture seule ; les deux identifiants de datasets publics et leurs titres EVM correspondent à `sirius-data.tech`, sans correspondance avec le catalogue staging. Pinata a été validé le même jour et son JWT reporté dans `.env.phala`, avec la gateway de production. Ne pas redemander les secrets dans le chat.
 
@@ -42,7 +42,7 @@ Les mots de passe PostgreSQL staging et production ont été partagés dans la c
 
 La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès GitHub/GHCR privé ont déjà été configurés. Ne pas recommencer ces autorisations sauf si un contrôle constate leur expiration. L’image a été publiée le **19 septembre** ; la CLI Phala et la CVM en amorçage ont été revérifiées le 23 septembre, puis la CVM a été arrêtée à la demande de Noé. Le solde de crédits du compte Phala n’a pas été contrôlé lors de cette passe. Le tarif initialement observé figure ci-dessous.
 
-**Restent non effectués :** intégration de la facturation compute et des budgets autour du contrat v7 local, calibration des tarifs, choix de la trésorerie et du signataire, préservation vérifiée des modèles historiques, nouveaux contrats publics liés à Phala, financement du compte de règlement, activation métier de la CVM, migration Prisma, configuration/déploiement Next et reaper, parcours navigateur complet. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
+**Restent non effectués :** calibration des tarifs et des plafonds fournisseurs, choix de la trésorerie et du signataire, préservation vérifiée des modèles historiques, nouveaux contrats publics liés à Phala, financement du compte de règlement, activation métier de la CVM, migration Prisma, configuration/déploiement Next et reaper, parcours navigateur complet. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
 
 ### Fichiers locaux à conserver
 
@@ -56,7 +56,7 @@ La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès 
 
 ### Ordre de reprise
 
-1. Reprendre [COMPUTE-BILLING.md](COMPUTE-BILLING.md) : formaliser puis implémenter localement devis, prépaiement, répartition et remboursement. Mettre à jour les contrôles de version et les tests. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
+1. Reprendre l’[intégration locale v7](BILLING-INTEGRATION.md) et ses validations. Finaliser tarifs, comptabilité, plafonds fournisseurs et procédure de reprise avant activation. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
 2. Préparer les benchmarks et annoncer à Noé leur créneau et leur coût avant toute utilisation de Phala. Calibrer les tarifs et vérifier la stabilité de l’identité lors de la reprise de la même CVM.
 3. Préserver l’accès historique aux modèles et aux crédits, sauvegarder puis relire l’état de la base avant toute mutation : le contrôle du 23 septembre est une observation ponctuelle. Vérifier prêts ouverts, entraînements en cours, datasets publiés, modèles historiques et escrows référencés.
 4. Choisir le signataire de déploiement et la trésorerie compute. Le mode KYB ouvert actuel est confirmé ; ne pas changer implicitement de politique KYB. La cible reste **Robinhood testnet `46630`**, pas mainnet.

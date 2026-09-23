@@ -80,6 +80,13 @@ model Loan {
   borrower  String // adresse EVM de l'emprunteur
   provider  String // adresse EVM du provider (dénormalisé pour les requêtes)
   amountUsdcAtomic String // montant USDC en unités atomiques
+  billingQuote String? // devis signé v7 complet, immuable après préparation
+  billingQuoteHash String?
+  datasetAmountUsdcAtomic String?
+  computeAmountUsdcAtomic String?
+  maxFailureFeeUsdcAtomic String?
+  retainedFeeUsdcAtomic String?
+  refundAmountUsdcAtomic String?
   modelId   String @default("linear_regression")
   modelVersion String @default("1.0.0")
 

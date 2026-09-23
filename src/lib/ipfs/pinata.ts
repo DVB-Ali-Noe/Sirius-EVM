@@ -45,7 +45,7 @@ function getGateway(): string {
 }
 
 /** Upload d'un blob (déjà chiffré) sur IPFS public via Pinata. Renvoie le CID. */
-export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUpload> {
+export async function uploadToIpfs(data: Buffer, name: string, signal?: AbortSignal): Promise<IpfsUpload> {
   if (data.length > MAX_IPFS_BLOB_BYTES) throw new Error("Blob IPFS trop volumineux");
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(data)]), name);
@@ -55,7 +55,7 @@ export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUplo
     method: "POST",
     headers: { Authorization: `Bearer ${getJwt()}` },
     body: form,
-    signal: AbortSignal.timeout(IPFS_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(IPFS_TIMEOUT_MS)]) : AbortSignal.timeout(IPFS_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -68,8 +68,10 @@ export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUplo
 }
 
 /** Récupère le blob chiffré depuis le gateway IPFS. */
-export async function fetchFromIpfs(cid: string): Promise<Buffer> {
-  const res = await fetch(`${getGateway()}/ipfs/${encodeURIComponent(cid)}`, { signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+export async function fetchFromIpfs(cid: string, signal?: AbortSignal): Promise<Buffer> {
+  const res = await fetch(`${getGateway()}/ipfs/${encodeURIComponent(cid)}`, {
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(IPFS_TIMEOUT_MS)]) : AbortSignal.timeout(IPFS_TIMEOUT_MS),
+  });
   if (!res.ok) {
     await res.body?.cancel();
     throw new Error(`IPFS fetch échoué (${res.status})`);

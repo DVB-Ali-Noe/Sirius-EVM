@@ -1,8 +1,15 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { AppError } from "@/lib/app-error";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { BudgetLedger, type BudgetKind } from "./budget-ledger";
+import { BudgetLedger, type BudgetKind, type WorkflowBudget } from "./budget-ledger";
+
+const workflowContext = new AsyncLocalStorage<WorkflowBudget>();
+export const currentWorkflowBudget = () => workflowContext.getStore();
+export function withWorkflowBudget<T>(scope: WorkflowBudget, action: () => Promise<T>): Promise<T> {
+  return workflowContext.run(scope, action);
+}
 
 let cached: { path: string; chainId: number; wallet: string; ledger: BudgetLedger } | undefined;
 
@@ -45,7 +52,7 @@ export async function runBudgetedOperation<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   if (!ledger) return action();
-  const reservation = ledger.reserve(id, fingerprint, kind);
+  const reservation = ledger.reserve(id, fingerprint, kind, currentWorkflowBudget());
   if (!reservation.fresh) {
     if (reservation.operation.state === "succeeded" && reservation.operation.result !== null) {
       return JSON.parse(reservation.operation.result) as T;

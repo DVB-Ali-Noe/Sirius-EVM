@@ -1,6 +1,6 @@
 # Facturation du compute au borrower
 
-Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** Le premier livrable, [Escrow v7 et ses tests locaux](ESCROW-V7.md), est implémenté séparément du v6. Les [budgets durables du runner](RUNNER-BUDGETS.md) sont désormais implémentés localement. L’intégration complète de la facturation et des plafonds fournisseurs reste à réaliser ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
+Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** [Escrow v7](ESCROW-V7.md), les [budgets durables](RUNNER-BUDGETS.md) et le [parcours devis → prépaiement → calcul → règlement/remboursement](BILLING-INTEGRATION.md) sont implémentés localement. Les tarifs réels, la comptabilité et les plafonds fournisseurs restent à valider ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
 
 ## Objectif et orientation
 
@@ -14,12 +14,11 @@ Le périmètre initial concerne les prêts borrower/provider. La facturation des
 
 ## État actuel à prendre en compte
 
-- `src/lib/sirius/borrower.ts` prépare le prêt avec `amountUsdcAtomic = dataset.priceUsdcAtomic`.
-- `contracts/src/SiriusEscrow.sol` v6 crédite tout le montant au provider lors de `release`. Ajouter un supplément au montant actuel ne rémunérerait donc pas Sirius.
-- Le permis EIP-712 autorise déjà les conditions du lock ; il ne contient pas de prix compute distinct ni de bénéficiaire de ces frais.
-- Le runner prend en charge les régressions linéaire et logistique. L’ingestion impose 20 millions d’opérations au maximum ; le délai de calcul configuré est de 15 secondes. Ce délai ne borne pas à lui seul les transferts, le stockage et le parcours complet.
-- Les dimensions nécessaires au devis devront être liées à un reçu authentifié du dataset. Ne pas faire confiance à une taille ou à un nombre de lignes déclarés par le navigateur.
-- `contracts/src/SiriusEscrowV7.sol` implémente localement les deux montants, les bénéficiaires signés, le plafond de retenue et les reçus d’exécution cumulatifs. L’application et les scripts de déploiement utilisent toujours v6. Le runner n’émet pas encore les reçus v7 ; les garde-fous de [budget runner](RUNNER-BUDGETS.md) sont implémentés localement, sans registre de production ni plafonds fournisseurs actifs. Voir [les garanties et limites du premier livrable](ESCROW-V7.md).
+- Le mode par défaut reste v6 : prix dataset seul et crédit provider. Le mode explicite `SIRIUS_BILLING_VERSION=7` exige le nouveau contrat et le devis signé avec ses deux montants.
+- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve la clôture avant émission du devis, demande l’acceptation avant paiement, vérifie les conditions avant calcul, mesure les échecs et réconcilie les crédits. Une migration Prisma additive est préparée, sans modification distante.
+- Le runner facture un forfait par profil à la réussite, avec minimum commun. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
+- L’ingestion impose 20 millions d’opérations au maximum. Le job v7 ajoute un délai global de 1 à 30 secondes et un worker terminable, sans remplacer les plafonds fournisseur et le superviseur d’infrastructure.
+- Aucun budget réel, tarif commercial, compte de trésorerie choisi ou plafond fournisseur actif n’est introduit par les fixtures de tests.
 
 ## Parcours cible
 
@@ -62,7 +61,7 @@ Le minimum facturé, les marges, la répartition des frais fixes et la conventio
 
 ## Admission financière et protection des fonds — intégration en cours
 
-Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les exigences ci-dessous restent la cible complète ; la comptabilité, les devis v7, la réservation de toute la clôture et les contrôles fournisseurs ne sont pas encore raccordés.
+Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les devis v7 et la réservation de toute la clôture sont désormais raccordés localement. Les exigences ci-dessous restent la cible complète : comptabilité réconciliée, coûts réels et contrôles fournisseurs restent à raccorder.
 
 ### PnL et trésorerie
 
@@ -88,7 +87,7 @@ Le contrôle doit aussi confirmer les liquidités nécessaires : recevoir des US
 
 ### Budgets et arrêt
 
-- Imposer des plafonds par job et globaux pour CPU, mémoire, durée réelle, entrées/sorties, stockage, appels payants, concurrence et gas. Le délai coopératif de 15 secondes du calcul ne borne pas le parcours complet : prévoir une interruption effective de l’exécution et un contrôle extérieur au processus bloqué.
+- Imposer des plafonds par job et globaux pour CPU, mémoire, durée réelle, entrées/sorties, stockage, appels payants, concurrence et gas. Le job v7 ajoute un délai global et un worker terminable. Un contrôle extérieur au processus parent et des bornes réelles fournisseur restent nécessaires.
 - Réserver aussi les tentatives de règlement autorisées, le traitement d’un échec et la fermeture des opérations en cours. À l’approche du seuil, arrêter les admissions assez tôt pour conserver ce budget ; ne pas épuiser la réserve avant de pouvoir régler ou rembourser.
 - Utiliser un coupe-circuit persistant sur les échecs répétés, les consommations anormales ou un coût incertain. Aucun redémarrage ne remet les compteurs à zéro. La reprise exige une réconciliation et un budget disponible.
 - Couvrir les coûts avant paiement : challenges, devis, ingestion, RPC, API publiques, téléchargements et entraînements personnels. Leur éventuelle gratuité est soumise à un budget explicite ; elle ne permet pas de contourner les plafonds des emprunts.
@@ -109,12 +108,11 @@ Le prix minimum et ces plafonds répondent à deux problèmes différents : la r
 
 ## Travail à reprendre
 
-1. Formaliser le devis, le tarif minimum prudent, le destinataire des frais, le barème et la preuve des frais retenus après échec, ainsi que le périmètre du PnL. Définir les budgets, leur réservation atomique et les conditions d’arrêt. Préparer les fixtures synthétiques et le protocole de benchmark localement.
-2. Intégrer le contrat [v7 implémenté localement](ESCROW-V7.md), son domaine signé `7` et son ABI distincte. Définir le manifeste canonique du devis, la preuve de consommation et le budget des checkpoints. L’application et les contrats publics restent en v6 ; ne pas changer seulement une adresse ni réinterpréter les anciens prêts avec la nouvelle répartition.
-3. Implémenter les deux montants et leurs bénéficiaires dans le contrat, les autorisations, les reçus, le runner, la base, les routes, le reaper, les écrans wallet et les preuves d’audit. Mettre à jour ABI, contrôles de version, scripts et préflights.
-4. Tester localement : somme exacte transférée, substitution des prix/bénéficiaires/domaines, devis expiré ou rejoué, refus de démarrer sans paiement, répartition atomique, remboursements, panne runner, reprises et compatibilité des retraits/modèles historiques. Ajouter les admissions simultanées sur la dernière réserve disponible, les attaques multi-wallets, le crash après envoi RPC, les reverts répétés, le blocage du calcul, la panne de comptabilité, les données de prix périmées et les frais persistant après arrêt. Vérifier qu’aucun revenu remboursable ou apport ne gonfle le PnL et qu’un budget épuisé interdit tout nouvel engagement.
-5. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
-6. Après validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Déployer directement la version retenue avec facturation, puis valider le parcours complet à deux wallets.
+1. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Choisir la trésorerie compute et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
+2. Vérifier et imposer les plafonds des fournisseurs, la réserve de frais fixes/arrêt et un superviseur d’uptime indépendant. Raccorder la comptabilité réconciliée et préparer une procédure de reprise du registre sans remise à zéro.
+3. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) couvrent déjà signatures, budgets concurrents, paiement, refus, calcul, règlement et remboursements sur EVM isolée.
+4. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
+5. Après validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Déployer directement la version retenue avec facturation, puis valider le parcours complet à deux wallets.
 
 ## Contraintes de reprise
 

@@ -18,6 +18,7 @@ import {
 import { verifyTdxQuote } from "@/lib/tee/quote";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { LoanAttestationPayload } from "@/lib/tee/types";
+import { loanBillingQuote } from "@/lib/billing/loan";
 
 const TRAINING_LEASE_MS = 90_000;
 
@@ -36,6 +37,7 @@ async function verifyLoanAttestation(input: {
   modelVersion: string;
   modelCid: string;
   releaseEnvelope: RunnerReleaseEnvelope;
+  billingQuoteHash?: string;
 }): Promise<void> {
   const { chainId, escrow } = evmEscrowBinding();
   const payload = serializeLoanAttestationPayload({
@@ -54,6 +56,7 @@ async function verifyLoanAttestation(input: {
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
     releaseEnvelopeHash: hashRunnerReleaseEnvelope(input.releaseEnvelope),
+    ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   });
   const attestation = input.attestation;
   if (
@@ -146,6 +149,7 @@ export async function prepareLoanResult(
   try {
     const runner = await assertCurrentRunner(loan);
     await assertCurrentRunner(dataset);
+    const billingQuote = loanBillingQuote(loan);
     result = await runLoanJobInRunner(
       {
         loanId,
@@ -160,6 +164,7 @@ export async function prepareLoanResult(
       dataset.runnerReceipt,
       deliveryPublicKey,
       authorization,
+      billingQuote,
     );
     await verifyLoanAttestation({
       attestation: result.attestation,
@@ -169,7 +174,8 @@ export async function prepareLoanResult(
       datasetCid: dataset.ipfsCid,
       provider: loan.provider,
       borrower: loan.borrower,
-      amountUsdcAtomic: dataset.priceUsdcAtomic,
+      amountUsdcAtomic: loan.amountUsdcAtomic,
+      ...(loan.billingQuoteHash ? { billingQuoteHash: loan.billingQuoteHash } : {}),
       challengeDays: dataset.challengeDays,
       merkleRoot: dataset.merkleRoot,
       modelId: model.modelId,
@@ -197,9 +203,12 @@ export async function prepareLoanResult(
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
-      data: { status: resolution?.state === "cancelled" ? "CANCELLED" : "ESCROWED" },
+      data: resolution?.state === "cancelled" ? {
+        status: "CANCELLED", cancelTxHash: resolution.txHash,
+        ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}),
+      } : { status: "ESCROWED" },
     });
-    if (result?.modelCid) await unpinModelUnlessReferenced(result.modelCid, dataset.id);
+    if (result?.modelCid && !loan.billingQuote) await unpinModelUnlessReferenced(result.modelCid, dataset.id);
     throw error;
   }
 }
@@ -243,6 +252,7 @@ export async function settlePreparedLoan(
     payload.provider !== loan.provider ||
     payload.borrower !== loan.borrower ||
     payload.amountUsdcAtomic !== loan.amountUsdcAtomic ||
+    (payload.billingQuoteHash ?? null) !== (loan.billingQuoteHash ?? null) ||
     payload.challengeDays !== loan.dataset.challengeDays ||
     payload.merkleRoot !== loan.dataset.merkleRoot ||
     payload.modelId !== loan.modelId ||
@@ -295,7 +305,8 @@ export async function settlePreparedLoan(
         resolution?.state === "settled"
           ? { status: "SETTLED", settleTxHash: resolution.txHash, settledAt: new Date() }
           : resolution?.state === "cancelled"
-            ? { status: "CANCELLED", cancelTxHash: resolution.txHash }
+            ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
+              ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
             : { status: "TRAINING" },
     });
     throw error;

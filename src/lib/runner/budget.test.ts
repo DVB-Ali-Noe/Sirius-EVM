@@ -282,3 +282,94 @@ test("le gas signé borne unités, prix, dépense et solde ETH", () => {
   }
   assert.throws(() => boundedGas({ ...gas, maxTransactionWei: "10" }, BigInt(100), BigInt(1), BigInt(1000)), /Plafond de gas/);
 });
+
+const workflow = { id: "loan:synthetic", fingerprint: "signed-quote" };
+function workflowFixture() {
+  return fixture((p) => {
+    p.earnedMarginUsdMicros = p.cashUsdMicros = "10000";
+    p.gas.totalWei = "1000000000000";
+    p.maxFailures = 1;
+  });
+}
+
+test("le devis réserve calcul, requêtes et deux transactions avant toute consommation", () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  const reserved = { allocatedUsd: BigInt(1116), allocatedWei: BigInt("200000000000"), failures: 0 };
+  assert.deepEqual(ledger.snapshot(), reserved);
+  const resumed = open();
+  assert.equal(resumed.workflowPayload(workflow.id), "signed");
+  resumed.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(0));
+  resumed.reserve("training", "input", "training", workflow);
+  resumed.finish("training", "input", true, "{}");
+  for (const id of ["release", "failure"]) {
+    resumed.reserve(id, id, "transaction", workflow);
+    resumed.finish(id, id, true);
+  }
+  assert.deepEqual(ledger.snapshot(), reserved, "aucune double allocation ou marge recréée");
+  assert.throws(() => resumed.reserve("third", "third", "transaction", workflow), /épuisé/);
+  assert.throws(() => resumed.reserve("retry-training", "input", "training", workflow), /épuisé/);
+});
+
+test("un devis non couvert jusqu’à clôture ne consomme aucune réservation partielle", () => {
+  const { ledger, policy: p } = workflowFixture();
+  assert.throws(() => ledger.reserveWorkflow(workflow, "signed", p.validUntil + 1, BigInt(p.gas.totalWei)), /trop courte/);
+  assert.throws(() => ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.maxTransactionWei)), /Liquidités/);
+  assert.equal(ledger.workflowPayload(workflow.id), null);
+  assert.deepEqual(ledger.snapshot(), { allocatedUsd: BigInt(0), allocatedWei: BigInt(0), failures: 0 });
+  const tight = fixture();
+  assert.throws(() => tight.ledger.reserveWorkflow(workflow, "signed", tight.policy.validUntil, BigInt(tight.policy.gas.totalWei)), /insuffisant/);
+  assert.equal(tight.ledger.snapshot().allocatedUsd, BigInt(0));
+});
+
+test("le coupe-circuit refuse les nouveaux devis et préserve les budgets déjà affectés", async () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  ledger.reserve("bad", "bad", "request");
+  ledger.finish("bad", "bad", false);
+  assert.throws(() => open().reserveWorkflow({ id: "new", fingerprint: "new" }, "new", p.validUntil, BigInt(p.gas.totalWei)), /Coupe-circuit/);
+  for (let i = 0; i < 16; i++) {
+    ledger.reserve(`request-${i}`, "scope", "request", workflow);
+    ledger.finish(`request-${i}`, "scope", true);
+  }
+  assert.throws(() => ledger.reserve("request-17", "scope", "request", workflow), /épuisé/);
+  assert.equal(await sendBudgetedTransaction(open(), "close", "close", io(), workflow), txHash);
+});
+
+test("une réservation ne peut pas être détournée vers un autre devis ou prolongée", () => {
+  const { ledger, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  ledger.reserve("job", "input", "training", workflow);
+  ledger.finish("job", "input", true, "{}");
+  assert.throws(() => ledger.reserve("job", "input", "training", { ...workflow, fingerprint: "changed" }), /scope/);
+  assert.throws(() => ledger.reserve("job", "input", "training"), /scope/);
+  assert.throws(() => ledger.reserveWorkflow(workflow, "changed", p.validUntil, BigInt(p.gas.totalWei)), /scope/);
+  const originalNow = Date.now;
+  try {
+    Date.now = () => p.validUntil + 1;
+    assert.throws(() => ledger.reserve("late", "late", "request", workflow), /expiré/);
+  } finally { Date.now = originalNow; }
+});
+
+test("la mesure et le premier reçu d’échec survivent à une reprise sans changer la signature", () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  assert.equal(ledger.executionEvidence(workflow), null);
+  ledger.recordExecutionEvidence(workflow, "measured");
+  assert.equal(open().executionEvidence(workflow), "measured");
+  assert.throws(() => ledger.recordExecutionEvidence(workflow, "inflated"), /déjà fixée/);
+  assert.equal(ledger.fixFailureReceipt(workflow, "first"), "first");
+  assert.equal(open().fixFailureReceipt(workflow, "new-timestamp"), "first");
+});
+
+test("deux processus ne peuvent promettre la même dernière réserve de clôture", async () => {
+  const { path, ledger, policy: p } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "1216"; });
+  const script = `import { BudgetLedger } from ${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))};
+    const ledger = new BudgetLedger(process.argv[1], 46630, ${JSON.stringify(wallet)});
+    try { ledger.reserveWorkflow({id:process.argv[2],fingerprint:process.argv[2]},process.argv[2],${p.validUntil},BigInt(${JSON.stringify(p.gas.totalWei)})); process.stdout.write('admitted'); }
+    catch { process.stdout.write('blocked'); } finally { ledger.close(); }`;
+  const run = promisify(execFile);
+  const results = await Promise.all(["first", "second"].map((id) => run(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script, path, id])));
+  assert.deepEqual(results.map((r) => r.stdout).sort(), ["admitted", "blocked"]);
+  assert.equal(ledger.snapshot().allocatedUsd, BigInt(1116));
+});

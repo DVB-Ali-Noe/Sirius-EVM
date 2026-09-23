@@ -16,6 +16,7 @@ import type {
 } from "./contract";
 import { attestedRunnerFetch } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
+import type { SignedComputeQuote } from "@/lib/billing/quote";
 
 const RUNNER_TIMEOUT_MS = 60_000;
 
@@ -76,7 +77,7 @@ export async function prepareEscrowLockInRunner(
   loanId: string,
   borrower: string,
   authorizationDeadline: number,
-): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization }> {
+): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization; billingQuote?: SignedComputeQuote }> {
   return dispatchRunner("prepare-escrow-lock", { datasetId: dataset.datasetId, loanId, borrower },
     { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline });
 }
@@ -86,6 +87,7 @@ export async function runLoanJobInRunner(
   datasetReceipt: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
+  billingQuote?: SignedComputeQuote,
 ): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
@@ -96,7 +98,7 @@ export async function runLoanJobInRunner(
   return dispatchRunner(
     "run-loan-job",
     { datasetId: input.datasetId, loanId: input.loanId },
-    { ...input, datasetReceipt, deliveryPublicKey, authorization },
+    { ...input, datasetReceipt, deliveryPublicKey, authorization, ...(billingQuote ? { billingQuote } : {}) },
   );
 }
 

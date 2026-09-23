@@ -120,6 +120,22 @@ export interface BudgetOperation {
   nonce: number | null;
 }
 
+export interface WorkflowBudget { id: string; fingerprint: string }
+const WORKFLOW_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, valid_until INTEGER NOT NULL,
+    requests INTEGER NOT NULL, training INTEGER NOT NULL, transactions INTEGER NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS operation_workflows (
+    operation_id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS execution_evidence (
+    workflow_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS failure_receipts (
+    workflow_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+  ) STRICT;`;
+
 export class BudgetLedger {
   private readonly db: Database;
   private readonly inode: number;
@@ -142,6 +158,7 @@ export class BudgetLedger {
         throw new AppError("Budget lié à un autre réseau ou wallet", 503);
       }
       this.assertFile();
+      this.db.exec(WORKFLOW_SCHEMA);
     } catch (error) {
       this.db.close();
       throw error;
@@ -194,16 +211,19 @@ export class BudgetLedger {
     };
   }
 
-  reserve(id: string, fingerprint: string, kind: BudgetKind): { fresh: boolean; operation: BudgetOperation } {
+  reserve(id: string, fingerprint: string, kind: BudgetKind, workflow?: WorkflowBudget): { fresh: boolean; operation: BudgetOperation } {
     return this.atomic(() => {
       const existing = this.find(id, fingerprint);
       if (existing) {
         if (existing.kind !== kind) throw new AppError("Opération déjà réservée avec d’autres paramètres", 409);
+        if (workflow) this.workflow(workflow);
+        const owner = this.db.prepare("SELECT workflow_id FROM operation_workflows WHERE operation_id = ?").get(id);
+        if ((owner?.workflow_id ?? undefined) !== workflow?.id) throw new AppError("Budget de clôture hors scope", 409);
         return { fresh: false, operation: existing };
       }
-      this.assertAdmission();
+      if (!workflow) this.assertAdmission();
       const active = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE state = 'reserved'").get()?.n);
-      if (active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
+      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
         throw new AppError("Transaction du wallet runner encore incertaine", 503);
       }
@@ -212,15 +232,15 @@ export class BudgetLedger {
       const usd = kind === "transaction"
         ? (wei * BigInt(this.policy.gas.ethUsdMicrosUpperBound) + scale - BigInt(1)) / scale
         : BigInt(this.policy.costsUsdMicros[kind]);
-      const { allocatedUsd, allocatedWei } = this.accounting();
-      const margin = BigInt(this.policy.earnedMarginUsdMicros);
-      const cash = BigInt(this.policy.cashUsdMicros);
-      const ceiling = (margin < cash ? margin : cash) - BigInt(this.policy.fixedReserveUsdMicros);
-      if (allocatedUsd + usd > ceiling || allocatedWei + wei > BigInt(this.policy.gas.totalWei)) {
-        throw new AppError("Budget runner insuffisant : nouvelle dépense bloquée", 503);
-      }
-      this.db.prepare("UPDATE budget SET allocated_usd = ?, allocated_wei = ? WHERE id = 1")
-        .run(String(allocatedUsd + usd), String(allocatedWei + wei));
+      if (workflow) {
+        const row = this.workflow(workflow);
+        const column = kind === "request" ? "requests" : kind === "training" ? "training" : kind === "transaction" ? "transactions" : null;
+        if (!column || Number(row[column]) < 1 || Date.now() >= Number(row.valid_until)) {
+          throw new AppError("Budget de clôture épuisé ou expiré", 503);
+        }
+        this.db.prepare(`UPDATE workflows SET ${column} = ${column} - 1 WHERE id = ?`).run(workflow.id);
+        this.db.prepare("INSERT INTO operation_workflows VALUES (?, ?)").run(id, workflow.id);
+      } else this.allocate(usd, wei);
       this.db.prepare("INSERT INTO operations (id, fingerprint, kind, state, usd, wei, created_at) VALUES (?, ?, ?, 'reserved', ?, ?, ?)")
         .run(id, fingerprint, kind, String(usd), String(wei), Date.now());
       return { fresh: true, operation: this.find(id, fingerprint)! };
@@ -229,7 +249,12 @@ export class BudgetLedger {
 
   recordTransaction(id: string, fingerprint: string, hash: string, nonce: number): void {
     this.atomic(() => {
-      this.assertAdmission();
+      const owner = this.db.prepare("SELECT workflow_id FROM operation_workflows WHERE operation_id = ?").get(id);
+      if (!owner) this.assertAdmission();
+      else {
+        const row = this.db.prepare("SELECT valid_until FROM workflows WHERE id = ?").get(String(owner.workflow_id));
+        if (!row || Date.now() >= Number(row.valid_until)) throw new AppError("Budget de clôture épuisé ou expiré", 503);
+      }
       const operation = this.find(id, fingerprint);
       if (!operation || operation.kind !== "transaction" || operation.state !== "reserved" || operation.txHash
         || !/^0x[0-9a-f]{64}$/.test(hash) || !integer(nonce, 0, Number.MAX_SAFE_INTEGER)) {
@@ -255,5 +280,73 @@ export class BudgetLedger {
   snapshot() {
     this.assertFile();
     return this.accounting();
+  }
+
+  private allocate(usd: bigint, wei: bigint): void {
+    const { allocatedUsd, allocatedWei } = this.accounting();
+    const margin = BigInt(this.policy.earnedMarginUsdMicros);
+    const cash = BigInt(this.policy.cashUsdMicros);
+    const ceiling = (margin < cash ? margin : cash) - BigInt(this.policy.fixedReserveUsdMicros);
+    if (allocatedUsd + usd > ceiling || allocatedWei + wei > BigInt(this.policy.gas.totalWei)) {
+      throw new AppError("Budget runner insuffisant : nouvelle dépense bloquée", 503);
+    }
+    this.db.prepare("UPDATE budget SET allocated_usd = ?, allocated_wei = ? WHERE id = 1")
+      .run(String(allocatedUsd + usd), String(allocatedWei + wei));
+  }
+
+  private workflow(scope: WorkflowBudget): Row {
+    const row = this.db.prepare("SELECT * FROM workflows WHERE id = ?").get(scope.id);
+    if (!row || row.fingerprint !== scope.fingerprint) throw new AppError("Budget de clôture hors scope", 409);
+    return row;
+  }
+
+  workflowPayload(id: string): string | null {
+    this.assertFile();
+    return this.db.prepare("SELECT payload FROM workflows WHERE id = ?").get(id)?.payload as string | undefined ?? null;
+  }
+
+  reserveWorkflow(scope: WorkflowBudget, payload: string, validUntil: number, availableGasWei: bigint): void {
+    this.atomic(() => {
+      const old = this.workflowPayload(scope.id);
+      if (old !== null) {
+        if (old !== payload) throw new AppError("Budget de clôture hors scope", 409);
+        this.workflow(scope);
+        return;
+      }
+      this.assertAdmission();
+      if (Buffer.byteLength(payload) > 16384 || !integer(validUntil, Date.now() + 1, this.policy.validUntil)) {
+        throw new AppError("Politique de coûts trop courte pour clôturer le prêt", 503);
+      }
+      const wei = BigInt(this.policy.gas.maxTransactionWei) * BigInt(2);
+      if (this.accounting().allocatedWei + wei > availableGasWei) throw new AppError("Liquidités ETH insuffisantes pour réserver la clôture", 503);
+      const scale = BigInt("1000000000000000000");
+      const gasUsd = ((BigInt(this.policy.gas.maxTransactionWei) * BigInt(this.policy.gas.ethUsdMicrosUpperBound) + scale - BigInt(1)) / scale) * BigInt(2);
+      this.allocate(BigInt(this.policy.costsUsdMicros.training) + BigInt(this.policy.costsUsdMicros.request) * BigInt(16) + gasUsd, wei);
+      this.db.prepare("INSERT INTO workflows VALUES (?, ?, ?, ?, 16, 1, 2)")
+        .run(scope.id, scope.fingerprint, payload, validUntil);
+    });
+  }
+
+  executionEvidence(scope: WorkflowBudget): string | null {
+    this.assertFile();
+    this.workflow(scope);
+    return this.db.prepare("SELECT payload FROM execution_evidence WHERE workflow_id = ?").get(scope.id)?.payload as string | undefined ?? null;
+  }
+
+  recordExecutionEvidence(scope: WorkflowBudget, payload: string): void {
+    this.atomic(() => {
+      this.workflow(scope);
+      if (Buffer.byteLength(payload) > 4096 || this.executionEvidence(scope) !== null) throw new AppError("Preuve de consommation déjà fixée ou invalide", 409);
+      this.db.prepare("INSERT INTO execution_evidence VALUES (?, ?)").run(scope.id, payload);
+    });
+  }
+
+  fixFailureReceipt(scope: WorkflowBudget, payload: string): string {
+    return this.atomic(() => {
+      this.workflow(scope);
+      if (Buffer.byteLength(payload) > 4096) throw new AppError("Preuve de consommation déjà fixée ou invalide", 409);
+      this.db.prepare("INSERT OR IGNORE INTO failure_receipts VALUES (?, ?)").run(scope.id, payload);
+      return String(this.db.prepare("SELECT payload FROM failure_receipts WHERE workflow_id = ?").get(scope.id)!.payload);
+    });
   }
 }

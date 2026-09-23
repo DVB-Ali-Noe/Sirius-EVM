@@ -11,8 +11,11 @@ import {
 } from "@/lib/runner/atomic-delivery-client";
 import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { ModelSelection } from "@/lib/models/registry";
+import { computeQuoteHash, type ComputeQuote, type SignedComputeQuote } from "@/lib/billing/quote";
+import { quotedTransactions, verifyBorrowQuote } from "@/lib/billing/client";
 interface BorrowInput {
   datasetId: string;
+  confirmQuote?: (quote: ComputeQuote) => Promise<boolean>;
 }
 
 function lockSubmissionStorageKey(loanId: string): string {
@@ -35,7 +38,14 @@ async function submitLoanLock(loanId: string, lockTxHash?: string): Promise<void
   window.sessionStorage.removeItem(lockSubmissionStorageKey(loanId));
 }
 
-export async function borrowDataset(input: BorrowInput): Promise<void> {
+export async function borrowDataset(input: BorrowInput): Promise<boolean> {
+  const snapshot = useWalletStore.getState();
+  const assertCurrent = () => {
+    const current = useWalletStore.getState();
+    if (current.revision !== snapshot.revision || current.address !== snapshot.address || !current.authenticated) {
+      throw new Error("Le wallet a changé. Relance l’opération.");
+    }
+  };
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -45,22 +55,35 @@ export async function borrowDataset(input: BorrowInput): Promise<void> {
     loanId?: string;
     approveTransaction?: Record<string, unknown>;
     lockTransaction?: Record<string, unknown>;
+    billingQuote?: SignedComputeQuote;
     error?: string;
   };
   if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation du lock USDC échouée");
   }
-  await sendActiveTransaction(body.approveTransaction, { waitForConfirmation: true });
+  assertCurrent();
+  const signedQuote = body.billingQuote
+    ? await verifyBorrowQuote(body.billingQuote, { loanId: body.loanId, datasetId: input.datasetId, borrower: snapshot.address! }) : undefined;
+  if (signedQuote) {
+    if (!input.confirmQuote) throw new Error("Acceptation du devis compute requise");
+    if (!await input.confirmQuote(signedQuote.quote)) return false;
+    if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
+  }
+  assertCurrent();
+  await sendActiveTransaction(signedQuote ? quotedTransactions(signedQuote).approve : body.approveTransaction, { waitForConfirmation: true, assertCurrent });
   const renewal = await fetch(`/api/loans/${body.loanId}/authorize`, { method: "POST" });
-  const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; error?: string };
+  const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; billingQuote?: SignedComputeQuote; error?: string };
   if (!renewal.ok || !authorized.lockTransaction) throw new Error(authorized.error ?? "Autorisation du lock refusée");
   if (!authorized.authorizationDeadline || authorized.authorizationDeadline * 1_000 <= Date.now()) {
     throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation USDC reste acquise.");
   }
-  const lockTxHash = await sendActiveTransaction(authorized.lockTransaction);
+  if (Boolean(signedQuote) !== Boolean(authorized.billingQuote)) throw new Error("Devis compute hors scope");
+  if (signedQuote && computeQuoteHash(signedQuote.quote) !== computeQuoteHash(authorized.billingQuote!.quote)) throw new Error("Devis compute hors scope");
+  const lockTxHash = await sendActiveTransaction(signedQuote ? { ...quotedTransactions(signedQuote).lock } : authorized.lockTransaction, { assertCurrent });
   window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
   // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
   await submitLoanLock(body.loanId, lockTxHash);
+  return true;
 }
 
 export async function resumeLoanSubmission(loanId: string, lockTxHash?: string): Promise<void> {

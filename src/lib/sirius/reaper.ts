@@ -68,7 +68,8 @@ async function reapBatch(now: Date): Promise<void> {
         where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
         data: state.state === "settled"
           ? { status: "SETTLED", settleTxHash: state.txHash, settledAt: new Date() }
-          : { status: "CANCELLED", cancelTxHash: state.txHash },
+          : { status: "CANCELLED", cancelTxHash: state.txHash,
+            ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) },
       });
     } catch {
       console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);

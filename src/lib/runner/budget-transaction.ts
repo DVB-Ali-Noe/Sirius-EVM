@@ -1,6 +1,6 @@
 import { AppError } from "@/lib/app-error";
 import { type Hex, keccak256 } from "viem";
-import type { BudgetLedger } from "./budget-ledger";
+import type { BudgetLedger, WorkflowBudget } from "./budget-ledger";
 
 export interface BudgetedTransactionIO {
   prepare(): Promise<{ serialized: Hex; nonce: number }>;
@@ -13,8 +13,9 @@ export async function sendBudgetedTransaction(
   id: string,
   fingerprint: string,
   io: BudgetedTransactionIO,
+  workflow?: WorkflowBudget,
 ): Promise<Hex> {
-  const { fresh, operation } = ledger.reserve(id, fingerprint, "transaction");
+  const { fresh, operation } = ledger.reserve(id, fingerprint, "transaction", workflow);
   if (operation.state === "succeeded" && operation.txHash) return operation.txHash as Hex;
   if (operation.state === "failed") throw new AppError("Tentative de règlement épuisée", 503);
   let hash = operation.txHash as Hex | null;

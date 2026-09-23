@@ -1,0 +1,216 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import type { DatasetRef, RunnerReleaseEnvelope } from "@/lib/tee/contract";
+import type { BudgetPolicy } from "@/lib/runner/budget-ledger";
+import type { SignedComputeQuote } from "./quote";
+
+test("devis → lock → runner → crédits et remboursements v7 sur EVM locale", { timeout: 90000 }, async (t) => {
+  const env = { ...process.env };
+  const fetchOriginal = globalThis.fetch;
+  const temporary = mkdtempSync(join(tmpdir(), "sirius-billing-flow-"));
+  const portServer = createServer().listen(0, "127.0.0.1");
+  await once(portServer, "listening");
+  const port = (portServer.address() as { port: number }).port;
+  await new Promise<void>((done) => portServer.close(() => done()));
+  const node = spawn(process.execPath, [resolve("node_modules/hardhat/internal/cli/cli.js"), "node", "--hostname", "127.0.0.1", "--port", String(port)], {
+    cwd: resolve("contracts"), env: { ...process.env, SIRIUS_LOCAL_BILLING_TEST: "true", NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  node.stderr.resume();
+  t.after(async () => {
+    globalThis.fetch = fetchOriginal;
+    node.kill("SIGTERM");
+    if (node.exitCode === null) await once(node, "exit");
+    rmSync(temporary, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
+    Object.assign(process.env, env);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("EVM locale non démarrée")), 20000);
+    node.once("exit", () => { clearTimeout(timer); reject(new Error("EVM locale interrompue")); });
+    node.stdout.on("data", (chunk: Buffer) => {
+      if (chunk.toString().includes("Started HTTP")) { clearTimeout(timer); resolve(); }
+    });
+  });
+  Object.assign(process.env, {
+    NODE_ENV: "test", EVM_NETWORK: "testnet", TEE_MODE: "stub", SIRIUS_BILLING_VERSION: "7",
+    EVM_RPC_URL: `http://127.0.0.1:${port}`, SIRIUS_APP_ORIGIN: "http://localhost:3000",
+    SIRIUS_MASTER_KEY: Buffer.alloc(32, 19).toString("base64"), PINATA_JWT: "synthetic", PINATA_GATEWAY: "https://ipfs.test.invalid",
+    RUNNER_BUDGET_FILE: join(temporary, "budget.sqlite"), RUNNER_BILLING_POLICY_FILE: join(temporary, "tariff.json"),
+  });
+  const { robinhoodTestnet: chain } = await import("@/lib/evm/networks");
+  const contracts = chain.contracts;
+  chain.contracts = undefined;
+  t.after(() => { chain.contracts = contracts; });
+  const client = createPublicClient({ chain, transport: http(process.env.EVM_RPC_URL) });
+  const accounts = await createWalletClient({ chain, transport: http(process.env.EVM_RPC_URL) }).getAddresses();
+  const [admin, provider, treasury] = accounts;
+  const borrower = privateKeyToAccount(`0x${"21".repeat(32)}`);
+  const runner = (await import("@/lib/evm/runner-account")).settlementAccount();
+  process.env.SIRIUS_LOCK_AUTHORIZER = runner.address.toLowerCase();
+  async function localRpc(method: string, params: unknown[]) {
+    const response = await fetchOriginal(process.env.EVM_RPC_URL!, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+    const body = await response.json();
+    assert.equal(body.error, undefined);
+    return body.result;
+  }
+  for (const address of [borrower.address, runner.address]) await localRpc("hardhat_setBalance", [address, toHex(BigInt(10) ** BigInt(20))]);
+  const adminWallet = createWalletClient({ account: admin, chain, transport: http(process.env.EVM_RPC_URL) });
+  const borrowerWallet = createWalletClient({ account: borrower, chain, transport: http(process.env.EVM_RPC_URL) });
+  function artifact(name: string) {
+    const folder = name === "MockEscrowToken" ? "test/MockEscrowToken.sol" : `${name}.sol`;
+    return JSON.parse(readFileSync(resolve(`contracts/artifacts/src/${folder}/${name}.json`), "utf8")) as { abi: Abi; bytecode: Hex };
+  }
+  async function deploy(name: string, args: unknown[] = []) {
+    const hash = await adminWallet.deployContract({ ...artifact(name), args });
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    assert.equal(receipt.status, "success");
+    return receipt.contractAddress!;
+  }
+  async function write(name: string, address: Address, functionName: string, args: unknown[], account = admin) {
+    const hash = await adminWallet.writeContract({ address, abi: artifact(name).abi, functionName, args, account });
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    assert.equal(receipt.status, "success");
+    return receipt;
+  }
+  const token = await deploy("MockEscrowToken", [18]);
+  const kyb = await deploy("SiriusOpenKybRegistry");
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, admin]);
+  const escrow = await deploy("SiriusEscrowV7", [token, kyb, datasets, runner.address]);
+  await write("SiriusDatasetRegistry", datasets, "bindEscrow", [escrow]);
+  Object.assign(process.env, { SIRIUS_ESCROW_ADDRESS: escrow, SIRIUS_USDC_ADDRESS: token, SIRIUS_KYB_ADDRESS: kyb, SIRIUS_DATASET_ADDRESS: datasets });
+  const unit = BigInt(10) ** BigInt(18);
+  await write("MockEscrowToken", token, "mint", [borrower.address, unit * BigInt(100)]);
+  const { initializeBudgetLedger } = await import("@/lib/runner/budget-ledger");
+  const policy: BudgetPolicy = {
+    version: 1, chainId: chain.id, wallet: runner.address.toLowerCase(), accountingReference: "synthetic-local-test-only",
+    validUntil: Date.now() + 4 * 86400000, earnedMarginUsdMicros: "1000000000", cashUsdMicros: "1000000000", fixedReserveUsdMicros: "1000000",
+    costsUsdMicros: { request: "1", seal: "50", training: "1000" }, maxFailures: 1, maxActive: 8,
+    gas: { totalWei: String(unit), maxTransactionWei: String(unit / BigInt(100)), maxGas: "2000000", maxFeePerGasWei: "10000000000", ethUsdMicrosUpperBound: "5000000000", confirmations: 1 },
+  };
+  initializeBudgetLedger(process.env.RUNNER_BUDGET_FILE!, policy);
+  const profile = { computeAmount: String(unit * BigInt(2)), maxFailureFee: String(unit / BigInt(10)), executionRateAtomicPerMs: "1000000000000", maxExecutionMs: 10000 };
+  writeFileSync(process.env.RUNNER_BILLING_POLICY_FILE!, JSON.stringify({
+    version: 1, tariffVersion: "synthetic-test-v1", costReference: "not-commercial", validUntil: policy.validUntil,
+    chainId: chain.id, usdc: token.toLowerCase(), usdcDecimals: 18, computeRecipient: treasury.toLowerCase(),
+    minimumComputeAmount: String(unit * BigInt(3)), profiles: { linear_regression: profile, logistic_regression: profile },
+  }), { mode: 0o600 });
+  const blobs = new Map<string, Buffer>();
+  let uploads = 0;
+  let reads = 0;
+  let failFetch = false;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://uploads.pinata.cloud/v3/files") {
+      const file = (init!.body as FormData).get("file") as File;
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const cid = `bafy-synthetic-${++uploads}`;
+      blobs.set(cid, bytes);
+      return Response.json({ data: { cid, size: bytes.length } });
+    }
+    if (url.startsWith("https://ipfs.test.invalid/ipfs/")) {
+      reads++;
+      if (failFetch) { await new Promise((done) => setTimeout(done, 25)); return new Response("offline", { status: 503 }); }
+      return new Response(new Uint8Array(blobs.get(url.split("/").at(-1)!)!));
+    }
+    return fetchOriginal(input, init);
+  };
+  const { sealDataset } = await import("@/lib/tee/core");
+  const { issueDatasetReceipt } = await import("@/lib/runner/receipt");
+  const { handleRunnerOp } = await import("@/runner/handler");
+  const { datasetIdHash, cidHash } = await import("@/lib/evm/dataset-key");
+  const { trainingProfileHash } = await import("@/lib/models/registry");
+  const { loanKeyFor } = await import("@/lib/evm/loan-key");
+  const { siriusescrowv7Abi } = await import("@/lib/evm/abi/siriusescrowv7");
+  const { quoteLockTerms, quoteTermsHash, totalQuoteAmount } = await import("./quote");
+  const { readLoan, reconcileLoanEscrow } = await import("@/lib/evm/escrow");
+  const { runnerBudget } = await import("@/lib/runner/budget");
+  const { createRunnerDelivery } = await import("@/lib/runner/delivery-client");
+  const { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } = await import("@/lib/runner/authorization-client");
+  const { buildDelegationMessage } = await import("@/lib/runner/authorization-contract");
+  const { useWalletStore } = await import("@/stores/wallet");
+  const csv = Buffer.from("x,y\n" + Array.from({ length: 120 }, (_, i) => `${i},${i * 3 + 1}`).join("\n"));
+  const sealed = await sealDataset("dataset", csv);
+  const dataset: DatasetRef = { datasetId: "dataset", ...sealed, priceUsdcAtomic: String(unit), challengeDays: 1, modelId: "linear_regression", modelVersion: "1.0.0" };
+  const datasetReceipt = issueDatasetReceipt(provider.toLowerCase(), dataset);
+  await write("SiriusDatasetRegistry", datasets, "mint", [datasetIdHash(dataset.datasetId), cidHash(dataset.cid), `0x${dataset.merkleRoot}`, BigInt(csv.length), trainingProfileHash(dataset)], provider);
+  await (await import("@/lib/evm/deployment")).requireCurrentEvmDeployment();
+  useWalletStore.getState().setConnected(borrower.address, "testnet", "external");
+  const sessionPublicKey = await beginRunnerDelegation();
+  const message = buildDelegationMessage({ origin: "http://localhost:3000", address: borrower.address, sessionPublicKey, network: "testnet", issuedAt: Date.now(), expiresAt: Date.now() + 60000, challengeToken: "synthetic.challenge" });
+  await activateRunnerDelegation({ message, walletSignature: await borrower.signMessage({ message }), sessionPublicKey });
+  async function prepare(loanId: string) {
+    const result = await handleRunnerOp("prepare-escrow-lock", { ...dataset, datasetReceipt, loanId, borrower: borrower.address, authorizationDeadline: Math.floor(Date.now() / 1000) + 300 }) as { billingQuote: SignedComputeQuote };
+    assert.equal(result.billingQuote.quote.computeAmount, String(unit * BigInt(3)));
+    return result.billingQuote;
+  }
+  const quotes = await Promise.all(["success", "failure", "timeout"].map(prepare));
+  assert.equal(runnerBudget()!.snapshot().allocatedWei, BigInt(policy.gas.maxTransactionWei) * BigInt(6));
+  const delivery = await createRunnerDelivery(`loan:${borrower.address.toLowerCase()}:success`);
+  async function run(signed: SignedComputeQuote) {
+    const loanId = signed.quote.loanId;
+    const authorization = await issueRunnerGrant("run-loan-job", { loanId, datasetId: dataset.datasetId }, [loanId, dataset.datasetId, datasetReceipt, delivery.publicKey, dataset.modelId, dataset.modelVersion]);
+    return handleRunnerOp("run-loan-job", { ...dataset, loanId, datasetReceipt, deliveryPublicKey: delivery.publicKey, authorization, billingQuote: signed });
+  }
+  await assert.rejects(run(quotes[0]), /inactif|scope/);
+  assert.equal(reads, 0, "aucun dataset déchiffré avant prépaiement");
+  const tampered = structuredClone(quotes[0]);
+  tampered.quote.computeAmount = String(unit * BigInt(4));
+  await assert.rejects(run(tampered), /Signature/);
+  assert.equal(reads, 0);
+  const lockBlocks: bigint[] = [];
+  for (const signed of quotes) {
+    const approved = await borrowerWallet.writeContract({ address: token, abi: artifact("MockEscrowToken").abi, functionName: "approve", args: [escrow, BigInt(totalQuoteAmount(signed.quote))] });
+    await client.waitForTransactionReceipt({ hash: approved });
+    const hash = await borrowerWallet.writeContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "lock", args: [quoteLockTerms(signed.quote), signed.authorization] });
+    lockBlocks.push((await client.waitForTransactionReceipt({ hash })).blockNumber);
+    const loan = await readLoan(loanKeyFor(borrower.address, signed.quote.loanId));
+    assert.equal(loan?.billing?.termsHash, quoteTermsHash(signed.quote));
+  }
+  assert.ok(runnerBudget()!.snapshot().failures >= 1);
+  await assert.rejects(prepare("blocked"), /Coupe-circuit/);
+  const result = await run(quotes[0]) as { modelCid: string; runnerReceipt: string; releaseEnvelope: RunnerReleaseEnvelope };
+  assert.ok(result.modelCid);
+  const produced = uploads;
+  assert.equal((await run(quotes[0]) as typeof result).modelCid, result.modelCid);
+  assert.equal(uploads, produced, "la reprise ne repinne pas le modèle");
+  const { hashRunnerReleaseEnvelope } = await import("@/lib/runner/delivery");
+  async function settle() {
+    const authorization = await issueRunnerGrant("settle-loan", { loanId: "success" }, ["success", result.runnerReceipt]);
+    return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt, releaseEnvelopeHash: hashRunnerReleaseEnvelope(result.releaseEnvelope), lockBlock: String(lockBlocks[0]), authorization });
+  }
+  const settled = await settle();
+  const nonce = await client.getTransactionCount({ address: runner.address });
+  assert.deepEqual(await settle(), settled);
+  assert.equal(await client.getTransactionCount({ address: runner.address }), nonce);
+  const credit = (account: Address) => client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "creditOf", args: [account] });
+  assert.equal(await credit(provider), unit);
+  assert.equal(await credit(treasury), unit * BigInt(3));
+  failFetch = true;
+  await assert.rejects(run(quotes[1]), /remboursement crédité/);
+  const failed = await readLoan(loanKeyFor(borrower.address, "failure"));
+  assert.equal(failed?.status, 4);
+  const fee = BigInt(failed!.billing!.consumedCompute);
+  assert.ok(fee > BigInt(0) && fee <= BigInt(quotes[1].quote.maxFailureFee));
+  assert.equal(await credit(borrower.address), unit * BigInt(4) - fee);
+  assert.equal(await credit(provider), unit, "dataset intégralement remboursé après échec");
+  const resolution = await reconcileLoanEscrow(loanKeyFor(borrower.address, "failure"), lockBlocks[1]);
+  assert.equal(resolution.state, "cancelled");
+  await localRpc("evm_increaseTime", [86401]);
+  await localRpc("evm_mine", []);
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "timeout")]);
+  assert.equal(await credit(borrower.address), unit * BigInt(8) - fee, "sans exécution, remboursement intégral");
+  const [locked, owed, balance] = await client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "accounting" });
+  assert.equal(locked, BigInt(0));
+  assert.equal(owed, balance);
+  await write("SiriusEscrowV7", escrow, "withdrawFor", [borrower.address]);
+  assert.equal(await credit(borrower.address), BigInt(0));
+  runnerBudget()!.close();
+});

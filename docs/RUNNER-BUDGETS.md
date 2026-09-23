@@ -1,6 +1,6 @@
 # Budgets durables du runner — livrable local
 
-Implémentation locale du 23 septembre 2026, après [Escrow v7](ESCROW-V7.md). Aucun registre de production n’a été initialisé, aucun tarif activé, aucune transaction envoyée et Phala reste arrêté. Le runner règle toujours les prêts v6 ; le branchement v7 reste distinct.
+Implémentation locale du 23 septembre 2026, après [Escrow v7](ESCROW-V7.md). Aucun registre de production n’a été initialisé, aucun tarif activé, aucune transaction publique envoyée et Phala reste arrêté. Le [branchement v7](BILLING-INTEGRATION.md) est désormais implémenté localement avec réservation du parcours avant émission du devis.
 
 ## Ce que le code impose
 
@@ -15,16 +15,16 @@ admission seulement si plafond disponible >= nouveau coût maximal
 
 Les dépôts escrow, montants dus aux providers, apports et tokens testnet ne sont pas des revenus Sirius. Le registre **n’importe pas encore une comptabilité vérifiée** : l’opérateur doit justifier les chiffres et la borne de conversion avec `accountingReference`. Aucune recette future n’est anticipée. Une marge initiale nulle refuse les dépenses, même avec un wallet financé. Les bornes doivent couvrir les coûts complets de chaque opération ; les valeurs de tests ne sont ni une grille commerciale ni des budgets à appliquer.
 
-- Chaque appel de `handleRunnerOp`, y compris le fallback en processus, réserve le coût maximal d’une requête avant traitement. L’ingestion et les deux types d’entraînement réservent en plus leur exposition avant déchiffrement/calcul/upload. Les contrôles de portée on-chain restent obligatoires avant l’entraînement d’un emprunt.
+- Chaque appel de `handleRunnerOp`, y compris le fallback en processus, réserve le coût maximal d’une requête. En v7, les grants et devis sont vérifiés avant d’utiliser les requêtes déjà réservées pour le prêt. L’ingestion et les deux types d’entraînement réservent en plus leur exposition avant déchiffrement/calcul/upload. Les contrôles de portée on-chain restent obligatoires avant l’entraînement d’un emprunt.
 - Les résultats terminés (CID, métriques et, pour l’ingestion, clé enveloppée) sont persistés. Une reprise du même job avec les mêmes paramètres retrouve le résultat sans réentraîner ni repinner. Aucun plaintext, DEK en clair, master key ou préimage n’est enregistré dans ce registre.
 - Un job déjà engagé ne redémarre pas après erreur ou crash. Les réservations incertaines ne périment pas. Les requêtes de reprise consomment néanmoins leur propre budget de traitement ; l’épuisement peut donc suspendre aussi les livraisons via le runner.
-- Succès et échecs ne recréditent aucun maximum alloué. Cette comptabilité conservatrice limite les admissions ; **elle ne mesure pas les frais facturables au borrower**. Elle ne permet aucune retenue v7 à elle seule.
-- Les échecs ouvrent un coupe-circuit persistant au seuil configuré. Les succès, changements de jour et redémarrages ne remettent aucun compteur à zéro.
+- Succès et échecs ne recréditent aucun maximum alloué. Cette comptabilité conservatrice limite les admissions ; **elle ne mesure pas les frais facturables au borrower**. Elle ne permet aucune retenue v7 à elle seule : la mesure d’exécution est enregistrée séparément.
+- Les échecs ouvrent un coupe-circuit persistant au seuil configuré. Les prêts v7 conservent leurs budgets déjà affectés, dans les limites du nombre de requêtes et tentatives. Les succès, changements de jour et redémarrages ne remettent aucun compteur à zéro.
 - Les téléchargements/upload IPFS sont bornés à 8 Mio de blob chiffré et 20 secondes ; les réponses de métadonnées upload à 64 Kio. Les dépassements ne déclenchent pas de reprise automatique.
 
 ## Règlement et wallet gas
 
-Une seule intention de transaction peut être ouverte pour le wallet dans ce registre, même pour deux prêts/contrats différents. Le maximum ETH par transaction et son équivalent USD arrondi vers le haut sont réservés avant préparation. Le code contrôle réseau RPC, compte dérivé, contrat configuré, méthode `release`, calldata reconstruite et valeur ETH nulle. Il refuse un solde ETH inférieur à la réservation, une estimation de gas trop élevée ou un prix au-dessus de la borne.
+Une seule intention de transaction peut être ouverte pour le wallet dans ce registre, même pour deux prêts/contrats différents. Le maximum ETH par transaction et son équivalent USD arrondi vers le haut sont réservés avant préparation. Le code contrôle réseau RPC, compte dérivé, contrat configuré, méthode `release` ou reçu final v7 `recordExecution`, calldata reconstruite et valeur ETH nulle. Il refuse un solde ETH inférieur à la réservation, une estimation de gas trop élevée ou un prix au-dessus de la borne.
 
 La transaction EIP-1559 est signée localement avec nonce `pending`, gas borné, `maxFeePerGas` plafonné et pourboire nul. Son hash et son nonce sont persistés **avant** `sendRawTransaction`. L’envoi n’a pas de retry RPC, de remplacement, de hausse de frais ni de nouveau nonce automatique. Le préimage/calldata brut et la transaction signée ne sont pas stockés dans le registre ou dans les messages d’erreur.
 
@@ -45,7 +45,7 @@ pnpm runner:budget inspect /chemin/prive/budget.sqlite /chemin/politique.json
 
 Le répertoire doit préexister en `0700`, le fichier est créé en `0600` avec création exclusive : `init` refuse tout fichier existant. `inspect` lit les compteurs et la politique persistée ; il ne recharge pas la politique depuis le JSON. Les champs complets sont définis par `BudgetPolicy` dans `src/lib/runner/budget-ledger.ts`. `validUntil` est un timestamp Unix en millisecondes. `maxActive` doit couvrir les requêtes et leurs sous-opérations réservées simultanément.
 
-`RUNNER_BUDGET_FILE` désigne ce fichier ; `SIRIUS_LOCK_AUTHORIZER` doit désigner le wallet opérationnel attendu. Le budget est obligatoire en production, en mode Phala et sur mainnet. Seul le développement/test synthétique en mode stub sur testnet peut fonctionner sans registre. Le mode bootstrap HTTP reste sans opérations métier et n’exige pas de budget.
+`RUNNER_BUDGET_FILE` désigne ce fichier ; `SIRIUS_LOCK_AUTHORIZER` doit désigner le wallet opérationnel attendu. Le budget est obligatoire en production, en mode Phala et sur mainnet. Seul le développement/test synthétique v6 en mode stub sur testnet peut fonctionner sans registre ; v7 l’exige toujours. Le mode bootstrap HTTP reste sans opérations métier et n’exige pas de budget.
 
 L’image suivante devra inclure ce code et l’outil `scripts/runner-budget.ts`. Lors d’une future activation autorisée, préparer le répertoire privé dans le volume persistant existant, transmettre `RUNNER_BUDGET_FILE` au conteneur et refaire les mesures d’attestation. Le compose actuellement épinglé et la CVM arrêtée n’ont pas été modifiés. L’initialisation d’un registre réel exige d’abord la validation des coûts et de la marge ; aucune valeur positive de démonstration ne doit servir de financement fictif.
 
@@ -53,8 +53,8 @@ L’image suivante devra inclure ce code et l’outil `scripts/runner-budget.ts`
 
 Cette brique **ne garantit pas encore un PnL non négatif**. Restent nécessaires :
 
-- Une source comptable réconciliée, la mesure réelle des frais facturables, le devis v7 et ses reçus, et une réservation couvrant tout le parcours jusqu’à sa clôture, y compris checkpoints/remboursement. Les allocations actuelles sont par opération ; un entraînement terminé ne garantit pas un budget de règlement disponible.
-- Une interruption CPU indépendante du processus bloqué, un superviseur d’uptime et des plafonds fournisseur vérifiés. Le délai CPU existant reste coopératif ; les bornes IPFS ne limitent pas les abonnements, stockage, factures déjà engagées ou l’inactivité.
+- Une source comptable réconciliée et la calibration du barème réel. V7 réserve désormais un entraînement, 16 requêtes et deux transactions jusqu’à clôture ; v6 conserve les allocations par opération. Voir [les garanties et limites de cette réservation](BILLING-INTEGRATION.md#réserver-jusquà-la-clôture).
+- Un superviseur extérieur au processus parent, un contrôle d’uptime et des plafonds fournisseur vérifiés. Le worker v7 est terminable, mais ses limites et celles d’IPFS ne bornent pas les abonnements, stockage, factures déjà engagées ou l’inactivité.
 - Les coûts hors handler runner : routes Next avant admission, authentification publique, faucet/KYB, préflights, reaper et dépinning. La liquidité agrégée USD ne vérifie pas les crédits disponibles chez chaque fournisseur.
 - La séparation effective des comptes et droits en production, la validation des paramètres gas/finalité sur le rollup cible, les sauvegardes cohérentes SQLite et une procédure de reprise auditée. Une politique expirée suspend l’admission sans arrêter automatiquement une machine facturée.
 
@@ -62,6 +62,6 @@ Un disque local commun est une condition de ce mécanisme. **Deux CVM ou deux fi
 
 ## Vérification
 
-Validation locale : **272 tests applicatifs réussis**, lint, typage TypeScript et build Next réussis. Les 27 nouveaux tests couvrent ce livrable ; la vérification ne vaut pas activation sur Phala.
+Validation du premier livrable : 272 tests applicatifs, lint, typage et build. La [validation complémentaire v7](BILLING-INTEGRATION.md#validation-locale-et-limites) couvre les réservations du parcours, leur concurrence et la clôture après coupe-circuit ; elle ne vaut pas activation sur Phala.
 
 Les tests `budget.test.ts` couvrent notamment la dernière réservation entre deux processus, la persistance des tentatives, les doublons, le cache du modèle, les limites globales et de gas, les prix périmés, les données comptables invalides, les reverts et la perte de réponse RPC. `pinata.test.ts` vérifie la coupure des flux trop grands et le refus avant upload. Aucun accès RPC, Pinata ou Phala réel n’est nécessaire.

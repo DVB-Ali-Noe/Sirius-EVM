@@ -23,6 +23,10 @@ import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import { budgetRunnerJob } from "@/lib/runner/budget";
+import { trainInWorker } from "./bounded-training";
+import type { ComputeQuote } from "@/lib/billing/quote";
+import { quoteWorkflow, requireBillingBudget } from "@/lib/billing/runner";
+import { MAX_DATASET_BYTES } from "./contract";
 import type {
   DatasetIngressEnvelope,
   DatasetRef,
@@ -137,8 +141,8 @@ export async function sealDatasetEnvelope(
 }
 
 /** Déchiffre un dataset « en enclave » + vérifie l'intégrité Merkle. Le plaintext ne sort jamais. */
-async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef): Promise<Buffer> {
-  const blob = await fetchFromIpfs(cid);
+async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef, signal?: AbortSignal): Promise<Buffer> {
+  const blob = await fetchFromIpfs(cid, signal);
   const payload = JSON.parse(blob.toString()) as EncryptedPayload;
   const plaintext = decrypt(payload, unwrapKey(wrappedKey, datasetKeyContext(datasetId)));
   if (!verifyRoot(plaintext, merkleRoot, DEFAULT_CHUNK_SIZE)) {
@@ -148,12 +152,14 @@ async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: Datase
 }
 
 /** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
-async function trainAndSeal(input: TrainingInput) {
-  const plaintext = await decryptDataset(input);
-  const model = trainSelectedModel(input, plaintext);
+async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatasetBytes = MAX_DATASET_BYTES) {
+  const plaintext = await decryptDataset(input, signal);
+  if (plaintext.length > maxDatasetBytes) throw new AppError("Taille du dataset invalide", 413);
+  const model = signal ? await trainInWorker(input, plaintext, signal) : trainSelectedModel(input, plaintext);
   const { model: gated, buffer } = gateModel(model);
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
-  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
+  signal?.throwIfAborted();
+  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename, signal);
   return { modelCid: cid, model: gated };
 }
 
@@ -225,5 +231,25 @@ export async function runEvmLoanJob(input: LoanJobInput): Promise<{
     ...input,
     keyContext: evmModelKeyContext(input.loanId, input.borrower),
     filename: `${input.loanId}.model.enc`,
+  });
+}
+
+export async function runBilledEvmLoanJob(input: LoanJobInput, quote: ComputeQuote): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+  const ledger = requireBillingBudget();
+  const scope = quoteWorkflow(quote);
+  const training = { ...input, keyContext: evmModelKeyContext(input.loanId, input.borrower), filename: `${input.loanId}.model.enc` };
+  return budgetRunnerJob("training", training.keyContext, training, async () => {
+    const startedAt = Date.now();
+    const started = performance.now();
+    let success = false;
+    try {
+      const { modelCid, model } = await trainAndSeal(training, AbortSignal.timeout(quote.maxExecutionMs), quote.maxDatasetBytes);
+      success = true;
+      return { modelCid, metrics: model.metrics };
+    } finally {
+      // Une mesure absente après crash ne devient jamais la consommation maximale du devis.
+      const elapsedMs = Math.min(quote.maxExecutionMs, Math.max(0, Math.floor(performance.now() - started)));
+      ledger.recordExecutionEvidence(scope, JSON.stringify({ version: 1, quoteHash: scope.fingerprint, startedAt, elapsedMs, success }));
+    }
   });
 }

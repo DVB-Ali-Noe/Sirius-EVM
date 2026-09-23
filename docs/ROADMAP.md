@@ -4,7 +4,7 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs responsables et portes de sortie, les pistes de financement et les recommandations à arbitrer. Les dates cibles et pistes commerciales n'y valent pas validation technique ni financement acquis.
 
-**Prochain chantier demandé par Noé : [faire prépayer le compute au borrower](COMPUTE-BILLING.md).** Préparer un devis fixe signé en USDC, son verrouillage avant calcul, la répartition provider/Sirius et les remboursements. Cette évolution est à traiter **avant tout nouveau déploiement de contrats pour Phala** ; ne pas reprendre directement le redéploiement v6 envisagé auparavant. Phala reste arrêté pendant la préparation locale.
+**Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Restent tarifs réels, comptabilité et plafonds fournisseurs avant activation. Cette évolution précède tout nouveau déploiement de contrats pour Phala ; la CVM reste arrêtée.
 
 **Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). La CVM a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé, mais les modèles de 5 prêts et 8 entraînements restent à préserver. Le KYB ouvert actuel est confirmé ; le choix du compte de déploiement a été demandé à Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
 
@@ -20,15 +20,18 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 
 ## Facturation du compute — priorité avant redéploiement
 
-- [ ] Formaliser le devis fixe garanti : prix dataset, prix compute, total, bénéficiaires, profil, limites et expiration ; définir les tarifs et la trésorerie.
+- [x] Formaliser et signer le devis : prix dataset/compute, total, bénéficiaires, profil, limites, barème d’échec et expiration. Afficher et faire accepter avant paiement.
+- [ ] Valider les tarifs commerciaux et choisir la trésorerie.
 - [ ] Fixer un tarif minimum prudent couvrant une faible fréquentation ; définir le périmètre du PnL sans compter les fonds clients ni les apports comme des bénéfices.
 - [x] Implémenter localement les [budgets runner persistants](RUNNER-BUDGETS.md) : réservation atomique par opération, plafonds de gas, intention/nonce/hash durables, tentative unique, cache des modèles et coupe-circuit. Aucune activation distante.
-- [ ] Raccorder la comptabilité, réserver tout le parcours incluant clôture/checkpoints, imposer une interruption CPU indépendante, séparer les comptes effectifs et borner les dépenses fournisseurs après arrêt.
+- [x] Réserver le parcours complet avant devis, conserver le budget de clôture après coupe-circuit et interrompre le worker de calcul à sa limite.
+- [ ] Raccorder la comptabilité réconciliée, séparer les comptes effectifs, imposer un superviseur extérieur et borner les dépenses fournisseurs après arrêt.
 - [ ] Préparer l’estimation à partir de caractéristiques authentifiées par le runner et de benchmarks synthétiques ; prévenir Noé avant tout benchmark Phala payant.
-- [x] Implémenter séparément [Escrow v7](ESCROW-V7.md), son ABI et ses tests locaux : deux prix bloqués, répartition provider/Sirius, retenue plafonnée par reçus signés et remboursement à échéance sans runner. Aucun déploiement ni branchement applicatif v7 effectué.
-- [ ] Implémenter la politique MVP d’échec : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés ; préserver les reprises sans surcoût et la récupération en cas de panne du runner.
-- [ ] Aligner autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et préflights ; préserver les déploiements historiques.
-- [ ] Valider localement les protections de paiement et le parcours complet avant le nouveau déploiement testnet.
+- [x] Implémenter séparément [Escrow v7](ESCROW-V7.md), son ABI et ses tests locaux : deux prix bloqués, répartition provider/Sirius, retenue plafonnée par reçus signés et remboursement à échéance sans runner. Branchement applicatif local effectué ; aucun déploiement public.
+- [x] Implémenter localement la politique MVP d’échec : remboursement du dataset et du compute non consommé, retenue des seuls frais engagés, justifiables, plafonnés et annoncés ; préserver les reprises sans surcoût et la récupération en cas de panne du runner.
+- [x] Raccorder autorisations, reçus, runner, Prisma, routes, reaper, interface, ABI et contrôles de version ; conserver la lecture des historiques. Migration additive préparée, non appliquée à distance.
+- [x] Tester le runner et les contrats sur EVM locale : paiement, calcul, règlement, échec/remboursement, échéance, cache et coupe-circuit. Tester l’acceptation et les transactions navigateur avec wallet simulé.
+- [ ] Valider la migration PostgreSQL et le parcours visuel à deux wallets, puis RA-TLS/testnet avant réouverture.
 
 Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 

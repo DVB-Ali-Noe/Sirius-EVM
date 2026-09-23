@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatUnits } from "viem";
+import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { Card } from "@/components/ui/Card";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
@@ -54,6 +56,11 @@ interface Loan {
   id: string;
   datasetId: string;
   amountUsdcAtomic: string;
+  usdcDecimals?: number;
+  datasetAmountUsdcAtomic?: string | null;
+  computeAmountUsdcAtomic?: string | null;
+  retainedFeeUsdcAtomic?: string | null;
+  refundAmountUsdcAtomic?: string | null;
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
   evmLockTxHash: string | null;
   evmLoanKey: string | null;
@@ -488,7 +495,13 @@ function TrainPageContent() {
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                    <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    <Field label={t("Montant")} value={`${l.usdcDecimals !== undefined ? formatUnits(BigInt(l.amountUsdcAtomic), l.usdcDecimals) : formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    {l.usdcDecimals !== undefined && l.computeAmountUsdcAtomic && <>
+                      <Field label={t("Prix du dataset")} value={`${formatUnits(BigInt(l.datasetAmountUsdcAtomic!), l.usdcDecimals)} USDC`} />
+                      <Field label={t("Prix du compute")} value={`${formatUnits(BigInt(l.computeAmountUsdcAtomic), l.usdcDecimals)} USDC`} />
+                      {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                      {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                    </>}
                     {advanced && (
                       <>
                         <Field label={t("Lock USDC")} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
@@ -811,6 +824,7 @@ function CatalogueCard({
   onError: (msg: string) => void;
 }) {
   const { t } = useLocale();
+  const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [openForm, setOpenForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
@@ -827,7 +841,7 @@ function CatalogueCard({
     }
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id });
+      if (!await borrowDataset({ datasetId: dataset.id, confirmQuote })) return;
       reset();
       await onBorrowed();
     } catch (err) {
@@ -839,6 +853,7 @@ function CatalogueCard({
 
   return (
     <Card>
+      {quoteDialog}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 flex-1 basis-80">
           <h3 className="font-medium">{dataset.name}</h3>
@@ -850,7 +865,7 @@ function CatalogueCard({
             {formatBytes(dataset.sizeBytes)}
           </p>
           <p className="mt-1 text-xs font-medium text-foreground">
-            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("remboursable après {days} j", { days: dataset.challengeDays })}
+            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("Prix du dataset")}
           </p>
         </div>
         {!openForm && (

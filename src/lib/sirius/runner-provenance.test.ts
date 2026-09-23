@@ -95,6 +95,8 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
   let signatures = 0;
   const api = load<typeof import("./borrower")>("src/lib/sirius/borrower.ts", {
     ...common, "@/lib/evm/address": addresses,
+    "@/lib/billing/config": { billingEnabled: () => false },
+    "@/lib/billing/quote": {}, "@/lib/billing/loan": {},
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},
     "@/lib/evm/client": { getPublicClient: () => ({ readContract: async () => true, getBlockNumber: async () => BigInt(10) }) },

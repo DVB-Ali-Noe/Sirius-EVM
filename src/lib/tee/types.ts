@@ -13,7 +13,7 @@ export interface TdxEvidence {
 }
 
 export interface LoanAttestationPayload {
-  version: 1;
+  version: 1 | 2;
   kind: "sirius-loan-training";
   chainId: number;
   escrow: string;
@@ -30,6 +30,7 @@ export interface LoanAttestationPayload {
   modelVersion: string;
   modelCid: string;
   releaseEnvelopeHash: string;
+  billingQuoteHash?: string;
 }
 
 export interface LoanExecutionAttestation extends Attestation {

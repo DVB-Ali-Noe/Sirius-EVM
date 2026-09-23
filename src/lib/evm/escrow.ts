@@ -1,9 +1,10 @@
 import "server-only";
 import { createWalletClient, encodeFunctionData, http, keccak256, parseAbiItem, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { AppError } from "@/lib/app-error";
-import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
+import { settlementAccount } from "./runner-account";
 import { siriusescrowAbi } from "./abi/siriusescrow";
+import { siriusescrowv7Abi } from "./abi/siriusescrowv7";
+import { quoteTermsHash, type ComputeQuote } from "@/lib/billing/quote";
 import { normalizeAddress, type CanonicalAddress } from "./address";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from "./addresses";
@@ -31,7 +32,7 @@ export const MIN_REMAINING_SECONDS = 30 * 60;
 export type EscrowResolution =
   | { state: "active" }
   | { state: "settled"; txHash: string; preimage: Hex }
-  | { state: "cancelled"; txHash: string };
+  | { state: "cancelled"; txHash: string; retainedFee?: string; refundAmount?: string };
 
 const STATUS_LOCKED = 1;
 const STATUS_RELEASED = 2;
@@ -47,6 +48,10 @@ export interface OnChainLoan {
   preimage: Hex;
   datasetId: Hex;
   trainingProfile: Hex;
+  billing?: {
+    datasetAmount: string; computeAmount: string; maxFailureFee: string; consumedCompute: string;
+    computeRecipient: string; termsHash: Hex; lockedAt: number;
+  };
 }
 
 function escrowAddress(): CanonicalAddress {
@@ -61,6 +66,20 @@ export async function readLoan(loanKey: Hex, binding = evmEscrowBinding()): Prom
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
   const version = await client.readContract({ address, abi: siriusescrowAbi, functionName: "VERSION" });
+  if (version === "sirius-escrow-usdc-v7") {
+    const loan = await client.readContract({ address, abi: siriusescrowv7Abi, functionName: "getLoan", args: [loanKey] });
+    if (loan.status === 0) return null;
+    return {
+      provider: normalizeAddress(loan.provider), borrower: normalizeAddress(loan.borrower),
+      amountUsdcAtomic: String(loan.datasetAmount + loan.computeAmount), deadline: Number(loan.deadline), status: loan.status,
+      hashlock: loan.hashlock, preimage: loan.preimage, datasetId: loan.datasetId, trainingProfile: loan.trainingProfile,
+      billing: {
+        datasetAmount: String(loan.datasetAmount), computeAmount: String(loan.computeAmount),
+        maxFailureFee: String(loan.maxFailureFee), consumedCompute: String(loan.consumedCompute),
+        computeRecipient: normalizeAddress(loan.computeRecipient), termsHash: loan.termsHash, lockedAt: Number(loan.lockedAt),
+      },
+    };
+  }
   if (!["sirius-escrow-usdc-v6", "sirius-escrow-usdc-v5", "sirius-escrow-usdc-v4"].includes(version)) {
     throw new AppError("Version du contrat historique non supportée", 409);
   }
@@ -93,9 +112,23 @@ export async function assertLoanScope(input: {
   hashlock: Hex;
   model: ModelSelection;
   minimumRemainingSeconds?: number;
+  billingQuote?: ComputeQuote;
 }): Promise<void> {
   const client = getPublicClient();
   const provider = normalizeAddress(input.provider);
+  if (input.billingQuote) {
+    const quote = input.billingQuote;
+    const ok = await client.readContract({
+      address: escrowAddress(), abi: siriusescrowv7Abi, functionName: "matchesScope",
+      args: [input.loanKey, quoteTermsHash(quote), BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS)],
+    });
+    if (!ok || quote.borrower !== normalizeAddress(input.borrower) || quote.provider !== provider
+      || quote.hashlock !== input.hashlock || quote.datasetId !== input.datasetId
+      || quote.modelId !== input.model.modelId || quote.modelVersion !== input.model.modelVersion) {
+      throw new AppError("Escrow on-chain inactif, hors scope ou lié à un autre dataset", 409);
+    }
+    return;
+  }
   const [ok, loan, expectedDatasetId] = await Promise.all([
     client.readContract({
     address: escrowAddress(),
@@ -135,11 +168,6 @@ export async function assertLoanScope(input: {
  * La clé est dérivée dans l'enclave depuis la master key scellée. Elle devient donc
  * attestable : seule une enclave exécutant le code mesuré peut la reconstituer.
  */
-function settlementAccount() {
-  const key = deriveKey(getMasterKey(), "settlement:evm:v1");
-  return privateKeyToAccount(`0x${key.toString("hex")}`);
-}
-
 export function runnerSettlementAddress(): CanonicalAddress {
   return normalizeAddress(settlementAccount().address);
 }
@@ -264,17 +292,20 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, bind
   if (loan.status === STATUS_LOCKED) return { state: "active" };
 
   const settled = loan.status === STATUS_RELEASED;
-  if (!settled && loan.status !== STATUS_REFUNDED) {
+  if (!settled && loan.status !== STATUS_REFUNDED && !(loan.billing && loan.status === 4)) {
     throw new AppError("État de prêt on-chain inattendu", 409);
   }
 
   if (fromBlock === undefined) {
     throw new AppError("Bloc de lock requis pour retrouver la résolution on-chain", 409);
   }
-  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded", fromBlock, binding);
+  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : loan.status === 4 ? "LoanFailed" : "LoanRefunded", fromBlock, binding, Boolean(loan.billing));
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
-    : { state: "cancelled", txHash };
+    : { state: "cancelled", txHash, ...(loan.billing ? {
+      retainedFee: loan.billing.consumedCompute,
+      refundAmount: String(BigInt(loan.amountUsdcAtomic) - BigInt(loan.billing.consumedCompute)),
+    } : {}) };
 }
 
 // Signatures déclarées littéralement plutôt qu'extraites de l'ABI : viem ne peut
@@ -288,12 +319,19 @@ const REFUNDED_EVENT = parseAbiItem(
 
 async function findLifecycleTxHash(
   loanKey: Hex,
-  eventName: "LoanReleased" | "LoanRefunded",
+  eventName: "LoanReleased" | "LoanRefunded" | "LoanFailed",
   fromBlock: bigint,
   binding: EvmEscrowBinding,
+  billing = false,
 ): Promise<string> {
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
+  if (billing) {
+    const logs = await client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock });
+    const txHash = logs.at(-1)?.transactionHash;
+    if (!txHash) throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
+    return txHash;
+  }
   const logs =
     eventName === "LoanReleased"
       ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })

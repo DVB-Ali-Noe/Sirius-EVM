@@ -1,6 +1,6 @@
 # Escrow v7 — contrat local de facturation
 
-Premier livrable local du 23 septembre 2026 : [SiriusEscrowV7.sol](../contracts/src/SiriusEscrowV7.sol), tests Hardhat et ABI exportée séparément. L’application, le runner, le reaper et les scripts de déploiement continuent à utiliser `SiriusEscrow` v6. Ce document ne constitue pas une procédure de déploiement. Les [budgets durables du runner](RUNNER-BUDGETS.md) constituent le livrable local suivant. Les tarifs, mesures d’exécution et intégrations décrits dans [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent à implémenter.
+Le contrat, les tests Hardhat et l’ABI v7 sont complétés par l’[intégration locale du devis jusqu’au remboursement](BILLING-INTEGRATION.md). Next, runner, reaper, migration Prisma et interface prennent en charge v7 avec activation explicite ; le mode par défaut reste v6. Aucun tarif réel ni déploiement public v7, aucune migration distante ; Phala reste arrêté. Les [budgets durables](RUNNER-BUDGETS.md) réservent désormais le parcours avant émission du devis.
 
 ## Conditions du prêt
 
@@ -24,7 +24,7 @@ Le constructeur reçoit le token, le KYB, le registre dataset et l’adresse du 
 | `trainingProfile` | `bytes32` | Profil exact du titre |
 | `quoteHash` | `bytes32` | Empreinte non nulle du devis complet, dont tarif, plafonds d’exécution et identité runner |
 
-Le format canonique du manifeste correspondant à `quoteHash` reste à définir avec le runner. Le contrat lie son empreinte mais n’en interprète pas le contenu. Les prix, bénéficiaires et le plafond de retenue sont contrôlés directement par le contrat ; les caractéristiques du dataset et le barème doivent être vérifiés dans le TEE.
+Le manifeste canonique correspondant à `quoteHash` est défini dans `src/lib/billing/quote.ts` et vérifié côté navigateur, Next et runner. Le contrat lie son empreinte mais n’en interprète pas le contenu. Les prix, bénéficiaires et le plafond de retenue sont contrôlés directement par le contrat ; les caractéristiques du dataset et le barème doivent être vérifiés dans le TEE.
 
 ```text
 termsHash = keccak256(abi.encode(borrower, terms))
@@ -32,7 +32,7 @@ LockAuthorization(bytes32 termsHash,uint40 deadline)
 domaine EIP-712 : SiriusEscrow / 7 / chainId / adresse escrow
 ```
 
-Le permis expire strictement avant sa `deadline`, avec au plus cinq minutes restantes lors du lock. Le contrat refuse les signatures non canoniques, les autres signataires et les anciens domaines v6. Une même clé de prêt ne peut pas être réutilisée après clôture. `termsHashOf` expose le calcul canonique ; `matchesScope(loanKey, expectedTermsHash, minimumRemaining)` vérifie toutes les conditions via cette empreinte et la fenêtre restante. Le runner devra la reconstruire depuis ses conditions de confiance, jamais simplement recopier celle retournée par `getLoan`.
+Le permis expire strictement avant sa `deadline`, avec au plus cinq minutes restantes lors du lock. Le contrat refuse les signatures non canoniques, les autres signataires et les anciens domaines v6. Une même clé de prêt ne peut pas être réutilisée après clôture. `termsHashOf` expose le calcul canonique ; `matchesScope(loanKey, expectedTermsHash, minimumRemaining)` vérifie toutes les conditions via cette empreinte et la fenêtre restante. Le runner la reconstruit depuis le devis signé, jamais simplement depuis celle retournée par `getLoan`.
 
 ## Consommation et issues
 
@@ -44,7 +44,7 @@ ExecutionReceipt(bytes32 loanKey,bytes32 termsHash,uint256 consumedCompute,bytes
 
 `consumedCompute` est un montant cumulatif de frais justifiés, en unités atomiques du token, plafonné au montant accepté pour l’échec. Une valeur supérieure au plafond est refusée. Le runner doit calculer la retenue à partir des coûts réellement engagés et la borner avant signature. Aucun bénéfice commercial ou provision non consommée ne doit entrer dans ce montant.
 
-`evidenceHash` engage un justificatif d’exécution authentifié et conservé durablement ; il ne doit pas exposer de donnée brute ni de secret. L’EVM vérifie la signature et les bornes, pas la réalité physique du calcul ou la facture Phala. La génération, la conservation et la vérification détaillée de ce justificatif restent à intégrer au runner.
+`evidenceHash` engage un justificatif d’exécution authentifié et conservé durablement ; il ne doit pas exposer de donnée brute ni de secret. L’EVM vérifie la signature et les bornes, pas la réalité physique du calcul ou la facture Phala. Le runner conserve désormais durablement une mesure de durée active et signe le reçu final ; voir [le barème et ses limites](BILLING-INTEGRATION.md#devis-et-consommation). Sa calibration fournisseur reste requise.
 
 | Opération | Conditions | Résultat |
 |---|---|---|
@@ -55,7 +55,7 @@ ExecutionReceipt(bytes32 loanKey,bytes32 termsHash,uint256 consumedCompute,bytes
 
 Un reçu final à zéro permet une annulation intégrale anticipée s’il n’existe aucune consommation enregistrée. Une réussite ne rajoute pas les checkpoints au prix compute : le total crédité reste exactement celui bloqué. L’échec et le remboursement ne publient aucun préimage.
 
-**Panne sans reçu publié : remboursement intégral à échéance.** Une signature présente seulement dans le runner ou en base ne réduit pas ce remboursement. Aucun reçu, même signé plus tôt, ne peut être enregistré à partir de l’échéance. Les coûts non prouvés doivent donc rester couverts dans le budget de risque de Sirius. L’intégration doit réserver le gas des checkpoints et refuser un démarrage ou une poursuite sans marge suffisante avant échéance ; multiplier les checkpoints peut coûter plus que le calcul lui-même.
+**Panne sans reçu publié : remboursement intégral à échéance.** Une signature présente seulement dans le runner ou en base ne réduit pas ce remboursement. Aucun reçu, même signé plus tôt, ne peut être enregistré à partir de l’échéance. Les coûts non prouvés doivent donc rester couverts dans le budget de risque de Sirius. L’intégration actuelle réserve deux maxima de transaction et refuse un calcul trop proche de l’échéance. Elle émet uniquement des reçus finaux d’échec, sans checkpoints intermédiaires ; les coûts non prouvés restent couverts par la réserve initiale.
 
 Les checkpoints ne doivent attester que des frais déjà engagés. Ne pas signer à l’avance une consommation future pour contourner le risque de panne. Le runner ne doit pas émettre des résolutions contradictoires : le premier règlement valide inclus clôture définitivement le prêt.
 
@@ -74,7 +74,7 @@ La conservation des USDC dans ce contrat ne protège pas à elle seule le wallet
 
 ## Validation et suite
 
-Validation locale du 23 septembre : **78 tests Hardhat réussis**, dont **32 tests v7**, compilation Solidity, export ABI, lint applicatif et typages application/v7 réussis. Les tests de [escrow-v7.test.ts](../contracts/test/escrow-v7.test.ts) couvrent les deux précisions du token, les signatures et domaines falsifiés, les sommes exactes, plafonds nuls ou maximaux, KYB, expiration, reçus cumulatifs, pannes, rejouements, isolation de plusieurs prêts, frais cachés et réentrance. Ils s’ajoutent aux 46 tests existants ; aucun parcours navigateur/runner v7 ni déploiement public n’a été exécuté.
+Validation locale du 23 septembre : **78 tests Hardhat réussis**, dont **32 tests v7**, compilation Solidity, export ABI, lint applicatif et typages application/v7 réussis. Les tests de [escrow-v7.test.ts](../contracts/test/escrow-v7.test.ts) couvrent les deux précisions du token, les signatures et domaines falsifiés, les sommes exactes, plafonds nuls ou maximaux, KYB, expiration, reçus cumulatifs, pannes, rejouements, isolation de plusieurs prêts, frais cachés et réentrance. Ils s’ajoutent aux 46 tests existants ; la validation complémentaire du runner sur EVM locale et du client wallet simulé est décrite dans [BILLING-INTEGRATION.md](BILLING-INTEGRATION.md). Aucun déploiement public n’a été effectué.
 
 ```bash
 pnpm contracts:compile
@@ -87,4 +87,4 @@ pnpm exec tsc --noEmit
 
 Le typage dédié v7 inclut ses tests, leurs helpers et l’export ABI. Le typage global historique `tsc -p contracts/tsconfig.json` reste en échec dans les anciennes suites (ABI `unknown` et types d’assertions Chai) ; le typage applicatif ne couvre pas ces fichiers. Le nouveau test utilise l’ABI exportée typée et les assertions Node pour ne pas ajouter ces erreurs.
 
-L’ABI v7 est exportée dans `src/lib/evm/abi/siriusescrowv7.ts`. L’ABI et le contrat v6 sont conservés pour le parcours courant et les historiques. Ne pas remplacer une adresse v6 par une adresse v7 dans l’application actuelle : les signatures de lock, de portée, les retours et les événements diffèrent. Adapter runner, Prisma, routes, interface, reaper, scripts, préflights et migration avant le premier déploiement public v7. Phala reste arrêté pendant ce travail local.
+L’ABI v7 est exportée dans `src/lib/evm/abi/siriusescrowv7.ts`. L’ABI et le contrat v6 sont conservés pour le parcours courant et les historiques. Les signatures de lock, de portée, les retours et les événements diffèrent. L’intégration locale sélectionne la bonne ABI et conserve les prêts historiques ; préparer puis appliquer la migration et les paramètres explicitement avant le premier déploiement public v7. Phala reste arrêté pendant ce travail local.
