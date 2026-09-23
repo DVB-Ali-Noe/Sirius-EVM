@@ -2,6 +2,8 @@
 
 Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signifie que la brique est implémentée localement, pas qu'elle a été validée sur un réseau public.
 
+Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs responsables et portes de sortie, les pistes de financement et les recommandations à arbitrer. Les dates cibles et pistes commerciales n'y valent pas validation technique ni financement acquis.
+
 **Prochain chantier demandé par Noé : [faire prépayer le compute au borrower](COMPUTE-BILLING.md).** Préparer un devis fixe signé en USDC, son verrouillage avant calcul, la répartition provider/Sirius et les remboursements. Cette évolution est à traiter **avant tout nouveau déploiement de contrats pour Phala** ; ne pas reprendre directement le redéploiement v6 envisagé auparavant. Phala reste arrêté pendant la préparation locale.
 
 **Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). La CVM a été revérifiée en amorçage puis arrêtée à la demande de Noé pour couper les frais de calcul ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé, mais les modèles de 5 prêts et 8 entraînements restent à préserver. Le KYB ouvert actuel est confirmé ; le choix du compte de déploiement a été demandé à Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
