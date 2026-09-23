@@ -1,5 +1,7 @@
 # Jeux de données d'exemple
 
+État au 23 septembre 2026 : ces jeux servent à la recette locale ou de démonstration. Le [parcours de facturation v7](../../docs/BILLING-INTEGRATION.md) est intégré localement, mais les [bloqueurs de l’audit](../../docs/AUDIT-2026-09-23.md) restent ouverts ; Phala est arrêté. Les données publiques et synthétiques ne valident ni la confidentialité d’un usage réel ni un tarif fournisseur.
+
 Jeux prêts à déposer dans Sirius pour exécuter un prêt complet sans préparer de
 données. Ils sont rangés par famille de modèle :
 
@@ -95,7 +97,7 @@ pnpm datasets:benchmarks
 
 ## Contraintes CSV
 
-- Une ligne d'en-tête, au moins 100 lignes et entre 2 et 32 colonnes numériques.
+- Un fichier CSV de 3 Mio maximum, une ligne d'en-tête, au moins 100 lignes et entre 2 et 32 colonnes numériques.
 - La cible est la dernière colonne numérique ; les autres colonnes numériques
   servent de variables explicatives.
 - Pour la régression logistique, la cible doit contenir les deux classes et être

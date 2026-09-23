@@ -1,5 +1,7 @@
 # Décisions
 
+Lecture actualisée au 23 septembre 2026 : les décisions décrivent la cible et les choix validés, pas une certification de leur réalisation. L'[audit approfondi](AUDIT-2026-09-23.md) identifie neuf constats ouverts. L'intégration locale v7 existe ; l'activation, les tarifs et les plafonds fournisseurs restent à valider. Phala reste arrêté.
+
 ## D-1 — Nouveau dépôt et migration EVM explicite
 
 Le dépôt repart avec un historique propre. La documentation décrit uniquement la cible EVM et l'état présent de son implémentation ; elle ne traite pas les mécanismes historiques comme une dépendance produit.
@@ -24,6 +26,8 @@ Le TEE ne révèle un préimage SHA-256 qu'après production du modèle. `releas
 
 Les fonds sont retirés par `withdraw` après crédit. Un provider qui rejette les transferts ne peut donc ni casser une libération ni provoquer une réentrance pendant le changement d'état.
 
+**Limite ouverte S-02 :** le préimage est transmis au RPC avant confirmation. Un règlement avorté ou inclus après échéance peut le divulguer sans créditer le provider. L'atomicité de la transaction réussie ne constitue donc pas encore une garantie de fair-exchange face à ces scénarios. Revoir les hypothèses de livraison, de délai et de finalité avant activation.
+
 ## D-5 — Séparation de domaine obligatoire
 
 Le préimage dépend du réseau et de l'adresse du contrat escrow, en plus du borrower et du prêt. Les attestations KYB sont signées sous un domaine EIP-712 lié au `chainId` et au contrat. Aucun secret ni signature ne doit être réutilisable entre deux déploiements.
@@ -36,7 +40,7 @@ Une adresse possède une attestation KYB, indépendamment de son rôle. Le même
 
 Le titre on-chain est non transférable. Il contient le hash du CID du contenu déjà chiffré, son Merkle root, sa taille et le hash du profil d'entraînement ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
 
-Le crypto-shredding détruit la clé de dataset et laisse un tombstone on-chain : la donnée devient irrécupérable, tandis que la preuve d'existence demeure auditable.
+La cible est un crypto-shredding de la clé dataset avec tombstone on-chain et preuve d'existence conservée. **L'implémentation actuelle ne garantit pas l'irrécupérabilité :** la suppression Prisma laisse une copie de `wrappedKey` dans le registre du runner (S-08). Le tombstone bloque le parcours normal, mais ne prouve pas l'effacement cryptographique des caches et sauvegardes.
 
 ## D-8 — TEE-first
 
@@ -104,7 +108,7 @@ La provenance `runnerKind` et `runnerDeploymentId` est enregistrée sur les data
 
 Le 23 septembre 2026, Noé demande de reprendre la facturation du compute au borrower avant les nouveaux contrats Phala. Orientation MVP : devis fixe garanti en USDC, distinction dataset/compute, verrouillage du total avant entraînement et crédits séparés pour le provider et la trésorerie Sirius au règlement. Aucun supplément automatique ; une erreur d’estimation doit rester dans un budget réservé, conformément à D-23. Les frais réseau restent séparés. La proposition initiale de remboursement intégral en cas d’échec sans livraison est remplacée par la politique MVP de D-23.
 
-La tarification doit couvrir le calcul et une part des frais de disponibilité et de stockage. Les tarifs, le destinataire des frais, les coefficients de benchmark et les détails de remboursement restent à définir. Les montants illustratifs de la conversation ne sont pas des tarifs validés. L’escrow v6 actuel ne répartit pas ces frais ; [v7 et son parcours applicatif sont intégrés et testés localement](BILLING-INTEGRATION.md), sans déploiement public. Voir [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
+La tarification doit couvrir le calcul et une part des frais de disponibilité et de stockage. Les tarifs, le destinataire des frais et les coefficients de benchmark restent à définir ; la règle de remboursement MVP est confirmée en D-23. Les montants illustratifs de la conversation ne sont pas des tarifs validés. L’escrow v6 actuel ne répartit pas ces frais ; [v7 et son parcours applicatif sont intégrés et testés localement](BILLING-INTEGRATION.md), sans déploiement public. Voir [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 
 Cette priorité remplace l’enchaînement immédiat de D-21 vers un nouvel escrow v6 pour changer seulement le runner. La CVM demeure arrêtée pendant la préparation locale. Avant toute nouvelle utilisation Phala, y compris un benchmark, annoncer à Noé le moment et le coût estimé. Préserver les anciens contrats, crédits et modèles pendant cette évolution.
 
@@ -117,3 +121,5 @@ Noé demande un tarif plus élevé pour tous les emprunts, dimensionné pour une
 Un escrow remboursable ou un apport financier n’est pas un bénéfice ; les charges engagées et les frais persistant après arrêt restent comptabilisés. Le mode strict peut interdire le premier démarrage en l’absence de revenus acquis. Un tarif élevé ou une réserve ne garantit pas un PnL positif sans clients, ni une absence absolue de perte face à toute panne ou compromission. Les postes impossibles à borner doivent bloquer l’exploitation concernée.
 
 Le [contrat v7 local](ESCROW-V7.md), les [budgets durables du runner](RUNNER-BUDGETS.md) et le [parcours applicatif](BILLING-INTEGRATION.md) sont raccordés, avec réservation de la clôture avant devis et mesure plafonnée des échecs. La comptabilité réconciliée, les tarifs réels et les plafonds fournisseurs de [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent nécessaires ; aucun registre réel ni budget de production n’est activé. Ces exigences ne donnent pas autorisation de redémarrer Phala, supprimer le stockage historique, financer un wallet ou modifier les abonnements distants.
+
+L'audit du 23 septembre montre aussi que la réservation n'assure pas à elle seule la clôture : une confirmation RPC perdue peut bloquer le wallet (S-01), un calcul réussi abandonné peut être remboursé intégralement (S-03), et l'absence de devis peut réactiver le parcours client historique (S-04). Ces défauts restent ouverts. Leur correction doit conserver le choix MVP : aucune facturation de consommation future et aucun remboursement financé par une réserve commerciale activé implicitement.

@@ -1,5 +1,7 @@
 # Architecture
 
+État local au 23 septembre 2026. La facturation v7 est intégrée avec activation explicite ; le mode par défaut reste v6. L'[audit approfondi](AUDIT-2026-09-23.md) décrit les défauts ouverts qui bloquent l'activation. Phala reste arrêté, sans bascule distante effectuée.
+
 ## Principe
 
 Sirius sépare données, calcul et règlement. Le dataset reste chiffré sur IPFS, le calcul confidentiel cible un TEE Phala et les états économiques sont portés par trois contrats EVM sur Robinhood Chain. Le mode démonstration sans `RUNNER_URL` exécute le runner dans Next : il ne fournit pas l'isolation d'une enclave et reste réservé aux données synthétiques ou non sensibles. La persistance applicative utilise PostgreSQL via Prisma.
@@ -11,8 +13,9 @@ Le testnet cible est `46630` ; le mainnet cible est `4663`. Le réseau, le RPC e
 | Contrat | Responsabilité | Propriétés clés |
 |---|---|---|
 | `SiriusEscrow` v6 | Règlement d'un prêt | Autorisation EIP-712 des conditions du lock par le runner, USDC ERC-20 exact, hashlock SHA-256, KYB des deux parties, liaison obligatoire au registre dataset et au profil d'entraînement, `release` avant l'échéance, états exclusifs et crédit pull-only |
+| `SiriusEscrowV7` | Prépaiement dataset + compute | Devis signé, deux bénéficiaires, reçus de consommation plafonnée, échec et remboursement à échéance, crédits pull-only ; intégré localement, non déployé |
 | `SiriusKybRegistry` v3 | Conformité KYB | attestations EIP-712, consentement du sujet, expiration, révocation et époque de vérificateur |
-| `SiriusDatasetRegistry` v4 | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, profil d'entraînement immuable, tombstone après crypto-shredding |
+| `SiriusDatasetRegistry` v4 | Titre d'un dataset | identité déterministe, KYB bloquant, hash de CID/Merkle root/taille, profil d'entraînement immuable, tombstone de suppression ; ne prouve pas la destruction des copies de clés |
 
 Le titre n'est pas un NFT transférable : il représente la provenance d'un dataset et non un actif de spéculation.
 
@@ -30,6 +33,14 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 
 Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc ni token à frais ni transfert silencieux. Il n'effectue aucun transfert externe pendant `release` ou `refund` : les fonds sont crédités puis retirés séparément.
 
+### Extension de facturation v7
+
+Avant le devis, le runner réserve dans SQLite le budget maximal du calcul et de sa clôture : une exécution, les requêtes bornées et deux transactions maximales. Le devis signé lie réseau, escrow, parties, profil, montants dataset/compute, bénéficiaire Sirius, barème d'échec, limites et expiration. Le borrower approuve et verrouille exactement le total. Les paramètres sont persistés avec le prêt par la migration additive `20260923000000_add_compute_billing`.
+
+Le worker v7 borne l'exécution selon le devis, entre 1 et 30 secondes, avec interruption du worker. Après réussite, `release` crédite le prix dataset au provider et le compute à Sirius. En cas d'échec mesuré, un reçu signé permet de rembourser le dataset et le compute non consommé en ne retenant que les frais engagés plafonnés. Sans reçu enregistré, le remboursement à échéance reste intégral. Les crédits sont retirés séparément.
+
+Le registre évite les dépenses répétées et conserve les résultats, intentions, nonces et hash. Il ne constitue pas une comptabilité fournisseur réconciliée. L'abandon avant le grant de règlement peut laisser un calcul réussi sans revenu ; la reprise d'un remboursement confirmé peut rester bloquée après timeout RPC. Le navigateur ne rend pas encore le devis obligatoire indépendamment de la réponse API. Voir [BILLING-INTEGRATION.md](BILLING-INTEGRATION.md) et les constats S-01/S-03/S-04 de l'audit.
+
 ## Séparation de domaine
 
 Le préimage est dérivé dans le TEE avec le `chainId`, l'adresse du contrat escrow, le borrower et le `loanId`. Cette liaison empêche qu'un préimage révélé sur un déploiement ou un réseau ouvre une capsule destinée à un autre.
@@ -44,9 +55,11 @@ L'authentification HTTP utilise un domaine canonique propre au déploiement. La 
 - Le runner Phala est le seul détenteur de la master key dstack ; il ouvre le dataset, entraîne le modèle, génère le préimage et signe les reçus.
 - Next orchestre, persiste l'état applicatif et vérifie les attestations, mais ne reçoit ni la donnée brute ni les secrets de règlement.
 - `RUNNER_TRANSPORT_SECRET` authentifie le canal Next→runner. Pour préparer un lock, Next fait autorité sur le prêt et sa visibilité en base ; le runner vérifie le reçu provider, le titre et les conditions avant de signer.
-- Le login et le runner acceptent les comptes EOA ; les comptes contractuels sont refusés explicitement. Le wallet autorise une délégation par signature EIP-191 ; les grants P-256 de cette délégation sont scopés, expirables et protégés contre le rejeu.
+- Le login et le runner acceptent les comptes EOA ; les comptes contractuels sont refusés explicitement. Le wallet autorise une délégation par signature EIP-191 ; les grants P-256 de cette délégation sont scopés, expirables et contrôlés par un registre anti-rejeu. Son nettoyage présente une course entre processus partageant le répertoire (S-09) ; cette configuration ne dispose pas encore d'une garantie d'unicité validée.
 - Restaurer un wallet et une session sur `/` ne déclenche aucune redirection : l'accueil garde le blob ; le dashboard s'ouvre par navigation explicite.
 - Le RPC de règlement reçoit le préimage lors de la simulation et de l'envoi avant inclusion : il doit être de confiance. La suppression des erreurs brutes dans les logs ne protège pas contre un RPC hostile.
+
+La réussite atomique de `release` ne garantit pas que le préimage reste secret si une transaction échoue ou est incluse trop tard. La marge contrôlée avant calcul ne suffit pas à une reprise tardive du règlement (S-02). Les lectures de reprise doivent aussi être alignées sur la profondeur de confirmation du budget. Aucun scénario de réorganisation du rollup n'est validé dans cette passe.
 
 Les états des pages privées et des soldes sont recréés selon une révision de connexion et l’authentification. Le login contrôle cette révision et le provider après chaque attente ; les écritures du cookie de connexion/déconnexion sont sérialisées. Entraîner charge ses listes par pages de 24, sans charger tout le catalogue en mémoire.
 
@@ -59,6 +72,8 @@ Le reaper parcourt les prêts par lots avec un curseur stable. L'absence de hash
 La pipeline exécute un préflight avant la migration des profils, y compris pour les prêts annulés sans preuve de remboursement. Une transaction connue encore en attente bloque la migration. Le schéma PostgreSQL supporté est `public`.
 
 La suppression d'un dataset conserve sa fiche d'audit (`DELETED`). `deletionReconciledAt` enregistre la fin du parcours applicatif, même si le titre est déjà détruit ou absent du registre courant et qu'aucune nouvelle transaction n'est nécessaire. `evmDestroyTxHash` reste réservé à une transaction réellement confirmée ; constater l'absence d'un titre dans le nouveau registre ne prouve pas sa destruction dans un ancien registre. Les suppressions non finalisées restent accessibles au provider. Un brouillon sans titre peut être supprimé sans RPC ; un ancien dataset sans profil valide doit être réimporté et ne peut pas être publié tel quel.
+
+La copie Prisma de `wrappedKey` est supprimée, mais le résultat de scellement conservé dans le registre budgétaire contient encore cette clé enveloppée. `keyDestroyedAt` ne prouve donc pas un effacement cryptographique de toutes les copies (S-08). Le cycle de suppression doit couvrir le cache, ses sauvegardes et les autres copies pertinentes.
 
 La migration additive `20260906000000_reconcile_dataset_deletion` doit être appliquée avant de déployer ce code. Elle ne supprime aucune donnée et ne requiert aucun redéploiement des contrats.
 
@@ -77,6 +92,8 @@ contracts/
   scripts/                # compile, export ABI, déploiement et smoke
 src/
   lib/evm/                # réseau, adresses, montants, signatures, client et escrow
+  lib/billing/            # devis, politiques tarifaires, exécution bornée et règlement v7
+  lib/runner/             # autorisations, livraison et registre SQLite de budgets
   lib/tee/                # cœur sans DB, liaison EVM, chiffrement et attestation
   runner/                 # opérations confidentielles et règlement du runner
   lib/sirius/             # orchestration applicative et persistance
@@ -93,4 +110,4 @@ La migration applicative est EVM-only. La validation sur testnet avec des wallet
 - Le runner Phala doit être déployé avec RA-TLS, quote TDX, replay RTMR3 et valeurs d'attestation épinglées côté Next.
 - Les adresses de contrat, le réseau attendu et le RPC sont des paramètres de déploiement : aucune valeur vide ne doit atteindre une instance de production.
 
-Le passage de v5 à v6 exige un nouveau registre, la clôture des anciens prêts actifs et le préflight distinct `contracts:check-upgrade`. Voir [ESCROW-V6.md](ESCROW-V6.md).
+La migration v6 demeure une [référence historique](ESCROW-V6.md). La prochaine bascule suit v7 après correction des bloqueurs, validation des tarifs, de la comptabilité et des plafonds fournisseurs. Elle exige des contrats cohérents, la clôture des anciens prêts, la préservation des modèles et les préflights adaptés. Aucun changement d'adresse ne migre les prêts actifs. Voir [PHALA.md](PHALA.md).

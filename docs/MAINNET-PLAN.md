@@ -6,6 +6,8 @@ Objectif : passer de la démonstration à un service qu'un client accepte de pay
 
 Ce document conserve le plan produit, commercial et financier. [ROADMAP.md](ROADMAP.md) décrit l'état technique ; [DECISIONS.md](DECISIONS.md) conserve les décisions validées. Les recommandations de revue sont identifiées comme **propositions à arbitrer** : leur enregistrement ne vaut pas adoption. Aucun financement, entretien ou pilote n'est considéré comme obtenu sans preuve.
 
+**Mise à jour technique après audit local :** le [parcours v7](BILLING-INTEGRATION.md) est désormais raccordé et testé localement, avec réservation du budget jusqu’à la clôture. L’[audit du 23 septembre](AUDIT-2026-09-23.md) identifie néanmoins neuf constats ouverts, dont deux de priorité haute. Corriger ces défauts avant activation. Aucun tarif validé, déploiement v7, migration distante ou redémarrage Phala ne découle de cette mise à jour. Le calendrier, les responsabilités et les pistes commerciales ci-dessous restent ceux du plan, sans nouvelle validation externe.
+
 ## Lecture des statuts
 
 | Statut | Sens |
@@ -24,10 +26,10 @@ Pour changer un statut, noter la date, la preuve et l'environnement concerné. U
 | Sujet | État au 23 septembre | Référence / limite |
 |---|---|---|
 | Démonstration EVM | Socle applicatif et contrats testnet existants ; intégration complète à valider | [Roadmap technique](ROADMAP.md). `main` reste distinct de mainnet. |
-| Capacités d'entraînement | Régressions linéaire et logistique, limite d'entrée de 3 Mio, délai de calcul de 15 s | [Facturation compute](COMPUTE-BILLING.md). La CVM préparée dispose d'un vCPU. La valeur commerciale de ces capacités reste à tester. |
+| Capacités d'entraînement | Régressions linéaire et logistique, limite d'entrée de 3 Mio, délai v7 borné par devis entre 1 et 30 s | [Facturation compute](COMPUTE-BILLING.md). La CVM préparée dispose d'un vCPU. La valeur commerciale de ces capacités reste à tester. |
 | Confidentialité en production | Partiel, bascule non effectuée | CVM amorcée et attestée, identité stable vérifiée, puis arrêtée à la demande de Noé. Aucun prêt complet Phala actif validé. [Point de reprise](PHALA.md). |
-| Règlement et revenus Sirius | V7 réalisé localement ; intégration partielle | [Escrow v7](ESCROW-V7.md) distingue prix dataset et compute. L'application et le runner utilisent encore v6 ; aucun tarif commercial ni déploiement v7 actif. |
-| Dépenses runner | Garde-fous réalisés localement ; exploitation non activée | [Budgets runner](RUNNER-BUDGETS.md). Comptabilité, couverture du parcours complet et plafonds fournisseurs restent à intégrer. |
+| Règlement et revenus Sirius | Parcours v7 intégré localement ; activation bloquée par audit | [Escrow v7](ESCROW-V7.md) distingue prix dataset et compute. Application et runner prennent en charge v7 avec activation explicite ; v6 reste le mode par défaut. Défauts S-01 à S-04 ouverts, aucun tarif commercial ni déploiement v7 actif. |
+| Dépenses runner | Garde-fous réalisés localement ; exploitation non activée | [Budgets runner](RUNNER-BUDGETS.md). Budget du parcours complet réservé avant devis. Comptabilité et plafonds fournisseurs restent à intégrer ; la réconciliation après timeout reste défectueuse. |
 | Upload et jobs longs | Prévu | L'enveloppe chiffrée passe encore par Next. Upload direct avec reprise et file d'entraînement longue restent à construire. |
 | KYB | Contrats stricts disponibles ; émetteur externe à intégrer | Dernier état distant documenté : KYB ouvert pour la démonstration testnet. |
 | Audit externe et mainnet | Prévu | Les revues locales ne constituent pas un audit externe. Aucune validation mainnet documentée. |
@@ -46,7 +48,7 @@ Pour changer un statut, noter la date, la preuve et l'environnement concerné. U
 
 | Phase | Fenêtre cible initiale | Question de sortie | État |
 |---|---|---|---|
-| 0 — Rendre la promesse vraie | 22 septembre → mi-octobre 2026, environ 3 semaines | Un prêt complet est-il réglé par Phala actif avec la rémunération Sirius prévue ? | Partiel ; dépend de l'intégration compute. |
+| 0 — Rendre la promesse vraie | 22 septembre → mi-octobre 2026, environ 3 semaines | Un prêt complet est-il réglé par Phala actif avec la rémunération Sirius prévue ? | Partiel ; dépend des corrections et de la validation compute. |
 | 1 — Un produit utile | Mi-octobre → fin novembre, environ 6 semaines | 100 Mo sont-ils entraînés en asynchrone, avec un modèle non linéaire livré et des prospects prêts à tester ? | Prévu. |
 | 2 — Un client réel | Décembre, environ 4 semaines | Un tiers extérieur a-t-il utilisé ses données et le KYB externe fonctionne-t-il en staging ? | Prévu ; activité commerciale à vérifier. |
 | 3 — Audit, KYB, mainnet | Janvier → mars 2027, environ 10 semaines | Toutes les conditions mainnet sont-elles satisfaites et prouvées ? | Prévu, conditionné au financement et aux validations. |
@@ -59,14 +61,15 @@ Les candidatures et la prospection peuvent avancer en parallèle. Les portes tec
 
 | Travail | Responsable du plan | Statut et livrable |
 |---|---|---|
-| Facturation du compute | Ali pour le volet revenu initial ; intégration technique à coordonner avec Noé | Partiel. Finaliser devis signé, prix dataset/compute, trésorerie, budgets, autorisations, reçus, remboursements, interface et tests. Suivre [COMPUTE-BILLING.md](COMPUTE-BILLING.md), [ESCROW-V7.md](ESCROW-V7.md) et [RUNNER-BUDGETS.md](RUNNER-BUDGETS.md). Charge à réestimer. |
+| Facturation du compute | Ali pour le volet revenu initial ; intégration technique à coordonner avec Noé | Intégré localement, activation bloquée. Corriger les défauts de l’audit ; finaliser tarifs, trésorerie, comptabilité et plafonds fournisseurs, puis valider le parcours à deux wallets et les reprises. Suivre [COMPUTE-BILLING.md](COMPUTE-BILLING.md), [ESCROW-V7.md](ESCROW-V7.md) et [RUNNER-BUDGETS.md](RUNNER-BUDGETS.md). Charge à réestimer. |
 | Activation Phala | Noé | Partiel. Après validation compute : déployer les contrats retenus avec l'identité attestée, activer la CVM existante, recapturer et épingler MRTD / RTMR3 / compose hash. Estimation initiale : 1–2 semaines, hors intégration compute restante. |
-| Migration applicative | Noé | Prévu. Appliquer `track_runner_provenance`, réimporter les datasets, adapter le préflight `runner:check-migration`, synchroniser Next et reaper, préserver escrows, crédits et modèles historiques. Le contrat `0x805a…` reste accessible en historique. |
+| Migration applicative | Noé | Prévu. Appliquer `20260919000000_track_runner_provenance` et `20260923000000_add_compute_billing`, réimporter les datasets, vérifier le préflight `runner:check-migration`, synchroniser Next et reaper, préserver escrows, crédits et modèles historiques. Le contrat `0x805a…` reste accessible en historique. |
 | Candidatures immédiates | Ali | À vérifier. Founder House Singapour, Buildathon en ligne, dossier Zama v2 après activation Phala, contact Phala sur les crédits. Estimation initiale de préparation : 2 jours. Voir les conditions actualisées plus bas. |
 | Token et transparence | Ali + Noé | Prévu ; informations externes à vérifier. Obtenir wallet créateur, allocation et termes. Publier une page « État du protocole » indiquant ce qui est actif, démo ou testnet. Estimation initiale : 1 jour. |
 
 ### Porte de sortie — preuves manquantes
 
+- [ ] Bloqueurs de l’audit local corrigés et revérifiés, notamment timeout RPC, abandon, devis obligatoire, échéance/finalité et copies de clés. Tarifs, comptabilité et plafonds fournisseurs validés.
 - [ ] Un prêt complet sur l'instance de production et la chaîne testnet : upload → lock → entraînement → release → ouverture du modèle.
 - [ ] Runner Phala actif, quote matérielle vérifiée `UpToDate`, mesures actives épinglées et identité stable.
 - [ ] Prix et bénéficiaires conformes au devis ; revenu compute crédité à la trésorerie puis retrait vérifié. Les retraits restent pull-only : `release` crédite, il ne transfère pas directement à la trésorerie.

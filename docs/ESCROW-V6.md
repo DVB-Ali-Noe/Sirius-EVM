@@ -2,7 +2,7 @@
 
 État local sur staging au 13 septembre 2026. Aucun contrat ni environnement distant n'a été modifié pendant cette correction. Les observations initiales sont conservées dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
 
-**Priorité de reprise du 23 septembre :** avant un nouveau déploiement pour Phala, terminer la [facturation du compute au borrower](COMPUTE-BILLING.md). Le [contrat v7 et ses tests](ESCROW-V7.md) sont implémentés séparément en local ; son intégration et son déploiement restent à réaliser. Ce document conserve les garanties et procédures v6 comme référence historique : il ne déclenche pas un redéploiement v6 intermédiaire. Lire [PHALA.md](PHALA.md) pour l’état actuel et la contrainte de crédits.
+**Priorité de reprise du 23 septembre :** avant un nouveau déploiement pour Phala, terminer la [facturation du compute au borrower](COMPUTE-BILLING.md). Le [contrat v7 et ses tests](ESCROW-V7.md), ainsi que le [parcours applicatif signé](BILLING-INTEGRATION.md), sont intégrés localement ; les défauts de l’[audit du 23 septembre](AUDIT-2026-09-23.md) restent ouverts et son déploiement reste à réaliser. Ce document conserve les garanties et procédures v6 comme référence historique : il ne déclenche pas un redéploiement v6 intermédiaire. Lire [PHALA.md](PHALA.md) pour l’état actuel et la contrainte de crédits.
 
 ## Front et authentification
 

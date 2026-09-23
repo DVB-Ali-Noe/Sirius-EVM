@@ -2,6 +2,8 @@
 
 Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** [Escrow v7](ESCROW-V7.md), les [budgets durables](RUNNER-BUDGETS.md) et le [parcours devis → prépaiement → calcul → règlement/remboursement](BILLING-INTEGRATION.md) sont implémentés localement. Les tarifs réels, la comptabilité et les plafonds fournisseurs restent à valider ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
 
+**Activation bloquée après l’[audit du 23 septembre 2026](AUDIT-2026-09-23.md).** Les défauts confirmés restent **non corrigés** : une confirmation RPC perdue après remboursement peut bloquer le wallet runner ; un borrower peut abandonner après calcul réussi puis récupérer tout son prépaiement ; l’omission du devis dans les réponses API contourne sa confirmation et réactive les transactions fournies par le serveur. En outre, le cache d’ingestion conserve une copie de `wrappedKey` après suppression Prisma : le crypto-shredding n’est pas garanti. Voir les [déclencheurs et effets constatés](BILLING-INTEGRATION.md#défauts-confirmés-avant-activation). Phala reste arrêté ; cette mise à jour ne modifie aucun comportement métier ni environnement distant.
+
 ## Objectif et orientation
 
 Le borrower doit connaître et accepter le prix du dataset et celui de l’entraînement avant tout calcul. Pour le MVP, retenir un **devis fixe garanti en USDC**, bloqué en escrow avant démarrage. Aucun supplément automatique ni prélèvement supplémentaire pendant un job. Une erreur d’estimation doit rester dans un budget préalablement réservé ; elle ne donne jamais droit à des dépenses ou reprises illimitées.
@@ -15,8 +17,8 @@ Le périmètre initial concerne les prêts borrower/provider. La facturation des
 ## État actuel à prendre en compte
 
 - Le mode par défaut reste v6 : prix dataset seul et crédit provider. Le mode explicite `SIRIUS_BILLING_VERSION=7` exige le nouveau contrat et le devis signé avec ses deux montants.
-- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve la clôture avant émission du devis, demande l’acceptation avant paiement, vérifie les conditions avant calcul, mesure les échecs et réconcilie les crédits. Une migration Prisma additive est préparée, sans modification distante.
-- Le runner facture un forfait par profil à la réussite, avec minimum commun. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
+- La [nouvelle intégration](BILLING-INTEGRATION.md) réserve le budget de clôture avant émission du devis, demande son acceptation lorsqu’il est présent, vérifie les conditions avant calcul et mesure les échecs. Les défauts de confirmation et de reprise empêchent encore de garantir le parcours complet. Une migration Prisma additive est préparée, sans modification distante.
+- Le contrat crédite un forfait compute par profil, avec minimum commun, lors du `release`. Le calcul réussi ne déclenche pas seul ce règlement : le grant ultérieur du borrower reste nécessaire. Le temps actif mesuré en échec comprend les transferts ; son taux doit être justifié par les coûts engagés et rester sans marge commerciale.
 - L’ingestion impose 20 millions d’opérations au maximum. Le job v7 ajoute un délai global de 1 à 30 secondes et un worker terminable, sans remplacer les plafonds fournisseur et le superviseur d’infrastructure.
 - Aucun budget réel, tarif commercial, compte de trésorerie choisi ou plafond fournisseur actif n’est introduit par les fixtures de tests.
 
@@ -53,7 +55,7 @@ prix compute = max(tarif minimum prudent,
                    + marge de sécurité et marge commerciale)
 ```
 
-Phala facture la machine pendant qu’elle est allumée, même sans entraînement, et le disque tant qu’il est conservé. Au dernier contrôle, la CVM Sirius coûte `0.058000` USD/h de calcul et `0.002780` USD/h de disque. Facturer uniquement les secondes actives d’un job ne couvre pas nécessairement les périodes d’inactivité. Voir la [tarification Phala](https://cloud.phala.com/about/pricing).
+Phala facture la machine pendant qu’elle est allumée, même sans entraînement, et le disque tant qu’il est conservé. Le dernier relevé consigné pour la CVM Sirius indiquait `0.058000` USD/h de calcul et `0.002780` USD/h de disque ; ces montants n’ont pas été revalidés pendant l’audit local du 23 septembre. Facturer uniquement les secondes actives d’un job ne couvre pas nécessairement les périodes d’inactivité. Vérifier la [tarification Phala](https://cloud.phala.com/about/pricing) avant activation.
 
 Le minimum doit être calculé avec une hypothèse de fréquentation basse, puis appliqué à tous les emprunts. Les frais fixes déjà affectés aux jobs ne sont pas comptés une deuxième fois. Aucun volume minimal de clients n’est garanti : même un tarif élevé ne couvre pas une période sans vente. Aucun supplément rétroactif ne corrige cette période.
 
@@ -61,7 +63,7 @@ Le minimum facturé, les marges, la répartition des frais fixes et la conventio
 
 ## Admission financière et protection des fonds — intégration en cours
 
-Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les devis v7 et la réservation de toute la clôture sont désormais raccordés localement. Les exigences ci-dessous restent la cible complète : comptabilité réconciliée, coûts réels et contrôles fournisseurs restent à raccorder.
+Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les devis v7 et la réservation du budget de clôture sont raccordés localement, sans garantir que la reprise puisse atteindre le règlement. Les exigences ci-dessous restent la cible complète : outre les défauts de l’audit, la comptabilité réconciliée, les coûts réels et les contrôles fournisseurs restent à raccorder.
 
 ### PnL et trésorerie
 
@@ -108,11 +110,12 @@ Le prix minimum et ces plafonds répondent à deux problèmes différents : la r
 
 ## Travail à reprendre
 
-1. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Choisir la trésorerie compute et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
-2. Vérifier et imposer les plafonds des fournisseurs, la réserve de frais fixes/arrêt et un superviseur d’uptime indépendant. Raccorder la comptabilité réconciliée et préparer une procédure de reprise du registre sans remise à zéro.
-3. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) couvrent déjà signatures, budgets concurrents, paiement, refus, calcul, règlement et remboursements sur EVM isolée.
-4. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
-5. Après validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Déployer directement la version retenue avec facturation, puis valider le parcours complet à deux wallets.
+1. Corriger les bloqueurs de l’[audit](AUDIT-2026-09-23.md) : réconcilier une intention même après clôture du prêt, traiter la consommation d’un calcul réussi abandonné, refuser un devis absent en v7 et coordonner la suppression des clés enveloppées conservées dans le registre et ses copies. Ajouter les scénarios reproduits aux tests avant toute activation.
+2. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Choisir la trésorerie compute et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
+3. Vérifier et imposer les plafonds des fournisseurs, la réserve de frais fixes/arrêt et un superviseur d’uptime indépendant. Raccorder la comptabilité réconciliée et préparer une procédure de reprise du registre sans remise à zéro. Ces limites déjà connues sont distinctes des défauts confirmés par l’audit.
+4. Valider migration PostgreSQL, sauvegardes et parcours navigateur complet. Les **289 tests applicatifs, 78 tests contrats et le parcours EVM local** réussissaient, mais ne couvraient pas les trois scénarios de facturation des PoC supplémentaires. Les tests [locaux](BILLING-INTEGRATION.md#validation-locale-et-limites) ne prouvent donc pas encore la reprise et la facturation complètes.
+5. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
+6. Après correction des bloqueurs et validation de cette fonctionnalité, reprendre la sauvegarde, la préservation des 13 références de modèles historiques et la migration décrite dans [PHALA.md](PHALA.md). Préparer le déploiement de la version retenue avec facturation, puis la validation du parcours complet à deux wallets ; aucune de ces opérations distantes n’est effectuée par ce travail documentaire.
 
 ## Contraintes de reprise
 

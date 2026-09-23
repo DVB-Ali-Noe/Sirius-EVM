@@ -6,6 +6,8 @@ Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle
 
 ## Reprendre ici — 23 septembre 2026
 
+**Mise à jour après audit local :** l'[audit approfondi](AUDIT-2026-09-23.md) identifie des bloqueurs de reprise, de facturation, de livraison et de suppression des clés. Ils restent non corrigés. L'intégration v7 locale ne suffit pas à activer le runner ; suivre l'ordre de correction du rapport avant tarifs, migration et bascule. Aucun contrôle distant, changement de secret ou redémarrage Phala n'a été effectué pendant cet audit. Les observations distantes ci-dessous conservent leur date et leur périmètre d'origine.
+
 **CVM arrêtée à la demande de Noé le 23 septembre à 01:27 (Europe/Paris).** L’API confirme `status: stopped`, `in_progress: false`, avec le même app ID. Le disque et la CVM sont conservés ; aucun redéploiement de contrats ou de CVM n’a été réalisé dans cette passe. Les frais de calcul sont coupés ; le disque reste facturé `0.002780` USD/h, soit environ 0,067 USD/jour ou 2 USD pour 30 jours. Le tarif de la machine allumée est `0.060780` USD/h (`0.058000` calcul + `0.002780` disque). Voir la [tarification Phala](https://cloud.phala.com/about/pricing).
 
 **Consigne de Noé sur les crédits :** prévenir avant toute prochaine opération utilisant Phala, en indiquant quand elle aura lieu et son coût estimé. Ne pas redémarrer automatiquement la CVM pour un contrôle ou une reprise ; préparer les opérations locales pendant son arrêt. Ne pas supprimer ni recréer la CVM pour éviter les frais du disque sans demande explicite.
@@ -21,7 +23,7 @@ Les deux accès sont renseignés et validés dans `.env.phala-production-secrets
 - Datasets : 2 `LISTED`, 2 `DRAFT`, 5 `SUSPENDED`, 21 `DELETED`.
 - Modèles historiques : 5 prêts et 8 entraînements portent un `modelCid` ; leur téléchargement et leur re-livraison n’ont pas été testés.
 - Déploiements des prêts : réseau `46630`, 8 prêts sur `0xede81141d007593d4bfce2de4778f753d167700e` et 2 sur `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`. Conserver ces deux escrows dans l’historique et vérifier les autres adresses déjà autorisées.
-- Dernière migration appliquée : `20260906000000_reconcile_dataset_deletion`. La migration de provenance `20260919000000_track_runner_provenance` reste à appliquer.
+- Dernière migration appliquée lors de cette observation : `20260906000000_reconcile_dataset_deletion`. Les migrations de provenance `20260919000000_track_runner_provenance` et de facturation `20260923000000_add_compute_billing` restent à appliquer lors de la future maintenance.
 
 Contrôles Pinata et infrastructure du 23 septembre :
 
@@ -56,12 +58,12 @@ La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès 
 
 ### Ordre de reprise
 
-1. Reprendre l’[intégration locale v7](BILLING-INTEGRATION.md) et ses validations. Finaliser tarifs, comptabilité, plafonds fournisseurs et procédure de reprise avant activation. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
+1. Corriger les constats de l'[audit local](AUDIT-2026-09-23.md), en particulier la réconciliation des intentions, l'abandon après calcul et le devis côté client. Compléter les tests de l'[intégration v7](BILLING-INTEGRATION.md), puis finaliser tarifs, comptabilité, plafonds fournisseurs et procédure de reprise. Ne pas déployer un nouvel escrow v6 intermédiaire dépourvu de facturation.
 2. Préparer les benchmarks et annoncer à Noé leur créneau et leur coût avant toute utilisation de Phala. Calibrer les tarifs et vérifier la stabilité de l’identité lors de la reprise de la même CVM.
 3. Préserver l’accès historique aux modèles et aux crédits, sauvegarder puis relire l’état de la base avant toute mutation : le contrôle du 23 septembre est une observation ponctuelle. Vérifier prêts ouverts, entraînements en cours, datasets publiés, modèles historiques et escrows référencés.
 4. Choisir le signataire de déploiement et la trésorerie compute. Le mode KYB ouvert actuel est confirmé ; ne pas changer implicitement de politique KYB. La cible reste **Robinhood testnet `46630`**, pas mainnet.
 5. Après validation de la facturation, préparer la maintenance, déployer la version retenue avec l’adresse publique attestée de Phala et financer cette adresse en ETH testnet. Ne jamais récupérer ni importer sa clé privée.
-6. Après information de Noé sur l’utilisation et le coût Phala, compléter `.env.phala`, passer le booléen d’amorçage à `"false"` dans le Compose, puis mettre à jour **la même CVM** avec l’image contenant les changements validés. Recapturer les mesures actives, vérifier le Compose brut et la stabilité de l’identité avant de configurer Next.
+6. Après information de Noé sur l’utilisation et le coût Phala, compléter `.env.phala`, les politiques de facturation/budget validées et leur volume persistant, puis activer explicitement v7 et passer le booléen d’amorçage à `"false"` dans le Compose. Mettre à jour **la même CVM** avec l’image contenant les changements validés. Recapturer les mesures actives, vérifier le Compose brut et la stabilité de l’identité avant de configurer Next. Le registre SQLite ne doit pas être réinitialisé à chaque redémarrage.
 7. Préparer l’environnement applicatif complet, migrer la base en maintenance, suspendre/réimporter les anciens datasets et conserver les escrows legacy. Synchroniser Next et le reaper, reconstruire le frontend, exécuter les préflights adaptés à la nouvelle version puis le parcours réel à deux wallets avant réouverture.
 
 Les commandes détaillées et les conditions de chaque étape suivent dans ce document. Ne pas utiliser les mesures d’amorçage pour ouvrir la production.
