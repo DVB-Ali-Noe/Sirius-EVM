@@ -1,6 +1,6 @@
 # Escrow v7 — contrat local de facturation
 
-Premier livrable local du 23 septembre 2026 : [SiriusEscrowV7.sol](../contracts/src/SiriusEscrowV7.sol), tests Hardhat et ABI exportée séparément. L’application, le runner, le reaper et les scripts de déploiement continuent à utiliser `SiriusEscrow` v6. Ce document ne constitue pas une procédure de déploiement. Les budgets globaux, tarifs, mesures d’exécution et intégrations décrits dans [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent à implémenter.
+Premier livrable local du 23 septembre 2026 : [SiriusEscrowV7.sol](../contracts/src/SiriusEscrowV7.sol), tests Hardhat et ABI exportée séparément. L’application, le runner, le reaper et les scripts de déploiement continuent à utiliser `SiriusEscrow` v6. Ce document ne constitue pas une procédure de déploiement. Les [budgets durables du runner](RUNNER-BUDGETS.md) constituent le livrable local suivant. Les tarifs, mesures d’exécution et intégrations décrits dans [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent à implémenter.
 
 ## Conditions du prêt
 

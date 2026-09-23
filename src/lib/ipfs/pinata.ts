@@ -1,6 +1,33 @@
 import "server-only";
 
 const UPLOAD_ENDPOINT = "https://uploads.pinata.cloud/v3/files";
+export const MAX_IPFS_BLOB_BYTES = 8 * 1024 * 1024;
+const IPFS_TIMEOUT_MS = 20_000;
+
+async function boundedBody(response: Response, maximum: number): Promise<Buffer> {
+  const length = response.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > maximum)) {
+    await response.body?.cancel();
+    throw new Error("Réponse IPFS trop volumineuse");
+  }
+  if (!response.body) throw new Error("Réponse IPFS vide");
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maximum) {
+        await reader.cancel();
+        throw new Error("Réponse IPFS trop volumineuse");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally { reader.releaseLock(); }
+  return Buffer.concat(chunks, bytes);
+}
 
 export interface IpfsUpload {
   cid: string;
@@ -19,6 +46,7 @@ function getGateway(): string {
 
 /** Upload d'un blob (déjà chiffré) sur IPFS public via Pinata. Renvoie le CID. */
 export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUpload> {
+  if (data.length > MAX_IPFS_BLOB_BYTES) throw new Error("Blob IPFS trop volumineux");
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(data)]), name);
   form.append("network", "public");
@@ -27,21 +55,26 @@ export async function uploadToIpfs(data: Buffer, name: string): Promise<IpfsUplo
     method: "POST",
     headers: { Authorization: `Bearer ${getJwt()}` },
     body: form,
+    signal: AbortSignal.timeout(IPFS_TIMEOUT_MS),
   });
 
   if (!res.ok) {
-    throw new Error(`Pinata upload échoué (${res.status}): ${await res.text()}`);
+    await res.body?.cancel();
+    throw new Error(`Pinata upload échoué (${res.status})`);
   }
 
-  const { data: payload } = (await res.json()) as { data: { cid: string; size: number } };
+  const { data: payload } = JSON.parse((await boundedBody(res, 64 * 1024)).toString()) as { data: { cid: string; size: number } };
   return { cid: payload.cid, size: payload.size };
 }
 
 /** Récupère le blob chiffré depuis le gateway IPFS. */
 export async function fetchFromIpfs(cid: string): Promise<Buffer> {
-  const res = await fetch(`${getGateway()}/ipfs/${cid}`);
-  if (!res.ok) throw new Error(`IPFS fetch échoué (${res.status}) pour ${cid}`);
-  return Buffer.from(await res.arrayBuffer());
+  const res = await fetch(`${getGateway()}/ipfs/${encodeURIComponent(cid)}`, { signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+  if (!res.ok) {
+    await res.body?.cancel();
+    throw new Error(`IPFS fetch échoué (${res.status})`);
+  }
+  return boundedBody(res, MAX_IPFS_BLOB_BYTES);
 }
 
 const FILES_API = "https://api.pinata.cloud/v3/files/public";

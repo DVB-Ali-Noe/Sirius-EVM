@@ -19,6 +19,7 @@ import { datasetIngressKeyFingerprint } from "@/lib/tee/ingress";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
 import { handleRunnerOp, scopeForRunnerOp } from "./handler";
 import { validateRunnerConfiguration } from "./config";
+import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
@@ -161,6 +162,7 @@ export async function startRunner(
 ): Promise<HttpServer | HttpsServer> {
   const { bootstrapOnly, tlsEnabled } = validateRunnerConfiguration();
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
+  if (!bootstrapOnly) runnerBudget();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
     await verifyRunnerDeployment(runnerSettlementAddress());
   }

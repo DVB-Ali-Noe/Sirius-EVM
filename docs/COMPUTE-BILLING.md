@@ -1,12 +1,12 @@
 # Facturation du compute au borrower
 
-Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** Le premier livrable, [Escrow v7 et ses tests locaux](ESCROW-V7.md), est implémenté séparément du v6. L’intégration de la facturation et des budgets reste à réaliser ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
+Point de reprise du 23 septembre 2026. **Priorité avant tout nouveau déploiement de contrats pour Phala.** Le premier livrable, [Escrow v7 et ses tests locaux](ESCROW-V7.md), est implémenté séparément du v6. Les [budgets durables du runner](RUNNER-BUDGETS.md) sont désormais implémentés localement. L’intégration complète de la facturation et des plafonds fournisseurs reste à réaliser ; aucun tarif commercial ni nouvel escrow de facturation n’est déployé.
 
 ## Objectif et orientation
 
 Le borrower doit connaître et accepter le prix du dataset et celui de l’entraînement avant tout calcul. Pour le MVP, retenir un **devis fixe garanti en USDC**, bloqué en escrow avant démarrage. Aucun supplément automatique ni prélèvement supplémentaire pendant un job. Une erreur d’estimation doit rester dans un budget préalablement réservé ; elle ne donne jamais droit à des dépenses ou reprises illimitées.
 
-**Orientation demandée par Noé le 23 septembre :** augmenter le tarif minimum pour tous les emprunts afin de couvrir une faible fréquentation, et empêcher qu’erreurs ou abus puissent vider les wallets ou créer des dépenses non couvertes. L’objectif est un PnL non négatif. Les protections ci-dessous sont à implémenter ; un tarif élevé, une réserve de trésorerie ou un seuil d’alerte ne prouvent pas à eux seuls cet objectif.
+**Orientation demandée par Noé le 23 septembre :** augmenter le tarif minimum pour tous les emprunts afin de couvrir une faible fréquentation, et empêcher qu’erreurs ou abus puissent vider les wallets ou créer des dépenses non couvertes. L’objectif est un PnL non négatif. Les protections ci-dessous restent à compléter et intégrer ; un tarif élevé, une réserve de trésorerie ou un seuil d’alerte ne prouvent pas à eux seuls cet objectif.
 
 Le devis distingue le prix du provider, le prix du compute et leur total. Les frais réseau en ETH sont affichés séparément et restent des estimations du wallet. Les USDC versés à Sirius rémunèrent son service ; ils ne rechargent pas automatiquement le compte Phala, dont la facture reste payée par l’opérateur.
 
@@ -19,7 +19,7 @@ Le périmètre initial concerne les prêts borrower/provider. La facturation des
 - Le permis EIP-712 autorise déjà les conditions du lock ; il ne contient pas de prix compute distinct ni de bénéficiaire de ces frais.
 - Le runner prend en charge les régressions linéaire et logistique. L’ingestion impose 20 millions d’opérations au maximum ; le délai de calcul configuré est de 15 secondes. Ce délai ne borne pas à lui seul les transferts, le stockage et le parcours complet.
 - Les dimensions nécessaires au devis devront être liées à un reçu authentifié du dataset. Ne pas faire confiance à une taille ou à un nombre de lignes déclarés par le navigateur.
-- `contracts/src/SiriusEscrowV7.sol` implémente localement les deux montants, les bénéficiaires signés, le plafond de retenue et les reçus d’exécution cumulatifs. L’application et les scripts de déploiement utilisent toujours v6. Le runner n’émet pas encore les reçus v7 ; les budgets financiers ne sont pas encore actifs. Voir [les garanties et limites du premier livrable](ESCROW-V7.md).
+- `contracts/src/SiriusEscrowV7.sol` implémente localement les deux montants, les bénéficiaires signés, le plafond de retenue et les reçus d’exécution cumulatifs. L’application et les scripts de déploiement utilisent toujours v6. Le runner n’émet pas encore les reçus v7 ; les garde-fous de [budget runner](RUNNER-BUDGETS.md) sont implémentés localement, sans registre de production ni plafonds fournisseurs actifs. Voir [les garanties et limites du premier livrable](ESCROW-V7.md).
 
 ## Parcours cible
 
@@ -60,7 +60,9 @@ Le minimum doit être calculé avec une hypothèse de fréquentation basse, puis
 
 Le minimum facturé, les marges, la répartition des frais fixes et la convention USD/USDC restent à définir. Les `0,01 USDC` évoqués dans la conversation étaient un exemple d’affichage, pas un tarif validé. Aucun coefficient de performance Phala n’a encore été mesuré pour ce devis. La mesure du temps moyen ou du percentile 95 sert à fixer le prix ; elle ne remplace pas un plafond de dépense effectivement imposé.
 
-## Admission financière et protection des fonds — à implémenter
+## Admission financière et protection des fonds — intégration en cours
+
+Le [registre runner local](RUNNER-BUDGETS.md) implémente les allocations atomiques, plafonds de gas, tentatives uniques, cache des résultats et coupe-circuit. Les exigences ci-dessous restent la cible complète ; la comptabilité, les devis v7, la réservation de toute la clôture et les contrôles fournisseurs ne sont pas encore raccordés.
 
 ### PnL et trésorerie
 

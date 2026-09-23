@@ -26,6 +26,7 @@ export function validateRunnerConfiguration(): { bootstrapOnly: boolean; tlsEnab
       ["SIRIUS_KYB_ADDRESS", process.env.SIRIUS_KYB_ADDRESS], ["SIRIUS_DATASET_ADDRESS", process.env.SIRIUS_DATASET_ADDRESS],
       ["SIRIUS_LOCK_AUTHORIZER", process.env.SIRIUS_LOCK_AUTHORIZER],
       ["PINATA_JWT", process.env.PINATA_JWT], ["PINATA_GATEWAY", process.env.PINATA_GATEWAY],
+      ["RUNNER_BUDGET_FILE", process.env.RUNNER_BUDGET_FILE],
     );
     for (const [name, value] of required) {
       if (!value?.trim()) throw new Error(`${name} obligatoire pour le runner`);

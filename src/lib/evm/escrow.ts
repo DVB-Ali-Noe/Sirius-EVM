@@ -1,5 +1,5 @@
 import "server-only";
-import { createWalletClient, http, parseAbiItem, type Hex } from "viem";
+import { createWalletClient, encodeFunctionData, http, keccak256, parseAbiItem, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { AppError } from "@/lib/app-error";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
@@ -14,6 +14,10 @@ import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry"
 import { evmEscrowBinding, type EvmEscrowBinding } from "@/lib/tee/evm-binding";
 import { escrowReadAddress, legacyEscrowAbi } from "./history";
 import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTerms, type LockAuthorization } from "./lock-authorization";
+import { runnerBudget } from "@/lib/runner/budget";
+import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { boundedGas } from "@/lib/runner/gas-policy";
+import type { BudgetLedger } from "@/lib/runner/budget-ledger";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -158,7 +162,52 @@ export async function authorizeEscrowLock(terms: LockTerms, deadline: number): P
 
 function walletClient() {
   const { chain, rpcUrl } = resolveServerNetwork();
-  return createWalletClient({ account: settlementAccount(), chain, transport: http(rpcUrl) });
+  return createWalletClient({ account: settlementAccount(), chain, transport: http(rpcUrl, { retryCount: 0, timeout: 20_000 }) });
+}
+
+async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: Hex, fromBlock?: bigint): Promise<string> {
+  const binding = evmEscrowBinding();
+  const account = settlementAccount();
+  if (ledger.policy.chainId !== binding.chainId || ledger.policy.wallet !== account.address.toLowerCase()) {
+    throw new AppError("Identité du compte opérationnel différente du budget", 503);
+  }
+  const address = escrowAddress();
+  const data = encodeFunctionData({ abi: siriusescrowAbi, functionName: "release", args: [loanKey, preimage] });
+  const id = `release:${binding.chainId}:${address}:${loanKey.toLowerCase()}`;
+  const fingerprint = keccak256(data);
+  if (!ledger.find(id, fingerprint)) {
+    const existing = await reconcileLoanEscrow(loanKey, fromBlock);
+    if (existing.state === "settled") return existing.txHash;
+    if (existing.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
+  }
+  const publicClient = getPublicClient();
+  return sendBudgetedTransaction(ledger, id, fingerprint, {
+    async prepare() {
+      if (await publicClient.getChainId() !== binding.chainId) throw new Error("RPC chain mismatch");
+      const [estimate, gasPrice, balance, nonce] = await Promise.all([
+        publicClient.estimateGas({ account, to: address, data, value: BigInt(0) }),
+        publicClient.getGasPrice(),
+        publicClient.getBalance({ address: account.address, blockTag: "pending" }),
+        publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
+      ]);
+      const fees = boundedGas(ledger.policy.gas, estimate, gasPrice, balance);
+      const serialized = await account.signTransaction({
+        chainId: binding.chainId, to: address, data, value: BigInt(0), nonce,
+        ...fees, maxPriorityFeePerGas: BigInt(0), type: "eip1559",
+      });
+      return { serialized, nonce };
+    },
+    send: (serializedTransaction) => walletClient().sendRawTransaction({ serializedTransaction }),
+    async confirm(hash) {
+      if (await publicClient.getChainId() !== binding.chainId) return "pending";
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash, confirmations: ledger.policy.gas.confirmations, timeout: 15_000, retryCount: 0,
+      });
+      if (receipt.transactionHash.toLowerCase() !== hash || receipt.from.toLowerCase() !== ledger.policy.wallet
+        || receipt.to?.toLowerCase() !== address) return "pending";
+      return receipt.status;
+    },
+  });
 }
 
 /**
@@ -168,6 +217,8 @@ function walletClient() {
  * échouer bruyamment sur une reprise légitime serait un faux négatif.
  */
 export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigint): Promise<string> {
+  const ledger = runnerBudget();
+  if (ledger) return settleWithBudget(ledger, loanKey, preimage, fromBlock);
   const existing = await reconcileLoanEscrow(loanKey, fromBlock);
   if (existing.state === "settled") return existing.txHash;
   if (existing.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);

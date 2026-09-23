@@ -24,6 +24,7 @@ import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
+import { budgetRunnerJob, budgetRunnerRequest } from "@/lib/runner/budget";
 import {
   assertReleaseEnvelopeHash,
   issueDatasetReceipt,
@@ -127,6 +128,10 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 }
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
+  return budgetRunnerRequest(() => executeRunnerOp(op, body));
+}
+
+async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   switch (op) {
     case "dataset-ingress-key":
       return datasetIngressPublicKey();
@@ -151,7 +156,9 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           model.modelVersion,
         ],
       });
-      const result = await sealDatasetEnvelope(datasetId, envelope, sizeBytes, model);
+      const result = await budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
+        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays },
+        () => sealDatasetEnvelope(datasetId, envelope, sizeBytes, model));
       return {
         ...result,
         runnerReceipt: issueDatasetReceipt(subject, {

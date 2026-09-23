@@ -22,6 +22,7 @@ WORKDIR /workspace
 COPY --from=dependencies --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=dependencies --chown=node:node /workspace/package.json /workspace/tsconfig.json ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node scripts/runner-budget.ts ./scripts/runner-budget.ts
 RUN mkdir -p /var/lib/sirius-runner/replay && chown -R node:node /var/lib/sirius-runner
 
 USER node

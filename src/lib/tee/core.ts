@@ -22,6 +22,7 @@ import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
 import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
+import { budgetRunnerJob } from "@/lib/runner/budget";
 import type {
   DatasetIngressEnvelope,
   DatasetRef,
@@ -34,7 +35,7 @@ import type {
 import type { ModelSelection } from "@/lib/models/registry";
 
 /**
- * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
+ * Cœur confidentiel, sans accès à la base applicative : seul module qui touche la master key enclave,
  * le plaintext des datasets, les DEK et le fulfillment. Prend des inputs explicites → sera
  * exposé tel quel par le service runner isolé (inc.3d-B). Le Next l'appelle (in-process au
  * MVP, via HTTP en CVM) mais ne voit jamais ces secrets.
@@ -158,8 +159,10 @@ async function trainAndSeal(input: TrainingInput) {
 
 /** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */
 export async function runTraining(input: TrainingInput): Promise<{ modelCid: string; metrics: Record<string, number> }> {
-  const { modelCid, model } = await trainAndSeal(input);
-  return { modelCid, metrics: model.metrics };
+  return budgetRunnerJob("training", input.keyContext, input, async () => {
+    const { modelCid, model } = await trainAndSeal(input);
+    return { modelCid, metrics: model.metrics };
+  });
 }
 
 /** Self-train : les contextes de livraison sont reconstruits dans le runner. */
@@ -218,10 +221,9 @@ export async function runEvmLoanJob(input: LoanJobInput): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
 }> {
-  const { modelCid, model } = await trainAndSeal({
+  return runTraining({
     ...input,
     keyContext: evmModelKeyContext(input.loanId, input.borrower),
     filename: `${input.loanId}.model.enc`,
   });
-  return { modelCid, metrics: model.metrics };
 }
