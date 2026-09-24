@@ -165,3 +165,7 @@ La [PR #4](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/4) a été fusionnée 
 Noé travaille sur `fix/runner-recovery` depuis cette base. L'implémentation A1 et son interface pour Ali sont décrites dans [RUNNER-RECOVERY-A1.md](RUNNER-RECOVERY-A1.md) : reprise des remboursements v7, liaison RA-TLS au déploiement, anti-rejeu SQLite, export comptable et préflight de finalité. La validation locale couvre 336 tests applicatifs, 18 tests d'exploitation, le parcours de facturation EVM, lint, typage et build sous Node 22. La revue de la PR A1 et les essais Phala restent nécessaires avant activation.
 
 Ali peut avancer sur `feat/operations-accounting` en consommant `RunnerAccountingExport` et `pnpm --silent runner:budget export`. Les répertoires `scripts/operations/` et `deploy/operations/` restent dans son périmètre. Toute activation Phala et tout essai payant nécessitent toujours un créneau et un budget autorisés.
+
+### Lot B : cible staging retenue — 24 septembre 2026
+
+Les PR #5 et #6 sont fusionnées et déployées sur staging. Noé a choisi d'y raccorder Phala/v7 avant le site public. La préparation se poursuit sur `feat/phala-v7-integration` ; le [runbook du lot B](PHALA-V7-STAGING.md) donne les contrôles, l'initialisation explicite, les configurations séparées et les preuves attendues. Le RPC archive, le gas du wallet Phala et les politiques d'Ali restent des prérequis ; l'intégration réelle et les essais à deux wallets ne sont pas encore réalisés.
