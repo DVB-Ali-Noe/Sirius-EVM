@@ -74,7 +74,7 @@ test("la commande vérifie les comptes de la cible avant d'initialiser les volum
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "budget")); mkdirSync(join(root, "replay"));
   const { budget, billing } = policies();
-  const env = { PATH: process.env.PATH, RUNNER_VOLUME_ACTION: "initialize-new-v7-volume",
+  const env = { PATH: process.env.PATH, NODE_ENV: "production" as const, RUNNER_VOLUME_ACTION: "initialize-new-v7-volume",
     SIRIUS_LOCK_AUTHORIZER: budget.wallet, SIRIUS_USDC_ADDRESS: billing.usdc, SIRIUS_COMPUTE_RECIPIENT: billing.computeRecipient,
     RUNNER_INITIAL_BUDGET_POLICY: JSON.stringify(budget), RUNNER_INITIAL_BILLING_POLICY: JSON.stringify(billing) };
   const args = ["--conditions=react-server", "--import", "tsx", "scripts/initialize-runner-volume.ts", root];
