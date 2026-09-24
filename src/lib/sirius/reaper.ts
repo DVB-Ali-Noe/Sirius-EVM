@@ -1,4 +1,5 @@
 import "server-only";
+import type { Loan } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
 import {
@@ -58,6 +59,7 @@ async function reapBatch(now: Date): Promise<void> {
         await recoverUnsubmittedLoan(loan);
         continue;
       }
+      if (loan.billingQuoteHash && await reconcileClosedLoan(loan)) continue;
       if (!loan.modelCid && loan.billingQuoteHash) {
         if (await recoverLoanResult(loan.id)) {
           await settlePreparedLoan(loan.id);
@@ -71,18 +73,25 @@ async function reapBatch(now: Date): Promise<void> {
         await settlePreparedLoan(loan.id);
         continue;
       }
-      if (!loan.evmLoanKey || !loan.evmLockBlock) continue;
-      const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
-      if (state.state === "active") continue;
-      await prisma.loan.updateMany({
-        where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
-        data: state.state === "settled"
-          ? { status: "SETTLED", settleTxHash: state.txHash, settledAt: new Date() }
-          : { status: "CANCELLED", cancelTxHash: state.txHash,
-            ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) },
-      });
+      if (!loan.billingQuoteHash) await reconcileClosedLoan(loan);
     } catch {
       console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
     }
   }
+}
+
+async function reconcileClosedLoan(loan: Loan): Promise<boolean> {
+  if (!loan.evmLoanKey || !loan.evmLockBlock) return false;
+  const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
+  if (state.state === "active") return false;
+  // La reprise du résultat et la validation de sa preuve précèdent toujours le règlement v7.
+  if (state.state === "settled" && loan.billingQuoteHash) return false;
+  await prisma.loan.updateMany({
+    where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
+    data: state.state === "settled"
+      ? { status: "SETTLED", settleTxHash: state.txHash, settledAt: new Date() }
+      : { status: "CANCELLED", cancelTxHash: state.txHash,
+        ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) },
+  });
+  return true;
 }

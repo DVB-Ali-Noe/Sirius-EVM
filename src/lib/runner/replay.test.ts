@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
 import { consumeRunnerReplay } from "./replay";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -11,6 +12,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 let replayDirectory: string | undefined;
 
 afterEach(() => {
+  mock.restoreAll();
   delete process.env.RUNNER_REPLAY_DIR;
   if (replayDirectory) rmSync(replayDirectory, { recursive: true, force: true });
   replayDirectory = undefined;
@@ -37,6 +39,11 @@ test("refuse les expirations non entières ou hors borne", () => {
 test("huit processus ne consomment qu’une fois un grant malgré le nettoyage simultané", { timeout: 15000 }, async () => {
   replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
   mkdirSync(join(replayDirectory, "grant"));
+  process.env.RUNNER_REPLAY_DIR = replayDirectory;
+  const now = Date.now();
+  const clock = mock.method(Date, "now", () => now - 2000);
+  try { assert.equal(consumeRunnerReplay("grant", "concurrent", now - 1000), true); }
+  finally { clock.mock.restore(); }
   writeFileSync(join(replayDirectory, "grant", "a".repeat(64)), "");
   writeFileSync(join(replayDirectory, "grant", "b".repeat(64)), String(Date.now() - 1));
   const workers = Array.from({ length: 8 }, () => {
@@ -65,4 +72,35 @@ test("huit processus ne consomment qu’une fois un grant malgré le nettoyage s
   } finally {
     for (const child of workers) if (child.exitCode === null) child.kill();
   }
+});
+
+
+test("les anciens fichiers incomplets restent bloquants puis sont collectés après le TTL maximal", () => {
+  replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  process.env.RUNNER_REPLAY_DIR = replayDirectory;
+  const directory = join(replayDirectory, "grant");
+  mkdirSync(directory);
+  const digest = createHash("sha256").update("grant:interrupted").digest("hex");
+  const incomplete = join(directory, digest);
+  const invalid = join(directory, "f".repeat(64));
+  writeFileSync(incomplete, "");
+  writeFileSync(invalid, "999999999999999999999999999999");
+  let now = Date.now();
+  mock.method(Date, "now", () => now);
+  assert.equal(consumeRunnerReplay("grant", "interrupted", now + 60000), false);
+  for (let n = 0; n < 64; n++) consumeRunnerReplay("grant", `recent-${n}`, now + 60000);
+  assert.equal(existsSync(incomplete), true);
+  now += 2 * 60 * 60_000 + 1000;
+  for (let n = 0; n < 64; n++) consumeRunnerReplay("grant", `later-${n}`, now + 60000);
+  assert.equal(existsSync(incomplete), false);
+  assert.equal(existsSync(invalid), false);
+  assert.equal(consumeRunnerReplay("grant", "interrupted", now + 60000), true);
+  assert.equal(consumeRunnerReplay("grant", "interrupted", now + 60000), false);
+});
+
+test("un registre anti-rejeu corrompu n'est jamais remplacé par un registre vide", () => {
+  replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  process.env.RUNNER_REPLAY_DIR = replayDirectory;
+  writeFileSync(join(replayDirectory, "replay.sqlite"), "incomplete", { mode: 0o600 });
+  assert.throws(() => consumeRunnerReplay("grant", "nonce", Date.now() + 60000));
 });

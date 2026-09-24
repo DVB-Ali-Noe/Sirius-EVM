@@ -8,8 +8,8 @@ import {
   type DetailedPeerCertificate,
   type PeerCertificate,
 } from "node:tls";
+import { parseRunnerRaTlsEvidence, verifyRunnerRaTlsBinding } from "./ra-tls-evidence";
 import { verifyTdxQuote } from "./quote";
-import { parseRunnerRaTlsEvidence } from "./ra-tls-evidence";
 import { certificateFromDer, certificatePem } from "./certificate";
 
 const ATTESTATION_CACHE_MS = 5 * 60 * 1_000;
@@ -141,14 +141,6 @@ function assertCertificateHostname(certificate: X509Certificate, hostname: strin
   }
 }
 
-function assertPinnedHash(name: string, actual: string, expected: string | undefined): void {
-  const normalized = expected?.trim().toLowerCase();
-  if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error(`${name} épinglée absente ou invalide`);
-  }
-  if (actual.toLowerCase() !== normalized) throw new Error(`${name} non authentifiée`);
-}
-
 async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
   const response = await bufferedRequest(new URL("/ra-tls", baseUrl), {
     agent: false,
@@ -166,28 +158,11 @@ async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
   assertCertificateHostname(leaf, baseUrl.hostname);
   const certificateSha256 = sha256Hex(leaf.raw);
   const evidence = parseRunnerRaTlsEvidence(response.body);
-  if (evidence.certificateSha256.toLowerCase() !== certificateSha256) {
-    throw new Error("La quote RA-TLS ne cible pas le certificat présenté");
-  }
-  assertPinnedHash(
-    "Empreinte de la chaîne KMS",
-    evidence.masterKeyChainSha256,
-    process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256,
-  );
-  assertPinnedHash(
-    "Empreinte de la clé d’ingestion",
-    evidence.ingressKeySha256,
-    process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256,
-  );
-
   const verification = await verifyTdxQuote(evidence.quote, certificateSha256, evidence);
-  if (
-    verification.reportDataMatches !== true ||
-    verification.hardwareVerified !== true ||
-    verification.codeIdentityMatches !== true
-  ) {
+  if (verification.reportDataMatches !== true || verification.hardwareVerified !== true || verification.codeIdentityMatches !== true) {
     throw new Error("Identité matérielle ou code du runner RA-TLS non authentifié");
   }
+  await verifyRunnerRaTlsBinding(evidence, certificateSha256);
 
   const ca = certificateChain(response.certificate);
   if (ca.length === 0) throw new Error("Chaîne du certificat RA-TLS absente");

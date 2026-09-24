@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, mock, test } from "node:test";
 import { getPublicClient } from "@/lib/evm/client";
 import { verifyRunnerDeployment } from "./deployment";
+import { verifyRunnerRaTlsBinding } from "@/lib/tee/ra-tls-evidence";
 
 const escrow = `0x${"11".repeat(20)}`;
 const datasets = `0x${"22".repeat(20)}`;
@@ -52,4 +53,35 @@ for (const field of ["lockAuthorizer", "kyb", "usdc", "datasetKyb"]) {
 test("l’activation refuse un RPC d’un autre réseau", async () => {
   chainId = 4663;
   await assert.rejects(verifyRunnerDeployment(signer), /réseau ou les contrats/);
+});
+
+test("la liaison RA-TLS exige le signataire du déploiement attendu", async () => {
+  const hash = "ab".repeat(32);
+  const evidence = {
+    quote: "00", eventLog: "[]", composeHash: hash, certificateSha256: hash,
+    masterKeyChainSha256: hash, ingressKeySha256: hash, settlementAddress: signer, bootstrapOnly: false,
+  };
+  Object.assign(process.env, { SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: hash, NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: hash });
+  await verifyRunnerRaTlsBinding(evidence, hash);
+  await assert.rejects(verifyRunnerRaTlsBinding({ ...evidence, settlementAddress: other }, hash), /identité/);
+  bindings.lockAuthorizer = other;
+  await assert.rejects(verifyRunnerRaTlsBinding(evidence, hash), /réseau ou les contrats/);
+  bindings.lockAuthorizer = signer;
+  chainId = 4663;
+  await assert.rejects(verifyRunnerRaTlsBinding(evidence, hash), /réseau ou les contrats/);
+});
+
+test("la liaison RA-TLS refuse l’amorçage et les pins divergents", async () => {
+  const hash = "ab".repeat(32);
+  const evidence = {
+    quote: "00", eventLog: "[]", composeHash: hash, certificateSha256: hash,
+    masterKeyChainSha256: hash, ingressKeySha256: hash, settlementAddress: signer, bootstrapOnly: false,
+  };
+  Object.assign(process.env, { SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: hash, NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: hash });
+  await assert.rejects(verifyRunnerRaTlsBinding({ ...evidence, bootstrapOnly: true }, hash), /amorçage/);
+  for (const field of ["certificateSha256", "masterKeyChainSha256", "ingressKeySha256"] as const) {
+    await assert.rejects(verifyRunnerRaTlsBinding({ ...evidence, [field]: "cd".repeat(32) }, hash), /certificat|authentifiée/);
+  }
+  delete process.env.SIRIUS_LOCK_AUTHORIZER;
+  await assert.rejects(verifyRunnerRaTlsBinding(evidence, hash), /identité/);
 });
