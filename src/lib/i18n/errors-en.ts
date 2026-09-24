@@ -1,4 +1,6 @@
 export const ERROR_MESSAGES_EN: Record<string, string> = {
+  "Registre anti-rejeu remplacé ou indisponible": "Replay ledger was replaced or is unavailable",
+  "Registre anti-rejeu absent ou inaccessible : intervention requise": "Replay ledger is missing or inaccessible: operator intervention required",
   "Bloc confirmé indisponible": "Confirmed block is unavailable",
   "Reçu RPC hors scope": "RPC receipt does not match the transaction",
   "Vue RPC incohérente ou réorganisée": "RPC state is inconsistent or reorganized",
