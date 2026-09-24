@@ -132,7 +132,8 @@ test("les compteurs en unités entières restent exacts au-delà de Number.MAX_S
 
 test("deux processus ne peuvent réserver simultanément la dernière marge disponible", async () => {
   const { path, ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "200"; });
-  const script = `import { BudgetLedger } from ${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))};
+  const script = `import { createRequire } from 'node:module';
+    const { BudgetLedger } = createRequire(import.meta.url)(${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))});
     const ledger = new BudgetLedger(process.argv[1], 46630, ${JSON.stringify(wallet)});
     try { ledger.reserve(process.argv[2], process.argv[2], 'training'); process.stdout.write('admitted'); }
     catch { process.stdout.write('blocked'); } finally { ledger.close(); }`;
@@ -366,10 +367,12 @@ async function crashAndRestore(checkpoint: boolean) {
   ledger.close();
   ledgers.splice(ledgers.indexOf(ledger), 1);
   const script = `
-    import { BudgetLedger } from ${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))};
-    import { sealRunnerTransaction } from ${JSON.stringify(resolve("src/lib/runner/transaction-journal.ts"))};
+    import { createRequire } from 'node:module';
     import { privateKeyToAccount } from 'viem/accounts';
     import { keccak256 } from 'viem';
+    const require = createRequire(import.meta.url);
+    const { BudgetLedger } = require(${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))});
+    const { sealRunnerTransaction } = require(${JSON.stringify(resolve("src/lib/runner/transaction-journal.ts"))});
     const account = privateKeyToAccount('0x' + '34'.repeat(32));
     const ledger = new BudgetLedger(process.argv[1], 46630, account.address.toLowerCase());
     const scope = ${JSON.stringify(workflow)};
@@ -571,7 +574,8 @@ test("la mesure et le premier reçu d’échec survivent à une reprise sans cha
 
 test("deux processus ne peuvent promettre la même dernière réserve de clôture", async () => {
   const { path, ledger, policy: p } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "1216"; });
-  const script = `import { BudgetLedger } from ${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))};
+  const script = `import { createRequire } from 'node:module';
+    const { BudgetLedger } = createRequire(import.meta.url)(${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))});
     const ledger = new BudgetLedger(process.argv[1], 46630, ${JSON.stringify(wallet)});
     try { ledger.reserveWorkflow({id:process.argv[2],fingerprint:process.argv[2]},process.argv[2],${p.validUntil},BigInt(${JSON.stringify(p.gas.totalWei)})); process.stdout.write('admitted'); }
     catch { process.stdout.write('blocked'); } finally { ledger.close(); }`;
