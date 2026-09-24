@@ -155,6 +155,8 @@ jobs:
       # le code d'une cible avec les ressources de l'autre.
       - name: Résoudre la cible
         id: calcul
+        env:
+          SIRIUS_STAGING_REQUIRE_PHALA: ${{ vars.SIRIUS_STAGING_REQUIRE_PHALA || 'false' }}
         run: node scripts/deployment-target.mjs "$GITHUB_REF" >> "$GITHUB_OUTPUT"
 
       - name: Annoncer la cible

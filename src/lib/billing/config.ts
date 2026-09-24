@@ -27,11 +27,9 @@ export interface BillingPolicy {
   }>;
 }
 
-export function billingPolicy(): BillingPolicy {
+export function validateBillingPolicy(value: unknown): BillingPolicy {
   try {
-    const path = process.env.RUNNER_BILLING_POLICY_FILE;
-    if (!path) throw new Error();
-    const p = JSON.parse(readFileSync(path, "utf8")) as BillingPolicy;
+    const p = value as BillingPolicy;
     const amount = (s: unknown) => typeof s === "string" && /^(0|[1-9][0-9]{0,28})$/.test(s);
     if (p.version !== 1 || !p.tariffVersion || p.tariffVersion.length > 128 || !p.costReference
       || !Number.isSafeInteger(p.validUntil) || p.validUntil <= Date.now()
@@ -45,5 +43,13 @@ export function billingPolicy(): BillingPolicy {
         || !Number.isSafeInteger(profile.maxExecutionMs) || profile.maxExecutionMs < 1000 || profile.maxExecutionMs > 30000) throw new Error();
     }
     return p;
+  } catch { throw new AppError("Tarif compute absent, invalide ou périmé", 503); }
+}
+
+export function billingPolicy(): BillingPolicy {
+  try {
+    const path = process.env.RUNNER_BILLING_POLICY_FILE;
+    if (!path) throw new Error();
+    return validateBillingPolicy(JSON.parse(readFileSync(path, "utf8")));
   } catch { throw new AppError("Tarif compute absent, invalide ou périmé", 503); }
 }

@@ -14,6 +14,7 @@ test("les CLI runner démarrent avec les seuls paquets de production et l'enviro
   const root = mkdtempSync(join(tmpdir(), "sirius-cli-prod-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const name of ["package.json", "tsconfig.json", "scripts/check-runner-finality.ts", "scripts/runner-replay.ts",
+    "scripts/initialize-runner-volume.ts", "src/lib/billing/config.ts", "src/lib/runner/budget-ledger.ts",
     "src/lib/evm/client.ts", "src/lib/evm/networks.ts", "src/lib/evm/finality.ts", "src/lib/runner/replay.ts", "src/lib/app-error.ts"]) {
     mkdirSync(dirname(join(root, name)), { recursive: true });
     copyFileSync(name, join(root, name));
@@ -58,4 +59,11 @@ test("les CLI runner démarrent avec les seuls paquets de production et l'enviro
   assert.match((await run("scripts/runner-replay.ts", "init", replay)).stdout, /initialisé/);
   assert.match((await run("scripts/runner-replay.ts", "check", replay)).stdout, /disponible/);
   await assert.rejects(run("scripts/runner-replay.ts", "init", replay), { code: 1 });
+  await assert.rejects(run("scripts/initialize-runner-volume.ts", root), (error: unknown) => {
+    const result = error as { code: number; stderr: string };
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Initialisation refusée/);
+    assert.doesNotMatch(result.stderr, /MODULE_NOT_FOUND|Cannot find module/);
+    return true;
+  });
 });
