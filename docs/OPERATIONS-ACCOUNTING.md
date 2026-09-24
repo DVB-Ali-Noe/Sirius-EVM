@@ -9,7 +9,7 @@ Rien de ce qui suit n'active Phala, n'engage de dépense, ne modifie un compte f
 | Tranche | Livrable | État |
 |---|---|---|
 | A2.0 Contrat d'export | `accounting-export.mjs`, exemple `fixtures/runner-accounting-export.v1.json`, générateur `accounting-fixture.ts` | Fait, testé |
-| A2.1 Rapprochement comptable | Moteur de rapprochement export + événements + factures | **À faire** (modèle Fable 5.1) |
+| A2.1 Rapprochement comptable | `reconcile.mjs`, kit `escrow-testkit.ts`, relevés réels v5/v6 en fixtures | Fait, testé, vérifié sur les relevés réels |
 | A2.2 Relevé des escrows | `escrow-events.ts` et sa CLI | Fait, testé, vérifié sur le RPC public |
 | A2.3 Tarifs et financement des essais | `deploy/operations/tariff-proposal.json`, `tariffs.mjs` | Fait, proposé, non approuvé |
 | A2.4 Limites fournisseurs | `deploy/operations/supplier-limits.json`, `supplier-limits.mjs` | Fait ; tableaux de bord à relever |
@@ -19,7 +19,7 @@ Rien de ce qui suit n'active Phala, n'engage de dépense, ne modifie un compte f
 | A2.8 Matrice navigateur | [BROWSER-TEST-MATRIX.md](BROWSER-TEST-MATRIX.md) | Fait |
 | Pilote | [PILOT-INTERVIEWS.md](PILOT-INTERVIEWS.md) | Guide prêt ; entretiens à mener |
 
-Validation locale sous Linux (WSL Ubuntu, Node 22.23.2, même version que la CI) : **49 tests d'exploitation**, typage et lint réussis. Trois tests historiques d'archives échouent sous Windows seulement, faute de permissions POSIX ; ils passent sous Linux.
+Validation locale sous Linux (WSL Ubuntu, Node 22.23.2, même version que la CI) : **56 tests d'exploitation**, typage et lint réussis. Trois tests historiques d'archives échouent sous Windows seulement, faute de permissions POSIX ; ils passent sous Linux.
 
 ## Commandes à ajouter au manifeste (intégration Noé)
 
@@ -31,7 +31,8 @@ Le manifeste reste sous la responsabilité de Noé. Les nouveaux tests sont déj
 "ops:tariffs": "node scripts/operations/tariffs.mjs",
 "ops:suppliers": "node scripts/operations/supplier-limits.mjs",
 "ops:supervise": "node scripts/operations/supervisor.mjs",
-"ops:restore-gap": "node scripts/operations/restore-gap.mjs"
+"ops:restore-gap": "node scripts/operations/restore-gap.mjs",
+"ops:reconcile": "node scripts/operations/reconcile.mjs"
 ```
 
 ## A2.0 — Contrat de l'export runner
@@ -150,6 +151,30 @@ Deux constats nouveaux par rapport au relevé du 23 septembre :
 - Adresses des escrows v5 et v6 dans `SIRIUS_LEGACY_ESCROW_ADDRESSES`.
 - Répertoire anti-rejeu : conserver `grant` et `capability`.
 
-## A2.1 — Rapprochement comptable (à faire)
+## A2.1 — Rapprochement comptable
 
-Entrées prêtes : export validé (A2.0), relevé des escrows (A2.2), bornes de conversion (A2.3). Reste à écrire le moteur qui classe chaque montant (revenu acquis, dû aux clients et providers, charge engagée, réservation, incertain), rapproche les références de l'export avec les événements et les factures, et liste les écarts sans jamais compter un dépôt remboursable comme un revenu.
+`ops:reconcile export.json releve.json[,releve2.json] --sirius=0xBENEFICIAIRE,0xRUNNER --decimals=18 [--invoices=f] [--receipts=f] [--previous=rapprochement-precedent.json] [--eth-usd-upper=MICROS]` croise l'export du registre (A2.0), le relevé des escrows (A2.2), les factures fournisseurs et, s'ils sont joints, les reçus de transactions. Les bornes USD/USDC viennent de la proposition tarifaire. Code de sortie : 0 sans écart, 1 avec avertissements, 2 avec écarts critiques, 3 si une entrée est illisible.
+
+Chaque montant tombe dans une seule case :
+
+| Case | Source | Règle |
+|---|---|---|
+| Revenu acquis | Crédits on-chain aux comptes Sirius | Compute d'un prêt réglé, retenue d'un échec mesuré ou d'un remboursement à échéance ; converti au plancher USD/USDC, arrondi bas. Séparé en « dans l'escrow » et « retiré ». |
+| Dû aux tiers | Crédits aux autres comptes moins leurs retraits | Dataset des providers, remboursements des borrowers ; converti au plafond, arrondi haut. |
+| Dépôts verrouillés | Prêts sans résolution jusqu'au bloc stable | Remboursables : jamais un revenu, même au nom du bénéficiaire compute. |
+| Charges engagées | Factures payées ou dues ; gas réel des reçus | Gas converti au plafond ETH/USD si la borne est fournie, sinon laissé en wei. |
+| Provisions | Factures estimées | Ni engagées ni ignorées. |
+| Réservations | Totaux de l'export | Expositions maximales : ni revenus ni charges. |
+| Incertain | Transactions en attente, calculs sans checkpoint durable, reçus d'échec non enregistrés on-chain | Conservé hors revenus et hors charges. |
+
+Le lien entre registre et chaîne est exact : un devis s'appelle `loan:chainId:escrow:loanKey` et son règlement `release:` ou `failure:` avec les mêmes références ; le hash de transaction de l'opération doit porter l'événement `LoanReleased` ou `LoanFailed` de ce prêt. Écarts signalés, jamais corrigés, par gravité :
+
+- **Critiques :** règlement v7 on-chain sans opération dans le registre (autre instance ou registre perdu), transaction minée sans l'événement attendu, consommation enregistrée différente du reçu d'échec, retenue supérieure au plafond du verrouillage, retraits supérieurs aux crédits, total alloué incohérent, état revenu en arrière depuis le rapprochement précédent, ligne du registre disparue.
+- **Avertissements :** règlement réussi selon le registre mais absent de la chaîne jusqu'au bloc stable, transaction en attente déjà minée (lancer `runner:transactions reconcile`), calcul incertain, reçu d'échec non enregistré, verrouillage introuvable, gas réel inconnu, journal non décodé.
+- **Informations :** escrow historique v5/v6 sans registre, escrow non relevé, remboursement réclamé par le borrower, facture estimée, reçu sans opération.
+
+Rejouer le rapprochement avec un export plus récent met à jour les observations : la clé d'une entrée est (chainId, wallet, nature, identifiant), la première date d'observation est conservée et rien n'est compté deux fois. Le résultat « acquis moins engagé » est indicatif : revenus au plancher, charges au plafond, hors réservations et incertains ; ce n'est pas un PnL et il n'inclut aucun apport, dépôt ni token testnet.
+
+Vérifié sur les relevés réels v5 et v6 (fixtures versionnées) : aucun revenu Sirius, 120 USDC dus à cinq comptes historiques, un prêt v6 de 10 USDC encore verrouillé, aucun écart critique. Les tests rejouent aussi, avec de vrais événements encodés par les ABI : un succès réglé, un échec mesuré, un calcul incertain, un devis jamais verrouillé, un règlement orphelin, une retenue au-dessus du plafond, un retrait sans crédit, un recul du registre, des factures et des reçus.
+
+Reste hors du moteur : la trésorerie réellement disponible (soldes bancaires et wallets) et le rapprochement des factures avec les périodes d'usage, qui demandent les relevés des comptes fournisseurs (A2.4).
