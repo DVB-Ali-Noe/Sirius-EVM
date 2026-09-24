@@ -220,6 +220,8 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Enveloppe de livraison incompatible": "Incompatible delivery envelope",
   "Enveloppe manquante": "Envelope missing",
   "Erreur interne — réessaye.": "Internal error — please try again.",
+  "Fichier introuvable sur IPFS": "File not found on IPFS",
+  "Stockage IPFS indisponible — réessaie dans un instant.": "IPFS storage is unavailable — try again in a moment.",
   "Erreur runner": "Runner error",
   "Escrow USDC déjà réglé": "USDC escrow already settled",
   "Escrow USDC non remboursable": "USDC escrow cannot be refunded",

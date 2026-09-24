@@ -32,6 +32,8 @@ const MONTANT_ETH = "0.0002";
 const SEUIL_ETH = parseEther("0.00005");
 /** Réserve du distributeur en dessous de laquelle on refuse plutôt que d'échouer à mi-course. */
 const RESERVE_MINIMALE = parseEther("0.0005");
+/** En dessous, on prévient avant de refuser : le temps de recharger, pas de constater. */
+const RESERVE_ALERTE = parseEther("0.004");
 let distributionQueue: Promise<void> = Promise.resolve();
 
 function enqueueDistribution<T>(operation: () => Promise<T>): Promise<T> {
@@ -41,21 +43,25 @@ function enqueueDistribution<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function distributeurAccount() {
-  // À défaut de clé dédiée, celle du vérificateur KYB : c'est le seul compte
-  // opérationnel approvisionné dont l'application dispose, et sur une démonstration
-  // les deux rôles se confondent — la maison paie le gas dans les deux cas. Séparer
-  // les deux clés reste préférable dès qu'il y a autre chose qu'un réseau de test.
-  const key = (process.env.SIRIUS_FAUCET_KEY ?? process.env.SIRIUS_KYB_VERIFIER_KEY)?.trim();
+  // Clé dédiée, sans repli sur celle du vérificateur KYB.
+  //
+  // Les deux rôles ont longtemps partagé un compte : la maison paie le gas dans les deux
+  // cas, et sur une démonstration la distinction paraissait cosmétique. Elle ne l'est
+  // pas. Le faucet est la seule dépense qu'un visiteur déclenche librement ; l'attestation
+  // KYB est ce qui lui ouvre l'emprunt comme la publication. Les confondre revient à
+  // laisser n'importe qui, en vidant la réserve, retirer le KYB à tout le monde — une
+  // panne dont la cause n'a aucun rapport visible avec son effet.
+  //
+  // La séparation devient pressante dès que créer un compte ne demande plus d'installer
+  // un portefeuille.
+  const key = process.env.SIRIUS_FAUCET_KEY?.trim();
   if (!key) throw new AppError("Distribution indisponible : aucun compte distributeur configuré", 503);
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new AppError("Clé du distributeur malformée", 500);
   return privateKeyToAccount(key as Hex);
 }
 
 export function faucetAvailable(): boolean {
-  return (
-    isDemoDeployment() &&
-    Boolean((process.env.SIRIUS_FAUCET_KEY ?? process.env.SIRIUS_KYB_VERIFIER_KEY)?.trim())
-  );
+  return isDemoDeployment() && Boolean(process.env.SIRIUS_FAUCET_KEY?.trim());
 }
 
 export interface FaucetResult {
@@ -78,6 +84,11 @@ async function distribuerFondsDeTestEnSerie(destinataire: string): Promise<Fauce
   // frappe l'USDC puis échoue sur l'ETH laisserait le visiteur avec des jetons qu'il
   // ne peut pas dépenser, ce qui est pire que de ne rien lui donner.
   const reserve = await publicClient.getBalance({ address: account.address });
+  if (reserve < RESERVE_ALERTE) {
+    // Journal seulement : sur un hébergeur serverless c'est le seul canal qui survit à la
+    // requête, et une alerte n'a pas à interrompre la distribution en cours.
+    console.warn(`[faucet] réserve basse : ${formatEther(reserve)} ETH — recharger ${account.address}`);
+  }
   if (reserve < RESERVE_MINIMALE) {
     throw new AppError(
       `Distributeur épuisé (${formatEther(reserve)} ETH) — préviens l'équipe pour qu'elle le recharge`,

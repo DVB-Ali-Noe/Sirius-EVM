@@ -33,6 +33,29 @@ interface AnnouncedWallet {
 
 const CLE_CHOIX = "sirius.wallet.rdns";
 
+/**
+ * Identifiant du portefeuille embarqué dans cette table.
+ *
+ * EIP-6963 est une annonce faite par les extensions ; un portefeuille embarqué ne s'annonce
+ * pas. On lui réserve donc un `rdns` que personne d'autre ne peut revendiquer, pour qu'il
+ * soit choisi, mémorisé et retrouvé exactement comme les autres.
+ *
+ * Il vit ici et non dans `embedded.ts` pour que ce module puisse le reconnaître sans
+ * importer le SDK : l'importer chargerait plusieurs centaines de kilo-octets sur toutes les
+ * pages, y compris pour les visiteurs qui n'utiliseront jamais la connexion sociale.
+ */
+export const EMBEDDED_RDNS = "com.sirius.embedded";
+
+/** Sans Client ID, la connexion sociale n'est pas proposée du tout. */
+export function embeddedConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim());
+}
+
+/** Vrai si c'est le portefeuille embarqué que l'utilisateur a choisi. */
+export function embeddedSelected(): boolean {
+  return selectedWalletRdns() === EMBEDDED_RDNS;
+}
+
 const decouverts = new Map<string, AnnouncedWallet>();
 let ecouteDemarree = false;
 let choixSession: string | null | undefined;
@@ -46,6 +69,52 @@ export function subscribeWalletChanges(listener: () => void): () => void {
   abonnements.add(listener);
   detectedWallets();
   return () => { abonnements.delete(listener); };
+}
+
+/**
+ * Les opérations du portefeuille embarqué qui ne passent pas par EIP-1193.
+ *
+ * Un portefeuille embarqué n'a ni sélecteur de comptes ni permissions accordées à un site :
+ * `wallet_requestPermissions` et `wallet_revokePermissions` n'y ont pas d'équivalent, et
+ * changer de chaîne se demande au SDK plutôt qu'au provider. Ces trois gestes doivent donc
+ * être fournis à part.
+ */
+export interface EmbeddedWallet {
+  /** `null` tant qu'aucune session n'est ouverte. */
+  provider(): Eip1193Provider | null;
+  switchChain(chainId: string): Promise<void>;
+  logout(): Promise<void>;
+}
+
+/**
+ * Implémentation posée par `embedded.ts` au moment où il est chargé.
+ *
+ * L'inversion est délibérée : c'est le SDK qui se déclare ici, et non ce module — ni
+ * `manager.ts` — qui va le chercher. Tous deux sont importés par à peu près tout le reste
+ * de l'application ; un import direct entraînerait le SDK dans le bundle de chaque page,
+ * y compris pour les visiteurs qui ne se connecteront jamais.
+ */
+let embarque: EmbeddedWallet | null = null;
+
+export function registerEmbeddedWallet(wallet: EmbeddedWallet): void {
+  embarque = wallet;
+  notifier();
+}
+
+/**
+ * Signale que l'ensemble des portefeuilles disponibles a changé.
+ *
+ * Une extension s'annonce d'elle-même ; une session sociale, non. Quand elle s'ouvre ou se
+ * rouvre, c'est au SDK de le dire, sinon le connecteur resterait lié à ce qu'il avait vu au
+ * montage — c'est-à-dire à rien.
+ */
+export function notifyWalletChange(): void {
+  notifier();
+}
+
+/** `null` tant que `embedded.ts` n'a pas été chargé — donc tant qu'il n'a pas servi. */
+export function embeddedWallet(): EmbeddedWallet | null {
+  return embarque;
 }
 
 function demarrerEcoute(): void {
@@ -124,6 +193,12 @@ export function selectedProvider(): Eip1193Provider | null {
   if (typeof window === "undefined") return null;
   const rdns = selectedWalletRdns();
   if (!rdns) return null;
+
+  // Le portefeuille embarqué n'est pas dans la table des annonces : il n'en fait jamais.
+  // Tant que `embedded.ts` n'a pas été chargé, le lecteur est absent et l'appelant reçoit
+  // `null` — ce qui est la bonne réponse, puisqu'il n'y a effectivement aucune session
+  // sociale ouverte à ce moment-là.
+  if (rdns === EMBEDDED_RDNS) return embarque?.provider() ?? null;
 
   const connu = decouverts.get(rdns)?.provider;
   if (connu) return connu;

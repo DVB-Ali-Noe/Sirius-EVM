@@ -39,6 +39,16 @@ export async function registerNode() {
       "NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS",
     ];
 
+    // Ce qu'une instance de démonstration doit fournir pour tenir sa promesse : la
+    // maison paie le gas du visiteur, sur les deux postes et depuis deux comptes
+    // distincts. Les exiger ici transforme une panne silencieuse en refus de démarrer —
+    // sans la clé du faucet, « Ajouter des fonds » se rabattrait sur MoonPay, qui n'a
+    // rien à vendre sur un testnet, et le visiteur lirait « indisponible » sans que
+    // personne ne sache pourquoi.
+    if (DEMO) {
+      requises.push("SIRIUS_FAUCET_KEY", "SIRIUS_KYB_VERIFIER_KEY");
+    }
+
     // Ce que seule une instance adossée à une enclave réelle peut fournir. En
     // démonstration ces valeurs n'existent pas encore — les exiger reviendrait à
     // interdire la démonstration.
@@ -56,6 +66,18 @@ export async function registerNode() {
 
     for (const name of requises) {
       if (!process.env[name]) throw new Error(`${name} obligatoire en production`);
+    }
+
+    // Le devnet de Web3Auth fait tourner ses clés : un compte créé dessus finit inaccessible,
+    // avec ses datasets. Acceptable sur une recette hébergée en *.vercel.app, pas sur le
+    // domaine public — et une valeur absente ou mal orthographiée retombe justement sur le
+    // devnet, sans erreur. D'où un refus explicite plutôt qu'un défaut silencieux.
+    if (
+      process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim() &&
+      process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK?.trim() !== "sapphire_mainnet" &&
+      !/^https:\/\/[a-z0-9-]+\.vercel\.app\/?$/i.test(process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim() ?? "")
+    ) {
+      throw new Error("NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet obligatoire hors staging");
     }
 
     if (
@@ -112,5 +134,21 @@ export async function registerNode() {
   if (process.env.SIRIUS_REAPER_ENABLED === "true") {
     const { startLoanReaper } = await import("@/lib/sirius/reaper");
     startLoanReaper();
+  }
+
+  // Annonce le compte de règlement, comme le runner autonome le fait à son démarrage.
+  //
+  // Escrow v6 grave dans son constructeur l'unique adresse autorisée à signer un lock, et
+  // cette adresse est dérivée de la master key. Quand le runner tourne dans ce processus,
+  // c'est donc ici — et nulle part ailleurs — qu'on peut la lire sans sortir la clé de
+  // l'environnement. Une instance qui délègue à un runner distant ne la connaît pas :
+  // le sien vient de sa propre clé, et l'afficher d'ici induirait en erreur.
+  if (!process.env.RUNNER_URL) {
+    try {
+      const { runnerSettlementAddress } = await import("@/lib/evm/escrow");
+      console.log(`[sirius] compte de règlement EVM (runner in-process) : ${runnerSettlementAddress()}`);
+    } catch {
+      // Pas de master key exploitable dans ce processus : rien à annoncer.
+    }
   }
 }

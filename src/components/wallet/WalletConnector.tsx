@@ -7,7 +7,7 @@ import { hasRunnerDelegation } from "@/lib/runner/authorization-client";
 import { tryNormalizeAddress } from "@/lib/evm/address";
 import { EVM_CHAIN_IDS, resolveClientNetwork, type EvmNetwork } from "@/lib/evm/networks";
 import { connectExternalWallet, getExternalWallet } from "@/lib/wallet/manager";
-import { subscribeWalletChanges } from "@/lib/wallet/discovery";
+import { EMBEDDED_RDNS, embeddedSelected, selectWallet, subscribeWalletChanges } from "@/lib/wallet/discovery";
 import { useWalletStore } from "@/stores/wallet";
 
 function networkForChain(chainId: unknown): string {
@@ -70,6 +70,43 @@ export function openWalletModal(): void {
     useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
     void synchroniserSession(normalized, () => getExternalWallet() === wallet && useWalletStore.getState().address === normalized && useWalletStore.getState().network === networkForChain(chainId));
   }).catch((error) => console.error("Connexion wallet EVM échouée", error));
+}
+
+/**
+ * Ouvre la connexion sociale et adopte le compte obtenu.
+ *
+ * Le SDK n'est chargé qu'ici, à l'instant du clic : il pèse plusieurs centaines de
+ * kilo-octets, et l'immense majorité des visiteurs d'une page publique ne s'en servira
+ * jamais. Un import statique l'aurait mis dans le bundle de chaque page.
+ *
+ * Le choix n'est mémorisé qu'après une connexion réussie. Une fenêtre Google refermée sans
+ * rien valider ne doit pas laisser l'application convaincue qu'un portefeuille embarqué est
+ * sélectionné — elle refuserait alors l'extension que l'utilisateur voulait peut-être.
+ *
+ * Côté serveur, la source reste « external » : c'est une EOA qui a signé, et rien dans
+ * Sirius n'a besoin de savoir d'où venait sa clé.
+ */
+export function openEmbeddedWallet(): Promise<void> {
+  clearWalletDisconnected();
+  return (async () => {
+    const { connectEmbedded } = await import("@/lib/wallet/embedded");
+    const { address, chainId } = await connectEmbedded();
+    if (walletDisconnectedByUser()) return;
+    const normalized = tryNormalizeAddress(address);
+    if (!normalized) throw new Error("Adresse EVM invalide.");
+    selectWallet(EMBEDDED_RDNS);
+    useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
+    void synchroniserSession(normalized, () =>
+      useWalletStore.getState().address === normalized &&
+      useWalletStore.getState().network === networkForChain(chainId),
+    );
+  })().catch((error) => {
+    // Journalisé *et* relancé : la console sert au diagnostic, mais l'utilisateur qui vient
+    // de cliquer doit voir qu'il s'est passé quelque chose. Un bouton silencieux se lit
+    // comme un bouton cassé, et c'est exactement ce qu'on a vécu en recette.
+    console.error("Connexion Google échouée", error);
+    throw error;
+  });
 }
 
 export function WalletConnector() {
@@ -139,6 +176,15 @@ export function WalletConnector() {
         provider.removeListener?.("chainChanged", onChainChanged);
       };
     };
+    // Une extension s'annonce d'elle-même ; une session sociale, non. Si c'est elle que
+    // l'utilisateur avait choisie, il faut la rouvrir pour qu'un provider existe — le SDK
+    // garde sa session dans le stockage du navigateur alors que le store, lui, ne persiste
+    // pas. La reprise signale ensuite le changement, ce qui relance `bind`.
+    if (embeddedSelected()) {
+      void import("@/lib/wallet/embedded")
+        .then(({ restoreEmbedded }) => restoreEmbedded())
+        .catch(() => {});
+    }
     const unsubscribe = subscribeWalletChanges(bind);
     bind();
     return () => {
