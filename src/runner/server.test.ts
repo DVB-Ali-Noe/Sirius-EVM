@@ -25,6 +25,7 @@ async function request(
   body = "{}",
   includeLength = true,
   raTlsEvidence?: RunnerRaTlsEvidence,
+  bootstrapOnly = false,
 ): Promise<TestResponse> {
   const req = Readable.from(method === "POST" ? [body] : []) as IncomingMessage;
   Object.assign(req, {
@@ -49,7 +50,7 @@ async function request(
     },
   } as unknown as ServerResponse;
 
-  await handleRunnerRequest(req, res, raTlsEvidence);
+  await handleRunnerRequest(req, res, raTlsEvidence, bootstrapOnly);
   return { status, body: JSON.parse(responseBody) as unknown };
 }
 
@@ -67,6 +68,8 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     ingressKeySha256: "78".repeat(32),
     masterKeyChainSha256: "9a".repeat(32),
     quote: "56",
+    settlementAddress: `0x${"11".repeat(20)}`,
+    bootstrapOnly: false,
   };
   const raTls = await request("GET", "/ra-tls", undefined, "{}", true, evidence);
   assert.equal(raTls.status, 200);
@@ -147,4 +150,19 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     trainingBody,
   );
   assert.equal(trainingWrongScope.status, 401);
+});
+
+test("l’amorçage expose la preuve et refuse toutes les opérations, même autorisées", async () => {
+  const health = await request("GET", "/health", undefined, "{}", true, undefined, true);
+  assert.deepEqual(health, { status: 200, body: { status: "bootstrap" } });
+  const evidence: RunnerRaTlsEvidence = {
+    certificateSha256: "12".repeat(32), composeHash: "34".repeat(32), eventLog: "[]",
+    ingressKeySha256: "78".repeat(32), masterKeyChainSha256: "9a".repeat(32), quote: "56",
+    settlementAddress: `0x${"11".repeat(20)}`, bootstrapOnly: true,
+  };
+  assert.deepEqual((await request("GET", "/ra-tls", undefined, "{}", true, evidence, true)).body, evidence);
+  for (const op of ["dataset-ingress-key", "seal-dataset", "prepare-escrow-lock", "run-training", "run-loan-job", "settle-loan", "loan-model-key", "self-train-key"] as const) {
+    const response = await request("POST", `/${op}`, issueRunnerCapability(op, {}), "{}", true, evidence, true);
+    assert.equal(response.status, 503, op);
+  }
 });

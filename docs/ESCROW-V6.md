@@ -2,6 +2,8 @@
 
 État local sur staging au 13 septembre 2026. Aucun contrat ni environnement distant n'a été modifié pendant cette correction. Les observations initiales sont conservées dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
 
+**Priorité de reprise du 23 septembre :** avant un nouveau déploiement pour Phala, valider les risques restants de la [facturation du compute au borrower](COMPUTE-BILLING.md). Le [contrat v7 et ses tests](ESCROW-V7.md), ainsi que le [parcours applicatif signé](BILLING-INTEGRATION.md), sont intégrés localement ; le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs des limites bloquantes. Ce document conserve les garanties et procédures v6 comme référence historique : il ne déclenche pas un redéploiement v6 intermédiaire. Lire [PHALA.md](PHALA.md) pour l’état actuel et la contrainte de crédits.
+
 ## Front et authentification
 
 - **F1** : la découverte EIP-6963 notifie les changements de provider ; le connecteur détache les anciens listeners, s'abonne au wallet choisi et ignore les retours obsolètes. Une annonce tardive est prise en compte. Un changement de compte est appliqué avant l'attente réseau pour ne pas être perdu si `chainChanged` arrive immédiatement après.
@@ -12,7 +14,7 @@
 
 `SiriusEscrow` passe de **v5 à v6**. Son constructeur reçoit une quatrième adresse, `lockAuthorizer`, immuable et non nulle. Elle doit correspondre au compte de règlement dérivé par le runner depuis sa master key. Seule son adresse publique est copiée dans `SIRIUS_LOCK_AUTHORIZER` pour le déploiement.
 
-`lock` reçoit un huitième argument `{ deadline, signature }`. La signature EIP-712 porte sur le hash des conditions exactes : borrower, provider, montant atomique, hashlock, durée de challenge, hash du prêt, titre dataset et profil d'entraînement. Le domaine contient `SiriusEscrow`, la version `6`, le `chainId` et l'adresse du contrat. L'expiration est également signée. Les signatures malformées, les valeurs `s` non canoniques et les mauvais signataires sont refusés. La clé unique du prêt empêche une deuxième consommation, même après règlement ou remboursement.
+`lock` reçoit un huitième argument `{ deadline, signature }`. La signature EIP-712 porte sur le hash des conditions exactes : borrower, provider, montant atomique, hashlock, durée de challenge, hash du prêt, titre dataset et profil d'entraînement. Le domaine contient `SiriusEscrow`, la version `6`, le `chainId` et l'adresse du contrat. L'expiration est également signée ; le code local refuse désormais une autorisation valable plus de cinq minutes au moment du lock. Ce changement Solidity exige un nouveau déploiement et ne modifie pas l'escrow déjà déployé. Les signatures malformées, les valeurs `s` non canoniques et les mauvais signataires sont refusés. La clé unique du prêt empêche une deuxième consommation, même après règlement ou remboursement.
 
 Le runner ne reçoit pas un hashlock libre à signer : il le dérive lui-même. L'opération `prepare-escrow-lock` exige une capability Next liée au dataset, au prêt et au borrower. Elle vérifie le reçu provider et le titre on-chain, puis signe les conditions du reçu. Elle ne renvoie que le hashlock et l'autorisation, jamais le préimage.
 
@@ -25,6 +27,8 @@ Les anciens sélecteurs `lock` v4/v5 restent décodables uniquement pour l'histo
 Le worker reaper peut démarrer sur le couple Escrow v5 / DatasetRegistry v4 existant et continuer ses réconciliations pendant la transition. Il vérifie les versions et les liaisons réciproques avec un contrôle distinct de celui des nouveaux prêts, qui restent réservés à v6. Le contrôle de lecture du worker ne valide pas le cache des nouvelles préparations.
 
 ## Déploiement et migration staging
+
+Le passage du runner in-process à Phala exige un nouvel escrow v6 même si le contrat courant est déjà en v6 : sa nouvelle master key produit un autre `lockAuthorizer`. Le registre dataset associé doit également être redéployé. Dans ce cas, ne pas transférer l’ancienne master key dans la CVM ; la conservation de clé évoquée ci-dessous concerne les changements de contrats sous une même identité runner. Suivre [PHALA.md](PHALA.md) pour l’amorçage sans contrats, la réimportation et la préservation séparée des modèles historiques.
 
 Un merge de code ne transforme pas les contrats existants. Le contrat escrow est immuable et le registre dataset ne peut lier qu'un escrow, une seule fois : **un nouvel escrow v6 et un nouveau registre v4 associé sont nécessaires**. Le script de déploiement crée aussi un registre KYB. Le correctif A8 du 13 septembre fait passer le registre strict à **v3**, avec un domaine EIP-712 version **2** et le champ signé `uint64 verifierEpoch`. Prévoir de nouvelles attestations si le mode KYB gouverné est utilisé ; une signature de l’ancien registre est inutilisable sur le nouveau. Le registre ouvert de démonstration reste distinct et ne fournit pas ces garanties. Le token USDC peut rester le même.
 

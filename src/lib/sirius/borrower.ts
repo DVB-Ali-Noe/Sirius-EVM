@@ -1,6 +1,6 @@
 import "server-only";
 import type { Hex } from "viem";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
 import { datasetRegistryAddress, escrowAddress } from "@/lib/evm/addresses";
@@ -9,7 +9,10 @@ import { getPublicClient } from "@/lib/evm/client";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { readLoan } from "@/lib/evm/escrow";
-import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
+import { approveUsdcTransaction, lockUsdcTransaction, lockQuotedUsdcTransaction } from "@/lib/evm/transaction";
+import { billingEnabled } from "@/lib/billing/config";
+import { computeQuoteHash, totalQuoteAmount } from "@/lib/billing/quote";
+import { assertBilledLock, loanBillingQuote, verifyPreparedComputeQuote } from "@/lib/billing/loan";
 import { prepareEscrowLockInRunner } from "@/lib/tee/runner-client";
 import { lockAuthorizationDeadline } from "./lock-policy";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
@@ -18,6 +21,7 @@ import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -43,6 +47,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
+  const runner = await assertCurrentRunner(dataset);
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
   // Le contrat exige les deux KYB. Sans ce contrôle, l'échec surviendrait après
@@ -57,7 +62,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
 
-  const loan = await prisma.$transaction(async (tx) => {
+  const loan = await serializableTransaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([
       tx.loan.count({ where: { borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] } } }),
       tx.loan.count({
@@ -90,22 +95,33 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         amountUsdcAtomic,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
+        ...runner,
       },
     });
   });
 
   try {
     const binding = evmEscrowBinding();
-    const preparedBlock = await getPublicClient().getBlockNumber();
-    const { hashlock, authorization } = await prepareEscrowLockInRunner({
+    const preparedBlock = await getPublicClient().getBlockNumber({ cacheTime: 0 });
+    const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
       datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
     }, dataset.runnerReceipt, loan.id, borrowerAddress,
     lockAuthorizationDeadline(loan.createdAt));
+    if (billingEnabled() !== Boolean(billingQuote)) throw new AppError("Devis compute absent du prêt", 503);
+    const signedQuote = billingQuote ? await verifyPreparedComputeQuote(billingQuote) : undefined;
+    if (signedQuote && (signedQuote.quote.datasetAmount !== amountUsdcAtomic || signedQuote.quote.onChainDatasetId !== dataset.evmDatasetId
+      || signedQuote.quote.hashlock !== hashlock)) throw new AppError("Devis compute hors scope", 409);
+    const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
     const prepared = await prisma.loan.update({
       where: { id: loan.id },
       data: {
+        ...(signedQuote ? {
+          amountUsdcAtomic: total, billingQuote: JSON.stringify(signedQuote), billingQuoteHash: computeQuoteHash(signedQuote.quote),
+          datasetAmountUsdcAtomic: signedQuote.quote.datasetAmount, computeAmountUsdcAtomic: signedQuote.quote.computeAmount,
+          maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee,
+        } : {}),
         evmLoanKey: loanKey,
         evmHashlock: hashlock,
         evmChainId: binding.chainId,
@@ -114,10 +130,12 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         evmDeadline: new Date(Date.now() + dataset.challengeDays * 86_400_000),
       },
     });
+    if (signedQuote) loanBillingQuote(prepared);
     return {
       loan: prepared,
-      approveTransaction: approveUsdcTransaction(amountUsdcAtomic),
-      lockTransaction: lockUsdcTransaction({
+      billingQuote: signedQuote,
+      approveTransaction: approveUsdcTransaction(total),
+      lockTransaction: signedQuote ? lockQuotedUsdcTransaction(signedQuote) : lockUsdcTransaction({
         provider: dataset.provider,
         datasetId: dataset.evmDatasetId as Hex,
         amount: amountUsdcAtomic,
@@ -141,6 +159,7 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, address)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   const dataset = loan.dataset;
+  const signedQuote = loanBillingQuote(loan);
   const binding = evmEscrowBinding();
   if (loan.status !== "PENDING" || loan.evmLockTxHash || !loan.evmLoanKey ||
     loan.evmChainId !== binding.chainId || loan.evmEscrowAddress !== binding.escrow) {
@@ -149,19 +168,27 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   const deadline = lockAuthorizationDeadline(loan.createdAt);
   const model = modelSelection(loan.modelId, loan.modelVersion);
   if (!model || !isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId || !dataset.ipfsCid ||
-    !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt || dataset.priceUsdcAtomic !== loan.amountUsdcAtomic ||
+    !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt || dataset.priceUsdcAtomic !== (signedQuote?.quote.datasetAmount ?? loan.amountUsdcAtomic) ||
     dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
   if (await readLoan(loan.evmLoanKey as Hex)) throw new AppError("Emprunt déjà verrouillé", 409);
-  const { hashlock, authorization } = await prepareEscrowLockInRunner({
+  await assertCurrentRunner(loan);
+  await assertCurrentRunner(dataset);
+  const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
     datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
-    priceUsdcAtomic: loan.amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
+    priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
   }, dataset.runnerReceipt, loan.id, address, deadline);
   if (hashlock !== loan.evmHashlock) throw new AppError("Hashlock du runner modifié", 409);
+  if (Boolean(signedQuote) !== Boolean(billingQuote)) throw new AppError("Devis compute hors scope", 409);
+  if (billingQuote) {
+    const verified = await verifyPreparedComputeQuote(billingQuote);
+    if (computeQuoteHash(verified.quote) !== loan.billingQuoteHash) throw new AppError("Devis compute hors scope", 409);
+  }
   return {
     authorizationDeadline: authorization.deadline,
-    lockTransaction: lockUsdcTransaction({
+    billingQuote,
+    lockTransaction: billingQuote ? lockQuotedUsdcTransaction(billingQuote) : lockUsdcTransaction({
       provider: loan.provider, datasetId: dataset.evmDatasetId as Hex, amount: loan.amountUsdcAtomic,
       hashlock, challengeDays: dataset.challengeDays, loanId, trainingProfile: trainingProfileHash(model), authorization,
     }),
@@ -173,7 +200,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrowerAddress)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
-  if (loan.status === "ESCROWED" && loan.evmLockTxHash) return loan;
+  if (loan.status === "ESCROWED" && loan.evmLockTxHash) return prisma.loan.findUniqueOrThrow({ where: { id: loanId } });
   const recoverableCancellation = loan.status === "CANCELLED" && !loan.cancelTxHash;
   if (loan.status !== "PENDING" && loan.status !== "SUBMITTING" && !recoverableCancellation) {
     throw new AppError("Emprunt déjà clôturé", 409);
@@ -249,6 +276,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   ) {
     throw new AppError("Lock USDC hors scope de l’emprunt", 409);
   }
+  assertBilledLock(loan, onChain);
   const updated = await prisma.loan.updateMany({
     where: { id: loan.id, borrower: borrowerAddress, status: "SUBMITTING", evmLockTxHash: submittedLockTxHash },
     data: {

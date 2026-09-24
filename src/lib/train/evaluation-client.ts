@@ -1,8 +1,7 @@
 "use client";
 
 import { parseCsv } from "@/lib/sirius/metrics";
-import type { LinearRegressionModel, LogisticRegressionModel } from "@/lib/models/registry";
-import type { DeliveredModel } from "./model-client";
+import type { DownloadedModel, HistoricalLinearRegressionModel, LinearRegressionModel, LogisticRegressionModel } from "@/lib/models/registry";
 
 export interface LinearModelEvaluation {
   algo: "linear_regression";
@@ -43,7 +42,7 @@ function binaryValue(value: string | undefined, column: string): 0 | 1 {
   throw new Error(`La colonne « ${column} » doit être strictement encodée en 0 ou 1`);
 }
 
-function score(model: DeliveredModel, values: Record<string, number>): number {
+function score(model: DownloadedModel, values: Record<string, number>): number {
   const prediction = model.features.reduce((sum, feature, index) => {
     const value = values[feature];
     if (!Number.isFinite(value)) throw new Error(`Valeur invalide pour « ${feature} »`);
@@ -57,20 +56,20 @@ function sigmoid(value: number): number {
   return value >= 0 ? 1 / (1 + Math.exp(-value)) : Math.exp(value) / (1 + Math.exp(value));
 }
 
-export function predictModel(model: LinearRegressionModel, values: Record<string, number>): Extract<ModelPrediction, { algo: "linear_regression" }>;
+export function predictModel(model: LinearRegressionModel | HistoricalLinearRegressionModel, values: Record<string, number>): Extract<ModelPrediction, { algo: "linear_regression" }>;
 export function predictModel(model: LogisticRegressionModel, values: Record<string, number>): Extract<ModelPrediction, { algo: "logistic_regression" }>;
-export function predictModel(model: DeliveredModel, values: Record<string, number>): ModelPrediction;
-export function predictModel(model: DeliveredModel, values: Record<string, number>): ModelPrediction {
+export function predictModel(model: DownloadedModel, values: Record<string, number>): ModelPrediction;
+export function predictModel(model: DownloadedModel, values: Record<string, number>): ModelPrediction {
   const value = score(model, values);
   if (model.algo === "linear_regression") return { algo: model.algo, value };
   const probability = sigmoid(value);
   return { algo: model.algo, probability, label: probability >= 0.5 ? 1 : 0 };
 }
 
-export function evaluateModelCsv(model: LinearRegressionModel, csv: string): LinearModelEvaluation;
+export function evaluateModelCsv(model: LinearRegressionModel | HistoricalLinearRegressionModel, csv: string): LinearModelEvaluation;
 export function evaluateModelCsv(model: LogisticRegressionModel, csv: string): LogisticModelEvaluation;
-export function evaluateModelCsv(model: DeliveredModel, csv: string): ModelEvaluation;
-export function evaluateModelCsv(model: DeliveredModel, csv: string): ModelEvaluation {
+export function evaluateModelCsv(model: DownloadedModel, csv: string): ModelEvaluation;
+export function evaluateModelCsv(model: DownloadedModel, csv: string): ModelEvaluation {
   const [header, ...rows] = parseCsv(csv);
   if (!header || rows.length < MIN_EVALUATION_ROWS) {
     throw new Error(`Le CSV de test doit contenir au moins ${MIN_EVALUATION_ROWS} lignes`);

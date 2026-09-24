@@ -4,6 +4,7 @@ import { prepareLoan } from "@/lib/sirius/borrower";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
+import { loanBillingQuote } from "@/lib/billing/loan";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,7 @@ export async function GET(req: Request) {
     const now = Date.now();
     return NextResponse.json(loans.map((loan) => ({
       ...loan,
+      usdcDecimals: loanBillingQuote(loan)?.quote.usdcDecimals,
       refundable:
         (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
         loan.evmDeadline !== null &&
@@ -37,9 +39,9 @@ export async function POST(req: Request) {
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
     }
-    const { loan, approveTransaction, lockTransaction } = await prepareLoan(datasetId, session.address);
+    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address);
 
-    return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction }, { status: 201 });
+    return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }

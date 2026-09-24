@@ -28,7 +28,7 @@ function stubDeployment(escrowVersion: string, registryVersion = "sirius-dataset
 test("le reaper démarre sur v5 sans autoriser les nouveaux prêts v6", async () => {
   stubDeployment("sirius-escrow-usdc-v5");
   await deployment.requireReaperEvmDeployment();
-  await assert.rejects(deployment.requireCurrentEvmDeployment(), /déploie SiriusEscrow v6/);
+  await assert.rejects(deployment.requireCurrentEvmDeployment(), /version de facturation/);
 });
 
 test("le reaper refuse les versions, liaisons et lectures RPC incompatibles", async () => {
@@ -54,4 +54,22 @@ test("le reaper et les nouveaux prêts acceptent le déploiement v6 lié", async
   stubDeployment("sirius-escrow-usdc-v6");
   await deployment.requireReaperEvmDeployment();
   await deployment.requireCurrentEvmDeployment();
+});
+
+test("activer v7 invalide le cache v6 et exige le contrat v7 lié", async () => {
+  const previous = process.env.SIRIUS_BILLING_VERSION;
+  try {
+    process.env.SIRIUS_BILLING_VERSION = "6";
+    const old = stubDeployment("sirius-escrow-usdc-v6");
+    await deployment.requireCurrentEvmDeployment();
+    process.env.SIRIUS_BILLING_VERSION = "7";
+    await assert.rejects(deployment.requireCurrentEvmDeployment(), /version de facturation/);
+    old.mock.restore();
+    stubDeployment("sirius-escrow-usdc-v7");
+    await deployment.requireCurrentEvmDeployment();
+    await deployment.requireReaperEvmDeployment();
+  } finally {
+    if (previous === undefined) delete process.env.SIRIUS_BILLING_VERSION;
+    else process.env.SIRIUS_BILLING_VERSION = previous;
+  }
 });

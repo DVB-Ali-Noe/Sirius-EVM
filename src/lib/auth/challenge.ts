@@ -8,8 +8,6 @@ import { buildDelegationMessage, parseDelegationMessage } from "@/lib/runner/aut
 const CTX = "sirius-auth-challenge";
 const TTL_MS = 5 * 60 * 1000;
 const DELEGATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_ACTIVE_PER_ADDRESS = 5;
-const MAX_ACTIVE_GLOBAL = 1_000;
 
 interface ChallengePayload {
   a: string;
@@ -35,17 +33,6 @@ export async function createChallenge(
   const now = Date.now();
   const nonce = randomBytes(16).toString("hex");
   const delegationExpiresAt = now + DELEGATION_TTL_MS;
-  await prisma.$transaction(async (tx) => {
-    await tx.authChallenge.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
-    const [forAddress, global] = await Promise.all([
-      tx.authChallenge.count({ where: { address } }),
-      tx.authChallenge.count(),
-    ]);
-    if (forAddress >= MAX_ACTIVE_PER_ADDRESS || global >= MAX_ACTIVE_GLOBAL) {
-      throw new AppError("Trop de challenges actifs — réessaie plus tard", 429);
-    }
-    await tx.authChallenge.create({ data: { nonce, address, expiresAt: new Date(now + TTL_MS) } });
-  });
   const token = signToken(
     {
       a: address,
@@ -90,8 +77,11 @@ export async function verifyChallenge(challenge: string, address: string, origin
     throw new AppError("Challenge invalide", 401);
   }
   if (Date.now() > p.exp) throw new AppError("Challenge expiré", 401);
-  const consumed = await prisma.authChallenge.deleteMany({
-    where: { nonce: p.n, address, expiresAt: { gt: new Date() } },
-  });
-  if (consumed.count !== 1) throw new AppError("Challenge invalide ou déjà utilisé", 401);
+  try {
+    await prisma.authChallenge.create({ data: { nonce: p.n, address, expiresAt: new Date(p.exp) } });
+  } catch (error) {
+    if ((error as { code?: string }).code === "P2002") throw new AppError("Challenge invalide ou déjà utilisé", 401);
+    throw error;
+  }
+  await prisma.authChallenge.deleteMany({ where: { expiresAt: { lte: new Date() } } });
 }

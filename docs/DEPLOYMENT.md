@@ -1,8 +1,24 @@
 # Branches, déploiements et authentification
 
-État du code au 12 septembre 2026. La configuration est implémentée localement sur `staging` et sera utilisée sur `main` après publication, fusion et passage de la pipeline. Une modification locale ne met pas à jour une instance déjà déployée.
+Guide actualisé le 23 septembre 2026. Les règles d'origines introduites le 12 septembre restent applicables ; la dernière revue concerne le code local. Une modification locale ne met pas à jour une instance déjà déployée et ne prouve pas l'état de sa configuration distante.
 
-Les corrections F1–F4 du 13 septembre ajoutent une migration contractuelle distincte : lire [ESCROW-V6.md](ESCROW-V6.md) avant de publier la nouvelle version. Le choix automatique des origines ne déploie pas les contrats.
+Les corrections F1–F4 du 13 septembre sont documentées dans [ESCROW-V6.md](ESCROW-V6.md), désormais référence historique pour la migration. La prochaine évolution économique suit [v7](BILLING-INTEGRATION.md), après résolution des bloqueurs. Le choix automatique des origines ne déploie pas les contrats.
+
+**Activation bloquée :** valider les limites encore ouvertes du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026), puis les tarifs, la comptabilité et les plafonds fournisseurs de la [facturation compute](COMPUTE-BILLING.md). Le [parcours v7 signé jusqu’au remboursement](BILLING-INTEGRATION.md) est intégré localement, avec budget de clôture réservé et migration Prisma additive `20260923000000_add_compute_billing` préparée. Aucun tarif réel ni migration distante n’est actif. Appliquer les migrations avant de publier le nouveau client Prisma, même en v6 ; lire les prérequis de bascule Phala. Ne pas redéployer v6 pour le seul changement de runner entre-temps.
+
+La future configuration v7 doit aligner `SIRIUS_BILLING_VERSION=7`, contrats, finalité, `RUNNER_BILLING_POLICY_FILE` et registre persistant `RUNNER_BUDGET_FILE`. Le Compose d'amorçage actuel ne réalise pas cette activation. Préserver le registre et ses intentions lors des redémarrages ; ne pas supprimer une intention incertaine pour débloquer un wallet. Une transaction confirmée est réconciliée avant le prochain envoi. Le journal chiffré autorise au plus trois envois identiques, sans nouveau nonce ni hausse des frais ; une intention toujours introuvable après ces reprises ou sans journal reste bloquée pour examen opérateur.
+
+Validations du 23 septembre : 304 tests applicatifs, 13 tests des outils d'exploitation, lint et typage applicatif lors de la dernière passe ; build validé précédemment ; 79 tests contrats, 62 tests Playwright, le parcours EVM de facturation et le typage v7 lors des passes précédentes. La CI lance aussi `test:billing`, `test:postgres`, `test:operations` et le typage dédié v7. Ces tests ne remplacent pas un parcours v7 à deux vrais wallets et sur Phala actif.
+
+**Point de reprise Phala au 23 septembre :** l'arrêt demandé par Noé est confirmé à 13:13 UTC ; le disque est conservé et reste facturé. Prévenir Noé avant toute nouvelle utilisation de Phala, avec son moment et son coût estimé. Aucune bascule Next, base, contrats ou reaper n’a été effectuée dans cette intégration. Les accès de production sont validés dans `.env.phala-production-secrets` ; Pinata est aussi configuré dans le fichier local `.env.phala`. Aucun prêt ni entraînement actif observé ; les 13 blobs de modèles historiques sont sauvegardés, leur re-livraison de clé reste à prouver. Le KYB actuel est ouvert sur testnet ; le compte local de déploiement/trésorerie est confirmé par Noé. L’export `.env.phala-production-current` contient toujours des valeurs `[SENSITIVE]` inutilisables. Lire [le point de reprise et l’ordre des opérations](PHALA.md#reprendre-ici--23-septembre-2026) avant tout déploiement main.
+
+## Préparation v7 disponible localement
+
+La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde réelle chiffrée, sa restauration/migration sur PostgreSQL 18 local et les images `linux/amd64` construites sans publication. Les identifiants PostgreSQL sont conservés à la demande de Noé. Refaire un snapshot pendant la maintenance et conserver séparément sa clé et une copie hors machine.
+
+Le Compose VPS transmet les paramètres de facturation, contrats, finalité et attestation au reaper. En v7, celui-ci refuse de démarrer sans runner distant et configuration d'attestation complète. Le délai d'arrêt de 90 secondes couvre un appel runner de 60 secondes. `pnpm ops:check-release <next.env> <reaper.env> <runner.env>` compare les trois fichiers explicites sans afficher leurs secrets ; ce contrôle ne certifie pas une attestation active ni des contrats publics.
+
+Les images doivent être publiées puis figées par digest, et leurs mesures validées avant bascule. Le superviseur d'arrêt est préparé mais non installé : le configurer et le surveiller avant tout futur démarrage autorisé. Les plafonds fournisseurs, le budget d'essais et les tarifs restent à approuver.
 
 ## Une cible par branche
 
@@ -27,6 +43,8 @@ Les deux projets Vercel utilisent chacun leur environnement **Production**. Cela
 **Branche `main`, environnement Vercel Production et réseau EVM mainnet sont trois notions distinctes.** Le réseau et les contrats restent ceux de chaque environnement. Fusionner sur main ne déploie pas de contrats, ne change pas le token et n'active pas mainnet.
 
 ## Ce qui se passe après une fusion
+
+La cible fixe aussi `SIRIUS_REQUIRE_PHALA` : `true` sur main, `false` sur staging. La production applicative exige donc le runner Phala même si le réseau reste testnet. Avant la première fusion de cette évolution sur main, terminer le runbook [PHALA.md](PHALA.md) et configurer les mesures et le runner actif ; les secrets de démonstration ne sont pas convertis automatiquement. Staging conserve le mode in-process pour les données non sensibles. Aucun sélecteur de runner n’est exposé.
 
 1. Le push sur `staging` ou `main` déclenche les tests, le typage, le lint, le build et les tests navigateur. Une PR seule ne déploie rien.
 2. La référence exacte résout le projet Vercel, l'environnement GitHub, le dossier VPS et les origines. Une branche inconnue, un tag ou une référence de PR est refusé ; aucun fallback vers staging.
@@ -128,7 +146,7 @@ pnpm test:e2e
 
 Les deux premières commandes affichent uniquement la cible versionnée, sans lire de secret, changer de branche ou appeler Git. Le smoke distant `node scripts/smoke-auth.mjs staging` vise exclusivement le déploiement staging ; son résultat dépend du code et de la configuration déjà publiés, pas des modifications locales.
 
-Les tests locaux ne prouvent pas que DNS, Vercel, la base et Phala sont correctement configurés à distance. Un domaine absent ou inaccessible fait échouer le smoke même si son alias Vercel répond. Les constats ouverts et l'état observé de staging sont dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+Les tests locaux ne prouvent pas que DNS, Vercel, la base et Phala sont correctement configurés à distance. Un domaine absent ou inaccessible fait échouer le smoke même si son alias Vercel répond. Les constats historiques et l'état observé de staging sont dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md) ; les limites actuelles figurent dans le [suivi du 23 septembre](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 ## Correctifs du 13 septembre
 

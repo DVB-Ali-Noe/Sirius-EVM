@@ -72,6 +72,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       payload.provider !== loan.provider ||
       payload.borrower !== loan.borrower ||
       payload.amountUsdcAtomic !== loan.amountUsdcAtomic ||
+      (payload.billingQuoteHash ?? null) !== (loan.billingQuoteHash ?? null) ||
       payload.challengeDays !== loan.dataset.challengeDays ||
       payload.merkleRoot !== loan.dataset.merkleRoot ||
       payload.modelId !== loan.modelId ||

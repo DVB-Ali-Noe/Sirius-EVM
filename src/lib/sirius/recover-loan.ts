@@ -10,6 +10,7 @@ import { loanKeyFor } from "@/lib/evm/loan-key";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { Loan } from "@/generated/prisma/client";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
+import { assertBilledLock } from "@/lib/billing/loan";
 
 /** Le hash absent en base n'est jamais une preuve d'absence d'escrow. */
 export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfirmedLock?: boolean } = {}): Promise<void> {
@@ -57,6 +58,7 @@ export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfi
     || onChain.amountUsdcAtomic !== loan.amountUsdcAtomic || onChain.hashlock !== loan.evmHashlock) {
     throw new AppError("Lock hors scope du prêt", 409);
   }
+  assertBilledLock(loan, onChain);
   const dataset = await prisma.dataset.findUnique({ where: { id: loan.datasetId }, select: { evmDatasetId: true, evmMintBlock: true } });
   const model = modelSelection(loan.modelId, loan.modelVersion);
   if (!dataset?.evmDatasetId || !model || onChain.datasetId !== dataset.evmDatasetId
@@ -67,7 +69,7 @@ export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfi
   if (!hash) {
     const startBlock = loan.evmPreparedBlock ?? dataset.evmMintBlock;
     if (!startBlock) throw new AppError("Bloc de préparation absent : récupère le hash du lock", 409);
-    const tip = await client.getBlockNumber();
+    const tip = await client.getBlockNumber({ cacheTime: 0 });
     for (let from = BigInt(startBlock); from <= tip && !hash; from += BigInt(2_000)) {
       const to = from + BigInt(1_999) < tip ? from + BigInt(1_999) : tip;
       const logs = await client.request({
@@ -95,7 +97,8 @@ export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfi
       evmDeadline: new Date(onChain.deadline * 1000),
       ...(state.state === "active" ? { status: "ESCROWED" as const }
         : state.state === "settled" ? { status: "SETTLED" as const, settleTxHash: state.txHash, settledAt: new Date() }
-          : { status: "CANCELLED" as const, cancelTxHash: state.txHash }),
+          : { status: "CANCELLED" as const, cancelTxHash: state.txHash,
+            ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) }),
     },
   });
   if (updated.count !== 1) throw new AppError("Réconciliation concurrente du prêt : actualise son état", 409);

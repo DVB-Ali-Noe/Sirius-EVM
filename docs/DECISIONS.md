@@ -1,5 +1,9 @@
 # Décisions
 
+Lecture actualisée au 23 septembre 2026 : les décisions décrivent la cible et les choix validés, pas une certification de leur réalisation. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les neuf constats initiaux des correctifs locaux et des limites restantes. L'activation, les tarifs et les plafonds fournisseurs restent à valider. Phala reste arrêté.
+
+Le récapitulatif des coûts et [business plan demandé par Noé](BUSINESS-PLAN.md) est une base de discussion. Son minimum proposé de 7 USDC, son prix de pilote et ses provisions ne constituent pas de nouvelles décisions commerciales ; D-22 à D-24 restent applicables.
+
 ## D-1 — Nouveau dépôt et migration EVM explicite
 
 Le dépôt repart avec un historique propre. La documentation décrit uniquement la cible EVM et l'état présent de son implémentation ; elle ne traite pas les mécanismes historiques comme une dépendance produit.
@@ -20,9 +24,11 @@ Cette séparation réduit les surfaces d'autorité : l'escrow n'a ni admin ni up
 
 ## D-4 — Fair-exchange par hashlock et paiements pull-only
 
-Le TEE ne révèle un préimage SHA-256 qu'après production du modèle. `release` publie ce préimage et crédite le provider dans la même transaction. La capsule du borrower exige le préimage, ce qui lie livraison et règlement.
+Le TEE ne révèle un préimage SHA-256 qu'après production du modèle. `release` publie ce préimage et crédite le provider dans la même transaction. En v6, la capsule du borrower exige le préimage. En v7, le runner ne remet aucune capsule avant règlement et livre la clé seulement après vérification du reçu canonique et des confirmations configurées.
 
 Les fonds sont retirés par `withdraw` après crédit. Un provider qui rejette les transferts ne peut donc ni casser une libération ni provoquer une réentrance pendant le changement d'état.
+
+**Limite ouverte S-02 :** le préimage est transmis au RPC avant confirmation. Un règlement avorté ou inclus après échéance peut le divulguer sans créditer le provider. Le parcours v7 évite de donner au borrower la capsule correspondante avant règlement, mais le nombre configuré de confirmations ne constitue pas une garantie de finalité irréversible. Valider les hypothèses RPC et de finalité avant activation.
 
 ## D-5 — Séparation de domaine obligatoire
 
@@ -36,7 +42,7 @@ Une adresse possède une attestation KYB, indépendamment de son rôle. Le même
 
 Le titre on-chain est non transférable. Il contient le hash du CID du contenu déjà chiffré, son Merkle root, sa taille et le hash du profil d'entraînement ; le nom, la description et le CID restent hors chaîne afin de ne jamais inscrire de donnée libre et permanente.
 
-Le crypto-shredding détruit la clé de dataset et laisse un tombstone on-chain : la donnée devient irrécupérable, tandis que la preuve d'existence demeure auditable.
+La cible est un crypto-shredding de la clé dataset avec tombstone on-chain et preuve d'existence conservée. Le scellement ne met plus `wrappedKey` en cache et l'ouverture du registre purge les anciennes copies actives. **L'implémentation actuelle ne garantit pas l'irrécupérabilité :** les anciennes sauvegardes et copies du WAL restent hors de cette purge (S-08). Le tombstone bloque le parcours normal, sans prouver leur effacement.
 
 ## D-8 — TEE-first
 
@@ -91,3 +97,39 @@ Le registre strict v3 signe `verifierEpoch` sous le domaine EIP-712 version `2`.
 ## D-20 — Budget à l’ingestion
 
 Le plafond de 20 millions d’opérations est partagé par validation et entraînement. Un fichier qui le dépasse est refusé avant scellement. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
+
+## D-21 — Phala unique en production, sans sélecteur VPS
+
+Décision validée pour l’intégration de septembre 2026 : Phala est l’unique runner de production, y compris lorsque la chaîne est le testnet. Le runner in-process ou VPS reste réservé au développement/staging avec des données synthétiques ou non sensibles, piloté par l’environnement. Aucun sélecteur dans l’interface et aucune bascule automatique après une panne Phala. Le VPS de production conserve le reaper.
+
+La nouvelle master key naît dans l’enclave ; celle de Vercel n’y est jamais importée. L’immuabilité de `lockAuthorizer` exige donc un nouvel escrow v6 et un registre dataset associé, même si la production utilisait déjà v6. Les anciens escrows restent autorisés pour les crédits et preuves ; les anciens modèles nécessitent la préservation séparée de leur environnement et de leurs clés. Les datasets destinés au nouveau runner sont réimportés.
+
+La provenance `runnerKind` et `runnerDeploymentId` est enregistrée sur les datasets, entraînements et prêts. Les anciennes lignes restent `UNKNOWN`, sans provenance Phala fabriquée rétroactivement. Le mode VPS économique sera étudié si un client le demande ; sa [spécification différée](RUNNER-MULTI-BACKEND.md) n’est pas le périmètre actuel. État et reprise : [PHALA.md](PHALA.md).
+
+## D-22 — Préparer le prépaiement du compute avant le prochain déploiement
+
+Le 23 septembre 2026, Noé demande de reprendre la facturation du compute au borrower avant les nouveaux contrats Phala. Orientation MVP : devis fixe garanti en USDC, distinction dataset/compute, verrouillage du total avant entraînement et crédits séparés pour le provider et la trésorerie Sirius au règlement. Aucun supplément automatique ; une erreur d’estimation doit rester dans un budget réservé, conformément à D-23. Les frais réseau restent séparés. La proposition initiale de remboursement intégral en cas d’échec sans livraison est remplacée par la politique MVP de D-23.
+
+La tarification doit couvrir le calcul et une part des frais de disponibilité et de stockage. Les tarifs et les coefficients de benchmark Phala restent à définir ; le destinataire compute testnet est confirmé en D-24 et la règle de remboursement MVP en D-23. Les montants illustratifs de la conversation ne sont pas des tarifs validés. L’escrow v6 actuel ne répartit pas ces frais ; [v7 et son parcours applicatif sont intégrés et testés localement](BILLING-INTEGRATION.md), sans déploiement public. Voir [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
+
+Cette priorité remplace l’enchaînement immédiat de D-21 vers un nouvel escrow v6 pour changer seulement le runner. La CVM demeure arrêtée pendant la préparation locale. Avant toute nouvelle utilisation Phala, y compris un benchmark, annoncer à Noé le moment et le coût estimé. Préserver les anciens contrats, crédits et modèles pendant cette évolution.
+
+## D-23 — Tarif minimum prudent et dépenses couvertes
+
+Noé demande un tarif plus élevé pour tous les emprunts, dimensionné pour une faible fréquentation, ainsi que des protections contre le drainage des wallets et les dépenses entraînant un PnL négatif. Aucun tarif chiffré n’est fixé. La spécification impose une réservation durable et atomique de l’exposition maximale avant chaque dépense, des budgets globaux indépendants des wallets clients, des limites d’exécution et de gas, un coupe-circuit et une trésorerie séparée sans recharge automatique des comptes opérationnels.
+
+**Choix confirmé pour le MVP :** en cas d’échec, rembourser le dataset et le compute non consommé ; ne retenir que les frais d’exécution engagés, justifiables, plafonnés et annoncés dans le devis. La retenue ne dépasse ni son plafond accepté ni le compute déposé ; elle n’inclut pas une marge commerciale ou une provision non consommée. Le remboursement intégral financé par une réserve limitée de marge acquise reste une possibilité ultérieure, non activée.
+
+Un escrow remboursable ou un apport financier n’est pas un bénéfice ; les charges engagées et les frais persistant après arrêt restent comptabilisés. Le mode strict peut interdire le premier démarrage en l’absence de revenus acquis. Un tarif élevé ou une réserve ne garantit pas un PnL positif sans clients, ni une absence absolue de perte face à toute panne ou compromission. Les postes impossibles à borner doivent bloquer l’exploitation concernée.
+
+Le [contrat v7 local](ESCROW-V7.md), les [budgets durables du runner](RUNNER-BUDGETS.md) et le [parcours applicatif](BILLING-INTEGRATION.md) sont raccordés, avec réservation de la clôture avant devis et mesure plafonnée des échecs. La comptabilité réconciliée, les tarifs réels et les plafonds fournisseurs de [COMPUTE-BILLING.md](COMPUTE-BILLING.md) restent nécessaires ; aucun registre réel ni budget de production n’est activé. Ces exigences ne donnent pas autorisation de redémarrer Phala, supprimer le stockage historique, financer un wallet ou modifier les abonnements distants.
+
+Le suivi de l'audit ajoute la récupération des résultats enregistrés dans SQLite après perte de la réponse Next, leur règlement sans nouveau grant et le refus d'un devis v7 absent. Le journal chiffré permet au plus trois envois identiques d'une transaction, sans nouveau nonce ni hausse des frais. La clôture reste incertaine après une coupure avant le checkpoint runner, ou si la transaction demeure introuvable après les reprises autorisées. Le choix MVP demeure : aucune facturation de consommation future et aucun remboursement financé par une réserve commerciale activé implicitement.
+
+## D-24 — Préparer l'exploitation avec Phala arrêté
+
+Noé autorise la préparation locale et les contrôles distants en lecture seule, sans démarrage de Phala. Les identifiants PostgreSQL sont conservés à sa demande ; l'ancienne mention d'un partage dans une conversation n'est pas une preuve de compromission.
+
+Le compte local `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` sert au déploiement et à la trésorerie compute **testnet**. Le signataire Phala `0x3b31923ee7cb2a15fc85abbeeae1fc32afc08c8d` reste distinct et sa clé demeure dans l'enclave. Vérifier les soldes avant chaque opération on-chain et prévenir Noé si un complément faucet est nécessaire ; aucun suivi permanent n'est configuré.
+
+La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde chiffrée, la restauration/migration locale, la copie des modèles, les images et le superviseur d'arrêt préparés. Les scénarios de coûts ne valent ni plafond approuvé ni tarif actif. Noé conserve la sauvegarde en local pour l'instant. Deux modèles ont été récupérés et restaurés hors ligne ; onze restent liés à d'anciens wallets de test inaccessibles. Ces limites sont consignées dans [l'exercice de reprise](BACKUP-RECOVERY.md). Les contrôles d'exploitation et la validation de la cible restent à terminer.

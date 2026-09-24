@@ -1,6 +1,8 @@
 # Audit des correctifs — 5 septembre 2026
 
-Ce rapport conserve les résultats historiques du 5 septembre. Les modifications de connexion et de configuration par branche du 12 septembre sont décrites dans [DEPLOYMENT.md](DEPLOYMENT.md) ; leurs validations ne remplacent pas rétroactivement celles ci-dessous. Les nouveaux constats ouverts figurent dans [l'audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. L'[audit approfondi](AUDIT-2026-09-23.md) inclut un suivi des correctifs locaux et des limites restantes du parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
+
+Ce rapport conserve les résultats historiques du 5 septembre. Les modifications de connexion et de configuration par branche du 12 septembre sont décrites dans [DEPLOYMENT.md](DEPLOYMENT.md) ; leurs validations ne remplacent pas rétroactivement celles ci-dessous. Les constats ultérieurs et leurs correctifs figurent dans [l'audit staging du 12 septembre](AUDIT-STAGING-2026-09-12.md) et [l'audit du 23 septembre](AUDIT-2026-09-23.md).
 
 ## Périmètre et résultat
 
@@ -45,7 +47,7 @@ La migration `20260905010000_track_loan_deployment` ajoute trois colonnes nullab
 - Les escrows historiques doivent tous être déclarés. Si hash et bloc de préparation/mint manquent, une récupération manuelle du vrai hash de lock reste nécessaire.
 - Les tests de persistance et de RPC utilisent des doublures ; les conflits réels PostgreSQL, le navigateur et les transactions testnet restent à vérifier après déploiement.
 - Le mode démonstration sans runner distant n'est pas une enclave attestée. La validation Phala/RA-TLS reste ouverte.
-- Le mot de passe Neon précédemment partagé doit être remplacé depuis le compte propriétaire, puis synchronisé dans les secrets concernés. Cette opération est indépendante de la master key du runner, à conserver pour les modèles existants.
+- **Rectificatif du 23 septembre :** la mention antérieure d'un mot de passe Neon partagé n'a pas été étayée par son message d'origine ; aucune compromission n'est établie. Noé demande de conserver les identifiants PostgreSQL existants, sans rotation dans cette préparation. Préserver aussi la master key historique nécessaire aux modèles existants. Voir [OPERATIONS-PREPARATION.md](OPERATIONS-PREPARATION.md).
 
 ## Messages de commits proposés
 

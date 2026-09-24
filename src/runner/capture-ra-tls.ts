@@ -1,10 +1,11 @@
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, type X509Certificate } from "node:crypto";
 import { request } from "node:https";
 import { isIP } from "node:net";
 import { TLSSocket, type DetailedPeerCertificate } from "node:tls";
 import { config } from "dotenv";
 import { verifyTdxQuote } from "@/lib/tee/quote";
-import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
+import { parseRunnerRaTlsEvidence } from "@/lib/tee/ra-tls-evidence";
+import { certificateFromDer } from "@/lib/tee/certificate";
 
 const MAX_EVIDENCE_BYTES = 2 * 1024 * 1024;
 
@@ -65,32 +66,6 @@ function fetchBootstrap(url: URL): Promise<BootstrapResponse> {
   });
 }
 
-function parseEvidence(body: Buffer): RunnerRaTlsEvidence {
-  const evidence = JSON.parse(body.toString("utf8")) as Partial<RunnerRaTlsEvidence>;
-  for (const key of [
-    "quote",
-    "eventLog",
-    "composeHash",
-    "certificateSha256",
-    "ingressKeySha256",
-    "masterKeyChainSha256",
-  ] as const) {
-    if (typeof evidence[key] !== "string") throw new Error("Évidence RA-TLS invalide");
-  }
-  for (const key of [
-    "composeHash",
-    "certificateSha256",
-    "ingressKeySha256",
-    "masterKeyChainSha256",
-  ] as const) {
-    const value = evidence[key];
-    if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {
-      throw new Error("Empreinte RA-TLS invalide");
-    }
-  }
-  return evidence as RunnerRaTlsEvidence;
-}
-
 function assertCertificateHostname(certificate: X509Certificate, hostname: string): void {
   const normalized = hostname.replace(/^\[|\]$/g, "");
   const matches = isIP(normalized) ? certificate.checkIP(normalized) : certificate.checkHost(normalized);
@@ -106,10 +81,10 @@ async function main() {
   const response = await fetchBootstrap(url);
   if (response.status !== 200) throw new Error(`Bootstrap RA-TLS en échec (${response.status})`);
 
-  const certificate = new X509Certificate(response.certificate.raw as Buffer);
+  const certificate = certificateFromDer(response.certificate.raw as Buffer);
   assertCertificateHostname(certificate, url.hostname);
   const certificateSha256 = createHash("sha256").update(certificate.raw).digest("hex");
-  const evidence = parseEvidence(response.body);
+  const evidence = parseRunnerRaTlsEvidence(response.body);
   if (evidence.certificateSha256.toLowerCase() !== certificateSha256) {
     throw new Error("La quote RA-TLS ne cible pas le certificat présenté");
   }
@@ -123,15 +98,19 @@ async function main() {
     throw new Error("Quote TDX RA-TLS non authentifiée");
   }
 
-  console.log("[runner:capture-ra-tls] Mesures vérifiées — copier dans l’environnement de l’application Next :");
+  console.log(`[runner:capture-ra-tls] Quote matérielle vérifiée — mode ${evidence.bootstrapOnly ? "amorçage" : "actif"}`);
+  console.log("Vérifier le compose et l’image attendus avant d’épingler ces mesures dans Next.");
   console.log(`SIRIUS_EXPECTED_MRTD=${verification.measurements.mrTd}`);
   console.log(`SIRIUS_EXPECTED_RTMR3=${verification.measurements.rtMr3}`);
   console.log(`SIRIUS_EXPECTED_COMPOSE_HASH=${evidence.composeHash.toLowerCase()}`);
   console.log(`SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256=${evidence.masterKeyChainSha256.toLowerCase()}`);
   console.log(`NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256=${evidence.ingressKeySha256.toLowerCase()}`);
+  console.log(`SIRIUS_LOCK_AUTHORIZER=${evidence.settlementAddress}`);
+  console.log(`RUNNER_DEPLOYMENT_ID=phala:${evidence.ingressKeySha256.toLowerCase()}`);
+  if (evidence.bootstrapOnly) console.log("Amorçage uniquement : déployer les contrats, activer la même CVM, puis recapturer les mesures.");
 }
 
-config({ path: [".env.local", ".env"], quiet: true });
+config({ path: process.env.DOTENV_CONFIG_PATH || [".env.local", ".env"], quiet: true });
 void main().catch((error) => {
   console.error("[runner:capture-ra-tls] échec", error);
   process.exitCode = 1;

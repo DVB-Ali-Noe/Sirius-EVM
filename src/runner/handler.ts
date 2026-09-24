@@ -4,12 +4,13 @@ import {
   escrowLock,
   evmLoanModelKey,
   runEvmLoanJob,
+  runBilledEvmLoanJob,
   runSelfTraining,
   selfTrainModelKey,
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { assertLoanScope, authorizeEscrowLock, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
+import { assertLoanScope, authorizeEscrowLock, publishedFinalizedPreimage, publishedPreimage, settleEscrow } from "@/lib/evm/escrow";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { isValidUsdcAtomicAmount } from "@/lib/evm/usdc";
 import { loanIdHash, loanKeyFor } from "@/lib/evm/loan-key";
@@ -24,6 +25,11 @@ import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
+import { budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
+import { billingEnabled } from "@/lib/billing/config";
+import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
+import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
+import { recoverBilledLoanResult } from "@/lib/billing/recovery";
 import {
   assertReleaseEnvelopeHash,
   issueDatasetReceipt,
@@ -115,6 +121,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
+    case "recover-loan-job":
     case "loan-model-key":
       return { op, scope: { loanId: text(body, "loanId") } };
     case "run-training":
@@ -127,6 +134,11 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 }
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
+  return budgetRunnerRequest(() => executeRunnerOp(op, body));
+}
+
+async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   switch (op) {
     case "dataset-ingress-key":
       return datasetIngressPublicKey();
@@ -151,7 +163,9 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
           model.modelVersion,
         ],
       });
-      const result = await sealDatasetEnvelope(datasetId, envelope, sizeBytes, model);
+      const result = await budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
+        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays },
+        () => sealDatasetEnvelope(datasetId, envelope, sizeBytes, model));
       return {
         ...result,
         runnerReceipt: issueDatasetReceipt(subject, {
@@ -179,6 +193,13 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         args: [provider, datasetIdHash(dataset.datasetId)],
       });
       const hashlock = escrowHashlock(loanId, borrower);
+      if (billingEnabled()) {
+        const billingQuote = await prepareComputeQuote({
+          dataset, datasetReceipt: text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), borrower, provider, loanId,
+          onChainDatasetId, hashlock, authorizationDeadline: boundedInteger(body, "authorizationDeadline", 1, 2 ** 40 - 1),
+        });
+        return { hashlock, authorization: billingQuote.authorization, billingQuote };
+      }
       const authorization = await authorizeEscrowLock({
         borrower, provider, amount: BigInt(receipt.priceUsdcAtomic), hashlock,
         challengeDays: receipt.challengeDays, loanIdHash: loanIdHash(loanId),
@@ -202,77 +223,114 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       const borrower = canonicalSubject(subject);
       const loanKey = loanKeyFor(borrower, loanId);
       const { hashlock, preimage } = escrowLock(loanId, borrower);
-      await Promise.all([
-        assertDatasetScope({
-          datasetId: dataset.datasetId,
-          provider: datasetReceipt.owner,
-          merkleRoot: dataset.merkleRoot,
-          cid: dataset.cid,
-          model: dataset,
-        }),
-        assertLoanScope({
-          loanKey,
-          borrower,
-          provider: datasetReceipt.owner,
-          datasetId: dataset.datasetId,
-          amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
-          hashlock,
-          model: dataset,
-        }),
-      ]);
+      const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
+      if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
+      const execute = async () => {
+        await Promise.all([
+          assertDatasetScope({
+            datasetId: dataset.datasetId,
+            provider: datasetReceipt.owner,
+            merkleRoot: dataset.merkleRoot,
+            cid: dataset.cid,
+            model: dataset,
+          }),
+          assertLoanScope({
+            loanKey,
+            borrower,
+            provider: datasetReceipt.owner,
+            datasetId: dataset.datasetId,
+            amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
+            hashlock,
+            model: dataset,
+            ...(signedQuote ? { billingQuote: signedQuote.quote } : {}),
+          }),
+        ]);
 
-      const result = await runEvmLoanJob({ ...dataset, loanId, borrower });
-      const releaseEnvelope = encryptRunnerRelease(
-        evmLoanModelKey(loanId, borrower),
-        deliveryPublicKey,
-        loanDeliveryContext(loanId, borrower),
-        preimage,
-        "evm-preimage",
-      );
-      const { chainId, escrow } = evmEscrowBinding();
-      const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
-      const attestation = await attestLoanExecution({
-        chainId,
-        escrow,
-        loanId,
-        loanKey,
-        datasetId: dataset.datasetId,
-        datasetCid: dataset.cid,
-        provider: datasetReceipt.owner,
-        borrower,
-        amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
-        challengeDays: datasetReceipt.challengeDays,
-        merkleRoot: dataset.merkleRoot,
-        modelId: dataset.modelId,
-        modelVersion: dataset.modelVersion,
-        modelCid: result.modelCid,
-        releaseEnvelopeHash,
-      });
-      return {
-        modelCid: result.modelCid,
-        metrics: result.metrics,
-        attestation,
-        loanKey,
-        hashlock,
-        releaseEnvelope,
-        runnerReceipt: issueLoanReceipt({
-          loanId,
-          datasetId: dataset.datasetId,
-          borrower,
-          provider: datasetReceipt.owner,
-          modelCid: result.modelCid,
-          loanKey,
+        if (signedQuote) {
+          requireBillingBudget().prepareWorkflowResult(quoteWorkflow(signedQuote.quote), JSON.stringify({
+            datasetCid: dataset.cid, merkleRoot: dataset.merkleRoot, deliveryPublicKey,
+          }));
+        }
+        let result;
+        try {
+          result = signedQuote
+            ? await runBilledEvmLoanJob({ ...dataset, loanId, borrower }, signedQuote.quote)
+            : await runEvmLoanJob({ ...dataset, loanId, borrower });
+        } catch (error) {
+          if (signedQuote) {
+            await failBilledEscrow(signedQuote.quote, loanKey);
+            throw new AppError("Calcul échoué : remboursement crédité après retenue des frais consommés", 422);
+          }
+          throw error;
+        }
+        if (signedQuote) {
+          const recovered = await recoverBilledLoanResult(signedQuote);
+          if (recovered.state !== "ready") throw new AppError("Résultat durable manquant", 503);
+          return recovered.result;
+        }
+        const releaseEnvelope = encryptRunnerRelease(
+          evmLoanModelKey(loanId, borrower), deliveryPublicKey,
+          loanDeliveryContext(loanId, borrower), preimage, "evm-preimage",
+        );
+        const { chainId, escrow } = evmEscrowBinding();
+        const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
+        const attestation = await attestLoanExecution({
           chainId,
           escrow,
+          loanId,
+          loanKey,
+          datasetId: dataset.datasetId,
+          datasetCid: dataset.cid,
+          provider: datasetReceipt.owner,
+          borrower,
           amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
           challengeDays: datasetReceipt.challengeDays,
+          merkleRoot: dataset.merkleRoot,
           modelId: dataset.modelId,
           modelVersion: dataset.modelVersion,
-          deliveryPublicKey,
+          modelCid: result.modelCid,
           releaseEnvelopeHash,
-          attestationHash: attestation.payloadHash,
-        }),
+        });
+        return {
+          modelCid: result.modelCid,
+          metrics: result.metrics,
+          attestation,
+          loanKey,
+          hashlock,
+          ...(releaseEnvelope ? { releaseEnvelope } : {}),
+          releaseEnvelopeHash,
+          runnerReceipt: issueLoanReceipt({
+            loanId,
+            datasetId: dataset.datasetId,
+            borrower,
+            provider: datasetReceipt.owner,
+            modelCid: result.modelCid,
+            loanKey,
+            chainId,
+            escrow,
+            amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
+            challengeDays: datasetReceipt.challengeDays,
+            modelId: dataset.modelId,
+            modelVersion: dataset.modelVersion,
+            deliveryPublicKey,
+            releaseEnvelopeHash,
+            attestationHash: attestation.payloadHash,
+          }),
+        };
       };
+      return signedQuote ? withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(execute)) : execute();
+    }
+
+    case "recover-loan-job": {
+      if (!billingEnabled()) throw new AppError("Reprise réservée aux prêts v7", 409);
+      const loanId = text(body, "loanId");
+      const signed = await runnerComputeQuote(body.billingQuote);
+      if (signed.quote.loanId !== loanId) throw new AppError("Devis compute hors scope", 409);
+      const ledger = requireBillingBudget();
+      const scope = quoteWorkflow(signed.quote);
+      if (!ledger.workflowResult(scope)) return { state: "missing" };
+      if (!ledger.executionEvidence(scope)) return { state: "pending" };
+      return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(() => recoverBilledLoanResult(signed)));
     }
 
     case "settle-loan": {
@@ -281,14 +339,25 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
       const releaseEnvelopeHash = text(body, "releaseEnvelopeHash", 64);
       const receipt = verifyLoanReceipt(loanReceiptToken, loanId);
       assertReleaseEnvelopeHash(receipt, releaseEnvelopeHash);
-      const { subject } = await verifyRunnerGrant(body.authorization, {
-        operation: op,
-        loanId,
-        intentParts: [loanId, loanReceiptToken],
-      });
-      if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       const { preimage } = escrowLock(loanId, receipt.borrower);
       const lockBlock = BigInt(text(body, "lockBlock", 20));
+      if (billingEnabled()) {
+        const signedQuote = await runnerComputeQuote(receipt.billingQuote);
+        if (signedQuote.quote.loanId !== loanId || signedQuote.quote.borrower !== receipt.borrower) throw new AppError("Devis compute hors scope", 409);
+        if (body.authorization) {
+          const { subject } = await verifyRunnerGrant(body.authorization, {
+            operation: op, loanId, intentParts: [loanId, loanReceiptToken],
+          });
+          if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
+        }
+        return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => ({
+          settleTxHash: await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock),
+        })));
+      }
+      const { subject } = await verifyRunnerGrant(body.authorization, {
+        operation: op, loanId, intentParts: [loanId, loanReceiptToken],
+      });
+      if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       return { settleTxHash: await settleEscrow(receipt.loanKey as `0x${string}`, preimage, lockBlock) };
     }
 
@@ -303,15 +372,34 @@ export async function handleRunnerOp(op: RunnerOperation, body: Record<string, u
         intentParts: [loanId, loanReceiptToken, deliveryPublicKey],
       });
       if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Clé réservée au borrower", 403);
-      await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
-      return {
-        modelCid: receipt.modelCid,
-        modelKeyEnvelope: encryptRunnerDelivery(
-          evmLoanModelKey(loanId, receipt.borrower, receipt),
-          deliveryPublicKey,
-          loanDeliveryContext(loanId, receipt.borrower),
-        ),
+      const deliver = async () => {
+        if (receipt.billingQuote) {
+          const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
+          const settleTxHash = text(body, "settleTxHash", 66);
+          if (!/^0x[0-9a-fA-F]{64}$/.test(settleTxHash)) throw new AppError("Hash de règlement invalide", 400);
+          await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
+            settleTxHash as `0x${string}`, signed.quote,
+            requireBillingBudget().policy.gas.confirmations);
+        } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
+        return {
+          modelCid: receipt.modelCid,
+          modelKeyEnvelope: encryptRunnerDelivery(
+            evmLoanModelKey(loanId, receipt.borrower, receipt),
+            deliveryPublicKey,
+            loanDeliveryContext(loanId, receipt.borrower),
+          ),
+        };
       };
+      if (billingEnabled()) {
+        if (receipt.billingQuote) {
+          const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
+          if ((signed.quote.expiresAt + signed.quote.challengeDays * 86400) * 1000 > Date.now()) {
+            return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(deliver));
+          }
+        }
+        return budgetRunnerRequest(deliver);
+      }
+      return deliver();
     }
 
     case "run-training": {

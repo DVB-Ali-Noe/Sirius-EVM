@@ -7,10 +7,19 @@ import { datasetRegistryAddress, escrowAddress, kybRegistryAddress, usdcAddress 
 import { cidHash, datasetIdHash } from "./dataset-key";
 import { loanIdHash } from "./loan-key";
 import type { LockAuthorization } from "./lock-authorization";
+import { quoteLockTerms, type SignedComputeQuote } from "@/lib/billing/quote";
+import { siriusescrowv7Abi } from "./abi/siriusescrowv7";
 
 export interface EvmTransactionRequest {
   to: Address;
   data: Hex;
+}
+
+export function lockQuotedUsdcTransaction(signed: SignedComputeQuote): EvmTransactionRequest {
+  return {
+    to: getAddress(signed.quote.escrow),
+    data: encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "lock", args: [quoteLockTerms(signed.quote), signed.authorization] }),
+  };
 }
 
 export function refundEscrowTransaction(loanKey: Hex, escrow: Address): EvmTransactionRequest {

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatUnits } from "viem";
+import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { Card } from "@/components/ui/Card";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
@@ -19,7 +21,7 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
-import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
+import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import {
@@ -54,6 +56,11 @@ interface Loan {
   id: string;
   datasetId: string;
   amountUsdcAtomic: string;
+  usdcDecimals?: number;
+  datasetAmountUsdcAtomic?: string | null;
+  computeAmountUsdcAtomic?: string | null;
+  retainedFeeUsdcAtomic?: string | null;
+  refundAmountUsdcAtomic?: string | null;
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
   evmLockTxHash: string | null;
   evmLoanKey: string | null;
@@ -124,7 +131,7 @@ function TrainPageContent() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
-  const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
+  const [inspected, setInspected] = useState<Record<string, DownloadedModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -488,7 +495,13 @@ function TrainPageContent() {
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                    <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    <Field label={t("Montant")} value={`${l.usdcDecimals !== undefined ? formatUnits(BigInt(l.amountUsdcAtomic), l.usdcDecimals) : formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    {l.usdcDecimals !== undefined && l.computeAmountUsdcAtomic && <>
+                      <Field label={t("Prix du dataset")} value={`${formatUnits(BigInt(l.datasetAmountUsdcAtomic!), l.usdcDecimals)} USDC`} />
+                      <Field label={t("Prix du compute")} value={`${formatUnits(BigInt(l.computeAmountUsdcAtomic), l.usdcDecimals)} USDC`} />
+                      {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                      {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                    </>}
                     {advanced && (
                       <>
                         <Field label={t("Lock USDC")} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
@@ -649,7 +662,7 @@ function TeeSpinner() {
   return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
 }
 
-function ModelInspection({ model }: { model: DeliveredModel }) {
+function ModelInspection({ model }: { model: DownloadedModel }) {
   const { t } = useLocale();
   const [testFile, setTestFile] = useState<File | null>(null);
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
@@ -697,14 +710,14 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <Field label={t("Algorithme")} value={model.algo} mono />
-        <Field label={t("Version")} value={model.version} mono />
+        <Field label={t("Version")} value={model.version ?? "—"} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
         {model.algo === "linear_regression" ? (
           <>
             <Field label="R²" value={model.metrics.r2.toFixed(6)} />
             <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
-            <Field label="MAE" value={model.metrics.mae.toFixed(6)} />
+            <Field label="MAE" value={model.metrics.mae?.toFixed(6) ?? "—"} />
           </>
         ) : (
           <>
@@ -811,6 +824,7 @@ function CatalogueCard({
   onError: (msg: string) => void;
 }) {
   const { t } = useLocale();
+  const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [openForm, setOpenForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
@@ -821,13 +835,13 @@ function CatalogueCard({
 
   async function confirm() {
     onError("");
-    if (!model) {
+    if (!model || !dataset.priceUsdcAtomic) {
       onError(t("Profil d’entraînement du dataset absent ou invalide"));
       return;
     }
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id });
+      if (!await borrowDataset({ datasetId: dataset.id, priceUsdcAtomic: dataset.priceUsdcAtomic!, confirmQuote })) return;
       reset();
       await onBorrowed();
     } catch (err) {
@@ -839,6 +853,7 @@ function CatalogueCard({
 
   return (
     <Card>
+      {quoteDialog}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 flex-1 basis-80">
           <h3 className="font-medium">{dataset.name}</h3>
@@ -850,13 +865,13 @@ function CatalogueCard({
             {formatBytes(dataset.sizeBytes)}
           </p>
           <p className="mt-1 text-xs font-medium text-foreground">
-            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("remboursable après {days} j", { days: dataset.challengeDays })}
+            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("Prix du dataset")}
           </p>
         </div>
         {!openForm && (
           <button
             onClick={() => setOpenForm(true)}
-            disabled={!model}
+            disabled={!model || !dataset.priceUsdcAtomic}
             title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
             className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
           >

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { finalizeDatasetListing, prepareDatasetListing } from "@/lib/sirius/provider";
 import { requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
+import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { readJson } from "@/lib/http/body";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
     if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     assertOwner(session, owned.provider);
-    return NextResponse.json(await finalizeDatasetListing(id, session.address, txHash));
+    return NextResponse.json(datasetResponse(await finalizeDatasetListing(id, session.address, txHash)));
   } catch (err) {
     return errorResponse(err);
   }

@@ -116,3 +116,9 @@ export function encryptRunnerRelease(
 export function hashRunnerReleaseEnvelope(envelope: RunnerReleaseEnvelope): string {
   return createHash("sha256").update(serializeRunnerReleaseEnvelope(envelope)).digest("hex");
 }
+
+export function deferredLoanDeliveryCommitment(loanKey: string, modelCid: string, clientPublicKey: string): string {
+  decodePublicKey(clientPublicKey);
+  if (!/^0x[0-9a-f]{64}$/.test(loanKey) || !modelCid) throw new AppError("Accusé de capsule invalide", 400);
+  return createHash("sha256").update(JSON.stringify(["sirius-v7-deferred-delivery", loanKey, modelCid, clientPublicKey])).digest("hex");
+}

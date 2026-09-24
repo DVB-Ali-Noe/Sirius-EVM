@@ -29,6 +29,21 @@ services:
       SIRIUS_ESCROW_ADDRESS: ${SIRIUS_ESCROW_ADDRESS:?SIRIUS_ESCROW_ADDRESS requise}
       SIRIUS_DATASET_ADDRESS: ${SIRIUS_DATASET_ADDRESS:?SIRIUS_DATASET_ADDRESS requise}
       SIRIUS_LEGACY_ESCROW_ADDRESSES: ${SIRIUS_LEGACY_ESCROW_ADDRESSES:-}
+      SIRIUS_USDC_ADDRESS: ${SIRIUS_USDC_ADDRESS:-}
+      SIRIUS_KYB_ADDRESS: ${SIRIUS_KYB_ADDRESS:-}
+      SIRIUS_BILLING_VERSION: ${SIRIUS_BILLING_VERSION:-6}
+      SIRIUS_EVM_FINALITY: ${SIRIUS_EVM_FINALITY:-finalized}
+      SIRIUS_EVM_CONFIRMATIONS: ${SIRIUS_EVM_CONFIRMATIONS:-1}
+      SIRIUS_REQUIRE_PHALA: ${SIRIUS_REQUIRE_PHALA:-false}
+      TEE_MODE: ${TEE_MODE:-stub}
+      RUNNER_URL: ${RUNNER_URL:-}
+      RUNNER_TRANSPORT_SECRET: ${RUNNER_TRANSPORT_SECRET:-}
+      SIRIUS_LOCK_AUTHORIZER: ${SIRIUS_LOCK_AUTHORIZER:-}
+      SIRIUS_EXPECTED_MRTD: ${SIRIUS_EXPECTED_MRTD:-}
+      SIRIUS_EXPECTED_RTMR3: ${SIRIUS_EXPECTED_RTMR3:-}
+      SIRIUS_EXPECTED_COMPOSE_HASH: ${SIRIUS_EXPECTED_COMPOSE_HASH:-}
+      SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: ${SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256:-}
+      NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: ${NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256:-}
 
     # Le reaper lit la base et interroge la chaîne. Il n'écrit aucun fichier, n'accepte
     # aucune connexion entrante et ne détient aucun secret d'enclave. Le durcissement
@@ -44,9 +59,8 @@ services:
     # Aucun port publié : rien à joindre depuis l'extérieur.
 
     # Le worker traite les signaux lui-même et s'arrête à la fin de la passe en cours.
-    # Vingt secondes laissent le temps à une passe lente de se terminer plutôt que
-    # d'être interrompue au milieu d'une réconciliation.
-    stop_grace_period: 20s
+    # Un appel runner peut attendre 60 secondes avant de restituer la main.
+    stop_grace_period: 90s
 
     logging:
       driver: json-file

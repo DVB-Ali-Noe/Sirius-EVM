@@ -22,7 +22,7 @@ model Dataset {
   evmDestroyTxHash String? // hash de tombstone confirmé
   deletionReconciledAt DateTime? // fin de suppression applicative ; distincte d'une preuve de transaction EVM
   ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
-  wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
+  wrappedKey     String? // DEK enveloppée ; sa suppression active ne purge pas les sauvegardes.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
   priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
@@ -31,8 +31,10 @@ model Dataset {
   modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
+  runnerKind     RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
   status         DatasetStatus @default(DRAFT)
-  keyDestroyedAt DateTime? // horodatage du crypto-shredding (DEK détruite, data irrécupérable)
+  keyDestroyedAt DateTime? // suppression de la copie active de DEK enveloppée
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -57,6 +59,8 @@ model TrainingJob {
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
+  runnerKind    RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
 
   status      TrainingStatus @default(PENDING)
   createdAt   DateTime       @default(now())
@@ -76,6 +80,13 @@ model Loan {
   borrower  String // adresse EVM de l'emprunteur
   provider  String // adresse EVM du provider (dénormalisé pour les requêtes)
   amountUsdcAtomic String // montant USDC en unités atomiques
+  billingQuote String? // devis signé v7 complet, immuable après préparation
+  billingQuoteHash String?
+  datasetAmountUsdcAtomic String?
+  computeAmountUsdcAtomic String?
+  maxFailureFeeUsdcAtomic String?
+  retainedFeeUsdcAtomic String?
+  refundAmountUsdcAtomic String?
   modelId   String @default("linear_regression")
   modelVersion String @default("1.0.0")
 
@@ -98,6 +109,8 @@ model Loan {
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
   runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
+  runnerKind             RunnerKind @default(UNKNOWN)
+  runnerDeploymentId     String?
   settleTxHash           String? // release USDC
   auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
@@ -191,7 +204,13 @@ enum DatasetStatus {
   UNLISTED // « Semi-privé » : hors catalogue, empruntable par lien direct
   PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
   SUSPENDED
-  DELETED // crypto-shreddé : clé détruite, data irrécupérable ; ligne gardée pour l'audit
+  DELETED // clé active supprimée ; ligne gardée pour l'audit
+}
+
+enum RunnerKind {
+  UNKNOWN
+  DEVELOPMENT
+  PHALA
 }
 
 enum LoanStatus {
