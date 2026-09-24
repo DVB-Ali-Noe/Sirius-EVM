@@ -1,16 +1,20 @@
 import "server-only";
+import { setTimeout as wait } from "node:timers/promises";
+import { AppError } from "@/lib/app-error";
 
 const UPLOAD_ENDPOINT = "https://uploads.pinata.cloud/v3/files";
 export const MAX_IPFS_BLOB_BYTES = 8 * 1024 * 1024;
 const IPFS_TIMEOUT_MS = 20_000;
 
+class IpfsBodyError extends Error {}
+
 async function boundedBody(response: Response, maximum: number): Promise<Buffer> {
   const length = response.headers.get("content-length");
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > maximum)) {
     await response.body?.cancel();
-    throw new Error("Réponse IPFS trop volumineuse");
+    throw new IpfsBodyError("Réponse IPFS trop volumineuse");
   }
-  if (!response.body) throw new Error("Réponse IPFS vide");
+  if (!response.body) throw new IpfsBodyError("Réponse IPFS vide");
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -21,7 +25,7 @@ async function boundedBody(response: Response, maximum: number): Promise<Buffer>
       bytes += value.byteLength;
       if (bytes > maximum) {
         await reader.cancel();
-        throw new Error("Réponse IPFS trop volumineuse");
+        throw new IpfsBodyError("Réponse IPFS trop volumineuse");
       }
       chunks.push(Buffer.from(value));
     }
@@ -67,16 +71,37 @@ export async function uploadToIpfs(data: Buffer, name: string, signal?: AbortSig
   return { cid: payload.cid, size: payload.size };
 }
 
-/** Récupère le blob chiffré depuis le gateway IPFS. */
+/** Une tentative de lecture, bornée dans le temps. */
+const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_ATTEMPTS = 3;
+const FETCH_BACKOFF_MS = [400, 1_200];
+
+/** Les reprises du gateway restent soumises au budget et au plafond de taille du runner. */
 export async function fetchFromIpfs(cid: string, signal?: AbortSignal): Promise<Buffer> {
-  const res = await fetch(`${getGateway()}/ipfs/${encodeURIComponent(cid)}`, {
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(IPFS_TIMEOUT_MS)]) : AbortSignal.timeout(IPFS_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    await res.body?.cancel();
-    throw new Error(`IPFS fetch échoué (${res.status})`);
+  const url = `${getGateway()}/ipfs/${encodeURIComponent(cid)}`;
+  let lastStatus: number | null = null;
+  let attempts = 0;
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt += 1) {
+    signal?.throwIfAborted();
+    attempts = attempt;
+    try {
+      const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+      const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+      if (res.ok) return await boundedBody(res, MAX_IPFS_BLOB_BYTES);
+      await res.body?.cancel();
+      if (res.status === 404) throw new AppError("Fichier introuvable sur IPFS", 404);
+      lastStatus = res.status;
+      if (res.status !== 429 && res.status < 500) break;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (error instanceof AppError || error instanceof IpfsBodyError) throw error;
+      // Réseau coupé ou délai dépassé : transitoire, on retente comme un 5xx.
+      lastStatus = null;
+    }
+    if (attempt < FETCH_ATTEMPTS) await wait(FETCH_BACKOFF_MS[attempt - 1], undefined, { signal });
   }
-  return boundedBody(res, MAX_IPFS_BLOB_BYTES);
+  console.error(`[ipfs] lecture échouée après ${attempts} tentatives${lastStatus ? ` (dernier statut ${lastStatus})` : ""}`);
+  throw new AppError("Stockage IPFS indisponible — réessaie dans un instant.", 503);
 }
 
 const FILES_API = "https://api.pinata.cloud/v3/files/public";

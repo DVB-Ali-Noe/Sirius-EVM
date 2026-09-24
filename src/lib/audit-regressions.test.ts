@@ -147,6 +147,7 @@ for (const change of ["account", "network", "provider", "logout"] as const) {
       "@/stores/wallet": { useWalletStore: { getState: () => state } },
       "@/lib/wallet/manager": { getExternalWallet: () => provider, signMessageExternal: async () => ({ signature: "test" }) },
       "@/lib/kyb/client": { ensureKybAttested: async () => {} },
+      "@/lib/wallet/onramp": { ensureStarterFunds: async () => {} },
       "@/lib/runner/authorization-client": { beginRunnerDelegation: async () => "key", clearRunnerDelegation: async () => {}, activateRunnerDelegation: async () => { activations++; } },
     }, { fetch: async (url: string) => {
       if (url.endsWith("verify") && hold) { requested(); await new Promise<void>(r => { release = r; }); }

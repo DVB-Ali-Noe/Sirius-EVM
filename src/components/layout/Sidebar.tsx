@@ -95,7 +95,8 @@ export function Sidebar() {
           <ConnectButton />
         </div>
       </header>
-      <div className="fixed inset-x-0 top-16 z-30 overflow-x-auto border-b border-border bg-surface/60 px-3 py-2 backdrop-blur-sm md:hidden">
+      {/* Le fondu à droite dit que la barre défile ; le `pr-12` laisse le dernier lien sortir du fondu en fin de course. */}
+      <div className="fixed inset-x-0 top-16 z-30 overflow-x-auto border-b border-border bg-surface/60 py-2 pl-3 pr-12 backdrop-blur-sm [mask-image:linear-gradient(to_right,black_calc(100%-3rem),transparent)] md:hidden">
         <NavLinks />
       </div>
     </>

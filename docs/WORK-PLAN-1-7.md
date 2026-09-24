@@ -126,7 +126,21 @@ Observation ponctuelle après `git fetch origin`, avant ajout du présent fichie
 | Protections GitHub | API des protections et règles refusée avec HTTP 403 lié à l'offre du dépôt. Leur application n'est pas confirmée par ce contrôle. |
 | `AGENTS.md` | Non suivi et ignoré ; doit le rester. |
 
-**Décision : pas de fusion immédiate vers staging.** Préparer la PR et la base commune est possible. Les premiers bloqueurs sont les changements locaux à inclure, la divergence et les conflits ; la configuration distante n'a pas été revérifiée dans ce passage.
+**Décision initiale : pas de fusion immédiate vers staging.** Préparer la PR et la base commune est possible. Les premiers bloqueurs étaient les changements locaux à inclure, la divergence et les conflits ; la configuration distante n'a pas été revérifiée dans ce passage.
+
+### Intégration locale du 24 septembre 2026
+
+Le travail local a été conservé dans `1bbbb11`, puis `origin/staging` (`6b0c849`) intégré dans **`PhalaIntegration`**. Les trois conflits sont résolus : la liste des tests conserve les deux branches ; les reprises IPFS de staging respectent les limites de taille et l'annulation du budget Phala. La connexion Google et les correctifs mobile/faucet sont conservés avec la facturation et la reprise v7.
+
+Validation du résultat dans une copie sans secrets locaux :
+
+- Installation avec lockfile figé, lint, typage applicatif/v7 et build réussis.
+- 321 tests applicatifs, 18 tests d'exploitation et 79 tests des contrats réussis.
+- Parcours de facturation v7 sur chaîne locale et migrations/quotas PostgreSQL entre huit processus réussis, avec une base PostgreSQL 17 jetable.
+- 62 tests navigateur Chromium réussis ; les services et wallets externes y sont simulés.
+- Audit des dépendances accepté au seuil CI `moderate` ; une vulnérabilité de sévérité faible reste signalée.
+
+Ces contrôles locaux utilisent Node 26 ; la CI sous Node 22 reste à obtenir sur la PR. Secrets, sauvegardes et `AGENTS.md` sont exclus du commit. Aucun push, aucune modification de la branche `staging`, migration distante ou activation Phala n'accompagne cette intégration. La prochaine étape GitHub est la publication de `PhalaIntegration` et la PR ; la revue avec Ali et la validation de la configuration distante restent nécessaires avant fusion vers staging.
 
 ### Ordre des actions GitHub
 
@@ -141,4 +155,4 @@ Observation ponctuelle après `git fetch origin`, avant ajout du présent fichie
 
 Pour les règles GitHub, viser une revue par l'autre développeur, le contrôle `Vérification` obligatoire et l'absence de push direct sur les branches de déploiement. La disponibilité dépend de l'offre et des droits du dépôt ; conserver le dépôt privé. Si ces règles ne peuvent pas être imposées techniquement, appliquer explicitement la même discipline à deux. Voir [les protections GitHub](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
-Ce document décrit les actions futures. Lors de sa création, aucune résolution de conflit, modification de l'index, aucun commit, push, merge effectif, changement de réglage GitHub ou déploiement n'a été effectué.
+Le contrôle préalable conserve l'état observé à la création du document ; la section d'intégration locale donne l'avancement suivant. Les étapes de publication, de revue GitHub et de déploiement restent à réaliser.
