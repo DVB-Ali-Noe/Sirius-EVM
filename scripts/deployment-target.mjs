@@ -3,7 +3,6 @@ import { pathToFileURL } from "node:url";
 const targets = {
   main: {
     environnement: "production",
-    phala_requis: "true",
     projet_compose: "sirius",
     projet_vercel: "prj_gmEKctb6EJcsErIQqamKiZNaK5vZ",
     dossier_vps: "/opt/sirius",
@@ -12,7 +11,6 @@ const targets = {
   },
   staging: {
     environnement: "staging",
-    phala_requis: "false",
     projet_compose: "sirius-staging",
     projet_vercel: "prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz",
     dossier_vps: "/opt/sirius-staging",
@@ -21,17 +19,20 @@ const targets = {
   },
 };
 
-export function deploymentTarget(ref) {
+export function deploymentTarget(ref, stagingPhalaRequired = "false") {
   const branch = typeof ref === "string" ? ref.replace(/^refs\/heads\//, "") : "";
   if (!Object.hasOwn(targets, branch)) {
     throw new Error("Branche de déploiement refusée : seules main et staging sont autorisées.");
   }
-  return { branche: branch, ...targets[branch] };
+  if (branch === "staging" && !["false", "true"].includes(stagingPhalaRequired)) {
+    throw new Error("SIRIUS_STAGING_REQUIRE_PHALA doit valoir true ou false.");
+  }
+  return { branche: branch, ...targets[branch], phala_requis: branch === "staging" ? stagingPhalaRequired : "true" };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const target = deploymentTarget(process.argv[2]);
+    const target = deploymentTarget(process.argv[2], process.env.SIRIUS_STAGING_REQUIRE_PHALA || "false");
     for (const [key, value] of Object.entries(target)) console.log(`${key}=${value}`);
   } catch (error) {
     console.error(error.message);
