@@ -390,3 +390,62 @@ test("une panne de base du reaper planifié est capturée et la passe suivante r
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(calls, 2);
 });
+
+function billedReaperFixture(terminalStatus: number) {
+  process.env.SIRIUS_EVM_FINALITY = "confirmations";
+  process.env.SIRIUS_EVM_CONFIRMATIONS = "1";
+  const current = loan({ status: "TRAINING", modelCid: null, billingQuoteHash: HASH });
+  stubDb(prisma.loan, "findMany", async () => [current]);
+  let recoveryReads = 0;
+  stubDb(prisma.loan, "findUnique", async () => { recoveryReads++; throw new Error("runner indisponible"); });
+  mock.method(client, "readContract", async ({ functionName }: { functionName: string }) => functionName === "VERSION"
+    ? "sirius-escrow-usdc-v7"
+    : { ...onChain(), status: terminalStatus, datasetAmount: BigInt(100), computeAmount: BigInt(40),
+      maxFailureFee: BigInt(20), consumedCompute: BigInt(10), computeRecipient: PROVIDER, termsHash: HASH, lockedAt: BigInt(1) });
+  mock.method(client, "getContractEvents", async () => [{ transactionHash: HASH }]);
+  mock.method(client, "getTransactionReceipt", async () => ({ status: "success", transactionHash: HASH, to: ESCROW, blockNumber: BigInt(10), blockHash: HASH }));
+  mock.method(client, "getBlockNumber", async () => BigInt(10));
+  mock.method(client, "getBlock", async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: HASH }));
+  mock.method(console, "error", () => {});
+  return () => recoveryReads;
+}
+
+test("le reaper clôture un remboursement v7 canonique sans appeler la reprise en panne", async () => {
+  const reads = billedReaperFixture(4);
+  await reap();
+  assert.equal(reads(), 0);
+  assert.deepEqual(updates[0]?.data, { status: "CANCELLED", cancelTxHash: HASH, retainedFeeUsdcAtomic: "10", refundAmountUsdcAtomic: "130" });
+  assert.equal(updates[0]?.where.status, "TRAINING");
+});
+
+test("un remboursement v7 non finalisé ou réorganisé ne clôture rien", async () => {
+  const reads = billedReaperFixture(3);
+  mock.method(client, "getBlock", async () => ({ number: BigInt(10), hash: DATASET }));
+  await reap();
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+});
+
+test("un règlement v7 sans modèle conserve la récupération du résultat", async () => {
+  const reads = billedReaperFixture(2);
+  await reap();
+  assert.equal(reads(), 1);
+  assert.equal(updates.length, 0);
+});
+
+test("une panne RPC avant réconciliation v7 ne fabrique aucun remboursement", async () => {
+  const reads = billedReaperFixture(3);
+  mock.method(client, "readContract", async () => { throw new Error("RPC indisponible"); });
+  await reap();
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+});
+
+
+test("un règlement v7 avec modèle passe encore par la validation de sa preuve", async () => {
+  const reads = billedReaperFixture(2);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", billingQuoteHash: HASH })]);
+  await reap();
+  assert.equal(reads(), 1);
+  assert.equal(updates.length, 0);
+});

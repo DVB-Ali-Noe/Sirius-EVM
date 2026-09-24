@@ -1,11 +1,17 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 const memoryReplay = new Map<string, number>();
 const MAX_REPLAY_TTL_MS = 2 * 60 * 60_000;
 let cleanupCounter = 0;
+
+interface ReplayDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): { run(...args: (string | number)[]): { changes: number | bigint } };
+  close(): void;
+}
 
 function cleanupMemory(now: number): void {
   for (const [id, expiry] of memoryReplay) {
@@ -13,36 +19,25 @@ function cleanupMemory(now: number): void {
   }
 }
 
-function cleanupDirectory(directory: string, now: number): void {
-  for (const name of readdirSync(directory)) {
-    if (!/^[a-f0-9]{64}$/.test(name)) continue;
-    let expiry: number;
-    try {
-      const raw = readFileSync(join(directory, name), "utf8");
-      if (!/^[1-9][0-9]*$/.test(raw)) continue;
-      expiry = Number(raw);
-    } catch { continue; }
-    if (!Number.isSafeInteger(expiry) || expiry > now) continue;
-    try { unlinkSync(join(directory, name)); } catch {}
-  }
+function cleanupLegacy(directory: string, now: number): void {
+  const entries = opendirSync(directory);
+  try {
+    for (let scanned = 0; scanned < 128; scanned++) {
+      const entry = entries.readSync();
+      if (!entry) break;
+      if (!/^[a-f0-9]{64}$/.test(entry.name)) continue;
+      const path = join(directory, entry.name);
+      try {
+        const stat = lstatSync(path);
+        // Même un fichier vide bloque pendant la durée maximale de son autorisation.
+        if (stat.isFile() && Math.max(stat.mtimeMs, stat.ctimeMs) < now - MAX_REPLAY_TTL_MS) unlinkSync(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+  } finally { entries.closeSync(); }
 }
 
-/**
- * Force l'écriture de l'entrée de répertoire sur le disque.
- *
- * POSIX impose un `fsync` du répertoire pour qu'une création de fichier survive à une
- * coupure d'alimentation : sans lui, le contenu peut être sur le disque alors que
- * l'entrée qui le nomme est perdue. Windows n'expose pas cette opération — y ouvrir un
- * répertoire pour le synchroniser échoue avec `EPERM`.
- *
- * L'étanchéité de l'anti-rejeu ne repose pas sur ce `fsync` : elle vient du drapeau
- * `wx`, dont l'atomicité est garantie par le système de fichiers. Ce qu'on perd sous
- * Windows est donc la seule durabilité après coupure brutale, sur une plateforme qui
- * ne sert qu'au développement — la production tourne sous Linux, dans l'enclave.
- *
- * L'échec n'est toléré que là où l'opération n'existe pas. Ailleurs il remonte, car il
- * signalerait une vraie perte de durabilité.
- */
 function syncDirectory(directory: string): void {
   const tolerable = process.platform === "win32";
   let descriptor: number;
@@ -61,18 +56,42 @@ function syncDirectory(directory: string): void {
   }
 }
 
+function consumePersistent(root: string, namespace: string, digest: string, expiresAt: number, now: number): boolean {
+  const directory = join(root, namespace);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const path = join(root, "replay.sqlite");
+  const descriptor = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  closeSync(descriptor);
+  const stat = lstatSync(path);
+  if (!stat.isFile() || (stat.mode & 0o077) !== 0) throw new Error("Registre anti-rejeu privé requis");
+  const sqlite = process.getBuiltinModule("node:sqlite") as unknown as { DatabaseSync: new (path: string) => ReplayDatabase };
+  const db = new sqlite.DatabaseSync(path);
+  try {
+    db.exec(`PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;
+      CREATE TABLE IF NOT EXISTS claims (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL) STRICT;
+      CREATE INDEX IF NOT EXISTS claims_expiry ON claims(expires_at);`);
+    if (cleanupCounter++ % 64 === 0) {
+      cleanupLegacy(directory, now);
+      db.prepare("DELETE FROM claims WHERE id IN (SELECT id FROM claims WHERE expires_at <= ? LIMIT 256)").run(now);
+    }
+    try {
+      lstatSync(join(directory, digest));
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const result = db.prepare(`INSERT INTO claims VALUES (?, ?) ON CONFLICT(id)
+      DO UPDATE SET expires_at = excluded.expires_at WHERE claims.expires_at <= ?`).run(digest, expiresAt, now);
+    syncDirectory(root);
+    return Number(result.changes) === 1;
+  } finally { db.close(); }
+}
+
 export function consumeRunnerReplay(namespace: "capability" | "grant", id: string, expiresAt: number): boolean {
   const now = Date.now();
-  if (
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt <= now ||
-    expiresAt > now + MAX_REPLAY_TTL_MS ||
-    !id ||
-    id.length > 512
-  ) {
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > now + MAX_REPLAY_TTL_MS || !id || id.length > 512) {
     return false;
   }
-
   const root = process.env.RUNNER_REPLAY_DIR?.trim();
   const replayId = `${namespace}:${id}`;
   if (!root) {
@@ -81,24 +100,6 @@ export function consumeRunnerReplay(namespace: "capability" | "grant", id: strin
     memoryReplay.set(replayId, expiresAt);
     return true;
   }
-
-  const directory = join(root, namespace);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (cleanupCounter++ % 64 === 0) cleanupDirectory(directory, now);
-
   const digest = createHash("sha256").update(replayId).digest("hex");
-  try {
-    const descriptor = openSync(join(directory, digest), "wx", 0o600);
-    try {
-      writeSync(descriptor, String(expiresAt));
-      fsyncSync(descriptor);
-    } finally {
-      closeSync(descriptor);
-    }
-    syncDirectory(directory);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw error;
-  }
+  return consumePersistent(root, namespace, digest, expiresAt, now);
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { PublicClient, Hex } from "viem";
-import { assertCanonicalReceipt, finalityPolicy } from "./finality";
+import { assertCanonicalReceipt, checkRpcFinality, finalityPolicy } from "./finality";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -50,4 +50,45 @@ test("la finalité stricte attend le bloc finalized et ne se replie pas sur late
   process.env.EVM_NETWORK = "mainnet";
   process.env.SIRIUS_EVM_FINALITY = "confirmations";
   assert.throws(() => finalityPolicy(), /invalide/);
+});
+
+
+test("le préflight vérifie réseau, vue canonique et reçu sans envoyer de transaction", async () => {
+  process.env.SIRIUS_EVM_FINALITY = "finalized";
+  process.env.SIRIUS_EVM_CONFIRMATIONS = "2";
+  process.env.EVM_NETWORK = "testnet";
+  const hash = `0x${"12".repeat(32)}` as Hex;
+  let chainId = 46630;
+  let receiptHash = hash;
+  let canonical = hash;
+  const client = {
+    getChainId: async () => chainId,
+    getBlockNumber: async () => BigInt(15),
+    getBlock: async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? BigInt(10), hash: blockNumber ? canonical : hash }),
+    getTransactionReceipt: async () => ({ transactionHash: receiptHash, blockNumber: BigInt(10), blockHash: hash, status: "success" }),
+  } as unknown as PublicClient;
+  assert.deepEqual(await checkRpcFinality(client, 46630, hash), { chainId: 46630, policy: { confirmations: 2, finalized: true },
+    latestBlock: "15", confirmedBlock: "10", confirmedHash: hash, lagBlocks: "5", transactionHash: hash, receiptStatus: "success" });
+  chainId = 4663;
+  await assert.rejects(checkRpcFinality(client, 46630), /autre réseau/);
+  chainId = 46630;
+  canonical = `0x${"34".repeat(32)}`;
+  await assert.rejects(checkRpcFinality(client, 46630), /incohérente/);
+  canonical = hash;
+  receiptHash = `0x${"56".repeat(32)}`;
+  await assert.rejects(checkRpcFinality(client, 46630, hash), /hors scope/);
+  assert.throws(() => finalityPolicy(101), /invalide/);
+});
+
+test("le préflight refuse finalized absent ou non canonique sans dégrader sa politique", async () => {
+  process.env.SIRIUS_EVM_FINALITY = "finalized";
+  let missing = true;
+  const client = { getChainId: async () => 46630, getBlockNumber: async () => BigInt(10),
+    getBlock: async () => {
+      if (missing) throw new Error("tag finalized indisponible");
+      return { number: null, hash: null };
+    } } as unknown as PublicClient;
+  await assert.rejects(checkRpcFinality(client, 46630), /finalized indisponible/);
+  missing = false;
+  await assert.rejects(checkRpcFinality(client, 46630), /Finalité EVM indisponible/);
 });

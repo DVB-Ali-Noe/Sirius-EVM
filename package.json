@@ -31,6 +31,7 @@
     "db:studio": "prisma studio",
     "runner:capture-ra-tls": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx src/runner/capture-ra-tls.ts",
     "audit:deps": "pnpm audit --audit-level=moderate",
+    "runner:check-finality": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx scripts/check-runner-finality.ts",
     "runner:check-migration": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx scripts/check-runner-migration.ts",
     "test:billing": "pnpm contracts:compile && NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/billing/flow.test.ts",
     "test:postgres": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/postgres.integration.test.ts",
