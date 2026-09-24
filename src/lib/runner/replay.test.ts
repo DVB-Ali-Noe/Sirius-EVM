@@ -41,7 +41,8 @@ test("huit processus ne consomment qu’une fois un grant malgré le nettoyage s
   writeFileSync(join(replayDirectory, "grant", "b".repeat(64)), String(Date.now() - 1));
   const workers = Array.from({ length: 8 }, () => {
     const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "--input-type=module", "-e",
-      `import { consumeRunnerReplay } from './src/lib/runner/replay.ts';
+      `import { createRequire } from 'node:module';
+       const { consumeRunnerReplay } = createRequire(import.meta.url)('./src/lib/runner/replay.ts');
        process.send('ready');
        process.once('message', ({ expiry }) => {
          process.send(consumeRunnerReplay('grant', 'concurrent', expiry));
