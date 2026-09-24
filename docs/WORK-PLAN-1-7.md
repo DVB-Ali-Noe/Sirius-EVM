@@ -155,4 +155,13 @@ Ces contrôles locaux utilisent Node 26 ; la CI sous Node 22 reste à obtenir su
 
 Pour les règles GitHub, viser une revue par l'autre développeur, le contrôle `Vérification` obligatoire et l'absence de push direct sur les branches de déploiement. La disponibilité dépend de l'offre et des droits du dépôt ; conserver le dépôt privé. Si ces règles ne peuvent pas être imposées techniquement, appliquer explicitement la même discipline à deux. Voir [les protections GitHub](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
-Le contrôle préalable conserve l'état observé à la création du document ; la section d'intégration locale donne l'avancement suivant. Les étapes de publication, de revue GitHub et de déploiement restent à réaliser.
+Le contrôle préalable conserve l'état observé à la création du document ; la section d'intégration locale donne l'avancement suivant. Ces sections décrivent la préparation avant publication ; l’avancement suivant figure ci-dessous.
+
+
+### Base commune intégrée et lot A1 — 24 septembre 2026
+
+La [PR #4](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/4) a été fusionnée dans `staging`, commit `368abb8`. La [pipeline de staging](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36018852971) est passée, y compris migrations, images, Vercel, reaper et smokes. Cette intégration ne démarre pas la CVM Phala.
+
+Noé travaille sur `fix/runner-recovery` depuis cette base. L'implémentation A1 et son interface pour Ali sont décrites dans [RUNNER-RECOVERY-A1.md](RUNNER-RECOVERY-A1.md) : reprise des remboursements v7, liaison RA-TLS au déploiement, anti-rejeu SQLite, export comptable et préflight de finalité. La validation locale couvre 336 tests applicatifs, 18 tests d'exploitation, le parcours de facturation EVM, lint, typage et build sous Node 22. La revue de la PR A1 et les essais Phala restent nécessaires avant activation.
+
+Ali peut avancer sur `feat/operations-accounting` en consommant `RunnerAccountingExport` et `pnpm --silent runner:budget export`. Les répertoires `scripts/operations/` et `deploy/operations/` restent dans son périmètre. Toute activation Phala et tout essai payant nécessitent toujours un créneau et un budget autorisés.

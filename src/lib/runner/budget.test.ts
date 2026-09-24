@@ -611,3 +611,82 @@ test("le nettoyage hors service retire un ancien résultat de scellement sans ef
   assert.deepEqual(ledger.snapshot(), before);
   assert.equal(readFileSync(path).includes(Buffer.from(sentinel)), false);
 });
+
+
+test("l’export comptable conserve les engagements sans doubler le coût des opérations du devis", () => {
+  const { ledger, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "SECRET_SIGNED_QUOTE", p.validUntil, BigInt(p.gas.totalWei));
+  ledger.prepareWorkflowResult(workflow, "SECRET_DELIVERY_CONTEXT");
+  ledger.reserve("training", "input", "training", workflow);
+  ledger.reserve("standalone", "request", "request");
+  const before = ledger.snapshot();
+  const uncertain = ledger.accountingExport();
+  assert.equal(uncertain.workflows[0].checkpoint, "uncertain");
+  assert.equal(uncertain.workflows[0].measurement, null);
+  const startedAt = Date.now();
+  ledger.recordExecutionEvidence(workflow, JSON.stringify({ version: 1, quoteHash: workflow.fingerprint, startedAt,
+    elapsedMs: 25, success: true }), "SECRET_MODEL_RESULT");
+  ledger.reserve("release", "data", "transaction", workflow);
+  ledger.recordTransaction("release", "data", txHash, 7, "SECRET_ENCRYPTED_TRANSACTION");
+  ledger.finish("release", "data", true);
+  const exported = ledger.accountingExport();
+  assert.equal(exported.version, 1);
+  assert.equal(exported.totals.allocatedUsdMicros, String(before.allocatedUsd));
+  const standalone = exported.operations.filter((op) => op.workflowId === null)
+    .reduce((sum, op) => sum + BigInt(op.budgetUsdMicros), BigInt(0));
+  const workflows = exported.workflows.reduce((sum, row) => sum + BigInt(row.budgetUsdMicros), BigInt(0));
+  assert.equal(standalone + workflows, before.allocatedUsd);
+  assert.equal(exported.workflows[0].checkpoint, "result-durable");
+  assert.deepEqual(exported.workflows[0].measurement, { elapsedMs: 25, startedAtMs: startedAt, success: true });
+  assert.equal(exported.operations.find((op) => op.id === "release")?.transactionHash, txHash);
+  assert.ok(!JSON.stringify(exported).includes("SECRET_"));
+  assert.deepEqual(ledger.snapshot(), before);
+});
+
+test("l’export distingue la consommation d’échec de son règlement encore incertain", () => {
+  const { ledger, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  ledger.prepareWorkflowResult(workflow, "context");
+  ledger.reserve("training", "input", "training", workflow);
+  ledger.recordExecutionEvidence(workflow, JSON.stringify({ version: 1, quoteHash: workflow.fingerprint,
+    startedAt: Date.now(), elapsedMs: 100, success: false }));
+  ledger.fixFailureReceipt(workflow, JSON.stringify({ consumedCompute: "90071992547409930", evidenceHash: txHash,
+    observedAt: 123, finalFailure: true }));
+  ledger.reserve("failure", "data", "transaction", workflow);
+  ledger.recordTransaction("failure", "data", txHash, 7);
+  const exported = ledger.accountingExport();
+  assert.equal(exported.workflows[0].checkpoint, "failure-measured");
+  assert.equal(exported.workflows[0].failureClaim?.consumedComputeAtomic, "90071992547409930");
+  assert.equal(exported.pendingTransactions[0].recovery, "journal-missing");
+  assert.equal(exported.operations.find((op) => op.id === "failure")?.state, "reserved");
+});
+
+test("un ancien journal incomplet reste réservé sans rediffusion ni nonce supplémentaire", async () => {
+  const { ledger, open } = fixture();
+  const id = `release:46630:0x${"34".repeat(20)}:0x${"56".repeat(32)}`;
+  ledger.reserve(id, "input", "transaction");
+  ledger.recordTransaction(id, "input", txHash, 7);
+  const before = ledger.snapshot();
+  const client = { getChainId: async () => 46630,
+    getTransactionReceipt: async () => { throw new Error("introuvable"); } } as unknown as PublicClient;
+  await reconcileRunnerTransactions(open(), client, 46630, wallet as Hex, async () => { assert.fail("nouvelle transaction"); });
+  assert.equal(ledger.diagnostics().pendingTransactions[0].recovery, "journal-missing");
+  assert.equal(ledger.find(id, "input")?.state, "reserved");
+  assert.throws(() => ledger.reserve("new", "new", "transaction"), /incertaine/);
+  assert.deepEqual(ledger.snapshot(), before);
+});
+
+test("le CLI export produit le contrat JSON sans modifier les engagements", async () => {
+  const { path, ledger, policy: p } = fixture();
+  ledger.reserve("reserved", "scope", "training");
+  const policyPath = `${path}.policy.json`;
+  writeFileSync(policyPath, JSON.stringify(p), { mode: 0o600 });
+  const before = ledger.snapshot();
+  const { stdout } = await promisify(execFile)(process.execPath, ["--conditions=react-server", "--import", "tsx",
+    "scripts/runner-budget.ts", "export", path, policyPath]);
+  const result = JSON.parse(stdout);
+  assert.equal(result.version, 1);
+  assert.equal(result.totals.allocatedUsdMicros, "100");
+  assert.equal(result.operations[0].id, "reserved");
+  assert.deepEqual(ledger.snapshot(), before);
+});

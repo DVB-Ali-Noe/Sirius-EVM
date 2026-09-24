@@ -333,10 +333,15 @@ export class BudgetLedger {
     const cash = BigInt(this.policy.cashUsdMicros);
     const remainingUsd = (margin < cash ? margin : cash) - BigInt(this.policy.fixedReserveUsdMicros) - accounting.allocatedUsd;
     const remainingWei = BigInt(this.policy.gas.totalWei) - accounting.allocatedWei;
-    const pendingTransactions = this.pendingTransactions().map((operation) => ({
-      id: operation.id, hash: operation.txHash, nonce: operation.nonce, ageMs: Math.max(0, now - operation.createdAt),
-      attempts: Number(this.db.prepare("SELECT attempts FROM transaction_payloads WHERE operation_id = ?").get(operation.id)?.attempts ?? 0),
-    }));
+    const pendingTransactions = this.pendingTransactions().map((operation) => {
+      const journal = this.db.prepare("SELECT attempts FROM transaction_payloads WHERE operation_id = ?").get(operation.id);
+      const attempts = Number(journal?.attempts ?? 0);
+      return {
+        id: operation.id, hash: operation.txHash, nonce: operation.nonce, ageMs: Math.max(0, now - operation.createdAt),
+        attempts, journalAvailable: Boolean(journal),
+        recovery: !operation.txHash ? "unsigned" : !journal ? "journal-missing" : attempts >= 3 ? "attempts-exhausted" : "awaiting-receipt",
+      };
+    });
     const incompleteJobs = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE kind = 'training' AND state = 'reserved'").get()?.n);
     const allocation = this.workflowAllocation();
     return {
@@ -346,6 +351,61 @@ export class BudgetLedger {
       canQuote: now < this.policy.validUntil && accounting.failures < this.policy.maxFailures
         && remainingUsd >= allocation.usd && remainingWei >= allocation.wei && pendingTransactions.length === 0,
     };
+  }
+
+  accountingExport(now = Date.now()) {
+    return this.atomic(() => {
+      const diagnostics = this.diagnostics(now);
+      const allocation = this.workflowAllocation();
+      const operations = this.db.prepare(`SELECT o.id, o.fingerprint, o.kind, o.state, o.usd, o.wei,
+        o.tx_hash, o.nonce, o.created_at, w.workflow_id, t.attempts
+        FROM operations o LEFT JOIN operation_workflows w ON w.operation_id = o.id
+        LEFT JOIN transaction_payloads t ON t.operation_id = o.id ORDER BY o.created_at, o.id`).all().map((row) => ({
+        id: String(row.id), fingerprint: String(row.fingerprint), kind: row.kind as BudgetKind,
+        state: row.state as BudgetOperation["state"], createdAtMs: Number(row.created_at),
+        workflowId: row.workflow_id as string | null,
+        budgetUsdMicros: String(row.usd), budgetWei: String(row.wei),
+        transactionHash: row.tx_hash as string | null, nonce: row.nonce as number | null,
+        broadcastAttempts: row.attempts as number | null,
+      }));
+      const workflows = this.db.prepare(`SELECT w.id, w.fingerprint, w.valid_until, w.requests, w.training, w.transactions,
+        e.payload AS evidence, f.payload AS failure_receipt, r.workflow_id IS NOT NULL AS prepared,
+        r.result IS NOT NULL AS has_result FROM workflows w
+        LEFT JOIN execution_evidence e ON e.workflow_id = w.id
+        LEFT JOIN failure_receipts f ON f.workflow_id = w.id
+        LEFT JOIN workflow_results r ON r.workflow_id = w.id ORDER BY w.id`).all().map((row) => {
+        const measurement = row.evidence === null ? null : JSON.parse(String(row.evidence)) as Row;
+        if (row.evidence !== null && (!measurement || measurement.version !== 1 || measurement.quoteHash !== row.fingerprint
+          || typeof measurement.success !== "boolean" || !integer(measurement.elapsedMs, 0, 30000)
+          || !integer(measurement.startedAt, 0, Number.MAX_SAFE_INTEGER))) {
+          throw new AppError("Mesure comptable runner invalide", 503);
+        }
+        const failure = row.failure_receipt === null ? null : JSON.parse(String(row.failure_receipt)) as Row;
+        if (row.failure_receipt !== null && (!failure || !decimal(failure.consumedCompute) || failure.finalFailure !== true
+          || !integer(failure.observedAt, 0, Number.MAX_SAFE_INTEGER)
+          || typeof failure.evidenceHash !== "string" || !/^0x[0-9a-f]{64}$/.test(failure.evidenceHash))) {
+          throw new AppError("Reçu comptable runner invalide", 503);
+        }
+        return {
+          id: String(row.id), fingerprint: String(row.fingerprint), validUntilMs: Number(row.valid_until),
+          budgetUsdMicros: String(allocation.usd), budgetWei: String(allocation.wei),
+          remaining: { requests: Number(row.requests), training: Number(row.training), transactions: Number(row.transactions) },
+          checkpoint: measurement ? measurement.success && Boolean(row.has_result) ? "result-durable"
+            : measurement.success ? "result-missing" : "failure-measured" : row.prepared ? "uncertain" : "not-started",
+          measurement: measurement ? { elapsedMs: measurement.elapsedMs as number, startedAtMs: measurement.startedAt as number,
+            success: measurement.success as boolean } : null,
+          failureClaim: failure ? { consumedComputeAtomic: failure.consumedCompute as string,
+            evidenceHash: failure.evidenceHash as string, observedAtSeconds: failure.observedAt as number } : null,
+        };
+      });
+      return {
+        version: 1 as const, generatedAtMs: now, chainId: this.policy.chainId, wallet: this.policy.wallet,
+        accountingReference: this.policy.accountingReference,
+        totals: { allocatedUsdMicros: String(diagnostics.allocatedUsd), allocatedWei: String(diagnostics.allocatedWei),
+          remainingUsdMicros: String(diagnostics.remainingUsd), remainingWei: String(diagnostics.remainingWei), failures: diagnostics.failures },
+        pendingTransactions: diagnostics.pendingTransactions, operations, workflows,
+      };
+    });
   }
 
   backup(destination: string): void {
@@ -494,3 +554,5 @@ export class BudgetLedger {
     });
   }
 }
+
+export type RunnerAccountingExport = ReturnType<BudgetLedger["accountingExport"]>;
