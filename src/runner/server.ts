@@ -13,7 +13,7 @@ import {
   runnerCapabilityMatchesScope,
   type RunnerOperation,
 } from "@/lib/runner/capability";
-import { consumeRunnerReplay } from "@/lib/runner/replay";
+import { checkRunnerReplay, consumeRunnerReplay } from "@/lib/runner/replay";
 import { runnerSettlementAddress } from "@/lib/evm/escrow";
 import { datasetIngressKeyFingerprint } from "@/lib/tee/ingress";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
@@ -161,6 +161,7 @@ export async function startRunner(
   { port = PORT, log = true }: StartRunnerOptions = {},
 ): Promise<HttpServer | HttpsServer> {
   const { bootstrapOnly, tlsEnabled } = validateRunnerConfiguration();
+  if (!bootstrapOnly && process.env.RUNNER_REPLAY_DIR?.trim()) checkRunnerReplay(process.env.RUNNER_REPLAY_DIR.trim());
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
   if (!bootstrapOnly) runnerBudget();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {

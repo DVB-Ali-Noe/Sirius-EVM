@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, mock, test } from "node:test";
-import { consumeRunnerReplay } from "./replay";
+import { checkRunnerReplay, consumeRunnerReplay, initializeRunnerReplay } from "./replay";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -20,6 +20,7 @@ afterEach(() => {
 
 test("l’anti-rejeu persiste hors mémoire du process", () => {
   replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  initializeRunnerReplay(replayDirectory);
   process.env.RUNNER_REPLAY_DIR = replayDirectory;
   const expiry = Date.now() + 60_000;
 
@@ -38,6 +39,7 @@ test("refuse les expirations non entières ou hors borne", () => {
 
 test("huit processus ne consomment qu’une fois un grant malgré le nettoyage simultané", { timeout: 15000 }, async () => {
   replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  initializeRunnerReplay(replayDirectory);
   mkdirSync(join(replayDirectory, "grant"));
   process.env.RUNNER_REPLAY_DIR = replayDirectory;
   const now = Date.now();
@@ -77,6 +79,7 @@ test("huit processus ne consomment qu’une fois un grant malgré le nettoyage s
 
 test("les anciens fichiers incomplets restent bloquants puis sont collectés après le TTL maximal", () => {
   replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  initializeRunnerReplay(replayDirectory);
   process.env.RUNNER_REPLAY_DIR = replayDirectory;
   const directory = join(replayDirectory, "grant");
   mkdirSync(directory);
@@ -100,7 +103,48 @@ test("les anciens fichiers incomplets restent bloquants puis sont collectés apr
 
 test("un registre anti-rejeu corrompu n'est jamais remplacé par un registre vide", () => {
   replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  initializeRunnerReplay(replayDirectory);
   process.env.RUNNER_REPLAY_DIR = replayDirectory;
   writeFileSync(join(replayDirectory, "replay.sqlite"), "incomplete", { mode: 0o600 });
   assert.throws(() => consumeRunnerReplay("grant", "nonce", Date.now() + 60000));
+});
+
+test("un registre jamais initialisé bloque le démarrage et les autorisations", () => {
+  replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  process.env.RUNNER_REPLAY_DIR = replayDirectory;
+  assert.throws(() => checkRunnerReplay(replayDirectory!), /absent ou inaccessible/);
+  assert.throws(() => consumeRunnerReplay("grant", "nonce", Date.now() + 60000), /absent ou inaccessible/);
+  assert.equal(existsSync(join(replayDirectory, "replay.sqlite")), false);
+  initializeRunnerReplay(replayDirectory);
+  checkRunnerReplay(replayDirectory);
+  assert.equal(consumeRunnerReplay("grant", "nonce", Date.now() + 60000), true);
+  assert.throws(() => initializeRunnerReplay(replayDirectory!), /EEXIST/);
+  assert.equal(consumeRunnerReplay("grant", "nonce", Date.now() + 60000), false);
+});
+
+for (const loss of ["file", "volume"] as const) {
+  test(`la perte du ${loss} ne réautorise jamais un grant consommé`, () => {
+    replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+    initializeRunnerReplay(replayDirectory);
+    process.env.RUNNER_REPLAY_DIR = replayDirectory;
+    const expiry = Date.now() + 60000;
+    assert.equal(consumeRunnerReplay("grant", "consumed", expiry), true);
+    const lost = loss === "file" ? join(replayDirectory, "replay.sqlite") : replayDirectory;
+    rmSync(lost, { recursive: true });
+    for (const nonce of ["consumed", "new"]) {
+      assert.throws(() => consumeRunnerReplay("grant", nonce, expiry), /absent ou inaccessible/);
+    }
+    assert.throws(() => checkRunnerReplay(replayDirectory!), /absent ou inaccessible/);
+    assert.equal(existsSync(lost), false);
+  });
+}
+
+test("un fichier vide remplaçant le registre ne devient pas une base neuve", () => {
+  replayDirectory = mkdtempSync(join(tmpdir(), "sirius-replay-"));
+  process.env.RUNNER_REPLAY_DIR = replayDirectory;
+  const path = join(replayDirectory, "replay.sqlite");
+  writeFileSync(path, "", { mode: 0o600 });
+  assert.throws(() => checkRunnerReplay(replayDirectory!));
+  assert.throws(() => consumeRunnerReplay("capability", "consumed", Date.now() + 60000));
+  assert.throws(() => initializeRunnerReplay(replayDirectory!), /EEXIST/);
 });
