@@ -1,4 +1,11 @@
 export const ERROR_MESSAGES_EN: Record<string, string> = {
+  "Bloc confirmé indisponible": "Confirmed block is unavailable",
+  "Reçu RPC hors scope": "RPC receipt does not match the transaction",
+  "Vue RPC incohérente ou réorganisée": "RPC state is inconsistent or reorganized",
+  "Mesure comptable runner invalide": "Invalid runner accounting measurement",
+  "Reçu comptable runner invalide": "Invalid runner accounting receipt",
+  "Registre anti-rejeu privé requis": "A private replay ledger is required",
+  "Runner RA-TLS en amorçage : activation requise": "RA-TLS runner is bootstrapping: activation required",
   "Nettoyage du registre incomplet : arrêter les autres processus": "Ledger cleanup is incomplete: stop the other processes",
   "Preuve de consommation hors scope": "Execution evidence does not match the loan",
   "Résultat durable manquant": "Persisted result is missing",
