@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAtMs": 1790273475075,
+  "generatedAtMs": 1790276247355,
   "chainId": 46630,
   "wallet": "0x1212121212121212121212121212121212121212",
   "accountingReference": "fixture-synthetic-not-revenue",
@@ -13,7 +13,7 @@
   },
   "pendingTransactions": [
     {
-      "id": "failure:failure",
+      "id": "failure:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
       "hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
       "nonce": 8,
       "ageMs": 0,
@@ -28,7 +28,7 @@
       "fingerprint": "public-read",
       "kind": "request",
       "state": "succeeded",
-      "createdAtMs": 1790273475174,
+      "createdAtMs": 1790276247464,
       "workflowId": null,
       "budgetUsdMicros": "1",
       "budgetWei": "0",
@@ -41,8 +41,8 @@
       "fingerprint": "input-success",
       "kind": "training",
       "state": "succeeded",
-      "createdAtMs": 1790273475217,
-      "workflowId": "loan:success",
+      "createdAtMs": 1790276247500,
+      "workflowId": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x5151515151515151515151515151515151515151515151515151515151515151",
       "budgetUsdMicros": "100",
       "budgetWei": "0",
       "transactionHash": null,
@@ -50,12 +50,12 @@
       "broadcastAttempts": null
     },
     {
-      "id": "release:success",
+      "id": "release:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x5151515151515151515151515151515151515151515151515151515151515151",
       "fingerprint": "data-success",
       "kind": "transaction",
       "state": "succeeded",
-      "createdAtMs": 1790273475231,
-      "workflowId": "loan:success",
+      "createdAtMs": 1790276247514,
+      "workflowId": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x5151515151515151515151515151515151515151515151515151515151515151",
       "budgetUsdMicros": "500",
       "budgetWei": "100000000000",
       "transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -67,8 +67,8 @@
       "fingerprint": "input-failure",
       "kind": "training",
       "state": "failed",
-      "createdAtMs": 1790273475262,
-      "workflowId": "loan:failure",
+      "createdAtMs": 1790276247549,
+      "workflowId": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
       "budgetUsdMicros": "100",
       "budgetWei": "0",
       "transactionHash": null,
@@ -76,12 +76,12 @@
       "broadcastAttempts": null
     },
     {
-      "id": "failure:failure",
+      "id": "failure:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
       "fingerprint": "data-failure",
       "kind": "transaction",
       "state": "reserved",
-      "createdAtMs": 1790273475282,
-      "workflowId": "loan:failure",
+      "createdAtMs": 1790276247569,
+      "workflowId": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
       "budgetUsdMicros": "500",
       "budgetWei": "100000000000",
       "transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000003",
@@ -93,8 +93,8 @@
       "fingerprint": "input-uncertain",
       "kind": "training",
       "state": "reserved",
-      "createdAtMs": 1790273475306,
-      "workflowId": "loan:uncertain",
+      "createdAtMs": 1790276247594,
+      "workflowId": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
       "budgetUsdMicros": "100",
       "budgetWei": "0",
       "transactionHash": null,
@@ -104,32 +104,9 @@
   ],
   "workflows": [
     {
-      "id": "loan:failure",
-      "fingerprint": "quote-failure",
-      "validUntilMs": 1790277075075,
-      "budgetUsdMicros": "1116",
-      "budgetWei": "200000000000",
-      "remaining": {
-        "requests": 16,
-        "training": 0,
-        "transactions": 1
-      },
-      "checkpoint": "failure-measured",
-      "measurement": {
-        "elapsedMs": 800,
-        "startedAtMs": 1790273425075,
-        "success": false
-      },
-      "failureClaim": {
-        "consumedComputeAtomic": "250000",
-        "evidenceHash": "0x0000000000000000000000000000000000000000000000000000000000000002",
-        "observedAtSeconds": 1790273426
-      }
-    },
-    {
-      "id": "loan:not-started",
+      "id": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x0505050505050505050505050505050505050505050505050505050505050505",
       "fingerprint": "quote-not-started",
-      "validUntilMs": 1790277075075,
+      "validUntilMs": 1790279847356,
       "budgetUsdMicros": "1116",
       "budgetWei": "200000000000",
       "remaining": {
@@ -142,28 +119,9 @@
       "failureClaim": null
     },
     {
-      "id": "loan:success",
-      "fingerprint": "quote-success",
-      "validUntilMs": 1790277075075,
-      "budgetUsdMicros": "1116",
-      "budgetWei": "200000000000",
-      "remaining": {
-        "requests": 16,
-        "training": 0,
-        "transactions": 1
-      },
-      "checkpoint": "result-durable",
-      "measurement": {
-        "elapsedMs": 1200,
-        "startedAtMs": 1790273415075,
-        "success": true
-      },
-      "failureClaim": null
-    },
-    {
-      "id": "loan:uncertain",
+      "id": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
       "fingerprint": "quote-uncertain",
-      "validUntilMs": 1790277075075,
+      "validUntilMs": 1790279847356,
       "budgetUsdMicros": "1116",
       "budgetWei": "200000000000",
       "remaining": {
@@ -174,6 +132,48 @@
       "checkpoint": "uncertain",
       "measurement": null,
       "failureClaim": null
+    },
+    {
+      "id": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0x5151515151515151515151515151515151515151515151515151515151515151",
+      "fingerprint": "quote-success",
+      "validUntilMs": 1790279847356,
+      "budgetUsdMicros": "1116",
+      "budgetWei": "200000000000",
+      "remaining": {
+        "requests": 16,
+        "training": 0,
+        "transactions": 1
+      },
+      "checkpoint": "result-durable",
+      "measurement": {
+        "elapsedMs": 1200,
+        "startedAtMs": 1790276187355,
+        "success": true
+      },
+      "failureClaim": null
+    },
+    {
+      "id": "loan:46630:0xe7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7:0xf1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+      "fingerprint": "quote-failure",
+      "validUntilMs": 1790279847356,
+      "budgetUsdMicros": "1116",
+      "budgetWei": "200000000000",
+      "remaining": {
+        "requests": 16,
+        "training": 0,
+        "transactions": 1
+      },
+      "checkpoint": "failure-measured",
+      "measurement": {
+        "elapsedMs": 800,
+        "startedAtMs": 1790276197355,
+        "success": false
+      },
+      "failureClaim": {
+        "consumedComputeAtomic": "250000",
+        "evidenceHash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+        "observedAtSeconds": 1790276198
+      }
     }
   ]
 }
