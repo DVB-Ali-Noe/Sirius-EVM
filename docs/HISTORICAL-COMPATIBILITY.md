@@ -19,7 +19,7 @@ Les tests marqués « ops » tournent dans `pnpm test:operations` ; les autres d
 | Version de contrat inconnue | Chaîne | `readLoan` | Refus explicite, aucun repli | `historical-compat.test.ts` (ops) |
 | Liste des escrows historiques autorisés | `SIRIUS_LEGACY_ESCROW_ADDRESSES` | `trustedEscrowBindings` | Toute lecture hors liste est refusée, même avec une version connue | `evm-receipt.test.ts`, `reaper.test.ts`, `historical-compat.test.ts` (ops) |
 | Événements v5/v6 réels du testnet | Fixtures `scripts/operations/fixtures/escrow-events.*.testnet.json` | `collectEscrowEvents`, `reconcile` | 9 et 37 événements décodés ; 120 USDC dus, un prêt v6 ouvert | `escrow-events.test.ts`, `reconcile.test.ts` (branche A2) |
-| Prêt v6 lancé sans devis (parcours historique) | Navigateur | `legacyBorrowTransactions` | Vérifie l'adresse du lock, le prix et le titre EVM avant signature | **Aucun test dédié** ; à couvrir dans les scénarios navigateur de B2.3 |
+| Prêt v6 lancé sans devis (parcours historique) | Navigateur | `legacyBorrowTransactions` | Vérifie l'adresse du lock, le prix et le titre EVM avant signature | `e2e/billing-v7.spec.ts` pin le garde-fou (devis refusé sur un escrow v6) ; le constructeur de lock v6 lui-même reste sans test dédié |
 | Lignes sans `runnerKind` ni `runnerDeploymentId` | Base, avant migration | Migration de provenance | `UNKNOWN` par défaut, identifiant nul ; jamais réattribuées à Phala | `db-inventory.test.ts` (ops, PostgreSQL) |
 | Prêts sans colonnes de facturation | Base, avant migration | Migration de facturation | Sept colonnes nulles ; un remplissage pendant la migration est un écart critique | `db-inventory.test.ts` (ops, PostgreSQL) |
 
