@@ -1,14 +1,18 @@
 # Préparation de l’exploitation — 23 septembre 2026
 
+Suite du même jour : l'[exercice de reprise](BACKUP-RECOVERY.md) valide le paquet complet et sa restauration, ainsi que les arrêts brutaux du registre runner. Deux modèles ont ensuite été livrés, déchiffrés et restaurés hors ligne ; onze restent liés à des wallets de test inaccessibles. La copie hors machine est différée, Noé conservant les sauvegardes en local. Phala n'a pas été démarré.
+
 ## Périmètre demandé par Noé
 
 Préparer coûts, sauvegarde/restauration, images et migration, sans démarrer Phala. Les identifiants PostgreSQL existants sont conservés explicitement : leur rotation est hors périmètre. L’ancienne note évoquant un partage dans une conversation n’a pas été étayée par le message d’origine ; elle ne constitue pas une compromission établie.
 
 La préparation a utilisé la base de production en **lecture seule**, des lectures de blobs chiffrés Pinata, le RPC testnet en lecture et l’API de gestion Phala. Aucune migration distante, transaction, publication d’image ou activation de service n’a été effectuée. Aucun entraînement n’a été envoyé à Phala.
 
-Dernier contrôle Phala le **23 septembre à 13:13:42 UTC (15:13:42 à Paris)** : `stopped: true`, `stopRequested: false`, `dryRun: true`. La CVM existante et son disque sont conservés. Ce relevé ponctuel ne constitue pas une surveillance permanente.
+Dernier contrôle Phala le **23 septembre à 14:48:02 UTC (16:48:02 à Paris)** : lecture API de la CVM existante, `status: stopped`, `in_progress: false`, même app ID. La CVM et son disque sont conservés. Ce relevé ponctuel ne constitue pas une surveillance permanente.
 
 ## Coûts préparés
+
+Le [récapitulatif global et business plan](BUSINESS-PLAN.md) complète les calculs Phala ci-dessous avec des hypothèses explicites pour les autres postes, le travail humain, le lancement et les revenus. Il ne suppose pas connaître les abonnements réels et ne déclenche aucune dépense.
 
 Le [plan chiffré](../deploy/operations/testnet-plan.json) reste un brouillon, sans plafond de dépense approuvé, sans marge acquise inventée et sans politique de facturation active. `pnpm ops:costs` reproduit les calculs en entiers.
 
@@ -24,7 +28,26 @@ Ces valeurs excluent Pinata, Vercel, Neon, VPS, RPC, taxes et conversion USD/USD
 
 Exemple de fréquentation, sans promesse de vente : à un emprunt réussi par jour avec CVM allumée en permanence, Phala seul revient à **1,45872 USD par réussite**, ou **1,83 USD** après arrondi au centime avec un coussin illustratif de 25 %. Ce n’est pas le tarif commercial complet. Sans vente, aucun prix par emprunt ne couvre les frais fixes. La retenue en échec doit rester fondée sur les coûts mesurés et justifiés, sans y appliquer cette marge.
 
-Restent à fixer avant activation : durée des sessions, plafond de pertes financées pour les essais, coûts/limites des autres fournisseurs et tarif validé. Le mode strict actuel du registre refuse les dépenses sans marge acquise ; un apport ou des crédits de test ne doivent pas être déclarés comme des bénéfices pour contourner ce contrôle.
+### Scénario d'essais Phala préparé
+
+Pour la préparation des essais, Noé a demandé de laisser les abonnements Vercel, Neon, Pinata et VPS de côté. Ce calcul reste donc limité à **Phala**, hors taxes. Le business plan demandé ensuite les intègre sous hypothèses, sans questionnaire ni modification des offres ; aucun de ces documents ne fixe un tarif commercial actif.
+
+Le plan propose **10 sessions de 120 minutes sur 30 jours**, avec le disque existant de 20 Go conservé. Cinq minutes de délai avant réception de l'arrêt sont provisionnées pour chaque session ; ce délai reste une hypothèse de coût, pas une garantie en cas de panne API.
+
+| Poste prévu | USD |
+|---|---:|
+| Calcul pendant 20 h | 1,160000 |
+| Réserve pour les dix délais d'arrêt | 0,048340 |
+| Disque pendant 30 jours | 2,001600 |
+| Total Phala provisionné | **3,209940** |
+| Total avec coussin de 25 %, arrondi au centime supérieur | **4,02** |
+| Enveloppe proposée pour ce scénario | **5,00** |
+
+Cette enveloppe est **proposée, non approuvée et non imposée au fournisseur**. Aucun crédit n'a été acheté, aucun abonnement modifié et aucun démarrage effectué. Le superviseur extérieur reste à installer avant un futur essai autorisé. Après les 30 jours, le disque continue d'être facturé ; aucune suppression automatique n'est prévue.
+
+`pnpm ops:costs` calcule désormais cette provision en entiers, arrondit chaque session vers le haut et refuse les montants ambigus ou les durées hors période. Un mois sans vente conserve ses 2,0016 USD de disque avec un prix par réussite indéfini (`null`), au lieu de masquer le coût ou de diviser par zéro.
+
+Le mode strict actuel du registre refuse toujours les dépenses sans marge acquise. L'enveloppe proposée et les crédits de test ne sont pas des bénéfices et n'alimentent pas automatiquement le registre. Les soldes de crédits et paramètres de recharge Phala n'ont pas été établis par la lecture d'identité CLI. Le financement et la calibration restent à vérifier avant activation ; les abonnements exclus ne bloquent pas la préparation locale de ce scénario.
 
 ### Benchmarks locaux
 
@@ -62,7 +85,7 @@ pnpm ops:models /chemin/snapshot /chemin/separe/snapshot.key .env.phala
 
 Les fichiers d’environnement sont lus explicitement, sans fusion avec `.env` ni affichage de leurs valeurs. Le dump couvre le schéma applicatif `public` ; rôles PostgreSQL, permissions fournisseur, autres schémas et sauvegardes du fournisseur ne sont pas restaurés par cet exercice. L’outil vérifie la compatibilité des migrations avec leurs empreintes avant de les appliquer localement.
 
-Les **13 blobs de modèles historiques** ont été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques. Leurs clés de chiffrement d’origine n’ont pas été récupérées : leur déchiffrement et leur re-livraison restent à prouver avec le parcours historique autorisé. Préserver cet accès pendant la bascule. La sauvegarde locale doit également recevoir une copie hors de cette machine dans un emplacement choisi, avec conservation séparée de sa clé.
+Les **13 blobs de modèles historiques** ont été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques. Les deux modèles du wallet local ont ensuite été livrés par le parcours historique autorisé, déchiffrés et restaurés hors ligne ; leurs clés sont sauvegardées chiffrées dans un dossier complémentaire. Les onze autres modèles restent liés à d'anciens wallets de test inaccessibles. Noé conserve les sauvegardes en local pour l'instant ; la copie hors machine est différée. Voir [les preuves et emplacements](BACKUP-RECOVERY.md).
 
 La sauvegarde est une observation ponctuelle ; refaire un snapshot pendant la maintenance. Elle n’autorise pas à restaurer un ancien registre de budget pour récupérer artificiellement des allocations.
 
@@ -97,10 +120,10 @@ Le timer contrôle chaque minute ; prévoir le délai de contrôle et les pannes
 
 ## Validation et prochaines décisions
 
-- 302 tests applicatifs et 8 tests des outils d’exploitation réussis ; ces derniers sont ajoutés à la CI.
-- Lint, typage et build Next réussis.
+- Dernière passe applicative : 308 tests, lint, typage et build Next réussis.
+- Passe de chiffrage Phala : 18 tests d'exploitation et lint ciblé réussis ; la suite d'exploitation est incluse dans la CI.
 - Sauvegarde réelle, restauration locale PostgreSQL 18 et migrations avec historiques vérifiées.
 - Banc de calcul synthétique exécuté ; 13 copies de blobs relues et vérifiées.
 - Images runner et worker construites localement pour `linux/amd64`, puis chargement de leurs modules vérifié sans réseau sur un système de fichiers en lecture seule ; Compose VPS rendu avec une configuration synthétique.
 
-Restent avant toute activation : plafond financé des essais et tarifs complets, limites des fournisseurs, copie externe de sauvegarde et accès historique aux clés, calibration/finalité sur la cible, publication des images, déploiements/migrations et parcours complet à deux wallets. La préparation locale ne constitue pas une autorisation de redémarrer Phala.
+Restent avant toute activation : plafond financé des essais et tarifs complets, limites des fournisseurs, calibration/finalité sur la cible, publication des images, déploiements/migrations et parcours complet à deux wallets. La préparation locale ne constitue pas une autorisation de redémarrer Phala.

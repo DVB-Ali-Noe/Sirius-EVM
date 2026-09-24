@@ -4,9 +4,11 @@ Cette roadmap reflète le code présent dans ce dépôt. Une case cochée signif
 
 Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs responsables et portes de sortie, les pistes de financement et les recommandations à arbitrer. Les dates cibles et pistes commerciales n'y valent pas validation technique ni financement acquis.
 
+Le [business plan et récapitulatif des coûts](BUSINESS-PLAN.md) centralise désormais les hypothèses d'exploitation, le budget de lancement et la rentabilité. Ses propositions de prix et de dépenses ne valent ni approbation ni activation.
+
 **Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des risques encore ouverts. La [reprise locale](RECOVERY-OPERATIONS.md) couvre désormais les réponses Next perdues, les rediffusions identiques et les quotas PostgreSQL entre processus. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) ajoute sauvegarde réelle/restauration locale, copie des modèles, images et chiffrage. Tarifs complets, comptabilité, plafonds fournisseurs, anciennes clés et validation Phala restent nécessaires avant activation. Les identifiants PostgreSQL sont conservés à la demande de Noé. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
 
-**Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). L'arrêt de la CVM demandé par Noé est confirmé à 13:13 UTC ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé ; les blobs des modèles de 5 prêts et 8 entraînements sont sauvegardés, leur re-livraison de clé reste à prouver. Le KYB ouvert actuel est confirmé ; le compte local de déploiement/trésorerie est confirmé par Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
+**Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). L'arrêt de la CVM demandé par Noé est confirmé à 13:13 UTC ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé ; les blobs des modèles de 5 prêts et 8 entraînements sont sauvegardés. Les deux modèles du wallet local sont déchiffrés et restaurés hors ligne ; onze anciens modèles de test restent sans wallet accessible. Noé conserve les sauvegardes en local pour l'instant. Le KYB ouvert actuel est confirmé ; le compte local de déploiement/trésorerie est confirmé par Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
 
 ## Socle EVM — implémenté
 
@@ -23,6 +25,8 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 - [x] Formaliser et signer le devis : prix dataset/compute, total, bénéficiaires, profil, limites, barème d’échec et expiration. Afficher et faire accepter avant paiement.
 - [x] Retenir le compte local `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` pour le déploiement et la trésorerie testnet, selon le choix de Noé.
 - [x] Préparer le chiffrage Phala et le banc de benchmarks synthétiques sans activer la CVM.
+- [x] Chiffrer dix essais de deux heures avec 30 jours de disque et réserve d'arrêt : 3,209940 USD, 4,02 USD avec coussin ; enveloppe Phala proposée de 5 USD, non approuvée. Les autres abonnements sont laissés hors de cette étape à la demande de Noé.
+- [x] Documenter les coûts globaux et le business plan, avec hypothèses d'abonnements, audit, temps de travail, prix proposés et seuils de rentabilité ; aucun montant approuvé implicitement.
 - [ ] Valider les tarifs commerciaux complets et le plafond financé des essais.
 - [ ] Fixer un tarif minimum prudent couvrant une faible fréquentation ; définir le périmètre du PnL sans compter les fonds clients ni les apports comme des bénéfices.
 - [x] Implémenter localement les [budgets runner persistants](RUNNER-BUDGETS.md) : réservation atomique par opération, plafonds de gas, intention/nonce/hash durables, tentative unique, cache des modèles et coupe-circuit. Aucune activation distante.
@@ -52,8 +56,10 @@ Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 - [x] Préparer sauvegarde cohérente et nettoyage des caches de clés SQLite ; corriger la promesse de suppression dans l’interface.
 - [x] Sauvegarder la base réelle sous chiffrement, restaurer sur PostgreSQL 18 local et vérifier les migrations avec toutes les lignes historiques.
 - [x] Copier et relire les 13 blobs de modèles historiques ; contrôler les crédits dus des deux anciens escrows.
+- [x] Préparer un paquet chiffré complet, le restaurer localement et tester les arrêts brutaux avant/après checkpoint SQLite. Inventorier les 13 reçus historiques et leurs six wallets ; voir [l'exercice de reprise](BACKUP-RECOVERY.md).
 - [x] Préparer le superviseur extérieur, le contrôle des environnements et les images ; corriger les paramètres du reaper v7.
-- [ ] Valider finalité/pannes sur le réseau cible, restauration du volume runner, copie de sauvegarde hors machine, re-livraison des clés historiques et traitement des anciennes sauvegardes.
+- [x] Vérifier la livraison et la restauration hors ligne des deux modèles du wallet local ; corriger leur lecture sans inventer version ni MAE. Les onze autres historiques restent conservés sans wallet de test accessible.
+- [ ] Valider finalité/pannes sur le réseau cible, restauration du volume runner et traitement des anciennes sauvegardes. La copie hors machine est différée, sauvegarde locale retenue par Noé pour cette étape.
 
 Preuves et limites : [rapport complet](AUDIT-2026-09-23.md). Les tests locaux couvrent les correctifs principaux ; ils ne remplacent pas les validations distantes ni une garantie de finalité ou d'effacement cryptographique.
 

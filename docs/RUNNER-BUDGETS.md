@@ -2,6 +2,8 @@
 
 Implémentation locale du 23 septembre 2026, après [Escrow v7](ESCROW-V7.md). Aucun registre de production n’a été initialisé, aucun tarif activé, aucune transaction publique envoyée et Phala reste arrêté. Le [branchement v7](BILLING-INTEGRATION.md) est désormais implémenté localement avec réservation du parcours avant émission du devis.
 
+Le [business plan](BUSINESS-PLAN.md) distingue budgets prévisionnels, recettes et financement. Aucune enveloppe proposée, prestation espérée ou simulation de marge n'est une valeur comptable à injecter dans le registre.
+
 **Activation bloquée :** les [correctifs locaux de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) réconcilient les transactions confirmées et libèrent le budget des devis expirés jamais verrouillés. La [deuxième passe](RECOVERY-OPERATIONS.md) ajoute la reprise d’un résultat perdu par Next, un journal chiffré, la rediffusion identique bornée et les outils de sauvegarde/diagnostic. Une coupure avant checkpoint runner, un PnL positif et le crypto-shredding des anciennes sauvegardes restent hors garantie.
 
 ## Ce que le code impose
@@ -70,6 +72,6 @@ Le budget SQLite et le registre anti-rejeu des grants sont deux mécanismes dist
 
 ## Vérification
 
-Validation du premier livrable : 272 tests applicatifs, lint, typage et build. Après les correctifs, la [validation v7](BILLING-INTEGRATION.md#validation-locale-et-limites) atteint **302 tests applicatifs, 8 tests des outils d’exploitation, 79 tests contrats, 62 tests navigateur, un parcours EVM local et une suite PostgreSQL entre huit processus réussis**. Elle couvre la reprise d’un résultat durable, la rediffusion identique, la réconciliation d'un reçu canonique et le refus de livraison avant règlement ; elle ne vaut pas activation sur Phala.
+Validation du premier livrable : 272 tests applicatifs, lint, typage et build. Après les correctifs, la [validation v7](BILLING-INTEGRATION.md#validation-locale-et-limites) atteint **308 tests applicatifs, 18 tests des outils d’exploitation, 79 tests contrats, 62 tests navigateur, un parcours EVM local et une suite PostgreSQL entre huit processus réussis**. Elle couvre la reprise d’un résultat durable, la rediffusion identique, la réconciliation d'un reçu canonique et le refus de livraison avant règlement ; elle ne vaut pas activation sur Phala.
 
 Les tests `budget.test.ts` couvrent notamment la dernière réservation entre deux processus, la persistance des tentatives, les doublons, le cache du modèle, les limites globales et de gas, les prix périmés, les données comptables invalides, les reverts et la perte de réponse RPC. `pinata.test.ts` vérifie la coupure des flux trop grands et le refus avant upload. Aucun accès RPC, Pinata ou Phala réel n’est nécessaire.

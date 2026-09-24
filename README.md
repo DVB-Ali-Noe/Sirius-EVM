@@ -44,7 +44,7 @@ Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). 
 
 Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
-Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats, le KYB externe et la re-livraison des clés historiques restent à valider.
+Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats et le KYB externe restent à valider. Deux modèles historiques ont été récupérés et restaurés hors ligne ; les onze autres appartiennent à d'anciens wallets de test inaccessibles. Voir [l'état des sauvegardes](docs/BACKUP-RECOVERY.md).
 
 L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
 
@@ -52,9 +52,11 @@ Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et ac
 
 **Reprise et exploitation préparées :** le résultat v7 enregistré dans SQLite est récupérable après perte de la réponse Next ; les transactions signées sont journalisées sous chiffrement et rediffusées à l'identique dans une limite de trois envois. Les quotas PostgreSQL et l'anti-rejeu sont éprouvés entre huit processus. Une sauvegarde chiffrée de la base réelle a été restaurée et migrée sur PostgreSQL 18 local ; les 13 blobs de modèles historiques ont été copiés et vérifiés. Les images et le superviseur d'arrêt sont préparés localement. Voir la [reprise](docs/RECOVERY-OPERATIONS.md) et la [préparation de l'exploitation](docs/OPERATIONS-PREPARATION.md).
 
-**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, la copie de sauvegarde hors machine et l'accès aux clés historiques, les plafonds fournisseurs, les tarifs et la validation Phala complète. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
+**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, les plafonds fournisseurs, les tarifs et la validation Phala complète. La sauvegarde reste locale à ce stade ; les onze modèles sans wallet accessible restent conservés sans preuve de récupération. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
 
 La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows, crédits et clés des modèles historiques séparément de la nouvelle identité Phala.
+
+Le [récapitulatif des coûts et business plan](docs/BUSINESS-PLAN.md) centralise les coûts connus, les hypothèses d'exploitation, le budget jusqu'au mainnet et les scénarios de rentabilité. Les prix de vente proposés et les provisions ne sont pas des tarifs actifs ou des dépenses approuvées ; le total des factures historiques reste à réconcilier.
 
 ## Démarrage
 
@@ -72,7 +74,7 @@ pnpm lint
 pnpm build
 ```
 
-Validations du 23 septembre : **302 tests applicatifs, 8 tests des outils d'exploitation, lint, typage applicatif et build réussis** lors de la dernière passe. Les passes précédentes ont aussi validé 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM de facturation et les admissions PostgreSQL 17 entre huit processus. La restauration réelle et ses migrations ont été vérifiées sur PostgreSQL 18 local. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
+Validations du 23 septembre : **308 tests applicatifs, lint, typage et build local réussis** lors de la dernière passe applicative ; **18 tests d'exploitation et lint ciblé réussis** lors de la préparation du budget Phala. Les passes précédentes ont aussi validé 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM de facturation et les admissions PostgreSQL 17 entre huit processus. La restauration réelle et ses migrations ont été vérifiées sur PostgreSQL 18 local. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
 
 Après résolution des bloqueurs et validation de la migration, le guide de déploiement testnet prévoit `ROBINHOOD_DEPLOYER_KEY` et éventuellement `EVM_RPC_URL` pour le script de déploiement (`ROBINHOOD_TESTNET_RPC` concerne le réseau Hardhat), puis :
 
@@ -94,9 +96,11 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Décisions techniques](docs/DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Plan produit et passage au mainnet](docs/MAINNET-PLAN.md)
+- [Coûts totaux, business plan et rentabilité](docs/BUSINESS-PLAN.md)
 - [Audit approfondi du 23 septembre — suivi des correctifs](docs/AUDIT-2026-09-23.md)
 - [Reprise des résultats, transactions et registres](docs/RECOVERY-OPERATIONS.md)
 - [Préparation de l'exploitation, sauvegardes et coûts](docs/OPERATIONS-PREPARATION.md)
+- [Exercice de restauration et récupération des modèles historiques](docs/BACKUP-RECOVERY.md)
 - [Intégration du parcours de facturation](docs/BILLING-INTEGRATION.md)
 - [Politique de facturation et protection du PnL](docs/COMPUTE-BILLING.md)
 - [Escrow v7](docs/ESCROW-V7.md) et [budgets persistants du runner](docs/RUNNER-BUDGETS.md)

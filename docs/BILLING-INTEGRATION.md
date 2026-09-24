@@ -2,6 +2,8 @@
 
 État au 23 septembre 2026 : devis signé, prépaiement, calcul, règlement et remboursement sont raccordés dans le code. **Aucun tarif réel activé, aucune migration distante, aucun déploiement public ; Phala reste arrêté.** Le mode par défaut reste v6. Les tarifs commerciaux, la comptabilité réconciliée et les plafonds fournisseurs restent à valider : cette intégration ne garantit pas à elle seule un PnL non négatif.
 
+Les prix et revenus envisagés figurent dans [BUSINESS-PLAN.md](BUSINESS-PLAN.md). Ses simulations ne modifient ni `RUNNER_BILLING_POLICY_FILE` ni les devis ; le prix dataset reste attribué au provider et le revenu compute à Sirius.
+
 **Activation toujours bloquée :** le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) décrit les correctifs locaux et les limites restantes : finalité du réseau cible, crash avant checkpoint runner, anciennes copies de clés et validation économique. La [deuxième passe](RECOVERY-OPERATIONS.md) couvre la perte de réponse Next et les courses testées sur PostgreSQL et entre processus.
 
 ## Défauts constatés avant cette passe de correction
@@ -79,7 +81,7 @@ Avant toute activation publique, valider les limites restantes du suivi d'audit,
 
 ## Validation locale et limites
 
-Validation locale après correctifs : **302 tests applicatifs, 8 tests des outils d’exploitation, 79 tests contrats, 62 tests navigateur, le parcours EVM local et la suite PostgreSQL entre huit processus réussis**, lint, typages application/v7 et build Next réussis. Le test EVM couvre la récupération du résultat perdu par Next, la rediffusion identique après perte RPC, le règlement v7 sans nouveau grant et le refus de livraison avant confirmation ; il ne reproduit pas toutes les pannes distantes ni les réorganisations. Leur réussite ne vaut pas feu vert d’activation. Voir les [conditions de reprise](RECOVERY-OPERATIONS.md).
+Validation locale après correctifs : **308 tests applicatifs, 18 tests des outils d’exploitation, 79 tests contrats, 62 tests navigateur, le parcours EVM local et la suite PostgreSQL entre huit processus réussis**, lint, typages application/v7 et build Next réussis. Le test EVM couvre la récupération du résultat perdu par Next, la rediffusion identique après perte RPC, le règlement v7 sans nouveau grant et le refus de livraison avant confirmation ; il ne reproduit pas toutes les pannes distantes ni les réorganisations. Leur réussite ne vaut pas feu vert d’activation. Voir les [conditions de reprise](RECOVERY-OPERATIONS.md).
 
 ```bash
 pnpm test

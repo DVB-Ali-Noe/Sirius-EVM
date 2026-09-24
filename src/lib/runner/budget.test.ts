@@ -3,11 +3,11 @@ import { afterEach, test } from "node:test";
 import { mkdtempSync, rmSync, chmodSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
 import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
-import { budgetFingerprint, runBudgetedOperation, runnerBudget } from "./budget";
+import { budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
 import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { boundedGas } from "./gas-policy";
 import { reconcileRunnerTransactions } from "./transaction-recovery";
@@ -353,6 +353,115 @@ test("résultat et consommation v7 restent récupérables après redémarrage sa
   assert.equal(open().find("training", "input")?.state, "succeeded");
   assert.equal(open().diagnostics().incompleteJobs, 0);
   assert.throws(() => ledger.recordExecutionEvidence(workflow, "{}", "{}"), /déjà fixée/);
+});
+
+async function crashAndRestore(checkpoint: boolean) {
+  const account = privateKeyToAccount(`0x${"34".repeat(32)}`);
+  const { ledger, path, policy: p } = fixture((p) => {
+    p.wallet = account.address.toLowerCase();
+    p.earnedMarginUsdMicros = p.cashUsdMicros = "10000";
+    p.gas.totalWei = "1000000000000";
+    p.validUntil = Date.now() + 300000;
+  });
+  ledger.close();
+  ledgers.splice(ledgers.indexOf(ledger), 1);
+  const script = `
+    import { BudgetLedger } from ${JSON.stringify(resolve("src/lib/runner/budget-ledger.ts"))};
+    import { sealRunnerTransaction } from ${JSON.stringify(resolve("src/lib/runner/transaction-journal.ts"))};
+    import { privateKeyToAccount } from 'viem/accounts';
+    import { keccak256 } from 'viem';
+    const account = privateKeyToAccount('0x' + '34'.repeat(32));
+    const ledger = new BudgetLedger(process.argv[1], 46630, account.address.toLowerCase());
+    const scope = ${JSON.stringify(workflow)};
+    ledger.reserveWorkflow(scope, 'signed', ledger.policy.validUntil, BigInt(ledger.policy.gas.totalWei));
+    ledger.prepareWorkflowResult(scope, 'public-delivery-context');
+    ledger.reserve('training', 'input', 'training', scope);
+    if (${checkpoint}) {
+      ledger.recordExecutionEvidence(scope, JSON.stringify({ success: true, quoteHash: scope.fingerprint }), JSON.stringify({ modelCid: 'synthetic-model', metrics: { n: 20 } }));
+      const target = '0x' + '56'.repeat(20);
+      const id = 'release:46630:' + target + ':0x' + '78'.repeat(32);
+      const data = '0x1234';
+      const fingerprint = keccak256(data);
+      const raw = await account.signTransaction({ type: 'eip1559', chainId: 46630, nonce: 7, to: target, data, gas: 50000n, maxFeePerGas: 1000000n, maxPriorityFeePerGas: 0n });
+      ledger.reserve(id, fingerprint, 'transaction', scope);
+      ledger.recordTransaction(id, fingerprint, keccak256(raw), 7, sealRunnerTransaction(id, fingerprint, raw));
+    }
+    process.send('ready');
+    setInterval(() => {}, 1000);
+  `;
+  process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 21).toString("base64");
+  process.env.TEE_MODE = "stub";
+  const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "--input-type=module", "--eval", script, path],
+    { env: { ...process.env, NODE_ENV: "test" }, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  const exited = new Promise<string | null>((resolveExit, reject) => {
+    child.once("error", reject);
+    child.once("exit", (_code, signal) => resolveExit(signal));
+  });
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      const timer = setTimeout(() => reject(new Error("Checkpoint enfant absent")), 15000);
+      child.once("message", (message) => {
+        clearTimeout(timer);
+        if (message === "ready") resolveReady();
+        else reject(new Error("Checkpoint invalide"));
+      });
+      child.once("error", (error) => { clearTimeout(timer); reject(error); });
+      child.once("exit", () => { clearTimeout(timer); reject(new Error("Processus arrêté avant checkpoint")); });
+    });
+    child.kill("SIGKILL");
+    assert.equal(await exited, "SIGKILL");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+  }
+  const source = new BudgetLedger(path, p.chainId, p.wallet);
+  const destination = `${path}.restore`;
+  try { source.backup(destination); } finally { source.close(); }
+  rmSync(path);
+  const restored = new BudgetLedger(destination, p.chainId, p.wallet);
+  ledgers.push(restored);
+  return { restored, path: destination, policy: p };
+}
+
+test("SIGKILL avant checkpoint puis restauration conserve le coût sans fabriquer de résultat ni relancer le calcul", async () => {
+  const { restored } = await crashAndRestore(false);
+  assert.equal(restored.executionEvidence(workflow), null);
+  assert.equal(restored.workflowResult(workflow)?.result, null);
+  assert.equal(restored.diagnostics().incompleteJobs, 1);
+  assert.deepEqual(restored.snapshot(), { allocatedUsd: BigInt(1116), allocatedWei: BigInt("200000000000"), failures: 0 });
+  await assert.rejects(withWorkflowBudget(workflow, () => runBudgetedOperation(restored, "training", "training", "input",
+    async () => { assert.fail("Calcul répété après restauration"); })), /réconciliation/);
+  assert.equal(restored.executionEvidence(workflow), null);
+});
+
+test("SIGKILL après checkpoint puis restauration conserve résultat, journal chiffré, nonce et limite de trois envois", async () => {
+  const { restored, path, policy: p } = await crashAndRestore(true);
+  assert.equal(restored.workflowPayload(workflow.id), "signed");
+  assert.equal(restored.diagnostics().incompleteJobs, 0);
+  const result = await withWorkflowBudget(workflow, () => runBudgetedOperation(restored, "training", "training", "input",
+    async () => { assert.fail("Modèle recalculé après restauration"); }));
+  assert.deepEqual(result, { modelCid: "synthetic-model", metrics: { n: 20 } });
+  const operation = restored.pendingTransactions()[0];
+  assert.equal(operation.nonce, 7);
+  assert.equal(restored.diagnostics().pendingTransactions[0].attempts, 1);
+  assert.equal(restored.claimTransactionRebroadcast(operation.id, operation.fingerprint), null);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 31000;
+    const first = restored.claimTransactionRebroadcast(operation.id, operation.fingerprint)!;
+    assert.ok(first);
+    const raw = await openRunnerTransaction(first, operation, p);
+    assert.equal(keccak256(raw), operation.txHash);
+    assert.ok(!readFileSync(path).includes(Buffer.from(raw.slice(2), "hex")));
+    Date.now = () => realNow() + 62000;
+    assert.equal(await openRunnerTransaction(restored.claimTransactionRebroadcast(operation.id, operation.fingerprint)!, operation, p), raw);
+    Date.now = () => realNow() + 93000;
+    assert.equal(restored.claimTransactionRebroadcast(operation.id, operation.fingerprint), null);
+    assert.throws(() => restored.reserve("new-nonce", "new", "transaction"), /incertaine/);
+    assert.deepEqual(restored.snapshot(), { allocatedUsd: BigInt(1116), allocatedWei: BigInt("200000000000"), failures: 0 });
+    process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 22).toString("base64");
+    await assert.rejects(openRunnerTransaction(first, operation, p), /Journal de transaction/);
+  } finally { Date.now = realNow; }
 });
 
 test("le gas signé borne unités, prix, dépense et solde ETH", () => {

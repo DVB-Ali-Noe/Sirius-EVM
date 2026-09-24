@@ -1,8 +1,8 @@
 "use client";
 
-import { parseDeliveredModel, type DeliveredModel } from "@/lib/models/registry";
+import { parseDownloadedModel, type DownloadedModel } from "@/lib/models/registry";
 
-export type { DeliveredModel } from "@/lib/models/registry";
+export type { DownloadedModel } from "@/lib/models/registry";
 
 interface EncryptedModelPayload {
   ciphertext: string;
@@ -33,7 +33,7 @@ function encryptedPayload(value: unknown): EncryptedModelPayload {
   return payload as EncryptedModelPayload;
 }
 
-export async function decryptModelPayload(payload: unknown, modelKey: string): Promise<DeliveredModel> {
+export async function decryptModelPayload(payload: unknown, modelKey: string): Promise<DownloadedModel> {
   const encrypted = encryptedPayload(payload);
   let rawKey: Uint8Array<ArrayBuffer>;
   let ciphertext: Uint8Array<ArrayBuffer>;
@@ -49,20 +49,29 @@ export async function decryptModelPayload(payload: unknown, modelKey: string): P
   }
   if (rawKey.length !== 32 || iv.length !== 12 || tag.length !== 16) throw new Error("Modèle chiffré invalide");
 
+  let plaintext: ArrayBuffer;
   try {
     const key = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
-    const plaintext = await crypto.subtle.decrypt(
+    plaintext = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv, tagLength: 128 },
       key,
       concat(ciphertext, tag),
     );
-    return parseDeliveredModel(JSON.parse(new TextDecoder().decode(plaintext)));
   } catch {
     throw new Error("Déchiffrement du modèle impossible");
+  } finally {
+    rawKey.fill(0);
+  }
+  try {
+    return parseDownloadedModel(JSON.parse(new TextDecoder().decode(plaintext)));
+  } catch {
+    throw new Error("Modèle déchiffré invalide");
+  } finally {
+    new Uint8Array(plaintext).fill(0);
   }
 }
 
-export async function fetchDecryptedModel(modelCid: string, modelKey: string): Promise<DeliveredModel> {
+export async function fetchDecryptedModel(modelCid: string, modelKey: string): Promise<DownloadedModel> {
   const response = await fetch(`/api/models/${encodeURIComponent(modelCid)}`, { cache: "no-store" });
   const payload = await response.json().catch(() => null) as { error?: unknown } | null;
   if (!response.ok) {
@@ -71,7 +80,7 @@ export async function fetchDecryptedModel(modelCid: string, modelKey: string): P
   return decryptModelPayload(payload, modelKey);
 }
 
-export function downloadDecryptedModel(model: DeliveredModel, filename: string): void {
+export function downloadDecryptedModel(model: DownloadedModel, filename: string): void {
   const url = URL.createObjectURL(new Blob([JSON.stringify(model, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;

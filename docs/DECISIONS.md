@@ -2,6 +2,8 @@
 
 Lecture actualisée au 23 septembre 2026 : les décisions décrivent la cible et les choix validés, pas une certification de leur réalisation. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les neuf constats initiaux des correctifs locaux et des limites restantes. L'activation, les tarifs et les plafonds fournisseurs restent à valider. Phala reste arrêté.
 
+Le récapitulatif des coûts et [business plan demandé par Noé](BUSINESS-PLAN.md) est une base de discussion. Son minimum proposé de 7 USDC, son prix de pilote et ses provisions ne constituent pas de nouvelles décisions commerciales ; D-22 à D-24 restent applicables.
+
 ## D-1 — Nouveau dépôt et migration EVM explicite
 
 Le dépôt repart avec un historique propre. La documentation décrit uniquement la cible EVM et l'état présent de son implémentation ; elle ne traite pas les mécanismes historiques comme une dépendance produit.
@@ -130,4 +132,4 @@ Noé autorise la préparation locale et les contrôles distants en lecture seule
 
 Le compte local `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` sert au déploiement et à la trésorerie compute **testnet**. Le signataire Phala `0x3b31923ee7cb2a15fc85abbeeae1fc32afc08c8d` reste distinct et sa clé demeure dans l'enclave. Vérifier les soldes avant chaque opération on-chain et prévenir Noé si un complément faucet est nécessaire ; aucun suivi permanent n'est configuré.
 
-La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde chiffrée, la restauration/migration locale, la copie des modèles, les images et le superviseur d'arrêt préparés. Les scénarios de coûts ne valent ni plafond approuvé ni tarif actif. La copie hors machine, l'accès historique aux clés, les limites fournisseurs et la validation de la cible restent requis avant activation.
+La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde chiffrée, la restauration/migration locale, la copie des modèles, les images et le superviseur d'arrêt préparés. Les scénarios de coûts ne valent ni plafond approuvé ni tarif actif. Noé conserve la sauvegarde en local pour l'instant. Deux modèles ont été récupérés et restaurés hors ligne ; onze restent liés à d'anciens wallets de test inaccessibles. Ces limites sont consignées dans [l'exercice de reprise](BACKUP-RECOVERY.md). Les contrôles d'exploitation et la validation de la cible restent à terminer.

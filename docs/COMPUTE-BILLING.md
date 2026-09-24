@@ -46,6 +46,8 @@ Les reprises doivent être idempotentes : aucun double prélèvement, double cr�
 
 ## Estimer et fixer le prix
 
+Le [business plan](BUSINESS-PLAN.md#5-modèle-de-revenus-et-prix-proposés) centralise les coûts et teste un **minimum de travail de 7 USDC par réussite**, hors dataset et frais wallet. Il s'agit d'une proposition fondée sur des hypothèses de fréquentation et de coûts, non d'un prix accepté par les clients, approuvé par Noé ou chargé dans le runner. La calibration et la convention USD/USDC restent nécessaires.
+
 Construire une grille par profil à partir du nombre de lignes, du nombre de variables, des paramètres et de benchmarks sur la même classe de CVM. Couvrir aussi les coûts de préparation et de livraison, puis figer le prix dans le devis accepté.
 
 ```text
@@ -60,6 +62,8 @@ Phala facture la machine pendant qu’elle est allumée, même sans entraînemen
 Le minimum doit être calculé avec une hypothèse de fréquentation basse, puis appliqué à tous les emprunts. Les frais fixes déjà affectés aux jobs ne sont pas comptés une deuxième fois. Aucun volume minimal de clients n’est garanti : même un tarif élevé ne couvre pas une période sans vente. Aucun supplément rétroactif ne corrige cette période.
 
 Le minimum facturé, les marges, la répartition des frais fixes et la convention USD/USDC restent à définir. Les `0,01 USDC` évoqués dans la conversation étaient un exemple d’affichage, pas un tarif validé. Aucun coefficient de performance Phala n’a encore été mesuré pour ce devis. La mesure du temps moyen ou du percentile 95 sert à fixer le prix ; elle ne remplace pas un plafond de dépense effectivement imposé.
+
+**Préparation des essais suivante :** Noé laisse les autres abonnements hors de cette étape. Le [scénario Phala](OPERATIONS-PREPARATION.md#scénario-dessais-phala-préparé) propose une enveloppe de 5 USD pour dix sessions de deux heures et 30 jours de disque, sans approbation de dépense ni activation. Cette enveloppe ne définit pas un prix en USDC et ne crée pas de marge acquise dans le registre strict.
 
 ## Admission financière et protection des fonds — intégration locale
 
@@ -113,9 +117,9 @@ Le prix minimum et ces plafonds répondent à deux problèmes différents : la r
 1. Résoudre les risques restants du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) : coupure avant checkpoint runner, transaction toujours introuvable après les reprises bornées, finalité du réseau, restauration du volume runner et anciennes copies de clés. Les quotas PostgreSQL et l'anti-rejeu ont été validés entre huit processus ; la coordination de plusieurs CVM n'est pas couverte.
 2. Calibrer le minimum commun, les prix par profil, le barème de durée active sans marge en échec et les coûts maximaux réservés. Intégrer la trésorerie confirmée et justifier la marge déjà acquise ; aucune valeur de test ne vaut approbation.
 3. Vérifier et imposer les plafonds des fournisseurs et la réserve de frais fixes/arrêt. Le superviseur extérieur est préparé, mais reste à installer, configurer et surveiller avant tout démarrage autorisé. Raccorder la comptabilité réconciliée et valider la reprise du registre sans remise à zéro.
-4. Copier la sauvegarde chiffrée hors machine et valider le parcours navigateur complet. La restauration PostgreSQL 18 et les migrations sur une copie réelle sont vérifiées. Les validations [locales](BILLING-INTEGRATION.md#validation-locale-et-limites) totalisent 302 tests applicatifs et 8 tests des outils d'exploitation lors de la dernière passe ; les passes précédentes couvrent aussi 79 tests contrats, 62 tests navigateur et le parcours EVM local. Elles ne prouvent pas la reprise et la facturation complètes en production.
+4. Valider le parcours navigateur complet. Noé conserve la sauvegarde en local pour l'instant ; sa copie hors machine est différée. La restauration PostgreSQL 18 et les migrations sur une copie réelle sont vérifiées. Les validations [locales](BILLING-INTEGRATION.md#validation-locale-et-limites) totalisent 308 tests applicatifs, puis 18 tests des outils d'exploitation pour la préparation Phala ; les passes précédentes couvrent aussi 79 tests contrats, 62 tests navigateur et le parcours EVM local. Elles ne prouvent pas la reprise et la facturation complètes en production.
 5. Avant les benchmarks réels, annoncer à Noé quand Phala sera utilisé, pour combien de temps et à quel coût estimé. Calibrer ensuite la grille et vérifier l’identité de la même CVM.
-6. Après correction des bloqueurs et validation de cette fonctionnalité, prouver la re-livraison des clés des 13 modèles historiques dont les blobs sont sauvegardés, puis refaire un snapshot pendant la maintenance décrite dans [PHALA.md](PHALA.md). Publier et figer les images, préparer les contrats de facturation, les migrations et le parcours complet à deux wallets. Aucune de ces opérations distantes n'est effectuée par cette préparation.
+6. Après correction des bloqueurs et validation de cette fonctionnalité, préserver les deux modèles récupérés et les onze historiques de test sans wallet accessible (voir [l'exercice de reprise](BACKUP-RECOVERY.md)), puis refaire un snapshot pendant la maintenance décrite dans [PHALA.md](PHALA.md). Publier et figer les images, préparer les contrats de facturation, les migrations et le parcours complet à deux wallets. Aucune de ces opérations distantes n'est effectuée par cette préparation.
 
 ## Contraintes de reprise
 

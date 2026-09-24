@@ -10,7 +10,11 @@ Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle
 
 **CVM arrêtée à la demande de Noé le 23 septembre à 01:27 (Europe/Paris).** L’API confirme `status: stopped`, `in_progress: false`, avec le même app ID. Le disque et la CVM sont conservés ; aucun redéploiement de contrats ou de CVM n’a été réalisé dans cette passe. Les frais de calcul sont coupés ; le disque reste facturé `0.002780` USD/h, soit environ 0,067 USD/jour ou 2 USD pour 30 jours. Le tarif de la machine allumée est `0.060780` USD/h (`0.058000` calcul + `0.002780` disque). Voir la [tarification Phala](https://cloud.phala.com/about/pricing).
 
-**Dernier contrôle : 23 septembre à 13:13:42 UTC, soit 15:13:42 à Paris.** Le superviseur en mode lecture seule confirme `stopped: true`, `stopRequested: false`, `dryRun: true`. Aucun entraînement ni appel métier n'a été envoyé à la CVM pendant la préparation. Le superviseur et son timer sont préparés localement, non installés.
+**Dernier contrôle : 23 septembre à 14:48:02 UTC, soit 16:48:02 à Paris.** La lecture API confirme `status: stopped`, `in_progress: false` et le même app ID. Aucun entraînement ni appel métier n'a été envoyé à la CVM pendant la préparation. Le superviseur et son timer sont préparés localement, non installés.
+
+**Essais chiffrés, sans activation :** [10 sessions de deux heures et 30 jours de disque](OPERATIONS-PREPARATION.md#scénario-dessais-phala-préparé), avec réserve de délai d'arrêt : 3,209940 USD, ou 4,02 USD avec coussin de 25 %. L'enveloppe proposée de 5 USD reste non approuvée. Les autres abonnements sont hors périmètre de cette préparation, selon la demande de Noé.
+
+Le [business plan global](BUSINESS-PLAN.md) ajoute les autres postes sous hypothèses et un budget jusqu'au mainnet. Il ne change pas le scénario d'essais Phala ni l'autorisation requise avant un démarrage.
 
 **Consigne de Noé sur les crédits :** prévenir avant toute prochaine opération utilisant Phala, en indiquant quand elle aura lieu et son coût estimé. Ne pas redémarrer automatiquement la CVM pour un contrôle ou une reprise ; préparer les opérations locales pendant son arrêt. Ne pas supprimer ni recréer la CVM pour éviter les frais du disque sans demande explicite.
 
@@ -25,7 +29,7 @@ Les deux accès sont renseignés et validés dans `.env.phala-production-secrets
 - Prêts : 5 `SETTLED`, 5 `CANCELLED`, aucun prêt actif.
 - Entraînements personnels : 8 `DONE`, aucun entraînement actif.
 - Datasets : 2 `LISTED`, 2 `DRAFT`, 5 `SUSPENDED`, 21 `DELETED`.
-- Modèles historiques : 5 prêts et 8 entraînements portent un `modelCid`. Les 13 blobs ont ensuite été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques ; leur déchiffrement et leur re-livraison de clé restent à tester.
+- Modèles historiques : 5 prêts et 8 entraînements portent un `modelCid`. Les 13 blobs ont ensuite été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques ; deux modèles du wallet local ont ensuite été livrés, déchiffrés et restaurés hors ligne. Les onze autres sont liés à d'anciens wallets de test inaccessibles, confirmé par Noé. Voir [la récupération historique](BACKUP-RECOVERY.md).
 - Déploiements des prêts : réseau `46630`, 8 prêts sur `0xede81141d007593d4bfce2de4778f753d167700e` et 2 sur `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`. Conserver ces deux escrows dans l’historique et vérifier les autres adresses déjà autorisées.
 - Dernière migration appliquée lors de cette observation : `20260906000000_reconcile_dataset_deletion`. Les migrations de provenance `20260919000000_track_runner_provenance` et de facturation `20260923000000_add_compute_billing` restent à appliquer lors de la future maintenance.
 
@@ -42,7 +46,7 @@ Contrôles Pinata et infrastructure du 23 septembre :
 
 **Identifiants PostgreSQL :** une ancienne note évoquait un partage dans une conversation, sans message d’origine vérifié. Aucune compromission n’a été établie. Noé demande explicitement de conserver les identifiants actuels ; aucune rotation ni synchronisation de nouveaux secrets n’est prévue dans cette préparation.
 
-La [préparation de l’exploitation](OPERATIONS-PREPARATION.md) ajoute une sauvegarde chiffrée de la base réelle, sa restauration locale PostgreSQL 18 avec les deux migrations, la copie vérifiée des 13 blobs de modèles, le chiffrage, les images et les outils de contrôle. Phala reste arrêté ; la re-livraison des clés historiques et les validations d’activation restent à effectuer.
+La [préparation de l’exploitation](OPERATIONS-PREPARATION.md) ajoute une sauvegarde chiffrée de la base réelle, sa restauration locale PostgreSQL 18 avec les deux migrations, la copie vérifiée des 13 blobs de modèles, le chiffrage, les images et les outils de contrôle. Phala reste arrêté. La récupération des deux modèles accessibles est vérifiée ; les validations d'activation restent à effectuer.
 
 - `DATABASE_URL` sert aux contrôles de migration et à l’application ; **ne pas l’envoyer à Phala**.
 - `PINATA_JWT` permet au runner de stocker les fichiers chiffrés. Sa copie validée est dans `.env.phala` pour le futur envoi chiffré à la CVM ; aucune mise à jour distante de la CVM n’a encore été faite.
@@ -50,7 +54,7 @@ La [préparation de l’exploitation](OPERATIONS-PREPARATION.md) ajoute une sauv
 
 La connexion CLI Phala (profil `sirius`, workspace `sirius_data`) et l’accès GitHub/GHCR privé ont déjà été configurés. Ne pas recommencer ces autorisations sauf si un contrôle constate leur expiration. L’image a été publiée le **19 septembre** ; la CLI Phala et la CVM en amorçage ont été revérifiées le 23 septembre, puis la CVM a été arrêtée à la demande de Noé. Le solde de crédits du compte Phala n’a pas été contrôlé lors de cette passe. Le tarif initialement observé figure ci-dessous.
 
-**Restent non effectués :** validation du budget d'essais, calibration des tarifs et des plafonds fournisseurs, intégration de la trésorerie choisie dans la politique tarifaire validée, copie de sauvegarde hors machine, preuve de re-livraison des clés historiques, publication des images préparées, nouveaux contrats publics liés à Phala, financement du compte de règlement, activation métier de la CVM, migrations Prisma distantes, configuration/déploiement Next et reaper, parcours navigateur complet. Les migrations sont vérifiées sur la copie PostgreSQL 18 locale. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
+**Restent non effectués :** validation du budget d'essais, calibration des tarifs et des plafonds fournisseurs, intégration de la trésorerie choisie dans la politique tarifaire validée, publication des images préparées, nouveaux contrats publics liés à Phala, financement du compte de règlement, activation métier de la CVM, migrations Prisma distantes, configuration/déploiement Next et reaper, parcours navigateur complet. Les migrations sont vérifiées sur la copie PostgreSQL 18 locale. Noé garde les sauvegardes en local pour l'instant ; les onze modèles des wallets de test inaccessibles restent conservés sans livraison vérifiée. Aucun commit, push ou autre commande Git n’a été exécuté pour cette intégration ; une demande explicite de Noé reste nécessaire pour toute commande Git.
 
 ### Fichiers locaux à conserver
 

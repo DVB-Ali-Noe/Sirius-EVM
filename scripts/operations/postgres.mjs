@@ -7,6 +7,7 @@ import { parseEnv } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { openArchive, privateFile, readPrivateFile, sealArchive } from "./archive.mjs";
+import { historicalDeliveryInventory } from "./historical-delivery.mjs";
 
 function postgresImage(version) {
   const major = Math.floor(version / 10000);
@@ -168,9 +169,19 @@ async function verify(directory, keyFile) {
     phase = "comparaison-apres-migration";
     const migrated = await inventory(query, archive.tables);
     if (JSON.stringify(migrated) !== JSON.stringify(archive.tables)) throw new Error("La migration altère les données historiques");
+    phase = "inventaire-livraison-historique";
+    const historical = historicalDeliveryInventory((await query(`SELECT 'loan' AS kind, id, "datasetId", borrower AS subject,
+      "modelCid" AS cid, "modelId", "modelVersion", "runnerReceipt" AS receipt, status::text,
+      "evmChainId" AS "chainId", "evmEscrowAddress" AS escrow, "evmLoanKey" AS "loanKey"
+      FROM "Loan" WHERE "modelCid" IS NOT NULL UNION ALL
+      SELECT 'training', id, "datasetId", owner, "modelCid", "modelId", "modelVersion", "runnerReceipt", status::text,
+      NULL::integer, NULL::text, NULL::text FROM "TrainingJob" WHERE "modelCid" IS NOT NULL`)).rows);
+    privateFile(join(directory, `historical-delivery-${Date.now()}.json`), JSON.stringify(historical, null, 2));
     const report = { checkedAt: new Date().toISOString(), sourceFingerprint: archive.sourceFingerprint,
       restoredTables: restored.length, allHistoricalRowsIdentical: true, pendingMigrationsAppliedLocally: applied,
-      sourceMutated: false, remoteRestorePossible: false, historicalModels: archive.models.length, modelDecryptionVerified: false };
+      sourceMutated: false, remoteRestorePossible: false, historicalModels: archive.models.length, modelDecryptionVerified: false,
+      historicalMetadataConsistent: historical.metadataConsistent, historicalMetadataCompatible: historical.metadataCompatible,
+      historicalLegacyProfilesUnattested: historical.legacyProfileUnattested, historicalWalletsRequired: historical.requiredWallets };
     privateFile(join(directory, `restore-${Date.now()}.json`), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
   } finally {

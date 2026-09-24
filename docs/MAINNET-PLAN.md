@@ -4,7 +4,7 @@ Plan initial communiqué par Noé : 22 septembre 2026 → mars 2027. Consolidati
 
 Objectif : passer de la démonstration à un service qu'un client accepte de payer, avec une porte vérifiable avant chaque phase. Les dates et charges sont des objectifs du plan initial, à recalibrer selon les résultats et la disponibilité de Noé et Ali.
 
-Ce document conserve le plan produit, commercial et financier. [ROADMAP.md](ROADMAP.md) décrit l'état technique ; [DECISIONS.md](DECISIONS.md) conserve les décisions validées. Les recommandations de revue sont identifiées comme **propositions à arbitrer** : leur enregistrement ne vaut pas adoption. Aucun financement, entretien ou pilote n'est considéré comme obtenu sans preuve.
+Ce document conserve les phases produit, les responsabilités et les pistes de financement. [BUSINESS-PLAN.md](BUSINESS-PLAN.md) centralise désormais coûts totaux, hypothèses de revenus et rentabilité ; [ROADMAP.md](ROADMAP.md) décrit l'état technique et [DECISIONS.md](DECISIONS.md) conserve les décisions validées. Les recommandations de revue sont identifiées comme **propositions à arbitrer** : leur enregistrement ne vaut pas adoption. Aucun financement, entretien ou pilote n'est considéré comme obtenu sans preuve.
 
 **Mise à jour technique après correctifs locaux :** le [parcours v7](BILLING-INTEGRATION.md) est raccordé et testé, avec réservation du budget jusqu’à la clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs apportés aux neuf constats initiaux des risques encore bloquants. Aucun tarif validé, déploiement v7, migration distante ou redémarrage Phala ne découle de cette mise à jour. Le calendrier, les responsabilités et les pistes commerciales ci-dessous restent ceux du plan, sans nouvelle validation externe.
 
@@ -193,18 +193,18 @@ Ces propositions proviennent de l'avis sur le plan. La priorité compute avant P
 | R6 | Chiffrer un budget par phase et un scénario sans grant. | Fixer dépenses maximales, trésorerie disponible, financements espérés séparés et décision si aucun n'arrive. Utiliser le tableau ci-dessous. |
 | R7 | Compléter la porte mainnet par une limite d'exposition cumulée, en plus du plafond par prêt, et vérifier disponibilité effective du réseau/token et capacité de suspension. | Fixer exposition totale, concurrence, responsabilités et preuves opérationnelles. Un plafond de 500 USDC par prêt ne borne pas mille prêts simultanés. |
 
-### Budget par phase — proposition R6 à chiffrer
+### Budget par phase — proposition R6 chiffrée, non approuvée
 
-Les sommes restent non renseignées : aucune capacité de financement n'est déduite des prix de concours, des dépôts clients, de l'USDC testnet ou de crédits annoncés.
+Le [budget central](BUSINESS-PLAN.md#4-budget-total-jusquau-mainnet) donne un scénario sur sept périodes de 30 jours : **1 303,21 USD d'infrastructure**, puis frais variables, audit et préparation, pour **36 447,86 USD de trésorerie à prévoir avec réserve**, hors rémunération des fondateurs et taxes. Les montants sont des hypothèses de travail, non des devis ou plafonds approuvés. Aucune capacité de financement n'est déduite des concours, dépôts clients, tokens testnet ou crédits annoncés.
 
-| Phase | Coûts à inclure | Plafond / trésorerie confirmée | Scénario sans grant à décider |
+| Phase | Coûts à inclure | Provision d'infrastructure / financement | Scénario sans grant à décider |
 |---|---|---|---|
-| 0 | CVM et disque, stockage, hébergement/RPC, gas, intégration compute, éventuel déplacement Singapour | À chiffrer / à confirmer | Poursuivre la préparation locale ; définir les dépenses payantes acceptables avant activation. |
-| 1 | Compute de benchmark, upload/stockage, jobs longs, développement et prospection | À chiffrer / à confirmer | Réduire le périmètre selon le besoin du pilote et les moyens disponibles. |
-| 2 | Quatre semaines d'exploitation, support, KYB externe et revue avant données sensibles si R4 retenue | À chiffrer / à confirmer | Définir durée et coût supportables du pilote, prix éventuel et conditions d'arrêt. |
-| 3 | Audit, revue des corrections, déploiement, KYB, monitoring et réserve d'exploitation | Devis d'audit à obtenir / financement à confirmer | Mainnet différé tant que l'audit et ses corrections ne sont pas financés et validés. |
+| 0 | CVM et disque, stockage, hébergement/RPC, gas et intégration compute | 103,21 USD pour une période / non confirmé | Poursuivre la préparation locale ; définir les dépenses payantes acceptables avant activation. |
+| 1 | Benchmarks, upload/stockage, jobs longs, développement et prospection | 400 USD pour deux périodes / non confirmé | Réduire le périmètre selon le besoin du pilote et les moyens disponibles ; recalibrer l'infrastructure. |
+| 2 | Exploitation, support, KYB externe et revue avant données sensibles si R4 retenue | 200 USD pour une période / non confirmé | Définir durée et coût supportables du pilote, prix éventuel et conditions d'arrêt. |
+| 3 | Audit, corrections, déploiement, KYB, monitoring et réserve | 600 USD pour trois périodes, hors postes de lancement détaillés dans le business plan / non confirmé | Mainnet différé tant que l'audit et ses corrections ne sont pas financés et validés. |
 
-Les coûts opérationnels détaillés restent suivis dans [COMPUTE-BILLING.md](COMPUTE-BILLING.md) et [PHALA.md](PHALA.md). Une marge positive par job ne prouve pas la couverture des périodes sans vente ni des charges persistantes.
+Les périodes arrondies servent au budget et ne remplacent pas les fenêtres cibles ni les portes de sortie. Le scénario suppose une prospection distante ; ajouter tout déplacement décidé ensuite. Le minimum compute de 7 USDC et le pilote accompagné à 1 500 USD du [business plan](BUSINESS-PLAN.md#5-modèle-de-revenus-et-prix-proposés) sont proposés, non adoptés. La facturation et les opérations restent suivies dans [COMPUTE-BILLING.md](COMPUTE-BILLING.md) et [PHALA.md](PHALA.md). Une marge positive par job ne prouve pas la couverture des périodes sans vente ni du travail de l'équipe.
 
 ## Hors périmètre et sujets différés du plan initial
 

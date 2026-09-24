@@ -21,7 +21,7 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
-import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
+import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import {
@@ -131,7 +131,7 @@ function TrainPageContent() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
-  const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
+  const [inspected, setInspected] = useState<Record<string, DownloadedModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -662,7 +662,7 @@ function TeeSpinner() {
   return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
 }
 
-function ModelInspection({ model }: { model: DeliveredModel }) {
+function ModelInspection({ model }: { model: DownloadedModel }) {
   const { t } = useLocale();
   const [testFile, setTestFile] = useState<File | null>(null);
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
@@ -710,14 +710,14 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <Field label={t("Algorithme")} value={model.algo} mono />
-        <Field label={t("Version")} value={model.version} mono />
+        <Field label={t("Version")} value={model.version ?? "—"} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
         {model.algo === "linear_regression" ? (
           <>
             <Field label="R²" value={model.metrics.r2.toFixed(6)} />
             <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
-            <Field label="MAE" value={model.metrics.mae.toFixed(6)} />
+            <Field label="MAE" value={model.metrics.mae?.toFixed(6) ?? "—"} />
           </>
         ) : (
           <>
