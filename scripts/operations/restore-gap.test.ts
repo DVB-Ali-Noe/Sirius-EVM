@@ -48,7 +48,7 @@ test("un registre restauré depuis une copie ancienne ne peut pas rouvrir : dép
   const gap = restoreGap(restored, lastKnown);
   assert.equal(gap.reopenAllowed, false);
   assert.deepEqual(gap.missingOperations.map((op) => op.id).sort(), ["release:after", "request:after"]);
-  assert.deepEqual(gap.missingWorkflows.map((w) => w.id), ["loan:after-backup"]);
+  assert.deepEqual(gap.missingWorkflows.map((w: { id: string }) => w.id), ["loan:after-backup"]);
   assert.deepEqual(gap.regressedOperations.map((op) => [op.id, op.restoredState, op.lastKnownState]),
     [["training:before", "reserved", "succeeded"]]);
   assert.deepEqual(gap.consumedNonces, [9]);
@@ -68,7 +68,7 @@ test("un registre identique au dernier export n'a aucun écart, sans pour autant
 test("deux registres contradictoires ou de wallets différents sont signalés, jamais fusionnés", () => {
   const { restored, lastKnown } = drill();
   const forged = clone(lastKnown);
-  forged.operations.find((op: { id: string }) => op.id === "training:before").fingerprint = "other-input";
+  forged.operations.find((op: { id: string }) => op.id === "training:before")!.fingerprint = "other-input";
   const gap = restoreGap(restored, forged);
   assert.deepEqual(gap.conflictingOperations.map((op) => op.id), ["training:before"]);
   assert.equal(gap.reopenAllowed, false);
