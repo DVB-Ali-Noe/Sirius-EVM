@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { formatBytes } from "@/lib/format";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
+import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { borrowDataset } from "@/lib/loans/client";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useWalletStore } from "@/stores/wallet";
@@ -206,6 +207,7 @@ function MarketCard({
   onError: (msg: string) => void;
 }) {
   const { t } = useLocale();
+  const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [busy, setBusy] = useState(false);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   const isFav = useFavoritesStore((s) => s.ids.includes(dataset.id));
@@ -213,23 +215,21 @@ function MarketCard({
 
   async function borrow() {
     onError("");
-    if (!model) {
+    if (!model || !dataset.priceUsdcAtomic) {
       onError(t("Profil d’entraînement du dataset absent ou invalide"));
       return;
     }
     if (
       dejaEmprunte &&
       !window.confirm(
-        t("Tu as déjà un emprunt en cours sur ce dataset. En ouvrir un second bloquera {price} USDC de plus. Continuer ?", {
-          price: dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "?",
-        }),
+        t("Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?"),
       )
     ) {
       return;
     }
     setBusy(true);
     try {
-      await borrowDataset({ datasetId: dataset.id });
+      if (!await borrowDataset({ datasetId: dataset.id, priceUsdcAtomic: dataset.priceUsdcAtomic!, confirmQuote })) return;
       onBorrowed();
     } catch (err) {
       onError(messageOf(err));
@@ -240,6 +240,7 @@ function MarketCard({
 
   return (
     <Card className="flex flex-col gap-3">
+      {quoteDialog}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h3 className="min-w-0 flex-1 font-medium">{dataset.name}</h3>
         <div className="flex shrink-0 items-center gap-2">
@@ -267,7 +268,7 @@ function MarketCard({
 
       <p className="text-sm font-medium">
         {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC
-        <span className="ml-2 text-xs font-normal text-muted">{t("remboursable après {days} j", { days: dataset.challengeDays })}</span>
+        <span className="ml-2 text-xs font-normal text-muted">{t("Prix du dataset")}</span>
       </p>
 
       <p className="font-mono text-[11px] uppercase tracking-wider text-muted">
@@ -280,7 +281,7 @@ function MarketCard({
         </p>
         <button
           onClick={borrow}
-          disabled={!model || busy}
+          disabled={!model || !dataset.priceUsdcAtomic || busy}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="max-w-full shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >

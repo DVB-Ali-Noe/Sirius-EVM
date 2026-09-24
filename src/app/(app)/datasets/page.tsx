@@ -176,7 +176,7 @@ function DatasetsContent() {
       !window.confirm(
         dataset.status === "DELETED"
           ? t("Vérifier le titre dans le registre EVM courant et finaliser la suppression ? Les éventuels anciens registres ne seront pas modifiés.")
-          : t("Supprimer ce dataset ? Sa clé de déchiffrement est détruite : la donnée devient définitivement irrécupérable."),
+          : t("Supprimer ce dataset ? Sa clé active sera supprimée et son titre désactivé. Les sauvegardes et les modèles déjà livrés ne sont pas effacés."),
       )
     ) {
       return;

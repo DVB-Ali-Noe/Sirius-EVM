@@ -6,7 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
-import { getEnclaveTlsIdentity, initEnclave, isSimulator } from "@/lib/tee/dstack";
+import { getEnclaveTlsIdentity, initEnclave } from "@/lib/tee/dstack";
 import { AppError } from "@/lib/app-error";
 import {
   preflightRunnerCapability,
@@ -18,6 +18,9 @@ import { runnerSettlementAddress } from "@/lib/evm/escrow";
 import { datasetIngressKeyFingerprint } from "@/lib/tee/ingress";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
 import { handleRunnerOp, scopeForRunnerOp } from "./handler";
+import { validateRunnerConfiguration } from "./config";
+import { runnerBudget } from "@/lib/runner/budget";
+import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -90,6 +93,7 @@ export async function handleRunnerRequest(
   req: IncomingMessage,
   res: ServerResponse,
   raTlsEvidence?: RunnerRaTlsEvidence,
+  bootstrapOnly = false,
 ): Promise<void> {
   const send = (status: number, obj: unknown) => {
     res.writeHead(status, {
@@ -101,11 +105,12 @@ export async function handleRunnerRequest(
   };
   try {
     const path = new URL(req.url ?? "/", "http://runner").pathname;
-    if (req.method === "GET" && path === "/health") return send(200, { status: "ok" });
+    if (req.method === "GET" && path === "/health") return send(200, { status: bootstrapOnly ? "bootstrap" : "ok" });
     if (req.method === "GET" && path === "/ra-tls") {
       return raTlsEvidence ? send(200, raTlsEvidence) : send(404, { error: "RA-TLS indisponible" });
     }
     if (req.method !== "POST") return send(405, { error: "POST attendu" });
+    if (bootstrapOnly) return send(503, { error: "Runner en amorçage : opérations métier désactivées" });
     const op = path.replace(/^\/+/, "");
     const capability = req.headers["x-sirius-runner-capability"];
     const token = Array.isArray(capability) ? undefined : capability;
@@ -155,25 +160,11 @@ export async function handleRunnerRequest(
 export async function startRunner(
   { port = PORT, log = true }: StartRunnerOptions = {},
 ): Promise<HttpServer | HttpsServer> {
-  const tlsEnabled = process.env.NODE_ENV === "production" || process.env.RUNNER_TLS_ENABLED === "true";
-  if (process.env.NODE_ENV === "production") {
-    if (process.env.TEE_MODE !== "phala") throw new Error("TEE_MODE=phala obligatoire pour le runner en production");
-    if (isSimulator()) throw new Error("Simulateur dstack interdit pour le runner en production");
-    for (const name of [
-      "RUNNER_TRANSPORT_SECRET",
-      "RUNNER_REPLAY_DIR",
-      "RUNNER_TLS_HOSTNAME",
-      "SIRIUS_APP_ORIGIN",
-      "EVM_NETWORK",
-      "EVM_RPC_URL",
-      "SIRIUS_ESCROW_ADDRESS",
-    ]) {
-      if (!process.env[name]) throw new Error(`${name} obligatoire pour le runner en production`);
-    }
-  }
+  const { bootstrapOnly, tlsEnabled } = validateRunnerConfiguration();
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
-  if (tlsEnabled && process.env.TEE_MODE !== "phala") {
-    throw new Error("TEE_MODE=phala obligatoire quand TLS runner est activé");
+  if (!bootstrapOnly) runnerBudget();
+  if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
+    await verifyRunnerDeployment(runnerSettlementAddress());
   }
 
   const tlsIdentity = tlsEnabled ? await getEnclaveTlsIdentity() : null;
@@ -182,10 +173,12 @@ export async function startRunner(
         ...tlsIdentity.evidence,
         ingressKeySha256: datasetIngressKeyFingerprint(),
         masterKeyChainSha256: enclaveIdentity.masterKeyChainSha256,
+        settlementAddress: runnerSettlementAddress(),
+        bootstrapOnly,
       }
     : undefined;
   const requestHandler = (req: IncomingMessage, res: ServerResponse) => {
-    void handleRunnerRequest(req, res, raTlsEvidence);
+    void handleRunnerRequest(req, res, raTlsEvidence, bootstrapOnly);
   };
 
   const server = tlsIdentity

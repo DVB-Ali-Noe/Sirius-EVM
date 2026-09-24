@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { gateModel } from "@/lib/tee/output-gate";
 import { trainLinearRegression, trainLogisticRegression } from "@/lib/tee/train";
 import { evaluateModelCsv, predictModel } from "./evaluation-client";
-import type { DeliveredModel } from "./model-client";
+import type { DeliveredModel, HistoricalLinearRegressionModel } from "@/lib/models/registry";
 
 const exactModel: DeliveredModel = {
   algo: "linear_regression",
@@ -20,6 +20,21 @@ test("évalue un modèle sur un CSV tenu hors de l'entraînement", () => {
   const csv = ["feature,target", ...Array.from({ length: 25 }, (_, index) => `${index},${2 + 3 * index}`)].join("\n");
   assert.deepEqual(predictModel(exactModel, { feature: 2 }), { algo: "linear_regression", value: 8 });
   assert.deepEqual(evaluateModelCsv(exactModel, csv), { algo: "linear_regression", n: 25, r2: 1, rmse: 0, mae: 0 });
+});
+
+test("évalue et utilise les coefficients historiques sans inventer de métrique d'entraînement", () => {
+  const historical: HistoricalLinearRegressionModel = {
+    algo: "linear_regression", target: "target", features: ["feature"], coefficients: [2, 3],
+    metrics: { r2: 1, rmse: 0, n: 100 },
+  };
+  const csv = ["feature,target", ...Array.from({ length: 25 }, (_, index) => `${index},${3 + 3 * index}`)].join("\n");
+  assert.deepEqual(predictModel(historical, { feature: 2 }), { algo: "linear_regression", value: 8 });
+  const evaluation = evaluateModelCsv(historical, csv);
+  assert.equal(evaluation.mae, 1);
+  assert.equal(evaluation.rmse, 1);
+  assert.equal(evaluation.n, 25);
+  assert.equal(Object.hasOwn(historical.metrics, "mae"), false);
+  assert.equal(Object.hasOwn(historical, "version"), false);
 });
 
 test("refuse un CSV de test qui ne contient pas les colonnes du modèle", () => {

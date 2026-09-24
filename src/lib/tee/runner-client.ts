@@ -1,6 +1,6 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
-import { isDemoDeployment } from "@/lib/deployment-mode";
+import { runnerEndpoint as endpoint } from "@/lib/runner/config";
 import { issueRunnerCapability, type RunnerOperation, type RunnerScope } from "@/lib/runner/capability";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import type { ModelSelection } from "@/lib/models/registry";
@@ -13,40 +13,13 @@ import type {
   DatasetRef,
   RunnerDeliveryEnvelope,
   RunnerReleaseEnvelope,
+  RecoveredLoanResult,
 } from "./contract";
 import { attestedRunnerFetch } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
+import type { SignedComputeQuote } from "@/lib/billing/quote";
 
 const RUNNER_TIMEOUT_MS = 60_000;
-
-function endpoint(): string | null {
-  const configured = process.env.RUNNER_URL?.trim();
-  if (!configured) {
-    // Sans runner distant, l'appelant exécute la logique confidentielle dans son
-    // propre processus. C'est le chemin de développement, et c'est aussi celui de la
-    // démonstration : tant qu'aucune enclave n'existe, un runner séparé n'apporterait
-    // qu'un saut réseau devant le même calcul non attesté.
-    //
-    // Le mode démonstration est refusé sur mainnet par `instrumentation-node.ts`, donc
-    // ce chemin ne peut jamais servir de l'argent réel.
-    if (process.env.NODE_ENV === "production" && !isDemoDeployment()) {
-      throw new Error("RUNNER_URL obligatoire en production");
-    }
-    return null;
-  }
-  const url = new URL(configured);
-  if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
-    throw new Error("RUNNER_URL doit cibler l’origine racine du runner");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Protocole RUNNER_URL invalide");
-  // Un runner DISTANT reste soumis au régime strict, même en démonstration : dès
-  // qu'un secret traverse le réseau, il lui faut du TLS et une enclave attestée en
-  // face. L'assouplissement ci-dessus ne concerne que le cas sans réseau du tout.
-  if (process.env.NODE_ENV === "production" && (url.protocol !== "https:" || process.env.TEE_MODE !== "phala")) {
-    throw new Error("Runner production : HTTPS et TEE_MODE=phala obligatoires");
-  }
-  return url.toString().replace(/\/+$/, "");
-}
 
 export function usesRemoteRunner(): boolean {
   return endpoint() !== null;
@@ -105,7 +78,7 @@ export async function prepareEscrowLockInRunner(
   loanId: string,
   borrower: string,
   authorizationDeadline: number,
-): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization }> {
+): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization; billingQuote?: SignedComputeQuote }> {
   return dispatchRunner("prepare-escrow-lock", { datasetId: dataset.datasetId, loanId, borrower },
     { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline });
 }
@@ -115,17 +88,19 @@ export async function runLoanJobInRunner(
   datasetReceipt: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
+  billingQuote?: SignedComputeQuote,
 ): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
   attestation: LoanExecutionAttestation;
-  releaseEnvelope: RunnerReleaseEnvelope;
+  releaseEnvelope?: RunnerReleaseEnvelope;
+  releaseEnvelopeHash: string;
   runnerReceipt: string;
 }> {
   return dispatchRunner(
     "run-loan-job",
     { datasetId: input.datasetId, loanId: input.loanId },
-    { ...input, datasetReceipt, deliveryPublicKey, authorization },
+    { ...input, datasetReceipt, deliveryPublicKey, authorization, ...(billingQuote ? { billingQuote } : {}) },
   );
 }
 
@@ -134,13 +109,17 @@ export async function settleLoanInRunner(
   loanReceipt: string,
   releaseEnvelopeHash: string,
   lockBlock: string,
-  authorization: RunnerGrant,
+  authorization?: RunnerGrant,
 ): Promise<{ settleTxHash: string }> {
   return dispatchRunner(
     "settle-loan",
     { loanId },
-    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, authorization },
+    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}) },
   );
+}
+
+export async function recoverLoanJobInRunner(loanId: string, billingQuote: SignedComputeQuote): Promise<RecoveredLoanResult> {
+  return dispatchRunner("recover-loan-job", { loanId }, { loanId, billingQuote });
 }
 
 export async function loanModelKeyInRunner(
@@ -148,11 +127,12 @@ export async function loanModelKeyInRunner(
   loanReceipt: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
+  settleTxHash?: string,
 ): Promise<{ modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope }> {
   return dispatchRunner(
     "loan-model-key",
     { loanId },
-    { loanId, loanReceipt, deliveryPublicKey, authorization },
+    { loanId, loanReceipt, deliveryPublicKey, authorization, ...(settleTxHash ? { settleTxHash } : {}) },
   );
 }
 

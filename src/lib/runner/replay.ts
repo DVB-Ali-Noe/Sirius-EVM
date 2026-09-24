@@ -15,16 +15,15 @@ function cleanupMemory(now: number): void {
 
 function cleanupDirectory(directory: string, now: number): void {
   for (const name of readdirSync(directory)) {
-    const match = /^[a-f0-9]{64}$/.test(name);
-    let expiry = 0;
+    if (!/^[a-f0-9]{64}$/.test(name)) continue;
+    let expiry: number;
     try {
-      expiry = match ? Number(readFileSync(join(directory, name), "utf8")) : 0;
-    } catch {}
-    if (!match || !Number.isSafeInteger(expiry) || expiry <= now || expiry > now + MAX_REPLAY_TTL_MS) {
-      try {
-        unlinkSync(join(directory, name));
-      } catch {}
-    }
+      const raw = readFileSync(join(directory, name), "utf8");
+      if (!/^[1-9][0-9]*$/.test(raw)) continue;
+      expiry = Number(raw);
+    } catch { continue; }
+    if (!Number.isSafeInteger(expiry) || expiry > now) continue;
+    try { unlinkSync(join(directory, name)); } catch {}
   }
 }
 

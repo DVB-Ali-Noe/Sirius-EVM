@@ -10,6 +10,7 @@ import {
 } from "./reaper-policy";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { resolveLoanEscrow } from "@/lib/evm/history";
+import { recoverLoanResult, settlePreparedLoan } from "./settle";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -57,8 +58,17 @@ async function reapBatch(now: Date): Promise<void> {
         await recoverUnsubmittedLoan(loan);
         continue;
       }
-      if (loan.status === "TRAINING" && !loan.modelCid) {
+      if (!loan.modelCid && loan.billingQuoteHash) {
+        if (await recoverLoanResult(loan.id)) {
+          await settlePreparedLoan(loan.id);
+          continue;
+        }
+      } else if (loan.status === "TRAINING" && !loan.modelCid) {
         await prisma.loan.updateMany({ where: { id: loan.id, status: "TRAINING", updatedAt: loan.updatedAt }, data: { status: "ESCROWED" } });
+        continue;
+      }
+      if ((loan.status === "TRAINING" || loan.status === "SETTLING") && loan.modelCid && loan.billingQuoteHash) {
+        await settlePreparedLoan(loan.id);
         continue;
       }
       if (!loan.evmLoanKey || !loan.evmLockBlock) continue;
@@ -68,7 +78,8 @@ async function reapBatch(now: Date): Promise<void> {
         where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
         data: state.state === "settled"
           ? { status: "SETTLED", settleTxHash: state.txHash, settledAt: new Date() }
-          : { status: "CANCELLED", cancelTxHash: state.txHash },
+          : { status: "CANCELLED", cancelTxHash: state.txHash,
+            ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) },
       });
     } catch {
       console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);

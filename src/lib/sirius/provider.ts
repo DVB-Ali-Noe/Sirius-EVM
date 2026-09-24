@@ -13,6 +13,7 @@ import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/tra
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
 export type Visibility = (typeof VISIBILITY_STATES)[number];
@@ -116,6 +117,7 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
   if (dataset.status === "LISTED" && dataset.evmDatasetId) throw new AppError("Dataset déjà publié", 409);
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   await requireAcceptedKyb(provider);
+  await assertCurrentRunner(dataset);
   const terms = listingTerms(dataset);
   const onChainId = await onChainDatasetId(terms, provider);
   if (onChainId) {
@@ -132,6 +134,7 @@ export async function finalizeDatasetListing(datasetId: string, provider: string
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de mint EVM manquant", 400);
   await requireAcceptedKyb(provider);
+  await assertCurrentRunner(dataset);
   const terms = listingTerms(dataset);
   const registry = datasetRegistryAddress();
   const publicClient = getPublicClient();

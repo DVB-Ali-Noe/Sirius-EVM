@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressKeyInRunner, sealDatasetInRunner } from "@/lib/tee/runner-client";
@@ -8,6 +8,7 @@ import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, type ModelSelection } from "@/lib/models/registry";
+import { assertCurrentRunner, currentRunnerProvenance, type RunnerProvenance } from "@/lib/runner/provenance";
 
 const DATASET_WINDOW_MS = 60 * 60_000;
 const ABANDONED_DRAFT_TTL_MS = 30 * 60_000;
@@ -25,7 +26,7 @@ export interface IngestInput {
   model: ModelSelection;
 }
 
-export interface AuthorizedDatasetUpload {
+export interface AuthorizedDatasetUpload extends RunnerProvenance {
   id: string;
   provider: string;
   sizeBytes: number;
@@ -48,7 +49,8 @@ export async function beginDatasetIngestion({
   model,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
-  const dataset = await prisma.$transaction(async (tx) => {
+  const runner = await currentRunnerProvenance();
+  const dataset = await serializableTransaction(async (tx) => {
     const now = Date.now();
     const since = new Date(now - DATASET_WINDOW_MS);
     await tx.dataset.deleteMany({
@@ -82,6 +84,7 @@ export async function beginDatasetIngestion({
         challengeDays,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
+        ...runner,
       },
     });
   });
@@ -122,6 +125,8 @@ export async function authorizeDatasetUpload(
       ipfsCid: true,
       wrappedKey: true,
       keyDestroyedAt: true,
+      runnerKind: true,
+      runnerDeploymentId: true,
     },
   });
   if (!dataset) throw new AppError("Dataset introuvable", 404);
@@ -139,6 +144,7 @@ export async function authorizeDatasetUpload(
     throw new AppError("Ce dataset ne peut plus recevoir de fichier", 409);
   }
   await requireAcceptedKyb(provider);
+  const runner = await assertCurrentRunner(dataset);
   const claimed = await prisma.dataset.updateMany({
     where: {
       id: datasetId,
@@ -158,6 +164,7 @@ export async function authorizeDatasetUpload(
     priceUsdcAtomic: dataset.priceUsdcAtomic,
     challengeDays: dataset.challengeDays,
     model,
+    ...runner,
   };
 }
 
@@ -166,6 +173,7 @@ export async function completeDatasetIngestion(
   envelope: DatasetIngressEnvelope,
   authorization: RunnerGrant,
 ) {
+  await assertCurrentRunner(dataset);
   let sealed;
   try {
     sealed = await sealDatasetInRunner(
@@ -222,6 +230,8 @@ export async function completeDatasetIngestion(
         merkleRoot,
         metrics: metrics as unknown as Prisma.InputJsonValue,
         runnerReceipt,
+        runnerKind: dataset.runnerKind,
+        runnerDeploymentId: dataset.runnerDeploymentId,
       },
     });
     if (claimed.count !== 1) throw new AppError("Le dataset a changé pendant le scellement", 409);

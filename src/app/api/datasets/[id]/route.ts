@@ -9,20 +9,11 @@ import { requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { readSession } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
-import { publicDatasetMetrics } from "@/lib/sirius/metrics";
+import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { requireMutationGrant } from "@/lib/auth/mutation-grant";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 
 export const runtime = "nodejs";
-
-function withoutWrappedKey<T extends { wrappedKey: unknown; metrics: unknown }>(dataset: T) {
-  const publicDataset = { ...dataset };
-  Reflect.deleteProperty(publicDataset, "wrappedKey");
-  return {
-    ...publicDataset,
-    metrics: publicDatasetMetrics(dataset.metrics),
-  } as Omit<T, "wrappedKey">;
-}
 
 /**
  * Détail d'un dataset. Public/Semi-privé accessibles à tous (le Semi-privé = par lien
@@ -43,8 +34,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     }
   }
-  const session = readSession(req);
-  return NextResponse.json(publiclyVisible && session?.address !== dataset.provider ? withoutWrappedKey(dataset) : dataset);
+  return NextResponse.json(datasetResponse(dataset));
 }
 
 /** Change la visibilité (Public / Semi-privé / Privé) — provider uniquement. */
@@ -67,13 +57,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       intentParts: [id, visibility],
     });
     const dataset = await setDatasetVisibility(id, session.address, visibility as "LISTED" | "UNLISTED" | "PRIVATE");
-    return NextResponse.json(dataset);
+    return NextResponse.json(datasetResponse(dataset));
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-/** Prépare le tombstone EVM à signer par le provider avant le crypto-shredding. */
+/** Prépare le tombstone EVM à signer par le provider avant suppression de la clé active. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -88,7 +78,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 }
 
-/** Suppression par crypto-shredding : détruit la clé, dépine puis ancre le tombstone EVM. */
+/** Vérifie le tombstone EVM, retire la clé active et dépine le dataset. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -110,7 +100,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       intentParts: [id, txHash ?? ""],
     });
     const dataset = await deleteDataset(id, session.address, txHash);
-    return NextResponse.json(dataset);
+    return NextResponse.json(datasetResponse(dataset));
   } catch (err) {
     return errorResponse(err);
   }

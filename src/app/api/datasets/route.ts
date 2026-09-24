@@ -8,7 +8,7 @@ import { readJson } from "@/lib/http/body";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
-import { publicDatasetMetrics } from "@/lib/sirius/metrics";
+import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { modelSelectionForId } from "@/lib/models/registry";
 
 export const runtime = "nodejs";
@@ -25,15 +25,6 @@ function pagedResponse<T>(items: T[], nextCursor: string | null) {
   response.headers.set("cache-control", "no-store");
   if (nextCursor) response.headers.set("x-sirius-next-cursor", nextCursor);
   return response;
-}
-
-function withoutWrappedKey<T extends { wrappedKey: unknown; metrics: unknown }>(dataset: T) {
-  const publicDataset = { ...dataset };
-  Reflect.deleteProperty(publicDataset, "wrappedKey");
-  return {
-    ...publicDataset,
-    metrics: publicDatasetMetrics(dataset.metrics),
-  } as Omit<T, "wrappedKey">;
 }
 
 export async function GET(req: Request) {
@@ -87,11 +78,11 @@ async function listerDatasets(req: Request) {
   if (status === "LISTED" || !session) {
     const reputations = await reputationsForAddresses(page.map((dataset) => dataset.provider), "provider");
     return pagedResponse(page.map((dataset) => ({
-      ...withoutWrappedKey(dataset),
+      ...datasetResponse(dataset),
       providerReputation: reputations.get(dataset.provider),
     })), nextCursor);
   }
-  return pagedResponse(page, nextCursor);
+  return pagedResponse(page.map(datasetResponse), nextCursor);
 }
 
 export async function POST(req: Request) {

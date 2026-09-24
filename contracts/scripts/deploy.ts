@@ -78,6 +78,9 @@ function targetNetwork(): { network: EvmNetwork; chain: Chain } {
 
 async function main() {
   const { network, chain } = targetNetwork();
+  const billingVersion = process.env.SIRIUS_BILLING_VERSION ?? "6";
+  if (!["6", "7"].includes(billingVersion)) throw new Error("Version de facturation invalide");
+  const escrowContract = billingVersion === "7" ? "SiriusEscrowV7" : "SiriusEscrow";
 
   // Garde-fou mainnet. Le projet est volontairement sur testnet : rien n'y coûte
   // d'argent réel, on peut redéployer librement, et aucun audit externe n'est
@@ -217,7 +220,7 @@ async function main() {
     : await deploy("SiriusKybRegistry", [admin, verifier]);
   // Ce rôle ne sert qu'à la liaison unique ; le déployeur effectue la transaction.
   const datasets = await deploy("SiriusDatasetRegistry", [kyb, account.address]);
-  const escrow = await deploy("SiriusEscrow", [usdc, kyb, datasets, lockAuthorizer]);
+  const escrow = await deploy(escrowContract, [usdc, kyb, datasets, lockAuthorizer]);
   const bindEscrowHash = await walletClient.writeContract({
     address: datasets,
     abi: artifact("SiriusDatasetRegistry").abi,
@@ -239,7 +242,7 @@ async function main() {
   }
 
   // Contrôle de bon sens : chaque contrat répond et part d'un état vierge.
-  const escrowAbi = artifact("SiriusEscrow").abi;
+  const escrowAbi = artifact(escrowContract).abi;
   const deployedAuthorizer = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "lockAuthorizer" }) as Hex;
   if (deployedAuthorizer.toLowerCase() !== lockAuthorizer.toLowerCase()) throw new Error("Signataire de lock incorrect");
   const kybAbi = artifact(kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry").abi;
@@ -319,6 +322,7 @@ async function main() {
   const explorer = chain.blockExplorers?.default.url;
   console.log("");
   console.log("À reporter dans .env.local :");
+  console.log(`SIRIUS_BILLING_VERSION="${billingVersion}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="${escrow}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_USDC_ADDRESS="${usdc}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_KYB_ADDRESS="${kyb}"`);
@@ -331,7 +335,7 @@ async function main() {
     console.log("");
     console.log("Explorateur :");
     for (const [name, address] of [
-      ["SiriusEscrow", escrow],
+      [escrowContract, escrow],
       [kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry", kyb],
       ["SiriusDatasetRegistry", datasets],
     ] as const) {

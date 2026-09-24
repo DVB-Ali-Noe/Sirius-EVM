@@ -41,6 +41,7 @@ export interface LoanAttestationInput {
   modelVersion: string;
   modelCid: string;
   releaseEnvelopeHash: string;
+  billingQuoteHash?: string;
 }
 
 const PAYLOAD_KEYS = [
@@ -70,9 +71,11 @@ function isText(value: unknown): value is string {
 function payloadObject(value: unknown): LoanAttestationPayload | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const payload = value as Record<string, unknown>;
-  if (Object.keys(payload).length !== PAYLOAD_KEYS.length || !PAYLOAD_KEYS.every((key) => key in payload)) return null;
+  const keys = payload.version === 2 ? [...PAYLOAD_KEYS, "billingQuoteHash"] : PAYLOAD_KEYS;
+  if (Object.keys(payload).length !== keys.length || !keys.every((key) => key in payload)) return null;
   if (
-    payload.version !== 1 ||
+    (payload.version !== 1 && payload.version !== 2) ||
+    (payload.version === 2 && (typeof payload.billingQuoteHash !== "string" || !/^0x[0-9a-f]{64}$/.test(payload.billingQuoteHash))) ||
     payload.kind !== "sirius-loan-training" ||
     !Number.isSafeInteger(payload.chainId) ||
     (payload.chainId as number) < 1 ||
@@ -102,7 +105,7 @@ function payloadObject(value: unknown): LoanAttestationPayload | null {
 
 export function serializeLoanAttestationPayload(input: LoanAttestationInput): string {
   const payload: LoanAttestationPayload = {
-    version: 1,
+    version: input.billingQuoteHash ? 2 : 1,
     kind: "sirius-loan-training",
     chainId: input.chainId,
     escrow: input.escrow,
@@ -119,6 +122,7 @@ export function serializeLoanAttestationPayload(input: LoanAttestationInput): st
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
     releaseEnvelopeHash: input.releaseEnvelopeHash,
+    ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   };
   return JSON.stringify(payload);
 }

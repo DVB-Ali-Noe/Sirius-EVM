@@ -1,6 +1,7 @@
 import { runLoanReaper } from "@/lib/sirius/reaper";
 import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
 import { AppError } from "@/lib/app-error";
+import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -64,6 +65,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 async function main(): Promise<void> {
   const interval = resolveInterval();
+  assertReaperRunnerConfiguration();
   await requireReaperEvmDeployment();
   console.log(`[reaper] démarré, une passe toutes les ${interval} ms`);
 

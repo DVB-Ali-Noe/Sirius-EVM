@@ -9,6 +9,8 @@ test("la branche cible choisit ses ressources sans dépendre du projet lié loca
   const main = deploymentTarget("refs/heads/main");
   assert.equal(staging.url_publique, "https://sirius-evm-staging.vercel.app");
   assert.equal(main.url_publique, "https://sirius-data.tech");
+  assert.equal(main.phala_requis, "true");
+  assert.equal(staging.phala_requis, "false");
   assert.ok(main.origines_alias.split(",").includes("https://sirius-evm.vercel.app"));
   for (const field of ["projet_vercel", "environnement", "projet_compose", "dossier_vps"]) {
     assert.notEqual(staging[field], main[field]);

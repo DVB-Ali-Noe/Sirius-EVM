@@ -46,6 +46,8 @@ async function main() {
   const kyb = required("NEXT_PUBLIC_SIRIUS_KYB_ADDRESS");
   const escrowAbi = abiOf("SiriusEscrow");
   const datasetAbi = abiOf("SiriusDatasetRegistry");
+  const version = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "VERSION" });
+  if (version !== "sirius-escrow-usdc-v6") throw new Error("Ce smoke écrit uniquement sur escrow v6. Pour v7, utiliser test:billing en local puis le parcours applicatif dédié.");
   const authorizer = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "lockAuthorizer" }) as Hex;
   if (authorizer.toLowerCase() !== account.address.toLowerCase()) {
     throw new Error("Ce smoke exige un escrow testnet dédié dont le déployeur autorise les locks. Pour l'escrow du runner, valider le parcours applicatif sans exporter sa clé.");
