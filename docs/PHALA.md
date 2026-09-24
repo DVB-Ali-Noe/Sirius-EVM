@@ -170,6 +170,8 @@ Les clés `getKey` sont dérivées sous l’app ID dstack et le chemin stable `s
 
 **Prérequis ajouté le 23 septembre :** la procédure ci-dessous décrit la bascule d’identité préparée pour v6. Elle doit être adaptée à la version avec [facturation compute](COMPUTE-BILLING.md) avant exécution. Les contrats v6 actuels ne répartissent pas un prix compute ; ne pas suivre directement cette section pour un redéploiement intermédiaire.
 
+**Registre anti-rejeu :** avant le passage en mode actif, vérifier le registre SQLite dans le volume persistant avec la [procédure A1](RUNNER-RECOVERY-A1.md#mise-à-jour-de-lanti-rejeu). L'initialisation est explicite et réservée à la première installation ou à la migration des anciens fichiers ; après perte du registre, restaurer l'historique. Le runner actif refuse de démarrer si le registre manque et ne le recrée jamais automatiquement.
+
 1. Avant de remplacer un déploiement existant, maintenir une fenêtre de maintenance : arrêter les nouvelles préparations, attendre les transactions wallet en vol, terminer ou rembourser les anciens prêts et terminer les entraînements personnels. Sauvegarder la base et l’environnement historique séparément.
 2. Avec l’adresse publique capturée dans `SIRIUS_LOCK_AUTHORIZER`, suivre [ESCROW-V6.md](ESCROW-V6.md) pour déployer un nouvel escrow et son nouveau registre dataset. Le script crée également le registre KYB ; renouveler les attestations/consentements nécessaires. Ne pas utiliser le signataire du déployeur comme substitut de celui de Phala.
 3. Financer le compte public de Phala en ETH testnet pour ses appels `release`. Sa clé privée reste dans l’enclave.
