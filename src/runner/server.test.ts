@@ -1,10 +1,14 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { issueRunnerCapability } from "@/lib/runner/capability";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
-import { handleRunnerRequest } from "./server";
+import { initializeRunnerReplay } from "@/lib/runner/replay";
+import { handleRunnerRequest, startRunner } from "./server";
 
 interface TestResponse {
   body: unknown;
@@ -164,5 +168,35 @@ test("l’amorçage expose la preuve et refuse toutes les opérations, même aut
   for (const op of ["dataset-ingress-key", "seal-dataset", "prepare-escrow-lock", "run-training", "run-loan-job", "settle-loan", "loan-model-key", "self-train-key"] as const) {
     const response = await request("POST", `/${op}`, issueRunnerCapability(op, {}), "{}", true, evidence, true);
     assert.equal(response.status, 503, op);
+  }
+});
+
+test("le runner actif refuse un volume anti-rejeu perdu avant d’ouvrir son port", async () => {
+  const root = mkdtempSync(join(tmpdir(), "sirius-runner-start-"));
+  const previous = process.env.RUNNER_REPLAY_DIR;
+  process.env.RUNNER_REPLAY_DIR = root;
+  try { await assert.rejects(startRunner({ port: 0, log: false }), /absent ou inaccessible/); }
+  finally {
+    if (previous === undefined) delete process.env.RUNNER_REPLAY_DIR;
+    else process.env.RUNNER_REPLAY_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("la perte du registre coupe les admissions HTTP, y compris pour une capability déjà consommée", async () => {
+  const root = mkdtempSync(join(tmpdir(), "sirius-runner-loss-"));
+  const previous = process.env.RUNNER_REPLAY_DIR;
+  process.env.RUNNER_REPLAY_DIR = root;
+  try {
+    initializeRunnerReplay(root);
+    const capability = issueRunnerCapability("dataset-ingress-key", {});
+    assert.equal((await request("POST", "/dataset-ingress-key", capability)).status, 200);
+    rmSync(join(root, "replay.sqlite"));
+    assert.equal((await request("POST", "/dataset-ingress-key", capability)).status, 503);
+    assert.equal((await request("POST", "/dataset-ingress-key", issueRunnerCapability("dataset-ingress-key", {}))).status, 503);
+  } finally {
+    if (previous === undefined) delete process.env.RUNNER_REPLAY_DIR;
+    else process.env.RUNNER_REPLAY_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
   }
 });

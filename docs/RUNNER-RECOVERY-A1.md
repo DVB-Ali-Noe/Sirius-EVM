@@ -70,7 +70,18 @@ Aucun payload de devis signé, contexte de livraison, CID, modèle, clé, préim
 
 ## Mise à jour de l'anti-rejeu
 
-Le nouveau fichier est `RUNNER_REPLAY_DIR/replay.sqlite`, dans le volume persistant existant. Aucune migration Prisma n'est nécessaire.
+Le fichier est `RUNNER_REPLAY_DIR/replay.sqlite`, dans le volume persistant existant. Aucune migration Prisma n'est nécessaire.
+
+Le démarrage actif et chaque admission refusent un registre absent, inaccessible, vide ou corrompu. Ils ne créent ni fichier SQLite ni schéma. L'amorçage Phala reste disponible sans registre : les opérations métier y sont déjà désactivées.
+
+```bash
+pnpm runner:replay check /chemin/prive/replay
+pnpm runner:replay init /chemin/prive/replay
+```
+
+`init` est réservé à une première installation ou à une migration volontaire depuis les anciens fichiers sans SQLite. Il crée le registre exclusivement et refuse tout fichier existant, même vide ou invalide. Les fichiers historiques sont conservés. Un registre SQLite A1 déjà présent reste compatible : `check` suffit.
+
+**Après perte d'un registre ou du volume, ne pas exécuter `init`.** Restaurer et vérifier l'historique selon la procédure opérateur ; l'absence du fichier n'est jamais une preuve de première installation. Une restauration ancienne mais cohérente reste indétectable automatiquement. Dans l'image, les commandes correspondantes sont `node --conditions=react-server --import tsx scripts/runner-replay.ts check /chemin/prive/replay` et, seulement dans les cas ci-dessus, `init`.
 
 1. Arrêter toutes les instances de l'ancien runner avant d'utiliser la nouvelle image sur ce volume. **Ne pas faire cohabiter les deux formats** : un ancien processus ne lit pas les nouvelles réservations SQLite.
 2. Conserver les sous-répertoires historiques `grant` et `capability`. Les anciens fichiers empêchent la réutilisation des autorisations encore valides ; leur contenu n'est pas nécessaire au nettoyage.
@@ -86,7 +97,7 @@ pnpm runner:check-finality
 pnpm runner:check-finality 0xHASH_DE_TRANSACTION_DE_TEST_CONFIRME
 ```
 
-La seconde ligne est un gabarit : remplacer par un vrai hash hexadécimal de 32 octets. Le script lit `EVM_NETWORK`, `EVM_RPC_URL` et la politique habituelle ; il n'utilise aucun compte de signature et n'envoie aucune transaction. Il vérifie le réseau, le bloc retenu, sa cohérence canonique et éventuellement le reçu, puis expose le retard en blocs. Le mode `finalized` refuse un tag absent ; aucune rétrogradation vers `latest`. Dans l'image runner, utiliser `node --conditions=react-server --import tsx scripts/check-runner-finality.ts`.
+La seconde ligne est un gabarit : remplacer par un vrai hash hexadécimal de 32 octets. Le script exige `EVM_NETWORK` et `EVM_RPC_URL` injectés dans l'environnement et lit la politique habituelle ; il ne charge aucun `.env` implicitement. Il n'utilise aucun compte de signature et n'envoie aucune transaction. Il vérifie le réseau, le bloc retenu, sa cohérence canonique et éventuellement le reçu, puis expose le retard en blocs. Le mode `finalized` refuse un tag absent ; aucune rétrogradation vers `latest`. Dans l'image runner, utiliser `node --conditions=react-server --import tsx scripts/check-runner-finality.ts`.
 
 Sur la cible, dans un futur créneau autorisé : vérifier la même politique sur Next/reaper/runner, observer la progression de `finalized` et sa latence, contrôler un lock/règlement/remboursement canonique, simuler une panne RPC et constater l'absence de livraison prématurée. Ce préflight ponctuel ne prouve pas qu'un RPC dit vrai ni la garantie de finalité économique du rollup.
 
@@ -104,3 +115,8 @@ Vérification dans une copie sans secrets locaux, sous Node 22.23.2 : **336 test
 Les tests locaux couvrent les coupures `SIGKILL` avant/après checkpoint, restauration SQLite, journal incomplet, trois diffusions identiques au maximum, budgets conservés, concurrence anti-rejeu entre huit processus, liaison RA-TLS au déploiement, remboursements/réorganisations et export sans secrets. Le parcours de facturation utilise de vrais contrats sur une chaîne locale ; stockage IPFS et persistance Next y sont simulés.
 
 Restent à exécuter sur la cible : restauration du volume Phala, stabilité de l'identité après redémarrage, quote matérielle réelle, comportement du RPC public et prêt complet en enclave. Les tarifs, justificatifs, plafonds fournisseurs, copie hors machine et anciennes copies de clés restent suivis avec Ali dans A2. Aucun de ces contrôles n'est remplacé par les tests locaux.
+### Correctifs après revue de la PR #5
+
+La PR #5 est fusionnée dans staging. La revue a confirmé deux lacunes de cette version : création implicite du registre après perte de stockage et import de `dotenv` absent des dépendances de production du runner. Les correctifs ci-dessus ajoutent l'initialisation explicite, les refus au démarrage et à l'admission, puis retirent cet import. Un test exécute les deux CLI avec uniquement les paquets de production accessibles et un RPC local simulé ; la perte du fichier et celle du volume sont aussi couvertes.
+
+Validation locale de ces correctifs, sous Node 22.23.2 et sans secrets : **343 tests applicatifs**, parcours de facturation sur EVM local, lint, typage et build réussis. Une installation réelle avec `pnpm install --prod --frozen-lockfile --ignore-scripts --offline` confirme aussi que les CLI se chargent sans `dotenv` ; aucune connexion à un RPC public ni activation Phala pendant ces vérifications.
