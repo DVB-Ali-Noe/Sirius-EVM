@@ -31,6 +31,17 @@ test("une référence inconnue, une PR ou un tag ne retombe jamais sur staging",
   assert.equal(result.stdout, "");
 });
 
+test("staging impose Phala après activation explicite, sans modifier les autres ressources", () => {
+  assert.deepEqual(deploymentTarget("staging", "true"), { ...deploymentTarget("staging"), phala_requis: "true" });
+  assert.equal(deploymentTarget("main", "false").phala_requis, "true");
+  assert.throws(() => deploymentTarget("staging", "yes"), /SIRIUS_STAGING_REQUIRE_PHALA/);
+  const result = spawnSync(process.execPath, ["scripts/deployment-target.mjs", "staging"], {
+    encoding: "utf8", env: { ...process.env, SIRIUS_STAGING_REQUIRE_PHALA: "true" },
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^phala_requis=true$/m);
+});
+
 test("la CLI produit les outputs de la branche passée, même avec un environnement local opposé", () => {
   const result = spawnSync(process.execPath, ["scripts/deployment-target.mjs", "refs/heads/main"], {
     encoding: "utf8",
