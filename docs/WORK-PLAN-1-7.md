@@ -165,3 +165,9 @@ La [PR #4](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/4) a été fusionnée 
 Noé travaille sur `fix/runner-recovery` depuis cette base. L'implémentation A1 et son interface pour Ali sont décrites dans [RUNNER-RECOVERY-A1.md](RUNNER-RECOVERY-A1.md) : reprise des remboursements v7, liaison RA-TLS au déploiement, anti-rejeu SQLite, export comptable et préflight de finalité. La validation locale couvre 336 tests applicatifs, 18 tests d'exploitation, le parcours de facturation EVM, lint, typage et build sous Node 22. La revue de la PR A1 et les essais Phala restent nécessaires avant activation.
 
 Ali peut avancer sur `feat/operations-accounting` en consommant `RunnerAccountingExport` et `pnpm --silent runner:budget export`. Les répertoires `scripts/operations/` et `deploy/operations/` restent dans son périmètre. Toute activation Phala et tout essai payant nécessitent toujours un créneau et un budget autorisés.
+
+### Lot A2 — 24 septembre 2026
+
+Ali travaille sur `feat/operations-accounting` depuis `staging` (`332afae`). Le détail et les procédures sont dans [OPERATIONS-ACCOUNTING.md](OPERATIONS-ACCOUNTING.md) : contrat testé de l'export A1, relevé des escrows en lecture seule, proposition tarifaire bloquée tant qu'elle n'est pas approuvée, fiche des limites fournisseurs, rapport de supervision et watchdog durci, contrôle de restauration du volume runner, inventaire historique, [matrice navigateur](BROWSER-TEST-MATRIX.md) et [guide d'entretiens](PILOT-INTERVIEWS.md). Validation locale sous Linux et Node 22 : 49 tests d'exploitation, typage et lint.
+
+Reste dans A2 : le moteur de rapprochement comptable (A2.1). Points à convenir avec Noé : commandes `ops:*` à ajouter au manifeste, canal en lecture seule du contrôle de budget vers le superviseur, copie hors machine des sauvegardes, validation de l'inventaire. Aucun push, activation Phala, dépense ni migration distante n'accompagne ce travail.
