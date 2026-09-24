@@ -53,7 +53,12 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
       const exits = workers.map((child) => once(child, "exit"));
       workers.forEach((child, i) => child.send({ provider: providers[i], task }));
       const responses = (await Promise.all(results)).map(([result]) => result as { accepted: boolean; code?: string | number });
-      if (task === "training") for (const child of workers) if (child.connected) child.send("release");
+      if (task === "training") {
+        // Les workers refusés ferment déjà leur canal ; seul le calcul admis attend la barrière.
+        await Promise.all(workers.flatMap((child, i) => responses[i].accepted
+          ? [new Promise<void>((resolve, reject) => child.send("release", (error) => error ? reject(error) : resolve()))]
+          : []));
+      }
       for (const [code] of await Promise.all(exits)) assert.equal(code, 0);
       for (const result of responses.filter((item) => !item.accepted)) assert.ok([429, "P2034", "quota"].includes(result.code!), `Échec inattendu : ${result.code}`);
       assert.equal(responses.filter((result) => result.accepted).length, 1);
