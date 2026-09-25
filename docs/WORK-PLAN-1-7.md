@@ -169,3 +169,9 @@ Ali peut avancer sur `feat/operations-accounting` en consommant `RunnerAccountin
 ### Lot B : cible staging retenue — 24 septembre 2026
 
 Les PR #5 et #6 sont fusionnées et déployées sur staging. Noé a choisi d'y raccorder Phala/v7 avant le site public. La préparation se poursuit sur `feat/phala-v7-integration` ; le [runbook du lot B](PHALA-V7-STAGING.md) donne les contrôles, l'initialisation explicite, les configurations séparées et les preuves attendues. Le RPC archive, le gas du wallet Phala et les politiques d'Ali restent des prérequis ; l'intégration réelle et les essais à deux wallets ne sont pas encore réalisés.
+
+### Lot A2 — 24 septembre 2026
+
+Ali travaille sur `feat/operations-accounting` depuis `staging` (`332afae`). Le détail et les procédures sont dans [OPERATIONS-ACCOUNTING.md](OPERATIONS-ACCOUNTING.md) : contrat testé de l'export A1, relevé des escrows en lecture seule, proposition tarifaire bloquée tant qu'elle n'est pas approuvée, fiche des limites fournisseurs, rapport de supervision et watchdog durci, contrôle de restauration du volume runner, inventaire historique, [matrice navigateur](BROWSER-TEST-MATRIX.md) et [guide d'entretiens](PILOT-INTERVIEWS.md). Validation locale sous Linux et Node 22 : 56 tests d'exploitation, typage et lint.
+
+Le rapprochement comptable (A2.1) est livré et vérifié sur les relevés réels v5/v6 : 56 tests d'exploitation. Points à convenir avec Noé : commandes `ops:*` à ajouter au manifeste, canal en lecture seule du contrôle de budget vers le superviseur, copie hors machine des sauvegardes, validation de l'inventaire. Aucun push, activation Phala, dépense ni migration distante n'accompagne ce travail.
