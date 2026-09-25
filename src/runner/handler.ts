@@ -25,7 +25,7 @@ import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
-import { budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
+import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
@@ -186,6 +186,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const borrower = canonicalSubject(text(body, "borrower"));
       const receipt = verifyDatasetReceipt(text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), dataset);
       const provider = normalizeAddress(receipt.owner);
+      assertTrialSubject(borrower);
+      assertTrialSubject(provider);
       if (provider === borrower) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
       await assertDatasetScope({ ...dataset, provider, model: dataset });
       const onChainDatasetId = await getPublicClient().readContract({

@@ -5,7 +5,7 @@ import { renderPhalaV7 } from "./render-phala-v7.mjs";
 const image = `ghcr.io/dvb-ali-noe/sirius-runner@sha256:${"12".repeat(32)}`;
 
 test("les Compose staging figent l'image sans interpoler les secrets ni renommer les volumes", () => {
-  for (const mode of ["bootstrap", "init", "active"]) {
+  for (const mode of ["bootstrap", "init", "active", "wallets"]) {
     const model = renderPhalaV7(mode, image);
     assert.equal(model.name, undefined);
     assert.equal(model.volumes.runner_replay.name, undefined);
@@ -24,6 +24,12 @@ test("les Compose staging figent l'image sans interpoler les secrets ni renommer
       assert.equal(init.network_mode, "none");
       assert.ok(init.volumes.every((volume) => volume.type === "volume"));
       assert.ok(!Object.hasOwn(init.environment, "RUNNER_TRANSPORT_SECRET"));
+    } else if (mode === "wallets") {
+      const maintenance = model.services["add-trial-wallets"];
+      assert.equal(maintenance.restart, "no");
+      assert.equal(maintenance.network_mode, "none");
+      assert.ok(maintenance.volumes.every((volume) => volume.source === "runner_budget"));
+      assert.ok(!Object.hasOwn(maintenance.environment, "RUNNER_TRANSPORT_SECRET"));
     } else assert.deepEqual(Object.keys(model.services), ["runner"]);
     if (mode === "active") {
       assert.equal(runner.environment.SIRIUS_BILLING_VERSION, "7");

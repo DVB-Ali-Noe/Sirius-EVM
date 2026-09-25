@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { AppError } from "@/lib/app-error";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { BudgetLedger, type BudgetKind, type WorkflowBudget } from "./budget-ledger";
+import { BudgetLedger, type BudgetKind, type BudgetPolicy, type WorkflowBudget } from "./budget-ledger";
 
 const workflowContext = new AsyncLocalStorage<WorkflowBudget>();
 export const currentWorkflowBudget = () => workflowContext.getStore();
@@ -32,7 +32,23 @@ export function runnerBudget(): BudgetLedger | null {
     try { cached = { path, chainId, wallet, ledger: new BudgetLedger(path, chainId, wallet) }; }
     catch { throw new AppError("Registre de budget runner indisponible", 503); }
   }
+  assertTrialDeployment(cached.ledger.policy);
   return cached.ledger;
+}
+
+export function assertTrialDeployment(policy: BudgetPolicy, env: Record<string, string | undefined> = process.env): void {
+  if (policy.trial && (env.EVM_NETWORK !== "testnet" || env.SIRIUS_BILLING_VERSION !== "7"
+    || env.SIRIUS_APP_ORIGIN !== "https://sirius-evm-staging.vercel.app"
+    || env.SIRIUS_ESCROW_ADDRESS?.toLowerCase() !== policy.trial.escrow)) {
+    throw new AppError("Crédits d’essai réservés au déploiement staging déclaré", 503);
+  }
+}
+
+export function assertTrialSubject(subject: string, policy = runnerBudget()?.policy): void {
+  const trial = policy?.trial;
+  if (trial && !trial.wallets.includes(subject.toLowerCase())) {
+    throw new AppError("Essais réservés aux wallets autorisés de l’équipe", 403);
+  }
 }
 
 export function budgetFingerprint(value: unknown): string {

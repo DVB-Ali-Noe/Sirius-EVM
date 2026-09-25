@@ -1,7 +1,7 @@
 import { chmodSync, closeSync, fsyncSync, lstatSync, openSync, readdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { validateBillingPolicy } from "../src/lib/billing/config";
-import { initializeBudgetLedger, validateBudgetPolicy } from "../src/lib/runner/budget-ledger";
+import { fundedBudgetUsd, initializeBudgetLedger, validateBudgetPolicy } from "../src/lib/runner/budget-ledger";
 import { initializeRunnerReplay } from "../src/lib/runner/replay";
 
 export function initializeRunnerVolume(root: string, budgetValue: unknown, billingValue: unknown): void {
@@ -10,8 +10,7 @@ export function initializeRunnerVolume(root: string, budgetValue: unknown, billi
   if (!isAbsolute(root) || budget.chainId !== 46630 || billing.chainId !== 46630 || billing.usdcDecimals !== 18
     || budget.wallet === billing.computeRecipient || /^0x0{40}$/.test(billing.computeRecipient) || /^0x0{40}$/.test(billing.usdc)
     || budget.validUntil <= Date.now() || budget.validUntil < billing.validUntil
-    || BigInt(budget.earnedMarginUsdMicros) <= BigInt(budget.fixedReserveUsdMicros)
-    || BigInt(budget.cashUsdMicros) <= BigInt(budget.fixedReserveUsdMicros) || BigInt(budget.gas.totalWei) === BigInt(0)
+    || fundedBudgetUsd(budget) <= BigInt(budget.fixedReserveUsdMicros) || BigInt(budget.gas.totalWei) === BigInt(0)
     || BigInt(budget.gas.maxTransactionWei) < BigInt(budget.gas.maxGas) * BigInt(budget.gas.maxFeePerGasWei)) {
     throw new Error("Politiques de première installation incompatibles ou non financées");
   }

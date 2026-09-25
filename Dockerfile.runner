@@ -25,6 +25,7 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node scripts/runner-budget.ts ./scripts/runner-budget.ts
 COPY --chown=node:node scripts/runner-replay.ts ./scripts/runner-replay.ts
 COPY --chown=node:node scripts/initialize-runner-volume.ts ./scripts/initialize-runner-volume.ts
+COPY --chown=node:node scripts/add-runner-trial-wallets.ts ./scripts/add-runner-trial-wallets.ts
 COPY --chown=node:node scripts/runner-transactions.ts ./scripts/runner-transactions.ts
 COPY --chown=node:node scripts/check-runner-finality.ts ./scripts/check-runner-finality.ts
 RUN mkdir -p /var/lib/sirius-runner/replay /var/lib/sirius-runner/budget \

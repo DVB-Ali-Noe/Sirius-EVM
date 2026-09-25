@@ -58,6 +58,24 @@ test("une politique invalide ou non financée ne crée aucun fichier", (t) => {
   assert.deepEqual(readdirSync(join(root, "replay")), []);
 });
 
+test("la première installation accepte les crédits Phala sans les transformer en marge", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "sirius-volume-trial-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "budget")); mkdirSync(join(root, "replay"));
+  const { budget, billing } = policies();
+  const trial = { ...budget, earnedMarginUsdMicros: "0", cashUsdMicros: "0", trial: {
+    provider: "phala", creditsUsdMicros: "2000000", ceilingUsdMicros: "1000000", observedAtMs: Date.now(),
+    escrow: `0x${"78".repeat(20)}`, wallets: [`0x${"9a".repeat(20)}`],
+  } };
+  initializeRunnerVolume(root, trial, billing);
+  const ledger = new BudgetLedger(join(root, "budget", "ledger.sqlite"), budget.chainId, budget.wallet);
+  try {
+    assert.equal(ledger.policy.earnedMarginUsdMicros, "0");
+    assert.equal(ledger.policy.cashUsdMicros, "0");
+    assert.equal(ledger.diagnostics().remainingUsd, BigInt("999000"));
+  } finally { ledger.close(); }
+});
+
 test("un volume partiel ou un journal orphelin n'est jamais réinitialisé", (t) => {
   const root = mkdtempSync(join(tmpdir(), "sirius-volume-partial-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

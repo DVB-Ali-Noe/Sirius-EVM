@@ -21,6 +21,7 @@ import { handleRunnerOp, scopeForRunnerOp } from "./handler";
 import { validateRunnerConfiguration } from "./config";
 import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
+import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -108,6 +109,12 @@ export async function handleRunnerRequest(
     if (req.method === "GET" && path === "/health") return send(200, { status: bootstrapOnly ? "bootstrap" : "ok" });
     if (req.method === "GET" && path === "/ra-tls") {
       return raTlsEvidence ? send(200, raTlsEvidence) : send(404, { error: "RA-TLS indisponible" });
+    }
+    if (path === "/operations/budget") {
+      if (!monitoringAuthorized(req.headers.authorization)) return send(401, { error: "Supervision non autorisée" });
+      if (req.method !== "GET") return send(405, { error: "GET attendu" });
+      if (bootstrapOnly) return send(503, { error: "Budget indisponible en amorçage" });
+      return send(200, runnerBudgetReport());
     }
     if (req.method !== "POST") return send(405, { error: "POST attendu" });
     if (bootstrapOnly) return send(503, { error: "Runner en amorçage : opérations métier désactivées" });
