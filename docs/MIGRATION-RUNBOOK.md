@@ -4,6 +4,8 @@ Préparation B2.2 du 25 septembre 2026, Ali, pour le point 4 du [plan de travail
 
 ## Ce que le pipeline fait déjà
 
+**Décision staging du 25 septembre :** Noé demande une remise à zéro de la base staging existante et de nouveaux contrats indépendants. Pour cette cible, suivre [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md#reprise-du-25-septembre--staging-neuf) : aucune reprise des anciens historiques ni attente du prêt v6. Les règles de préservation de ce runbook restent applicables à une migration historique et à la production ; aucune remise à zéro de production n’est autorisée.
+
 D'après [la pipeline](../.github/workflows/pipeline.yml), tout push sur `staging` ou `main` lance, dans l'environnement GitHub correspondant, le job **Migrations** : le préflight `scripts/check-evm-migration.ts` puis `prisma migrate deploy`. Les déploiements Vercel, images et reaper attendent ce job. Il n'y a **pas de `migrate deploy` manuel** dans la procédure normale.
 
 Conséquences :
@@ -45,7 +47,7 @@ Tous les points suivants doivent être vrais avant d'ouvrir la PR `staging → m
 
 | Condition | Vérification | Responsable |
 |---|---|---|
-| Le prêt v6 `0xa798…7390` (10 USDC, échéance 1er octobre 2026 à 10:13 UTC) est réglé ou remboursé | `ops:escrow-events` (A2) ou explorateur ; puis `contracts:check-upgrade` passe | Ali puis Noé |
+| Le prêt v6 `0xa798…7390` (10 USDC, échéance 1er octobre 2026 à 08:13 UTC (10:13 à Paris)) est réglé ou remboursé | `ops:escrow-events` (A2) ou explorateur ; puis `contracts:check-upgrade` passe | Ali puis Noé |
 | Aucun prêt, entraînement ou dataset en cours sur l'ancien runner | Photo : `loans.byStatus` sans PENDING/SUBMITTING/ESCROWED/TRAINING/SETTLING ; `trainingJobs.byStatus` sans PENDING/RUNNING | Ali |
 | Contrats v7 déployés et `phala:check-v7` vert | Rapport du préflight | Noé |
 | Variables de l'environnement GitHub `production` à jour : `DATABASE_URL`, `EVM_NETWORK`, `EVM_RPC_URL` (archive), `SIRIUS_MIGRATION_ESCROW_ADDRESSES` avec `0xede81141d007593d4bfce2de4778f753d167700e,0x805a2c2deaa3a8926e85fed6b341dacb54cacba0` et tout autre escrow relevé | Lecture des variables (valeurs jamais recopiées ici) | Noé |

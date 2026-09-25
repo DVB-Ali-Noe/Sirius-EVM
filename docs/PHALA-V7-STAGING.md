@@ -4,6 +4,29 @@ Cible choisie par Noé le **24 septembre 2026** : `https://sirius-evm-staging.ve
 
 ## État vérifié et conditions manquantes
 
+### Reprise du 25 septembre — staging neuf
+
+Noé autorise la fin du lot B, avec **la même base Neon staging vidée**, trois contrats indépendants et réimport manuel des datasets. Les historiques des anciens contrats restent sur la chaîne ; ils ne sont pas repris dans ce staging neuf. Cela ne supprime ni ne migre la production. Les prescriptions de conservation ci-dessous décrivent la préparation précédente et ne s’appliquent plus aux données staging abandonnées.
+
+- A2 (`141802f`) et B2 (`608fb91`) sont intégrés dans la branche locale `feat/staging-v7-completion`. Les commandes `ops:*` manquantes sont ajoutées. Publication, CI et déploiement de cette nouvelle version restent à réaliser.
+- Le RPC archive et Pinata staging sont configurés dans les fichiers privés ; les lectures historiques fonctionnent. Le compte Phala dispose de **0,01 ETH testnet** au contrôle précédant le déploiement.
+- Les trois contrats ci-dessous sont déployés et la liaison du registre à l’escrow a réussi. Coût des quatre transactions : **0,00004194274 ETH testnet**. La validation au bloc finalisé reste à relever après le délai du réseau.
+- Les crédits d’essai, la liste des deux wallets de Noé et le canal de supervision sont préparés : voir [PHALA-TRIAL-CREDITS.md](PHALA-TRIAL-CREDITS.md). Aucun financement n’est déclaré comme marge acquise.
+- Les nouvelles adresses privées/publiques, v7, KYB ouvert, finalité et RPC archive sont enregistrés dans **le projet Vercel staging** (cible `production` de ce projet distinct). Les anciens escrows et la clé de vérificateur KYB inutilisée en mode ouvert y sont retirés. L’environnement GitHub `staging` reçoit le réseau et le secret RPC archive. Cela ne reconstruit pas le déploiement actif.
+- Les fichiers privés runner, Next, reaper et collecteur sont préparés avec les nouvelles adresses. L’URL de la base staging reste à renseigner dans `.env.staging-db` ; les mesures actives restent à capturer. Aucune donnée distante n’a été vidée et aucune bascule de l’application/reaper n’a eu lieu à ce stade. La CVM n’a pas été redémarrée.
+- Validation locale Node 22 : **361 tests applicatifs, 72 tests d’exploitation, 79 tests de contrats, 71 scénarios navigateur**, parcours EVM v7, concurrence PostgreSQL, typages, lint et build réussis. Ces scénarios navigateur utilisent des mocks ; ils ne remplacent pas le parcours réel dans Phala.
+
+| Contrat staging neuf | Adresse | Transaction |
+|---|---|---|
+| KYB ouvert | `0xc6ef861119c097d135c85ff0988014d52cc78c64` | `0x9837cd8591fd625db1e174a5d8fdc4ba655193277877e06e0ef39c3e5da45d35` |
+| Dataset Registry | `0x99ea98be5c439809a918115764bcabf089ef4be5` | `0x3279dff2c4e2d3ea886b505942abaeeec581d6ec9766c84834feabf72a1ea0d3` |
+| Escrow v7 | `0x5f9d8d8035b32657f9fd5d03149d86c06ead5f6c` | `0x2a063ce595a38c2cc1fc700d42603b9e7318166987595b0a2819c0c14cc393e8` |
+| Liaison registre → escrow | même registre | `0x1f750ed42936ef0f129cdd0ae703f6e0bbf96b2558d070aa19a52532204c1d04` |
+
+Pour vider la base autorisée : confirmer son identité distincte de la production, arrêter les écrivains staging, vider uniquement les tables applicatives Sirius dans une transaction, conserver le schéma et `_prisma_migrations`, puis vérifier les comptes nuls. Aucune copie des données abandonnées n’est demandée. Les listes d’escrows historiques staging restent vides ; `check-upgrade` sur les anciens contrats de production n’est pas une porte de cette remise à zéro.
+
+### Relevé historique du 24 septembre
+
 - Les PR #4, #5 et #6 sont intégrées. La [pipeline staging de `332afae`](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36035263971) a réussi : vérifications, migrations, Vercel, images, reaper et smokes. Ces migrations sont celles de staging ; cela ne prouve aucune migration de production.
 - L'API Phala confirme le 24 septembre à 18:09:56 UTC : CVM arrêtée, aucune opération en cours, app ID `8e14a57b42bfeff1e3cb806a5a042c313874c79c`. La machine existante est `tdx.small`, disque 20 Go. Son nom `sirius-phala-production` n'est pas une autorisation d'utiliser la base ou les secrets de production.
 - Le dernier runner publié par cette pipeline est `ghcr.io/dvb-ali-noe/sirius-runner@sha256:f1c9cda9975fdb5051c95df54c37eef59ff984ef553423ffbd27234b4e398f33`. Il contient A1, **pas le nouvel outil d'initialisation du présent lot B**. Publier une image contenant ce lot avant d'utiliser le mode `init` ; relever son nouveau digest dans sa pipeline.

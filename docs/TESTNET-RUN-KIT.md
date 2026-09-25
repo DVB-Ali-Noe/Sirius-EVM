@@ -16,6 +16,8 @@ Préparation B2.4 du 25 septembre 2026, Ali, pour le point 5 du [plan de travail
 
 ## Comptes et adresses à suivre
 
+Pour la remise à zéro staging décidée le 25 septembre, utiliser seulement le nouvel escrow `0x5f9d8d8035b32657f9fd5d03149d86c06ead5f6c`. Provider : `0xe07abf7ef148d0ecf04906239deb2b1b54e9aa55` ; borrower : `0x75773bf175273eb37cd89016324176e257d114ce`. Les exemples multi-escrows ci-dessous servent aux inventaires historiques ; ils ne sont pas requis pour ce parcours neuf. La commande `ops:testnet-evidence` est intégrée au manifeste.
+
 | Libellé | Rôle | Source |
 |---|---|---|
 | `provider` | Wallet A, publie le dataset | Wallet de test dédié, distinct de la trésorerie |
