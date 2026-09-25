@@ -169,3 +169,21 @@ Ali peut avancer sur `feat/operations-accounting` en consommant `RunnerAccountin
 ### Lot B : cible staging retenue — 24 septembre 2026
 
 Les PR #5 et #6 sont fusionnées et déployées sur staging. Noé a choisi d'y raccorder Phala/v7 avant le site public. La préparation se poursuit sur `feat/phala-v7-integration` ; le [runbook du lot B](PHALA-V7-STAGING.md) donne les contrôles, l'initialisation explicite, les configurations séparées et les preuves attendues. Le RPC archive, le gas du wallet Phala et les politiques d'Ali restent des prérequis ; l'intégration réelle et les essais à deux wallets ne sont pas encore réalisés.
+
+### Lot A2 — 24 septembre 2026
+
+Ali travaille sur `feat/operations-accounting` depuis `staging` (`332afae`). Le détail et les procédures sont dans [OPERATIONS-ACCOUNTING.md](OPERATIONS-ACCOUNTING.md) : contrat testé de l'export A1, relevé des escrows en lecture seule, proposition tarifaire bloquée tant qu'elle n'est pas approuvée, fiche des limites fournisseurs, rapport de supervision et watchdog durci, contrôle de restauration du volume runner, inventaire historique, [matrice navigateur](BROWSER-TEST-MATRIX.md) et [guide d'entretiens](PILOT-INTERVIEWS.md). Validation locale sous Linux et Node 22 : 56 tests d'exploitation, typage et lint.
+
+Le rapprochement comptable (A2.1) est livré et vérifié sur les relevés réels v5/v6 : 56 tests d'exploitation. Points à convenir avec Noé : commandes `ops:*` à ajouter au manifeste, canal en lecture seule du contrôle de budget vers le superviseur, copie hors machine des sauvegardes, validation de l'inventaire. Aucun push, activation Phala, dépense ni migration distante n'accompagne ce travail.
+
+### Lot B2 — 25 septembre 2026
+
+Ali travaille sur `feat/migration-historique` depuis `staging` (`c30cff8`). Livré : l'inventaire de migration en lecture seule ([MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md), répété sur PostgreSQL), les lecteurs d'anciens formats épinglés ([HISTORICAL-COMPATIBILITY.md](HISTORICAL-COMPATIBILITY.md)), le runbook de la fenêtre de maintenance, les scénarios navigateur du parcours v7 (`e2e/billing-v7.spec.ts`) et le kit de preuve du parcours réel ([TESTNET-RUN-KIT.md](TESTNET-RUN-KIT.md)). Validation locale sous Linux et Node 22 : 32 tests d'exploitation, 71 tests navigateur, typage et lint.
+
+Constats pour la suite : les deux migrations sont déjà appliquées sur staging par la pipeline ; la fenêtre de production est la fusion vers `main` ; le prêt v6 de 10 USDC ouvert jusqu'au 1er octobre bloque `contracts:check-upgrade` jusque-là. Reste B2.5, le parcours réel à deux wallets dans le créneau Phala de Noé. Commandes `ops:db-inventory` et `ops:testnet-evidence` à ajouter au manifeste. Aucun push, activation Phala, dépense ni migration distante n'accompagne ce travail.
+
+### Intégration A2/B2 et nouveau staging — 25 septembre 2026
+
+Branche `feat/staging-v7-completion` : A2/B2 réunis, commandes d’exploitation raccordées, financement explicite par crédits Phala réservé aux wallets internes, diagnostic RA-TLS pour le superviseur et ajout de wallets sans remise à zéro du registre. Voir [les essais internes](PHALA-TRIAL-CREDITS.md).
+
+Noé a choisi de vider la base staging existante et d’abandonner ses anciennes données de démonstration. Trois nouveaux contrats testnet sont déployés ; leurs adresses sont enregistrées dans Vercel staging et les configurations locales dédiées. Le prêt v6 historique n’empêche pas ce parcours indépendant. État exact, transactions et étapes restantes : [lot B](PHALA-V7-STAGING.md#reprise-du-25-septembre--staging-neuf). La production reste hors de cette remise à zéro.

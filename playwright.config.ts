@@ -3,6 +3,8 @@ import { defineConfig, devices } from "playwright/test";
 const port = 3100;
 const baseURL = `http://127.0.0.1:${port}`;
 const mockUsdcAddress = "0x5555555555555555555555555555555555555555";
+// Le parcours v7 lit la version et le signataire de l'escrow côté navigateur : il lui faut une adresse.
+const mockEscrowAddress = "0x6666666666666666666666666666666666666666";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -40,6 +42,7 @@ export default defineConfig({
       // Les mocks interceptent eth_call, mais la construction de l'appel exige une adresse.
       SIRIUS_USDC_ADDRESS: mockUsdcAddress,
       NEXT_PUBLIC_SIRIUS_USDC_ADDRESS: mockUsdcAddress,
+      NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS: mockEscrowAddress,
       SIRIUS_APP_ORIGIN: baseURL,
     },
     url: baseURL,

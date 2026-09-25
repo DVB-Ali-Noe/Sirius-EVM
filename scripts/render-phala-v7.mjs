@@ -4,11 +4,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function renderPhalaV7(mode, image) {
-  if (!["bootstrap", "init", "active"].includes(mode)
+  if (!["bootstrap", "init", "active", "wallets"].includes(mode)
     || !/^ghcr\.io\/dvb-ali-noe\/sirius-runner@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("Mode ou digest immuable invalide");
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const files = ["compose.yaml", mode === "active" ? "compose.v7.yaml" : "compose.bootstrap-v7.yaml"];
   if (mode === "init") files.push("compose.init-v7.yaml");
+  if (mode === "wallets") files.push("compose.trial-wallets.yaml");
   const args = ["compose", ...files.flatMap((name) => ["-f", resolve(root, "deploy/phala", name)]),
     "config", "--no-interpolate", "--no-env-resolution", "--format", "json"];
   const model = JSON.parse(execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20000 }));

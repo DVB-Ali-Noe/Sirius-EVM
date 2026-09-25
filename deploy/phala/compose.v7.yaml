@@ -5,6 +5,7 @@ services:
     environment:
       RUNNER_BOOTSTRAP_ONLY: "false"
       SIRIUS_BILLING_VERSION: "7"
+      RUNNER_MONITOR_SECRET: ${RUNNER_MONITOR_SECRET:?Secret de supervision requis}
       RUNNER_BUDGET_FILE: /var/lib/sirius-runner/budget/ledger.sqlite
       RUNNER_BILLING_POLICY_FILE: /var/lib/sirius-runner/budget/billing-policy.json
       SIRIUS_EVM_FINALITY: finalized
