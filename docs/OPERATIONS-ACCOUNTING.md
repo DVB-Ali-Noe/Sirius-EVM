@@ -82,7 +82,7 @@ La [fiche fournisseurs](../deploy/operations/supplier-limits.json) résume ce qu
 | Vercel | Partiel : pause de la production au budget | Contrôle toutes les quelques minutes ; sièges et modules exclus |
 | Neon | Offre gratuite seulement | Offres payantes : alertes à 80/100 %, pas de plafond |
 | Pinata | Aucun documenté | Dépassements facturés au Go et aux requêtes |
-| VPS | Inconnu | Hébergeur à renseigner |
+| VPS OVHcloud | Inconnu | Reapers staging/production actifs sur 162.19.66.80, watchdog installé mais désactivé ; anciens reapers non arrêtés. Offre et plafonds du compte à relever, voir [migration](VPS-MIGRATION.md) |
 | RPC | Sans objet | RPC public, sans coût direct |
 | GitHub | Partiel | Actions bloquées au quota sans moyen de paiement |
 
@@ -96,7 +96,7 @@ Testé contre la sortie réelle de `runner:budget check` et, de bout en bout, av
 
 L'unité `sirius-phala-watchdog.service` est durcie (masque de fichiers, protections noyau et périphériques, aucune capacité, sockets IP et Unix seulement). Sous une unité systemd transitoire avec la fausse CLI, le watchdog lit toujours la CVM et demande l'arrêt. Score d'exposition `systemd-analyze security` : **8,5 → 3,0**.
 
-**Interface préparée le 25 septembre :** `GET /operations/budget`, secret de supervision dédié et collecteur `ops:runner-monitor` en RA-TLS. Le superviseur accepte le rapport horodaté, y compris lorsque le budget est épuisé. Installer les timers extérieurs et vérifier la collecte réelle avant activation ; voir [la procédure](PHALA-TRIAL-CREDITS.md#canal-de-supervision).
+**Installation du 25 septembre :** `GET /operations/budget`, secret de supervision dédié et collecteur `ops:runner-monitor` en RA-TLS. Le superviseur accepte le rapport horodaté, y compris lorsque le budget est épuisé. Les unités sont installées sous `sirius-ops` sur le nouveau VPS, avec configurations privées, runtime et profil Phala vérifiés ; timers désactivés, CVM arrêtée. Vérifier la collecte réelle depuis cet hôte au prochain créneau ; voir [la procédure](PHALA-TRIAL-CREDITS.md#canal-de-supervision).
 
 ## A2.6 — Restauration du volume runner
 

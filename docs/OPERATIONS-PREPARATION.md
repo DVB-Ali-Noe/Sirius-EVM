@@ -1,5 +1,7 @@
 # Préparation de l’exploitation — 23 septembre 2026
 
+**État ultérieur, 25 septembre :** les accès au nouveau VPS et à Neon sont disponibles ; les reapers staging/production sont transférés sur le nouvel hôte et les jobs VPS GitHub ont réussi. L’installation du watchdog/collecteur et le maintien des anciens reapers sont détaillés dans [VPS-MIGRATION.md](VPS-MIGRATION.md). Les timers restent désactivés et Phala arrêtée après sa validation matérielle sur staging. La remise à zéro et le parcours réel v7 restent distincts de ce transfert. Les constats ci-dessous conservent leur date du 23 septembre.
+
 Suite du même jour : l'[exercice de reprise](BACKUP-RECOVERY.md) valide le paquet complet et sa restauration, ainsi que les arrêts brutaux du registre runner. Deux modèles ont ensuite été livrés, déchiffrés et restaurés hors ligne ; onze restent liés à des wallets de test inaccessibles. La copie hors machine est différée, Noé conservant les sauvegardes en local. Phala n'a pas été démarré.
 
 ## Périmètre demandé par Noé

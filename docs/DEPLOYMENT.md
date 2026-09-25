@@ -2,6 +2,10 @@
 
 Guide actualisé le 23 septembre 2026. Les règles d'origines introduites le 12 septembre restent applicables ; la dernière revue concerne le code local. Une modification locale ne met pas à jour une instance déjà déployée et ne prouve pas l'état de sa configuration distante.
 
+**Priorité au 26 septembre :** suivre la [checklist Phala](PHALA-DEMO-RESTE-A-FAIRE.md) et le [runbook manuel](PHALA-DEMO-RUNBOOK.md). La bascule globale staging v7, le nettoyage Neon et les sessions temporisées décrits dans les notes historiques ci-dessous sont différés. Réconcilier les anciennes variables avant tout prochain déploiement staging ; préparer une cible Phala dédiée, sans fermeture programmée.
+
+**Transfert VPS vérifié le 25 septembre à 21:18 UTC :** les reapers staging et production tournent sur OVHcloud `162.19.66.80`, sous `sirius-deploy`, avec leurs images et configurations historiques v6. Les quatre secrets VPS de chaque environnement GitHub sont basculés ; les jobs VPS [staging](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36042451260/attempts/2) et [production](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/35789836029/attempts/2) ont réussi. Seuls ces jobs ont été relancés : aucun nouveau build Vercel ni migration PostgreSQL. Watchdog et collecteur sont installés sous `sirius-ops`, timers désactivés, Phala arrêtée. Noé a choisi de laisser les anciens reapers en place ; la remise à zéro et la bascule Phala/v7 attendent la neutralisation des anciens accès en écriture staging. Preuves et suite dans [VPS-MIGRATION.md](VPS-MIGRATION.md). Partnersud reste hors périmètre.
+
 Les corrections F1–F4 du 13 septembre sont documentées dans [ESCROW-V6.md](ESCROW-V6.md), désormais référence historique pour la migration. La prochaine évolution économique suit [v7](BILLING-INTEGRATION.md), après résolution des bloqueurs. Le choix automatique des origines ne déploie pas les contrats.
 
 **Activation bloquée :** valider les limites encore ouvertes du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026), puis les tarifs, la comptabilité et les plafonds fournisseurs de la [facturation compute](COMPUTE-BILLING.md). Le [parcours v7 signé jusqu’au remboursement](BILLING-INTEGRATION.md) est intégré localement, avec budget de clôture réservé et migration Prisma additive `20260923000000_add_compute_billing` préparée. Aucun tarif réel ni migration distante n’est actif. Appliquer les migrations avant de publier le nouveau client Prisma, même en v6 ; lire les prérequis de bascule Phala. Ne pas redéployer v6 pour le seul changement de runner entre-temps.
@@ -18,7 +22,7 @@ La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauveg
 
 Le Compose VPS transmet les paramètres de facturation, contrats, finalité et attestation au reaper. En v7, celui-ci refuse de démarrer sans runner distant et configuration d'attestation complète. Le délai d'arrêt de 90 secondes couvre un appel runner de 60 secondes. `pnpm ops:check-release <next.env> <reaper.env> <runner.env>` compare les trois fichiers explicites sans afficher leurs secrets ; ce contrôle ne certifie pas une attestation active ni des contrats publics.
 
-Les images doivent être publiées puis figées par digest, et leurs mesures validées avant bascule. Le superviseur d'arrêt est préparé mais non installé : le configurer et le surveiller avant tout futur démarrage autorisé. Les plafonds fournisseurs, le budget d'essais et les tarifs restent à approuver.
+Les images doivent être publiées puis figées par digest, et leurs mesures validées avant bascule. Au 25 septembre, le superviseur d'arrêt est installé sur le nouveau VPS, avec ses timers désactivés : préparer une session bornée et vérifier son fonctionnement avant tout futur essai Phala. La politique de crédits internes et ses limites sont suivies dans [PHALA-TRIAL-CREDITS.md](PHALA-TRIAL-CREDITS.md) ; les tarifs commerciaux et les autres plafonds fournisseurs restent distincts.
 
 ## Une cible par branche
 
@@ -44,7 +48,7 @@ Les deux projets Vercel utilisent chacun leur environnement **Production**. Cela
 
 ## Ce qui se passe après une fusion
 
-La cible fixe aussi `SIRIUS_REQUIRE_PHALA` : `true` sur main, `false` sur staging. La production applicative exige donc le runner Phala même si le réseau reste testnet. Avant la première fusion de cette évolution sur main, terminer le runbook [PHALA.md](PHALA.md) et configurer les mesures et le runner actif ; les secrets de démonstration ne sont pas convertis automatiquement. Staging conserve le mode in-process pour les données non sensibles. Aucun sélecteur de runner n’est exposé.
+La cible fixe aussi `SIRIUS_REQUIRE_PHALA` : `true` sur main ; sur staging, la variable du dépôt `SIRIUS_STAGING_REQUIRE_PHALA` commande cette exigence. Elle est réglée à `true` depuis la validation matérielle du 25 septembre, pour la prochaine bascule décrite dans [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md). La production applicative exige Phala même si le réseau reste testnet. Avant une fusion sur main, terminer le runbook [PHALA.md](PHALA.md) et configurer les mesures et le runner actif ; les secrets de démonstration ne sont pas convertis automatiquement. Aucun sélecteur de runner n’est exposé.
 
 1. Le push sur `staging` ou `main` déclenche les tests, le typage, le lint, le build et les tests navigateur. Une PR seule ne déploie rien.
 2. La référence exacte résout le projet Vercel, l'environnement GitHub, le dossier VPS et les origines. Une branche inconnue, un tag ou une référence de PR est refusé ; aucun fallback vers staging.
