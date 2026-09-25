@@ -44,6 +44,7 @@ function fixture() {
     modelId: "linear_regression", modelVersion: "1.0.0", challengeDays: 7,
   };
   const records: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
   const create = async ({ data }: { data: Record<string, unknown> }) => {
     const record = { id: "loan", ...data, createdAt: new Date(), updatedAt: new Date() };
     records.push(record);
@@ -61,11 +62,11 @@ function fixture() {
     "@/lib/db": { serializableTransaction: async (fn: (value: typeof tx) => unknown) => fn(tx), prisma: {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
-      trainingJob: { updateMany: async () => ({ count: 1 }) },
+      trainingJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 }; } },
       loan: { update: async ({ data }: { data: Record<string, unknown> }) => ({ ...records[0], ...data }) },
     } },
   };
-  return { dataset, records, common };
+  return { dataset, records, updates, common };
 }
 
 test("le self-train persiste le runner choisi et refuse une autre identité avant tout job", async () => {
@@ -88,6 +89,28 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
   await assert.rejects(api.runSelfTrain(dataset.id, provider, "other-job", dataset.runnerReceipt, {} as never), /ancien runner/);
   assert.equal(executions, 1);
   assert.equal(records.length, 1);
+});
+
+test("le résultat self-train et sa capsule sont persistés ensemble avant livraison", async () => {
+  const { dataset, updates, common } = fixture();
+  const envelope = { version: 1, ephemeralPublicKey: "public", salt: "salt", iv: "iv", ciphertext: "encrypted" };
+  const api = load<typeof import("./self-train")>("src/lib/sirius/self-train.ts", {
+    ...common,
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
+      assert.equal(args[3], "delivery-public-key");
+      return { modelCid: "bafyModel", metrics: {}, runnerReceipt: "job-receipt", modelKeyEnvelope: envelope };
+    } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
+    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+  });
+  await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, "delivery-public-key");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "DONE");
+  assert.equal(updates[0].deliveryPublicKey, "delivery-public-key");
+  assert.equal(JSON.stringify(updates[0].deliveryEnvelope), JSON.stringify(envelope));
+  assert.equal(updates[0].modelCid, "bafyModel");
+  assert.equal(updates[0].runnerReceipt, "job-receipt");
 });
 
 test("le prêt conserve la provenance dès sa préparation et ne réserve pas un dataset d’un autre runner", async () => {

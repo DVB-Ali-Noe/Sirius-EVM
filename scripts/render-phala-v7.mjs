@@ -4,18 +4,23 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function renderPhalaV7(mode, image) {
-  if (!["bootstrap", "init", "active", "wallets"].includes(mode)
+  if (!["bootstrap", "init", "active", "wallets", "demo-init", "demo-active"].includes(mode)
     || !/^ghcr\.io\/dvb-ali-noe\/sirius-runner@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("Mode ou digest immuable invalide");
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const files = ["compose.yaml", mode === "active" ? "compose.v7.yaml" : "compose.bootstrap-v7.yaml"];
-  if (mode === "init") files.push("compose.init-v7.yaml");
+  const demo = mode.startsWith("demo-");
+  const files = ["compose.yaml", ["active", "demo-active"].includes(mode) ? "compose.v7.yaml" : "compose.bootstrap-v7.yaml"];
+  if (mode === "init" || mode === "demo-init") files.push("compose.init-v7.yaml");
   if (mode === "wallets") files.push("compose.trial-wallets.yaml");
+  if (demo) files.push("compose.demo.yaml");
   const args = ["compose", ...files.flatMap((name) => ["-f", resolve(root, "deploy/phala", name)]),
     "config", "--no-interpolate", "--no-env-resolution", "--format", "json"];
   const model = JSON.parse(execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20000 }));
   // Les noms calculés sur le poste local détacheraient les volumes persistants de la CVM.
   delete model.name;
-  for (const volume of Object.values(model.volumes)) delete volume.name;
+  for (const [name, volume] of Object.entries(model.volumes)) {
+    if (!demo) delete volume.name;
+    else if (volume.name !== ({ runner_budget: "sirius_phala_demo_budget", runner_replay: "sirius_phala_demo_replay" })[name]) throw new Error("Volume de démonstration inattendu");
+  }
   for (const network of Object.values(model.networks ?? {})) delete network.name;
   for (const service of Object.values(model.services)) {
     service.image = image;
@@ -25,7 +30,7 @@ export function renderPhalaV7(mode, image) {
       return [entry.slice(0, separator), entry.slice(separator + 1)];
     }));
   }
-  model.services.runner.environment.SIRIUS_APP_ORIGIN = "https://sirius-evm-staging.vercel.app";
+  model.services.runner.environment.SIRIUS_APP_ORIGIN = demo ? "${SIRIUS_APP_ORIGIN}" : "https://sirius-evm-staging.vercel.app";
   if (model.services.runner.environment.RUNNER_TRANSPORT_SECRET !== "${RUNNER_TRANSPORT_SECRET}"
     || model.services.runner.environment.PINATA_JWT !== "${PINATA_JWT}") throw new Error("Interpolation de secret refusée");
   return model;

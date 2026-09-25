@@ -102,7 +102,7 @@ async function markDatasetListed(
   const updated = await prisma.dataset.updateMany({
     where: { id: dataset.id, provider: normalizeAddress(dataset.provider), status: "DRAFT", evmDatasetId: null },
     data: {
-      status: "LISTED",
+      status: process.env.SIRIUS_PHALA_DEMO === "true" ? "PRIVATE" : "LISTED",
       evmDatasetId: onChainId,
       ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
     },
@@ -114,6 +114,7 @@ async function markDatasetListed(
 export async function prepareDatasetListing(datasetId: string, provider: string) {
   await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
+  if (process.env.SIRIUS_PHALA_DEMO === "true" && dataset.status === "PRIVATE" && dataset.evmDatasetId) return { reconciled: true as const };
   if (dataset.status === "LISTED" && dataset.evmDatasetId) throw new AppError("Dataset déjà publié", 409);
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   await requireAcceptedKyb(provider);
@@ -130,7 +131,7 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
 export async function finalizeDatasetListing(datasetId: string, provider: string, txHash?: string) {
   await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status === "LISTED" && dataset.evmDatasetId) return dataset;
+  if ((dataset.status === "LISTED" || (process.env.SIRIUS_PHALA_DEMO === "true" && dataset.status === "PRIVATE")) && dataset.evmDatasetId) return dataset;
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de mint EVM manquant", 400);
   await requireAcceptedKyb(provider);

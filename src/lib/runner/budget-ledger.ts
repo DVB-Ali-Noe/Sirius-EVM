@@ -1,6 +1,7 @@
 import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
+import { parseDemoPolicy, type DemoPolicy } from "@/lib/phala-demo/contract";
 
 export type BudgetKind = "request" | "seal" | "training" | "transaction";
 export interface BudgetPolicy {
@@ -20,6 +21,7 @@ export interface BudgetPolicy {
     escrow: string;
     wallets: string[];
   };
+  sponsored?: DemoPolicy & { origin: string; observedAtMs: number };
   costsUsdMicros: Record<Exclude<BudgetKind, "transaction">, string>;
   gas: {
     totalWei: string;
@@ -95,10 +97,24 @@ export function validateBudgetPolicy(value: unknown): BudgetPolicy {
       throw new AppError("Financement d’essai Phala invalide", 503);
     }
   }
+  if (p.sponsored !== undefined) {
+    const demo = parseDemoPolicy(p.sponsored);
+    let origin: URL;
+    try { origin = new URL(p.sponsored.origin); }
+    catch { throw new AppError("Origine de démonstration invalide", 503); }
+    if (p.trial || p.chainId !== 46630 || p.earnedMarginUsdMicros !== "0" || p.cashUsdMicros !== "0"
+      || origin.protocol !== "https:" || origin.origin !== p.sponsored.origin
+      || !integer(p.sponsored.observedAtMs, 1, Date.now() + 30_000)
+      || p.validUntil <= p.sponsored.observedAtMs || p.validUntil - p.sponsored.observedAtMs > 31 * 86400_000) {
+      throw new AppError("Financement sponsorisé invalide", 503);
+    }
+    return structuredClone({ ...p, sponsored: { ...demo, origin: origin.origin, observedAtMs: p.sponsored.observedAtMs } });
+  }
   return structuredClone(p);
 }
 
 export function fundedBudgetUsd(policy: BudgetPolicy): bigint {
+  if (policy.sponsored) return BigInt(policy.sponsored.ceilingUsdMicros);
   if (policy.trial) return BigInt(policy.trial.ceilingUsdMicros);
   const margin = BigInt(policy.earnedMarginUsdMicros);
   const cash = BigInt(policy.cashUsdMicros);
@@ -213,6 +229,24 @@ export class BudgetLedger {
       const current = validateBudgetPolicy(JSON.parse(String(this.db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
       if (!current.trial || !Array.isArray(wallets) || !wallets.length) throw new Error("Liste de wallets d’essai requise");
       const next = validateBudgetPolicy({ ...current, trial: { ...current.trial, wallets: [...new Set([...current.trial.wallets, ...wallets])] } });
+      this.db.prepare("UPDATE budget SET policy = ? WHERE id = 1").run(JSON.stringify(next));
+      return next;
+    });
+    Object.assign(this.policy, policy);
+  }
+
+  configureSponsored(value: DemoPolicy, observedAtMs: number, actor: string): void {
+    const policy = this.atomic(() => {
+      const current = validateBudgetPolicy(JSON.parse(String(this.db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
+      if (!current.sponsored || !/^0x[0-9a-f]{40}$/.test(actor)) throw new AppError("Financement sponsorisé requis", 409);
+      if (this.db.prepare("SELECT id FROM operations WHERE state = 'reserved'").get()) throw new AppError("Réconcilie les opérations avant de changer le financement", 409);
+      const next = validateBudgetPolicy({ ...current, sponsored: { ...parseDemoPolicy(value), origin: current.sponsored.origin, observedAtMs } });
+      if (fundedBudgetUsd(next) < this.accounting().allocatedUsd + BigInt(next.fixedReserveUsdMicros)) {
+        throw new AppError("Le plafond ne couvre pas les engagements existants", 409);
+      }
+      this.db.exec("CREATE TABLE IF NOT EXISTS sponsored_policy_changes (id INTEGER PRIMARY KEY, actor TEXT NOT NULL, changed_at INTEGER NOT NULL, previous_policy TEXT NOT NULL, next_policy TEXT NOT NULL)");
+      this.db.prepare("INSERT INTO sponsored_policy_changes (actor, changed_at, previous_policy, next_policy) VALUES (?, ?, ?, ?)")
+        .run(actor, Date.now(), JSON.stringify(current), JSON.stringify(next));
       this.db.prepare("UPDATE budget SET policy = ? WHERE id = 1").run(JSON.stringify(next));
       return next;
     });

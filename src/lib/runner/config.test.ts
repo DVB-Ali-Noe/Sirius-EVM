@@ -10,6 +10,16 @@ beforeEach(() => {
   }
   Object.assign(process.env, { NODE_ENV: "production", EVM_NETWORK: "testnet", TEE_MODE: "stub" });
 });
+
+test("le mode Phala public interdit le fallback même sans drapeau strict explicite", () => {
+  process.env.SIRIUS_PHALA_DEMO = "true";
+  process.env.SIRIUS_REQUIRE_PHALA = "false";
+  assert.throws(runnerEndpoint, /RUNNER_URL obligatoire/);
+  process.env.RUNNER_URL = "http://localhost:4100";
+  assert.throws(runnerEndpoint, /HTTPS/);
+  process.env.EVM_NETWORK = "mainnet";
+  assert.throws(runnerEndpoint, /testnet/);
+});
 afterEach(() => {
   for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
   Object.assign(process.env, saved);
