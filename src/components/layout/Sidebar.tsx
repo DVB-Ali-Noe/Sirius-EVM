@@ -8,6 +8,7 @@ import { useLocale } from "@/components/i18n/LocaleProvider";
 const NAV = [
   { href: "/dashboard", label: "Tableau de bord" },
   { href: "/train", label: "Entraîner" },
+  { href: "/phala", label: "Phala" },
   { href: "/marketplace", label: "Marketplace" },
   { href: "/datasets", label: "Mes datasets" },
   { href: "/audit", label: "Audit" },

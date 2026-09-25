@@ -3,11 +3,14 @@ import { isDemoDeployment } from "@/lib/deployment-mode";
 import { billingEnabled } from "@/lib/billing/config";
 
 export function requiresPhalaRunner(): boolean {
+  const demo = process.env.SIRIUS_PHALA_DEMO;
+  if (demo && demo !== "true" && demo !== "false") throw new Error("SIRIUS_PHALA_DEMO doit valoir true ou false");
+  if (demo === "true" && process.env.EVM_NETWORK !== "testnet") throw new Error("La démonstration Phala exige le testnet");
   const flag = process.env.SIRIUS_REQUIRE_PHALA;
   if (flag && flag !== "true" && flag !== "false") {
     throw new Error("SIRIUS_REQUIRE_PHALA doit valoir true ou false");
   }
-  return flag === "true" || (process.env.NODE_ENV === "production" && !isDemoDeployment());
+  return demo === "true" || flag === "true" || (process.env.NODE_ENV === "production" && !isDemoDeployment());
 }
 
 export function runnerEndpoint(): string | null {

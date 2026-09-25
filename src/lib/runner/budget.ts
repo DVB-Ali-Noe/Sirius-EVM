@@ -37,6 +37,14 @@ export function runnerBudget(): BudgetLedger | null {
 }
 
 export function assertTrialDeployment(policy: BudgetPolicy, env: Record<string, string | undefined> = process.env): void {
+  if (policy.sponsored && (env.SIRIUS_PHALA_DEMO !== "true" || env.EVM_NETWORK !== "testnet"
+    || env.TEE_MODE !== "phala" || env.DSTACK_SIMULATOR_ENDPOINT
+    || env.SIRIUS_APP_ORIGIN !== policy.sponsored.origin)) {
+    throw new AppError("Budget sponsorisé réservé à la démonstration Phala déclarée", 503);
+  }
+  if (env.SIRIUS_PHALA_DEMO === "true" && !policy.sponsored) {
+    throw new AppError("Budget sponsorisé requis pour la démonstration publique", 503);
+  }
   if (policy.trial && (env.EVM_NETWORK !== "testnet" || env.SIRIUS_BILLING_VERSION !== "7"
     || env.SIRIUS_APP_ORIGIN !== "https://sirius-evm-staging.vercel.app"
     || env.SIRIUS_ESCROW_ADDRESS?.toLowerCase() !== policy.trial.escrow)) {

@@ -59,6 +59,8 @@ model TrainingJob {
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
+  deliveryPublicKey String?
+  deliveryEnvelope Json?
   runnerKind    RunnerKind @default(UNKNOWN)
   runnerDeploymentId String?
 

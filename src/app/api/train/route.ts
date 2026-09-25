@@ -27,11 +27,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    const { datasetId, jobId, datasetReceipt, authorization } = await readJson<{
+    const { datasetId, jobId, datasetReceipt, authorization, deliveryPublicKey } = await readJson<{
       datasetId?: unknown;
       jobId?: unknown;
       datasetReceipt?: unknown;
       authorization?: RunnerGrant;
+      deliveryPublicKey?: unknown;
     }>(req);
     if (
       typeof datasetId !== "string" ||
@@ -45,7 +46,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Requête d’entraînement incomplète" }, { status: 400 });
     }
     assertGrantSubject(session, authorization);
-    const result = await runSelfTrain(datasetId, session.address, jobId, datasetReceipt, authorization);
+    if (deliveryPublicKey !== undefined && (typeof deliveryPublicKey !== "string" || !/^[A-Za-z0-9_-]{87}$/.test(deliveryPublicKey))) {
+      return NextResponse.json({ error: "Clé de livraison invalide" }, { status: 400 });
+    }
+    const result = await runSelfTrain(datasetId, session.address, jobId, datasetReceipt, authorization, deliveryPublicKey as string | undefined);
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     return errorResponse(err);

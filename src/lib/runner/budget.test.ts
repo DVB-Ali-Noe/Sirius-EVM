@@ -36,6 +36,25 @@ function policy(): BudgetPolicy {
   };
 }
 
+test("changer la source sponsorisée conserve les coûts et refuse une enveloppe sous-financée ou des réservations actives", () => {
+  const { ledger, open } = fixture((p) => {
+    p.earnedMarginUsdMicros = "0"; p.cashUsdMicros = "0";
+    p.sponsored = { funding: "credits", creditsUsdMicros: "1000", cashUsdMicros: "0", ceilingUsdMicros: "900",
+      maxOperations: 6, maxOperationsPerWallet: 2, maxConcurrent: 1, origin: "https://demo.example", observedAtMs: Date.now() - 1000 };
+  });
+  ledger.reserve("train", "input", "training");
+  const next = { ...ledger.policy.sponsored!, funding: "sirius" as const, creditsUsdMicros: "0", cashUsdMicros: "900" };
+  assert.throws(() => ledger.configureSponsored(next, Date.now(), wallet), /Réconcilie/);
+  ledger.finish("train", "input", false);
+  const before = ledger.snapshot();
+  assert.throws(() => ledger.configureSponsored({ ...next, ceilingUsdMicros: "150" }, Date.now(), wallet), /engagements/);
+  ledger.configureSponsored(next, Date.now(), wallet);
+  assert.deepEqual(ledger.snapshot(), before);
+  const restored = open();
+  assert.equal(restored.policy.sponsored?.funding, "sirius");
+  assert.deepEqual(restored.snapshot(), before);
+});
+
 function fixture(change: (p: BudgetPolicy) => void = () => {}) {
   const directory = mkdtempSync(join(tmpdir(), "sirius-budget-"));
   chmodSync(directory, 0o700);
@@ -112,6 +131,27 @@ test("ni liquidités seules, ni dépôts ou crédits futurs ne permettent d’ad
   const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = "0"; p.cashUsdMicros = "1000000000"; });
   assert.throws(() => ledger.reserve("job", "scope", "training"), /Budget runner insuffisant/);
   assert.equal(ledger.snapshot().allocatedUsd, BigInt(0));
+});
+
+test("un financement sponsorisé explicite reste plafonné et lié à sa démonstration Phala", () => {
+  const { ledger, open, policy: p } = fixture((p) => {
+    p.earnedMarginUsdMicros = p.cashUsdMicros = "0";
+    p.sponsored = { funding: "mixed", creditsUsdMicros: "100", cashUsdMicros: "100", ceilingUsdMicros: "200",
+      maxOperations: 10, maxOperationsPerWallet: 2, maxConcurrent: 1,
+      origin: "https://confidential.example.com", observedAtMs: Date.now() };
+  });
+  const env = { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", TEE_MODE: "phala", SIRIUS_APP_ORIGIN: p.sponsored!.origin };
+  assert.doesNotThrow(() => assertTrialDeployment(p, env));
+  for (const changed of [{ EVM_NETWORK: "mainnet" }, { TEE_MODE: "stub" }, { SIRIUS_PHALA_DEMO: "false" },
+    { SIRIUS_APP_ORIGIN: "https://another.example.com" }, { DSTACK_SIMULATOR_ENDPOINT: "http://localhost" }]) {
+    assert.throws(() => assertTrialDeployment(p, { ...env, ...changed }));
+  }
+  ledger.reserve("sponsored", "scope", "training");
+  ledger.finish("sponsored", "scope", true, "{}");
+  assert.equal(open().diagnostics().remainingUsd, BigInt(0));
+  assert.throws(() => open().reserve("another", "scope", "request"), /insuffisant/);
+  assert.throws(() => validateBudgetPolicy({ ...p, chainId: 4663 }), /sponsorisé/);
+  assert.throws(() => validateBudgetPolicy({ ...p, sponsored: { ...p.sponsored, ceilingUsdMicros: "201" } }), /insuffisant/);
 });
 
 test("la réserve de frais fixes et les liquidités limitent toutes les identités clientes ensemble", () => {
