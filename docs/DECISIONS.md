@@ -133,3 +133,12 @@ Noé autorise la préparation locale et les contrôles distants en lecture seule
 Le compte local `0xb6acf8a998bb8efa34a954cd6334ccc15da7f919` sert au déploiement et à la trésorerie compute **testnet**. Le signataire Phala `0x3b31923ee7cb2a15fc85abbeeae1fc32afc08c8d` reste distinct et sa clé demeure dans l'enclave. Vérifier les soldes avant chaque opération on-chain et prévenir Noé si un complément faucet est nécessaire ; aucun suivi permanent n'est configuré.
 
 La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde chiffrée, la restauration/migration locale, la copie des modèles, les images et le superviseur d'arrêt préparés. Les scénarios de coûts ne valent ni plafond approuvé ni tarif actif. Noé conserve la sauvegarde en local pour l'instant. Deux modèles ont été récupérés et restaurés hors ligne ; onze restent liés à d'anciens wallets de test inaccessibles. Ces limites sont consignées dans [l'exercice de reprise](BACKUP-RECOVERY.md). Les contrôles d'exploitation et la validation de la cible restent à terminer.
+
+
+## D-25 — Sessions publiques Phala manuelles et VPS de démonstration différé
+
+Le 26 septembre 2026, Noé valide un parcours de self-train Phala offert par Sirius, avec CSV personnel ou exemples synthétiques. Seuls les opérateurs explicitement autorisés ouvrent et ferment les sessions ; aucune durée imposée ni fermeture programmée. Les financements crédits, Sirius ou mixtes sont déclarés et bornés, sans assimilation à une marge acquise et sans réinitialisation des engagements. Les limites financières refusent les nouveaux calculs, sans commander l’arrêt de la CVM.
+
+Le même dépôt sert une instance Phala isolée (origine/base/configuration), avec attestation stricte et livraison chiffrée persistante. Aucun fallback Phala vers VPS ou Next. Le site historique demeure sur testnet ; son déplacement de calcul vers VPS est autorisé comme chantier ultérieur, explicitement sans promesse de TEE. Cette décision remplace la portée « aucun VPS » de D-21 pour ce seul parcours de démonstration, pas les garanties du parcours confidentiel ni les portes mainnet.
+
+La bascule globale staging v7 et la remise à zéro Neon sont différées. Le runner VPS n’est pas encore livré ; les reapers transférés ne font pas d’entraînement. Voir [plan](PLAN-VPS-PHALA.md), [journal avant/après](PHALA-DEMO-IMPLEMENTATION.md) et [runbook](PHALA-DEMO-RUNBOOK.md).
