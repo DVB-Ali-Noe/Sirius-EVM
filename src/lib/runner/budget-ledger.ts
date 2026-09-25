@@ -12,6 +12,14 @@ export interface BudgetPolicy {
   earnedMarginUsdMicros: string;
   cashUsdMicros: string;
   fixedReserveUsdMicros: string;
+  trial?: {
+    provider: "phala";
+    creditsUsdMicros: string;
+    ceilingUsdMicros: string;
+    observedAtMs: number;
+    escrow: string;
+    wallets: string[];
+  };
   costsUsdMicros: Record<Exclude<BudgetKind, "transaction">, string>;
   gas: {
     totalWei: string;
@@ -72,7 +80,29 @@ export function validateBudgetPolicy(value: unknown): BudgetPolicy {
     || !integer(p.maxFailures, 1, 1000) || !integer(p.maxActive, 1, 1000)) {
     throw new AppError("Politique de budget runner invalide", 503);
   }
+  if (p.trial !== undefined) {
+    const t = p.trial;
+    const address = (v: unknown): v is string => typeof v === "string" && /^0x(?!0{40}$)[a-f0-9]{40}$/.test(v);
+    if (!t || t.provider !== "phala" || p.chainId !== 46630
+      || p.earnedMarginUsdMicros !== "0" || p.cashUsdMicros !== "0"
+      || !positive(t.creditsUsdMicros) || !positive(t.ceilingUsdMicros)
+      || BigInt(t.ceilingUsdMicros) > BigInt(t.creditsUsdMicros)
+      || !integer(t.observedAtMs, 1, Number.MAX_SAFE_INTEGER) || t.observedAtMs > Date.now() + 30_000
+      || p.validUntil <= t.observedAtMs || p.validUntil - t.observedAtMs > 31 * 86400_000
+      || !address(t.escrow) || !Array.isArray(t.wallets) || !t.wallets.length || t.wallets.length > 10
+      || t.wallets.some((w) => !address(w) || w === p.wallet)
+      || new Set(t.wallets).size !== t.wallets.length) {
+      throw new AppError("Financement d’essai Phala invalide", 503);
+    }
+  }
   return structuredClone(p);
+}
+
+export function fundedBudgetUsd(policy: BudgetPolicy): bigint {
+  if (policy.trial) return BigInt(policy.trial.ceilingUsdMicros);
+  const margin = BigInt(policy.earnedMarginUsdMicros);
+  const cash = BigInt(policy.cashUsdMicros);
+  return margin < cash ? margin : cash;
 }
 
 function assertPrivatePath(path: string): void {
@@ -177,6 +207,17 @@ export class BudgetLedger {
   }
 
   close(): void { this.db.close(); }
+
+  addTrialWallets(wallets: string[]): void {
+    const policy = this.atomic(() => {
+      const current = validateBudgetPolicy(JSON.parse(String(this.db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
+      if (!current.trial || !Array.isArray(wallets) || !wallets.length) throw new Error("Liste de wallets d’essai requise");
+      const next = validateBudgetPolicy({ ...current, trial: { ...current.trial, wallets: [...new Set([...current.trial.wallets, ...wallets])] } });
+      this.db.prepare("UPDATE budget SET policy = ? WHERE id = 1").run(JSON.stringify(next));
+      return next;
+    });
+    Object.assign(this.policy, policy);
+  }
 
   private assertFile(): void {
     const stat = lstatSync(this.path);
@@ -329,9 +370,7 @@ export class BudgetLedger {
 
   diagnostics(now = Date.now()) {
     const accounting = this.snapshot();
-    const margin = BigInt(this.policy.earnedMarginUsdMicros);
-    const cash = BigInt(this.policy.cashUsdMicros);
-    const remainingUsd = (margin < cash ? margin : cash) - BigInt(this.policy.fixedReserveUsdMicros) - accounting.allocatedUsd;
+    const remainingUsd = fundedBudgetUsd(this.policy) - BigInt(this.policy.fixedReserveUsdMicros) - accounting.allocatedUsd;
     const remainingWei = BigInt(this.policy.gas.totalWei) - accounting.allocatedWei;
     const pendingTransactions = this.pendingTransactions().map((operation) => {
       const journal = this.db.prepare("SELECT attempts FROM transaction_payloads WHERE operation_id = ?").get(operation.id);
@@ -430,9 +469,7 @@ export class BudgetLedger {
 
   private allocate(usd: bigint, wei: bigint): void {
     const { allocatedUsd, allocatedWei } = this.accounting();
-    const margin = BigInt(this.policy.earnedMarginUsdMicros);
-    const cash = BigInt(this.policy.cashUsdMicros);
-    const ceiling = (margin < cash ? margin : cash) - BigInt(this.policy.fixedReserveUsdMicros);
+    const ceiling = fundedBudgetUsd(this.policy) - BigInt(this.policy.fixedReserveUsdMicros);
     if (allocatedUsd + usd > ceiling || allocatedWei + wei > BigInt(this.policy.gas.totalWei)) {
       throw new AppError("Budget runner insuffisant : nouvelle dépense bloquée", 503);
     }

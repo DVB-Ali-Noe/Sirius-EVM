@@ -23,6 +23,8 @@ Validation locale sous Linux (WSL Ubuntu, Node 22.23.2, même version que la CI)
 
 ## Commandes à ajouter au manifeste (intégration Noé)
 
+**Intégration du 25 septembre :** les commandes ci-dessous sont maintenant dans `package.json`, avec `ops:db-inventory`, `ops:testnet-evidence` et `ops:runner-monitor`. Le canal RA-TLS de supervision et le financement des essais internes sont décrits dans [PHALA-TRIAL-CREDITS.md](PHALA-TRIAL-CREDITS.md). Le tarif commercial proposé ici reste non activé. La copie hors machine reste différée ; le staging repart sans reprendre les historiques à la demande de Noé, selon [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md).
+
 Le manifeste reste sous la responsabilité de Noé. Les nouveaux tests sont déjà repris par `test:operations`. Commandes proposées :
 
 ```json
@@ -94,7 +96,7 @@ Testé contre la sortie réelle de `runner:budget check` et, de bout en bout, av
 
 L'unité `sirius-phala-watchdog.service` est durcie (masque de fichiers, protections noyau et périphériques, aucune capacité, sockets IP et Unix seulement). Sous une unité systemd transitoire avec la fausse CLI, le watchdog lit toujours la CVM et demande l'arrêt. Score d'exposition `systemd-analyze security` : **8,5 → 3,0**.
 
-**Interface à convenir avec Noé :** le registre vit dans la CVM, le superviseur à l'extérieur. Il faut un canal en lecture seule qui livre la sortie de `runner:budget check` avec son heure d'observation, par exemple une route authentifiée du runner ou un fichier publié par un timer interne. Sans ce canal, le superviseur signale `budget-report-missing` pour toute CVM allumée.
+**Interface préparée le 25 septembre :** `GET /operations/budget`, secret de supervision dédié et collecteur `ops:runner-monitor` en RA-TLS. Le superviseur accepte le rapport horodaté, y compris lorsque le budget est épuisé. Installer les timers extérieurs et vérifier la collecte réelle avant activation ; voir [la procédure](PHALA-TRIAL-CREDITS.md#canal-de-supervision).
 
 ## A2.6 — Restauration du volume runner
 
@@ -137,7 +139,7 @@ Calcul à partir du relevé complet des événements :
 
 | Escrow | Prêts | Crédits dus, non retirés | Prêts encore ouverts |
 |---|---|---:|---|
-| v6 `0x805a…cba0` | 3 verrouillés, 2 réglés | 20 USDC (10 + 10) | **1 prêt de 10 USDC, échéance 1er octobre 2026 à 10:13 UTC** |
+| v6 `0x805a…cba0` | 3 verrouillés, 2 réglés | 20 USDC (10 + 10) | **1 prêt de 10 USDC, échéance 1er octobre 2026 à 08:13 UTC (10:13 à Paris)** |
 | v5 `0xede8…700e` | 10 verrouillés, 7 réglés, 3 remboursés | 100 USDC sur 5 comptes | Aucun |
 
 Deux constats nouveaux par rapport au relevé du 23 septembre :

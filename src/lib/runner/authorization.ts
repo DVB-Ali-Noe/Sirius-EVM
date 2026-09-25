@@ -12,6 +12,7 @@ import {
   type RunnerGrantScope,
 } from "./authorization-contract";
 import { consumeRunnerReplay } from "./replay";
+import { assertTrialSubject } from "./budget";
 
 const MAX_DELEGATION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_GRANT_MS = 60_000;
@@ -147,6 +148,7 @@ export async function verifyRunnerGrant(
   expected: ExpectedRunnerGrant,
 ): Promise<{ subject: string }> {
   const grant = await validateRunnerGrant(value, expected);
+  assertTrialSubject(grant.subject);
   if (!consumeRunnerReplay("grant", grant.replayId, grant.expiresAt)) {
     throw new AppError("Grant runner déjà utilisé", 409);
   }

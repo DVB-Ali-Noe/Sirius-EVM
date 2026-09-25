@@ -7,7 +7,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
 import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
-import { budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
+import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
 import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { boundedGas } from "./gas-policy";
 import { reconcileRunnerTransactions } from "./transaction-recovery";
@@ -51,6 +51,62 @@ function fixture(change: (p: BudgetPolicy) => void = () => {}) {
   }
   return { path, policy: p, ledger: open(), open };
 }
+
+function trialPolicy(p: BudgetPolicy): void {
+  p.earnedMarginUsdMicros = p.cashUsdMicros = "0";
+  p.trial = { provider: "phala", creditsUsdMicros: "10000", ceilingUsdMicros: "200", observedAtMs: Date.now(),
+    escrow: `0x${"34".repeat(20)}`, wallets: [`0x${"56".repeat(20)}`] };
+}
+
+test("les crédits d’essai financent une enveloppe persistante sans fabriquer de marge", () => {
+  const { ledger, open } = fixture(trialPolicy);
+  ledger.reserve("trial", "trial", "training");
+  ledger.finish("trial", "trial", true, "{}");
+  assert.equal(ledger.policy.earnedMarginUsdMicros, "0");
+  assert.equal(ledger.policy.cashUsdMicros, "0");
+  assert.equal(open().diagnostics().remainingUsd, BigInt(0));
+  assert.throws(() => open().reserve("trial-2", "trial-2", "request"), /insuffisant/);
+});
+
+test("ajouter un wallet d’essai conserve le budget engagé, les anciens wallets et le plafond", async () => {
+  const { ledger, open, path, policy: p } = fixture(trialPolicy);
+  ledger.reserve("trial", "scope", "training");
+  ledger.finish("trial", "scope", false);
+  const before = ledger.snapshot();
+  const added = `0x${"78".repeat(20)}`;
+  const execute = promisify(execFile);
+  const args = ["--import", "tsx", "scripts/add-runner-trial-wallets.ts", path];
+  const env = { ...process.env, RUNNER_VOLUME_ACTION: "add-trial-wallets", SIRIUS_LOCK_AUTHORIZER: wallet,
+    SIRIUS_ESCROW_ADDRESS: p.trial!.escrow, RUNNER_ADDITIONAL_TRIAL_WALLETS: JSON.stringify([added]) };
+  await assert.rejects(execute(process.execPath, args, { env: { ...env, SIRIUS_ESCROW_ADDRESS: added } }));
+  assert.deepEqual(open().policy.trial!.wallets, p.trial!.wallets);
+  await execute(process.execPath, args, { env });
+  const updated = open();
+  assert.deepEqual(updated.policy.trial!.wallets, [...p.trial!.wallets, added]);
+  updated.addTrialWallets([added]);
+  assert.deepEqual(open().policy.trial!.wallets, [...p.trial!.wallets, added]);
+  assert.equal(updated.policy.trial!.ceilingUsdMicros, p.trial!.ceilingUsdMicros);
+  assert.deepEqual(updated.snapshot(), before);
+  assert.throws(() => updated.addTrialWallets([wallet]));
+  assert.throws(() => updated.addTrialWallets(["invalid"]));
+  assert.throws(() => updated.reserve("new", "new", "request"), /insuffisant/);
+  assert.throws(() => fixture().ledger.addTrialWallets([added]));
+});
+
+test("les essais sont liés au testnet, au crédit disponible et au déploiement staging", () => {
+  const p = policy(); trialPolicy(p);
+  for (const change of [{ chainId: 4663 }, { earnedMarginUsdMicros: "1" }, { cashUsdMicros: "1" },
+    { trial: { ...p.trial!, ceilingUsdMicros: "10001" } }, { trial: { ...p.trial!, wallets: [] } },
+    { validUntil: Date.now() + 32 * 86400_000 }]) {
+    assert.throws(() => validateBudgetPolicy({ ...p, ...change }), /essai/);
+  }
+  const env = { EVM_NETWORK: "testnet", SIRIUS_BILLING_VERSION: "7", SIRIUS_APP_ORIGIN: "https://sirius-evm-staging.vercel.app", SIRIUS_ESCROW_ADDRESS: p.trial!.escrow };
+  assert.doesNotThrow(() => assertTrialDeployment(p, env));
+  for (const change of [{ EVM_NETWORK: "mainnet" }, { SIRIUS_APP_ORIGIN: "https://sirius-data.tech" },
+    { SIRIUS_ESCROW_ADDRESS: `0x${"78".repeat(20)}` }]) assert.throws(() => assertTrialDeployment(p, { ...env, ...change }));
+  assert.doesNotThrow(() => assertTrialSubject(p.trial!.wallets[0], p));
+  assert.throws(() => assertTrialSubject(`0x${"78".repeat(20)}`, p), /wallets autorisés/);
+});
 
 test("ni liquidités seules, ni dépôts ou crédits futurs ne permettent d’admettre une dépense", () => {
   const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = "0"; p.cashUsdMicros = "1000000000"; });

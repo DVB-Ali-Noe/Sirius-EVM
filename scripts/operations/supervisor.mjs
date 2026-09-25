@@ -15,7 +15,7 @@ export function budgetAlerts(check, observedAtMs, now = Date.now(), maxAgeMs = 6
     || typeof check.circuitOpen !== "boolean" || !Number.isSafeInteger(check.incompleteJobs) || !Array.isArray(check.pendingTransactions)
     || !signed(check.remainingUsd) || !Number.isSafeInteger(observedAtMs)) throw new Error("Contrôle de budget illisible");
   const alerts = [];
-  if (now - observedAtMs > maxAgeMs) alerts.push({ code: "budget-report-stale", detail: "Dernier contrôle de budget trop ancien" });
+  if (now - observedAtMs > maxAgeMs || observedAtMs > now + 30_000) alerts.push({ code: "budget-report-stale", detail: "Date du contrôle de budget trop ancienne ou future" });
   if (check.circuitOpen) alerts.push({ code: "circuit-open", detail: "Coupe-circuit ouvert : admissions refusées" });
   if (check.expired) alerts.push({ code: "policy-expired", detail: "Politique de budget expirée : admissions refusées" });
   if (!check.canQuote && !check.circuitOpen && !check.expired) alerts.push({ code: "cannot-quote", detail: "Marge ou gas insuffisant pour un nouveau devis" });
@@ -73,7 +73,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (!sessionFile || !cvmFile || extra.length) throw new Error();
     const session = JSON.parse(readPrivateFile(sessionFile).toString());
     const cvmRaw = JSON.parse(readFileSync(cvmFile, "utf8"));
-    const budget = budgetFile ? { check: JSON.parse(readFileSync(budgetFile, "utf8")), observedAtMs: Math.floor(statSync(budgetFile).mtimeMs) } : null;
+    const savedBudget = budgetFile ? JSON.parse(readFileSync(budgetFile, "utf8")) : null;
+    const budget = savedBudget?.version === 1 && savedBudget.check
+      ? { check: savedBudget.check, observedAtMs: savedBudget.observedAtMs }
+      : budgetFile ? { check: savedBudget, observedAtMs: Math.floor(statSync(budgetFile).mtimeMs) } : null;
     const report = supervisionReport({ session, cvm: cvmRaw.data ?? cvmRaw, budget });
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = report.level === "critical" ? 2 : report.level === "warning" ? 1 : 0;
