@@ -311,3 +311,107 @@ Créneau annoncé et exécuté sur la CVM `e8a8b8cb…`, app ID inchangé. Premi
 Attestation recapturée en mode actif depuis le poste local, l’installation du VPS n’ayant pas la dépendance `dotenv` : quote matérielle vérifiée, MRTD, chaîne de clé, empreinte d’ingestion et signataire inchangés ; RTMR3 et hash Compose nouveaux, hash identique à celui affiché par Phala. Les cinq valeurs sont épinglées dans le contrôleur, le collecteur et Vercel staging ; staging redéployé. La session de démonstration reste fermée ; la CVM tourne en attendant le premier test opérateur.
 
 Raccourci opérateur `/usr/local/bin/sirius-demo-deploy` ajouté sur le VPS (init, verify-init, active, health, registry, status, stop), relu avant usage. Le sous-programme `verify-init` ne peut pas conclure tant que les logs des conteneurs sont privés.
+
+### Correctifs de recette navigateur — avant modification, 26 septembre 2026
+
+Retours de recette sur l’instance servie `phala.sirius-data.tech`. (1) « Utiliser cet exemple » semble ne rien charger. (2) `/phala/operator` reste sur « Connecter le wallet opérateur » après l’autorisation MetaMask. (3) Aucun lien visible vers l’accès opérateur n’est souhaité : une page dédiée avec connexion wallet et code. (4) L’espace Phala doit être en anglais. (5) Le panneau « USDC available to withdraw » liste quatre escrows à 0.
+
+Diagnostic. (1) Reproduit dans un navigateur headless sur l’instance servie : le CSV est bien chargé et la cible `price_eur` est sélectionnée. Mais le champ natif affiche toujours « No file chosen » et la seule confirmation est une ligne grise. (2) `ConnectCta` ne fait qu’`eth_requestAccounts`. La signature du challenge n’est proposée que dans le menu wallet de la barre latérale : le serveur n’ouvre donc aucune session et la page attend `authenticated` indéfiniment. Même défaut pour « Connecter mon wallet testnet » sur `/phala`. (5) Comportement voulu du retrait pull-only ; seule la présentation change.
+
+Décisions de Noé : un code partagé est exigé en plus du wallet de l’allowlist, et les soldes nuls sont masqués.
+
+### Correctifs de recette navigateur — après modification, 26 septembre 2026
+
+- **Connexion.** `connectWallet()` peut désormais être attendu dans `WalletConnector` ; `openWalletModal` conserve son comportement. `SignInCta` enchaîne connexion, reprise d’une session serveur existante et signature. Son état est partagé, car la connexion remonte les composants indexés sur la révision du wallet. Il est utilisé sur `/phala` et sur l’accès opérateur.
+- **Accès opérateur.** `/phala/operator` et son lien sont supprimés. La nouvelle route `/operator` est hors navigation, `noindex`, et répond 404 hors `SIRIUS_PHALA_DEMO=true`.
+  - Conditions : wallet de l’allowlist signé, puis code d’accès envoyé dans l’en-tête `x-sirius-operator-code` à chaque lecture et commande.
+  - Stockage : empreinte scrypt salée dans `SIRIUS_DEMO_OPERATOR_CODE_HASH`, au format `scrypt:sel:empreinte`, sans `$` que les fichiers `.env` interpoleraient. Vérification à temps constant ; le code ne vit que dans la mémoire de l’onglet.
+  - Limites : cinq échecs verrouillent le wallet quinze minutes, par instance serverless. Variable absente ou invalide : accès fermé.
+  - Outil : `pnpm ops:demo-operator-code` génère un code, ou hache celui reçu sur l’entrée standard, et affiche l’empreinte.
+- **Exemples.** La carte chargée est entourée et son bouton devient « Example selected ✓ ». La zone de fichier affiche nom, lignes et colonnes ; le champ natif est masqué, mais reste accessible au clavier et aux lecteurs d’écran. La sélection (fichier, cible, modèle) est remontée au-dessus du contenu indexé sur le wallet : elle n’est plus effacée par la connexion ni par la signature qui suivent le choix d’un exemple.
+- **Session expirée sur `/operator`.** Un 401 réinitialise la session locale, faute de barre latérale pour se reconnecter.
+- **Anglais.** Passent en anglais `/phala`, sa page de repli serveur, `/operator`, les exemples et les messages de progression. Le test i18n contrôle désormais aussi les appels `progress()` et `setProgress()`.
+- **Retraits.** `EscrowCredits` n’affiche que les crédits positifs ou illisibles, et masque le panneau s’il n’y a rien à retirer. Le scénario e2e de retrait d’un ancien escrow attend désormais la disparition du panneau une fois le crédit soldé.
+
+Validations locales :
+- tests : 367 applicatifs, 20 `test:phala-demo` dont 5 nouveaux sur le code opérateur, 5 scénarios Playwright Phala simulés, 71 scénarios Playwright principaux ;
+- typage, lint ciblé et build réussis ;
+- captures bureau et mobile de `/phala` et `/operator` ; `/phala/operator` répond 404.
+
+Les types générés périmés `.next/dev/types` ont été supprimés pour débloquer le build local. Aucun commit, push, déploiement ni variable distante modifiée.
+
+Avant usage sur l’instance servie :
+1. Publier ce code.
+2. Générer le code et renseigner `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans son projet Vercel.
+3. Redéployer, puis transmettre le code aux opérateurs hors chat. Sans cette variable, `/operator` refuse tout accès.
+
+### Retrait automatique des crédits d’escrow — avant modification, 26 septembre 2026
+
+Demande de Noé : Sirius retire automatiquement les crédits d’escrow par `withdrawFor`, depuis le worker du VPS. Le runner Phala, les contrats et le devis v7 restent intacts.
+
+Garde-fous retenus :
+- une clé dédiée, qui ne détient que de l’ETH ;
+- un seuil minimal et un plafond de gas quotidien ;
+- une relecture de `creditOf` avant chaque envoi ;
+- aucune relance après un échec ;
+- le bouton manuel conservé.
+
+Seuil, plafond et financement de la clé ne sont pas décidés : aucune valeur par défaut.
+
+Le même jour, Noé indique avoir généré le code opérateur et renseigné `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans Vercel. Ce n’est pas vérifié à distance, et ne prendra effet qu’après déploiement du nouveau code.
+
+### Retrait automatique des crédits d’escrow — après modification, 26 septembre 2026
+
+- **`src/lib/sirius/withdraw-relayer.ts`**
+  - Configuration : désactivée par défaut ; clé dédiée, distincte du faucet et du vérificateur KYB ; seuil et plafond obligatoires.
+  - Titulaires : ceux des prêts réglés, ou annulés avec remboursement, depuis 30 jours, sur les escrows approuvés.
+  - Passe séquentielle, du crédit le plus important au plus faible, selon le rapport crédit/seuil, indépendant des décimales du jeton.
+  - Relecture puis estimation avant chaque envoi : « rien à retirer » est ignoré, tout autre revert est un échec définitif.
+  - Plafond vérifié au pire coût avant l’envoi ; dépense mesurée ensuite par le solde et par le reçu.
+  - Arrêts : réserve insuffisante, ou reçu perdu (compté au pire coût).
+- **`src/worker/reaper.ts`** : passe toutes les cinq minutes, après la réconciliation. Une configuration invalide arrête le worker au démarrage avec un message explicite.
+- **`deploy/vps/compose.yaml`, `.env.example`** : quatre variables `SIRIUS_WITHDRAW_RELAYER_*`, désactivées par défaut.
+- **Tests** :
+  - neuf tests unitaires, dont la classification de vraies erreurs viem ;
+  - `test:billing` retire désormais un crédit provider réel sur Hardhat avec le relayeur : fonds au titulaire, gas payé par le relayeur, second passage sans envoi.
+- **Traductions et doc** : erreurs de configuration traduites ; procédure d’activation dans `DEPLOYMENT.md`. Elle génère la clé directement dans `.env.vps`, sans l’afficher.
+
+Validations locales : 376 tests applicatifs, `test:billing` sur Hardhat, typage, lint ciblé et build.
+
+Aucun commit, push ni déploiement ; aucune clé générée, aucune variable distante modifiée. Le coût réel par retrait reste à mesurer puis à reporter dans le business plan.
+
+### Audit avant publication — avant modification, 26 septembre 2026
+
+Demande de Noé : tests, audit, corrections, commit et push, puis mise sur staging. Un audit de sécurité et une relecture de code indépendants ont porté sur l’ensemble des modifications non commitées.
+
+Constats retenus :
+- **Sécurité, moyen.** Le verrou d’essais du code opérateur, tenu en mémoire, n’était pas partagé entre instances serverless.
+- **Relecture, critique.** Le relayeur reprenait le pourboire de `estimateFeesPerGas`, alors que le séquenceur FCFS impose un pourboire nul, appliqué par tous les autres envois.
+- **Relecture, avertissements.**
+  - Une réponse tardive pouvait écraser l’état de la console opérateur, voire la rouvrir après « Lock ».
+  - Le test e2e du polling vérifiait avant le premier tick.
+  - Aucun test ne couvrait le vrai parcours connexion + signature.
+- **Bas, acceptés.**
+  - Un retrait peut être renvoyé une fois si le worker redémarre entre l’envoi et le reçu : gas perdu, plafonné, fonds intacts.
+  - `SignInCta` partagerait son état si deux boutons coexistaient sur un même écran.
+
+### Audit avant publication — après modification, 26 septembre 2026
+
+- **Code opérateur.**
+  - Nouvelle table `OperatorCodeAttempt`, migration additive `20260926120000_add_operator_code_attempts`.
+  - Chaque tentative est inscrite avant le comptage, et seuls les échecs sont conservés. Un succès n’efface pas les échecs antérieurs ; un refus pendant le verrou ne le prolonge pas.
+  - La garde de route passe dans `operator-access.ts`. `operator.ts` reste sans base, car le contrôleur du VPS l’importe : la régression a été détectée par son test, puis évitée.
+- **Relayeur.** Pourboire nul et prix plafonné au double du prix courant, comme `boundedGas`.
+- **Console opérateur.** Requêtes séquencées, polling suspendu pendant une commande, « Lock » invalide les réponses en vol.
+- **Tests.**
+  - Course PostgreSQL entre huit processus, avec et sans quatre échecs préalables.
+  - E2E du vrai bouton connexion + signature sur `/phala`, via un simulateur de wallet extrait dans `e2e/helpers/wallet.ts` et réutilisé par `wallet.spec.ts`.
+  - E2E du polling de la console après un tick réel.
+
+Validations locales :
+- tests : 376 applicatifs, 21 `test:phala-demo`, 77 d’exploitation ;
+- `test:billing` sur Hardhat, et `test:postgres` sur un PostgreSQL 18 local jetable ;
+- 6 scénarios Playwright Phala et 71 principaux ;
+- typage, lint complet et build.
+
+Publication : intégration de `origin/staging` (D-26) et de la PR #10, puis PR vers `staging`. La pipeline applique la nouvelle migration avant de servir le code.
