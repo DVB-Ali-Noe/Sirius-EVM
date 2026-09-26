@@ -44,6 +44,12 @@ services:
       SIRIUS_EXPECTED_COMPOSE_HASH: ${SIRIUS_EXPECTED_COMPOSE_HASH:-}
       SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: ${SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256:-}
       NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: ${NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256:-}
+      # Retrait automatique des crédits d'escrow, désactivé par défaut. La clé est dédiée à
+      # ce worker et ne détient que de l'ETH : `withdrawFor` ne paie que le titulaire du crédit.
+      SIRIUS_WITHDRAW_RELAYER_ENABLED: ${SIRIUS_WITHDRAW_RELAYER_ENABLED:-false}
+      SIRIUS_WITHDRAW_RELAYER_KEY: ${SIRIUS_WITHDRAW_RELAYER_KEY:-}
+      SIRIUS_WITHDRAW_RELAYER_MIN_USDC: ${SIRIUS_WITHDRAW_RELAYER_MIN_USDC:-}
+      SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH: ${SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH:-}
 
     # Le reaper lit la base et interroge la chaîne. Il n'écrit aucun fichier, n'accepte
     # aucune connexion entrante et ne détient aucun secret d'enclave. Le durcissement
