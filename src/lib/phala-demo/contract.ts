@@ -22,6 +22,8 @@ export interface DemoSession {
 
 export type DemoCommand = "open" | "close";
 
+export const DEMO_OPERATOR_CODE_HEADER = "x-sirius-operator-code";
+
 const amount = (value: unknown): value is string =>
   typeof value === "string" && /^(0|[1-9][0-9]{0,14})$/.test(value);
 const bounded = (value: unknown, maximum: number): value is number =>

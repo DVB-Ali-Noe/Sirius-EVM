@@ -1,4 +1,6 @@
+import { formatEther } from "viem";
 import { runLoanReaper } from "@/lib/sirius/reaper";
+import { createWithdrawRelayer, WITHDRAW_RELAYER_INTERVAL_MS, withdrawRelayerConfig } from "@/lib/sirius/withdraw-relayer";
 import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
 import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
@@ -67,7 +69,13 @@ async function main(): Promise<void> {
   const interval = resolveInterval();
   assertReaperRunnerConfiguration();
   await requireReaperEvmDeployment();
+  const relayerConfig = withdrawRelayerConfig();
+  const relayer = relayerConfig && createWithdrawRelayer(relayerConfig);
   console.log(`[reaper] démarré, une passe toutes les ${interval} ms`);
+  if (relayerConfig) {
+    console.log(`[withdraw-relayer] actif avec ${relayerConfig.account.address} : seuil ${relayerConfig.minimumUsdc} USDC, plafond ${formatEther(relayerConfig.dailyGasWei)} ETH par jour`);
+  }
+  let dernierRelais = -Infinity;
 
   while (!arret) {
     const debut = Date.now();
@@ -78,6 +86,15 @@ async function main(): Promise<void> {
       // toujours transitoire — base indisponible, RPC qui refuse. La passe suivante
       // reprendra les mêmes prêts, puisque rien n'a été marqué comme traité.
       console.error("[reaper] passe échouée, reprise à la suivante");
+    }
+    if (relayer && !arret && debut - dernierRelais >= WITHDRAW_RELAYER_INTERVAL_MS) {
+      dernierRelais = debut;
+      try {
+        await relayer.run(() => arret);
+      } catch {
+        // La passe suivante relit les crédits sur la chaîne : un retrait déjà passé n'est pas refait.
+        console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
+      }
     }
     if (arret) break;
     const reste = interval - (Date.now() - debut);
