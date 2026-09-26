@@ -14,52 +14,52 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 
 ### 1. Choisir les domaines
 
-- [ ] Confirmer le sous-domaine de l’espace Phala, par exemple `confidential.sirius-data.tech` ; cet exemple n’est pas encore une cible validée.
-- [ ] Choisir l’origine HTTPS du contrôleur extérieur.
-- [ ] Configurer DNS, certificats valides et renouvellement TLS.
+- [x] Confirmer le sous-domaine de l’espace Phala, par exemple `confidential.sirius-data.tech` ; cet exemple n’est pas encore une cible validée. Choisi : `phala.sirius-data.tech` (D-26).
+- [x] Choisir l’origine HTTPS du contrôleur extérieur. Choisie : `https://ctl.sirius-data.tech`.
+- [x] Configurer DNS, certificats valides et renouvellement TLS. Enregistrement A dans le DNS Vercel, Caddy avec certificat Let’s Encrypt renouvelé automatiquement (valide jusqu’au 25 décembre 2026).
 
 ### 2. Configurer les opérateurs
 
-- [ ] Choisir explicitement les deux wallets autorisés à activer, désactiver et arrêter Phala.
-- [ ] Renseigner la même allowlist `SIRIUS_DEMO_OPERATORS` dans Next et le contrôleur.
-- [ ] Ne pas promouvoir automatiquement les anciens wallets provider/borrower de test.
+- [x] Choisir explicitement les deux wallets autorisés à activer, désactiver et arrêter Phala. Deux wallets choisis le 26 septembre 2026.
+- [x] Renseigner la même allowlist `SIRIUS_DEMO_OPERATORS` dans Next et le contrôleur. Identique aux deux endroits, en minuscules.
+- [x] Ne pas promouvoir automatiquement les anciens wallets provider/borrower de test. Liste saisie explicitement.
 
 ### 3. Affecter le financement
 
-- [ ] Relever les crédits Phala réellement utilisables et dater ce relevé.
-- [ ] Choisir crédits seuls, budget Sirius ou financement mixte.
-- [ ] Affecter explicitement le complément payé éventuel et le plafond cumulé.
-- [ ] Prévoir la réserve de disponibilité de la machine, de stockage et d’arrêt ; calibrer les coûts des opérations.
-- [ ] Préparer les politiques privées sans assimiler crédits ou apports à une marge acquise. Aucun montant n’est approuvé par cette checklist.
+- [x] Relever les crédits Phala réellement utilisables et dater ce relevé. Relevé du 26 septembre 2026 : 14,62 USD de crédits prépayés sur le tableau de bord.
+- [x] Choisir crédits seuls, budget Sirius ou financement mixte. Crédits seuls.
+- [x] Affecter explicitement le complément payé éventuel et le plafond cumulé. Aucun complément payé ; plafond cumulé 14 USD.
+- [x] Prévoir la réserve de disponibilité de la machine, de stockage et d’arrêt ; calibrer les coûts des opérations. Réserve fixe 4 USD ; coûts 0,01 / 0,10 / 0,30 USD par requête / scellement / entraînement.
+- [x] Préparer les politiques privées sans assimiler crédits ou apports à une marge acquise. Aucun montant n’est approuvé par cette checklist. Politiques générées hors Git, validées par l’initialiseur de volume, copiées sur le VPS sous `sirius-ops` ; marge acquise et liquidités à 0.
 
 ### 4. Fixer les quotas
 
-- [ ] Définir les limites globales, par wallet et de concurrence.
-- [ ] Compter le scellement et l’entraînement comme deux opérations distinctes.
-- [ ] Tenir compte des limites Next existantes : 3 entraînements par wallet et par heure, 30 globaux par heure, un calcul simultané.
-- [ ] Vérifier que les coûts et le budget couvrent aussi les requêtes d’ingestion et de contrôle métier.
+- [x] Définir les limites globales, par wallet et de concurrence. 20 opérations, 4 par wallet, 1 simultanée (fichier de financement du contrôleur et politique runner identiques).
+- [x] Compter le scellement et l’entraînement comme deux opérations distinctes. Comptés ainsi : 4 opérations par wallet = 2 entraînements complets.
+- [x] Tenir compte des limites Next existantes : 3 entraînements par wallet et par heure, 30 globaux par heure, un calcul simultané. 2 entraînements par wallet et par session restent sous les 3 par heure de Next.
+- [x] Vérifier que les coûts et le budget couvrent aussi les requêtes d’ingestion et de contrôle métier. 10 USD disponibles après réserve couvrent 20 opérations au coût maximal de 0,30 USD plus les requêtes à 0,01 USD.
 
 ### 5. Base et migrations — staging (D-26)
 
-- [ ] Conserver la base Neon staging existante avec ses accès actuels ; aucune base dédiée n’est créée.
-- [ ] Laisser la pipeline appliquer `20260926000000_add_self_train_delivery` lors de la fusion vers `staging`, avant tout service du nouveau code.
+- [x] Conserver la base Neon staging existante avec ses accès actuels ; aucune base dédiée n’est créée. Conservée.
+- [x] Laisser la pipeline appliquer `20260926000000_add_self_train_delivery` lors de la fusion vers `staging`, avant tout service du nouveau code. Appliquée par le job Migrations du déploiement de `f509cb2`.
 - [ ] Vérifier après fusion, par l’inventaire de base en lecture seule, que la migration est présente et que les lignes historiques sont intactes.
 - [ ] Vérifier le stockage des capsules de livraison et les accès réservés au propriétaire.
 
 ### 6. Instance Vercel — staging (D-26)
 
-- [ ] Ajouter le domaine `phala.sirius-data.tech` au projet Vercel staging et le rendre origine principale ; garder `sirius-evm-staging.vercel.app` en alias.
-- [ ] Aligner `SIRIUS_APP_ORIGIN`, `NEXT_PUBLIC_SIRIUS_APP_ORIGIN`, les alias et les domaines autorisés de connexion wallet ; la pipeline réécrit ces origines depuis le sélecteur de cible, qui doit connaître le nouveau domaine.
-- [ ] Renseigner `SIRIUS_PHALA_DEMO=true`, `SIRIUS_DEMO_OPERATORS`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` ; aucune master key d’enclave dans Next.
-- [ ] Ajouter `SIRIUS_LEGACY_ESCROW_ADDRESSES` avec les escrows historiques de staging pour les crédits anciens.
+- [x] Ajouter le domaine `phala.sirius-data.tech` au projet Vercel staging et le rendre origine principale ; garder `sirius-evm-staging.vercel.app` en alias. Fait ; alias conservés.
+- [x] Aligner `SIRIUS_APP_ORIGIN`, `NEXT_PUBLIC_SIRIUS_APP_ORIGIN`, les alias et les domaines autorisés de connexion wallet ; la pipeline réécrit ces origines depuis le sélecteur de cible, qui doit connaître le nouveau domaine. Sélecteur de cible mis à jour (D-26), pipeline verte, domaine ajouté aux origines Web3Auth.
+- [x] Renseigner `SIRIUS_PHALA_DEMO=true`, `SIRIUS_DEMO_OPERATORS`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` ; aucune master key d’enclave dans Next. Fait ; les deux opérateurs sont renseignés dans Next et le contrôleur, staging redéployé.
+- [x] Ajouter `SIRIUS_LEGACY_ESCROW_ADDRESSES` avec les escrows historiques de staging pour les crédits anciens. Trois escrows historiques renseignés.
 - [ ] Configurer le lien `/phala` du site principal vers `phala.sirius-data.tech`.
-- [ ] Vérifier le faucet et les soldes ETH testnet nécessaires au KYB et au titre du dataset ; le self-train ne demande pas de paiement client.
+- [x] Vérifier le faucet et les soldes ETH testnet nécessaires au KYB et au titre du dataset ; le self-train ne demande pas de paiement client. Relevé du 26 septembre : faucet staging 0,009 ETH, signataire Phala 0,010 ETH, trésorerie 0,0079 ETH.
 
 ### 7. Configuration staging héritée de l’ancienne bascule
 
 - [x] Inventorier les variables Vercel et GitHub préparées pour l’ancienne bascule v7/Phala : elles sont conservées telles quelles et deviennent la configuration de l’instance de démonstration (D-26).
-- [ ] Recapturer et remplacer les mesures attendues et l’empreinte d’ingestion après publication de la nouvelle image ; ne pas réutiliser celles de l’ancienne image.
-- [ ] Garder le nettoyage Neon différé ; ne pas reprendre ses commandes.
+- [x] Recapturer et remplacer les mesures attendues et l’empreinte d’ingestion après publication de la nouvelle image ; ne pas réutiliser celles de l’ancienne image. Recapturées en mode actif le 26 septembre et remplacées dans le contrôleur, le collecteur et Vercel ; empreinte d’ingestion et signataire inchangés.
+- [x] Garder le nettoyage Neon différé ; ne pas reprendre ses commandes. Différé.
 
 ### 8. Livrer les modifications sur GitHub
 
@@ -70,26 +70,26 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 
 ### 9. Publier et installer le nouveau runner
 
-- [ ] Construire et publier l’image contenant cette implémentation ; conserver son digest immuable.
-- [ ] Préparer les Compose `demo-init` et `demo-active`, avec des volumes dédiés au budget et à l’anti-rejeu.
-- [ ] Initialiser les nouveaux volumes et politiques une seule fois, sans supprimer les registres historiques ni recréer des crédits consommés.
-- [ ] Vérifier la cohérence testnet/contrats/signataire/politiques. Si les contrats du 25 septembre sont conservés, garder la configuration v7 attendue.
+- [x] Construire et publier l’image contenant cette implémentation ; conserver son digest immuable. Digest publié par la pipeline staging : `sha256:8a10ab554e5693c70c97831c6df8b8d41774bce680896a368a66ffcbbb513f8e`.
+- [x] Préparer les Compose `demo-init` et `demo-active`, avec des volumes dédiés au budget et à l’anti-rejeu. Rendus depuis ce digest, copiés sur le VPS sous `sirius-ops`.
+- [x] Initialiser les nouveaux volumes et politiques une seule fois, sans supprimer les registres historiques ni recréer des crédits consommés. Fait le 26 septembre : volumes `sirius_phala_demo_*` créés neufs, démarrage actif réussi, rapport de budget attesté conforme (10 USD disponibles après réserve).
+- [x] Vérifier la cohérence testnet/contrats/signataire/politiques. Si les contrats du 25 septembre sont conservés, garder la configuration v7 attendue. Contrats du 25 septembre conservés ; politiques cohérentes (testnet 46630, signataire, trésorerie, USDC 18 décimales).
 
 ### 10. Installer le contrôleur sur le VPS
 
-- [ ] Installer le service préparé sous `sirius-ops` sur le nouveau VPS, en préservant les reapers.
-- [ ] Configurer le profil Phala, les secrets, le fichier de financement et l’état persistant avec des permissions privées.
-- [ ] Rendre son HTTPS accessible depuis Vercel et vérifier pare-feu, certificat et renouvellement.
-- [ ] Vérifier qu’un redémarrage du contrôleur ne déclenche pas de démarrage CVM.
-- [ ] Garder les watchdogs de fermeture temporisée désactivés. Les lectures et alertes de supervision ne commandent pas d’arrêt.
+- [x] Installer le service préparé sous `sirius-ops` sur le nouveau VPS, en préservant les reapers. Installé et actif ; reapers intacts.
+- [x] Configurer le profil Phala, les secrets, le fichier de financement et l’état persistant avec des permissions privées. Profil `sirius` connecté, secrets générés, financement 14 USD daté, état persistant en 0700/0600.
+- [x] Rendre son HTTPS accessible depuis Vercel et vérifier pare-feu, certificat et renouvellement. Caddy sur `ctl.sirius-data.tech` : 401 sans secret, 200 avec ; pare-feu 80/443 ouverts.
+- [x] Vérifier qu’un redémarrage du contrôleur ne déclenche pas de démarrage CVM. Vérifié : après redémarrage du service, la CVM reste arrêtée et l’état reste `closed`.
+- [x] Garder les watchdogs de fermeture temporisée désactivés. Les lectures et alertes de supervision ne commandent pas d’arrêt. Aucun timer actif.
 
 ### 11. Valider l’attestation et les liaisons réelles
 
-- [ ] Annoncer le créneau et l’estimation de coût avant la prochaine utilisation Phala.
-- [ ] Démarrer la nouvelle configuration pour sa validation, puis vérifier la quote matérielle `UpToDate`, son lien au certificat et les mesures.
-- [ ] Épingler MRTD, RTMR3, hash Compose, chaîne KMS et empreinte d’ingestion dans les composants concernés.
-- [ ] Vérifier que le signataire correspond aux contrats. Un changement d’identité peut nécessiter de nouveaux contrats ; ne pas partager la clé Phala avec le VPS.
-- [ ] Ne pas réutiliser aveuglément les mesures de l’ancienne image et ne pas substituer un runner VPS/Next en cas d’échec.
+- [x] Annoncer le créneau et l’estimation de coût avant la prochaine utilisation Phala. Créneau du 26 septembre annoncé à 0,0608 USD/h.
+- [x] Démarrer la nouvelle configuration pour sa validation, puis vérifier la quote matérielle `UpToDate`, son lien au certificat et les mesures. Quote vérifiée (matériel, report data, event log) en amorçage puis en mode actif.
+- [x] Épingler MRTD, RTMR3, hash Compose, chaîne KMS et empreinte d’ingestion dans les composants concernés. Épinglés ; hash Compose identique à celui affiché par Phala.
+- [x] Vérifier que le signataire correspond aux contrats. Un changement d’identité peut nécessiter de nouveaux contrats ; ne pas partager la clé Phala avec le VPS. Signataire `0x3b31…c8c8d` inchangé, contrats du 25 septembre conservés ; aucune clé Phala sur le VPS.
+- [x] Ne pas réutiliser aveuglément les mesures de l’ancienne image et ne pas substituer un runner VPS/Next en cas d’échec. RTMR3 et hash Compose de l’ancienne image remplacés ; aucun repli VPS/Next.
 
 ### 12. Finaliser la présentation
 
@@ -105,6 +105,9 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [ ] Définir la procédure de réconciliation après interruption avant de rouvrir une session.
 - [ ] Intégrer l’estimation automatique des frais d’hébergement et les notifications externes au panneau ; elles ne sont pas encore livrées. Pour une première session supervisée, documenter et assurer un suivi manuel explicite.
 - [ ] Vérifier qu’aucun dépassement de quota ne ferme automatiquement la session : l’arrêt reste une décision opérateur. Un quota logiciel ne plafonne pas à lui seul la facture fournisseur.
+- [ ] Exécuter les tests navigateur Phala dans la CI : la pipeline lance la suite principale, qui exclut `e2e/phala`, et jamais `playwright.phala.config.ts` ; confirmer dans le log du job Vérification que les tests de rendu Compose dépendant de Docker y passent.
+- [ ] Étendre le contrôle de release au contrôleur de démonstration : `ops:check-release` vérifie Next, reaper et runner, pas l’allowlist, l’URL du contrôleur ni ses pins.
+- [ ] Documenter, avant toute ouverture publique, le suivi manuel des coûts, la sauvegarde et la restauration des volumes de démonstration et la réconciliation, avec les outils d’exploitation existants ; leur automatisation peut suivre.
 
 ### 14. Répéter le parcours sur les vrais services
 
