@@ -92,6 +92,7 @@ export async function validateRunnerGrant(
     payload.datasetId !== expected.datasetId ||
     payload.loanId !== expected.loanId ||
     payload.jobId !== expected.jobId ||
+    payload.demoSessionRevision !== expected.demoSessionRevision ||
     payload.payloadHash !== hashRunnerIntent(expected.intentParts) ||
     !/^[A-Za-z0-9_-]{24}$/.test(payload.nonce) ||
     !Number.isSafeInteger(payload.issuedAt) ||

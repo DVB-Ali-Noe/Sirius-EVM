@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
     "contracts/**",
     "test-results/**",
     "playwright-report/**",
+    ".ops/**",
   ]),
   {
     // Code Three.js / r3f : useFrame mute caméra, refs et uniforms par conception

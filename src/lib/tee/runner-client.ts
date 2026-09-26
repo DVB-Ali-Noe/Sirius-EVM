@@ -140,11 +140,12 @@ export async function runSelfTrainingInRunner(
   input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
   datasetReceipt: string,
   authorization: RunnerGrant,
+  deliveryPublicKey?: string,
 ): Promise<AuthorizedTrainingResult> {
   return dispatchRunner(
     "run-training",
     { datasetId: input.datasetId, jobId: input.jobId },
-    { ...input, datasetReceipt, authorization },
+    { ...input, datasetReceipt, authorization, ...(deliveryPublicKey ? { deliveryPublicKey } : {}) },
   );
 }
 

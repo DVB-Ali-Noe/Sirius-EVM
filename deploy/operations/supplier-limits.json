@@ -57,10 +57,10 @@
     },
     {
       "id": "vps",
-      "usedFor": "Reaper et superviseur extérieur (/opt/sirius, /opt/sirius-staging)",
-      "billingModes": "Hébergeur à renseigner",
+      "usedFor": "Reapers staging et production actifs sur le nouveau VPS OVHcloud 162.19.66.80 ; superviseur extérieur installé, timers désactivés. Reapers dans /opt/sirius et /opt/sirius-staging ; outils dans /opt/sirius-ops.",
+      "billingModes": "OVHcloud confirmé par Noé le 25 septembre 2026 ; offre, montant et conditions du compte à relever",
       "hardCap": "unknown",
-      "control": "À relever chez l'hébergeur : forfait fixe ou usage, trafic inclus, facturation des snapshots.",
+      "control": "Accès SSH et déploiements GitHub staging/production vérifiés le 25 septembre 2026 ; anciens reapers non arrêtés par choix de Noé. À relever chez OVHcloud : forfait fixe ou usage, trafic inclus, facturation des snapshots. Preuves : docs/VPS-MIGRATION.md.",
       "delay": "Inconnu",
       "residualAfterStop": "Inconnu",
       "recommendedSetting": "Forfait fixe sans dépassement de trafic facturé si possible",

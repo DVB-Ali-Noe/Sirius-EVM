@@ -9,12 +9,14 @@ import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import type { RunnerDeliveryEnvelope } from "@/lib/tee/contract";
 
 export interface SelfTrainResult {
   jobId: string;
   modelCid: string;
   runnerReceipt: string;
   metrics: Record<string, number>;
+  modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
 
 const MAX_RUNNING_JOBS = 1;
@@ -34,6 +36,7 @@ export async function runSelfTrain(
   jobId: string,
   datasetReceipt: string,
   authorization: RunnerGrant,
+  deliveryPublicKey?: string,
 ): Promise<SelfTrainResult> {
   await requireAcceptedKyb(owner);
   await requireCurrentEvmDeployment();
@@ -99,7 +102,8 @@ export async function runSelfTrain(
       challengeDays: dataset.challengeDays,
       jobId: job.id,
       ...model,
-    }, datasetReceipt, authorization);
+    }, datasetReceipt, authorization, deliveryPublicKey);
+    if (deliveryPublicKey && !out.modelKeyEnvelope) throw new AppError("Livraison chiffrée manquante", 502);
     modelCid = out.modelCid;
     const completed = await prisma.trainingJob.updateMany({
       where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },
@@ -108,11 +112,16 @@ export async function runSelfTrain(
         modelCid,
         metrics: out.metrics,
         runnerReceipt: out.runnerReceipt,
+        ...(out.modelKeyEnvelope ? {
+          deliveryPublicKey,
+          deliveryEnvelope: JSON.parse(JSON.stringify(out.modelKeyEnvelope)),
+        } : {}),
         completedAt: new Date(),
       },
     });
     if (completed.count !== 1) throw new AppError("Le lease d’entraînement a expiré", 409);
-    return { jobId: job.id, modelCid, runnerReceipt: out.runnerReceipt, metrics: out.metrics };
+    return { jobId: job.id, modelCid, runnerReceipt: out.runnerReceipt, metrics: out.metrics,
+      ...(out.modelKeyEnvelope ? { modelKeyEnvelope: out.modelKeyEnvelope } : {}) };
   } catch (err) {
     await prisma.trainingJob.updateMany({
       where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },

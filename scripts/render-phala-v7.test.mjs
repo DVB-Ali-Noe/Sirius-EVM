@@ -4,6 +4,19 @@ import { renderPhalaV7 } from "./render-phala-v7.mjs";
 
 const image = `ghcr.io/dvb-ali-noe/sirius-runner@sha256:${"12".repeat(32)}`;
 
+test("la démonstration a ses volumes propres et ne force pas l’ancienne origine staging", () => {
+  for (const mode of ["demo-init", "demo-active"]) {
+    const model = renderPhalaV7(mode, image);
+    assert.equal(model.volumes.runner_budget.name, "sirius_phala_demo_budget");
+    assert.equal(model.volumes.runner_replay.name, "sirius_phala_demo_replay");
+    assert.equal(model.services.runner.environment.SIRIUS_APP_ORIGIN, "${SIRIUS_APP_ORIGIN}");
+    assert.equal(model.services.runner.environment.PINATA_JWT, "${PINATA_JWT}");
+    assert.equal(model.services.runner.environment.SIRIUS_PHALA_DEMO, "true");
+    assert.equal(model.services.runner.environment.RUNNER_BOOTSTRAP_ONLY, mode === "demo-init" ? "true" : "false");
+    if (mode === "demo-init") assert.equal(model.services["initialize-v7"].network_mode, "none");
+  }
+});
+
 test("les Compose staging figent l'image sans interpoler les secrets ni renommer les volumes", () => {
   for (const mode of ["bootstrap", "init", "active", "wallets"]) {
     const model = renderPhalaV7(mode, image);

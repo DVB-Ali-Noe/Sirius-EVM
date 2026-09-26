@@ -86,6 +86,7 @@ async function decryptEnvelope(
 
 export async function createRunnerDelivery(context: string): Promise<{
   publicKey: string;
+  privateKey: CryptoKey;
   decrypt: (envelope: RunnerDeliveryEnvelope) => Promise<string>;
 }> {
   const keypair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
@@ -93,11 +94,17 @@ export async function createRunnerDelivery(context: string): Promise<{
 
   return {
     publicKey,
+    privateKey: keypair.privateKey,
     decrypt: async (envelope) => {
       if (envelope.version !== 1) throw new Error("Enveloppe de livraison incompatible");
       return decryptEnvelope(keypair.privateKey, envelope, context, "sirius-runner-delivery-v1:");
     },
   };
+}
+
+export async function decryptSavedRunnerDelivery(privateKey: CryptoKey, envelope: RunnerDeliveryEnvelope, context: string): Promise<string> {
+  if (envelope.version !== 1) throw new Error("Enveloppe de livraison incompatible");
+  return decryptEnvelope(privateKey, envelope, context, "sirius-runner-delivery-v1:");
 }
 
 export async function createRunnerReleaseDelivery(context: string): Promise<{
