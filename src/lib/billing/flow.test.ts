@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, erc20Abi, http, toHex, type Abi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { DatasetRef } from "@/lib/tee/contract";
 import type { BudgetPolicy } from "@/lib/runner/budget-ledger";
@@ -300,5 +300,23 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   assert.equal(owed, balance);
   await write("SiriusEscrowV7", escrow, "withdrawFor", [borrower.address]);
   assert.equal(await credit(borrower.address), BigInt(0));
+
+  // Relayeur réel : il paie le gas du retrait, les fonds partent au seul titulaire du crédit.
+  const relayerKey = `0x${"37".repeat(32)}` as Hex;
+  const relayerAddress = privateKeyToAccount(relayerKey).address;
+  await localRpc("hardhat_setBalance", [relayerAddress, toHex(BigInt(10) ** BigInt(18))]);
+  const { createWithdrawRelayer, withdrawRelayerConfig } = await import("@/lib/sirius/withdraw-relayer");
+  const relayer = createWithdrawRelayer(withdrawRelayerConfig({ SIRIUS_WITHDRAW_RELAYER_ENABLED: "true", SIRIUS_WITHDRAW_RELAYER_KEY: relayerKey,
+    SIRIUS_WITHDRAW_RELAYER_MIN_USDC: "1", SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH: "0.1" })!, undefined,
+  async () => [{ key: `${escrow}:${provider}`, escrow, account: provider }]);
+  const providerBalance = () => client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [provider] });
+  const before = await providerBalance();
+  await relayer.run();
+  assert.equal(await credit(provider), BigInt(0));
+  assert.equal(await providerBalance(), before + unit);
+  assert.ok(await client.getBalance({ address: relayerAddress }) < BigInt(10) ** BigInt(18), "gas payé par le relayeur");
+  const relayerNonce = await client.getTransactionCount({ address: relayerAddress });
+  await relayer.run();
+  assert.equal(await client.getTransactionCount({ address: relayerAddress }), relayerNonce, "crédit soldé : aucun nouvel envoi");
   runnerBudget()!.close();
 });
