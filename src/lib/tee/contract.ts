@@ -104,6 +104,7 @@ export interface AuthorizedTrainingResult {
   modelCid: string;
   metrics: Record<string, number>;
   runnerReceipt: string;
+  modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
 
 export interface LoanJobResult {

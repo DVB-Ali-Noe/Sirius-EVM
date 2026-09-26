@@ -42,11 +42,13 @@ import {
 } from "@/lib/runner/receipt";
 import {
   encryptRunnerDelivery,
+  validateDeliveryPublicKey,
   encryptRunnerRelease,
   hashRunnerReleaseEnvelope,
 } from "@/lib/runner/delivery";
 import type { DatasetIngressEnvelope, DatasetRef } from "@/lib/tee/contract";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { checkDemoOperation, demoEnabled, demoGrantScope, withDemoAdmission } from "@/lib/phala-demo/runner-session";
 import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
 
 const MAX_ID_LENGTH = 128;
@@ -134,6 +136,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 }
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
+  checkDemoOperation(op);
   if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
   return budgetRunnerRequest(() => executeRunnerOp(op, body));
 }
@@ -150,7 +153,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const sizeBytes = boundedInteger(body, "sizeBytes", 1, MAX_DATASET_BYTES);
       const envelope = ingressEnvelope(body);
       const model = trainingModel(body);
+      const demoScope = demoGrantScope();
       const { subject } = await verifyRunnerGrant(body.authorization, {
+        ...demoScope,
         operation: op,
         datasetId,
         intentParts: [
@@ -163,9 +168,10 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           model.modelVersion,
         ],
       });
-      const result = await budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
+      const result = await withDemoAdmission(`seal:${datasetId}`, canonicalSubject(subject),
+        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays }, () => budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
         { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays },
-        () => sealDatasetEnvelope(datasetId, envelope, sizeBytes, model));
+        () => sealDatasetEnvelope(datasetId, envelope, sizeBytes, model)), demoScope.demoSessionRevision);
       return {
         ...result,
         runnerReceipt: issueDatasetReceipt(subject, {
@@ -407,13 +413,18 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
     case "run-training": {
       const dataset = datasetRef(body);
       const jobId = text(body, "jobId");
+      const deliveryPublicKey = body.deliveryPublicKey === undefined ? undefined : text(body, "deliveryPublicKey", 200);
+      if (demoEnabled() && !deliveryPublicKey) throw new AppError("Clé de livraison requise pour la démonstration", 400);
+      if (deliveryPublicKey) validateDeliveryPublicKey(deliveryPublicKey);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
+      const demoScope = demoGrantScope();
       const { subject } = await verifyRunnerGrant(body.authorization, {
+        ...demoScope,
         operation: op,
         datasetId: dataset.datasetId,
         jobId,
-        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion],
+        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, ...(deliveryPublicKey ? [deliveryPublicKey] : [])],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
         throw new AppError("Self-train réservé au propriétaire", 403);
@@ -425,7 +436,12 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         cid: dataset.cid,
         model: dataset,
       });
-      const result = await runSelfTraining({ ...dataset, jobId, owner: subject });
+      const result = await withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, deliveryPublicKey }, async () => {
+        const trained = await runSelfTraining({ ...dataset, jobId, owner: subject });
+        return { ...trained, ...(deliveryPublicKey ? { modelKeyEnvelope: encryptRunnerDelivery(
+          selfTrainModelKey(jobId, subject), deliveryPublicKey, selfTrainDeliveryContext(jobId, subject),
+        ) } : {}) };
+      }, demoScope.demoSessionRevision);
       return {
         ...result,
         runnerReceipt: issueTrainingReceipt({

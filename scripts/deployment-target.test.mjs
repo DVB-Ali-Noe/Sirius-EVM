@@ -7,7 +7,8 @@ import { smokeAuthentication } from "./smoke-auth.mjs";
 test("la branche cible choisit ses ressources sans dépendre du projet lié localement", () => {
   const staging = deploymentTarget("refs/heads/staging");
   const main = deploymentTarget("refs/heads/main");
-  assert.equal(staging.url_publique, "https://sirius-evm-staging.vercel.app");
+  assert.equal(staging.url_publique, "https://phala.sirius-data.tech");
+  assert.ok(staging.origines_alias.split(",").includes("https://sirius-evm-staging.vercel.app"));
   assert.equal(main.url_publique, "https://sirius-data.tech");
   assert.equal(main.phala_requis, "true");
   assert.equal(staging.phala_requis, "false");

@@ -1,12 +1,18 @@
 # Phala : runner unique de production
 
-Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle les prêts. Next ne reçoit ni donnée brute, ni DEK, ni master key, ni préimage avant règlement. Le VPS conserve uniquement le reaper.
+**Point de reprise au 26 septembre :** la [checklist de l’espace Phala](PHALA-DEMO-RESTE-A-FAIRE.md) et son [runbook manuel](PHALA-DEMO-RUNBOOK.md) font référence. La bascule globale de staging et le nettoyage Neon sont différés ; les mesures et étapes ci-dessous restent historiques. La nouvelle démonstration nécessite sa propre configuration et une nouvelle validation matérielle. Le calcul VPS reste un chantier distinct, sans garantie TEE.
+
+Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle les prêts. Next ne reçoit ni donnée brute, ni DEK, ni master key, ni préimage avant règlement. Le VPS héberge les reapers et les outils de supervision extérieure ; le calcul confidentiel reste dans la CVM.
 
 `main` impose `SIRIUS_REQUIRE_PHALA=true`, même sur testnet. Staging et le développement peuvent conserver `TEE_MODE=stub` sans `RUNNER_URL` pour les données synthétiques ou non sensibles. Il n’y a ni sélecteur utilisateur, ni repli automatique vers ce mode en cas de panne Phala. La présence d’un runner distant en production impose HTTPS et l’attestation, même en mode démonstration.
 
-## Reprendre ici — 23 septembre 2026
+## Reprendre ici — 25 septembre 2026
 
-**Lot B, 24 septembre : Noé a choisi staging d'abord.** Utiliser désormais [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md) pour la préparation v7, les rendus Compose et les prérequis mesurés. Les procédures et configurations de production ci-dessous restent historiques et ne doivent pas être copiées vers staging. La pipeline staging de la PR #6 est passée ; aucune activation de la CVM n'accompagne cette préparation.
+**Lot B : staging d’abord.** La PR #8 intègre A2/B2 dans `staging`, les nouveaux contrats v7 sont vérifiés au bloc finalisé et le runner actif est validé par RA-TLS/Intel `UpToDate`. Identité, mesures et budget sont stables après redémarrage. Vercel staging contient les nouvelles adresses et mesures. Le nouveau VPS est accessible, les reapers historiques staging et production y sont déployés par GitHub et les unités de supervision y sont installées, timers désactivés. Les anciens reapers ne sont pas arrêtés ; la remise à zéro Neon, la configuration v7 du reaper et le redéploiement applicatif restent à faire. La CVM est arrêtée. Utiliser [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md) et [VPS-MIGRATION.md](VPS-MIGRATION.md) pour l’état exact et la répartition Noé/Ali. Ne pas réinitialiser ses volumes ni réutiliser les mesures d’amorçage ci-dessous.
+
+### Historique de préparation — 23 septembre 2026
+
+Les procédures et configurations de production ci-dessous restent historiques et ne doivent pas être copiées vers staging.
 
 **Mise à jour après correctifs et préparation opérationnelle :** le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) couvre la reprise des transactions confirmées, la livraison v7 après confirmation, le règlement des résultats persistés et le devis obligatoire. La [deuxième passe](RECOVERY-OPERATIONS.md) ajoute récupération du résultat perdu par Next, rediffusion identique et validation réelle PostgreSQL/processus. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) ajoute des contrôles distants en lecture seule et une restauration locale de la base réelle. Restent à borner la coupure avant checkpoint runner, les transactions toujours introuvables, la finalité du réseau cible et les anciennes sauvegardes de clés. Aucun changement de secret, migration distante ou redémarrage Phala n'a été effectué pendant ces passes. Les observations ci-dessous conservent leur date et leur périmètre.
 

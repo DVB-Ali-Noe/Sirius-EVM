@@ -8,6 +8,7 @@ const mockEscrowAddress = "0x6666666666666666666666666666666666666666";
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/phala/**",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

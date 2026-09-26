@@ -22,6 +22,7 @@ import { validateRunnerConfiguration } from "./config";
 import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
+import { demoControl, demoControlAuthorized, demoEnabled, demoSessions } from "@/lib/phala-demo/runner-session";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -110,6 +111,14 @@ export async function handleRunnerRequest(
     if (req.method === "GET" && path === "/ra-tls") {
       return raTlsEvidence ? send(200, raTlsEvidence) : send(404, { error: "RA-TLS indisponible" });
     }
+    if (path === "/operations/demo") {
+      if (!demoControlAuthorized(req.headers.authorization)) return send(401, { error: "Commande non autorisée" });
+      if (bootstrapOnly) return send(503, { error: "Runner en amorçage" });
+      if (req.method === "GET") return send(200, demoControl());
+      if (req.method !== "POST") return send(405, { error: "GET ou POST attendu" });
+      const length = declaredBodyLength(req, 4096);
+      return send(200, demoControl(await readBody(req, length, 4096)));
+    }
     if (path === "/operations/budget") {
       if (!monitoringAuthorized(req.headers.authorization)) return send(401, { error: "Supervision non autorisée" });
       if (req.method !== "GET") return send(405, { error: "GET attendu" });
@@ -171,6 +180,7 @@ export async function startRunner(
   if (!bootstrapOnly && process.env.RUNNER_REPLAY_DIR?.trim()) checkRunnerReplay(process.env.RUNNER_REPLAY_DIR.trim());
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
   if (!bootstrapOnly) runnerBudget();
+  if (!bootstrapOnly && demoEnabled()) demoSessions();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
     await verifyRunnerDeployment(runnerSettlementAddress());
   }

@@ -9,6 +9,7 @@ export type AuthorizedRunnerOperation =
   | "self-train-key";
 
 export interface RunnerGrantScope {
+  demoSessionRevision?: number;
   datasetId?: string;
   loanId?: string;
   jobId?: string;
@@ -114,6 +115,7 @@ export function runnerGrantMessage(payload: RunnerGrantPayload): string {
     datasetId: payload.datasetId ?? null,
     loanId: payload.loanId ?? null,
     jobId: payload.jobId ?? null,
+    ...(payload.demoSessionRevision === undefined ? {} : { demoSessionRevision: payload.demoSessionRevision }),
     payloadHash: payload.payloadHash,
     nonce: payload.nonce,
     issuedAt: payload.issuedAt,

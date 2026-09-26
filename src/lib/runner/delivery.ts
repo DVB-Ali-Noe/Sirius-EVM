@@ -1,5 +1,5 @@
 import "server-only";
-import { createCipheriv, createECDH, createHash, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createECDH, createHash, ECDH, hkdfSync, randomBytes } from "node:crypto";
 import { AppError } from "@/lib/app-error";
 import type {
   RunnerDeliveryEnvelope,
@@ -28,6 +28,11 @@ function decodePublicKey(value: string): Buffer {
   const key = Buffer.from(value, "base64url");
   if (key.length !== 65) throw new AppError("Clé de livraison invalide", 400);
   return key;
+}
+
+export function validateDeliveryPublicKey(value: string): void {
+  try { ECDH.convertKey(decodePublicKey(value), "prime256v1", undefined, undefined, "uncompressed"); }
+  catch { throw new AppError("Clé de livraison invalide", 400); }
 }
 
 export function encryptRunnerDelivery(

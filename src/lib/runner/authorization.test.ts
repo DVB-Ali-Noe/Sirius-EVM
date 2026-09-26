@@ -15,7 +15,7 @@ before(() => {
   process.env.SIRIUS_APP_ORIGIN = "http://localhost:3000";
 });
 
-async function signedGrant() {
+async function signedGrant(demoSessionRevision?: number) {
   const account = privateKeyToAccount("0x59c6995e998f97a5a0044966f094538b2927f5fc5a8c7e1b3e49b920e33e9f8a");
   useWalletStore.getState().setConnected(account.address, "testnet", "external");
   const sessionPublicKey = await beginRunnerDelegation();
@@ -34,7 +34,7 @@ async function signedGrant() {
   return {
     address: account.address.toLowerCase(),
     intentParts,
-    grant: await issueRunnerGrant("run-training", { datasetId: "dataset-1", jobId: "job-1" }, intentParts),
+    grant: await issueRunnerGrant("run-training", { datasetId: "dataset-1", jobId: "job-1", ...(demoSessionRevision === undefined ? {} : { demoSessionRevision }) }, intentParts),
   };
 }
 
@@ -44,6 +44,14 @@ test("le runner vérifie la délégation EIP-191 et consomme le grant", async ()
   const expected = { operation: "run-training" as const, datasetId: "dataset-1", jobId: "job-1", intentParts };
   assert.equal((await verifyRunnerGrant(grant, expected)).subject, address);
   await assert.rejects(verifyRunnerGrant(grant, expected), /déjà utilisé/);
+});
+
+test("la révision Phala est signée et un grant d’une ancienne session ne traverse pas la réouverture", async () => {
+  const { grant, intentParts } = await signedGrant(3);
+  const expected = { operation: "run-training" as const, datasetId: "dataset-1", jobId: "job-1", intentParts, demoSessionRevision: 5 };
+  await assert.rejects(verifyRunnerGrant(grant, expected), /hors scope/);
+  grant.payload.demoSessionRevision = 5;
+  await assert.rejects(verifyRunnerGrant(grant, expected), /Signature/);
 });
 
 test("un grant ne peut pas être élargi à un autre dataset", async () => {
