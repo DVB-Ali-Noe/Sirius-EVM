@@ -28,6 +28,7 @@ interface Dataset {
   name: string;
   description: string | null;
   status: string;
+  listedAt: string | null;
   sizeBytes: number | null;
   priceUsdcAtomic: string | null;
   challengeDays: number;
@@ -206,7 +207,7 @@ function MarketCard({
   onBorrowed: () => void | Promise<void>;
   onError: (msg: string) => void;
 }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [busy, setBusy] = useState(false);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
@@ -264,6 +265,7 @@ function MarketCard({
         <span>{t("{count} lignes", { count: dataset.metrics?.rowCount ?? "—" })}</span>
         <span>{t("{count} colonnes", { count: dataset.metrics?.columnCount ?? "—" })}</span>
         <span>{formatBytes(dataset.sizeBytes)}</span>
+        {dataset.listedAt && <span>{t("Publié le {date}", { date: new Date(dataset.listedAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US") })}</span>}
       </div>
 
       <p className="text-sm font-medium">

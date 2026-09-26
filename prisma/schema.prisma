@@ -34,6 +34,7 @@ model Dataset {
   runnerKind     RunnerKind @default(UNKNOWN)
   runnerDeploymentId String?
   status         DatasetStatus @default(DRAFT)
+  listedAt       DateTime? // dernière mise au catalogue (statut LISTED), affichée sur la marketplace
   keyDestroyedAt DateTime? // suppression de la copie active de DEK enveloppée
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

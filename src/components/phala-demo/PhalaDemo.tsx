@@ -14,7 +14,7 @@ import { fetchDecryptedModel, downloadDecryptedModel } from "@/lib/train/model-c
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
-interface Job { id: string; status: string; metrics: Record<string, number> | null; deliveryPublicKey: string | null; dataset: { name: string } | null }
+interface Job { id: string; status: string; metrics: Record<string, number> | null; deliveryPublicKey: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
 interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; target: string; model: ModelId }
 const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, target: "", model: "linear_regression" };
 const button = "rounded-xl bg-accent px-5 py-3 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40";
@@ -30,7 +30,7 @@ export function PhalaDemo() {
 }
 
 function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>> }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const { file, example, columns, rows, target, model } = draft;
   const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
@@ -166,7 +166,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>
       {jobs.length === 0 && <p className="text-sm text-muted">{t("Ton premier modèle apparaîtra ici.")}</p>}
       {jobs.map((job) => <Card key={job.id}><div className="flex flex-wrap items-center justify-between gap-4">
-        <div><h3 className="font-medium">{job.dataset?.name ?? t("Mon dataset")}</h3><p className="text-sm text-muted">{job.status === "DONE" ? t("Entraînement terminé") : job.status}</p></div>
+        <div><h3 className="font-medium">{job.dataset?.name ?? t("Mon dataset")}</h3><p className="text-sm text-muted">{job.status === "DONE" ? t("Entraînement terminé") : job.status}</p>
+          <p className="text-xs text-muted">{t("Entraîné le {date}", { date: new Date(job.completedAt ?? job.createdAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })}</p></div>
         <button className={button} disabled={busy || job.status !== "DONE"} onClick={() => void download(job)}>{t("Télécharger le modèle")}</button></div>
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
       </Card>)}

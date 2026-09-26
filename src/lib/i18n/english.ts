@@ -6,6 +6,7 @@ export const EN_MESSAGES: Record<string, string> = {
   ...PHALA_MESSAGES_EN,
   "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
   "Prix du dataset": "Dataset price",
+  "Publié le {date}": "Published on {date}",
   "Prix du compute": "Compute price",
   "Frais d’exécution retenus": "Execution fees retained",
   "Remboursement crédité": "Refund credited",
