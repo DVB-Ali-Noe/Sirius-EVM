@@ -186,6 +186,16 @@ model MutationGrant {
   @@index([expiresAt])
 }
 
+/// Tentatives de code opérateur, inscrites avant vérification : le plafond d'essais tient
+/// entre toutes les instances serverless. Seuls les échecs restent dans la fenêtre.
+model OperatorCodeAttempt {
+  id        String   @id @default(cuid())
+  address   String
+  createdAt DateTime @default(now())
+
+  @@index([address, createdAt])
+}
+
 /// Réputation dérivée des events on-chain (calcul léger au MVP).
 model Reputation {
   id             String          @id @default(cuid())
