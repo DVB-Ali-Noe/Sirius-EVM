@@ -287,3 +287,27 @@ Contrôle des nouveaux fichiers après indexation : supprimer uniquement la lign
 Commit fonctionnel créé : `f895be5` — `feat(phala): add sponsored self-training with manual sessions`, 59 fichiers. La seule correction supplémentaire de code est le retrait de la ligne vide finale ; contrôle d’espacement réussi. Les points d’entrée historiques de déploiement et de migration renvoient désormais au parcours manuel actuel. La table des tranches VPS n’attribue plus les tâches à une personne.
 
 La documentation et la fiche fournisseurs sont regroupées dans `docs(phala): document rollout checklist, runbook and VPS migration`. Contrairement au plan initial, `CLAUDE.md` n’est pas versionné : avec `AGENTS.md`, il reste local et se transmet hors Git, sur demande explicite. Les mentions précédentes d’absence de commit décrivent la phase d’implémentation, antérieure à cette demande de partage. Le push de ces deux commits vise uniquement `feat/staging-v7-completion` ; son résultat doit être vérifié sur la branche distante. La PR, la CI de cette nouvelle version et tout déploiement restent distincts de ce push.
+
+### Contrôleur et préparation du runner — avant modification, 26 septembre 2026
+
+Décision D-26 appliquée : staging devient l’instance de démonstration. Objectif de cette passe : rendre le contrôleur joignable en HTTPS depuis Vercel, préparer sans les exécuter les fichiers privés du runner (`demo-init`, `demo-active`, politiques), aligner les variables Vercel restantes et consigner l’état de la checklist. Aucune commande de démarrage de CVM, aucune dépense Phala, aucune opération Git.
+
+Pré-requis vérifiés : pipeline staging verte sur `f509cb2` (migration `20260926000000_add_self_train_delivery` appliquée, image `sha256:8a10ab55…13f8e` publiée), CVM `e8a8b8cb…` arrêtée et `in_progress` faux, profil Phala `sirius` connecté sous `sirius-ops`, secrets de transport et Pinata absents des variables lisibles de Vercel (type sensible).
+
+### Contrôleur et préparation du runner — après modification, 26 septembre 2026
+
+Contrôleur : service `sirius-phala-demo-controller` activé et démarré sous `sirius-ops` ; `GET /session` répond 401 sans secret et 200 avec, en local et via `https://ctl.sirius-data.tech` (Caddy, certificat Let’s Encrypt valide jusqu’au 25 décembre 2026). Un redémarrage du service laisse la CVM arrêtée et l’état `closed`. Les six pins attestés restent des placeholders jusqu’à la recapture.
+
+Runner : politiques `demo-budget-policy.json` (sponsorisé, crédits seuls, plafond 14 USD, réserve 4 USD, 20 opérations, 4 par wallet, 1 simultanée, origine `https://phala.sirius-data.tech`) et `demo-billing-policy.json` (tarif v7 de compatibilité, 7 USDC minimum, trésorerie attendue) générées hors Git et validées par l’initialiseur de volume sous Linux. Fichiers `runner.demo-init.env` et `runner.demo-active.env` assemblés sur le VPS dans `/var/lib/sirius-ops/phala-demo/runner/` (0700/0600) à partir du RPC archive et du secret de supervision du collecteur, du secret opérateur du contrôleur, d’un nouveau secret de transport et de l’accès Pinata vérifié. Les deux Compose rendus y sont copiés. Rien n’a été déployé sur la CVM.
+
+Vercel staging : `SIRIUS_PHALA_DEMO=true`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` renseignés ; `RUNNER_TRANSPORT_SECRET` remplacé par le nouveau secret partagé avec le futur runner (l’ancien n’était pas lisible). `SIRIUS_DEMO_OPERATORS` renseigné avec les deux opérateurs dans Next et le contrôleur, staging redéployé (`/`, `/phala`, `/phala/operator` en 200).
+
+Reste avant le premier créneau : adresses des opérateurs, annonce du créneau et de son coût (0,0608 USD/h), déploiement `demo-init` puis `demo-active`, recapture et épinglage des mesures, arrêt de la CVM. Checklist mise à jour dans `PHALA-DEMO-RESTE-A-FAIRE.md`.
+
+### Déploiement du runner de démonstration — après exécution, 26 septembre 2026
+
+Créneau annoncé et exécuté sur la CVM `e8a8b8cb…`, app ID inchangé. Premier essai refusé : l’image GHCR est privée et la CVM n’avait plus d’identifiants de registre ; ajout des variables `DSTACK_DOCKER_*` avec un jeton en lecture seule des packages dans les deux fichiers d’environnement, puis nouvel essai réussi. Les logs des conteneurs restent privés ; la vérification de l’initialisation a suivi la méthode documentée : volumes `sirius_phala_demo_*` créés neufs dans la console série, puis démarrage actif réussi (l’image refuse de démarrer sans registres), puis rapport de budget attesté conforme aux politiques installées (chaîne 46630, signataire attendu, 10 USD disponibles après la réserve de 4 USD, aucun échec ni opération incomplète).
+
+Attestation recapturée en mode actif depuis le poste local, l’installation du VPS n’ayant pas la dépendance `dotenv` : quote matérielle vérifiée, MRTD, chaîne de clé, empreinte d’ingestion et signataire inchangés ; RTMR3 et hash Compose nouveaux, hash identique à celui affiché par Phala. Les cinq valeurs sont épinglées dans le contrôleur, le collecteur et Vercel staging ; staging redéployé. La session de démonstration reste fermée ; la CVM tourne en attendant le premier test opérateur.
+
+Raccourci opérateur `/usr/local/bin/sirius-demo-deploy` ajouté sur le VPS (init, verify-init, active, health, registry, status, stop), relu avant usage. Le sous-programme `verify-init` ne peut pas conclure tant que les logs des conteneurs sont privés.
