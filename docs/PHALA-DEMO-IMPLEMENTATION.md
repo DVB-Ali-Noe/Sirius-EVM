@@ -415,3 +415,14 @@ Validations locales :
 - typage, lint complet et build.
 
 Publication : intégration de `origin/staging` (D-26) et de la PR #10, puis PR vers `staging`. La pipeline applique la nouvelle migration avant de servir le code.
+
+### Publication sur staging — après exécution, 26 septembre 2026
+
+- **Fusion.** PR #10 fusionnée (`a689942`), puis PR #11 (`c98f70b`), alors que la session de démo était fermée (D-26).
+- **Pipeline** [36262709664](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36262709664) : Vérification, Images, Migrations (dont `20260926120000_add_operator_code_attempts`), Front Vercel, Fumée et reaper VPS réussis. Le reaper staging tourne sur `sirius-worker@sha256:d159e7d7…`, sans redémarrage.
+- **Contrôles sur `phala.sirius-data.tech`.**
+  - `/phala` est en anglais, sans texte français ; l’exemple choisi est visible (112 lignes, 6 colonnes) ; aucun lien opérateur.
+  - `/operator` répond 200 avec `noindex` ; `/phala/operator` répond 404.
+  - L’API opérateur répond 401 sans session.
+- **Variable manquante.** `SIRIUS_DEMO_OPERATOR_CODE_HASH` est absente du projet Vercel staging (tous environnements, noms seuls lus) comme du projet principal. `/operator` refuse tout accès tant qu’elle n’est pas posée puis redéployée.
+- **Inchangés.** Runner Phala et empreintes épinglées. Le relayeur de retraits reste inactif, ses variables étant absentes du `.env.vps`.

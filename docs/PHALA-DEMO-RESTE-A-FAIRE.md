@@ -23,7 +23,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [x] Choisir explicitement les deux wallets autorisés à activer, désactiver et arrêter Phala. Deux wallets choisis le 26 septembre 2026.
 - [x] Renseigner la même allowlist `SIRIUS_DEMO_OPERATORS` dans Next et le contrôleur. Identique aux deux endroits, en minuscules.
 - [x] Ne pas promouvoir automatiquement les anciens wallets provider/borrower de test. Liste saisie explicitement.
-- [x] Générer le code d’accès (`pnpm ops:demo-operator-code`), renseigner `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans Next et transmettre le code aux opérateurs hors chat et hors Git. Sans cette variable, `/operator` refuse tout accès. Fait le 26 septembre selon Noé ; non vérifié à distance, effectif après déploiement du nouveau code.
+- [ ] Générer le code d’accès (`pnpm ops:demo-operator-code`), renseigner `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans Next et transmettre le code aux opérateurs hors chat et hors Git. Sans cette variable, `/operator` refuse tout accès. Code généré le 26 septembre selon Noé. La variable reste cependant absente du projet Vercel staging au contrôle qui a suivi le déploiement : la poser, puis redéployer.
 
 ### 3. Affecter le financement
 
@@ -44,7 +44,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 
 - [x] Conserver la base Neon staging existante avec ses accès actuels ; aucune base dédiée n’est créée. Conservée.
 - [x] Laisser la pipeline appliquer `20260926000000_add_self_train_delivery` lors de la fusion vers `staging`, avant tout service du nouveau code. Appliquée par le job Migrations du déploiement de `f509cb2`.
-- [ ] Laisser la pipeline appliquer `20260926120000_add_operator_code_attempts` (tentatives de code opérateur) lors de la fusion des correctifs de recette, puis vérifier son job Migrations.
+- [x] Laisser la pipeline appliquer `20260926120000_add_operator_code_attempts` (tentatives de code opérateur) lors de la fusion des correctifs de recette, puis vérifier son job Migrations. Appliquée par le job Migrations du déploiement de `c98f70b`.
 - [ ] Vérifier après fusion, par l’inventaire de base en lecture seule, que la migration est présente et que les lignes historiques sont intactes.
 - [ ] Vérifier le stockage des capsules de livraison et les accès réservés au propriétaire.
 
@@ -95,7 +95,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 
 ### 12. Finaliser la présentation
 
-- [ ] Harmoniser les libellés de la nouvelle page avec le site anglais ; les traductions des erreurs sont déjà ajoutées. Préparé localement le 26 septembre pour `/phala`, sa page de repli et `/operator`, non publié.
+- [x] Harmoniser les libellés de la nouvelle page avec le site anglais ; les traductions des erreurs sont déjà ajoutées. Publié sur staging le 26 septembre (`c98f70b`) pour `/phala`, sa page de repli et `/operator`.
 - [ ] Relire les étapes wallet, les limites CSV/profils, les états fermé/indisponible et les exemples.
 - [ ] Expliquer la conservation du modèle et la nécessité du même navigateur, de la même origine et du même wallet pour sa livraison enregistrée.
 - [ ] Décrire exactement les capacités et la preuve disponibles dans les messages de lancement.
@@ -149,7 +149,7 @@ Ce chantier est différé après la première livraison Phala. Le VPS héberge d
 
 Implémenté et testé localement le 26 septembre, désactivé par défaut. Procédure : [DEPLOYMENT.md](DEPLOYMENT.md#retrait-automatique-des-crédits-descrow-worker-vps).
 
-- [ ] Publier le code : image worker et Compose.
+- [x] Publier le code : image worker et Compose. Publiés sur staging le 26 septembre (`c98f70b`) ; relayeur inactif.
 - [ ] Décider le seuil minimal et le plafond de gas quotidien. Aucune valeur n’est approuvée.
 - [ ] Générer une clé dédiée par worker directement dans `.env.vps`, puis la financer en ETH du réseau visé.
 - [ ] Activer, vérifier le journal de démarrage et un premier retrait réel. Le bouton manuel doit rester fonctionnel.
