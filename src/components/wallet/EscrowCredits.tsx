@@ -79,7 +79,9 @@ export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> 
     }
   }
 
-  if (!authenticated) return null;
+  // Un crédit illisible reste affiché : le masquer pourrait cacher des fonds réels.
+  const visible = credits.filter((credit) => !credit.available || BigInt(credit.atomic ?? 0) > BigInt(0));
+  if (!authenticated || (!error && visible.length === 0)) return null;
   return (
     <Card className="mb-6">
       <div className="flex items-center justify-between gap-4">
@@ -87,10 +89,9 @@ export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> 
         <button onClick={() => void refresh()} disabled={loading || Boolean(withdrawing)} className="text-xs text-accent disabled:opacity-50">{t("Actualiser")}</button>
       </div>
       <p className="mt-2 text-xs text-muted">{t("Les règlements et remboursements sont crédités ici. Retire-les pour les recevoir dans ton wallet ; le gas est à ta charge.")}</p>
-      {loading && credits.length === 0 && <p className="mt-4 text-sm text-muted">{t("Chargement…")}</p>}
       {error && <p role="alert" className="mt-4 text-sm text-negative">{t(error)}</p>}
       <div className="mt-4 flex flex-col gap-3">
-        {credits.map((credit) => (
+        {visible.map((credit) => (
           <div key={credit.escrow} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">{credit.available ? `${credit.amount} USDC` : t("Crédits escrow indisponibles")}</p>
