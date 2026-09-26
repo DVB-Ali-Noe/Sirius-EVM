@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { join } from "node:path";
+import { hashOperatorCode } from "./phala-demo/operator-code";
 
 test("migrations additives et quotas sur PostgreSQL entre huit processus", { timeout: 60000 }, async (t) => {
   const configured = process.env.SIRIUS_TEST_DATABASE_URL;
@@ -36,14 +37,15 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
   const historical = (await client.query('SELECT "billingQuote", "runnerKind", "modelCid", "amountUsdcAtomic" FROM "Loan" WHERE id = $1', ["history-loan"])).rows[0];
   assert.deepEqual(historical, { billingQuote: null, runnerKind: "UNKNOWN", modelCid: "bafy-history", amountUsdcAtomic: "1000" });
 
-  async function race(providers: string[], task: "ingest" | "loan" | "training" = "ingest") {
+  const operatorCodeHash = hashOperatorCode("correct-operator-code");
+  async function race(providers: string[], task: "ingest" | "loan" | "training" | "operator-code" = "ingest") {
     const workers = providers.map(() => spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/test/postgres-worker.ts"], {
       env: { PATH: process.env.PATH, NODE_ENV: "test", DATABASE_URL: url.href, DATABASE_POOL_MAX: "2",
         TEE_MODE: "stub", EVM_NETWORK: "testnet", SIRIUS_KYB_ADDRESS: `0x${"56".repeat(20)}`,
         SIRIUS_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
         SIRIUS_ESCROW_ADDRESS: `0x${"11".repeat(20)}`, SIRIUS_DATASET_ADDRESS: `0x${"22".repeat(20)}`,
         SIRIUS_USDC_ADDRESS: `0x${"33".repeat(20)}`, RUNNER_URL: "http://runner.test.invalid",
-        RUNNER_TRANSPORT_SECRET: Buffer.alloc(32, 9).toString("base64") },
+        RUNNER_TRANSPORT_SECRET: Buffer.alloc(32, 9).toString("base64"), SIRIUS_DEMO_OPERATOR_CODE_HASH: operatorCodeHash },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     }));
     try {
@@ -60,8 +62,10 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
           : []));
       }
       for (const [code] of await Promise.all(exits)) assert.equal(code, 0);
+      if (task === "operator-code") return responses;
       for (const result of responses.filter((item) => !item.accepted)) assert.ok([429, "P2034", "quota"].includes(result.code!), `Échec inattendu : ${result.code}`);
       assert.equal(responses.filter((result) => result.accepted).length, 1);
+      return responses;
     } finally { for (const child of workers) if (child.exitCode === null) child.kill(); }
   }
   await client.query(`INSERT INTO "Dataset" (id, name, provider, "priceUsdcAtomic", "updatedAt")
@@ -82,4 +86,16 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
   assert.equal(Number((await client.query('SELECT count(*) FROM "Loan" WHERE borrower = $1 AND status = \'PENDING\'', [borrower])).rows[0].count), 5);
   await race(Array(8).fill(provider), "training");
   assert.equal(Number((await client.query('SELECT count(*) FROM "TrainingJob" WHERE status = \'DONE\'')).rows[0].count), 1);
+
+  // Code opérateur : huit instances concurrentes ne vérifient jamais plus de codes faux que le reliquat de
+  // la fenêtre, y compris quand quatre échecs sont déjà inscrits ; seuls les échecs vérifiés restent.
+  for (const [operator, seeded] of [[`0x${"9a".repeat(20)}`, 0], [`0x${"9b".repeat(20)}`, 4]] as const) {
+    await client.query(`INSERT INTO "OperatorCodeAttempt" (id, address, "createdAt")
+      SELECT 'seed-' || $1 || '-' || n, $1, now() FROM generate_series(1, $2::int) n`, [operator, seeded]);
+    const guesses = await race(Array(8).fill(operator), "operator-code");
+    const verified = guesses.filter((result) => result.code === 403).length;
+    assert.ok(verified <= 5 - seeded, `vérifications : ${verified} après ${seeded} échecs`);
+    assert.equal(guesses.filter((result) => result.code === 429).length, 8 - verified);
+    assert.equal(Number((await client.query('SELECT count(*) FROM "OperatorCodeAttempt" WHERE address = $1', [operator])).rows[0].count), seeded + verified);
+  }
 });

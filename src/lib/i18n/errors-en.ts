@@ -478,4 +478,9 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Écriture locale échouée": "Local write failed",
   "État de prêt on-chain inattendu": "Unexpected on-chain loan state",
   "Évidence RA-TLS runner invalide": "Invalid runner RA-TLS evidence",
+  "SIRIUS_WITHDRAW_RELAYER_ENABLED doit valoir true ou false": "SIRIUS_WITHDRAW_RELAYER_ENABLED must be true or false",
+  "SIRIUS_WITHDRAW_RELAYER_KEY absente ou malformée : 0x suivi de 64 caractères hexadécimaux": "SIRIUS_WITHDRAW_RELAYER_KEY is missing or malformed: 0x followed by 64 hexadecimal characters",
+  "SIRIUS_WITHDRAW_RELAYER_KEY doit être une clé dédiée, distincte du faucet et du vérificateur KYB": "SIRIUS_WITHDRAW_RELAYER_KEY must be a dedicated key, distinct from the faucet and the KYB verifier",
+  "SIRIUS_WITHDRAW_RELAYER_MIN_USDC invalide : montant USDC positif, six décimales au plus": "Invalid SIRIUS_WITHDRAW_RELAYER_MIN_USDC: positive USDC amount with at most six decimals",
+  "SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH invalide : plafond ETH positif, inférieur à 100": "Invalid SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH: positive ETH limit below 100",
 };

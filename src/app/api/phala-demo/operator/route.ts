@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireDemoOperator } from "@/lib/phala-demo/operator";
+import { requireDemoOperator } from "@/lib/phala-demo/operator-access";
 import { requestDemoController } from "@/lib/phala-demo/controller-client";
 import { readJson } from "@/lib/http/body";
 import { errorResponse } from "@/lib/errors";
@@ -8,14 +8,14 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
-    requireDemoOperator(req);
+    await requireDemoOperator(req);
     return NextResponse.json(await requestDemoController(), { headers: { "cache-control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }
 
 export async function POST(req: Request) {
   try {
-    const actor = requireDemoOperator(req);
+    const actor = await requireDemoOperator(req);
     const body = await readJson<{ command?: unknown; revision?: unknown }>(req);
     if (!["open", "close", "emergency"].includes(body.command as string) || !Number.isSafeInteger(body.revision)) {
       return NextResponse.json({ error: "Commande invalide" }, { status: 400 });

@@ -1,18 +1,11 @@
 import "server-only";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { AppError } from "@/lib/app-error";
-import { requireAuth } from "@/lib/auth/require-auth";
 
+// Sans accès base : ce module sert aussi au contrôleur du VPS. La garde des routes est dans operator-access.ts.
 export function operatorAllowed(address: string, configured = process.env.SIRIUS_DEMO_OPERATORS): boolean {
   const wallets = configured?.split(",").map((value) => value.trim().toLowerCase()) ?? [];
   return wallets.length > 0 && wallets.length <= 10 && wallets.every((value) => /^0x(?!0{40}$)[0-9a-f]{40}$/.test(value))
     && wallets.includes(address.toLowerCase());
-}
-
-export function requireDemoOperator(req: Request): string {
-  const session = requireAuth(req);
-  if (!operatorAllowed(session.address)) throw new AppError("Commande réservée aux opérateurs Sirius", 403);
-  return session.address;
 }
 
 export function controllerAuthorized(header: string | null, secret = process.env.PHALA_DEMO_CONTROLLER_SECRET): boolean {

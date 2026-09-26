@@ -116,11 +116,12 @@ test("toutes les clés statiques de l'interface et les erreurs exposées ont une
     const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
     function check(node: ts.Node | undefined) {
       for (const key of staticStrings(node)) {
-        if (!Object.hasOwn(EN_MESSAGES, key) && !alreadyEnglish.has(key)) missing.add(`${relative(root, file)}: ${key}`);
+        if (key && !Object.hasOwn(EN_MESSAGES, key) && !alreadyEnglish.has(key)) missing.add(`${relative(root, file)}: ${key}`);
       }
     }
     function visit(node: ts.Node) {
-      if (ts.isCallExpression(node) && node.expression.getText(source) === "t") check(node.arguments[0]);
+      // Les messages de progression sont traduits à l’affichage, comme les erreurs.
+      if (ts.isCallExpression(node) && ["t", "progress", "setProgress"].includes(node.expression.getText(source))) check(node.arguments[0]);
       if (ts.isNewExpression(node) && ["Error", "AppError"].includes(node.expression.getText(source))) check(node.arguments?.[0]);
       if (file.includes("/api/") && ts.isPropertyAssignment(node) && node.name.getText(source) === "error") check(node.initializer);
       ts.forEachChild(node, visit);
