@@ -196,9 +196,10 @@ for (const succeeds of [true, false]) {
     expect(transactions[0].from.toLowerCase()).toBe(A);
     expect(transactions[0].to).toBe(oldEscrow);
     if (succeeds) {
-      await expect(page.getByText("0 USDC", { exact: true })).toBeVisible();
+      // Crédit soldé : sa ligne à zéro disparaît, et le panneau avec elle.
+      await expect(page.getByText("USDC available to withdraw", { exact: true })).toHaveCount(0);
       await expect(page.getByText("117", { exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Withdraw", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Withdraw", exact: true })).toHaveCount(0);
     } else {
       await expect(page.locator("main [role=alert]")).toBeVisible();
       await expect(page.getByText("10 USDC", { exact: true })).toBeVisible();
