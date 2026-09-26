@@ -103,6 +103,7 @@ async function markDatasetListed(
     where: { id: dataset.id, provider: normalizeAddress(dataset.provider), status: "DRAFT", evmDatasetId: null },
     data: {
       status: process.env.SIRIUS_PHALA_DEMO === "true" ? "PRIVATE" : "LISTED",
+      ...(process.env.SIRIUS_PHALA_DEMO === "true" ? {} : { listedAt: new Date() }),
       evmDatasetId: onChainId,
       ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
     },
@@ -250,7 +251,7 @@ export async function setDatasetVisibility(datasetId: string, provider: string, 
       status: { in: [...VISIBILITY_STATES] },
       loans: { none: { status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } } },
     },
-    data: { status: visibility },
+    data: { status: visibility, ...(visibility === "LISTED" ? { listedAt: new Date() } : {}) },
   });
   if (updated.count !== 1) throw new AppError("Visibilité impossible : dataset non publié ou emprunt actif", 409);
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });

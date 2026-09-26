@@ -95,6 +95,7 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Ton premier modèle apparaîtra ici.": "Your first model will appear here.",
   "Mon dataset": "My dataset",
   "Entraînement terminé": "Training complete",
+  "Entraîné le {date}": "Trained on {date}",
   "Télécharger le modèle": "Download model",
   "Préparation du wallet testnet…": "Preparing your testnet wallet…",
   "Chiffrement de ton fichier…": "Encrypting your file…",
