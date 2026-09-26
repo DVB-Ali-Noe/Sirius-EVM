@@ -3,6 +3,8 @@ import { beginDatasetIngestion } from "../../src/lib/sirius/pipeline";
 import { prisma } from "../../src/lib/db";
 import { prepareLoan } from "../../src/lib/sirius/borrower";
 import { runSelfTrain } from "../../src/lib/sirius/self-train";
+import { assertOperatorCode } from "../../src/lib/phala-demo/operator-code";
+import { databaseOperatorAttempts } from "../../src/lib/phala-demo/operator-attempts";
 import { randomUUID } from "node:crypto";
 import type { RunnerGrant } from "../../src/lib/runner/authorization-contract";
 
@@ -32,10 +34,11 @@ globalThis.fetch = async (input) => {
 };
 
 process.send?.("ready");
-process.once("message", async (message: { task: "ingest" | "loan" | "training"; provider: string }) => {
+process.once("message", async (message: { task: "ingest" | "loan" | "training" | "operator-code"; provider: string }) => {
   try {
     if (message.task === "loan") await prepareLoan("history", message.provider);
     else if (message.task === "training") await runSelfTrain("history", message.provider, randomUUID(), "synthetic", {} as RunnerGrant);
+    else if (message.task === "operator-code") await assertOperatorCode(message.provider, "wrong-operator-code", databaseOperatorAttempts);
     else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
       priceUsdcAtomic: "1000", challengeDays: 1, model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
     process.send?.({ accepted: true });
