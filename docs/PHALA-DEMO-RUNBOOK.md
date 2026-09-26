@@ -5,7 +5,7 @@
 ## Ce qui est livré dans le code
 
 - `/phala` : présentation sur le site principal, parcours complet sur l’instance dédiée. CSV personnel ou deux exemples synthétiques ; régression linéaire/logistique ; maximum 3 Mo et profils existants.
-- `/phala/operator` : wallet authentifié appartenant à `SIRIUS_DEMO_OPERATORS`. Activer, désactiver, arrêt d’urgence. Les commandes et compteurs sont persistants.
+- `/operator` : page liée nulle part, `noindex`, 404 hors `SIRIUS_PHALA_DEMO=true`. Wallet de `SIRIUS_DEMO_OPERATORS` connecté **et signé**, puis code d’accès vérifié à chaque lecture et commande. Activer, désactiver, arrêt d’urgence. Les commandes et compteurs sont persistants.
 - Le navigateur chiffre le CSV, signe l’autorisation liée à la session, publie son titre **testnet privé** et lance le self-train. Aucun prêt, paiement client ou utilisation d’USDC réel. Du gas ETH testnet reste nécessaire pour le titre et éventuellement le KYB.
 - La fermeture normale bloque les nouvelles admissions, attend les opérations déjà admises et les livraisons Next, puis arrête la CVM. L’urgence peut supplanter une commande en cours ; elle attend uniquement la fin de l’appel fournisseur en vol avant l’arrêt.
 - Le modèle chiffré reste sur IPFS, sa capsule dans PostgreSQL et sa clé de livraison non exportable dans IndexedDB. Téléchargement depuis le **même navigateur, même origine et même wallet**, même lorsque Phala est arrêté. Perdre le stockage local n’est pas un cas de récupération garanti.
@@ -41,6 +41,7 @@ Même code, projet/configuration Vercel distincts :
 - Les contrats privés/publics doivent correspondre. Si les contrats du 25 septembre sont réutilisés : `SIRIUS_BILLING_VERSION=7`, registre dataset v4 lié à cet escrow v7. Leur présence ne crée pas de facturation du self-train.
 - Configurer le KYB **ouvert testnet** avec les variables prévues par l’application. Le démarrage du mode démo exige actuellement aussi les clés faucet et KYB existantes ; elles restent côté Next, distinctes de l’enclave. Vérifier les soldes avant la répétition.
 - `PHALA_DEMO_CONTROLLER_URL=https://ORIGINE_CONTROLEUR`, `PHALA_DEMO_CONTROLLER_SECRET`, `SIRIUS_DEMO_OPERATORS=adresse_operateur_1,adresse_operateur_2`.
+- `SIRIUS_DEMO_OPERATOR_CODE_HASH=scrypt:…` : empreinte produite par `pnpm ops:demo-operator-code` (code généré, ou code choisi sur l’entrée standard : 12 à 128 caractères ASCII sans espace). Seul Next la porte ; le contrôleur n’en a pas besoin. Transmettre le code aux opérateurs hors chat et hors Git. Absente ou invalide : accès opérateur fermé. Cinq codes faux verrouillent le wallet quinze minutes, toutes instances confondues : chaque tentative est inscrite dans la table `OperatorCodeAttempt` avant vérification (migration `20260926120000_add_operator_code_attempts`).
 - Garder les contrôles d’origine, limites d’ingress et `SIRIUS_TRUST_PROXY_HEADERS=true` avec un proxy qui écrase réellement ces en-têtes. Le contrôleur n’a besoin d’aucun accès PostgreSQL : `/api/phala-demo/drain` lui indique uniquement les jobs en cours.
 
 Ne pas relancer le workflow v7 staging annulé : il conserve l’ancien projet de bascule globale. La pipeline actuelle gère main/staging, **pas encore le troisième projet Phala**. Préparer son déploiement explicite avant publication ; ne pas détourner la branche staging sans réconcilier sa configuration.

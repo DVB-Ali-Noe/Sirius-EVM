@@ -24,6 +24,36 @@ Le Compose VPS transmet les paramètres de facturation, contrats, finalité et a
 
 Les images doivent être publiées puis figées par digest, et leurs mesures validées avant bascule. Au 25 septembre, le superviseur d'arrêt est installé sur le nouveau VPS, avec ses timers désactivés : préparer une session bornée et vérifier son fonctionnement avant tout futur essai Phala. La politique de crédits internes et ses limites sont suivies dans [PHALA-TRIAL-CREDITS.md](PHALA-TRIAL-CREDITS.md) ; les tarifs commerciaux et les autres plafonds fournisseurs restent distincts.
 
+## Retrait automatique des crédits d’escrow (worker VPS)
+
+Préparé localement le 26 septembre ; **désactivé par défaut**, ni publié ni activé. Le bouton de retrait manuel reste le repli.
+
+**Fonctionnement.** Toutes les cinq minutes, le worker :
+- relit `creditOf` pour les providers et borrowers des prêts clos depuis 30 jours (réglés, ou annulés avec remboursement) ;
+- se limite aux escrows approuvés, `SIRIUS_ESCROW_ADDRESS` et `SIRIUS_LEGACY_ESCROW_ADDRESSES` ;
+- appelle `withdrawFor(titulaire)` au-dessus du seuil : les fonds partent au seul titulaire, et Sirius paie le gas.
+
+Les plus gros crédits passent d’abord. Chaque envoi est précédé d’une relecture et d’une estimation : un refus du contrat ne coûte donc aucun gas. Un refus ou une transaction rejetée ne sont jamais retentés. Le crédit de la trésorerie compute n’est pas concerné.
+
+**Activation, sur le VPS, pour un environnement :**
+1. Publier le code : le Compose déployé par le pipeline transmet les nouvelles variables.
+2. Générer une clé neuve, écrite directement dans `.env.vps` sans jamais s’afficher ; seule l’adresse à financer apparaît :
+   ```bash
+   cd /opt/sirius-staging   # /opt/sirius pour la production
+   IMAGE=$(sed -n 's/^SIRIUS_WORKER_IMAGE="\(.*\)"$/\1/p' .env.vps)
+   { echo; docker run --rm --entrypoint node "$IMAGE" --input-type=module -e 'import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"; const key = generatePrivateKey(); console.error(`Adresse à financer : ${privateKeyToAccount(key).address}`); console.log(`SIRIUS_WITHDRAW_RELAYER_KEY=${key}`);'; } >> .env.vps
+   ```
+3. Envoyer à cette adresse un peu d’ETH du réseau visé, rien d’autre.
+4. Ajouter dans `.env.vps` `SIRIUS_WITHDRAW_RELAYER_ENABLED=true`, `SIRIUS_WITHDRAW_RELAYER_MIN_USDC` et `SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH`. Seuil et plafond n’ont aucune valeur par défaut : ce sont des dépenses à décider explicitement.
+5. Relancer : `docker compose -p sirius-staging --env-file .env.vps up --detach`. Le journal doit afficher `[withdraw-relayer] actif avec 0x… : seuil …, plafond …`. Une configuration invalide arrête le worker avec un message explicite, visible par `check-reaper.sh`.
+
+**Règles de clé.** Une clé par worker : staging et production sur le même testnet se disputeraient sinon les nonces. Elle reste distincte du faucet, du vérificateur KYB, de l’enclave et de la trésorerie. Elle ne passe jamais par le chat, Git ou Vercel. Surveiller `[withdraw-relayer] réserve insuffisante` pour la recharger.
+
+**Limites.**
+- Plafond du jour et échecs connus sont tenus en mémoire : un redémarrage les remet à zéro.
+- Les crédits de prêts clos depuis plus de 30 jours, ou sans déploiement enregistré, se retirent à la main.
+- Le coût réel d’un retrait est à mesurer sur Robinhood Chain puis à reporter dans le [business plan](BUSINESS-PLAN.md).
+
 ## Une cible par branche
 
 [`scripts/deployment-target.mjs`](../scripts/deployment-target.mjs) est la source de vérité utilisée par [la pipeline](../.github/workflows/pipeline.yml).
