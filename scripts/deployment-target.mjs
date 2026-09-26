@@ -14,8 +14,9 @@ const targets = {
     projet_compose: "sirius-staging",
     projet_vercel: "prj_ZTusbshyQVU5S0KUXpOhK2TW9Wnz",
     dossier_vps: "/opt/sirius-staging",
-    url_publique: "https://sirius-evm-staging.vercel.app",
-    origines_alias: "https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app",
+    // D-26 : le projet staging est l'instance Phala de démonstration ; l'ancienne origine reste en alias.
+    url_publique: "https://phala.sirius-data.tech",
+    origines_alias: "https://sirius-evm-staging.vercel.app,https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app",
   },
 };
 
