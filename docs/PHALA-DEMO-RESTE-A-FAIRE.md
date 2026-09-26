@@ -39,27 +39,27 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [ ] Tenir compte des limites Next existantes : 3 entraînements par wallet et par heure, 30 globaux par heure, un calcul simultané.
 - [ ] Vérifier que les coûts et le budget couvrent aussi les requêtes d’ingestion et de contrôle métier.
 
-### 5. Préparer la base dédiée et les migrations
+### 5. Base et migrations — staging (D-26)
 
-- [ ] Créer une base ou branche Neon dédiée avec des accès propres ; conserver les bases historiques.
-- [ ] Vérifier puis appliquer les migrations, dont `20260926000000_add_self_train_delivery`.
-- [ ] Appliquer cette migration additive avant de servir tout autre environnement recevant le nouveau code Prisma, même si le mode Phala y reste désactivé.
+- [ ] Conserver la base Neon staging existante avec ses accès actuels ; aucune base dédiée n’est créée.
+- [ ] Laisser la pipeline appliquer `20260926000000_add_self_train_delivery` lors de la fusion vers `staging`, avant tout service du nouveau code.
+- [ ] Vérifier après fusion, par l’inventaire de base en lecture seule, que la migration est présente et que les lignes historiques sont intactes.
 - [ ] Vérifier le stockage des capsules de livraison et les accès réservés au propriétaire.
 
-### 6. Préparer l’application Vercel dédiée
+### 6. Instance Vercel — staging (D-26)
 
-- [ ] Créer/configurer la cible Phala avec le même code : domaine, base, authentification wallet, KYB ouvert testnet, contrats, runner, opérateurs et secrets.
-- [ ] Aligner les origines serveur/publique et les domaines autorisés de connexion wallet.
-- [ ] Configurer Phala obligatoire, les mesures vérifiées et les secrets distincts ; ne conserver aucune master key d’enclave dans Next.
-- [ ] Préparer le déploiement de cette troisième cible : la pipeline actuelle couvre seulement main et staging.
-- [ ] Configurer le lien `/phala` du site principal vers l’instance dédiée.
+- [ ] Ajouter le domaine `phala.sirius-data.tech` au projet Vercel staging et le rendre origine principale ; garder `sirius-evm-staging.vercel.app` en alias.
+- [ ] Aligner `SIRIUS_APP_ORIGIN`, `NEXT_PUBLIC_SIRIUS_APP_ORIGIN`, les alias et les domaines autorisés de connexion wallet ; la pipeline réécrit ces origines depuis le sélecteur de cible, qui doit connaître le nouveau domaine.
+- [ ] Renseigner `SIRIUS_PHALA_DEMO=true`, `SIRIUS_DEMO_OPERATORS`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` ; aucune master key d’enclave dans Next.
+- [ ] Ajouter `SIRIUS_LEGACY_ESCROW_ADDRESSES` avec les escrows historiques de staging pour les crédits anciens.
+- [ ] Configurer le lien `/phala` du site principal vers `phala.sirius-data.tech`.
 - [ ] Vérifier le faucet et les soldes ETH testnet nécessaires au KYB et au titre du dataset ; le self-train ne demande pas de paiement client.
 
-### 7. Réconcilier la configuration staging existante
+### 7. Configuration staging héritée de l’ancienne bascule
 
-- [ ] Inventorier les variables Vercel/GitHub préparées pour l’ancienne bascule Phala/v7.
-- [ ] Les aligner avec la nouvelle séparation des environnements avant un prochain déploiement staging.
-- [ ] Garder le workflow v7 global annulé et le nettoyage Neon différés. Ne pas reprendre leurs anciennes commandes par défaut.
+- [x] Inventorier les variables Vercel et GitHub préparées pour l’ancienne bascule v7/Phala : elles sont conservées telles quelles et deviennent la configuration de l’instance de démonstration (D-26).
+- [ ] Recapturer et remplacer les mesures attendues et l’empreinte d’ingestion après publication de la nouvelle image ; ne pas réutiliser celles de l’ancienne image.
+- [ ] Garder le nettoyage Neon différé ; ne pas reprendre ses commandes.
 
 ### 8. Livrer les modifications sur GitHub
 
