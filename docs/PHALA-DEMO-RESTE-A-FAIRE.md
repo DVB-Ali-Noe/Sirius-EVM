@@ -117,10 +117,10 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [x] Activer manuellement ; n’ouvrir qu’après attestation vérifiée ; refuser un mauvais pin. Première session ouverte le 26 septembre au soir depuis `/operator` ; le contrôleur a refusé le runner tant que son identité n’était pas vérifiable (variables absentes), puis a ouvert après correction.
 - [ ] Entraîner les deux exemples et un CSV personnel ; vérifier titre PRIVATE, métriques, fichier de modèle et budget consommé. Les deux exemples sont validés (régression linéaire R² 0,976 sur 112 lignes, régression logistique sur 480 lignes, modèles téléchargés, 4 opérations comptées, 0,43 USD engagés). Le CSV personnel et le second wallet restent à relever : le compteur n’a pas bougé lors de l’essai avec le second wallet.
 - [ ] Fermer pendant un calcul : refuser les nouvelles admissions et conserver le résultat engagé avant l’arrêt confirmé.
-- [ ] Recharger le navigateur et télécharger le modèle alors que la CVM est arrêtée ; vérifier le refus pour un autre wallet ou une clé locale absente.
+- [ ] Recharger le navigateur et télécharger le modèle alors que la CVM est arrêtée ; vérifier le refus pour un autre wallet ou une clé locale absente. Non encore relevé ; à faire au début de la prochaine session, CVM éteinte.
 - [ ] Réouvrir : conserver les dépenses, refuser un grant de session ancienne, tester quotas et budget insuffisant sans fermeture automatique. Quota par wallet vérifié le 26 septembre : troisième entraînement refusé « Demo quota reached » sans fermeture ; réouverture et budget insuffisant restent à tester.
 - [ ] Tester l’arrêt d’urgence pendant l’ouverture puis pendant le calcul ; vérifier l’état réel du fournisseur et la réconciliation avant reprise.
-- [ ] Redémarrer seulement le contrôleur : aucune commande automatique à Phala ; intervention explicite si une commande a été interrompue.
+- [x] Redémarrer seulement le contrôleur : aucune commande automatique à Phala ; intervention explicite si une commande a été interrompue. Vérifié en réel le 26 septembre : deux redémarrages pendant une ouverture ont laissé l’état en `error` « Commande interrompue », sans commande CVM, et un nouvel « Open » de l’opérateur a été nécessaire.
 
 **Porte de publication :** configuration dédiée cohérente, nouvelle attestation vérifiée, parcours réel et fermeture/récupération validés, financement affecté et exploitation supervisée. Les tests locaux avec API simulées ne suffisent pas. L’ouverture publique reste manuelle ; aucune durée de deux heures n’est imposée.
 
