@@ -118,10 +118,10 @@ function Console() {
         <div><dt className="text-sm text-muted">{t("Opérations de la session")}</dt><dd>{status.usedOperations}</dd></div></dl>}
       <div className="mt-6 flex flex-wrap gap-3">{(["open", "close", "emergency"] as const).map((action) => <button key={action}
         className="rounded-xl border border-border px-5 py-3 disabled:opacity-40"
-        disabled={!status || busy || (action !== "emergency" && pending) || (action === "open" && status.phase === "open")}
+        disabled={!status || busy || (action === "open" && (pending || status.phase === "open")) || (action === "close" && status.phase === "closing")}
         onClick={() => void command(action)}>{t(action === "open" ? "Activer" : action === "close" ? "Désactiver" : "Arrêt d’urgence")}</button>)}</div>
       {status?.error && <p role="alert" className="mt-4 text-red-300">{t(status.error)}</p>}
-      <p className="mt-4 text-sm text-muted">{t("Désactiver ferme les admissions, attend les résultats en cours puis arrête Phala. L’arrêt d’urgence peut interrompre un entraînement.")}</p>
+      <p className="mt-4 text-sm text-muted">{t("Désactiver ferme les admissions, attend les résultats en cours puis arrête Phala ; pendant le démarrage, il annule l’ouverture. L’arrêt d’urgence peut interrompre un entraînement.")}</p>
       <button type="button" className="mt-4 text-sm text-muted underline" onClick={() => { latest.current += 1; setCode(null); setStatus(null); setError(""); }}>{t("Verrouiller")}</button>
     </Card>}
   </div>;
