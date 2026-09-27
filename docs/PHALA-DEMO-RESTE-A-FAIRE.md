@@ -23,7 +23,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [x] Choisir explicitement les deux wallets autorisés à activer, désactiver et arrêter Phala. Deux wallets choisis le 26 septembre 2026.
 - [x] Renseigner la même allowlist `SIRIUS_DEMO_OPERATORS` dans Next et le contrôleur. Identique aux deux endroits, en minuscules.
 - [x] Ne pas promouvoir automatiquement les anciens wallets provider/borrower de test. Liste saisie explicitement.
-- [ ] Générer le code d’accès (`pnpm ops:demo-operator-code`), renseigner `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans Next et transmettre le code aux opérateurs hors chat et hors Git. Sans cette variable, `/operator` refuse tout accès. Code généré le 26 septembre selon Noé. La variable reste cependant absente du projet Vercel staging au contrôle qui a suivi le déploiement : la poser, puis redéployer.
+- [x] Générer le code d’accès (`pnpm ops:demo-operator-code`), renseigner `SIRIUS_DEMO_OPERATOR_CODE_HASH` dans Next et transmettre le code aux opérateurs hors chat et hors Git. Sans cette variable, `/operator` refuse tout accès. Code généré le 26 septembre selon Noé. La variable reste cependant absente du projet Vercel staging au contrôle qui a suivi le déploiement : la poser, puis redéployer.
 
 ### 3. Affecter le financement
 
@@ -102,7 +102,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 
 ### 13. Préparer l’exploitation et la reprise
 
-- [ ] Définir le suivi des dépenses réelles, y compris machine allumée sans calcul et disque après arrêt.
+- [ ] Définir le suivi des dépenses réelles, y compris machine allumée sans calcul et disque après arrêt. Relevé du 26 septembre : CVM allumée 8 h 40 (déploiement 15 h 00, fermeture 23 h 41 UTC) pour deux entraînements, soit environ 0,53 USD de crédits Phala au tarif horaire, à confirmer sur la facturation Phala.
 - [ ] Préparer la sauvegarde et la restauration des nouveaux registres, de l’état du contrôleur et des métadonnées de livraison.
 - [ ] Définir la procédure de réconciliation après interruption avant de rouvrir une session.
 - [ ] Intégrer l’estimation automatique des frais d’hébergement et les notifications externes au panneau ; elles ne sont pas encore livrées. Pour une première session supervisée, documenter et assurer un suivi manuel explicite.
@@ -114,13 +114,13 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 ### 14. Répéter le parcours sur les vrais services
 
 - [ ] Une visite ou un utilisateur non opérateur ne démarre rien ; les commandes lui sont refusées.
-- [ ] Activer manuellement ; n’ouvrir qu’après attestation vérifiée ; refuser un mauvais pin.
-- [ ] Entraîner les deux exemples et un CSV personnel ; vérifier titre PRIVATE, métriques, fichier de modèle et budget consommé.
+- [x] Activer manuellement ; n’ouvrir qu’après attestation vérifiée ; refuser un mauvais pin. Première session ouverte le 26 septembre au soir depuis `/operator` ; le contrôleur a refusé le runner tant que son identité n’était pas vérifiable (variables absentes), puis a ouvert après correction.
+- [ ] Entraîner les deux exemples et un CSV personnel ; vérifier titre PRIVATE, métriques, fichier de modèle et budget consommé. Les deux exemples sont validés (régression linéaire R² 0,976 sur 112 lignes, régression logistique sur 480 lignes, modèles téléchargés, 4 opérations comptées, 0,43 USD engagés). Le CSV personnel et le second wallet restent à relever : le compteur n’a pas bougé lors de l’essai avec le second wallet.
 - [ ] Fermer pendant un calcul : refuser les nouvelles admissions et conserver le résultat engagé avant l’arrêt confirmé.
-- [ ] Recharger le navigateur et télécharger le modèle alors que la CVM est arrêtée ; vérifier le refus pour un autre wallet ou une clé locale absente.
-- [ ] Réouvrir : conserver les dépenses, refuser un grant de session ancienne, tester quotas et budget insuffisant sans fermeture automatique.
+- [ ] Recharger le navigateur et télécharger le modèle alors que la CVM est arrêtée ; vérifier le refus pour un autre wallet ou une clé locale absente. Non encore relevé ; à faire au début de la prochaine session, CVM éteinte.
+- [ ] Réouvrir : conserver les dépenses, refuser un grant de session ancienne, tester quotas et budget insuffisant sans fermeture automatique. Quota par wallet vérifié le 26 septembre : troisième entraînement refusé « Demo quota reached » sans fermeture ; réouverture et budget insuffisant restent à tester.
 - [ ] Tester l’arrêt d’urgence pendant l’ouverture puis pendant le calcul ; vérifier l’état réel du fournisseur et la réconciliation avant reprise.
-- [ ] Redémarrer seulement le contrôleur : aucune commande automatique à Phala ; intervention explicite si une commande a été interrompue.
+- [x] Redémarrer seulement le contrôleur : aucune commande automatique à Phala ; intervention explicite si une commande a été interrompue. Vérifié en réel le 26 septembre : deux redémarrages pendant une ouverture ont laissé l’état en `error` « Commande interrompue », sans commande CVM, et un nouvel « Open » de l’opérateur a été nécessaire.
 
 **Porte de publication :** configuration dédiée cohérente, nouvelle attestation vérifiée, parcours réel et fermeture/récupération validés, financement affecté et exploitation supervisée. Les tests locaux avec API simulées ne suffisent pas. L’ouverture publique reste manuelle ; aucune durée de deux heures n’est imposée.
 

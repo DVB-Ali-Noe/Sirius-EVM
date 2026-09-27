@@ -426,3 +426,27 @@ Publication : intégration de `origin/staging` (D-26) et de la PR #10, puis PR v
   - L’API opérateur répond 401 sans session.
 - **Variable manquante.** `SIRIUS_DEMO_OPERATOR_CODE_HASH` est absente du projet Vercel staging (tous environnements, noms seuls lus) comme du projet principal. `/operator` refuse tout accès tant qu’elle n’est pas posée puis redéployée.
 - **Inchangés.** Runner Phala et empreintes épinglées. Le relayeur de retraits reste inactif, ses variables étant absentes du `.env.vps`.
+
+### Première session de démonstration — après exécution, 26 septembre 2026
+
+Préalable : empreinte du code opérateur générée et posée dans Vercel staging, redéploiement. La console `/operator` a accepté le premier opérateur (wallet MetaMask signé + code).
+
+Premier « Open » bloqué en phase `opening` : le contrôleur refusait l’attestation du runner avec « L’identité du runner diffère de SIRIUS_LOCK_AUTHORIZER », puis « SIRIUS_ESCROW_ADDRESS manquante ». Le modèle `phala-demo-controller.env.example` ne listait ni le signataire ni les contrats que la vérification d’identité exige. Variables ajoutées au fichier privé du contrôleur (mêmes valeurs que le collecteur), service redémarré ; l’état est passé en `error` « Commande interrompue » comme prévu, puis un second « Open » a réussi : contrôleur `open`, runner `open`, page publique `open`, financement crédits, 20 opérations, 4 par wallet, 1 simultanée. Le modèle de fichier est corrigé dans ce commit.
+
+Entraînements réels dans l’enclave depuis `/phala`, même wallet : exemple immobilier (régression linéaire, 112 lignes, R² 0,976, RMSE 24 743) puis exemple crédit (régression logistique, 480 lignes, F1 0,599, exactitude 0,763). Modèles téléchargés (JSON avec coefficients et métriques). Compteurs cohérents entre contrôleur et runner : 2 puis 4 opérations utilisées, 0 en cours. Rapport de budget attesté après le premier entraînement : 0,43 USD engagés, 9,57 USD restants, aucun échec. Troisième tentative du même wallet refusée « Demo quota reached », session restée ouverte. Un essai avec un second wallet n’a pas modifié le compteur : à rejouer en observant la console.
+
+Fermeture envoyée au contrôleur (`close`, révision 2) : phase `closing` puis `closed` en 20 secondes, CVM `stopped`, page publique `closed`. Durée totale d’allumage de la CVM : environ 8 h 40, dont la majorité sans calcul entre le déploiement et le premier test ; coût estimé 0,53 USD de crédits.
+
+Publication pendant la session fermée : PR #13 fusionnée (`e9dbbab`) — dates d’entraînement sur `/phala` et de publication sur la marketplace, migration additive `20260927000000_add_dataset_listed_at`.
+
+Anomalies notées pour la suite : (1) les tests du contrôleur échouent sur Windows par vérification de droits de dossier, sans lien avec le code ; (2) `verify-init` du raccourci VPS ne peut pas conclure tant que les logs conteneur de la CVM sont privés ; (3) la copie de code `/opt/sirius-ops` n’a pas `dotenv`, la capture d’attestation se fait depuis un poste avec dépendances complètes.
+
+### Deuxième session et annulation du démarrage — après exécution, 27 septembre 2026
+
+Réouverture depuis `/operator` après la fusion des dates (révision 4), fermeture par « Deactivate » (révision 5, CVM arrêtée), nouvelle ouverture (révision 6) puis fermeture par « Deactivate » (révision 7). Le bouton de fermeture fonctionne dès que l’état est `open`.
+
+Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes quand la CVM doit être rallumée, seul « Emergency stop » était cliquable. Un opérateur qui change d’avis devait passer par un bouton d’urgence alors qu’aucun calcul n’est encore admis. Correction fusionnée dans staging (`c06ca9a`) : un `close` reçu pendant l’ouverture est traité par le contrôleur comme une annulation, sur le chemin de l’urgence ; la console laisse « Deactivate » actif pendant l’ouverture et son texte d’aide le dit ; test ajouté, suite du contrôleur 7/7 sous Linux. La copie `/opt/sirius-ops` du VPS est mise à jour sur ce commit et le service redémarré ; état `closed` confirmé.
+
+Dates d’entraînement et de publication (`e9dbbab`) vérifiées sur l’instance servie : l’API des datasets renvoie `listedAt` (reprise de la dernière modification pour l’existant) et la carte marketplace l’affiche ; la date de fin d’entraînement apparaît sous chaque résultat de `/phala`.
+
+Fin de nuit : session fermée, CVM arrêtée, contrôleur et Next alignés sur `c06ca9a`.
