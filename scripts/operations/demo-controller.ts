@@ -71,14 +71,17 @@ export class DemoController {
   submit(command: "open" | "close" | "emergency", actor: string, revision: number): ControllerStatus {
     if (!operatorAllowed(actor)) throw new AppError("Opérateur non autorisé", 403);
     if (!["open", "close", "emergency"].includes(command)) throw new AppError("Commande invalide", 400);
-    if ((this.busy && command !== "emergency") || revision !== this.state.revision) throw new AppError("Commande concurrente", 409);
+    // Désactiver pendant l’ouverture annule le démarrage : aucun calcul n’est encore admis, le
+    // chemin est celui de l’urgence, sans attendre une session qui n’existe pas sur le runner.
+    const effective = command === "close" && this.busy && this.state.phase === "opening" ? "emergency" : command;
+    if ((this.busy && effective !== "emergency") || revision !== this.state.revision) throw new AppError("Commande concurrente", 409);
     if (command === "open" && this.state.phase === "open") throw new AppError("Session déjà ouverte", 409);
     const nextRevision = this.state.revision + 1;
     this.save({ phase: command === "open" ? "opening" : "closing", available: false,
       revision: nextRevision, error: undefined });
     this.busy = true;
     // L’urgence invalide la commande précédente, mais attend son appel fournisseur en vol.
-    this.running = this.running.then(() => this.execute(command, actor, nextRevision)).catch(() => {
+    this.running = this.running.then(() => this.execute(effective, actor, nextRevision)).catch(() => {
       if (this.state.revision === nextRevision) {
         try { this.save({ phase: "error", available: false, error: "Commande non confirmée : vérifier Phala avant de réessayer" }); }
         catch { console.error("Écriture de l’état Phala impossible ; vérifier le disque du contrôleur"); }

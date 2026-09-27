@@ -107,6 +107,23 @@ test("urgence pendant le démarrage : aucune réouverture après la fin de l’a
   } finally { release(); f.cleanup(); }
 });
 
+test("désactiver pendant le démarrage annule l’ouverture, sans session ni réouverture", async () => {
+  const f = fixture();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  f.io.startCvm = async () => { f.state.starts++; await pending; f.state.power = "running"; };
+  try {
+    const opening = f.controller.submit("open", operator, 0);
+    await tick();
+    assert.equal(f.state.starts, 1);
+    assert.equal(f.controller.submit("close", operator, opening.revision).phase, "closing");
+    release();
+    await phase(f.controller, "closed");
+    assert.equal(f.store.read().openedAt, null);
+    assert.equal(f.state.stops, 1);
+  } finally { release(); f.cleanup(); }
+});
+
 test("urgence supplante le drainage ; reprise du contrôleur ne relance pas une commande interrompue", async () => {
   const f = fixture();
   let release!: () => void;

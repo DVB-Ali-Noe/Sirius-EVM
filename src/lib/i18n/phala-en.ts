@@ -115,7 +115,7 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Activer": "Activate",
   "Désactiver": "Deactivate",
   "Arrêt d’urgence": "Emergency stop",
-  "Désactiver ferme les admissions, attend les résultats en cours puis arrête Phala. L’arrêt d’urgence peut interrompre un entraînement.": "Deactivate stops new admissions, waits for running results, then stops Phala. Emergency stop may interrupt a training run.",
+  "Désactiver ferme les admissions, attend les résultats en cours puis arrête Phala ; pendant le démarrage, il annule l’ouverture. L’arrêt d’urgence peut interrompre un entraînement.": "Deactivate stops new admissions, waits for running results, then stops Phala; during startup it cancels the opening. Emergency stop may interrupt a training run.",
   "Verrouiller": "Lock",
   "Contrôleur indisponible": "Controller unavailable",
   "Code opérateur invalide": "Invalid operator code",
