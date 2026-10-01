@@ -16,6 +16,7 @@ import {
   setDatasetVisibility,
 } from "@/lib/datasets/client";
 import { acceptKybCredential } from "@/lib/kyb/client";
+import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
 import { transactionExplorerUrl } from "@/lib/evm/explorer";
@@ -270,6 +271,8 @@ function DatasetsContent() {
           </Link>
         </div>
       </div>
+
+      {kybManquant === true && <KybInviteForm role="provider" onAccepted={() => setKybManquant(false)} />}
 
       {error && (
         <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">

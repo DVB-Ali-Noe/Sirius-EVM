@@ -66,6 +66,8 @@ test("KYB : le parrainage vérifie l'émetteur serveur sans relâcher le parcour
     "@/lib/evm/addresses": { kybRegistryAddress: () => CURRENT },
     "@/lib/evm/abi/siriuskybregistry": { siriuskybregistryAbi: [] },
     "@/lib/db": { prisma: { credential: { upsert: async () => { persisted++; } } } },
+    // Invitations KYB : non utilisées par ce scénario, simulées pour isoler le module.
+    "@/lib/evm/networks": {}, "@/lib/evm/transaction": {}, "@/lib/kyb/invitation": {},
     "@/lib/evm/client": { getPublicClient: () => ({
       waitForTransactionReceipt: async () => ({ status: "success" }),
       getTransaction: async () => ({ from: VERIFIER, to: CURRENT }),
