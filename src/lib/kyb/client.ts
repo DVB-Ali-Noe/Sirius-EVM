@@ -1,6 +1,7 @@
 "use client";
 
 import { sendActiveTransaction, signTypedDataWithActiveWallet } from "@/lib/wallet/transaction-client";
+import { guardKybTransaction } from "@/lib/wallet/transaction-guard";
 
 export type KybRole = "provider" | "borrower";
 
@@ -80,7 +81,7 @@ export async function acceptKybCredential(role: KybRole): Promise<void> {
 
   if (!prepared.transaction) return;
 
-  const txHash = await sendActiveTransaction(prepared.transaction);
+  const txHash = await sendActiveTransaction(guardKybTransaction(prepared.transaction));
   const submission = await fetch(endpoint, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
