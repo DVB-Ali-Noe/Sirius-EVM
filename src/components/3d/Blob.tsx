@@ -85,11 +85,9 @@ attribute float aLayerType;
 
 varying float vAlpha;
 varying float vLayerType;
-varying float vGolden;
 
 void main() {
   vLayerType = aLayerType;
-  vGolden = 0.0;
 
   float debugType = aLayerType > 4.5 ? 4.0 : aLayerType;
   if (uVisibleLayer > 0.5 && abs(debugType - uVisibleLayer) > 0.5) {
@@ -191,10 +189,6 @@ void main() {
     vAlpha *= smoothstep(0.05, 0.85, rim);
   }
 
-  float goldZone = smoothstep(-0.1, 0.6, pos.x / 0.9);
-  float goldVertical = 1.0 - abs(pos.y / 0.9) * 0.5;
-  vGolden = goldZone * goldVertical;
-
   gl_PointSize = aSize * (35.0 / -mvPos.z);
   gl_Position = projectionMatrix * mvPos;
 }
@@ -203,7 +197,6 @@ void main() {
 const streakFrag = /* glsl */ `
 varying float vAlpha;
 varying float vLayerType;
-varying float vGolden;
 
 void main() {
   float dist = length(gl_PointCoord - vec2(0.5));
@@ -216,9 +209,8 @@ void main() {
     alpha = step(dist, 0.35) * vAlpha;
   }
 
-  vec3 baseColor = vec3(0.8);
-  vec3 goldColor = vec3(0.85, 0.7, 0.32);
-  vec3 color = mix(baseColor, goldColor, vGolden * 0.55);
+  // Sphère entièrement blanche : plus de reflet doré sur un côté.
+  vec3 color = vec3(0.8);
 
   gl_FragColor = vec4(color, alpha);
 }
