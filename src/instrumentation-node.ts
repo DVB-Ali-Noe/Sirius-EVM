@@ -1,5 +1,6 @@
 import { isDemoDeployment } from "@/lib/deployment-mode";
 import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
+import { exposureLimits } from "@/lib/sirius/exposure-limits";
 
 const DEMO = isDemoDeployment();
 
@@ -61,6 +62,9 @@ export async function registerNode() {
         "SIRIUS_EXPECTED_COMPOSE_HASH",
         "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256",
         "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256",
+        // Bêta mainnet sans audit externe : l'application borne seule l'argent exposé.
+        "SIRIUS_MAX_LOAN_USDC",
+        "SIRIUS_MAX_EXPOSURE_USDC",
       );
     }
 
@@ -120,6 +124,8 @@ export async function registerNode() {
         throw new Error(`${privateName} et ${publicName} doivent désigner le même contrat`);
       }
     }
+    // Valeurs lisibles et cohérentes (par prêt ≤ exposition), refusées au démarrage plutôt qu’au premier emprunt.
+    exposureLimits();
   }
 
   if (

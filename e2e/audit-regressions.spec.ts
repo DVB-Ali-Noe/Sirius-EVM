@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "playwright/test";
+import { encodeFunctionData, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { buildDelegationMessage } from "../src/lib/runner/authorization-contract";
 
@@ -183,7 +184,7 @@ for (const succeeds of [true, false]) {
     await page.route("**/api/**", route => {
       if (new URL(route.request().url()).pathname === "/api/wallet/credits") {
         const amount = reads++ > 0 && succeeds ? "0" : "10";
-        return route.fulfill({ json: { subject: A, credits: [{ escrow: oldEscrow, historical: true, available: true, atomic: amount, amount, transaction: { to: oldEscrow, data: "0x1234", value: "0x0" } }] } });
+        return route.fulfill({ json: { subject: A, credits: [{ escrow: oldEscrow, historical: true, available: true, atomic: amount, amount, transaction: { to: oldEscrow, data: encodeFunctionData({ abi: parseAbi(["function withdrawFor(address)"]), functionName: "withdrawFor", args: [A as `0x${string}`] }), value: "0x0" } }] } });
       }
       return route.fulfill({ json: { known: true, authenticated: false } });
     });

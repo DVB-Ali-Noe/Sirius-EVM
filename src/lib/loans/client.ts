@@ -2,6 +2,7 @@
 
 import { useWalletStore } from "@/stores/wallet";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
+import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { createRunnerDelivery } from "@/lib/runner/delivery-client";
 import {
@@ -104,7 +105,7 @@ export async function cancelExpiredLoan(loanId: string): Promise<void> {
   const body = await response.json() as { error?: string; transaction?: Record<string, unknown> };
   if (!response.ok) throw new Error(body.error ?? "Remboursement USDC échoué");
   if (body.transaction) {
-    await sendActiveTransaction(body.transaction, { waitForConfirmation: true });
+    await sendActiveTransaction(guardRefundTransaction(body.transaction), { waitForConfirmation: true });
     const confirmed = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
     const result = await confirmed.json() as { error?: string; transaction?: unknown };
     if (!confirmed.ok || result.transaction) throw new Error(result.error ?? "Remboursement à réconcilier");
