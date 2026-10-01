@@ -141,6 +141,9 @@ function PageBottom() {
           <Link href="/docs" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
             {t("Documentation")}
           </Link>
+          <Link href="/status" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
+            {t("État du protocole")}
+          </Link>
           <XLink variant="footer" />
         </div>
         <p className="text-xs tracking-widest text-muted">{t("Sirius — data lending confidentiel sur EVM")}</p>
