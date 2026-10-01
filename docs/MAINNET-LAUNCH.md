@@ -47,9 +47,12 @@ Journal d'exécution du [plan de lancement](MAINNET-LAUNCH-PLAN.md). Une entrée
 
 | Date et heure (UTC) | Bloc tête | Bloc `finalized` | Retard (min) |
 |---|---|---|---|
+| 2026-10-01 11:51 | 77 352 186 | 77 342 377 | 16,5 (bloc `safe` : 10,5) |
 
 ## Entrées
 
 ### 1er octobre 2026
 
 - Plan de lancement établi et publié dans `docs/`.
+- Le RPC public `rpc.mainnet.chain.robinhood.com` **n'est pas un nœud d'archive** : toute lecture d'état au bloc `finalized` échoue (« historical state is not available »). L'application et le préflight lisent l'état au bloc finalisé : un RPC d'archive mainnet (fournisseur payant) est obligatoire avant samedi, et doit être renseigné dans `EVM_RPC_URL` de Next, du reaper, du runner et du collecteur.
+- Code hash du bytecode USDC mainnet relevé le 28 septembre : `0x487e3e7ba0f6ef76ccd39c373954f0edcdfe15c8817bdca4ef73f6df3963e694` (`SIRIUS_USDC_CODE_HASH` du préflight et du script de déploiement).

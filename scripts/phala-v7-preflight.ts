@@ -4,10 +4,34 @@ import { siriusescrowv7Abi } from "../src/lib/evm/abi/siriusescrowv7";
 import { siriusdatasetregistryAbi } from "../src/lib/evm/abi/siriusdatasetregistry";
 import { siriuskybregistryAbi } from "../src/lib/evm/abi/siriuskybregistry";
 
+/** USDC ponté officiel de Robinhood Chain mainnet (pont canonique Arbitrum), 6 décimales. */
+export const MAINNET_USDC = "0x80e0e24718dbfcad49ecaa6f1e6c89a190586ca8";
+
+const NETWORKS = {
+  testnet: { chainId: 46630, decimals: 18 },
+  mainnet: { chainId: 4663, decimals: 6 },
+} as const;
+type Network = keyof typeof NETWORKS;
+
 export function testnetV7Configuration(env: Record<string, string | undefined>) {
-  if (env.EVM_NETWORK !== "testnet" || env.SIRIUS_BILLING_VERSION !== "7" || env.SIRIUS_KYB_MODE !== "open"
+  return v7Configuration(env, "testnet");
+}
+
+/**
+ * Mainnet : KYB strict (jamais ouvert), USDC ponté épinglé, et trésorerie et administration
+ * KYB sur le même compte de gouvernance (le Safe), déclaré dans SIRIUS_KYB_ADMIN.
+ */
+export function mainnetV7Configuration(env: Record<string, string | undefined>) {
+  return v7Configuration(env, "mainnet");
+}
+
+function v7Configuration(env: Record<string, string | undefined>, network: Network) {
+  const kybOk = network === "testnet" ? env.SIRIUS_KYB_MODE === "open" : env.SIRIUS_KYB_MODE !== "open";
+  if (env.EVM_NETWORK !== network || env.SIRIUS_BILLING_VERSION !== "7" || !kybOk
     || env.SIRIUS_EVM_FINALITY !== "finalized" || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(env.SIRIUS_EVM_CONFIRMATIONS ?? "")) {
-    throw new Error("Testnet, v7, KYB ouvert et finalité explicite requis pour le lot B");
+    throw new Error(network === "testnet"
+      ? "Testnet, v7, KYB ouvert et finalité explicite requis pour le lot B"
+      : "Mainnet, v7, KYB strict et finalité explicite requis");
   }
   const address = (name: string): Address => {
     const value = env[name]?.trim().toLowerCase();
@@ -29,12 +53,22 @@ export function testnetV7Configuration(env: Record<string, string | undefined>) 
     || Object.values(contracts).some((value) => [runner, deployer, computeRecipient].includes(value)))) {
     throw new Error("Adresses de contrats et comptes incompatibles");
   }
-  return { usdc, usdcCodeHash: usdcCodeHash.toLowerCase() as Hex, deployer, runner, computeRecipient, contracts };
+  let kybAdmin: Address | null = null;
+  if (network === "mainnet") {
+    if (usdc !== MAINNET_USDC) throw new Error("USDC mainnet attendu : pont canonique 0x80e0…6cA8");
+    kybAdmin = address("SIRIUS_KYB_ADMIN");
+    if (kybAdmin !== computeRecipient) throw new Error("La trésorerie et l’administration KYB doivent être le même compte de gouvernance");
+    if ([runner, deployer].includes(kybAdmin)) throw new Error("Le compte de gouvernance doit rester distinct du runner et du déployeur");
+  }
+  return { network, ...NETWORKS[network], usdc, usdcCodeHash: usdcCodeHash.toLowerCase() as Hex, deployer, runner, computeRecipient, kybAdmin, contracts };
 }
 
-export async function checkTestnetV7(client: PublicClient, config: ReturnType<typeof testnetV7Configuration>) {
-  if (!finalityPolicy().finalized) throw new Error("Le lot B exige finalized");
-  const finality = await checkRpcFinality(client, 46630);
+export const checkTestnetV7 = checkV7;
+export const checkMainnetV7 = checkV7;
+
+export async function checkV7(client: PublicClient, config: ReturnType<typeof testnetV7Configuration>) {
+  if (!finalityPolicy().finalized) throw new Error("Le préflight v7 exige finalized");
+  const finality = await checkRpcFinality(client, config.chainId);
   const blockNumber = BigInt(finality.confirmedBlock);
   const [stable, tip, tokenCode, decimals, deployerWei, runnerWei, computeUsdc] = await Promise.all([
     client.getBlock({ blockNumber }), client.getBlock({ blockNumber: BigInt(finality.latestBlock) }),
@@ -43,7 +77,7 @@ export async function checkTestnetV7(client: PublicClient, config: ReturnType<ty
     client.getBalance({ address: config.deployer, blockNumber }), client.getBalance({ address: config.runner, blockNumber }),
     client.readContract({ address: config.usdc, abi: erc20Abi, functionName: "balanceOf", args: [config.computeRecipient], blockNumber }),
   ]);
-  if (!tokenCode || keccak256(tokenCode) !== config.usdcCodeHash || decimals !== 18) throw new Error("Code ou précision USDC testnet inattendu");
+  if (!tokenCode || keccak256(tokenCode) !== config.usdcCodeHash || decimals !== config.decimals) throw new Error("Code ou précision USDC inattendu pour ce réseau");
   if (stable.hash !== finality.confirmedHash || tip.timestamp < stable.timestamp) throw new Error("Vue RPC incohérente pendant le préflight");
   const issues: string[] = [];
   if (deployerWei === BigInt(0)) issues.push("deployer.native_balance_zero");
@@ -70,7 +104,13 @@ export async function checkTestnetV7(client: PublicClient, config: ReturnType<ty
     if (version !== "sirius-escrow-usdc-v7" || datasetVersion !== "sirius-dataset-v4"
       || authorizer.toLowerCase() !== config.runner || token.toLowerCase() !== config.usdc || kyb.toLowerCase() !== contracts.kyb
       || datasets.toLowerCase() !== contracts.datasets || datasetKyb.toLowerCase() !== contracts.kyb
-      || linkedEscrow.toLowerCase() !== contracts.escrow || !openKyb) throw new Error("Versions, liaisons ou KYB des contrats incompatibles avec le lot B");
+      || linkedEscrow.toLowerCase() !== contracts.escrow || openKyb !== (config.network === "testnet")) {
+      throw new Error("Versions, liaisons ou mode KYB des contrats incompatibles avec ce réseau");
+    }
+    if (config.kybAdmin) {
+      const admin = await client.readContract({ address: contracts.kyb, abi: siriuskybregistryAbi, functionName: "admin", blockNumber });
+      if (admin.toLowerCase() !== config.kybAdmin) throw new Error("Administration KYB hors du compte de gouvernance");
+    }
   }
   const canonical = await client.getBlock({ blockNumber });
   if (canonical.hash !== stable.hash) throw new Error("Bloc finalisé modifié pendant le préflight");
