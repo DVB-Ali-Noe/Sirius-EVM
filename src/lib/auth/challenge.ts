@@ -7,7 +7,9 @@ import { buildDelegationMessage, parseDelegationMessage } from "@/lib/runner/aut
 
 const CTX = "sirius-auth-challenge";
 const TTL_MS = 5 * 60 * 1000;
-const DELEGATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 24 h : une signature obtenue par hameçonnage ne donne la main sur la session runner
+// que pour une journée, au lieu d'une semaine (audit M2). Le runner accepte jusqu'à 7 jours.
+const DELEGATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface ChallengePayload {
   a: string;
