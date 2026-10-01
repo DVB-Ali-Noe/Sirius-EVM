@@ -1,6 +1,7 @@
 "use client";
 
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
+import { guardDatasetTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 
 async function responseBody<T>(response: Response): Promise<T & { error?: string }> {
@@ -19,7 +20,7 @@ export async function publishDataset(datasetId: string): Promise<void> {
   }
   if (prepared.reconciled) return;
   if (!prepared.transaction) throw new Error("Préparation du titre EVM échouée");
-  const txHash = await sendActiveTransaction(prepared.transaction);
+  const txHash = await sendActiveTransaction(guardDatasetTransaction(prepared.transaction, "mint"));
   const submission = await fetch(`/api/datasets/${datasetId}/list`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -38,7 +39,7 @@ export async function destroyDataset(datasetId: string): Promise<void> {
   const prepared = await responseBody<{ transaction: Record<string, unknown> | null }>(preparation);
   if (!preparation.ok) throw new Error(prepared.error ?? "Préparation de la suppression échouée");
   const txHash = prepared.transaction
-    ? await sendActiveTransaction(prepared.transaction)
+    ? await sendActiveTransaction(guardDatasetTransaction(prepared.transaction, "destroy"))
     : undefined;
   const authorization = await issueRunnerGrant(
     "delete-dataset",
