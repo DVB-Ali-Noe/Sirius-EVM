@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { keccak256, type PublicClient } from "viem";
-import { checkTestnetV7, testnetV7Configuration } from "./phala-v7-preflight";
+import { checkMainnetV7, checkTestnetV7, MAINNET_USDC, mainnetV7Configuration, testnetV7Configuration } from "./phala-v7-preflight";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -96,5 +96,52 @@ test("le préflight B bloque un token divergent, un ancien escrow, un autre sign
     const { client, config, state } = fixture();
     Object.assign(state, change);
     await assert.rejects(checkTestnetV7(client, config));
+  }
+});
+
+const mainnetEnvironment = () => ({ ...environment(), EVM_NETWORK: "mainnet", SIRIUS_KYB_MODE: "strict",
+  SIRIUS_USDC_ADDRESS: MAINNET_USDC, SIRIUS_COMPUTE_RECIPIENT: address(7), SIRIUS_KYB_ADMIN: address(7) });
+
+test("le préflight mainnet exige KYB strict, l'USDC ponté et un compte de gouvernance unique", () => {
+  const config = mainnetV7Configuration(mainnetEnvironment());
+  assert.equal(config.chainId, 4663);
+  assert.equal(config.decimals, 6);
+  assert.equal(config.kybAdmin, address(7));
+  for (const change of [{ SIRIUS_KYB_MODE: "open" }, { EVM_NETWORK: "testnet" }, { SIRIUS_USDC_ADDRESS: address(1) },
+    { SIRIUS_KYB_ADMIN: "" }, { SIRIUS_KYB_ADMIN: address(8) }, { SIRIUS_KYB_ADMIN: address(2), SIRIUS_COMPUTE_RECIPIENT: address(2) }]) {
+    assert.throws(() => mainnetV7Configuration({ ...mainnetEnvironment(), ...change }));
+  }
+  assert.throws(() => testnetV7Configuration(mainnetEnvironment()));
+});
+
+function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin?: string } = {}) {
+  Object.assign(process.env, mainnetEnvironment());
+  const config = mainnetV7Configuration(mainnetEnvironment());
+  const stableHash = `0x${"12".repeat(32)}`;
+  const client = {
+    getChainId: async () => 4663,
+    getBlockNumber: async () => BigInt(100),
+    getBlock: async ({ blockNumber }: { blockNumber?: bigint }) => ({ number: blockNumber ?? BigInt(90), hash: stableHash, timestamp: (blockNumber ?? BigInt(90)) * BigInt(2) }),
+    getBytecode: async () => "0x1234",
+    getBalance: async () => BigInt(100),
+    readContract: async ({ address: contract, functionName }: { address: string; functionName: string }) => {
+      if (contract === config.usdc) return functionName === "decimals" ? (overrides.decimals ?? 6) : BigInt(0);
+      if (contract === config.contracts!.kyb) return functionName === "admin" ? (overrides.admin ?? config.kybAdmin) : (overrides.openKyb ?? false);
+      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v4", kyb: config.contracts!.kyb, escrow: config.contracts!.escrow }[functionName];
+      return { VERSION: "sirius-escrow-usdc-v7", lockAuthorizer: config.runner, usdc: config.usdc, kyb: config.contracts!.kyb, datasets: config.contracts!.datasets }[functionName];
+    },
+  } as unknown as PublicClient;
+  return { client, config };
+}
+
+test("le préflight mainnet valide 6 décimales, un KYB fermé et l'admin attendu", async () => {
+  const { client, config } = mainnetFixture();
+  assert.equal((await checkMainnetV7(client, config)).chainChecksPassed, true);
+});
+
+test("le préflight mainnet refuse 18 décimales, un registre KYB ouvert ou un autre admin", async () => {
+  for (const overrides of [{ decimals: 18 }, { openKyb: true }, { admin: address(9) }]) {
+    const { client, config } = mainnetFixture(overrides);
+    await assert.rejects(checkMainnetV7(client, config));
   }
 });

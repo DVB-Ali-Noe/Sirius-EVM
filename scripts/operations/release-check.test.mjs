@@ -33,3 +33,37 @@ test("les clés de déploiement et les master keys n’entrent dans aucun servic
   env[0].SIRIUS_MASTER_KEY = "synthetic";
   assert.equal(checkReleaseEnvironments(...env).configurationReady, false);
 });
+
+function mainnetEnvironments() {
+  const [next, reaper, runner] = environments();
+  const usdc = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
+  for (const env of [next, reaper, runner]) { env.EVM_NETWORK = "mainnet"; env.SIRIUS_USDC_ADDRESS = usdc; }
+  Object.assign(next, { NEXT_PUBLIC_EVM_NETWORK: "mainnet", NEXT_PUBLIC_SIRIUS_USDC_ADDRESS: usdc,
+    SIRIUS_MAX_LOAN_USDC: "50", SIRIUS_MAX_EXPOSURE_USDC: "500", NEXT_PUBLIC_WEB3AUTH_NETWORK: "sapphire_mainnet" });
+  return [next, reaper, runner];
+}
+
+test("une configuration mainnet complète passe, et une configuration testnet est refusée en mode mainnet", () => {
+  assert.equal(checkReleaseEnvironments(...mainnetEnvironments(), "mainnet").configurationReady, true);
+  const testnet = checkReleaseEnvironments(...environments(), "mainnet");
+  assert.equal(testnet.configurationReady, false);
+  assert.ok(testnet.issues.includes("next.EVM_NETWORK"));
+  assert.equal(checkReleaseEnvironments(...mainnetEnvironments()).configurationReady, false);
+});
+
+test("le mode mainnet refuse l'USDC de test, la démo, le faucet, le KYB ouvert et les plafonds absents", () => {
+  const cases = [
+    [(env) => { env[2].SIRIUS_USDC_ADDRESS = `0x${"5".repeat(40)}`; }, "runner.SIRIUS_USDC_ADDRESS.mainnet"],
+    [(env) => { env[0].SIRIUS_DEPLOYMENT_MODE = "demo"; }, "next.demo-mode"],
+    [(env) => { env[0].SIRIUS_FAUCET_KEY = "x"; }, "next.faucet-key"],
+    [(env) => { env[1].SIRIUS_KYB_MODE = "open"; }, "reaper.SIRIUS_KYB_MODE.open"],
+    [(env) => { delete env[0].SIRIUS_MAX_EXPOSURE_USDC; }, "next.SIRIUS_MAX_EXPOSURE_USDC"],
+    [(env) => { env[0].SIRIUS_LEGACY_ESCROW_ADDRESSES = `0x${"9".repeat(40)}`; }, "next.SIRIUS_LEGACY_ESCROW_ADDRESSES.inherited"],
+    [(env) => { env[0].NEXT_PUBLIC_WEB3AUTH_NETWORK = "sapphire_devnet"; }, "next.NEXT_PUBLIC_WEB3AUTH_NETWORK"],
+  ];
+  for (const [change, issue] of cases) {
+    const env = mainnetEnvironments();
+    change(env);
+    assert.ok(checkReleaseEnvironments(...env, "mainnet").issues.includes(issue), issue);
+  }
+});
