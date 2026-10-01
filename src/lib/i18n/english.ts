@@ -10,6 +10,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.": "During the beta, access is by invitation. Paste the code you received from the Sirius team, then confirm in your wallet.",
   "Validation…": "Validating…",
   "Valider l’invitation": "Accept invitation",
+  "État du protocole": "Protocol status",
   "Publié le {date}": "Published on {date}",
   "Prix du compute": "Compute price",
   "Frais d’exécution retenus": "Execution fees retained",

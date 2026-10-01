@@ -449,6 +449,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Signature de l’invitation KYB invalide": "Invalid KYB invitation signature",
   "Vérificateur de l’invitation KYB non autorisé": "KYB invitation verifier is not authorised",
   "Invitation KYB périmée : demande une nouvelle invitation": "KYB invitation is outdated: ask for a new one",
+  "Préflight EVM : EVM_NETWORK invalide": "EVM preflight: invalid EVM_NETWORK",
   "Montant au-delà du plafond par prêt de la bêta": "Amount above the beta per-loan limit",
   "Transaction refusée : contenu invalide": "Transaction rejected: invalid content",
   "Transaction refusée : destinataire invalide": "Transaction rejected: invalid recipient",

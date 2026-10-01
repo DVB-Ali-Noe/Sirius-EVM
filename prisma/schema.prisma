@@ -17,6 +17,7 @@ model Dataset {
   description    String?
   provider       String // adresse EVM du provider, normalisée en minuscules
   evmDatasetId    String?       @unique // identifiant bytes32 du titre EVM
+  evmChainId      Int? // chaîne du titre EVM, posée à la publication ; refus d’une base d’une autre chaîne
   evmMintTxHash   String? // hash de mint confirmé
   evmMintBlock    String? // bloc de mint, borne les recherches d'événements
   evmDestroyTxHash String? // hash de tombstone confirmé
