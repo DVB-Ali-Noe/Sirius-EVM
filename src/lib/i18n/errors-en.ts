@@ -442,6 +442,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Trop de challenges actifs — réessaie plus tard": "Too many active challenges — try again later",
   "Trop de datasets en attente d’upload": "Too many datasets awaiting upload",
   "Trop d’emprunts en attente": "Too many pending loans",
+  "Préflight EVM : EVM_NETWORK invalide": "EVM preflight: invalid EVM_NETWORK",
   "Montant au-delà du plafond par prêt de la bêta": "Amount above the beta per-loan limit",
   "Transaction refusée : contenu invalide": "Transaction rejected: invalid content",
   "Transaction refusée : destinataire invalide": "Transaction rejected: invalid recipient",

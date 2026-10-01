@@ -8,7 +8,7 @@ import { test } from "node:test";
 
 const script = fileURLToPath(new URL("./check-reaper.sh", import.meta.url));
 
-function check(state, missing = false) {
+function check(state, missing = false, heartbeat = true) {
   const directory = mkdtempSync(join(tmpdir(), "sirius-reaper-check-"));
   try {
     const bin = join(directory, "bin");
@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.REAPER_TEST_CALLS, JSON.stringify(args) + '\\n');
 if (args[0] === 'inspect') console.log(process.env.REAPER_TEST_STATE);
+else if (args.includes('logs') && args.includes('--since')) console.log(process.env.REAPER_TEST_HEARTBEAT === 'true' ? '[reaper] passe 2026-10-01T10:00:00.000Z' : '');
 else if (args.includes('logs')) console.log('[reaper] arrêt : contrats incompatibles');
 else if (args.includes('--quiet')) {
   if (process.env.REAPER_TEST_MISSING !== 'true') console.log('container-staging');
@@ -29,7 +30,7 @@ else process.exit(2);
     const result = spawnSync("bash", [script, directory, "sirius-staging"], {
       encoding: "utf8",
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, REAPER_TEST_STATE: state,
-        REAPER_TEST_MISSING: String(missing), REAPER_TEST_CALLS: callsFile },
+        REAPER_TEST_MISSING: String(missing), REAPER_TEST_HEARTBEAT: String(heartbeat), REAPER_TEST_CALLS: callsFile },
     });
     const calls = readFileSync(callsFile, "utf8").trim().split("\n").map(JSON.parse);
     assert.ok(!result.stdout.includes("SECRET_SYNTHETIQUE"));
@@ -47,7 +48,9 @@ test("le contrôle VPS accepte le processus running de staging", () => {
   const result = check("running 0 false 0");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /statut=running/);
-  assert.ok(!result.calls.some((args) => args.includes("logs")));
+  assert.match(result.stdout, /Ligne de vie récente trouvée/);
+  // Seule la lecture de la ligne de vie : aucun affichage de logs d'erreur.
+  assert.ok(result.calls.filter((args) => args.includes("logs")).every((args) => args.includes("--since")));
 });
 
 test("le contrôle VPS explique un redémarrage et affiche les logs du seul reaper", () => {

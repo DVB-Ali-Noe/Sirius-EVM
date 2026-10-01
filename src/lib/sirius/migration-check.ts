@@ -5,6 +5,7 @@ import { readLoan } from "@/lib/evm/escrow";
 import { normalizeAddress } from "@/lib/evm/address";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { getPublicClient } from "@/lib/evm/client";
+import { checkDatabaseChain } from "./chain-guard";
 
 export async function checkEvmMigration(report: (step: string) => void = () => {}): Promise<void> {
   report("Configuration PostgreSQL");
@@ -14,6 +15,10 @@ export async function checkEvmMigration(report: (step: string) => void = () => {
   const tables = await prisma.$queryRaw<{ present: boolean }[]>`
     SELECT to_regclass('public."Loan"') IS NOT NULL AS present`;
   if (!tables[0]?.present) return;
+  // Avant toute autre vérification et à chaque déploiement : la base doit appartenir à la chaîne visée.
+  const network = process.env.EVM_NETWORK?.trim() || "testnet";
+  if (network !== "mainnet" && network !== "testnet") throw new AppError("Préflight EVM : EVM_NETWORK invalide", 409);
+  await checkDatabaseChain(network, report);
   report("PostgreSQL : lecture de l'historique des migrations Prisma");
   const applied = await prisma.$queryRaw<{ present: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM "_prisma_migrations"

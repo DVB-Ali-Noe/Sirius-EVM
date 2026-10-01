@@ -4,6 +4,7 @@ import { createWithdrawRelayer, WITHDRAW_RELAYER_INTERVAL_MS, withdrawRelayerCon
 import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
 import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
+import { assertReaperMainnetConfiguration } from "./mainnet-guard";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -67,6 +68,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 async function main(): Promise<void> {
   const interval = resolveInterval();
+  assertReaperMainnetConfiguration();
   assertReaperRunnerConfiguration();
   await requireReaperEvmDeployment();
   const relayerConfig = withdrawRelayerConfig();
@@ -96,6 +98,8 @@ async function main(): Promise<void> {
         console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
       }
     }
+    // Battement lu par check-reaper.sh : un reaper vivant mais bloqué ne produit plus cette ligne.
+    console.log(`[reaper] passe ${new Date().toISOString()}`);
     if (arret) break;
     const reste = interval - (Date.now() - debut);
     if (reste > 0) await pause(reste);
