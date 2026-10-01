@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
+import { guardWithdrawTransaction } from "@/lib/wallet/transaction-guard";
 import { getExternalWallet } from "@/lib/wallet/manager";
 import { truncate } from "@/lib/format";
 import { messageOf } from "@/lib/errors-client";
@@ -68,7 +69,8 @@ export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> 
     setWithdrawing(credit.escrow);
     setError(null);
     try {
-      await sendActiveTransaction(credit.transaction, { waitForConfirmation: true, assertCurrent });
+      const account = useWalletStore.getState().address ?? "";
+      await sendActiveTransaction(guardWithdrawTransaction(credit.transaction, account), { waitForConfirmation: true, assertCurrent });
       assertCurrent();
       await Promise.all([refresh(), onWithdraw()]);
     } catch (error) {

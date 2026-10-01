@@ -31,7 +31,12 @@ export async function addFunds(): Promise<FondsAjoutes> {
     const onramp = await fetch("/api/onramp");
     const urlBody = await onramp.json().catch(() => ({}));
     if (onramp.ok && typeof urlBody.url === "string") {
-      window.open(urlBody.url, "moonpay", "popup,width=460,height=720");
+      // `noopener` : la page ouverte ne peut pas manipuler l'onglet Sirius en retour.
+      if (urlBody.kind === "bridge") {
+        window.open(urlBody.url, "_blank", "noopener,noreferrer");
+        throw new Error("Pont ouvert : envoie de l’USDC vers Robinhood Chain depuis un autre réseau");
+      }
+      window.open(urlBody.url, "moonpay", "popup,width=460,height=720,noopener");
       throw new Error("Fenêtre d'achat ouverte");
     }
   }
