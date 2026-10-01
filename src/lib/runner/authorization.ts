@@ -42,16 +42,19 @@ export interface ValidatedRunnerGrant {
   expiresAt: number;
 }
 
-export async function validateRunnerGrant(
-  value: unknown,
-  expected: ExpectedRunnerGrant,
-): Promise<ValidatedRunnerGrant> {
+/**
+ * Authenticité seule : délégation signée par le wallet, grant signé par la clé de session,
+ * fenêtres de validité. Ne consomme aucun nonce et ne regarde pas le périmètre de
+ * l'opération : Next l'appelle avant de solliciter le runner, pour qu'un grant forgé
+ * n'atteigne jamais le budget runner.
+ */
+export async function authenticateRunnerGrant(value: unknown): Promise<ValidatedRunnerGrant> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AppError("Autorisation runner manquante", 401);
   }
   const grant = value as RunnerGrant;
   const { delegation, payload } = grant;
-  if (!delegation || !payload || payload.version !== 1 || payload.operation !== expected.operation) {
+  if (!delegation || !payload || payload.version !== 1) {
     throw new AppError("Autorisation runner invalide", 401);
   }
 
@@ -89,11 +92,7 @@ export async function validateRunnerGrant(
   }
 
   if (
-    payload.datasetId !== expected.datasetId ||
-    payload.loanId !== expected.loanId ||
-    payload.jobId !== expected.jobId ||
-    payload.demoSessionRevision !== expected.demoSessionRevision ||
-    payload.payloadHash !== hashRunnerIntent(expected.intentParts) ||
+    typeof payload.payloadHash !== "string" ||
     !/^[A-Za-z0-9_-]{24}$/.test(payload.nonce) ||
     !Number.isSafeInteger(payload.issuedAt) ||
     !Number.isSafeInteger(payload.expiresAt) ||
@@ -142,6 +141,28 @@ export async function validateRunnerGrant(
     replayId: `${subject}:${payload.nonce}`,
     expiresAt: payload.expiresAt,
   };
+}
+
+export async function validateRunnerGrant(
+  value: unknown,
+  expected: ExpectedRunnerGrant,
+): Promise<ValidatedRunnerGrant> {
+  const grant = (value && typeof value === "object" && !Array.isArray(value) ? value : {}) as Partial<RunnerGrant>;
+  if (grant.payload && grant.payload.operation !== expected.operation) {
+    throw new AppError("Autorisation runner invalide", 401);
+  }
+  const validated = await authenticateRunnerGrant(value);
+  const payload = grant.payload!;
+  if (
+    payload.datasetId !== expected.datasetId ||
+    payload.loanId !== expected.loanId ||
+    payload.jobId !== expected.jobId ||
+    payload.demoSessionRevision !== expected.demoSessionRevision ||
+    payload.payloadHash !== hashRunnerIntent(expected.intentParts)
+  ) {
+    throw new AppError("Grant runner hors scope ou expiré", 401);
+  }
+  return validated;
 }
 
 export async function verifyRunnerGrant(

@@ -6,7 +6,7 @@ import { resolveServerNetwork } from "@/lib/evm/networks";
 import { settlementAccount } from "@/lib/evm/runner-account";
 import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
 import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
-import { boundedGas } from "@/lib/runner/gas-policy";
+import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
@@ -34,6 +34,7 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
         client.getBalance({ address: account.address, blockTag: "pending" }),
         client.getTransactionCount({ address: account.address, blockTag: "pending" }),
       ]);
+      lowGasBalanceAlert(ledger.policy.gas, balance, account.address);
       const fees = boundedGas(ledger.policy.gas, estimate, price, balance);
       return { nonce, serialized: await account.signTransaction({
         chainId: quote.chainId, to: quote.escrow, data, value: BigInt(0), nonce, ...fees,

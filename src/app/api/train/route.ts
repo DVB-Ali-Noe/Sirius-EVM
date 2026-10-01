@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runSelfTrain } from "@/lib/sirius/self-train";
-import { assertGrantSubject, requireAuth } from "@/lib/auth/require-auth";
+import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "Requête d’entraînement incomplète" }, { status: 400 });
     }
-    assertGrantSubject(session, authorization);
+    await assertAuthenticGrant(session, authorization);
     if (deliveryPublicKey !== undefined && (typeof deliveryPublicKey !== "string" || !/^[A-Za-z0-9_-]{87}$/.test(deliveryPublicKey))) {
       return NextResponse.json({ error: "Clé de livraison invalide" }, { status: 400 });
     }

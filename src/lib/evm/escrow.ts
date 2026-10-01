@@ -18,7 +18,7 @@ import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTe
 import { runnerBudget } from "@/lib/runner/budget";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
-import { boundedGas } from "@/lib/runner/gas-policy";
+import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import type { BudgetLedger } from "@/lib/runner/budget-ledger";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
 import { assertCanonicalReceipt, confirmedBlock } from "./finality";
@@ -228,6 +228,7 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
         publicClient.getBalance({ address: account.address, blockTag: "pending" }),
         publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
       ]);
+      lowGasBalanceAlert(ledger.policy.gas, balance, account.address);
       const fees = boundedGas(ledger.policy.gas, estimate, gasPrice, balance);
       const serialized = await account.signTransaction({
         chainId: binding.chainId, to: address, data, value: BigInt(0), nonce,

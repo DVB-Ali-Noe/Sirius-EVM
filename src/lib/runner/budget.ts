@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { AppError } from "@/lib/app-error";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { BudgetLedger, type BudgetKind, type BudgetPolicy, type WorkflowBudget } from "./budget-ledger";
+import { countsAsRunnerFailure, releasesReservation } from "./failure-policy";
 
 const workflowContext = new AsyncLocalStorage<WorkflowBudget>();
 export const currentWorkflowBudget = () => workflowContext.getStore();
@@ -88,7 +89,8 @@ export async function runBudgetedOperation<T>(
     ledger.finish(id, fingerprint, true, kind === "training" ? JSON.stringify(result) : null);
     return result;
   } catch (error) {
-    ledger.finish(id, fingerprint, false);
+    if (releasesReservation(error) && ledger.releaseReservation(id, fingerprint)) throw error;
+    ledger.finish(id, fingerprint, false, null, countsAsRunnerFailure(error));
     throw error;
   }
 }

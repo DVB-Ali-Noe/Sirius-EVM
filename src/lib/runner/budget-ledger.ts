@@ -189,7 +189,13 @@ const WORKFLOW_SCHEMA = `
   ) STRICT;
   CREATE TABLE IF NOT EXISTS transaction_payloads (
     operation_id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, attempts INTEGER NOT NULL, next_attempt_at INTEGER NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS operator_actions (
+    id INTEGER PRIMARY KEY, action TEXT NOT NULL, operation_id TEXT, actor TEXT NOT NULL,
+    reason TEXT NOT NULL, at INTEGER NOT NULL, previous TEXT NOT NULL
   ) STRICT;`;
+
+export type OperatorAction = "reset-failures" | "reopen" | "abandon" | "replace";
 
 export class BudgetLedger {
   private readonly db: Database;
@@ -298,6 +304,13 @@ export class BudgetLedger {
     };
   }
 
+  /** Lecture opérateur par identifiant seul ; les écritures repassent par `find`. */
+  operation(id: string): BudgetOperation | null {
+    this.assertFile();
+    const row = this.db.prepare("SELECT fingerprint FROM operations WHERE id = ?").get(id);
+    return row ? this.find(id, String(row.fingerprint)) : null;
+  }
+
   reserve(id: string, fingerprint: string, kind: BudgetKind, workflow?: WorkflowBudget): { fresh: boolean; operation: BudgetOperation } {
     return this.atomic(() => {
       const existing = this.find(id, fingerprint);
@@ -384,7 +397,12 @@ export class BudgetLedger {
     });
   }
 
-  finish(id: string, fingerprint: string, succeeded: boolean, result: string | null = null): void {
+  /**
+   * `countFailure` vaut faux quand l'échec revient à l'appelant (requête invalide, grant
+   * refusé, dataset inexploitable) : l'opération reste close et son coût consommé, mais le
+   * coupe-circuit, qui protège la plateforme d'une panne de SON côté, n'en est pas affecté.
+   */
+  finish(id: string, fingerprint: string, succeeded: boolean, result: string | null = null, countFailure = true): void {
     if (result !== null && Buffer.byteLength(result) > 65536) throw new AppError("Résultat runner trop volumineux", 503);
     this.atomic(() => {
       const operation = this.find(id, fingerprint);
@@ -392,9 +410,133 @@ export class BudgetLedger {
       if (operation.state !== "reserved") return;
       this.db.prepare("UPDATE operations SET state = ?, result = ? WHERE id = ?")
         .run(succeeded ? "succeeded" : "failed", result, id);
-      if (!succeeded) this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
+      if (!succeeded && countFailure) this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
       // Le maximum alloué reste consommé : ni timeout, ni succès ne recrée de marge.
     });
+  }
+
+  /**
+   * Rend une réservation qui n'a rien engagé : aucune transaction signée, aucun journal de
+   * diffusion. Le crédit revient au workflow ou au budget global, et une nouvelle tentative
+   * repart d'une réservation neuve. Renvoie faux si l'opération a déjà engagé quelque chose
+   * (hash durable, opération close) : elle reste alors telle quelle.
+   */
+  releaseReservation(id: string, fingerprint: string): boolean {
+    return this.atomic(() => {
+      const operation = this.find(id, fingerprint);
+      if (!operation || operation.state !== "reserved" || operation.txHash) return false;
+      if (this.db.prepare("SELECT operation_id FROM transaction_payloads WHERE operation_id = ?").get(id)) return false;
+      this.unreserve(id);
+      return true;
+    });
+  }
+
+  private unreserve(id: string): void {
+    const row = this.db.prepare("SELECT kind, usd, wei FROM operations WHERE id = ?").get(id);
+    if (!row || !decimal(row.usd) || !decimal(row.wei)) throw new AppError("Réservation runner introuvable", 503);
+    const owner = this.db.prepare("SELECT workflow_id FROM operation_workflows WHERE operation_id = ?").get(id);
+    if (owner) {
+      const column = row.kind === "request" ? "requests" : row.kind === "training" ? "training" : row.kind === "transaction" ? "transactions" : null;
+      if (!column) throw new AppError("Réservation runner introuvable", 503);
+      this.db.prepare(`UPDATE workflows SET ${column} = ${column} + 1 WHERE id = ?`).run(String(owner.workflow_id));
+      this.db.prepare("DELETE FROM operation_workflows WHERE operation_id = ?").run(id);
+    } else {
+      const { allocatedUsd, allocatedWei } = this.accounting();
+      const usd = BigInt(row.usd);
+      const wei = BigInt(row.wei);
+      if (allocatedUsd < usd || allocatedWei < wei) throw new AppError("Comptabilité runner indisponible", 503);
+      this.db.prepare("UPDATE budget SET allocated_usd = ?, allocated_wei = ? WHERE id = 1")
+        .run(String(allocatedUsd - usd), String(allocatedWei - wei));
+    }
+    this.db.prepare("DELETE FROM transaction_payloads WHERE operation_id = ?").run(id);
+    this.db.prepare("DELETE FROM operations WHERE id = ?").run(id);
+  }
+
+  private journal(action: OperatorAction, operationId: string | null, actor: string, reason: string, previous: unknown): void {
+    if (!actor.trim() || actor.length > 128 || !reason.trim() || reason.length > 512) {
+      throw new AppError("Auteur et motif obligatoires pour une action opérateur", 409);
+    }
+    this.db.prepare("INSERT INTO operator_actions (action, operation_id, actor, reason, at, previous) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(action, operationId, actor.trim(), reason.trim(), Date.now(),
+        JSON.stringify(previous, (_key, value) => typeof value === "bigint" ? String(value) : value));
+  }
+
+  /** Réarme le coupe-circuit après diagnostic. Journalisé, jamais automatique. */
+  resetFailures(actor: string, reason: string): number {
+    return this.atomic(() => {
+      const { failures } = this.accounting();
+      this.journal("reset-failures", null, actor, reason, { failures });
+      this.db.prepare("UPDATE budget SET failures = 0 WHERE id = 1").run();
+      return failures;
+    });
+  }
+
+  /**
+   * Rouvre une transaction close en échec pour qu'un nouveau règlement soit possible. Le
+   * règlement qui suit relit d'abord l'escrow on-chain : un prêt déjà réglé ou remboursé
+   * n'est jamais renvoyé.
+   */
+  reopenTransaction(id: string, fingerprint: string, actor: string, reason: string): void {
+    this.atomic(() => {
+      const operation = this.find(id, fingerprint);
+      if (!operation || operation.kind !== "transaction" || operation.state !== "failed") {
+        throw new AppError("Seule une transaction close en échec peut être rouverte", 409);
+      }
+      this.journal("reopen", id, actor, reason, operation);
+      const owner = this.db.prepare("SELECT workflow_id FROM operation_workflows WHERE operation_id = ?").get(id);
+      if (owner) {
+        this.db.prepare("UPDATE workflows SET transactions = transactions + 1 WHERE id = ?").run(String(owner.workflow_id));
+        this.db.prepare("DELETE FROM operation_workflows WHERE operation_id = ?").run(id);
+      }
+      this.db.prepare("DELETE FROM transaction_payloads WHERE operation_id = ?").run(id);
+      this.db.prepare("DELETE FROM operations WHERE id = ?").run(id);
+    });
+  }
+
+  /**
+   * Abandonne une transaction encore réservée. L'appelant DOIT avoir prouvé on-chain que son
+   * nonce est consommé par une autre transaction, ou qu'elle n'a jamais été signée : le
+   * registre ne voit pas la chaîne. L'abandon n'est pas compté dans le coupe-circuit.
+   */
+  abandonTransaction(id: string, fingerprint: string, actor: string, reason: string): void {
+    this.atomic(() => {
+      const operation = this.find(id, fingerprint);
+      if (!operation || operation.kind !== "transaction" || operation.state !== "reserved") {
+        throw new AppError("Seule une transaction encore réservée peut être abandonnée", 409);
+      }
+      this.journal("abandon", id, actor, reason, operation);
+      this.db.prepare("UPDATE operations SET state = 'failed' WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM transaction_payloads WHERE operation_id = ?").run(id);
+    });
+  }
+
+  /**
+   * Remplace une transaction signée par sa version re-signée au même nonce avec des frais à
+   * jour, quand le séquenceur a refusé l'originale. Même cible, mêmes données : seuls les
+   * frais changent, ce que `openRunnerTransaction` revérifie à chaque réouverture.
+   */
+  replaceTransaction(id: string, fingerprint: string, hash: string, nonce: number, ciphertext: string, actor: string, reason: string): void {
+    this.atomic(() => {
+      const operation = this.find(id, fingerprint);
+      if (!operation || operation.kind !== "transaction" || operation.state !== "reserved" || !operation.txHash
+        || operation.nonce !== nonce || !/^0x[0-9a-f]{64}$/.test(hash) || hash === operation.txHash
+        || !ciphertext || Buffer.byteLength(ciphertext) > 16384) {
+        throw new AppError("Remplacement de transaction runner invalide", 409);
+      }
+      this.journal("replace", id, actor, reason, operation);
+      this.db.prepare("UPDATE operations SET tx_hash = ? WHERE id = ?").run(hash, id);
+      this.db.prepare(`INSERT INTO transaction_payloads VALUES (?, ?, 1, ?)
+        ON CONFLICT(operation_id) DO UPDATE SET ciphertext = excluded.ciphertext, attempts = 1, next_attempt_at = excluded.next_attempt_at`)
+        .run(id, ciphertext, Date.now() + 30000);
+    });
+  }
+
+  operatorActions(): Array<{ action: OperatorAction; operationId: string | null; actor: string; reason: string; at: number }> {
+    this.assertFile();
+    return this.db.prepare("SELECT action, operation_id, actor, reason, at FROM operator_actions ORDER BY id").all().map((row) => ({
+      action: row.action as OperatorAction, operationId: row.operation_id as string | null,
+      actor: String(row.actor), reason: String(row.reason), at: Number(row.at),
+    }));
   }
 
   snapshot() {
@@ -593,7 +735,7 @@ export class BudgetLedger {
       { context: string; result: string | null } | undefined ?? null;
   }
 
-  recordExecutionEvidence(scope: WorkflowBudget, payload: string, result?: string): void {
+  recordExecutionEvidence(scope: WorkflowBudget, payload: string, result?: string, countFailure = true): void {
     this.atomic(() => {
       this.workflow(scope);
       if (Buffer.byteLength(payload) > 4096 || this.executionEvidence(scope) !== null) throw new AppError("Preuve de consommation déjà fixée ou invalide", 409);
@@ -611,7 +753,7 @@ export class BudgetLedger {
         }
         this.db.prepare("UPDATE operations SET state = ?, result = ? WHERE id = ?")
           .run(evidence.success ? "succeeded" : "failed", result ?? null, String(operation.id));
-        if (!evidence.success) this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
+        if (!evidence.success && countFailure) this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
       }
     });
   }

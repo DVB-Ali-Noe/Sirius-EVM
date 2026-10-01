@@ -23,7 +23,8 @@ import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import { budgetRunnerJob } from "@/lib/runner/budget";
-import { trainInWorker } from "./bounded-training";
+import { countsAsRunnerFailure } from "@/lib/runner/failure-policy";
+import { INVALID_DATASET_MESSAGE, trainInWorker } from "./bounded-training";
 import type { ComputeQuote } from "@/lib/billing/quote";
 import { quoteWorkflow, requireBillingBudget } from "@/lib/billing/runner";
 import { MAX_DATASET_BYTES } from "./contract";
@@ -151,11 +152,20 @@ async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: Datase
   return plaintext;
 }
 
+/** Même classement que le worker : une exception du calcul pur vient des données. */
+function trainOnData(input: TrainingInput, plaintext: Buffer) {
+  try {
+    return trainSelectedModel(input, plaintext);
+  } catch {
+    throw new AppError(INVALID_DATASET_MESSAGE, 422);
+  }
+}
+
 /** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
 async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatasetBytes = MAX_DATASET_BYTES) {
   const plaintext = await decryptDataset(input, signal);
   if (plaintext.length > maxDatasetBytes) throw new AppError("Taille du dataset invalide", 413);
-  const model = signal ? await trainInWorker(input, plaintext, signal) : trainSelectedModel(input, plaintext);
+  const model = signal ? await trainInWorker(input, plaintext, signal) : trainOnData(input, plaintext);
   const { model: gated, buffer } = gateModel(model);
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   signal?.throwIfAborted();
@@ -242,16 +252,20 @@ export async function runBilledEvmLoanJob(input: LoanJobInput, quote: ComputeQuo
     const startedAt = Date.now();
     const started = performance.now();
     let result: { modelCid: string; metrics: Record<string, number> } | undefined;
+    let failure: unknown;
     try {
       const { modelCid, model } = await trainAndSeal(training, AbortSignal.timeout(quote.maxExecutionMs), quote.maxDatasetBytes);
       result = { modelCid, metrics: model.metrics };
       return result;
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
       // Une mesure absente après crash ne devient jamais la consommation maximale du devis.
       const elapsedMs = Math.min(quote.maxExecutionMs, Math.max(0, Math.floor(performance.now() - started)));
       ledger.recordExecutionEvidence(scope,
         JSON.stringify({ version: 1, quoteHash: scope.fingerprint, startedAt, elapsedMs, success: Boolean(result) }),
-        result ? JSON.stringify(result) : undefined);
+        result ? JSON.stringify(result) : undefined, result ? true : countsAsRunnerFailure(failure));
     }
   });
 }

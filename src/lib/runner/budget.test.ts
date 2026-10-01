@@ -9,7 +9,10 @@ import { keccak256, type Hex } from "viem";
 import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
 import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
 import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
-import { boundedGas } from "./gas-policy";
+import { boundedGas, lowGasBalanceAlert } from "./gas-policy";
+import { countsAsRunnerFailure, RunnerFinalityPending, RunnerRetryLater } from "./failure-policy";
+import { AppError } from "@/lib/app-error";
+import { parseBudgetCommand } from "../../../scripts/runner-budget";
 import { reconcileRunnerTransactions } from "./transaction-recovery";
 import type { PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -336,13 +339,113 @@ test("un crash avant persistance du hash interdit également de prendre un nouve
   assert.throws(() => ledger.reserve("other", "other", "transaction"), /incertaine/);
 });
 
-test("une préparation refusée consomme sa tentative ; un revert n’est pas relancé", async () => {
+test("une préparation refusée rend sa réservation et se relance ; un revert n’est pas relancé", async () => {
   const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "2000"; });
-  await assert.rejects(sendBudgetedTransaction(ledger, "a", "a", io({ prepare: async () => { throw new Error("gas cap"); } })), /avant envoi/);
-  await assert.rejects(sendBudgetedTransaction(ledger, "a", "a", io()), /épuisée/);
+  await assert.rejects(sendBudgetedTransaction(ledger, "a", "a", io({ prepare: async () => { throw new Error("gas cap"); } })), /avant signature/);
+  assert.equal(ledger.find("a", "a"), null, "rien n’a été signé : aucune trace ne bloque la reprise");
+  assert.deepEqual(ledger.snapshot(), { allocatedUsd: BigInt(0), allocatedWei: BigInt(0), failures: 0 });
+  assert.equal(await sendBudgetedTransaction(ledger, "a", "a", io()), txHash);
   await assert.rejects(sendBudgetedTransaction(ledger, "b", "b", io({ confirm: async () => "reverted" })), /aucune relance/);
   await assert.rejects(sendBudgetedTransaction(ledger, "b", "b", io()), /épuisée/);
-  assert.equal(ledger.snapshot().failures, 2);
+  assert.equal(ledger.snapshot().failures, 1, "seul le revert, signé et payé, compte comme échec");
+});
+
+test("un timeout estimateGas puis une reprise règlent le prêt sans épuiser le devis", async () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  const timeout = io({ prepare: async () => { throw new Error("estimateGas timeout"); } });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await assert.rejects(withWorkflowBudget(workflow, () => runBudgetedOperation(open(), "request", `settle-${attempt}`, "request-v1",
+      () => sendBudgetedTransaction(open(), "release", "release", timeout, workflow))), /avant signature/);
+  }
+  const resumed = await withWorkflowBudget(workflow, () => runBudgetedOperation(open(), "request", "settle-ok", "request-v1",
+    () => sendBudgetedTransaction(open(), "release", "release", io(), workflow)));
+  assert.equal(resumed, txHash);
+  assert.equal(ledger.snapshot().failures, 0);
+  assert.equal(ledger.find("release", "release")?.state, "succeeded");
+  ledger.reserve("failure", "failure", "transaction", workflow);
+  ledger.finish("failure", "failure", true);
+  assert.throws(() => ledger.reserve("third", "third", "transaction", workflow), /épuisé/, "les deux transactions du devis restent les seules");
+});
+
+test("deux CSV invalides et vingt grants forgés laissent le coupe-circuit fermé", async () => {
+  const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; p.maxActive = 32; });
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(runBudgetedOperation(ledger, "training", `csv-${i}`, "csv",
+      async () => { throw new AppError("Dataset inexploitable pour ce modèle", 422); }), /inexploitable/);
+  }
+  for (let i = 0; i < 20; i++) {
+    await assert.rejects(runBudgetedOperation(ledger, "request", `grant-${i}`, "request-v1",
+      async () => { throw new AppError("Signature de grant invalide", 401); }), /grant/);
+  }
+  assert.equal(open().snapshot().failures, 0);
+  assert.equal(ledger.find("csv-0", "csv")?.state, "failed", "l’opération reste close et son coût consommé");
+  assert.doesNotThrow(() => open().reserve("next", "next", "request"));
+  await assert.rejects(runBudgetedOperation(ledger, "request", "rpc", "request-v1", async () => { throw new Error("RPC down"); }));
+  await assert.rejects(runBudgetedOperation(ledger, "request", "ipfs", "request-v1", async () => { throw new AppError("IPFS indisponible", 503); }));
+  assert.equal(ledger.snapshot().failures, 2, "une panne côté runner compte toujours");
+});
+
+test("le classement des échecs distingue l’appelant, le runner et l’attente", () => {
+  assert.equal(countsAsRunnerFailure(new AppError("x", 400)), false);
+  assert.equal(countsAsRunnerFailure(new AppError("x", 409)), false);
+  assert.equal(countsAsRunnerFailure(new AppError("x", 422)), false);
+  assert.equal(countsAsRunnerFailure(new AppError("x", 503)), true);
+  assert.equal(countsAsRunnerFailure(new Error("x")), true);
+  assert.equal(countsAsRunnerFailure(new RunnerRetryLater("x")), false);
+  assert.equal(countsAsRunnerFailure(new RunnerFinalityPending(txHash)), false);
+});
+
+test("réarmer le coupe-circuit et rouvrir une transaction sont journalisés et bornés", async () => {
+  const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "2000"; p.maxFailures = 1; });
+  await assert.rejects(sendBudgetedTransaction(ledger, "b", "b", io({ confirm: async () => "reverted" })), /aucune relance/);
+  assert.throws(() => open().reserve("new", "new", "request"), /Coupe-circuit/);
+  assert.throws(() => ledger.resetFailures("", "motif"), /obligatoires/);
+  assert.throws(() => ledger.resetFailures("ali", " "), /obligatoires/);
+  assert.equal(ledger.resetFailures("ali", "revert diagnostiqué, escrow sain"), 1);
+  assert.doesNotThrow(() => open().reserve("new", "new", "request"));
+  assert.throws(() => ledger.reopenTransaction("new", "new", "ali", "motif"), /close en échec/);
+  ledger.reopenTransaction("b", "b", "ali", "prêt toujours verrouillé on-chain");
+  assert.equal(ledger.find("b", "b"), null);
+  assert.equal(await sendBudgetedTransaction(open(), "b", "b", io()), txHash);
+  assert.deepEqual(open().operatorActions().map(({ action, operationId, actor }) => ({ action, operationId, actor })), [
+    { action: "reset-failures", operationId: null, actor: "ali" },
+    { action: "reopen", operationId: "b", actor: "ali" },
+  ]);
+});
+
+test("une transaction rouverte d’un devis récupère son crédit sans dépasser deux envois", async () => {
+  const { ledger, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  await assert.rejects(sendBudgetedTransaction(ledger, "release", "release", io({ confirm: async () => "reverted" }), workflow), /aucune relance/);
+  ledger.reserve("failure", "failure", "transaction", workflow);
+  ledger.finish("failure", "failure", true);
+  assert.throws(() => ledger.reserve("third", "third", "transaction", workflow), /épuisé/);
+  ledger.reopenTransaction("release", "release", "ali", "revert dû à un gas trop bas");
+  assert.equal(await sendBudgetedTransaction(ledger, "release", "release", io(), workflow), txHash);
+  assert.throws(() => ledger.reserve("third", "third", "transaction", workflow), /épuisé/);
+});
+
+test("le CLI réarme le coupe-circuit seulement avec auteur et motif", () => {
+  assert.throws(() => parseBudgetCommand(["reset-failures", "l.sqlite", "p.json"]), /Usage/);
+  assert.throws(() => parseBudgetCommand(["reset-failures", "l.sqlite", "p.json", "--actor=ali"]), /Usage/);
+  assert.throws(() => parseBudgetCommand(["inspect", "l.sqlite", "p.json", "--actor=ali"]), /Usage/);
+  assert.throws(() => parseBudgetCommand(["reopen", "l.sqlite", "p.json", "--actor=ali", "--reason=x"]), /Usage/);
+  assert.throws(() => parseBudgetCommand(["reset-failures", "l.sqlite", "p.json", "--force", "--actor=ali", "--reason=x"]), /Usage/);
+  assert.deepEqual(parseBudgetCommand(["reopen", "l.sqlite", "p.json", "release:1", "--actor=ali", "--reason=prêt verrouillé"]),
+    { command: "reopen", ledgerPath: "l.sqlite", policyPath: "p.json", extra: ["release:1"], actor: "ali", reason: "prêt verrouillé" });
+});
+
+test("l’alerte ETH prévient avant que le compte de règlement ne puisse plus payer", () => {
+  const gas = policy().gas;
+  const warn = console.warn;
+  const lines: string[] = [];
+  console.warn = (line: string) => { lines.push(line); };
+  try {
+    assert.equal(lowGasBalanceAlert(gas, BigInt(gas.maxTransactionWei) * BigInt(5), wallet), null);
+    assert.match(lowGasBalanceAlert(gas, BigInt(gas.maxTransactionWei) * BigInt(4), wallet) ?? "", /\[runner\]\[alerte-eth\]/);
+  } finally { console.warn = warn; }
+  assert.equal(lines.length, 1);
 });
 
 test("le plafond ETH cumulé reste consommé après confirmation", async () => {
