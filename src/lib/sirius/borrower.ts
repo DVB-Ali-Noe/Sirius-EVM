@@ -22,6 +22,7 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -47,6 +48,9 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   const amountUsdcAtomic = dataset.priceUsdcAtomic;
+  // Plafonds de la bêta : refus avant tout appel au runner, puis de nouveau sur le total du devis.
+  const limits = exposureLimits();
+  assertLoanWithinCap(amountUsdcAtomic, limits);
   const runner = await assertCurrentRunner(dataset);
   if (addressesEqual(dataset.provider, borrowerAddress)) throw new AppError("Un provider ne peut pas emprunter son propre dataset", 400);
   await requireAcceptedKyb(borrowerAddress);
@@ -76,6 +80,10 @@ export async function prepareLoan(datasetId: string, borrower: string) {
     ]);
     if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
     if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
+    if (limits) {
+      const exposed = await tx.loan.findMany({ where: { status: { in: [...EXPOSED_LOAN_STATUSES] } }, select: { amountUsdcAtomic: true } });
+      assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), amountUsdcAtomic, limits);
+    }
     const available = await tx.dataset.updateMany({
       where: {
         id: datasetId,
@@ -113,6 +121,14 @@ export async function prepareLoan(datasetId: string, borrower: string) {
     if (signedQuote && (signedQuote.quote.datasetAmount !== amountUsdcAtomic || signedQuote.quote.onChainDatasetId !== dataset.evmDatasetId
       || signedQuote.quote.hashlock !== hashlock)) throw new AppError("Devis compute hors scope", 409);
     const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
+    assertLoanWithinCap(total, limits);
+    if (limits) {
+      const exposed = await prisma.loan.findMany({
+        where: { id: { not: loan.id }, status: { in: [...EXPOSED_LOAN_STATUSES] } },
+        select: { amountUsdcAtomic: true },
+      });
+      assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), total, limits);
+    }
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
     const prepared = await prisma.loan.update({
       where: { id: loan.id },

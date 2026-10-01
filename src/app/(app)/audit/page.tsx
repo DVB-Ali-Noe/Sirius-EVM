@@ -128,7 +128,10 @@ function AuditPageContent() {
               <div className="min-w-0 flex-1 basis-64">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="font-medium">{loan.dataset.name}</h2>
-                  <Badge variant={STATUS_VARIANT[loan.status]}>{t(loan.status)}</Badge>
+                  {/* Un prêt annulé avec transaction de remboursement a bien eu lieu : c'est un remboursement, pas un échec. */}
+                  {loan.status === "CANCELLED" && loan.cancelTxHash
+                    ? <Badge variant="positive">{t("REFUNDED")}</Badge>
+                    : <Badge variant={STATUS_VARIANT[loan.status]}>{t(loan.status)}</Badge>}
                 </div>
                 <p className="mt-1 font-mono text-xs text-muted">{loan.id}</p>
               </div>
@@ -144,7 +147,7 @@ function AuditPageContent() {
               <Evidence label={t("Attestation TEE")} value={loan.attestationHash} />
               <Evidence label={t("Reçu d’audit")} value={loan.auditReceipt} />
               <Evidence
-                label={loan.cancelTxHash ? "Remboursement USDC" : "Release USDC"}
+                label={loan.cancelTxHash ? t("Remboursement USDC") : "Release USDC"}
                 value={loan.cancelTxHash ?? loan.settleTxHash}
                 txHash={loan.cancelTxHash ?? loan.settleTxHash}
                 network={network}
