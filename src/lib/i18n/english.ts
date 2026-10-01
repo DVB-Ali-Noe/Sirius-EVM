@@ -346,6 +346,8 @@ export const EN_MESSAGES: Record<string, string> = {
   "échéance": "deadline",
   "ledger evidence": "ledger evidence",
   "Lock USDC": "Lock USDC",
+  "Remboursement USDC": "Refund USDC",
+  "REFUNDED": "REFUNDED",
   "Reçu d’audit": "Audit receipt",
   "Visibilité invalide": "Invalid visibility",
 };
