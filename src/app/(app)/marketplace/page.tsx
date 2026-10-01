@@ -11,6 +11,7 @@ import { borrowDataset } from "@/lib/loans/client";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useWalletStore } from "@/stores/wallet";
 import { acceptKybCredential } from "@/lib/kyb/client";
+import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
 
@@ -160,6 +161,8 @@ export default function MarketplacePage() {
             </button>
           )}
         </div>
+
+        {kybManquant === true && <KybInviteForm role="borrower" onAccepted={() => setKybManquant(false)} />}
 
         {error && (
           <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
