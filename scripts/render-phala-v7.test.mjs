@@ -19,7 +19,7 @@ test("la démonstration a ses volumes propres et ne force pas l’ancienne origi
 
 test("les Compose staging figent l'image sans interpoler les secrets ni renommer les volumes", () => {
   for (const mode of ["bootstrap", "init", "active", "wallets"]) {
-    const model = renderPhalaV7(mode, image);
+    const model = renderPhalaV7(mode, image, "https://sirius-evm-staging.vercel.app");
     assert.equal(model.name, undefined);
     assert.equal(model.volumes.runner_replay.name, undefined);
     assert.equal(model.volumes.runner_budget.name, undefined);
@@ -33,6 +33,7 @@ test("les Compose staging figent l'image sans interpoler les secrets ni renommer
     assert.ok(runner.volumes.some((volume) => volume.source === "runner_budget"));
     if (mode === "init") {
       const init = model.services["initialize-v7"];
+      assert.equal(init.environment.EVM_NETWORK, "${EVM_NETWORK:?Réseau EVM requis}");
       assert.equal(init.restart, "no");
       assert.equal(init.network_mode, "none");
       assert.ok(init.volumes.every((volume) => volume.type === "volume"));
@@ -53,7 +54,17 @@ test("les Compose staging figent l'image sans interpoler les secrets ni renommer
 
 test("le rendu refuse un tag mutable, un autre registre et un mode inconnu", () => {
   for (const value of ["ghcr.io/dvb-ali-noe/sirius-runner:staging", image.replace("sirius-runner", "unexpected-runner")]) {
-    assert.throws(() => renderPhalaV7("active", value));
+    assert.throws(() => renderPhalaV7("active", value, "https://sirius-data.tech"));
   }
-  assert.throws(() => renderPhalaV7("restore", image));
+  assert.throws(() => renderPhalaV7("restore", image, "https://sirius-data.tech"));
+});
+
+test("la production reçoit son origine explicitement, jamais celle du staging par défaut", () => {
+  const model = renderPhalaV7("active", image, "https://sirius-data.tech");
+  assert.equal(model.services.runner.environment.SIRIUS_APP_ORIGIN, "https://sirius-data.tech");
+  assert.throws(() => renderPhalaV7("active", image), /Origine/);
+  for (const origin of ["http://sirius-data.tech", "https://sirius-data.tech/", "https://sirius-data.tech/app", "https://sirius-data.tech:8443", "sirius-data.tech"]) {
+    assert.throws(() => renderPhalaV7("active", image, origin), /Origine/, origin);
+  }
+  assert.throws(() => renderPhalaV7("demo-active", image, "https://sirius-data.tech"), /Origine/, "la démonstration garde son origine chiffrée");
 });
