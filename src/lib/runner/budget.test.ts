@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
 import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
 import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
-import { sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
+import { classifySendError, sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
+import { assertAbandonable, parseTransactionsCommand } from "../../../scripts/runner-transactions";
 import { boundedGas, lowGasBalanceAlert } from "./gas-policy";
 import { countsAsRunnerFailure, RunnerFinalityPending, RunnerRetryLater } from "./failure-policy";
 import { AppError } from "@/lib/app-error";
@@ -321,7 +322,7 @@ test("hash et nonce sont persistés avant envoi ; une reprise confirme sans sign
       throw new Error("RPC response lost");
     },
     confirm: async () => "pending",
-  })), /incertaine/);
+  })), /finalité/);
   assert.throws(() => open().reserve("other-loan", "other", "transaction"), /wallet runner encore incertaine/);
   const recovered = await sendBudgetedTransaction(open(), "loan", "scope", io({
     prepare: async () => { assert.fail("nouveau nonce"); },
@@ -468,7 +469,7 @@ test("une politique périmée pendant la préparation empêche l’envoi", async
 
 test("une confirmation reste réconciliable après péremption de la politique", async () => {
   const { ledger, open } = fixture();
-  await assert.rejects(sendBudgetedTransaction(ledger, "a", "a", io({ confirm: async () => "pending" })), /incertaine/);
+  await assert.rejects(sendBudgetedTransaction(ledger, "a", "a", io({ confirm: async () => "pending" })), /finalité/);
   const originalNow = Date.now;
   try {
     Date.now = () => ledger.policy.validUntil + 1;
@@ -536,6 +537,161 @@ test("la rediffusion après crash conserve octets, nonce, frais et budget, avec 
     assert.deepEqual(ledger.snapshot(), snapshot);
     assert.equal(ledger.find(id, fingerprint)?.state, "reserved");
   } finally { Date.now = originalNow; }
+});
+
+test("un prêt complet attend la finalité sans échec compté ni crédit de requête consommé", async () => {
+  const { ledger, open, policy: p } = workflowFixture();
+  ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
+  let finalized = false;
+  const settle = (attempt: number) => withWorkflowBudget(workflow, () => runBudgetedOperation(open(), "request", `settle-${attempt}`, "request-v1",
+    () => sendBudgetedTransaction(open(), "release", "release", io({
+      confirm: async () => finalized ? "success" : "pending",
+      prepare: async () => { assert.equal(attempt, 0, "un seul nonce signé"); return { serialized, nonce: 7 }; },
+    }), workflow)));
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await assert.rejects(settle(attempt), (error: unknown) => error instanceof RunnerFinalityPending && error.transactionHash === txHash);
+  }
+  finalized = true;
+  assert.equal(await settle(40), txHash);
+  assert.equal(ledger.snapshot().failures, 0);
+  // Seule la requête qui a conclu le règlement est consommée : il en reste quinze.
+  for (let i = 0; i < 15; i++) {
+    ledger.reserve(`request-${i}`, "scope", "request", workflow);
+    ledger.finish(`request-${i}`, "scope", true);
+  }
+  assert.throws(() => ledger.reserve("request-16", "scope", "request", workflow), /épuisé/, "quarante attentes n’ont rien consommé");
+});
+
+test("un second règlement attend son tour sans échec pendant qu’une transaction finalise", async () => {
+  const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; p.gas.totalWei = "400000000000"; });
+  await assert.rejects(sendBudgetedTransaction(ledger, "first", "first", io({ confirm: async () => "pending" })), /finalité/);
+  const before = ledger.snapshot();
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(runBudgetedOperation(open(), "request", `second-${i}`, "request-v1",
+      () => sendBudgetedTransaction(open(), "second", "second", io())), /encore incertaine/);
+  }
+  assert.deepEqual(ledger.snapshot(), before, "ni échec ni crédit consommé");
+  assert.equal(await sendBudgetedTransaction(open(), "first", "first", io()), txHash);
+  assert.equal(await sendBudgetedTransaction(open(), "second", "second", io()), txHash);
+});
+
+test("les refus de diffusion sont classés sans exposer le message RPC", () => {
+  assert.equal(classifySendError(new Error("max fee per gas less than block base fee: maxFeePerGas: 1, baseFee: 2")), "fee-too-low");
+  assert.equal(classifySendError(new Error("transaction underpriced")), "fee-too-low");
+  assert.equal(classifySendError(new Error("nonce too low")), "nonce-consumed");
+  assert.equal(classifySendError(new Error("already known")), "already-known");
+  assert.equal(classifySendError(new Error("socket hang up")), "unknown");
+});
+
+async function underpricedFixture(latestNonce: number) {
+  process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 17).toString("base64");
+  const account = privateKeyToAccount(`0x${"17".repeat(32)}`);
+  const { ledger, open } = fixture((p) => { p.wallet = account.address.toLowerCase(); });
+  const escrow = `0x${"34".repeat(20)}` as Hex;
+  const id = `release:46630:${escrow}:0x${"56".repeat(32)}`;
+  const data = "0x1234" as Hex;
+  const fingerprint = keccak256(data);
+  const sign = (maxFeePerGas: bigint) => account.signTransaction({ chainId: 46630, type: "eip1559", to: escrow, data,
+    nonce: 7, gas: BigInt(100), maxFeePerGas, maxPriorityFeePerGas: BigInt(0), value: BigInt(0) });
+  const low = await sign(BigInt(1000));
+  const high = await sign(BigInt(5000));
+  const sent: Hex[] = [];
+  const transactionIO = io({
+    prepare: async () => ({ serialized: low, nonce: 7 }),
+    seal: (raw) => sealRunnerTransaction(id, fingerprint, raw),
+    send: async (raw) => {
+      sent.push(raw);
+      if (raw === low) throw new Error("max fee per gas less than block base fee");
+      return keccak256(raw);
+    },
+    latestNonce: async () => latestNonce,
+    resign: async (raw) => { assert.equal(raw, low); return high; },
+    confirm: async () => "pending",
+  });
+  return { ledger, open, account, id, fingerprint, low, high, sent, transactionIO };
+}
+
+test("une transaction refusée pour frais trop bas est re-signée au même nonce", async () => {
+  const { ledger, open, id, fingerprint, low, high, sent, transactionIO } = await underpricedFixture(7);
+  await assert.rejects(sendBudgetedTransaction(ledger, id, fingerprint, transactionIO), (error: unknown) =>
+    error instanceof RunnerFinalityPending && error.transactionHash === keccak256(high));
+  assert.deepEqual(sent, [low, high]);
+  const restarted = open();
+  const operation = restarted.find(id, fingerprint)!;
+  assert.equal(operation.txHash, keccak256(high));
+  assert.equal(operation.nonce, 7);
+  assert.equal(restarted.snapshot().failures, 0);
+  assert.deepEqual(restarted.operatorActions().map(({ action, actor }) => ({ action, actor })), [{ action: "replace", actor: "runner-auto" }]);
+  assert.equal(await sendBudgetedTransaction(restarted, id, fingerprint, io({ confirm: async () => "success" })), keccak256(high));
+});
+
+test("un nonce déjà consommé n’est jamais re-signé", async () => {
+  const { ledger, id, fingerprint, low, sent, transactionIO } = await underpricedFixture(8);
+  await assert.rejects(sendBudgetedTransaction(ledger, id, fingerprint, transactionIO), (error: unknown) =>
+    error instanceof RunnerFinalityPending && error.transactionHash === keccak256(low));
+  assert.deepEqual(sent, [low]);
+  assert.equal(ledger.find(id, fingerprint)?.txHash, keccak256(low));
+});
+
+test("un remplacement qui change la cible ou les données est refusé", async () => {
+  const { ledger, account, id, fingerprint, transactionIO } = await underpricedFixture(7);
+  const other = await account.signTransaction({ chainId: 46630, type: "eip1559", to: `0x${"99".repeat(20)}`, data: "0x1234",
+    nonce: 7, gas: BigInt(100), maxFeePerGas: BigInt(5000), maxPriorityFeePerGas: BigInt(0), value: BigInt(0) });
+  await assert.rejects(sendBudgetedTransaction(ledger, id, fingerprint, { ...transactionIO, resign: async () => other }), /finalité/);
+  assert.equal(ledger.operatorActions().length, 0);
+});
+
+test("la réconciliation re-signe une transaction rejetée lors de sa rediffusion", async () => {
+  const { ledger, open, account, id, fingerprint, low, high } = await underpricedFixture(7);
+  ledger.reserve(id, fingerprint, "transaction");
+  ledger.recordTransaction(id, fingerprint, keccak256(low), 7, sealRunnerTransaction(id, fingerprint, low));
+  const operation = ledger.find(id, fingerprint)!;
+  const sent: Hex[] = [];
+  const client = {
+    getChainId: async () => 46630,
+    getTransactionReceipt: async () => { throw new Error("introuvable"); },
+    getTransactionCount: async () => 7,
+  } as unknown as PublicClient;
+  const originalNow = Date.now;
+  try {
+    Date.now = () => operation.createdAt + 31000;
+    await reconcileRunnerTransactions(open(), client, 46630, account.address, async (raw) => {
+      sent.push(raw);
+      if (raw === low) throw new Error("max fee per gas less than block base fee");
+      return keccak256(raw);
+    }, async () => high);
+  } finally { Date.now = originalNow; }
+  assert.deepEqual(sent, [low, high]);
+  assert.equal(open().find(id, fingerprint)?.txHash, keccak256(high));
+});
+
+test("abandon refusé tant que le nonce est libre ou qu’un reçu existe", async () => {
+  const operation = { id: "release:x", fingerprint: "f", kind: "transaction" as const, state: "reserved" as const,
+    result: null, txHash: `0x${"ab".repeat(32)}`, nonce: 7, createdAt: 0 };
+  const client = (latest: number, receipt: unknown = null) => ({
+    getTransactionReceipt: async () => { if (!receipt) throw new Error("introuvable"); return receipt; },
+    getTransactionCount: async () => latest,
+  }) as unknown as PublicClient;
+  const wallet = `0x${"12".repeat(20)}` as Hex;
+  await assert.rejects(assertAbandonable(client(7), wallet, operation), /Nonce encore libre/);
+  await assert.rejects(assertAbandonable(client(9, { status: "success" }), wallet, operation), /reconcile/);
+  await assert.doesNotReject(assertAbandonable(client(8), wallet, operation));
+  await assert.doesNotReject(assertAbandonable(client(0), wallet, { ...operation, txHash: null, nonce: null }));
+  await assert.rejects(assertAbandonable(client(8), wallet, { ...operation, state: "failed" }), /encore réservée/);
+  assert.throws(() => parseTransactionsCommand(["abandon", "release:x"]), /Usage/);
+  assert.equal(parseTransactionsCommand(["abandon", "release:x", "--actor=ali", "--reason=nonce consommé"]).command, "abandon");
+  assert.throws(() => parseTransactionsCommand(["reconcile", "--actor=ali"]), /Usage/);
+});
+
+test("abandonner une transaction la clôt sans compter d’échec et libère le wallet", () => {
+  const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; });
+  ledger.reserve("stuck", "stuck", "transaction");
+  ledger.recordTransaction("stuck", "stuck", txHash, 7);
+  assert.throws(() => ledger.abandonTransaction("stuck", "stuck", "ali", ""), /obligatoires/);
+  ledger.abandonTransaction("stuck", "stuck", "ali", "nonce 7 consommé par une autre transaction");
+  assert.equal(ledger.find("stuck", "stuck")?.state, "failed");
+  assert.equal(ledger.snapshot().failures, 0);
+  assert.doesNotThrow(() => ledger.reserve("next", "next", "transaction"));
 });
 
 test("résultat et consommation v7 restent récupérables après redémarrage sans clé dataset ni nouvelle exécution", () => {

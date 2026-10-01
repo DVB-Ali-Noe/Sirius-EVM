@@ -511,4 +511,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Dataset inexploitable pour ce modèle": "This dataset cannot be used with this model",
   "Règlement refusé avant signature : nouvelle tentative possible (vérifier ETH, gas et RPC)": "Settlement refused before signing: it can be retried (check ETH, gas and RPC)",
   "Transaction envoyée, en attente de finalité du réseau": "Transaction sent, waiting for network finality",
+  "Paiement USDC en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes": "USDC payment waiting for network finality: training can start in a few minutes",
+  "Règlement envoyé : le réseau le confirme en général sous 15 à 30 minutes. Reviens ensuite pour récupérer ton modèle.": "Settlement sent: the network usually confirms it within 15 to 30 minutes. Come back then to collect your model.",
+  "Transaction runner à remplacer invalide": "Invalid runner transaction to replace",
 };

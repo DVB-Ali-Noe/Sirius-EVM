@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { settlePreparedLoan } from "@/lib/sirius/settle";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
+import { SETTLEMENT_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
@@ -32,6 +34,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     assertOwner(session, loan.borrower);
     return NextResponse.json(await settlePreparedLoan(id, authorization));
   } catch (err) {
+    if (err instanceof RunnerFinalityPending) {
+      return NextResponse.json({ pending: true, settleTxHash: err.transactionHash, error: SETTLEMENT_FINALITY_PENDING }, { status: 202 });
+    }
     return errorResponse(err);
   }
 }

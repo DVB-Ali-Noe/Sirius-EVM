@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync } from 
 import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
 import { parseDemoPolicy, type DemoPolicy } from "@/lib/phala-demo/contract";
+import { RunnerRetryLater } from "./failure-policy";
 
 export type BudgetKind = "request" | "seal" | "training" | "transaction";
 export interface BudgetPolicy {
@@ -325,7 +326,9 @@ export class BudgetLedger {
       const active = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE state = 'reserved'").get()?.n);
       if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
-        throw new AppError("Transaction du wallet runner encore incertaine", 503);
+        // Une seule transaction en vol par wallet : les autres règlements attendent leur tour
+        // sans compter d'échec ni consommer de crédit.
+        throw new RunnerRetryLater("Transaction du wallet runner encore incertaine");
       }
       const wei = kind === "transaction" ? BigInt(this.policy.gas.maxTransactionWei) : BigInt(0);
       const scale = BigInt("1000000000000000000");

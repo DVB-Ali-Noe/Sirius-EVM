@@ -10,6 +10,7 @@ import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
+import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
 import { assertCanonicalReceipt } from "@/lib/evm/finality";
 import { quoteWorkflow, requireBillingBudget } from "./runner";
 import { executionReceiptTypedData, failureFee, quoteTermsHash, type ComputeQuote } from "./quote";
@@ -22,7 +23,8 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
   if (chain.id !== quote.chainId || account.address.toLowerCase() !== quote.runner) throw new AppError("Devis compute hors scope", 409);
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl, { retryCount: 0, timeout: 20000 }) });
   const send = (serializedTransaction: Hex) => wallet.sendRawTransaction({ serializedTransaction });
-  await reconcileRunnerTransactions(ledger, client, quote.chainId, account.address, send);
+  const resign = (serialized: Hex) => resignWithFreshFees(serialized, account, client, ledger.policy.gas);
+  await reconcileRunnerTransactions(ledger, client, quote.chainId, account.address, send, resign);
   const id = `${kind}:${quote.chainId}:${quote.escrow}:${loanKey}`;
   const fingerprint = keccak256(data);
   return sendBudgetedTransaction(ledger, id, fingerprint, {
@@ -42,6 +44,8 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
       }) };
     },
     send,
+    resign,
+    latestNonce: () => client.getTransactionCount({ address: account.address, blockTag: "latest" }),
     async confirm(hash) {
       if (await client.getChainId() !== quote.chainId) return "pending";
       const receipt = await client.waitForTransactionReceipt({ hash, confirmations: ledger.policy.gas.confirmations, timeout: 15000, retryCount: 0 });

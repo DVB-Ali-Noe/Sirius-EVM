@@ -3,6 +3,9 @@ import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { getPublicClient } from "@/lib/evm/client";
+import { assertBlockStable } from "@/lib/evm/finality";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -134,11 +137,17 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
   return persisted.count === 1;
 }
 
+export const LOCK_FINALITY_PENDING = "Paiement USDC en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes";
+
 export async function prepareLoanResult(
   loanId: string,
   deliveryPublicKey: string,
   authorization: RunnerGrant,
 ): Promise<PreparedLoanResult> {
+  const lock = await prisma.loan.findUnique({ where: { id: loanId }, select: { status: true, evmLockBlock: true } });
+  if (lock?.status === "ESCROWED" && lock.evmLockBlock) {
+    await assertBlockStable(getPublicClient(), BigInt(lock.evmLockBlock), LOCK_FINALITY_PENDING);
+  }
   const now = new Date();
   await prisma.loan.updateMany({
     where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_LEASE_MS) } },
@@ -345,6 +354,15 @@ export async function settlePreparedLoan(
     if (updated.count !== 1) throw new AppError("Règlement USDC confirmé mais état local incohérent", 409);
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: settlement.settleTxHash };
   } catch (error) {
+    if (error instanceof RunnerFinalityPending) {
+      // Transaction diffusée, reçu pas encore finalisé : le prêt reste en règlement, avec
+      // son hash, et le reaper ou le borrower reprennent la même transaction plus tard.
+      await prisma.loan.updateMany({
+        where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
+        data: { settleTxHash: error.transactionHash, updatedAt: new Date() },
+      });
+      throw error;
+    }
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },

@@ -17,6 +17,7 @@ import { escrowReadAddress, legacyEscrowAbi } from "./history";
 import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTerms, type LockAuthorization } from "./lock-authorization";
 import { runnerBudget } from "@/lib/runner/budget";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import type { BudgetLedger } from "@/lib/runner/budget-ledger";
@@ -207,7 +208,8 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
     throw new AppError("Identité du compte opérationnel différente du budget", 503);
   }
   const send = (serializedTransaction: Hex) => walletClient().sendRawTransaction({ serializedTransaction });
-  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address, send);
+  const resign = (serialized: Hex) => resignWithFreshFees(serialized, account, getPublicClient(), ledger.policy.gas);
+  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address, send, resign);
   const address = escrowAddress();
   const data = encodeFunctionData({ abi: siriusescrowAbi, functionName: "release", args: [loanKey, preimage] });
   const id = `release:${binding.chainId}:${address}:${loanKey.toLowerCase()}`;
@@ -237,6 +239,8 @@ async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: He
       return { serialized, nonce };
     },
     send,
+    resign,
+    latestNonce: () => publicClient.getTransactionCount({ address: account.address, blockTag: "latest" }),
     async confirm(hash) {
       if (await publicClient.getChainId() !== binding.chainId) return "pending";
       const receipt = await publicClient.waitForTransactionReceipt({

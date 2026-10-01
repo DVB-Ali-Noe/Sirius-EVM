@@ -39,6 +39,16 @@ export async function assertCanonicalReceipt(
   }
 }
 
+/**
+ * Refuse d'avancer tant qu'un bloc n'est pas sous la profondeur stable (le bloc finalisé
+ * sur mainnet). Le runner lit l'escrow à cette profondeur : l'appeler plus tôt ne ferait
+ * que consommer un crédit du devis pour une réponse « escrow inactif ».
+ */
+export async function assertBlockStable(client: PublicClient, blockNumber: bigint, message: string): Promise<void> {
+  const stable = await confirmedBlock(client);
+  if (stable.number === null || stable.number < blockNumber) throw new AppError(message, 409);
+}
+
 export async function checkRpcFinality(client: PublicClient, chainId: number, transactionHash?: Hex) {
   if (await client.getChainId() !== chainId) throw new AppError("RPC sur un autre réseau", 503);
   const policy = finalityPolicy();
