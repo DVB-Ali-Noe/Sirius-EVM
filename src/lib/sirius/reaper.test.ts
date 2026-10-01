@@ -245,7 +245,8 @@ test("le préflight situe une panne SQL avant tout appel au RPC", async () => {
   });
   mock.method(client, "getChainId", async () => assert.fail("Le RPC ne doit pas être appelé après une panne SQL"));
   await assert.rejects(() => checkMigration((step) => steps.push(step)), (error) => error === failure);
-  assert.equal(steps.at(-1), "PostgreSQL : lecture de l'historique des migrations Prisma");
+  // La garde de chaîne est la première lecture après la détection de la table Loan.
+  assert.equal(steps.at(-1), "PostgreSQL : contrôle de la chaîne des données (testnet, 46630)");
   assert.ok(!steps.join(" ").includes("SECRET_SYNTHETIQUE"));
   assert.equal(updates.length, 0);
 });

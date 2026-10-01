@@ -7,6 +7,7 @@ import { addressesEqual, isZeroAddress, normalizeAddress } from "@/lib/evm/addre
 import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
+import { resolveServerNetwork } from "@/lib/evm/networks";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
@@ -105,6 +106,7 @@ async function markDatasetListed(
       status: process.env.SIRIUS_PHALA_DEMO === "true" ? "PRIVATE" : "LISTED",
       ...(process.env.SIRIUS_PHALA_DEMO === "true" ? {} : { listedAt: new Date() }),
       evmDatasetId: onChainId,
+      evmChainId: resolveServerNetwork().chain.id,
       ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
     },
   });

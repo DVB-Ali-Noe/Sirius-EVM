@@ -442,6 +442,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Trop de challenges actifs — réessaie plus tard": "Too many active challenges — try again later",
   "Trop de datasets en attente d’upload": "Too many datasets awaiting upload",
   "Trop d’emprunts en attente": "Too many pending loans",
+  "Préflight EVM : EVM_NETWORK invalide": "EVM preflight: invalid EVM_NETWORK",
   "Trop d’emprunts récents sur ce dataset": "Too many recent loans for this dataset",
   "Trop d’uploads simultanés — réessaie plus tard": "Too many simultaneous uploads — try again later",
   "Téléchargement du modèle échoué": "Model download failed",
