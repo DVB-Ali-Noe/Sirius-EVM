@@ -104,6 +104,18 @@ async function client(): Promise<Web3Auth> {
       // ne voit les données de ses utilisateurs ne peut pas envoyer leurs gestes à un tiers,
       // et notre CSP le bloquerait de toute façon — autant ne pas l'émettre.
       disableAnalytics: true,
+      // Par défaut, le SDK approuve seul signatures et transactions du portefeuille embarqué
+      // (« auto-approve ») : tout script de la page pourrait alors envoyer un transfert ou un
+      // approve sans que l'utilisateur voie le montant. On impose une fenêtre de confirmation
+      // à chaque demande, et l'export de la clé privée reste fermé depuis l'interface.
+      // Valeurs du code prioritaires sur le tableau de bord Web3Auth ; sans `enableKeyExport`
+      // explicite, le SDK l'active par défaut. `loginMode` est imposé à « plugin » par le
+      // connecteur ; il n'est renseigné ici que parce que le type l'exige.
+      walletServicesConfig: {
+        loginMode: "plugin",
+        confirmationStrategy: "modal",
+        enableKeyExport: false,
+      },
     });
     await web3auth.init();
     instance = web3auth;
