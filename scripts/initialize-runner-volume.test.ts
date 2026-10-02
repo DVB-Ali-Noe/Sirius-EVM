@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { initializeRunnerVolume } from "./initialize-runner-volume";
+import { initializeRunnerVolume, MAINNET_USDC, RUNNER_VOLUME_NETWORKS, runnerVolumeNetwork } from "./initialize-runner-volume";
 import { BudgetLedger } from "../src/lib/runner/budget-ledger";
 import { checkRunnerReplay } from "../src/lib/runner/replay";
 
@@ -92,15 +92,52 @@ test("la commande vérifie les comptes de la cible avant d'initialiser les volum
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "budget")); mkdirSync(join(root, "replay"));
   const { budget, billing } = policies();
-  const env = { PATH: process.env.PATH, NODE_ENV: "production" as const, RUNNER_VOLUME_ACTION: "initialize-new-v7-volume",
+  const env = { PATH: process.env.PATH, NODE_ENV: "production" as const, RUNNER_VOLUME_ACTION: "initialize-new-v7-volume", EVM_NETWORK: "testnet",
     SIRIUS_LOCK_AUTHORIZER: budget.wallet, SIRIUS_USDC_ADDRESS: billing.usdc, SIRIUS_COMPUTE_RECIPIENT: billing.computeRecipient,
     RUNNER_INITIAL_BUDGET_POLICY: JSON.stringify(budget), RUNNER_INITIAL_BILLING_POLICY: JSON.stringify(billing) };
   const args = ["--conditions=react-server", "--import", "tsx", "scripts/initialize-runner-volume.ts", root];
   const execute = promisify(execFile);
   await assert.rejects(execute(process.execPath, args, { env: { ...env, SIRIUS_LOCK_AUTHORIZER: billing.computeRecipient }, timeout: 10000 }), { code: 1 });
+  await assert.rejects(execute(process.execPath, args, { env: { ...env, EVM_NETWORK: "" }, timeout: 10000 }), { code: 1 });
+  await assert.rejects(execute(process.execPath, args, { env: { ...env, EVM_NETWORK: "mainnet" }, timeout: 10000 }), { code: 1 });
   assert.deepEqual(readdirSync(join(root, "budget")), []);
   assert.deepEqual(readdirSync(join(root, "replay")), []);
   const result = await execute(process.execPath, args, { env, timeout: 10000 });
   assert.match(result.stdout, /Volumes v7 initialisés/);
   checkRunnerReplay(join(root, "replay"));
+});
+
+function mainnetPolicies() {
+  const { budget, billing } = policies();
+  return {
+    budget: { ...budget, chainId: 4663 },
+    billing: { ...billing, chainId: 4663, usdc: MAINNET_USDC, usdcDecimals: 6 },
+  };
+}
+
+test("la cible réseau vient de la configuration, jamais des politiques à valider", () => {
+  assert.deepEqual(runnerVolumeNetwork("mainnet"), { network: "mainnet", chainId: 4663, usdcDecimals: 6 });
+  assert.deepEqual(runnerVolumeNetwork("testnet"), { network: "testnet", chainId: 46630, usdcDecimals: 18 });
+  for (const value of [undefined, "", "Mainnet", "4663"]) assert.throws(() => runnerVolumeNetwork(value), /EVM_NETWORK/);
+});
+
+test("un volume mainnet exige la chaîne 4663, l’USDC natif à six décimales et un financement réel", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "sirius-volume-mainnet-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "budget")); mkdirSync(join(root, "replay"));
+  const { budget, billing } = mainnetPolicies();
+  const mainnet = RUNNER_VOLUME_NETWORKS.mainnet;
+  assert.throws(() => initializeRunnerVolume(root, budget, billing), "une politique mainnet ne passe pas sur la cible testnet");
+  for (const change of [{ usdc: `0x${"34".repeat(20)}` }, { usdcDecimals: 18 }, { chainId: 46630 }]) {
+    assert.throws(() => initializeRunnerVolume(root, budget, { ...billing, ...change }, mainnet), Error, JSON.stringify(change));
+  }
+  for (const change of [{ chainId: 46630 }, { earnedMarginUsdMicros: "0" }, { cashUsdMicros: "0" }]) {
+    assert.throws(() => initializeRunnerVolume(root, { ...budget, ...change }, billing, mainnet), Error, JSON.stringify(change));
+  }
+  const testnet = policies();
+  assert.throws(() => initializeRunnerVolume(root, testnet.budget, testnet.billing, mainnet), "une politique testnet ne passe pas sur mainnet");
+  assert.deepEqual(readdirSync(join(root, "budget")), []);
+  initializeRunnerVolume(root, budget, billing, mainnet);
+  const ledger = new BudgetLedger(join(root, "budget", "ledger.sqlite"), 4663, budget.wallet);
+  try { assert.equal(ledger.policy.chainId, 4663); } finally { ledger.close(); }
 });
