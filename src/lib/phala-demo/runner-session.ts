@@ -24,6 +24,23 @@ export function demoSessions(): DemoSessionStore {
   return cached.store;
 }
 
+/**
+ * Au démarrage d'un runner de démonstration : rien n'est en cours dans ce processus, donc
+ * toute opération encore « en cours » vient du processus précédent. Sans cette reprise, une
+ * coupure pendant un entraînement empêchait de fermer puis de rouvrir la démonstration.
+ */
+export function recoverDemoAfterRestart(): { admissions: number; operations: number } {
+  const admissions = demoSessions().recoverOrphans();
+  const budget = runnerBudget();
+  const operations = budget?.policy.sponsored
+    ? budget.failInterruptedOperations("runner-startup", "redémarrage du runner : opérations interrompues")
+    : [];
+  if (admissions.length || operations.length) {
+    console.warn(`[runner] démonstration reprise après redémarrage : ${admissions.length} admission(s) et ${operations.length} opération(s) interrompue(s) passées en échec`);
+  }
+  return { admissions: admissions.length, operations: operations.length };
+}
+
 export function demoControlAuthorized(header: string | string[] | undefined): boolean {
   const secret = process.env.RUNNER_DEMO_CONTROL_SECRET;
   if (!secret || !/^[A-Za-z0-9+/]{43}=$/.test(secret) || typeof header !== "string" || header.length > 128) return false;
@@ -65,8 +82,14 @@ export function demoControl(body?: Record<string, unknown>) {
   if (!budget?.policy.sponsored) throw new AppError("Budget sponsorisé requis", 503);
   let configured = parseDemoPolicy(budget.policy.sponsored);
   if (body) {
-    if (!["open", "close", "configure"].includes(body.command as string) || typeof body.actor !== "string"
+    if (!["open", "close", "configure", "recover"].includes(body.command as string) || typeof body.actor !== "string"
       || typeof body.revision !== "number") throw new AppError("Commande opérateur invalide", 400);
+    if (body.command === "recover") {
+      const session = store.read();
+      if (session.open || session.revision !== body.revision) throw new AppError("Ferme la session avant de reprendre les opérations orphelines", 409);
+      const orphans = store.recoverOrphans();
+      if (orphans.length) console.warn(`[runner] ${orphans.length} admission(s) orpheline(s) passées en échec par ${body.actor}`);
+    }
     if (body.command === "configure") {
       const session = store.read();
       if (session.open || session.activeOperations || session.revision !== body.revision) throw new AppError("Ferme la session avant de changer le financement", 409);

@@ -17,8 +17,10 @@ interface Database {
 /** Le registre contrôle les admissions ; le budget monétaire reste réservé dans le registre runner. */
 export class DemoSessionStore {
   private readonly db: Database;
+  /** Opérations admises et suivies par CE processus : seules elles peuvent encore se terminer. */
+  private readonly live = new Set<string>();
 
-  constructor(path: string) {
+  constructor(readonly path: string) {
     if (!isAbsolute(path)) throw new Error("Chemin absolu requis pour la session Phala");
     const parent = lstatSync(dirname(path));
     if (!parent.isDirectory() || (parent.mode & 0o077) !== 0) throw new Error("Répertoire de session privé requis");
@@ -120,6 +122,7 @@ export class DemoSessionStore {
       if (current.usedOperations >= current.policy.maxOperations
         || Number(usedByOwner.n) >= current.policy.maxOperationsPerWallet) throw new AppError("Quota de démonstration atteint", 429);
       this.db.prepare("INSERT INTO demo_operations VALUES (?, ?, ?, ?, 'running')").run(id, owner, fingerprint, current.revision);
+      this.live.add(id);
       return true;
     });
   }
@@ -127,5 +130,20 @@ export class DemoSessionStore {
   finish(id: string, succeeded: boolean): void {
     this.db.prepare("UPDATE demo_operations SET status = ? WHERE id = ? AND status = 'running'")
       .run(succeeded ? "done" : "failed", id);
+    this.live.delete(id);
+  }
+
+  /**
+   * Une admission `running` qu'aucun processus ne suit plus est orpheline : le runner s'est
+   * arrêté pendant l'opération. Sans ce passage en échec, la session ne peut ni se fermer
+   * proprement ni se rouvrir. Les opérations encore suivies ici ne sont jamais touchées.
+   */
+  recoverOrphans(): string[] {
+    return this.transaction(() => {
+      const rows = this.db.prepare("SELECT group_concat(id, char(10)) AS ids FROM demo_operations WHERE status = 'running'").get();
+      const orphans = String(rows?.ids ?? "").split("\n").filter((id) => id && !this.live.has(id));
+      for (const id of orphans) this.db.prepare("UPDATE demo_operations SET status = 'failed' WHERE id = ? AND status = 'running'").run(id);
+      return orphans;
+    });
   }
 }
