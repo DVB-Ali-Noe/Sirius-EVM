@@ -1,5 +1,6 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { runnerEndpoint as endpoint } from "@/lib/runner/config";
 import { issueRunnerCapability, type RunnerOperation, type RunnerScope } from "@/lib/runner/capability";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -37,8 +38,14 @@ async function callRunner<T>(op: RunnerOperation, scope: RunnerScope, payload: o
     const response = url.protocol === "https:"
       ? await attestedRunnerFetch(url, { method: "POST", headers, body: JSON.stringify(payload), timeoutMs: RUNNER_TIMEOUT_MS })
       : await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(RUNNER_TIMEOUT_MS) });
-    const body = (await response.json().catch(() => ({}))) as { error?: unknown } & T;
-    if (!response.ok) throw new AppError(typeof body.error === "string" ? body.error : "Runner confidentiel en échec", response.status);
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown; state?: unknown; transactionHash?: unknown } & T;
+    if (response.status === 202 && body.state === "pending-finality"
+      && typeof body.transactionHash === "string" && /^0x[0-9a-f]{64}$/i.test(body.transactionHash)) {
+      throw new RunnerFinalityPending(body.transactionHash.toLowerCase());
+    }
+    if (!response.ok || response.status !== 200) {
+      throw new AppError(typeof body.error === "string" ? body.error : "Runner confidentiel en échec", response.ok ? 502 : response.status);
+    }
     return body;
   } catch (error) {
     if (error instanceof AppError) throw error;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
+import { SETTLEMENT_FINALITY_PENDING } from "./settlement-status";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -161,7 +162,8 @@ async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ authorization }),
   });
-  const body = await response.json() as { error?: string };
+  const body = await response.json() as { error?: string; pending?: boolean };
+  if (response.status === 202 && body.pending) throw new Error(SETTLEMENT_FINALITY_PENDING);
   if (!response.ok) throw new Error(body.error ?? "Règlement USDC échoué");
 }
 

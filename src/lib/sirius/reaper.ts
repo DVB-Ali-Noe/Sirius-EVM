@@ -12,6 +12,7 @@ import {
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { resolveLoanEscrow } from "@/lib/evm/history";
 import { recoverLoanResult, settlePreparedLoan } from "./settle";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -74,8 +75,9 @@ async function reapBatch(now: Date): Promise<void> {
         continue;
       }
       if (!loan.billingQuoteHash) await reconcileClosedLoan(loan);
-    } catch {
-      console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
+    } catch (error) {
+      if (error instanceof RunnerFinalityPending) console.log(`[reaper] prêt EVM ${loan.id} : règlement en attente de finalité`);
+      else console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
     }
   }
 }

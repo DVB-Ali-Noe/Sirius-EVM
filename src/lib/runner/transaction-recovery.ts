@@ -2,7 +2,8 @@ import "server-only";
 import { keccak256, type Address, type Hex, type PublicClient } from "viem";
 import { AppError } from "@/lib/app-error";
 import type { BudgetLedger } from "./budget-ledger";
-import { openRunnerTransaction } from "./transaction-journal";
+import { openRunnerTransaction, sealRunnerTransaction } from "./transaction-journal";
+import { classifySendError, replaceUnderpricedTransaction } from "./budget-transaction";
 import { assertCanonicalReceipt } from "@/lib/evm/finality";
 
 const UNSENT_LEASE_MS = 5 * 60_000;
@@ -13,6 +14,7 @@ export async function reconcileRunnerTransactions(
   chainId: number,
   wallet: Address,
   rebroadcast?: (serialized: Hex) => Promise<Hex>,
+  resign?: (serialized: Hex) => Promise<Hex>,
 ): Promise<void> {
   if (ledger.policy.chainId !== chainId || ledger.policy.wallet !== wallet.toLowerCase()) {
     throw new AppError("Identité du compte opérationnel différente du budget", 503);
@@ -34,7 +36,18 @@ export async function reconcileRunnerTransactions(
         const ciphertext = ledger.claimTransactionRebroadcast(operation.id, operation.fingerprint);
         if (ciphertext) {
           const raw = await openRunnerTransaction(ciphertext, operation, ledger.policy);
-          try { await rebroadcast(raw); } catch { /* Le même hash reste réservé après perte de réponse. */ }
+          try { await rebroadcast(raw); }
+          catch (error) {
+            // Le même hash reste réservé après perte de réponse. Seul un refus explicite pour
+            // frais trop bas autorise une re-signature au même nonce.
+            if (classifySendError(error) === "fee-too-low" && resign && operation.nonce !== null) {
+              await replaceUnderpricedTransaction(ledger, operation.id, operation.fingerprint, operation.nonce, raw, {
+                latestNonce: () => client.getTransactionCount({ address: wallet, blockTag: "latest" }),
+                resign, send: rebroadcast,
+                seal: (serialized) => sealRunnerTransaction(operation.id, operation.fingerprint, serialized),
+              }).catch(() => { console.warn(`[runner] remplacement de ${operation.id} impossible : intervention requise`); });
+            }
+          }
         }
       }
       continue;

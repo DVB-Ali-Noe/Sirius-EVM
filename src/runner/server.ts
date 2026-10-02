@@ -8,6 +8,7 @@ import {
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import { getEnclaveTlsIdentity, initEnclave } from "@/lib/tee/dstack";
 import { AppError } from "@/lib/app-error";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import {
   preflightRunnerCapability,
   runnerCapabilityMatchesScope,
@@ -167,6 +168,9 @@ export async function handleRunnerRequest(
       if (isJob) activeJobs -= 1;
     }
   } catch (err) {
+    if (err instanceof RunnerFinalityPending) {
+      return send(202, { state: "pending-finality", transactionHash: err.transactionHash, error: err.message });
+    }
     if (err instanceof AppError) return send(err.status, { error: err.message });
     console.error("[runner] erreur interne");
     return send(500, { error: "Erreur runner" });

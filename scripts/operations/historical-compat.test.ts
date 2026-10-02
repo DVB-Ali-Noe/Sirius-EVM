@@ -101,7 +101,8 @@ function escrowUnder(version: string, loan: Record<string, unknown> | null) {
     "@/lib/models/registry": stub("trainingProfileHash"), "@/lib/tee/evm-binding": binding, "./history": history,
     "./lock-authorization": { lockAuthorizationTypedData: () => { throw new Error(); }, LOCK_AUTHORIZATION_TTL_SECONDS: 300 },
     "@/lib/runner/budget": stub("runnerBudget"), "@/lib/runner/budget-transaction": stub("sendBudgetedTransaction"),
-    "@/lib/runner/transaction-recovery": stub("reconcileRunnerTransactions"), "@/lib/runner/gas-policy": stub("boundedGas"),
+    "@/lib/runner/transaction-recovery": stub("reconcileRunnerTransactions"), "@/lib/runner/gas-policy": stub("boundedGas", "lowGasBalanceAlert"),
+    "@/lib/runner/fee-replacement": stub("resignWithFreshFees"),
     "@/lib/runner/transaction-journal": stub("sealRunnerTransaction"), "./finality": stub("assertCanonicalReceipt", "confirmedBlock"),
   }, { process: { env } });
 }
