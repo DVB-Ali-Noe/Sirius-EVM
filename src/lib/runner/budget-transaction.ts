@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/app-error";
 import { type Hex, keccak256 } from "viem";
 import type { BudgetLedger, WorkflowBudget } from "./budget-ledger";
+import { RunnerRetryLater } from "./failure-policy";
 
 export interface BudgetedTransactionIO {
   prepare(): Promise<{ serialized: Hex; nonce: number }>;
@@ -25,8 +26,11 @@ export async function sendBudgetedTransaction(
     try {
       prepared = await io.prepare();
     } catch {
-      ledger.finish(id, fingerprint, false);
-      throw new AppError("Règlement refusé avant envoi : vérifier budget et réseau", 503);
+      // Rien n'est signé : la réservation est rendue. Un timeout RPC, un pic de gas ou un
+      // solde ETH trop bas ne doivent pas rendre le prêt irréglable, puisque le préimage ne
+      // quitte jamais l'enclave et que personne d'autre ne peut régler à sa place.
+      ledger.releaseReservation(id, fingerprint);
+      throw new RunnerRetryLater("Règlement refusé avant signature : nouvelle tentative possible (vérifier ETH, gas et RPC)");
     }
     hash = keccak256(prepared.serialized);
     // Le hash signé et le nonce sont durables AVANT le premier appel d’envoi RPC.

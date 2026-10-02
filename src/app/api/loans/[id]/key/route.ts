@@ -4,7 +4,7 @@ import { loanModelKeyInRunner } from "@/lib/tee/runner-client";
 import { readLoan } from "@/lib/evm/escrow";
 import { loanEscrowBinding } from "@/lib/evm/history";
 import { addressesEqual } from "@/lib/evm/address";
-import { assertGrantSubject, requireAuth, assertOwner } from "@/lib/auth/require-auth";
+import { assertAuthenticGrant, requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -65,7 +65,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!authorization || typeof deliveryPublicKey !== "string") {
       return NextResponse.json({ error: "Autorisation ou clé de livraison manquante" }, { status: 400 });
     }
-    assertGrantSubject(session, authorization);
+    await assertAuthenticGrant(session, authorization);
     const loan = await prisma.loan.findUnique({ where: { id } });
     if (!loan) return NextResponse.json({ error: "Loan introuvable" }, { status: 404 });
     assertOwner(session, loan.borrower);

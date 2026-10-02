@@ -504,4 +504,11 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "SIRIUS_WITHDRAW_RELAYER_KEY doit être une clé dédiée, distincte du faucet et du vérificateur KYB": "SIRIUS_WITHDRAW_RELAYER_KEY must be a dedicated key, distinct from the faucet and the KYB verifier",
   "SIRIUS_WITHDRAW_RELAYER_MIN_USDC invalide : montant USDC positif, six décimales au plus": "Invalid SIRIUS_WITHDRAW_RELAYER_MIN_USDC: positive USDC amount with at most six decimals",
   "SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH invalide : plafond ETH positif, inférieur à 100": "Invalid SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH: positive ETH limit below 100",
+  "Auteur et motif obligatoires pour une action opérateur": "An operator action requires an author and a reason",
+  "Remplacement de transaction runner invalide": "Invalid runner transaction replacement",
+  "Seule une transaction close en échec peut être rouverte": "Only a transaction closed as failed can be reopened",
+  "Seule une transaction encore réservée peut être abandonnée": "Only a transaction that is still reserved can be abandoned",
+  "Dataset inexploitable pour ce modèle": "This dataset cannot be used with this model",
+  "Règlement refusé avant signature : nouvelle tentative possible (vérifier ETH, gas et RPC)": "Settlement refused before signing: it can be retried (check ETH, gas and RPC)",
+  "Transaction envoyée, en attente de finalité du réseau": "Transaction sent, waiting for network finality",
 };

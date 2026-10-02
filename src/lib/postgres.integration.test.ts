@@ -8,7 +8,8 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { hashOperatorCode } from "./phala-demo/operator-code";
 
-test("migrations additives et quotas sur PostgreSQL entre huit processus", { timeout: 60000 }, async (t) => {
+// Mesuré à 56 s sur le runner CI de staging : 60 s ne laissait aucune marge.
+test("migrations additives et quotas sur PostgreSQL entre huit processus", { timeout: 120000 }, async (t) => {
   const configured = process.env.SIRIUS_TEST_DATABASE_URL;
   assert.ok(configured, "SIRIUS_TEST_DATABASE_URL doit désigner une instance PostgreSQL locale jetable");
   const url = new URL(configured);

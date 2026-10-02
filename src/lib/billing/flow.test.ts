@@ -186,8 +186,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     const loan = await readLoan(loanKeyFor(borrower.address, signed.quote.loanId));
     assert.equal(loan?.billing?.termsHash, quoteTermsHash(signed.quote));
   }
-  assert.ok(runnerBudget()!.snapshot().failures >= 1);
-  await assert.rejects(prepare("blocked"), /Coupe-circuit/);
+  assert.equal(runnerBudget()!.snapshot().failures, 0, "un devis falsifié ou un appel prématuré ne ferme pas la plateforme");
   const result = await run(quotes[0]) as { modelCid: string; runnerReceipt: string; releaseEnvelopeHash: string; releaseEnvelope?: unknown };
   assert.ok(result.modelCid);
   assert.equal(result.releaseEnvelope, undefined, "aucune capsule avant règlement v7");
