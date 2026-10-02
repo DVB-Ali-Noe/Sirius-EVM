@@ -1045,3 +1045,31 @@ test("le CLI export produit le contrat JSON sans modifier les engagements", asyn
   assert.equal(result.operations[0].id, "reserved");
   assert.deepEqual(ledger.snapshot(), before);
 });
+
+test("au redémarrage d’une démonstration, les opérations interrompues hors devis passent en échec sans compter", () => {
+  const { ledger, open, policy: p } = fixture((policy) => {
+    policy.earnedMarginUsdMicros = "0"; policy.cashUsdMicros = "0";
+    policy.sponsored = { funding: "credits", creditsUsdMicros: "5000", cashUsdMicros: "0", ceilingUsdMicros: "4000",
+      maxOperations: 6, maxOperationsPerWallet: 2, maxConcurrent: 1, origin: "https://demo.example", observedAtMs: Date.now() - 1000 };
+  });
+  ledger.reserve("training:crash", "input", "training");
+  ledger.reserve("seal:crash", "input", "seal");
+  ledger.reserve("training:done", "input", "training");
+  ledger.finish("training:done", "input", true, "{}");
+  assert.equal(ledger.diagnostics().incompleteJobs, 1);
+  const before = ledger.snapshot();
+  const restarted = open();
+  assert.deepEqual(restarted.failInterruptedOperations("runner-startup", "redémarrage").sort(), ["seal:crash", "training:crash"]);
+  assert.equal(restarted.diagnostics().incompleteJobs, 0);
+  assert.deepEqual(restarted.snapshot(), before, "coût conservé, aucun échec compté");
+  assert.deepEqual(restarted.failInterruptedOperations("runner-startup", "redémarrage"), []);
+  assert.equal(restarted.operatorActions().filter(({ action }) => action === "interrupted").length, 1);
+  void p;
+});
+
+test("la reprise après redémarrage est refusée hors démonstration sponsorisée", () => {
+  const { ledger } = fixture();
+  ledger.reserve("training:prod", "input", "training");
+  assert.throws(() => ledger.failInterruptedOperations("runner-startup", "redémarrage"), /démonstration sponsorisée/);
+  assert.equal(ledger.find("training:prod", "input")?.state, "reserved");
+});

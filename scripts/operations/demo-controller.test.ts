@@ -2,7 +2,7 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
 import { DemoController, type DemoControllerIO } from "./demo-controller";
 import { DemoSessionStore } from "../../src/lib/phala-demo/session-store";
@@ -27,7 +27,8 @@ function fixture() {
     stopCvm: async () => { state.stops++; state.power = "stopped"; },
     runner: async (body) => {
       if (state.power !== "running") throw new Error("CVM arrêtée");
-      if (body && body.command !== "configure") store.command(body.command, body.revision, body.actor, body.policy);
+      if (body?.command === "recover") store.recoverOrphans();
+      else if (body && body.command !== "configure") store.command(body.command, body.revision, body.actor, body.policy);
       return { session: store.read(), policy, available: state.capacity && store.read().open };
     },
     pendingDeliveries: async () => state.pending,
@@ -161,4 +162,31 @@ test("une politique privée absente ou invalide échoue avant tout démarrage", 
     assert.equal(f.state.starts, 0);
     assert.equal(f.store.read().open, false);
   } finally { f.cleanup(); }
+});
+
+test("une opération orpheline d’un runner arrêté n’empêche plus de rouvrir la démonstration", async () => {
+  const f = fixture();
+  try {
+    f.controller.submit("open", operator, 0);
+    await phase(f.controller, "open");
+    f.store.admit("train:crash", visitor, "c".repeat(64));
+    f.controller.submit("emergency", operator, (await f.controller.status()).revision);
+    await phase(f.controller, "closed");
+    // Le runner redémarre : un nouveau processus ouvre le même registre.
+    f.store.close();
+    const restarted = new DemoSessionStore(f.store.path);
+    Object.assign(f.store, restarted);
+    assert.equal(restarted.read().activeOperations, 1, "l’admission orpheline survit à l’arrêt");
+    f.io.runner = async (body) => {
+      if (f.state.power !== "running") throw new Error("CVM arrêtée");
+      if (body?.command === "recover") restarted.recoverOrphans();
+      else if (body && body.command !== "configure") restarted.command(body.command, body.revision, body.actor, body.policy);
+      return { session: restarted.read(), policy, available: restarted.read().open };
+    };
+    f.controller.submit("open", operator, (await f.controller.status()).revision);
+    await phase(f.controller, "open");
+    assert.equal(restarted.read().activeOperations, 0);
+    assert.equal(restarted.read().open, true);
+    restarted.close();
+  } finally { rmSync(dirname(f.file), { recursive: true, force: true }); }
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -77,4 +77,29 @@ test("le financement refuse les plafonds non financés et les sources contradict
   assert.throws(() => parseDemoPolicy({ ...policy, funding: "sirius" }), /incohérent/);
   assert.throws(() => parseDemoPolicy({ ...policy, maxOperationsPerWallet: 4 }), /invalide/);
   assert.equal(parseDemoPolicy({ ...policy, funding: "mixed", cashUsdMicros: "1000000" }).funding, "mixed");
+});
+
+test("seules les admissions orphelines passent en échec, jamais celles suivies par ce processus", () => {
+  const directory = mkdtempSync(join(tmpdir(), "sirius-demo-orphans-"));
+  chmodSync(directory, 0o700);
+  const path = join(directory, "session.sqlite");
+  const owner = `0x${"34".repeat(20)}`;
+  const policy = { funding: "credits", creditsUsdMicros: "1000", cashUsdMicros: "0", ceilingUsdMicros: "900",
+    maxOperations: 4, maxOperationsPerWallet: 4, maxConcurrent: 2 };
+  const crashed = new DemoSessionStore(path);
+  try {
+    crashed.command("open", 0, `0x${"12".repeat(20)}`, policy);
+    crashed.admit("train:orphan", owner, "a".repeat(64));
+  } finally { crashed.close(); }
+  const store = new DemoSessionStore(path);
+  try {
+    store.admit("train:live", owner, "b".repeat(64));
+    assert.equal(store.read().activeOperations, 2);
+    assert.deepEqual(store.recoverOrphans(), ["train:orphan"]);
+    assert.equal(store.read().activeOperations, 1, "l’opération suivie ici continue");
+    assert.deepEqual(store.recoverOrphans(), []);
+    store.finish("train:live", true);
+    assert.equal(store.read().activeOperations, 0);
+    assert.throws(() => store.admit("train:orphan", owner, "a".repeat(64)), /reprise opérateur/, "une orpheline ne redémarre pas toute seule");
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

@@ -196,7 +196,7 @@ const WORKFLOW_SCHEMA = `
     reason TEXT NOT NULL, at INTEGER NOT NULL, previous TEXT NOT NULL
   ) STRICT;`;
 
-export type OperatorAction = "reset-failures" | "reopen" | "abandon" | "replace";
+export type OperatorAction = "reset-failures" | "reopen" | "abandon" | "replace" | "interrupted";
 
 export class BudgetLedger {
   private readonly db: Database;
@@ -462,6 +462,25 @@ export class BudgetLedger {
     this.db.prepare("INSERT INTO operator_actions (action, operation_id, actor, reason, at, previous) VALUES (?, ?, ?, ?, ?, ?)")
       .run(action, operationId, actor.trim(), reason.trim(), Date.now(),
         JSON.stringify(previous, (_key, value) => typeof value === "bigint" ? String(value) : value));
+  }
+
+  /**
+   * Démonstration sponsorisée uniquement, au démarrage du runner : une requête, un scellement
+   * ou un entraînement hors devis encore réservé appartenait au processus précédent, arrêté en
+   * cours de route. Il passe en échec, coût conservé, sans compter dans le coupe-circuit. Les
+   * transactions et les opérations d'un devis v7 gardent leur reprise dédiée.
+   */
+  failInterruptedOperations(actor: string, reason: string): string[] {
+    if (!this.policy.sponsored) throw new AppError("Reprise réservée à la démonstration sponsorisée", 409);
+    return this.atomic(() => {
+      const rows = this.db.prepare(`SELECT o.id FROM operations o LEFT JOIN operation_workflows w ON w.operation_id = o.id
+        WHERE o.state = 'reserved' AND o.kind IN ('request', 'seal', 'training') AND w.operation_id IS NULL`).all();
+      const ids = rows.map((row) => String(row.id));
+      if (!ids.length) return ids;
+      this.journal("interrupted", null, actor, reason, { operations: ids });
+      for (const id of ids) this.db.prepare("UPDATE operations SET state = 'failed' WHERE id = ? AND state = 'reserved'").run(id);
+      return ids;
+    });
   }
 
   /** Réarme le coupe-circuit après diagnostic. Journalisé, jamais automatique. */

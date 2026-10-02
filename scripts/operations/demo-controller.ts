@@ -18,7 +18,7 @@ export interface DemoControllerIO {
   getCvm(): Promise<"running" | "stopped" | "transitioning">;
   startCvm(): Promise<void>;
   stopCvm(): Promise<void>;
-  runner(command?: { command: "open" | "close" | "configure"; actor: string; revision: number; policy?: DemoPolicy; observedAtMs?: number }): Promise<RunnerStatus>;
+  runner(command?: { command: "open" | "close" | "configure" | "recover"; actor: string; revision: number; policy?: DemoPolicy; observedAtMs?: number }): Promise<RunnerStatus>;
   funding?(): { policy: DemoPolicy; observedAtMs: number };
   pendingDeliveries(): Promise<number>;
   wait(): Promise<void>;
@@ -123,6 +123,8 @@ export class DemoController {
       });
       if (!result) throw new Error("Attestation indisponible");
       if (result.session.open) result = await step(() => this.io.runner({ command: "close", actor, revision: result!.session.revision }));
+      // Session fermée mais opérations encore « en cours » : orphelines d'un runner arrêté.
+      if (result.session.activeOperations > 0) result = await step(() => this.io.runner({ command: "recover", actor, revision: result!.session.revision }));
       if (funding) result = await step(() => this.io.runner({ command: "configure", actor, revision: result!.session.revision, ...funding }));
       result = await step(() => this.io.runner({ command: "open", actor, revision: result!.session.revision, policy: result!.policy }));
       this.save({ phase: "open", available: result.available, funding: result.policy.funding });

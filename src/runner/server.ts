@@ -23,7 +23,7 @@ import { validateRunnerConfiguration } from "./config";
 import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
-import { demoControl, demoControlAuthorized, demoEnabled, demoSessions } from "@/lib/phala-demo/runner-session";
+import { demoControl, demoControlAuthorized, demoEnabled, recoverDemoAfterRestart } from "@/lib/phala-demo/runner-session";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -184,7 +184,7 @@ export async function startRunner(
   if (!bootstrapOnly && process.env.RUNNER_REPLAY_DIR?.trim()) checkRunnerReplay(process.env.RUNNER_REPLAY_DIR.trim());
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
   if (!bootstrapOnly) runnerBudget();
-  if (!bootstrapOnly && demoEnabled()) demoSessions();
+  if (!bootstrapOnly && demoEnabled()) recoverDemoAfterRestart();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
     await verifyRunnerDeployment(runnerSettlementAddress());
   }
