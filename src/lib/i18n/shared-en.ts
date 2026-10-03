@@ -47,4 +47,5 @@ export const SHARED_MESSAGES_EN: Record<string, string> = {
   "Fournisseur vérifié KYB": "KYB-verified provider",
   "Fournisseur non vérifié KYB": "Provider not KYB-verified",
   "Publier un dataset": "Publish a dataset",
+  "Dataset sans nom": "Untitled dataset",
 };

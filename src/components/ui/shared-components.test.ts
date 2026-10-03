@@ -143,6 +143,31 @@ test("DatasetCard : taille négative, infinie ou nulle → « — »", () => {
   assert.doesNotMatch(out, /Infinity|-5 B/);
 });
 
+test("PriceBreakdown : minimum nul affiché (« 0.00 »), jamais un « 0 » brut ni une alerte", () => {
+  const out = page("price-minimum-zero");
+  assert.equal(out.match(/Minimum set by the tariff: 0\.00 USDG\./g)?.length, 2);
+  assert.doesNotMatch(out, /role="alert"|<p>0<\/p>|>0</);
+});
+
+test("PriceBreakdown : plus grand montant admis, exact et avec retour à la ligne autorisé", () => {
+  const out = page("price-max-uint96");
+  assert.match(out, />79,228,162,514,264,337,593,543\.950335 USDG</);
+  assert.match(out, /<section [^>]*wrap-anywhere/);
+});
+
+test("DatasetCard : version de modèle inconnue, absente ou nulle → « Missing profile » (jamais un profil valide)", () => {
+  const out = page("card-model-version");
+  assert.equal(out.match(/Missing profile/g)?.length, 3);
+  assert.doesNotMatch(out, /Binary logistic regression|v1\.0\.0/);
+});
+
+test("DatasetCard : taille non entière → « — » ; nom vide → « Untitled dataset » (le lien garde un nom accessible)", () => {
+  assert.match(page("card-float-size"), /<span>8 columns<\/span><span>—<\/span>/);
+  const out = page("card-blank-name");
+  assert.match(out, /<a [^>]*href="\/datasets\/abc"[^>]*>Untitled dataset<\/a>/);
+  assert.match(out, /title="Untitled dataset"/);
+});
+
 test("PriceBreakdown : le symbole est échappé", () => {
   const out = page("price-hostile-symbol");
   assert.doesNotMatch(out, /<img/);

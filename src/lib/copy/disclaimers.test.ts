@@ -152,6 +152,20 @@ test("le lien mailto ne lève jamais d'exception, même avec des substituts UTF-
   assert.equal(contactMailtoHref(" \t\n "), "mailto:sirius.data.contact@gmail.com");
 });
 
+test("le lien mailto : bornes exactes des substituts UTF-16 (D800–DFFF) et des contrôles", () => {
+  const sans = "mailto:sirius.data.contact@gmail.com?subject=";
+  assert.equal(contactMailtoHref("\ud7ff"), `${sans}%ED%9F%BF`, "juste sous D800 : conservé");
+  assert.equal(contactMailtoHref("\ud800"), `${sans}%EF%BF%BD`);
+  assert.equal(contactMailtoHref("\udfff"), `${sans}%EF%BF%BD`, "borne haute DFFF remplacée");
+  assert.equal(contactMailtoHref("\ue000"), `${sans}%EE%80%80`, "juste au-dessus de DFFF : conservé");
+  assert.equal(contactMailtoHref("a\u001fb"), `${sans}a%20b`, "0x1f est un contrôle");
+  assert.equal(contactMailtoHref("a b"), `${sans}a%20b`, "0x20 est une espace ordinaire");
+  assert.equal(contactMailtoHref("a\u009fb"), `${sans}a%20b`, "0x9f est un contrôle C1");
+  assert.equal(contactMailtoHref("a\u00a0b"), `${sans}a%C2%A0b`, "0xa0 n'est pas un contrôle");
+  assert.equal(contactMailtoHref("  x  "), `${sans}x`, "espaces retirés");
+  assert.equal(contactMailtoHref("a".repeat(199) + " b"), `${sans}${"a".repeat(199)}`, "espace finale retirée après coupure");
+});
+
 test("le lien mailto retire les contrôles : CR, LF, tabulation, DEL et contrôles C1", () => {
   const sans = "mailto:sirius.data.contact@gmail.com?subject=";
   const href = contactMailtoHref("a\r\nBcc: x");

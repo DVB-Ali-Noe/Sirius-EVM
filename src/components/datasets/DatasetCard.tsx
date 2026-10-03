@@ -67,6 +67,7 @@ export function DatasetCard({
   const headingId = useId();
   const model = modelSelection(modelId, modelVersion);
   const link = safeInternalHref(href);
+  const title = name.trim() === "" ? t("Dataset sans nom") : name;
 
   return (
     <Card
@@ -77,16 +78,16 @@ export function DatasetCard({
       } ${className}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 id={headingId} className="min-w-0 flex-1 font-medium" title={name}>
+        <h3 id={headingId} className="min-w-0 flex-1 font-medium" title={title}>
           {link ? (
             <Link
               href={link}
               className="line-clamp-2 outline-hidden after:absolute after:inset-0 after:rounded-xl after:content-['']"
             >
-              {name}
+              {title}
             </Link>
           ) : (
-            <span className="line-clamp-2">{name}</span>
+            <span className="line-clamp-2">{title}</span>
           )}
         </h3>
         <StatusPill status={status} className="shrink-0" />

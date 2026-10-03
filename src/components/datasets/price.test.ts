@@ -96,10 +96,19 @@ test("minimum : comparé à la part du fournisseur, égalité acceptée", () => 
   assert.ok(nullMinimum.ok && nullMinimum.minimum === null);
 });
 
+test("minimum nul : accepté, jamais confondu avec « pas de minimum »", () => {
+  for (const zero of ["0", BigInt(0)]) {
+    const result = computePriceBreakdown({ providerAtomic: "0", computeAtomic: "1", decimals: 6, minimumAtomic: zero });
+    assert.ok(result.ok);
+    assert.equal(result.minimum, BigInt(0));
+    assert.equal(result.belowMinimum, false);
+  }
+});
+
 test("entrées invalides : refus explicite, jamais un montant approximatif", () => {
   const invalidAmounts: unknown[] = [
     "", " 1", "1 ", "-1", "+1", "1.5", "1e6", "0x10", "007", "00", "abc", "１２", "١٢", "Infinity", "NaN",
-    1, 1.5, NaN, null, undefined, {}, [], BigInt(-1), "1".repeat(30), (BigInt(1) << BigInt(96)).toString(),
+    1, 1.5, NaN, null, undefined, {}, [], BigInt(-1), "1".repeat(30), (BigInt(1) << BigInt(96)).toString(), "1\n", "\n1", "1\r", "1\u0000",
   ];
   for (const value of invalidAmounts) {
     assert.equal(parseAtomic(value), null, String(value));

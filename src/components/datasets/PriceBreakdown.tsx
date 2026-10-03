@@ -41,7 +41,7 @@ export function PriceBreakdown({
     perspective === "borrower" ? t("Vous payez") : t("Prix payé par l’emprunteur");
 
   return (
-    <section aria-label={t("Décomposition du prix")} className={`min-w-0 rounded-xl border border-border bg-surface/50 p-5 ${className}`}>
+    <section aria-label={t("Décomposition du prix")} className={`min-w-0 rounded-xl border border-border bg-surface/50 p-5 wrap-anywhere ${className}`}>
       <dl className="space-y-2 text-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <dt className="text-muted">{providerLabel}</dt>
