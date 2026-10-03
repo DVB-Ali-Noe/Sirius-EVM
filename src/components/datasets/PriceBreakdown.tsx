@@ -45,15 +45,15 @@ export function PriceBreakdown({
       <dl className="space-y-2 text-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <dt className="text-muted">{providerLabel}</dt>
-          <dd className="font-mono tabular-nums text-foreground">{show(ok ? breakdown.provider : null)}</dd>
+          <dd className="ml-auto text-right font-mono tabular-nums text-foreground">{show(ok ? breakdown.provider : null)}</dd>
         </div>
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <dt className="text-muted">{t("Frais de calcul (enclave Phala)")}</dt>
-          <dd className="font-mono tabular-nums text-foreground">{show(ok ? breakdown.compute : null)}</dd>
+          <dd className="ml-auto text-right font-mono tabular-nums text-foreground">{show(ok ? breakdown.compute : null)}</dd>
         </div>
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-border pt-2">
           <dt className="font-medium text-foreground">{totalLabel}</dt>
-          <dd className="font-mono font-semibold tabular-nums text-foreground">{show(ok ? breakdown.total : null)}</dd>
+          <dd className="ml-auto text-right font-mono font-semibold tabular-nums text-foreground">{show(ok ? breakdown.total : null)}</dd>
         </div>
       </dl>
       {ok && breakdown.minimum !== null && (

@@ -106,6 +106,17 @@ test("entrées invalides : refus explicite, jamais un montant approximatif", () 
     assert.equal(formatTokenAmount(value, 6), null, String(value));
     const result = computePriceBreakdown({ providerAtomic: value, computeAtomic: "1", decimals: 6 });
     assert.deepEqual(result, { ok: false, reason: "invalid-amount" }, String(value));
+    // Même refus quand c'est la part du fournisseur qui est valide et les frais de calcul qui ne le sont pas.
+    assert.deepEqual(
+      computePriceBreakdown({ providerAtomic: "1", computeAtomic: value, decimals: 6 }),
+      { ok: false, reason: "invalid-amount" },
+      `frais de calcul : ${String(value)}`,
+    );
+    assert.deepEqual(
+      computePriceBreakdown({ providerAtomic: "1", computeAtomic: "1", decimals: 6, minimumAtomic: value }),
+      value === undefined || value === null ? computePriceBreakdown({ providerAtomic: "1", computeAtomic: "1", decimals: 6 }) : { ok: false, reason: "invalid-minimum" },
+      `minimum : ${String(value)}`,
+    );
   }
   const tooBig = [BigInt(1) << BigInt(96), BigInt(1) << BigInt(200)];
   for (const value of tooBig) {

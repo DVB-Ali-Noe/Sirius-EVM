@@ -45,6 +45,8 @@ const cases: Record<string, React.ReactNode> = {
   "price-borrower": <PriceBreakdown providerAtomic="20000000" computeAtomic="3000000" token={token} perspective="borrower" />,
   "price-below-minimum": <PriceBreakdown providerAtomic="999" computeAtomic="3000000" token={token} minimumAtomic="1000" />,
   "price-invalid-amount": <PriceBreakdown providerAtomic="12.5" computeAtomic="3000000" token={token} />,
+  "price-invalid-compute": <PriceBreakdown providerAtomic="20000000" computeAtomic="x" token={token} />,
+  "price-invalid-minimum": <PriceBreakdown providerAtomic="20000000" computeAtomic="3000000" token={token} minimumAtomic="-5" />,
   "price-invalid-decimals": <PriceBreakdown providerAtomic="1" computeAtomic="1" token={{ symbol: "USDG", decimals: 6.5 }} />,
   "price-hostile-symbol": <PriceBreakdown providerAtomic="1000000" computeAtomic="1000000" token={{ symbol: "<img src=x>", decimals: 6 }} />,
   "price-testnet-18": <PriceBreakdown providerAtomic="20000000000000000000" computeAtomic="3000000000000000000" token={{ symbol: "USDC", decimals: 18 }} />,
@@ -75,6 +77,13 @@ const cases: Record<string, React.ReactNode> = {
     />
   ),
   "card-size": <DatasetCard {...baseCard} sizeBytes={3 * 1024 * 1024} />,
+  "card-bad-size": (
+    <>
+      <DatasetCard {...baseCard} sizeBytes={-5} />
+      <DatasetCard {...baseCard} sizeBytes={Infinity} />
+      <DatasetCard {...baseCard} sizeBytes={0} />
+    </>
+  ),
   "card-no-size": <DatasetCard {...baseCard} sizeBytes={null} />,
   "card-no-category": <DatasetCard {...baseCard} category={null} />,
   "note-unknown-variant": <DisclaimerNote variant={"danger" as never} messages={["betaLimits"]} />,

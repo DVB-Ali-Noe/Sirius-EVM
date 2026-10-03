@@ -102,7 +102,7 @@ export function DatasetCard({
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>{t("{count} lignes", { count: formatCount(rowCount) })}</span>
         <span>{t("{count} colonnes", { count: formatCount(columnCount) })}</span>
-        <span>{formatBytes(sizeBytes)}</span>
+        <span>{typeof sizeBytes === "number" && Number.isSafeInteger(sizeBytes) && sizeBytes > 0 ? formatBytes(sizeBytes) : "—"}</span>
       </p>
 
       <dl className="mt-auto grid grid-cols-2 gap-x-4 gap-y-2 text-sm">

@@ -122,6 +122,27 @@ test("PriceBreakdown : sous le minimum → alerte ; entrées invalides → « �
   assert.doesNotMatch(badDecimals, /USDG</);
 });
 
+test("PriceBreakdown : frais de calcul ou minimum invalides → « — » partout et alerte, sans exception", () => {
+  const compute = page("price-invalid-compute");
+  assert.equal(compute.match(/>—</g)?.length, 3);
+  assert.match(compute, /role="alert"[^>]*>Amount unavailable/);
+  const minimum = page("price-invalid-minimum");
+  assert.equal(minimum.match(/>—</g)?.length, 3);
+  assert.match(minimum, /Amount unavailable/);
+  assert.doesNotMatch(minimum, /20\.00 USDG/, "aucun montant partiel quand une entrée est invalide");
+});
+
+test("PriceBreakdown : le montant reste à droite même quand le libellé passe à la ligne", () => {
+  const out = page("price-example");
+  assert.equal(out.match(/<dd class="ml-auto text-right /g)?.length, 3);
+});
+
+test("DatasetCard : taille négative, infinie ou nulle → « — »", () => {
+  const out = page("card-bad-size");
+  assert.equal(out.match(/<span>8 columns<\/span><span>—<\/span>/g)?.length, 3);
+  assert.doesNotMatch(out, /Infinity|-5 B/);
+});
+
 test("PriceBreakdown : le symbole est échappé", () => {
   const out = page("price-hostile-symbol");
   assert.doesNotMatch(out, /<img/);
