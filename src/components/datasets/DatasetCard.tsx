@@ -9,8 +9,9 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import type { StatusKind } from "@/components/ui/status";
 import { safeInternalHref } from "@/components/ui/safe-href";
 import { formatCount } from "@/lib/copy/numbers";
+import { formatBytes } from "@/lib/format";
 import { modelDisplayName, modelSelection } from "@/lib/models/registry";
-import { formatTokenAmount, type AtomicAmount, type TokenInfo } from "./price";
+import { formatTokenWithSymbol, type AtomicAmount, type TokenInfo } from "./price";
 
 interface DatasetCardProps {
   name: string;
@@ -21,6 +22,8 @@ interface DatasetCardProps {
   modelVersion?: string | null;
   rowCount?: number | null;
   columnCount?: number | null;
+  /** Taille du fichier en octets (Mes datasets). Absente ou nulle : « — ». */
+  sizeBytes?: number | null;
   priceAtomic?: AtomicAmount | null;
   /** « borrowerPays » : prix total payé par l'emprunteur (défaut). « providerReceives » : gain du fournisseur. */
   priceKind?: "borrowerPays" | "providerReceives";
@@ -38,8 +41,7 @@ interface DatasetCardProps {
 
 function amountText(value: AtomicAmount | null | undefined, token: TokenInfo): string {
   if (value === null || value === undefined) return "—";
-  const text = formatTokenAmount(value, token.decimals);
-  return text === null ? "—" : `${text} ${token.symbol}`;
+  return formatTokenWithSymbol(value, token) ?? "—";
 }
 
 /** Carte de dataset de la mosaïque, partagée par Mes datasets et la marketplace. */
@@ -50,6 +52,7 @@ export function DatasetCard({
   modelVersion,
   rowCount,
   columnCount,
+  sizeBytes,
   priceAtomic,
   priceKind = "borrowerPays",
   token,
@@ -78,7 +81,7 @@ export function DatasetCard({
           {link ? (
             <Link
               href={link}
-              className="line-clamp-2 outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+              className="line-clamp-2 outline-hidden after:absolute after:inset-0 after:rounded-xl after:content-['']"
             >
               {name}
             </Link>
@@ -99,6 +102,7 @@ export function DatasetCard({
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span>{t("{count} lignes", { count: formatCount(rowCount) })}</span>
         <span>{t("{count} colonnes", { count: formatCount(columnCount) })}</span>
+        <span>{formatBytes(sizeBytes)}</span>
       </p>
 
       <dl className="mt-auto grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -143,7 +147,7 @@ export function DatasetAddTile({ href, className = "" }: DatasetAddTileProps) {
     </>
   );
   if (!link) {
-    return <div aria-disabled="true" className={`${classes} opacity-60`}>{content}</div>;
+    return <div data-disabled="true" className={`${classes} opacity-60`}>{content}</div>;
   }
   return (
     <Link

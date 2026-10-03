@@ -3,7 +3,7 @@
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import {
   computePriceBreakdown,
-  formatTokenAmount,
+  formatTokenWithSymbol,
   type AtomicAmount,
   type TokenInfo,
 } from "./price";
@@ -33,12 +33,8 @@ export function PriceBreakdown({
 }: PriceBreakdownProps) {
   const { t } = useLocale();
   const breakdown = computePriceBreakdown({ providerAtomic, computeAtomic, decimals: token.decimals, minimumAtomic });
-  const symbol = token.symbol;
   // Montant invalide : on affiche « — », jamais un montant approximatif ni une exception.
-  const show = (amount: bigint | null) => {
-    const text = amount === null ? null : formatTokenAmount(amount, token.decimals);
-    return text === null ? "—" : `${text} ${symbol}`;
-  };
+  const show = (amount: bigint | null) => (amount === null ? null : formatTokenWithSymbol(amount, token)) ?? "—";
   const ok = breakdown.ok;
   const providerLabel = perspective === "provider" ? t("Vous recevez") : t("Le fournisseur reçoit");
   const totalLabel =

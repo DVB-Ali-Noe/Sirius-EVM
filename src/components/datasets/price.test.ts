@@ -97,6 +97,15 @@ test("entrées invalides : refus explicite, jamais un montant approximatif", () 
     const result = computePriceBreakdown({ providerAtomic: value, computeAtomic: "1", decimals: 6 });
     assert.deepEqual(result, { ok: false, reason: "invalid-amount" }, String(value));
   }
+  const tooBig = [BigInt(1) << BigInt(96), BigInt(1) << BigInt(200)];
+  for (const value of tooBig) {
+    assert.equal(parseAtomic(value), null);
+    assert.equal(formatTokenAmount(value, 6), null);
+  }
+  assert.equal(parseAtomic((BigInt(1) << BigInt(96)) - BigInt(1)), BigInt(MAX_UINT96));
+  assert.equal(isValidDecimals(36), true);
+  assert.equal(isValidDecimals(37), false);
+  assert.equal(isValidDecimals(0), true);
   for (const decimals of [-1, 1.5, 37, 1000, NaN, Infinity, "6", null, undefined]) {
     assert.equal(isValidDecimals(decimals), false, String(decimals));
     assert.equal(formatTokenAmount("1", decimals), null);

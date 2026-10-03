@@ -47,8 +47,10 @@ function withContactLink(text: string): React.ReactNode {
 }
 
 /** Encart d'avertissement discret, avec lien vers le contact quand le texte le mentionne. */
-export function DisclaimerNote({ variant = "info", messages = DEFAULT_MESSAGES, children, className = "" }: DisclaimerNoteProps) {
+export function DisclaimerNote({ variant: requested = "info", messages = DEFAULT_MESSAGES, children, className = "" }: DisclaimerNoteProps) {
   const { t } = useLocale();
+  // Une valeur inattendue retombe sur la variante discrète plutôt que de planter la page.
+  const variant: DisclaimerVariant = requested === "warning" ? "warning" : "info";
   const styles = VARIANT_STYLES[variant];
   const ids = messages.filter((id) => DISCLAIMER_IDS.includes(id));
   return (

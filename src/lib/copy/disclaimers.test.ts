@@ -93,6 +93,10 @@ test("formatage : milliers, tailles tronquées vers le bas, valeurs invalides", 
   assert.equal(formatLimitBytes(3 * 1024 * 1024 - 1), "2.9 MB", "une limite n'est jamais arrondie vers le haut");
   assert.equal(formatLimitBytes(1024 * 1024), "1 MB");
   assert.equal(formatLimitBytes(512 * 1024), "512 KB");
+  assert.equal(formatLimitBytes(1024), "1 KB");
+  assert.equal(formatLimitBytes(100), "100 B", "une limite sous 1 KB n'est pas annoncée « 0 KB »");
+  assert.equal(formatLimitBytes(1), "1 B");
+  assert.equal(formatCount(2 ** 53), "—", "entier non sûr");
   assert.equal(formatLimitBytes(0), "—");
   assert.equal(formatLimitBytes(-5), "—");
   assert.equal(formatLimitBytes(1.5), "—");
@@ -112,6 +116,28 @@ test("le lien mailto ne contient que l'adresse de contact, objet encodé stricte
   assert.match(href.slice(href.indexOf("?")), /^\?subject=[A-Za-z0-9%._~!*'()-]*$/);
   assert.ok(href.length < 800);
   assert.ok(contactMailtoHref("😀".repeat(5000)).length < 200 * 12 + 100, "objet borné à 200 caractères");
+});
+
+test("le lien mailto ne lève jamais d'exception, même avec des substituts UTF-16 isolés ou coupés", () => {
+  const sans = "mailto:sirius.data.contact@gmail.com?subject=";
+  // Substituts isolés (JSON les admet) : remplacés par U+FFFD.
+  assert.equal(contactMailtoHref("\ud800"), `${sans}%EF%BF%BD`);
+  assert.equal(contactMailtoHref("a\udc00b"), `${sans}a%EF%BF%BDb`);
+  // Emoji à cheval sur la limite de 200 : coupé sur des points de code, jamais en deux.
+  const href = contactMailtoHref("a".repeat(199) + "😀😀");
+  assert.equal(href, `${sans}${"a".repeat(199)}%F0%9F%98%80`);
+  assert.equal(decodeURIComponent(href.slice(sans.length)), "a".repeat(199) + "😀");
+  assert.equal(Array.from(decodeURIComponent(contactMailtoHref("é".repeat(500)).slice(sans.length))).length, 200);
+  // Un objet réduit à un substitut puis à du blanc ne produit pas de paramètre vide.
+  assert.equal(contactMailtoHref(" \t\n "), "mailto:sirius.data.contact@gmail.com");
+});
+
+test("le lien mailto retire les contrôles : CR, LF, tabulation, DEL et contrôles C1", () => {
+  const sans = "mailto:sirius.data.contact@gmail.com?subject=";
+  const href = contactMailtoHref("a\r\nBcc: x");
+  assert.equal(href, `${sans}a%20%20Bcc%3A%20x`);
+  assert.doesNotMatch(href, /%0D|%0A|%09/i);
+  assert.equal(contactMailtoHref("a\u007fb\u0085c\u0000d"), `${sans}a%20b%20c%20d`);
 });
 
 // --- Les constantes lues par les textes doivent pouvoir être importées côté client. ---

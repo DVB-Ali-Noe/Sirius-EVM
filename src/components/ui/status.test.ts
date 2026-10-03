@@ -37,6 +37,23 @@ test("les libellés sont tous traduits et distincts entre eux", () => {
   assert.equal(new Set(keys.map((key) => EN_MESSAGES[key])).size, keys.length);
 });
 
+test("table complète attendue : libellé français et variante de chaque état", () => {
+  assert.deepEqual(STATUS_META, {
+    online: { labelKey: "En ligne", variant: "positive" },
+    borrowed: { labelKey: "Emprunté", variant: "accent" },
+    paused: { labelKey: "En pause", variant: "warning" },
+    expired: { labelKey: "Expiré", variant: "muted" },
+    destroyed: { labelKey: "Détruit", variant: "negative" },
+    pending: { labelKey: "En attente", variant: "warning" },
+    failed: { labelKey: "Échoué", variant: "negative" },
+    refunded: { labelKey: "Remboursé", variant: "default" },
+  });
+  assert.deepEqual(STATUS_DOT_CLASS, {
+    default: "bg-foreground/60", accent: "bg-accent", positive: "bg-positive",
+    negative: "bg-negative", muted: "bg-muted", warning: "bg-yellow-400",
+  });
+});
+
 test("états qui doivent se distinguer d'un coup d'œil : en ligne, détruit, échoué", () => {
   assert.equal(STATUS_META.online.variant, "positive");
   assert.equal(STATUS_META.destroyed.variant, "negative");

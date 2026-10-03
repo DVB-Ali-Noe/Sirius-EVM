@@ -101,15 +101,23 @@ export function disclaimerText(id: DisclaimerId, t: Translate): string {
  */
 export function contactMailtoHref(subject?: string): string {
   const base = `mailto:${CONTACT_EMAIL}`;
-  const cleaned = subject === undefined ? "" : withoutControlCharacters(subject).trim().slice(0, 200);
+  const cleaned = subject === undefined ? "" : sanitizeSubject(subject, 200);
   return cleaned ? `${base}?subject=${encodeURIComponent(cleaned)}` : base;
 }
 
-function withoutControlCharacters(value: string): string {
-  let result = "";
+/**
+ * Objet de courriel nettoyé : contrôles remplacés par une espace, substituts UTF-16 isolés
+ * remplacés par U+FFFD (sinon `encodeURIComponent` lève une `URIError`), coupure sur des
+ * points de code entiers (jamais au milieu d'un emoji).
+ */
+function sanitizeSubject(value: string, maxCodePoints: number): string {
+  const characters: string[] = [];
+  // `for...of` itère par points de code : un substitut isolé ressort seul.
   for (const character of value) {
     const code = character.codePointAt(0)!;
-    result += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : character;
+    const isLoneSurrogate = code >= 0xd800 && code <= 0xdfff;
+    const isControl = code < 0x20 || (code >= 0x7f && code <= 0x9f);
+    characters.push(isLoneSurrogate ? "\uFFFD" : isControl ? " " : character);
   }
-  return result;
+  return Array.from(characters.join("").trim()).slice(0, maxCodePoints).join("").trim();
 }

@@ -65,6 +65,19 @@ const cases: Record<string, React.ReactNode> = {
       <DatasetCard {...baseCard} />
     </>
   ),
+  "card-destroyed": <DatasetCard {...baseCard} status="destroyed" />,
+  "card-testnet-18": (
+    <DatasetCard
+      {...baseCard}
+      token={{ symbol: "USDC", decimals: 18 }}
+      priceAtomic="20000000000000000000"
+      revenueAtomic="240000000000000000000"
+    />
+  ),
+  "card-size": <DatasetCard {...baseCard} sizeBytes={3 * 1024 * 1024} />,
+  "card-no-size": <DatasetCard {...baseCard} sizeBytes={null} />,
+  "card-no-category": <DatasetCard {...baseCard} category={null} />,
+  "note-unknown-variant": <DisclaimerNote variant={"danger" as never} messages={["betaLimits"]} />,
   "tile": <DatasetAddTile href="/datasets/new" />,
   "tile-unsafe": <DatasetAddTile href="https://evil.example" />,
 };

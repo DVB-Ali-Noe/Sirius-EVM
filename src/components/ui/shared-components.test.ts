@@ -11,7 +11,9 @@ import { STATUS_KINDS } from "./status";
 const script = fileURLToPath(new URL("./shared-components.render.tsx", import.meta.url));
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const env = { ...process.env, NODE_OPTIONS: "" };
-const child = spawnSync(process.execPath, ["--import", "tsx", script], { cwd: root, env, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+const child = spawnSync(process.execPath, ["--import", "tsx", script], {
+  cwd: root, env, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 120_000,
+});
 assert.equal(child.status, 0, `le rendu a échoué : ${child.stderr}`);
 const html = JSON.parse(child.stdout) as Record<string, string>;
 
@@ -57,6 +59,19 @@ test("StatusPill : libellé visible pour chacun des huit états, point décorati
     assert.ok(out.includes(`${labels[status]}</span>`), status);
     assert.match(out, /aria-hidden="true"/);
     assert.match(out, new RegExp(`data-status="${status}"`));
+  }
+});
+
+test("StatusPill : couleur du badge et du point propres à chaque état", () => {
+  const expected = {
+    online: ["border-positive/40", "bg-positive"], borrowed: ["border-accent/40", "bg-accent"],
+    paused: ["border-yellow-400/40", "bg-yellow-400"], expired: ["border-muted/40", "bg-muted"],
+    destroyed: ["border-negative/40", "bg-negative"], pending: ["border-yellow-400/40", "bg-yellow-400"],
+    failed: ["border-negative/40", "bg-negative"], refunded: ["border-white/10", "bg-foreground/60"],
+  } as const;
+  for (const status of STATUS_KINDS) {
+    const out = page(`pill-${status}`);
+    for (const cls of expected[status]) assert.ok(out.includes(cls), `${status} : ${cls}`);
   }
 });
 
@@ -155,6 +170,33 @@ test("DatasetCard : contenus utilisateur échappés, liens non sûrs ignorés, p
   }
 });
 
+test("DatasetCard : l'état affiché suit la prop (en pause, détruit)", () => {
+  assert.match(page("card-minimal"), /data-status="paused"[^>]*>.*Paused<\/span>/);
+  assert.match(page("card-destroyed"), /data-status="destroyed"[^>]*>.*Destroyed<\/span>/);
+  assert.doesNotMatch(page("card-destroyed"), /Online/);
+});
+
+test("DatasetCard : décimales et symbole du jeton respectés (18 décimales, USDC)", () => {
+  const out = page("card-testnet-18");
+  assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>20\.00 USDC<\/dd>/);
+  assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDC<\/dd>/);
+  assert.doesNotMatch(out, /USDG/);
+});
+
+test("DatasetCard : taille du fichier affichée à côté des lignes et colonnes, « — » si absente", () => {
+  assert.match(page("card-size"), /<span>8 columns<\/span><span>3\.0 MB<\/span>/);
+  assert.match(page("card-no-size"), /<span>8 columns<\/span><span>—<\/span>/);
+});
+
+test("DatasetCard : pas de badge de catégorie vide", () => {
+  assert.doesNotMatch(page("card-no-category"), /Commerce/);
+  assert.equal((page("card-no-category").match(/rounded-full border/g) ?? []).length, 2, "pastille d'état et modèle seulement");
+});
+
+test("DisclaimerNote : variante inconnue → variante info", () => {
+  assert.match(page("note-unknown-variant"), /data-variant="info"/);
+});
+
 test("DatasetCard : deux cartes ont des identifiants de titre distincts", () => {
   const ids = [...page("card-pair").matchAll(/<h3 id="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(ids.length, 2);
@@ -168,5 +210,5 @@ test("DatasetAddTile : lien vers l'upload, symbole décoratif ; sans chemin sûr
   assert.match(out, />Publish a dataset</);
   const inert = page("tile-unsafe");
   assert.doesNotMatch(inert, /<a |href=/);
-  assert.match(inert, /aria-disabled="true"/);
+  assert.match(inert, /data-disabled="true"/);
 });

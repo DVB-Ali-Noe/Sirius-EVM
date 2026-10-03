@@ -30,7 +30,8 @@ export function formatCount(value: number | null | undefined): string {
 export function formatLimitBytes(bytes: number): string {
   if (!Number.isSafeInteger(bytes) || bytes <= 0) return "—";
   if (bytes >= MEBIBYTE) return `${truncatedOneDecimal(bytes, MEBIBYTE)} MB`;
-  return `${truncatedOneDecimal(bytes, KIBIBYTE)} KB`;
+  if (bytes >= KIBIBYTE) return `${truncatedOneDecimal(bytes, KIBIBYTE)} KB`;
+  return `${bytes} B`;
 }
 
 function truncatedOneDecimal(bytes: number, unit: number): string {
