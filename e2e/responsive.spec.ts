@@ -227,7 +227,7 @@ for (const screen of SCREENS) {
     });
 
     test("les preuves d’audit restent dans leur carte", async ({ page }) => {
-      await openLayoutPage(page, "/audit", screen.fontSize);
+      await openLayoutPage(page, "/explorer", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
       await expectContainedLayout(page);
