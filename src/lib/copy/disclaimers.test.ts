@@ -77,6 +77,26 @@ test("dataLimits suit un changement de limites : aucune valeur n'est recopiée d
   assert.match(half, /^CSV up to 2\.5 MB,/);
 });
 
+test("le tableau DISCLAIMERS ne contient aucune valeur numérique écrite en dur", () => {
+  const file = join(root, "src/lib/copy/disclaimers.ts");
+  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  let inspected = false;
+  function visit(node: ts.Node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "DISCLAIMERS" && node.initializer) {
+      inspected = true;
+      const literals: string[] = [];
+      (function scan(child: ts.Node) {
+        if (ts.isNumericLiteral(child)) literals.push(child.text);
+        ts.forEachChild(child, scan);
+      })(node.initializer);
+      assert.deepEqual(literals, [], "les limites doivent venir des constantes, pas de littéraux");
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(inspected, "DISCLAIMERS introuvable");
+});
+
 test("aucun texte commun ne contient de chiffre en dur, sauf ceux lus dans le code", () => {
   for (const id of DISCLAIMER_IDS) assert.doesNotMatch(DISCLAIMERS[id].key, /\d/, id);
 });

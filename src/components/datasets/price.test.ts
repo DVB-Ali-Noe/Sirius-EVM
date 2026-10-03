@@ -48,6 +48,16 @@ test("les plus grands montants admis restent exacts (uint96, au-delà de Number.
   assert.equal(result.total, BigInt("9007199254740994"), "somme exacte au-delà de 2^53");
 });
 
+test("borne du total : égal au maximum uint96 accepté, un de plus refusé", () => {
+  const almost = (BigInt(MAX_UINT96) - BigInt(1)).toString();
+  const atMax = computePriceBreakdown({ providerAtomic: almost, computeAtomic: "1", decimals: 6 });
+  assert.ok(atMax.ok);
+  assert.equal(atMax.total, BigInt(MAX_UINT96));
+  assert.deepEqual(computePriceBreakdown({ providerAtomic: almost, computeAtomic: "2", decimals: 6 }), { ok: false, reason: "total-too-large" });
+  const single = computePriceBreakdown({ providerAtomic: MAX_UINT96, computeAtomic: "0", decimals: 6 });
+  assert.ok(single.ok, "un montant seul égal au maximum est accepté");
+});
+
 test("le total est la somme exacte, sans jamais passer par un nombre à virgule", () => {
   for (const [provider, compute] of [["1", "2"], ["999999", "1"], ["123456789", "987654321"], ["0", "0"]]) {
     const breakdown = computePriceBreakdown({ providerAtomic: provider, computeAtomic: compute, decimals: 6 });

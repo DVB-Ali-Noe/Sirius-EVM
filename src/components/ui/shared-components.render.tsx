@@ -78,6 +78,7 @@ const cases: Record<string, React.ReactNode> = {
   "card-no-size": <DatasetCard {...baseCard} sizeBytes={null} />,
   "card-no-category": <DatasetCard {...baseCard} category={null} />,
   "note-unknown-variant": <DisclaimerNote variant={"danger" as never} messages={["betaLimits"]} />,
+  "card-invalid-amounts": <DatasetCard {...baseCard} priceAtomic="1e6" revenueAtomic="-1" />,
   "tile": <DatasetAddTile href="/datasets/new" />,
   "tile-unsafe": <DatasetAddTile href="https://evil.example" />,
 };

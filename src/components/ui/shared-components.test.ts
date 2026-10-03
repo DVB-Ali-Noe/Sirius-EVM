@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { STATUS_KINDS } from "./status";
+import { STATUS_DOT_CLASS, STATUS_KINDS, STATUS_META } from "./status";
 
 /**
  * Rend les composants partagés dans un processus sans la condition `react-server`
@@ -63,15 +63,18 @@ test("StatusPill : libellé visible pour chacun des huit états, point décorati
 });
 
 test("StatusPill : couleur du badge et du point propres à chaque état", () => {
-  const expected = {
-    online: ["border-positive/40", "bg-positive"], borrowed: ["border-accent/40", "bg-accent"],
-    paused: ["border-yellow-400/40", "bg-yellow-400"], expired: ["border-muted/40", "bg-muted"],
-    destroyed: ["border-negative/40", "bg-negative"], pending: ["border-yellow-400/40", "bg-yellow-400"],
-    failed: ["border-negative/40", "bg-negative"], refunded: ["border-white/10", "bg-foreground/60"],
-  } as const;
   for (const status of STATUS_KINDS) {
     const out = page(`pill-${status}`);
-    for (const cls of expected[status]) assert.ok(out.includes(cls), `${status} : ${cls}`);
+    const { variant } = STATUS_META[status];
+    // Le point décoratif porte exactement la classe de couleur de sa variante.
+    const dotClasses = out.match(/<span aria-hidden="true" class="([^"]*)"/)?.[1].split(" ");
+    assert.ok(dotClasses, `point absent : ${status}`);
+    assert.ok(dotClasses.includes(STATUS_DOT_CLASS[variant]), `${status} : point ${STATUS_DOT_CLASS[variant]}`);
+    const otherDots = Object.values(STATUS_DOT_CLASS).filter((cls) => cls !== STATUS_DOT_CLASS[variant]);
+    assert.ok(!dotClasses.some((cls) => otherDots.includes(cls)), `${status} : point d'une autre couleur`);
+    // Le badge porte la bordure de sa variante.
+    const border = { default: "border-white/10", accent: "border-accent/40", positive: "border-positive/40", negative: "border-negative/40", muted: "border-muted/40", warning: "border-yellow-400/40" }[variant];
+    assert.ok(out.includes(` ${border} `), `${status} : bordure ${border}`);
   }
 });
 
@@ -174,6 +177,20 @@ test("DatasetCard : l'état affiché suit la prop (en pause, détruit)", () => {
   assert.match(page("card-minimal"), /data-status="paused"[^>]*>.*Paused<\/span>/);
   assert.match(page("card-destroyed"), /data-status="destroyed"[^>]*>.*Destroyed<\/span>/);
   assert.doesNotMatch(page("card-destroyed"), /Online/);
+});
+
+test("DatasetCard : prix et revenus invalides → « — » sur la ligne concernée, jamais 0", () => {
+  const out = page("card-invalid-amounts");
+  assert.match(out, /Borrower pays<\/dt><dd[^>]*>—<\/dd>/);
+  assert.match(out, /Total earned<\/dt><dd[^>]*>—<\/dd>/);
+  assert.doesNotMatch(out, /USDG/);
+});
+
+test("DatasetCard : le lien du titre couvre toute la carte (lien étiré), un seul lien par carte", () => {
+  const out = page("card-full");
+  assert.match(out, /<a [^>]*after:absolute after:inset-0[^>]*href="\/datasets\/abc"/);
+  assert.equal(out.match(/<a /g)?.length, 1);
+  assert.match(out, /class="[^"]*\brelative\b/);
 });
 
 test("DatasetCard : décimales et symbole du jeton respectés (18 décimales, USDC)", () => {
