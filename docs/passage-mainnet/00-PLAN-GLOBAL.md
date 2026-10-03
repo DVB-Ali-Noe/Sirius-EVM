@@ -23,15 +23,18 @@ D'où trois règles :
 | Quand | Quoi | Qui |
 |---|---|---|
 | **Jeudi 2, soir** | Relecture de ce dossier, adresse USDG officielle ([01](01-decisions-avant-samedi.md)) | Ali et Noé |
-| **Vendredi 3, matin** | Socle : table des utilisateurs, champs datasets, textes communs, composants partagés ([16](16-socle-technique.md)) | Ali |
-| **Vendredi 3, journée** | Partie datasets, tutos et petites features en parallèle (répartition ci-dessous) | Ali et Noé, chacun avec Claude Code |
-| **Vendredi 3** | Test complet sur testnet et second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
-| **Vendredi 3, 20h** | **Gel du code** : seules les corrections critiques passent ensuite | — |
-| **Samedi 4** | Machine Phala et contrats mainnet, production, fusion staging → main, approbation, premier prêt réel de 5 USDG | Noé pour la machine et les contrats, Ali pour la production et la base |
-| **Dimanche 5** | Surveillance, corrections critiques. **Décision de lancer à 20h** | Ali et Noé |
+| **Vendredi 3, d'abord** | Socle : table des utilisateurs, champs datasets, textes communs, composants partagés ([16](16-socle-technique.md)) | Ali |
+| **Vendredi 3 et samedi 4** | Partie datasets, tutos et petites features en parallèle (répartition ci-dessous) | Ali et Noé, chacun avec Claude Code |
+| **Vendredi 3 et samedi 4** | Test complet sur testnet et second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
+| **Samedi 4, en parallèle du code** | Ce qui ne dépend pas des pages : contrats mainnet, machine Phala de production, base de production. Le code des contrats et du moteur ne bouge plus | Noé pour la machine et les contrats, Ali pour la base |
+| **Samedi 4, minuit** | **Gel du code** : seules les corrections critiques passent ensuite | — |
+| **Dimanche 5, matin** | Fusion staging → main, approbation, réglage de la production, premier prêt réel de 5 USDG | Ali et Noé |
+| **Dimanche 5, journée** | Tests complets en production et sur testnet, corrections critiques uniquement. **Décision de lancer à 20h** | Ali et Noé |
 | **Lundi 6** | Ouverture de la bêta restreinte et annonce | Ali et Noé |
 
-Le calendrier est serré : la partie datasets et les tutos représentent l'essentiel de vendredi. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
+Le gel du code a été déplacé au samedi minuit, le 3 octobre, pour garder tout le dimanche aux tests. Les contrats et la machine de production sont donc préparés samedi en parallèle du code : sinon toute la mise en production tomberait dimanche, le jour des tests.
+
+Le calendrier reste serré : la partie datasets et les tutos occupent vendredi et samedi. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
 
 ## Répartition avant le 6
 
