@@ -131,8 +131,8 @@ export async function inventory(client, options = {}) {
 
 /** Ajouts et retraits qu'un ensemble de migrations Prisma annonce, lus dans leurs fichiers SQL. */
 export function expectedChanges(migrationDirs) {
-  /** @type {{ migrations: string[], columnsAdded: Record<string, string[]>, columnsRemoved: Record<string, string[]>, enumsAdded: string[], enumValuesAdded: Record<string, string[]>, indexesAdded: string[] }} */
-  const changes = { migrations: [], columnsAdded: {}, columnsRemoved: {}, enumsAdded: [], enumValuesAdded: {}, indexesAdded: [] };
+  /** @type {{ migrations: string[], tablesAdded: string[], columnsAdded: Record<string, string[]>, columnsRemoved: Record<string, string[]>, enumsAdded: string[], enumValuesAdded: Record<string, string[]>, indexesAdded: string[] }} */
+  const changes = { migrations: [], tablesAdded: [], columnsAdded: {}, columnsRemoved: {}, enumsAdded: [], enumValuesAdded: {}, indexesAdded: [] };
   for (const dir of migrationDirs) {
     const name = basename(dir);
     const sql = readFileSync(join(dir, "migration.sql"), "utf8").replace(/--[^\n]*/g, "");
@@ -147,6 +147,12 @@ export function expectedChanges(migrationDirs) {
           (changes.columnsRemoved[table] ??= []).push(m[1]);
           (changes.columnsAdded[table] ??= []).push(m[2]);
         }
+      }
+      // Une table créée amène sa clé primaire, que PostgreSQL expose comme index « <table>_pkey ».
+      const table = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i.exec(statement);
+      if (table) {
+        changes.tablesAdded.push(table[1]);
+        changes.indexesAdded.push(`${table[1]}_pkey`);
       }
       const type = /CREATE\s+TYPE\s+"?(\w+)"?\s+AS\s+ENUM/i.exec(statement);
       if (type) changes.enumsAdded.push(type[1]);
@@ -195,7 +201,9 @@ export function compareInventories(before, after, expected = expectedChanges([])
       finding("critical", "values-changed", table, "valeurs historiques modifiées à nombre de lignes égal");
     }
   }
-  for (const table of after.tables) if (!before.tables.includes(table)) finding("warning", "table-unexpected", table, "table apparue sans migration annoncée");
+  const expectedTables = set(expected.tablesAdded);
+  for (const table of after.tables) if (!before.tables.includes(table) && !expectedTables.has(table)) finding("warning", "table-unexpected", table, "table apparue sans migration annoncée");
+  for (const table of expectedTables) if (!after.tables.includes(table)) finding("critical", "table-not-added", table, "table annoncée par la migration mais absente");
   for (const [name, values] of Object.entries(before.enums)) {
     const now = set(after.enums[name]);
     if (!after.enums[name]) { finding("critical", "enum-missing", name, "type énuméré absent"); continue; }

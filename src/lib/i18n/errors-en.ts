@@ -120,6 +120,8 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Le contrat escrow ne reconnaît pas le signataire du runner": "The escrow contract does not recognize the runner signer",
   "adresse EVM invalide": "Invalid EVM address",
   "adresse du contrat escrow EVM invalide": "Invalid EVM escrow contract address",
+  "adresse du profil EVM invalide": "Invalid EVM profile address",
+  "adresse du journal des accès EVM invalide": "Invalid EVM access log address",
   "Identifiant dataset invalide": "Invalid dataset identifier",
   "Clé éphémère invalide": "Invalid ephemeral key",
   "Sel invalide": "Invalid salt",

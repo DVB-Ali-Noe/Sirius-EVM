@@ -10,6 +10,7 @@ import * as errors from "../errors";
 import * as body from "../http/body";
 import * as rate from "../http/rate-limit";
 import * as addresses from "../evm/address";
+import { translateEnglish } from "../i18n/english";
 
 // Le module profil lit `@/lib/db`, qui exige une URL : une valeur synthétique suffit,
 // aucune connexion n'est ouverte tant qu'aucune requête n'est émise.
@@ -46,6 +47,8 @@ function fakeDb(seed: Partial<Row>[] = []) {
     address, tourCompletedAt: null, featureTours: {}, settings: {}, kybStatus: null, kybCheckedAt: null,
     blockedAt: null, blockedReason: null, blockedBy: null, createdAt: new Date("2026-10-01T00:00:00Z"), lastSeenAt: new Date("2026-10-01T00:00:00Z"),
   });
+  // Comme le défaut SQL CURRENT_TIMESTAMP : une création sans `createdAt` le date après coup.
+  const created = (address: string, data: Partial<Row>): Row => ({ ...base(address), createdAt: new Date(Date.now() + 5), ...data });
   for (const row of seed) rows.set(row.address!, { ...base(row.address!), ...row });
   const db = {
     userProfile: {
@@ -53,7 +56,7 @@ function fakeDb(seed: Partial<Row>[] = []) {
       upsert: async ({ where, create, update }: { where: { address: string }; create: Partial<Row>; update: Partial<Row> }) => {
         calls.push(`upsert:${where.address}`);
         const existing = rows.get(where.address);
-        const next = existing ? { ...existing, ...update } : { ...base(where.address), ...create };
+        const next = existing ? { ...existing, ...update } : created(where.address, create);
         rows.set(where.address, next);
         return next;
       },
@@ -68,7 +71,7 @@ function fakeDb(seed: Partial<Row>[] = []) {
       create: async ({ data }: { data: Partial<Row> & { address: string } }) => {
         calls.push(`create:${data.address}`);
         assert.ok(!rows.has(data.address), "create sur une ligne existante");
-        const next = { ...base(data.address), ...data };
+        const next = created(data.address, data);
         rows.set(data.address, next);
         return next;
       },
@@ -105,6 +108,10 @@ test("l'adresse du profil est normalisée en minuscules et refusée si invalide"
   assert.equal(view.address, SUBJECT);
   assert.deepEqual([...rows.keys()], [SUBJECT]);
   assert.deepEqual(calls, [`upsert:${SUBJECT}`]);
+  assert.equal(view.createdAt, view.lastSeenAt, "une ligne créée est datée d'une seule horloge : jamais vue avant d'exister");
+  for (const message of ["adresse du profil EVM invalide", "adresse du journal des accès EVM invalide"]) {
+    assert.doesNotMatch(translateEnglish(message), /adresse/, `« ${message} » doit avoir une traduction explicite`);
+  }
   await assert.rejects(profile.ensureUserProfile("not-an-address", db), /adresse du profil EVM invalide/);
   await assert.rejects(profile.readUserProfile("0x1234", db), /adresse du profil EVM invalide/);
   assert.equal(await profile.readUserProfile(OTHER, db), null);
@@ -258,6 +265,10 @@ test("updateUserProfile fusionne tutos et réglages clé par clé, pose la date 
   assert.deepEqual(view.settings, { sidebarCollapsed: true });
   assert.deepEqual(empty.calls, [`findUnique:${SUBJECT}`, `create:${SUBJECT}`], "un profil absent est créé plutôt que refusé");
   assert.equal(empty.rows.get(SUBJECT)!.address, SUBJECT);
+  assert.equal(view.createdAt, view.lastSeenAt, "le profil créé par un PATCH est daté d'une seule horloge");
+  const firstTour = fakeDb();
+  view = await profile.updateUserProfile(SUBJECT, { tourCompletedAt: true }, firstTour.transaction);
+  assert.equal(view.tourCompletedAt, view.createdAt, "un tuto terminé dans le PATCH créateur ne précède pas la création");
 
   const untouched = fakeDb();
   await assert.rejects(profile.updateUserProfile(SUBJECT, { kybStatus: "ACCEPTED" }, untouched.transaction), /non modifiable/);
@@ -319,6 +330,17 @@ test("après connexion, une panne de base ne fait pas échouer la connexion et n
   await profile.touchUserProfileAfterLogin(MIXED_CASE, db);
   assert.ok(rows.has(SUBJECT));
   assert.equal(warnings.length, 3, "aucun avertissement quand tout va bien");
+});
+
+test("après connexion, une base qui ne répond pas est abandonnée après le délai de garde", async () => {
+  const frozen = { userProfile: { upsert: () => new Promise<never>(() => {}) } };
+  const started = Date.now();
+  await profile.touchUserProfileAfterLogin(SUBJECT, frozen as never, 50);
+  assert.ok(Date.now() - started < 1_000, "la connexion n'attend pas la base gelée");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\(ProfileTimeout\)/);
+  assert.ok(!warnings[0].includes(SUBJECT));
+  assert.ok(profile.LOGIN_PROFILE_TIMEOUT_MS >= 1_000 && profile.LOGIN_PROFILE_TIMEOUT_MS <= 5_000, "délai court mais réaliste pour une base distante");
 });
 
 // Chargement d'une route avec ses dépendances simulées, comme audit-regressions.test.ts.
@@ -422,7 +444,7 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   const touched: unknown[] = [];
   const sessions: unknown[] = [];
   let verified = 0;
-  let failProfile = false;
+  let failProfile: false | "down" | "frozen" = false;
   const route = load<typeof import("../../app/api/auth/verify/route")>("src/app/api/auth/verify/route.ts", {
     "next/server": { NextResponse }, "@/lib/errors": errors, "@/lib/http/body": body, "@/lib/http/rate-limit": rate, "@/lib/evm/address": addresses,
     "@/lib/auth/origin": { authenticationOrigin: () => "https://test.invalid" },
@@ -435,7 +457,9 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
     "@/lib/users/profile": { touchUserProfileAfterLogin: async (address: unknown) => {
       touched.push(address);
       const down = { userProfile: { upsert: async () => { throw new Error("database unavailable"); } } };
-      await profile.touchUserProfileAfterLogin(address, failProfile ? down as never : fakeDb().db);
+      const frozen = { userProfile: { upsert: () => new Promise<never>(() => {}) } };
+      const target = failProfile === "down" ? down : failProfile === "frozen" ? frozen : fakeDb().db;
+      await profile.touchUserProfileAfterLogin(address, target as never, 50);
     } },
   });
   const login = (signature: string) => route.POST(new Request("https://test.invalid/api/auth/verify", {
@@ -449,7 +473,7 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   // La route tourne dans un autre contexte VM : comparaison par valeur, sans égalité de prototype.
   assert.deepEqual(JSON.parse(JSON.stringify(sessions)), [{ address: SUBJECT, source: "external" }]);
 
-  failProfile = true;
+  failProfile = "down";
   response = await login("0xvalid");
   assert.equal(response.status, 200, "la panne de base n'empêche pas la connexion");
   assert.deepEqual(await response.json(), { address: SUBJECT, source: "external" });
@@ -458,9 +482,15 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   assert.match(warnings[0], /\(Error\)/);
   assert.ok(!warnings[0].includes("database unavailable"));
 
+  failProfile = "frozen";
+  response = await login("0xvalid");
+  assert.equal(response.status, 200, "une base gelée ne suspend pas la connexion");
+  assert.equal(sessions.length, 3);
+  assert.match(warnings[1], /\(ProfileTimeout\)/);
+
   response = await login("0xforged");
   assert.equal(response.status, 401);
-  assert.equal(touched.length, 2, "aucun profil n'est touché sans preuve de possession");
-  assert.equal(verified, 2);
-  assert.equal(sessions.length, 2);
+  assert.equal(touched.length, 3, "aucun profil n'est touché sans preuve de possession");
+  assert.equal(verified, 3);
+  assert.equal(sessions.length, 3);
 });

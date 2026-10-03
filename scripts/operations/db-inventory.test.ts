@@ -27,6 +27,12 @@ test("les attentes viennent des fichiers SQL des migrations en attente, pas d'un
   assert.deepEqual(rename.columnsRemoved.Loan, ["auditTxHash"]);
   assert.deepEqual(rename.columnsAdded.Loan, ["auditReceipt", "attestationPayload"]);
   assert.throws(() => migrationDirectories(MIGRATIONS, ["20990101000000_nope"]), /inconnue/);
+  // Une migration qui crée des tables annonce les tables, leurs clés primaires et leurs index.
+  const profiles = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
+  assert.deepEqual(profiles.tablesAdded, ["DatasetAccessLog", "UserProfile"]);
+  assert.deepEqual(profiles.columnsAdded.Dataset, ["category", "listingExpiresAt", "trainingConsentAt", "trainingConsentVersion", "trainingConsentRevokedAt"]);
+  assert.deepEqual(profiles.indexesAdded, ["DatasetAccessLog_pkey", "DatasetAccessLog_datasetId_idx", "DatasetAccessLog_address_idx", "UserProfile_pkey"]);
+  assert.deepEqual(profiles.columnsRemoved, {});
 });
 
 test("l'en-tête d'un reçu runner est lu sans vérifier ni exposer sa signature", () => {
@@ -84,6 +90,31 @@ test("lignes perdues, valeurs modifiées, colonne perdue, index perdu et colonne
   const result = compareInventories(before, added);
   assert.equal(result.ok, true);
   assert.ok(codes(result).includes("column-unexpected:Loan.extra"));
+});
+
+test("une table créée par une migration annoncée n'est pas un écart ; absente, elle est critique", () => {
+  const before = photo();
+  const expected = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
+  const after = clone(before) as ReturnType<typeof photo> & { columns: Record<string, unknown[]>; counts: Record<string, number> };
+  after.tables = ["Loan", "UserProfile", "DatasetAccessLog"];
+  after.columns = { ...after.columns, UserProfile: [{ name: "address", type: "text", nullable: false, default: null }], DatasetAccessLog: [{ name: "id", type: "text", nullable: false, default: null }] };
+  after.counts = { ...after.counts, UserProfile: 0, DatasetAccessLog: 0 };
+  after.indexes = [...after.indexes,
+    { name: "UserProfile_pkey", definition: "CREATE UNIQUE INDEX \"UserProfile_pkey\" ON \"UserProfile\" USING btree (address)" },
+    { name: "DatasetAccessLog_pkey", definition: "CREATE UNIQUE INDEX \"DatasetAccessLog_pkey\" ON \"DatasetAccessLog\" USING btree (id)" },
+    { name: "DatasetAccessLog_datasetId_idx", definition: "CREATE INDEX \"DatasetAccessLog_datasetId_idx\" ON \"DatasetAccessLog\" USING btree (\"datasetId\")" },
+    { name: "DatasetAccessLog_address_idx", definition: "CREATE INDEX \"DatasetAccessLog_address_idx\" ON \"DatasetAccessLog\" USING btree (address)" }];
+  after.migrations = [...after.migrations, { name: "20261003000000_add_user_profiles", checksum: "b", rolledBack: false, unfinished: false }];
+  const unexpected = compareInventories(before, after);
+  assert.ok(codes(unexpected).includes("table-unexpected:UserProfile"));
+  assert.ok(codes(unexpected).includes("index-unexpected:UserProfile_pkey"));
+  const announced = compareInventories(before, after, expected);
+  const remaining = codes(announced).filter((code) => !code.startsWith("column-not-added:Dataset."));
+  assert.deepEqual(remaining, [], "tables, clés primaires et index annoncés ne sont plus signalés");
+  const missing = compareInventories(before, clone(before), expected);
+  assert.equal(missing.ok, false);
+  assert.ok(codes(missing).includes("table-not-added:UserProfile"));
+  assert.ok(codes(missing).includes("table-not-added:DatasetAccessLog"));
 });
 
 const url = process.env.SIRIUS_TEST_DATABASE_URL ?? (process.env.CI ? process.env.DATABASE_URL : undefined);

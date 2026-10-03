@@ -192,16 +192,20 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Crée le profil s'il n'existe pas et date le passage. Deux premières connexions
- * simultanées peuvent entrer en collision sur la clé : la seconde tentative retombe sur
- * la ligne créée par la première.
+ * Crée le profil s'il n'existe pas et date le passage. `createdAt` est posé avec la même
+ * horloge que `lastSeenAt` : une ligne ne naît jamais « vue » avant d'exister.
+ *
+ * Sur PostgreSQL, Prisma compile cet upsert en `INSERT … ON CONFLICT DO UPDATE`, atomique :
+ * deux premières connexions simultanées ne lèvent pas de P2002. La reprise ci-dessous est
+ * une ceinture pour le cas où Prisma retomberait sur le chemin non natif (autre moteur,
+ * écriture imbriquée) ; elle ne boucle jamais.
  */
 export async function ensureUserProfile(address: unknown, db: Db = prisma): Promise<UserProfileView> {
   const canonical = normalizeProfileAddress(address);
   const now = new Date();
   const upsert = () => db.userProfile.upsert({
     where: { address: canonical },
-    create: { address: canonical, lastSeenAt: now },
+    create: { address: canonical, createdAt: now, lastSeenAt: now },
     update: { lastSeenAt: now },
   });
   try {
@@ -245,21 +249,45 @@ export async function updateUserProfile(
       data.settings = { ...sanitizeSettings(existing?.settings), ...patch.settings };
     }
     if (existing) return tx.userProfile.update({ where: { address: canonical }, data });
-    return tx.userProfile.create({ data: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical } });
+    return tx.userProfile.create({
+      data: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical, createdAt: now },
+    });
   });
   return toUserProfileView(row);
 }
 
+/** Attente maximale du profil à la connexion : au-delà, la connexion continue sans lui. */
+export const LOGIN_PROFILE_TIMEOUT_MS = 2_000;
+
 /**
- * Après une connexion réussie : crée ou date le profil sans jamais faire échouer la
- * connexion. Seule la classe de l'erreur est journalisée, jamais l'adresse ni la cause,
- * qui peut contenir une chaîne de connexion.
+ * Après une connexion réussie : crée ou date le profil sans jamais faire échouer ni
+ * suspendre la connexion. Une base qui répond par une erreur est rattrapée ; une base qui
+ * ne répond pas du tout (pool saturé, bascule) est abandonnée après `timeoutMs`, la requête
+ * en cours étant laissée à son sort. Seule la classe de l'erreur est journalisée, jamais
+ * l'adresse ni la cause, qui peut contenir une chaîne de connexion.
  */
-export async function touchUserProfileAfterLogin(address: unknown, db: Db = prisma): Promise<void> {
+export async function touchUserProfileAfterLogin(
+  address: unknown,
+  db: Db = prisma,
+  timeoutMs = LOGIN_PROFILE_TIMEOUT_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ProfileTimeoutError()), timeoutMs);
+  });
   try {
-    await ensureUserProfile(address, db);
+    await Promise.race([ensureUserProfile(address, db), expired]);
   } catch (error) {
     console.warn(`[auth] profil utilisateur non mis à jour (${error instanceof Error ? error.name : typeof error})`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+class ProfileTimeoutError extends Error {
+  constructor() {
+    super("délai dépassé");
+    this.name = "ProfileTimeout";
   }
 }
 

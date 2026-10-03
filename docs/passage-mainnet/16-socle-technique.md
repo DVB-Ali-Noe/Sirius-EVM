@@ -22,9 +22,9 @@ Aujourd'hui, la base n'a pas de table des utilisateurs : un compte n'existe qu'�
 | `blockedAt`, `blockedReason`, `blockedBy` | Blocage côté site ([15](15-dashboard-admin.md)), après le 6 |
 | `createdAt`, `lastSeenAt` | Suivi d'activité |
 
-- Créée à la première connexion réussie (`/api/auth/verify`), sans jamais faire échouer la connexion si la base est indisponible.
+- Créée à la première connexion réussie (`/api/auth/verify`), sans jamais faire échouer ni suspendre la connexion : une base qui répond par une erreur est rattrapée, une base qui ne répond pas est abandonnée après deux secondes, et seule la classe de l'erreur est journalisée.
 - Migration **additive** uniquement : aucune colonne existante modifiée. Elle passe sur la base de staging puis sur la base neuve de production samedi.
-- Les routes qui lisent ou écrivent ce profil vérifient la session : un wallet ne touche que son propre profil. `GET /api/profile` renvoie le profil du wallet connecté et le crée au besoin ; `PATCH /api/profile` n'accepte que `tourCompletedAt` (booléen, la date est posée côté serveur), `featureTours` (clés `dashboard`, `datasets`, `upload`, `marketplace`, `train`, `explorer`, `wallet`, valeurs booléennes) et `settings` (`language` parmi `en`, `sidebarCollapsed` booléen). Le KYB et le blocage ne sont jamais modifiables par cette route.
+- Les routes qui lisent ou écrivent ce profil vérifient la session : un wallet ne touche que son propre profil. `GET /api/profile` renvoie le profil du wallet connecté et le crée au besoin ; `PATCH /api/profile` n'accepte que `tourCompletedAt` (booléen : `true` pose la date côté serveur sans déplacer une date déjà posée, `false` l'efface pour relancer le tuto), `featureTours` (clés `dashboard`, `datasets`, `upload`, `marketplace`, `train`, `explorer`, `wallet`, valeurs booléennes, fusionnées clé par clé avec l'existant) et `settings` (`language` parmi `en`, `sidebarCollapsed` booléen, fusionnés de même). Toute autre clé est refusée en 400 : le KYB et le blocage ne sont jamais modifiables par cette route. Les deux routes sont limitées en débit par wallet (60 lectures et 20 modifications par minute). La réponse contient `blockedAt`, `kybStatus` et `kybCheckedAt`, mais jamais `blockedReason` ni `blockedBy` : si un motif doit être montré à l'utilisateur après le 6, il lui faudra un champ public distinct.
 
 ## 2. Nouveaux champs sur `Dataset` — P0
 
@@ -32,7 +32,7 @@ Aujourd'hui, la base n'a pas de table des utilisateurs : un compte n'existe qu'�
 |---|---|
 | `category` | Catégorie, liste fixe ([07](07-upload.md), [08](08-marketplace.md)). Texte libre en base, la liste est tenue par le code de l'upload |
 | `listingExpiresAt` | Fin de la durée de publication ([01](01-decisions-avant-samedi.md)). Absent sur les datasets publiés avant ce champ |
-| `trainingConsentAt`, `trainingConsentVersion`, `trainingConsentRevokedAt` | Consentement à l'amélioration des modèles ([07](07-upload.md)). La révocation pose `trainingConsentRevokedAt` sans effacer la date ni la version du consentement initial |
+| `trainingConsentAt`, `trainingConsentVersion`, `trainingConsentRevokedAt` | Consentement à l'amélioration des modèles ([07](07-upload.md)). La révocation pose `trainingConsentRevokedAt` sans effacer la date ni la version du consentement initial. **Omis par défaut** dans le client Prisma (`src/lib/db.ts`), comme `wrappedKey` : les routes publiques du catalogue projettent la ligne entière, et le consentement est une trace contractuelle du fournisseur, pas une donnée de marketplace. La fiche du fournisseur et l'admin les ré-incluent avec `omit: { trainingConsentAt: false, … }` |
 
 **Pas de colonne `listingStatus`.** La pause d'un dataset ([06](06-mes-datasets.md)) réutilise l'enum `DatasetStatus` existant : mettre en pause fait passer `status` de `LISTED` à `UNLISTED`, remettre en ligne fait l'inverse. Une colonne séparée aurait créé deux sources de vérité pour la visibilité et obligé chaque lecteur du catalogue à croiser les deux.
 
@@ -46,7 +46,7 @@ Les champs sont posés par la migration `20261003000000_add_user_profiles` (A1).
 
 ## 3. Journal des accès — P1
 
-Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset (`datasetId`, clé étrangère), le wallet (`address`, minuscules), le prêt (`loanId`, sans clé étrangère pour survivre à tout nettoyage), la date (`createdAt`), le modèle livré (`modelCid`) et son empreinte (`modelFingerprint`). Index sur `datasetId` et `address`. Écrite au moment de la livraison de la clé du modèle par `recordDatasetAccess()` de `src/lib/users/profile.ts`, qui accepte une transaction pour s'inscrire dans celle de la livraison. La fonction existe et est testée ; son branchement sur la livraison reste à faire. Lecture réservée à l'admin : aucune route ne l'expose.
+Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset (`datasetId`, clé étrangère), le wallet (`address`, minuscules), le prêt (`loanId`, sans clé étrangère pour survivre à tout nettoyage), la date (`createdAt`), le modèle livré (`modelCid`) et son empreinte (`modelFingerprint`). Index sur `datasetId` et `address`. La clé étrangère est en `ON DELETE RESTRICT` : un dataset journalisé ne peut plus être supprimé physiquement, ce qui convient au modèle actuel où la suppression est le statut `DELETED` ; un futur script de purge devra détacher les journaux d'abord. Écrite au moment de la livraison de la clé du modèle par `recordDatasetAccess()` de `src/lib/users/profile.ts`, qui accepte une transaction pour s'inscrire dans celle de la livraison. La fonction existe et est testée ; son branchement sur la livraison reste à faire. Lecture réservée à l'admin : aucune route ne l'expose.
 
 ## 4. Textes d'avertissement communs — P0
 
