@@ -11,7 +11,7 @@ const NAV = [
   { href: "/phala", label: "Phala" },
   { href: "/marketplace", label: "Marketplace" },
   { href: "/datasets", label: "Mes datasets" },
-  { href: "/audit", label: "Audit" },
+  { href: "/explorer", label: "Explorer" },
   { href: "/wallet", label: "Wallet" },
 ];
 
