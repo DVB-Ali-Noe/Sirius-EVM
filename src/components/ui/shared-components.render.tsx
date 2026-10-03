@@ -37,6 +37,7 @@ const cases: Record<string, React.ReactNode> = {
   "note-info": <DisclaimerNote variant="info" messages={["betaLimits"]} />,
   "note-warning": <DisclaimerNote variant="warning" messages={["dataLimits", "retrainDeterministic"]} />,
   "note-children-hostile": <DisclaimerNote messages={[]}>{"<b onmouseover=\"x\">"}</DisclaimerNote>,
+  "note-duplicates": <DisclaimerNote messages={["betaLimits", "betaLimits"]} />,
   "note-empty": <DisclaimerNote messages={[]} />,
   "note-unknown-id": <DisclaimerNote messages={["constructor", "__proto__", "betaLimits"] as never} />,
   "pill-unknown": <StatusPill status={"\"><script>alert(1)</script>" as never} />,

@@ -52,7 +52,8 @@ export function DisclaimerNote({ variant: requested = "info", messages = DEFAULT
   // Une valeur inattendue retombe sur la variante discrète plutôt que de planter la page.
   const variant: DisclaimerVariant = requested === "warning" ? "warning" : "info";
   const styles = VARIANT_STYLES[variant];
-  const ids = messages.filter((id) => DISCLAIMER_IDS.includes(id));
+  // Identifiants inconnus ignorés, doublons retirés (un texte n'apparaît qu'une fois, clés React uniques).
+  const ids = [...new Set(messages)].filter((id) => DISCLAIMER_IDS.includes(id));
   return (
     <aside
       role="note"

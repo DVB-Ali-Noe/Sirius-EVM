@@ -45,6 +45,10 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
   assert.doesNotMatch(page("note-empty"), /<p>/);
 });
 
+test("DisclaimerNote : un identifiant répété n'est affiché qu'une fois", () => {
+  assert.equal(page("note-duplicates").match(/Beta: invitation-only/g)?.length, 1);
+});
+
 test("DisclaimerNote : un identifiant inconnu venu de l'extérieur est ignoré, sans exception", () => {
   assert.match(page("note-unknown-id"), /Beta: invitation-only/);
 });

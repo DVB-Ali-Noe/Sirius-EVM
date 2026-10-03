@@ -23,6 +23,10 @@ interface PriceBreakdownProps {
   className?: string;
 }
 
+/**
+ * À monter une fois les deux montants connus : une valeur absente ou mal formée affiche
+ * « — » et une alerte, jamais un montant approché.
+ */
 export function PriceBreakdown({
   providerAtomic,
   computeAtomic,

@@ -30,7 +30,7 @@ interface DatasetCardProps {
   token: TokenInfo;
   status: StatusKind;
   borrowCount: number;
-  /** Revenus totaux du fournisseur (Mes datasets uniquement). */
+  /** Revenus totaux du fournisseur (Mes datasets uniquement). Omis : la ligne est masquée. `null` : « — ». */
   revenueAtomic?: AtomicAmount | null;
   /** `true` : fournisseur vérifié KYB. `false` : non vérifié. Absent : rien n'est affiché. */
   verified?: boolean;
