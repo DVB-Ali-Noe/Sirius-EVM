@@ -162,6 +162,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Loading your borrowings…": "Loading your borrowings…",
   "No borrowing for this wallet yet.": "No borrowing for this wallet yet.",
   "View provider {address} on the explorer": "View provider {address} on the explorer",
+  "Only your {count} most recent loans were loaded: older borrowings may be missing.": "Only your {count} most recent loans were loaded: older borrowings may be missing.",
   "Titre du dataset": "Dataset title",
   "Attestation TEE": "TEE attestation",
   "En attente": "Pending",

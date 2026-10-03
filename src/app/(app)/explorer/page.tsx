@@ -35,6 +35,13 @@ interface ExplorerLoan {
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
+/**
+ * Nombre maximal de prêts renvoyés par /api/audit (`take: 100`, tous rôles confondus, du plus
+ * récent au plus ancien). À ce seuil la réponse peut être tronquée : des emprunts plus anciens
+ * risquent de manquer, et la page ne doit pas affirmer l'absence d'emprunt.
+ */
+const API_LOAN_LIMIT = 100;
+
 const STATUS_VARIANT: Record<ExplorerLoan["status"], BadgeVariant> = {
   PENDING: "warning",
   SUBMITTING: "warning",
@@ -100,9 +107,10 @@ function ExplorerPageContent() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  // Vue centrée sur le wallet connecté : seuls ses emprunts. L'API renvoie aussi les prêts
-  // où il est fournisseur ; ils appartiennent à « Mes datasets » et exposeraient l'adresse
-  // d'un autre emprunteur, donc on les écarte ici plutôt que de se fier à la seule route.
+  // Vue centrée sur le wallet connecté : seuls ses emprunts. L'API renvoie aussi les prêts où il
+  // est fournisseur ; ils exposeraient l'adresse d'un autre emprunteur, donc on les écarte ici
+  // plutôt que de se fier à la seule route. La vue fournisseur n'a pas d'équivalent pour l'instant
+  // (docs/passage-mainnet/06-mes-datasets.md).
   const borrowings = useMemo(
     () => (address ? loans.filter((loan) => addressesEqual(loan.borrower, address)) : []),
     [loans, address],
@@ -122,6 +130,7 @@ function ExplorerPageContent() {
     );
   }
 
+  const truncated = loans.length >= API_LOAN_LIMIT;
   const settled = borrowings.filter((loan) => loan.status === "SETTLED").length;
   const refunded = borrowings.filter(isRefunded).length;
 
@@ -152,7 +161,12 @@ function ExplorerPageContent() {
         </div>
       )}
       {state === "loading" && borrowings.length === 0 && <p className="py-8 text-center text-sm text-muted">{t("Loading your borrowings…")}</p>}
-      {state === "ready" && borrowings.length === 0 && (
+      {state === "ready" && truncated && (
+        <p role="status" className="mb-6 rounded-lg border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-400">
+          {t("Only your {count} most recent loans were loaded: older borrowings may be missing.", { count: API_LOAN_LIMIT })}
+        </p>
+      )}
+      {state === "ready" && !truncated && borrowings.length === 0 && (
         <p className="rounded-xl border border-border bg-surface/30 px-4 py-8 text-center text-sm text-muted">
           {t("No borrowing for this wallet yet.")}
         </p>

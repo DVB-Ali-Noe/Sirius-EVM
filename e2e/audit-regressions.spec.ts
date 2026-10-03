@@ -76,20 +76,47 @@ test("Explorer remplace l'historique lors d'un changement de compte authentifié
 });
 
 test("Explorer n'affiche jamais un prêt dont le wallet connecté n'est pas l'emprunteur", async ({ page }) => {
-  // L'API renvoie aussi les prêts où le compte est fournisseur : la page les écarte, casse d'adresse comprise.
-  await page.route("**/api/**", route => {
-    if (new URL(route.request().url()).pathname !== "/api/audit") return route.fulfill({ json: { known: true } });
-    return route.fulfill({ json: { network: "testnet", loans: [
-      explorerLoan({ id: "mine", borrower: A.toUpperCase().replace("0X", "0x"), provider: B, dataset: { name: "Borrowed by me", evmDatasetId: null, evmMintTxHash: null } }),
-      explorerLoan({ id: "lent", borrower: B, provider: A, dataset: { name: "Lent to someone else", evmDatasetId: null, evmMintTxHash: null } }),
-    ] } });
-  });
+  // L'API renvoie aussi les prêts où le compte est fournisseur : la page les écarte. Adresses à lettres
+  // hexadécimales, pour que la casse compte vraiment (0xAAAA… et 0xaaaa… sont le même compte).
+  const MIXED = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
+  for (const [wallet, apiForm] of [[MIXED.toLowerCase(), MIXED], [MIXED, MIXED.toLowerCase()]]) {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.route("**/api/**", route => {
+      if (new URL(route.request().url()).pathname !== "/api/audit") return route.fulfill({ json: { known: true } });
+      return route.fulfill({ json: { network: "testnet", loans: [
+        explorerLoan({ id: "mine", borrower: apiForm, provider: B, dataset: { name: "Borrowed by me", evmDatasetId: null, evmMintTxHash: null } }),
+        explorerLoan({ id: "lent", borrower: B, provider: wallet, dataset: { name: "Lent to someone else", evmDatasetId: null, evmMintTxHash: null } }),
+      ] } });
+    });
+    await page.goto("/explorer");
+    await connect(page, wallet);
+    await expect(page.getByText("Borrowed by me", { exact: true })).toBeVisible();
+    await expect(page.getByText("Lent to someone else", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: `View provider ${B} on the explorer` })).toHaveText(shortAddress(B));
+    await expect(page.locator("main")).not.toContainText(shortAddress(wallet));
+  }
+});
+
+test("Explorer ne prétend pas qu'il n'y a aucun emprunt quand l'API atteint sa limite de 100 prêts", async ({ page }) => {
+  // 100 prêts récents où le compte est fournisseur : un éventuel emprunt plus ancien n'est pas dans la réponse.
+  const lent = Array.from({ length: 100 }, (_, index) => explorerLoan({ id: `lent-${index}`, borrower: B, provider: A }));
+  await page.route("**/api/**", route => new URL(route.request().url()).pathname === "/api/audit"
+    ? route.fulfill({ json: { network: "testnet", loans: lent } })
+    : route.fulfill({ json: { known: true } }));
   await page.goto("/explorer");
   await connect(page);
-  await expect(page.getByText("Borrowed by me", { exact: true })).toBeVisible();
-  await expect(page.getByText("Lent to someone else", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: `View provider ${B} on the explorer` })).toHaveText(shortAddress(B));
-  await expect(page.locator("main")).not.toContainText(shortAddress(A));
+  await expect(page.locator("main [role=status]")).toContainText("Only your 100 most recent loans were loaded");
+  await expect(page.getByText("No borrowing for this wallet yet.")).toHaveCount(0);
+});
+
+test("Explorer annonce l'absence d'emprunt quand la réponse est complète et vide", async ({ page }) => {
+  await page.route("**/api/**", route => new URL(route.request().url()).pathname === "/api/audit"
+    ? route.fulfill({ json: { network: "testnet", loans: [explorerLoan({ borrower: B, provider: A })] } })
+    : route.fulfill({ json: { known: true } }));
+  await page.goto("/explorer");
+  await connect(page);
+  await expect(page.getByText("No borrowing for this wallet yet.")).toBeVisible();
+  await expect(page.locator("main [role=status]")).toHaveCount(0);
 });
 
 test("Explorer : remboursement confirmé, remboursement en attente, règlement et liens explorateur", async ({ page }) => {
