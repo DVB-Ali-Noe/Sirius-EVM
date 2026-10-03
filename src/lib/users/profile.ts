@@ -1,0 +1,320 @@
+import "server-only";
+import { Prisma } from "@/generated/prisma/client";
+import { prisma, serializableTransaction } from "@/lib/db";
+import { AppError } from "@/lib/app-error";
+import { normalizeAddress, type CanonicalAddress } from "@/lib/evm/address";
+
+/**
+ * Profil d'un wallet : tutos, réglages, cache KYB et blocage côté site.
+ *
+ * Règles de sécurité de ce module :
+ *   - l'adresse vient toujours de la session, jamais d'un corps de requête, et elle est
+ *     normalisée en minuscules avant toute lecture ou écriture (une casse divergente
+ *     créerait deux profils pour un même wallet) ;
+ *   - l'API publique ne modifie que `tourCompletedAt`, `featureTours` et `settings` ; le
+ *     KYB et le blocage sont posés par l'admin ou le contrat, et une tentative de les
+ *     modifier ici est refusée, pas ignorée ;
+ *   - les JSON reçus sont bornés en taille et validés clé par clé, puis re-filtrés à la
+ *     lecture : une ligne altérée en base ne remonte jamais de clé inconnue au client ;
+ *   - la vue renvoyée n'expose ni `blockedReason` ni `blockedBy` (notes internes de
+ *     l'admin), seulement la date de blocage.
+ */
+
+/** Pages dotées d'un tuto ([02](../../../docs/passage-mainnet/02-general.md)). Liste fermée. */
+export const FEATURE_TOUR_KEYS = ["dashboard", "datasets", "upload", "marketplace", "train", "explorer", "wallet"] as const;
+export type FeatureTourKey = (typeof FEATURE_TOUR_KEYS)[number];
+
+/** Langues de l'interface : anglais seul au lancement, le français viendra après. */
+export const PROFILE_LANGUAGES = ["en"] as const;
+export type ProfileLanguage = (typeof PROFILE_LANGUAGES)[number];
+
+/** Taille maximale, en caractères JSON, d'une modification de profil. */
+export const MAX_PROFILE_PATCH_CHARS = 2_048;
+
+/** Bornes des champs du journal des accès : identifiants cuid, CID IPFS et empreintes hexadécimales. */
+const MAX_ID_CHARS = 64;
+const MAX_CID_CHARS = 256;
+const MAX_FINGERPRINT_CHARS = 128;
+const TOKEN_PATTERN = /^[A-Za-z0-9:_.-]+$/;
+
+export type FeatureTours = Partial<Record<FeatureTourKey, boolean>>;
+export interface ProfileSettings {
+  language?: ProfileLanguage;
+  sidebarCollapsed?: boolean;
+}
+
+/** Modification acceptée par l'API : tout le reste est refusé. */
+export interface UserProfilePatch {
+  /** Booléen côté API : `true` pose la date côté serveur, `false` l'efface. */
+  tourCompletedAt?: boolean;
+  featureTours?: FeatureTours;
+  settings?: ProfileSettings;
+}
+
+/** Vue renvoyée au wallet connecté, sérialisable telle quelle en JSON. */
+export interface UserProfileView {
+  address: CanonicalAddress;
+  tourCompletedAt: string | null;
+  featureTours: FeatureTours;
+  settings: ProfileSettings;
+  kybStatus: string | null;
+  kybCheckedAt: string | null;
+  blockedAt: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+/** Colonnes lues d'une ligne `UserProfile` ; la ligne Prisma s'y conforme, les tests aussi. */
+export interface UserProfileRow {
+  address: string;
+  tourCompletedAt: Date | null;
+  featureTours: unknown;
+  settings: unknown;
+  kybStatus: string | null;
+  kybCheckedAt: Date | null;
+  blockedAt: Date | null;
+  createdAt: Date;
+  lastSeenAt: Date;
+}
+
+/** Client Prisma ou transaction : la même fonction sert hors et dans une transaction. */
+type Db = Pick<Prisma.TransactionClient, "userProfile" | "datasetAccessLog">;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Ne garde que les tutos connus avec une valeur booléenne : une ligne altérée reste lisible. */
+export function sanitizeFeatureTours(value: unknown): FeatureTours {
+  const tours: FeatureTours = {};
+  if (!isPlainObject(value)) return tours;
+  for (const key of FEATURE_TOUR_KEYS) {
+    if (Object.hasOwn(value, key) && typeof value[key] === "boolean") tours[key] = value[key] as boolean;
+  }
+  return tours;
+}
+
+/** Ne garde que les réglages connus et bien typés. */
+export function sanitizeSettings(value: unknown): ProfileSettings {
+  const settings: ProfileSettings = {};
+  if (!isPlainObject(value)) return settings;
+  if (Object.hasOwn(value, "language") && (PROFILE_LANGUAGES as readonly unknown[]).includes(value.language)) {
+    settings.language = value.language as ProfileLanguage;
+  }
+  if (Object.hasOwn(value, "sidebarCollapsed") && typeof value.sidebarCollapsed === "boolean") {
+    settings.sidebarCollapsed = value.sidebarCollapsed;
+  }
+  return settings;
+}
+
+/** Normalise l'adresse d'un profil ou lève une 400 : minuscules, 20 octets hexadécimaux. */
+export function normalizeProfileAddress(address: unknown): CanonicalAddress {
+  return normalizeAddress(address, "adresse du profil");
+}
+
+function validateFeatureTours(value: unknown): FeatureTours {
+  if (!isPlainObject(value)) throw new AppError("Tutos de profil invalides", 400);
+  const tours: FeatureTours = {};
+  for (const key of Object.keys(value)) {
+    if (!(FEATURE_TOUR_KEYS as readonly string[]).includes(key)) throw new AppError("Tuto de profil inconnu", 400);
+    if (typeof value[key] !== "boolean") throw new AppError("Tutos de profil invalides", 400);
+    tours[key as FeatureTourKey] = value[key] as boolean;
+  }
+  return tours;
+}
+
+function validateSettings(value: unknown): ProfileSettings {
+  if (!isPlainObject(value)) throw new AppError("Réglages de profil invalides", 400);
+  const settings: ProfileSettings = {};
+  for (const key of Object.keys(value)) {
+    if (key === "language") {
+      if (!(PROFILE_LANGUAGES as readonly unknown[]).includes(value.language)) {
+        throw new AppError("Langue non prise en charge", 400);
+      }
+      settings.language = value.language as ProfileLanguage;
+    } else if (key === "sidebarCollapsed") {
+      if (typeof value.sidebarCollapsed !== "boolean") throw new AppError("Réglages de profil invalides", 400);
+      settings.sidebarCollapsed = value.sidebarCollapsed;
+    } else {
+      throw new AppError("Réglage de profil inconnu", 400);
+    }
+  }
+  return settings;
+}
+
+/**
+ * Valide strictement une modification de profil. Toute clé hors `tourCompletedAt`,
+ * `featureTours` et `settings` est refusée (400), y compris `address`, `kybStatus` et
+ * les champs de blocage : l'API ne les ignore pas silencieusement pour qu'un client qui
+ * tenterait de les écrire s'en aperçoive. Une modification vide est refusée aussi.
+ */
+export function validateProfilePatch(input: unknown): UserProfilePatch {
+  if (!isPlainObject(input)) throw new AppError("Modification de profil invalide", 400);
+  if (JSON.stringify(input).length > MAX_PROFILE_PATCH_CHARS) {
+    throw new AppError("Modification de profil trop volumineuse", 413);
+  }
+  const patch: UserProfilePatch = {};
+  for (const key of Object.keys(input)) {
+    if (key === "tourCompletedAt") {
+      if (typeof input.tourCompletedAt !== "boolean") throw new AppError("Modification de profil invalide", 400);
+      patch.tourCompletedAt = input.tourCompletedAt;
+    } else if (key === "featureTours") {
+      patch.featureTours = validateFeatureTours(input.featureTours);
+    } else if (key === "settings") {
+      patch.settings = validateSettings(input.settings);
+    } else {
+      throw new AppError("Champ de profil non modifiable", 400);
+    }
+  }
+  if (Object.keys(patch).length === 0) throw new AppError("Aucune modification de profil", 400);
+  return patch;
+}
+
+/** Vue publique d'une ligne : dates en ISO 8601, JSON re-filtrés, notes admin exclues. */
+export function toUserProfileView(row: UserProfileRow): UserProfileView {
+  return {
+    address: normalizeProfileAddress(row.address),
+    tourCompletedAt: row.tourCompletedAt?.toISOString() ?? null,
+    featureTours: sanitizeFeatureTours(row.featureTours),
+    settings: sanitizeSettings(row.settings),
+    kybStatus: row.kybStatus,
+    kybCheckedAt: row.kybCheckedAt?.toISOString() ?? null,
+    blockedAt: row.blockedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+  };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/**
+ * Crée le profil s'il n'existe pas et date le passage. Deux premières connexions
+ * simultanées peuvent entrer en collision sur la clé : la seconde tentative retombe sur
+ * la ligne créée par la première.
+ */
+export async function ensureUserProfile(address: unknown, db: Db = prisma): Promise<UserProfileView> {
+  const canonical = normalizeProfileAddress(address);
+  const now = new Date();
+  const upsert = () => db.userProfile.upsert({
+    where: { address: canonical },
+    create: { address: canonical, lastSeenAt: now },
+    update: { lastSeenAt: now },
+  });
+  try {
+    return toUserProfileView(await upsert());
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return toUserProfileView(await upsert());
+  }
+}
+
+/** Lit le profil sans le créer ni le dater ; `null` s'il n'existe pas encore. */
+export async function readUserProfile(address: unknown, db: Db = prisma): Promise<UserProfileView | null> {
+  const row = await db.userProfile.findUnique({ where: { address: normalizeProfileAddress(address) } });
+  return row ? toUserProfileView(row) : null;
+}
+
+/**
+ * Applique une modification validée. `featureTours` et `settings` sont fusionnés clé par
+ * clé avec l'existant, dans une transaction sérialisable : deux pages qui marquent leur
+ * tuto en même temps ne s'effacent pas l'une l'autre. Le profil est créé s'il manque
+ * (session ouverte avant la migration).
+ */
+export async function updateUserProfile(
+  address: unknown,
+  input: unknown,
+  transaction: <T>(action: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T> = serializableTransaction,
+): Promise<UserProfileView> {
+  const canonical = normalizeProfileAddress(address);
+  const patch = validateProfilePatch(input);
+  const now = new Date();
+  const row = await transaction(async (tx) => {
+    const existing = await tx.userProfile.findUnique({ where: { address: canonical } });
+    const data: Prisma.UserProfileUncheckedUpdateInput = { lastSeenAt: now };
+    if (patch.tourCompletedAt !== undefined) {
+      data.tourCompletedAt = patch.tourCompletedAt ? (existing?.tourCompletedAt ?? now) : null;
+    }
+    if (patch.featureTours) {
+      data.featureTours = { ...sanitizeFeatureTours(existing?.featureTours), ...patch.featureTours };
+    }
+    if (patch.settings) {
+      data.settings = { ...sanitizeSettings(existing?.settings), ...patch.settings };
+    }
+    if (existing) return tx.userProfile.update({ where: { address: canonical }, data });
+    return tx.userProfile.create({ data: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical } });
+  });
+  return toUserProfileView(row);
+}
+
+/**
+ * Après une connexion réussie : crée ou date le profil sans jamais faire échouer la
+ * connexion. Seule la classe de l'erreur est journalisée, jamais l'adresse ni la cause,
+ * qui peut contenir une chaîne de connexion.
+ */
+export async function touchUserProfileAfterLogin(address: unknown, db: Db = prisma): Promise<void> {
+  try {
+    await ensureUserProfile(address, db);
+  } catch (error) {
+    console.warn(`[auth] profil utilisateur non mis à jour (${error instanceof Error ? error.name : typeof error})`);
+  }
+}
+
+export interface DatasetAccessEntry {
+  datasetId: string;
+  address: string;
+  loanId?: string | null;
+  modelCid?: string | null;
+  modelFingerprint?: string | null;
+}
+
+export interface DatasetAccessRecord {
+  id: string;
+  datasetId: string;
+  address: CanonicalAddress;
+  loanId: string | null;
+  modelCid: string | null;
+  modelFingerprint: string | null;
+  createdAt: Date;
+}
+
+function requireToken(value: unknown, maxChars: number, message: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxChars || !TOKEN_PATTERN.test(value)) {
+    throw new AppError(message, 400);
+  }
+  return value;
+}
+
+function optionalToken(value: unknown, maxChars: number, message: string): string | null {
+  if (value === undefined || value === null) return null;
+  return requireToken(value, maxChars, message);
+}
+
+/**
+ * Journal des accès : qui a reçu quel modèle pour quel dataset et quel prêt. À appeler
+ * au moment de la livraison du modèle, dans la même transaction que la livraison quand
+ * c'est possible (`db` accepte une transaction). Pas encore branché sur la livraison.
+ */
+export async function recordDatasetAccess(entry: DatasetAccessEntry, db: Db = prisma): Promise<DatasetAccessRecord> {
+  if (!isPlainObject(entry)) throw new AppError("Entrée du journal des accès invalide", 400);
+  const data = {
+    datasetId: requireToken(entry.datasetId, MAX_ID_CHARS, "Entrée du journal des accès invalide"),
+    address: normalizeAddress(entry.address, "adresse du journal des accès"),
+    loanId: optionalToken(entry.loanId, MAX_ID_CHARS, "Entrée du journal des accès invalide"),
+    modelCid: optionalToken(entry.modelCid, MAX_CID_CHARS, "Entrée du journal des accès invalide"),
+    modelFingerprint: optionalToken(entry.modelFingerprint, MAX_FINGERPRINT_CHARS, "Entrée du journal des accès invalide"),
+  };
+  const row = await db.datasetAccessLog.create({ data });
+  return {
+    id: row.id,
+    datasetId: row.datasetId,
+    address: data.address,
+    loanId: row.loanId,
+    modelCid: row.modelCid,
+    modelFingerprint: row.modelFingerprint,
+    createdAt: row.createdAt,
+  };
+}

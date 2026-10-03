@@ -37,15 +37,57 @@ model Dataset {
   status         DatasetStatus @default(DRAFT)
   listedAt       DateTime? // dernière mise au catalogue (statut LISTED), affichée sur la marketplace
   keyDestroyedAt DateTime? // suppression de la copie active de DEK enveloppée
+  // Catalogue (passage au mainnet). La pause d'un dataset n'a pas de colonne dédiée :
+  // elle fait passer `status` de LISTED à UNLISTED, et la reprise l'inverse.
+  category         String? // catégorie de la liste fixe de l'upload, filtre de la marketplace
+  listingExpiresAt DateTime? // fin de la durée de publication ; absent = publié avant ce champ
+  // Consentement facultatif à l'amélioration des modèles, daté et versionné ; la révocation
+  // garde la trace du consentement initial au lieu de l'effacer.
+  trainingConsentAt        DateTime?
+  trainingConsentVersion   String?
+  trainingConsentRevokedAt DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   loans        Loan[]
   keyGrants    KeyGrant[]
   trainingJobs TrainingJob[]
+  accessLogs   DatasetAccessLog[]
 
   @@index([provider])
   @@index([status])
+}
+
+/// Journal des accès à un dataset, déclaré dans les conditions d'utilisation : qui a reçu
+/// quel modèle, pour quel prêt. Écrit à la livraison du modèle, lu par l'admin seulement.
+model DatasetAccessLog {
+  id               String   @id @default(cuid())
+  datasetId        String
+  dataset          Dataset  @relation(fields: [datasetId], references: [id])
+  loanId           String? // identifiant du prêt, sans clé étrangère : le journal survit à tout nettoyage
+  address          String // wallet destinataire, en minuscules
+  modelCid         String? // CID du modèle livré
+  modelFingerprint String? // empreinte du modèle livré, pour relier un modèle qui circulerait
+  createdAt        DateTime @default(now())
+
+  @@index([datasetId])
+  @@index([address])
+}
+
+/// Profil d'un wallet : tutos, réglages, cache d'affichage du KYB et blocage côté site.
+/// Créé à la première connexion réussie ; un wallet ne lit et ne modifie que le sien.
+model UserProfile {
+  address         String    @id // adresse EVM en minuscules, jamais en forme EIP-55
+  tourCompletedAt DateTime? // tuto de première connexion terminé
+  featureTours    Json      @default("{}") // tutos par page déjà vus : { dashboard: true, … }
+  settings        Json      @default("{}") // réglages : { language: "en", sidebarCollapsed: false }
+  kybStatus       String? // cache d'affichage ; la source de vérité reste le contrat
+  kybCheckedAt    DateTime?
+  blockedAt       DateTime? // blocage côté site, posé par l'admin uniquement
+  blockedReason   String?
+  blockedBy       String?
+  createdAt       DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
 }
 
 /// Self-train (MLaaS) : entraînement sur SON PROPRE dataset, sans escrow ni

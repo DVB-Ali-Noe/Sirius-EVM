@@ -22,24 +22,31 @@ Aujourd'hui, la base n'a pas de table des utilisateurs : un compte n'existe qu'�
 | `blockedAt`, `blockedReason`, `blockedBy` | Blocage côté site ([15](15-dashboard-admin.md)), après le 6 |
 | `createdAt`, `lastSeenAt` | Suivi d'activité |
 
-- Créée à la première connexion réussie.
+- Créée à la première connexion réussie (`/api/auth/verify`), sans jamais faire échouer la connexion si la base est indisponible.
 - Migration **additive** uniquement : aucune colonne existante modifiée. Elle passe sur la base de staging puis sur la base neuve de production samedi.
-- Les routes qui lisent ou écrivent ce profil vérifient la session : un wallet ne touche que son propre profil.
+- Les routes qui lisent ou écrivent ce profil vérifient la session : un wallet ne touche que son propre profil. `GET /api/profile` renvoie le profil du wallet connecté et le crée au besoin ; `PATCH /api/profile` n'accepte que `tourCompletedAt` (booléen, la date est posée côté serveur), `featureTours` (clés `dashboard`, `datasets`, `upload`, `marketplace`, `train`, `explorer`, `wallet`, valeurs booléennes) et `settings` (`language` parmi `en`, `sidebarCollapsed` booléen). Le KYB et le blocage ne sont jamais modifiables par cette route.
 
 ## 2. Nouveaux champs sur `Dataset` — P0
 
 | Champ | Usage |
 |---|---|
-| `category` | Catégorie, liste fixe ([07](07-upload.md), [08](08-marketplace.md)) |
-| `listingStatus` | En ligne ou en pause ([06](06-mes-datasets.md)) |
-| `listingExpiresAt` | Fin de la durée de publication ([01](01-decisions-avant-samedi.md)) |
-| `trainingConsentAt`, `trainingConsentVersion`, `trainingConsentRevokedAt` | Consentement à l'amélioration des modèles ([07](07-upload.md)) |
+| `category` | Catégorie, liste fixe ([07](07-upload.md), [08](08-marketplace.md)). Texte libre en base, la liste est tenue par le code de l'upload |
+| `listingExpiresAt` | Fin de la durée de publication ([01](01-decisions-avant-samedi.md)). Absent sur les datasets publiés avant ce champ |
+| `trainingConsentAt`, `trainingConsentVersion`, `trainingConsentRevokedAt` | Consentement à l'amélioration des modèles ([07](07-upload.md)). La révocation pose `trainingConsentRevokedAt` sans effacer la date ni la version du consentement initial |
 
-La marketplace n'affiche que `listingStatus = en ligne` et `listingExpiresAt` dans le futur.
+**Pas de colonne `listingStatus`.** La pause d'un dataset ([06](06-mes-datasets.md)) réutilise l'enum `DatasetStatus` existant : mettre en pause fait passer `status` de `LISTED` à `UNLISTED`, remettre en ligne fait l'inverse. Une colonne séparée aurait créé deux sources de vérité pour la visibilité et obligé chaque lecteur du catalogue à croiser les deux.
+
+Conséquences pour les pages qui s'appuient dessus :
+
+- la marketplace n'affiche que `status = LISTED` **et** `listingExpiresAt` absent ou dans le futur ;
+- la carte Mes datasets dérive l'état affiché : *En pause* = `UNLISTED`, *Expiré* = `LISTED` avec `listingExpiresAt` passé, *Détruit* = `DELETED` ;
+- `UNLISTED` garde aujourd'hui son sens « semi-privé, empruntable par lien direct ». Un dataset en pause reste donc empruntable par quelqu'un qui en connaît l'identifiant. Si la pause doit aussi fermer l'emprunt direct, c'est au couloir des prêts de l'ajouter ; le socle ne tranche pas.
+
+Les champs sont posés par la migration `20261003000000_add_user_profiles` (A1). Aucune route ne les écrit encore : l'upload ([07](07-upload.md)) et la fiche ([06](06-mes-datasets.md)) les remplissent dans leurs couloirs.
 
 ## 3. Journal des accès — P1
 
-Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset, le wallet, le prêt, la date et l'empreinte du modèle livré. Écrite au moment de la livraison de la clé du modèle. Lecture réservée à l'admin.
+Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset (`datasetId`, clé étrangère), le wallet (`address`, minuscules), le prêt (`loanId`, sans clé étrangère pour survivre à tout nettoyage), la date (`createdAt`), le modèle livré (`modelCid`) et son empreinte (`modelFingerprint`). Index sur `datasetId` et `address`. Écrite au moment de la livraison de la clé du modèle par `recordDatasetAccess()` de `src/lib/users/profile.ts`, qui accepte une transaction pour s'inscrire dans celle de la livraison. La fonction existe et est testée ; son branchement sur la livraison reste à faire. Lecture réservée à l'admin : aucune route ne l'expose.
 
 ## 4. Textes d'avertissement communs — P0
 
