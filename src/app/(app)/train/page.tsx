@@ -407,6 +407,8 @@ function TrainPageContent() {
         </div>
       </div>
 
+      <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} className="mb-6" />
+
       {error && (
         <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}

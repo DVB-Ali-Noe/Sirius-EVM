@@ -738,42 +738,120 @@ Trois passes de revue adversariale par des agents en lecture seule, plus la vér
 
 ## A4 — Avertissements et conditions d'utilisation
 
+Branche `feat/avertissements-conditions`, PR vers `staging`. Aucune base de données, aucun contrat, aucune route API touchés : la slice ne change que du texte et l'endroit où il s'affiche.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+| Fichier | Changement |
+|---|---|
+| `src/app/terms/page.tsx` | Conditions réécrites, en anglais, page serveur publique. Dix sections : nature de la bêta ; modèles ; paiements et USDG ; délai de sécurité et remboursements ; enregistrement des accès ; consentement à l'amélioration des modèles ; suspension ; risques ; responsabilités ; engagements ; plus une section « Changes and contact ». Constante `LAST_UPDATED` = « 4 October 2026 ». Le jeton cité est USDG (l'ancien texte disait USDC). Contact lu dans `CONTACT_EMAIL` (`src/lib/copy/disclaimers.ts`), sans le modifier. |
+| `src/app/terms/terms.test.ts` (nouveau) | Test par inspection de source, neuf cas (voir section 5). Ajouté au script `test` de `package.json`. |
+| `src/app/page.tsx` (landing) | Encart `DisclaimerNote` court (`betaLimits`, `modelQuality`) au-dessus du pied de page ; pied de page : lien `/terms` ajouté (le lien `/status` existait déjà), ligne de réseau « Mainnet beta on Robinhood Chain » ou « Testnet on Robinhood Chain » selon `NEXT_PUBLIC_EVM_NETWORK`. |
+| `src/app/(app)/dashboard/page.tsx` | Un seul ajout : `DisclaimerNote` (`betaLimits`, `modelQuality`, `contactUs`) sous l'en-tête de la vue connectée, plus l'import. Libellé du jeton (« USDC ») et reste de la page inchangés. |
+| `src/app/(app)/train/page.tsx` | Un seul ajout : `DisclaimerNote` (`modelQuality`, `retrainDeterministic`, `betaLimits`, `contactUs`) sous l'en-tête de la vue connectée, plus l'import. |
+| `src/lib/i18n/legal-en.ts` (nouveau), `src/lib/i18n/english.ts` | Trois traductions du pied de page, dans un fichier séparé fusionné dans `EN_MESSAGES` (même méthode que `shared-en.ts`). Les textes d'avertissement avaient déjà leur traduction (A2). |
+| `package.json` | `src/app/terms/terms.test.ts` ajouté au script `test`. |
+
+Composants partagés (`DisclaimerNote`, `src/lib/copy/disclaimers.ts`, `shared-en.ts`) réutilisés sans modification.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+- **Clauses écrites pour le produit cible, pas pour le code d'aujourd'hui.** Plusieurs comportements annoncés relèvent d'autres slices qui ne sont pas toutes fusionnées (voir section 6). Le cahier des charges demande ces clauses ; je les ai écrites telles que prévues par les fichiers de feature 01, 06, 07 et 15, et je liste ici ce qui doit être vrai au lancement.
+- **Phrase de traçage** : reprise presque mot pour mot de `06-mes-datasets.md` (« Sirius records dataset accesses and the fingerprint of each delivered model in order to detect and investigate leaks »), suivie du détail (adresse, prêt, date, modèle, empreinte).
+- **Aucune durée de conservation du journal** n'est promise : le dépôt n'en définit pas. Un texte sur la durée de conservation serait un engagement que le code ne tient pas encore. À trancher (RGPD).
+- **Décision du 4 octobre (Ali)** : conservation de 24 mois après l'accès, puis suppression, ajoutée aux conditions. Aucune purge automatique n'existe encore : à implémenter avant octobre 2028, date des premières suppressions dues (P2, suivi dans la V1.2).
+- **Remboursement** : décrit d'après `SiriusEscrowV7.sol` (`_refund` : montant de la donnée + calcul − calcul consommé ; le calcul consommé va au destinataire du calcul ; le reste devient un crédit de l'emprunteur, retiré ensuite). Le texte dit donc « credited back to the borrower's escrow balance, from which it can be withdrawn », pas « renvoyé sur le wallet ».
+- **« Seul le calcul consommé est retenu »** : formulé « as measured and signed by the training environment » (reçu d'exécution signé, `recordExecution`).
+- **Remboursement réservé aux échecs** : le texte dit que l'application ne le propose que sans modèle livré (règle de `09-train-et-certificat.md`), et ne promet pas que le contrat l'interdit. Au niveau du contrat, `refund()` est ouvert à tous après l'échéance tant que le prêt n'est pas réglé.
+- **Suspension** : j'ai ajouté la phrase honnête de `15-dashboard-admin.md` (Sirius ne peut pas saisir ni geler les fonds déjà dans l'escrow) et la mention de la révocation de l'attestation KYB par le Safe.
+- **Gel Paxos** : j'ai ajouté que le gel de l'adresse de l'escrow elle-même bloquerait les fonds de tous les prêts. C'est exact techniquement mais plus fort que la consigne ; à valider.
+- **Section « Models »** reprend le texte commun `modelQuality` en l'élargissant (« no promise that a model will be accurate… »). Le texte anglais de l'encart partagé n'est pas modifié.
+- **Landing** : l'encart est placé dans le pied de page, pas dans le héros épinglé par GSAP, pour ne pas toucher à l'animation. Le réseau affiché dépend de `NEXT_PUBLIC_EVM_NETWORK` (inliné au build).
+- **Pas de page `/terms` traduite en français** : comme les autres pages serveur publiques (status), le texte est en anglais direct.
+- **Formule « as is »** : « provided during the beta as is » est une formule juridique légère que j'ai ajoutée ; à relire.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+- **Contrôle d'accès côté serveur** : aucune route, aucune migration, aucune écriture. `/terms` est publique par conception (comme `/status`).
+- **Validation des entrées** : aucune entrée utilisateur dans les pages modifiées. Le seul lien dynamique est `mailto:` construit sur la constante `CONTACT_EMAIL`, pas sur une valeur fournie par un utilisateur.
+- **Fuites** : aucune donnée affichée. Le pied de page ne lit que `NEXT_PUBLIC_EVM_NETWORK` (publique).
+- **Argent, escrow, contrats, Phala** : aucun impact technique. En revanche, les textes engagent Sirius sur ces points ; vérifier qu'ils sont vrais :
+  - délai de sécurité de **3 jours** : vrai dans le contrat (`deadline`, paramètre `challengeDays` du devis) mais **pas encore dans l'upload** (`src/app/api/datasets/route.ts` accepte 1 à 30 jours choisis par le fournisseur, `datasets/new/page.tsx` a toujours le champ). Dépend de la slice upload (07) ;
+  - remboursement hors calcul consommé : vrai dans `SiriusEscrowV7._refund` ;
+  - USDG : le code et l'interface disent encore USDC (`SIRIUS_USDC_ADDRESS`, `dashboard` et `wallet` affichent « USDC », la page `/status` liste « USDC » et parle de « real USDC »). Les conditions disent USDG : **incohérence visible tant que le jeton n'est pas généralisé** ;
+  - traçage : `recordDatasetAccess()` existe mais **n'est pas branché sur la livraison** (A1, section 3 de `16-socle-technique.md`). La clause annonce un enregistrement qui doit exister au lancement ;
+  - consentement : colonnes présentes (A1), mais ni la case à l'upload ni le retrait depuis la fiche ne sont dans le dépôt à ce stade. La clause promet les deux ;
+  - suspension : la liste de blocage (`UserProfile.blockedAt`) existe en base mais aucune route ne l'applique à la connexion, à la publication ni à l'emprunt (prévu « après le 6 » dans 15). La clause dit seulement que Sirius « can » suspendre.
+- **Base de données** : sans objet.
+- **Interface** : contenu entièrement statique ou issu de constantes ; pas de `dangerouslySetInnerHTML`. Les liens `/terms`, `/status` sont internes ; le lien X existant garde `rel="noopener noreferrer"`.
+- **Textes, aucune promesse fausse** (point central) : relire la page de conditions phrase par phrase contre le code au moment du lancement. Phrases à plus fort risque : « visible only to Sirius administrators », « used for that purpose only », « off by default », « The app only offers a refund when no model was delivered », « Sirius cannot seize or freeze funds already locked ».
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. Ouvrir `/terms` sans être connecté : la page s'affiche, la date « 4 October 2026 » est visible, le lien « status page » mène à `/status`, l'adresse de contact ouvre un `mailto:`.
+2. Lire chaque section : les mots « USDG » et « Paxos » apparaissent, pas « USDC ».
+3. Landing `/` : descendre jusqu'au pied de page. Attendu : encart « Beta: invitation-only access… » et « Sirius currently trains baseline models… », liens Documentation, Protocol status, Terms, @Sirius_data, ligne « Mainnet beta on Robinhood Chain » (staging en testnet : « Testnet on Robinhood Chain »).
+4. Landing en largeur mobile (360 px) : les quatre liens du pied de page passent à la ligne sans débordement horizontal.
+5. Landing : l'animation de zoom et l'apparition du bouton de connexion se comportent comme avant (rien n'a été ajouté dans le héros).
+6. Connecter un wallet, ouvrir `/dashboard` : encart sous l'en-tête avec lien mailto cliquable sur l'adresse de contact. Tableau de bord non connecté : pas d'encart (voulu).
+7. Ouvrir `/train` connecté : encart avec les quatre textes, dont « Linear and logistic regression are deterministic… ». Vérifier qu'il ne chevauche pas le message d'erreur quand il y en a un.
+8. Passer l'interface en français si le sélecteur existe : les encarts s'affichent en français (les clés sont françaises), le pied de page aussi. `/terms` reste en anglais.
+9. Comparer, sur un prêt de test, le comportement réel du remboursement (échec, puis dépassement du délai) avec la section « Safety period and refunds ».
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+Ajouté : `src/app/terms/terms.test.ts`, neuf cas par inspection de source (`pnpm test`, tous passent) : phrase de traçage ; consentement facultatif, par défaut désactivé, enclave seule, retrait à tout moment ; suspension et limite sur les fonds de l'escrow ; délai de 3 jours (et aucun autre délai annoncé), calcul consommé, ré-entraînement = nouvel emprunt ; USDG, Paxos, gel, et absence du mot « USDC » ; nature bêta, modèles de base, date lisible, contact ; absence de promesses absolues (« risk-free », « 100% », « guarantee the funds »…) ; branchement des encarts sur dashboard, train et landing ; liens `/terms`, `/status` et ligne de réseau dans le pied de page. `english.test.ts` passe avec les trois nouvelles clés.
+
+Non couvert : le rendu réel de la page (pas de test de rendu, la page est un composant serveur) ; l'exactitude juridique ; la cohérence avec le comportement du code (le test vérifie le texte, pas que l'upload fixe 3 jours ou que le journal est écrit) ; l'affichage visuel des encarts et du pied de page sur mobile.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- Les slices upload (07, délai fixé à 3 jours, case de consentement), fiche dataset (06, retrait du consentement, branchement du journal sur la livraison), dashboard admin (15, blocage appliqué) et jeton USDG (01) seront fusionnées avant l'ouverture au public.
+- Le Safe peut révoquer l'attestation KYB d'une adresse (décrit dans 15, non revérifié sur le contrat KYB ici).
+- Le journal n'est lisible que par l'admin : aucune route ne l'expose (A1) ; non revérifié depuis.
+- `NEXT_PUBLIC_EVM_NETWORK` vaut `mainnet` sur la production (imposé par `instrumentation-node.ts`).
+- Paxos peut geler des adresses d'USDG : affirmation générale sur les stablecoins régulés, non vérifiée sur le contrat USDG déployé sur Robinhood Chain.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+- Clauses en avance sur le code (traçage non branché, consentement absent, blocage non appliqué, 3 jours non imposé à l'upload) : si une slice manque au lancement, la clause correspondante devient une promesse fausse. Voir le point à relire en priorité.
+- USDG dans les conditions mais USDC dans l'interface et sur `/status` tant que le jeton n'est pas généralisé.
+- Aucune durée de conservation, ni base légale RGPD, ni droit d'accès ou d'effacement des journaux n'est décrit.
+- Le texte n'est pas une relecture juridique : c'est de l'anglais clair aligné sur le produit.
+- Le test d'inspection de source est fragile aux reformulations : changer une phrase demande de mettre à jour le test (voulu, pour que les clauses ne disparaissent pas par accident).
+- Les sections « Risks you accept » et « Your responsibilities » sont reprises de la version précédente sans changement de fond.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0 avant ouverture** : relecture humaine/juridique de `/terms` (voir ci-dessous), puis alignement du libellé de jeton (`dashboard`, `wallet`, `/status`, docs) sur USDG une fois le jeton généralisé : hors périmètre de cette slice.
+- **P0** : s'assurer que les quatre comportements annoncés existent avant le lancement (3 jours à l'upload, case de consentement et retrait, journal branché sur la livraison, blocage appliqué), sinon retirer ou adoucir la clause.
+- **P1** : décider d'une durée de conservation du journal des accès et l'ajouter aux conditions ; ajouter un lien « Terms » dans la barre latérale ou le réglage une fois le layout ouvert (non touché ici) ; case d'acceptation des conditions à la première connexion (non demandée).
+- **P2** : version française de `/terms` si le public francophone le demande.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, pnpm 11.18.0 lancé via l'installation globale npm (le pnpm « géré » du dépôt n'était pas installé dans `AppData\Local\pnpm\.tools`, `pnpm_config_manage_package_manager_versions=false`).
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | Succès (postinstall `prisma generate` inclus) |
+| `pnpm prisma generate` (`DATABASE_URL` factice) | Succès, client 7.8.0 |
+| `pnpm exec tsc --noEmit` | Succès, code 0 |
+| `pnpm lint` | Succès, code 0, aucun avertissement |
+| `pnpm test` | **539 tests, 464 réussis, 75 en échec**. Tous les nouveaux tests (9) réussissent, ainsi que `english.test.ts`, `shared-components.test.ts` et le reste de `disclaimers.test.ts` (un seul cas échoue dans ce fichier : « les modules des textes communs… » cherche `src/lib/tee/contract.ts` avec des `/` et échoue sur chemins Windows). Les autres échecs sont dans `budget.test.ts` (54), `replay.test.ts` (7), `initialize-runner-volume.test.ts` (4), `check-reaper.test.mjs` (3), `self-training-routes.test.ts` (3), `monitoring.test.ts`, `runner-cli.test.ts`, `server.test.ts` (1 chacun) : erreurs de droits de répertoire POSIX (« Répertoire privé requis »), fichiers temporaires et chemins Windows. Aucun de ces fichiers n'est touché par la slice. Le script `test` utilise la syntaxe `NODE_OPTIONS=… node` que `cmd.exe` ne comprend pas : je l'ai lancé en positionnant `NODE_OPTIONS` à la main avec la même liste de fichiers. **Ce sont des échecs d'environnement non masqués ; la CI Linux doit confirmer.** Je n'ai pas comparé avec un `staging` vierge sur cette machine. |
+| `pnpm audit:deps` | Code 0 ; 2 vulnérabilités signalées (1 faible, 1 haute dont une ignorée par la configuration du dépôt), aucune ajoutée par la slice (aucune dépendance modifiée) |
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Une passe de revue adversariale par relecture de chaque phrase de `/terms` contre le code et les fichiers de feature :
+
+- **Corrigé** : l'ancien texte annonçait « real USDC » → USDG et Paxos. L'ancienne phrase « the borrower can be refunded after the deadline » était trop courte : remplacée par la règle complète (échec ou 3 jours, calcul consommé retenu, crédit retiré ensuite).
+- **Corrigé** : une première version de la phrase de suspension disait que Sirius « can ask the contract administrator to revoke » ; reformulée en « can also revoke the on-chain verification of an address ». Le décideur réel est le Safe contrôlé par Sirius, il ne faut pas laisser croire à un tiers.
+- **Ajouté** : risque d'un gel de l'adresse de l'escrow lui-même par Paxos ; limite explicite « Sirius cannot seize or freeze funds already locked » ; absence de promesse sur l'exactitude des modèles.
+- **Écarté** : promettre la suppression du journal sur demande ou une durée de conservation (non implémenté) ; promettre que le contrat interdit le remboursement d'un prêt réussi (faux : `refund()` est ouvert après l'échéance) ; mettre l'encart dans le héros de la landing (risque pour l'animation GSAP) ; modifier le libellé « USDC » du dashboard (hors périmètre).
+- **Constaté, non corrigé (hors périmètre)** : les clauses en avance sur le code décrites en section 3, et la page `/status` qui dit encore « real USDC ».
+
+**À relire en priorité par un humain** : (1) clause de traçage et absence de durée de conservation (RGPD) ; (2) clause de consentement : « off by default » et retrait « for future use » ; (3) clause de gel Paxos, y compris le gel de l'escrow ; (4) clause de suspension et révocation KYB ; (5) clause de remboursement : « only the compute actually used is kept » et « a loan that succeeded is not refunded » ; (6) formule « provided as is ».
 
 ---
 

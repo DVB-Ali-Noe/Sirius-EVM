@@ -11,6 +11,7 @@ import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { useBlobStore } from "@/stores/blob";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 
 gsap.registerPlugin(ScrollTrigger);
 // Évite les recalculs de 100vh au show/hide de la barre d'adresse mobile (jank du pin).
@@ -100,6 +101,7 @@ function AvatarCard({
 
 function PageBottom() {
   const { t } = useLocale();
+  const networkLine = process.env.NEXT_PUBLIC_EVM_NETWORK === "mainnet" ? t("Bêta mainnet sur Robinhood Chain") : t("Testnet sur Robinhood Chain");
   return (
     <div className="relative">
       <section className="relative z-10 px-8 py-24 md:px-16 md:py-32">
@@ -136,17 +138,26 @@ function PageBottom() {
         </div>
       </section>
 
+      <div className="relative z-10 mx-auto w-full max-w-2xl px-6 pb-8">
+        {/* Avertissement court : limites de la bêta et qualité des modèles. */}
+        <DisclaimerNote messages={["betaLimits", "modelQuality"]} />
+      </div>
+
       <footer className="relative z-10 flex flex-col items-center gap-3 border-t border-border px-6 py-8 text-center">
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center justify-center gap-x-6">
           <Link href="/docs" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
             {t("Documentation")}
           </Link>
           <Link href="/status" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
             {t("État du protocole")}
           </Link>
+          <Link href="/terms" className="py-2 text-sm text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline">
+            {t("Conditions d’utilisation")}
+          </Link>
           <XLink variant="footer" />
         </div>
         <p className="text-xs tracking-widest text-muted">{t("Sirius — data lending confidentiel sur EVM")}</p>
+        <p className="text-xs text-muted">{networkLine}</p>
       </footer>
     </div>
   );
