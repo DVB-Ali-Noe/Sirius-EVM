@@ -2231,42 +2231,189 @@ Tenté sans défaut au passage 1 : champs privés (select, omit, projection), se
 
 ## N4 — Train
 
+Branche `feat/train`, PR vers `staging`. Tout ce qui suit est vérifiable depuis `git diff staging...HEAD`. Aucune route, table, colonne, migration ni contrat n'est touché : la slice ne change que l'interface de la page Train, deux modules de logique d'affichage, les traductions et les tests.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Fichiers**
+
+| Fichier | Rôle |
+|---|---|
+| `src/app/(app)/train/page.tsx` | Catalogue et `CatalogueCard` supprimés. Self training (section « Mes données », liste des jobs, pagination des datasets) affiché seulement si `GET /api/admin/me` répond exactement `{ "admin": true }`. Encart de contact pour les autres comptes. État lisible par emprunt, bouton « Refund » réservé aux échecs sans modèle, panneau « Retrain » sur les emprunts terminés. |
+| `src/lib/train/loan-display.ts` | Logique pure d'affichage, sans effet de bord : `loanDisplayState`, `canRetrain`, `canRefund`, `isFailedWithoutModel`, `hasOtherActiveLoan`, `parseAdminResponse`, libellés et variantes des états. |
+| `src/lib/train/loan-display.test.ts` | 14 tests unitaires de cette logique (ajoutés au script `test`). |
+| `src/components/train/RetrainPanel.tsx` | Panneau de ré-entraînement : avertissement de déterminisme, prix de la fiche, bouton qui appelle `borrowDataset`. |
+| `src/lib/i18n/train-en.ts` + 2 lignes dans `src/lib/i18n/english.ts` | Traductions anglaises des nouveaux textes (import et propagation dans `EN_MESSAGES`). |
+| `package.json` | `src/lib/train/loan-display.test.ts` ajouté à la liste du script `test`. |
+| `e2e/train.spec.ts` (nouveau), `e2e/billing-v7.spec.ts`, `e2e/responsive.spec.ts`, `e2e/audit-regressions.spec.ts` | Suite e2e adaptée (voir section 5). |
+
+**Routes appelées par la page, avant et après**
+
+| Appel | Avant | Après |
+|---|---|---|
+| `GET /api/loans` | toujours | toujours (la liste des prêts de l'emprunteur et du fournisseur) |
+| `GET /api/admin/me` | jamais | toujours, pour décider d'afficher le self training |
+| `GET /api/datasets` (ses propres datasets) et `GET /api/train` (jobs) | toujours | seulement si `admin === true` |
+| `GET /api/datasets?status=LISTED` (catalogue) | toujours | jamais |
+| `GET /api/marketplace/[id]` | jamais | à l'ouverture du panneau Retrain, pour le prix de la fiche (route publique existante, inchangée) |
+| `POST /api/loans`, `/authorize`, `/submit` | via `CatalogueCard` | via `borrowDataset`, appelé par `RetrainPanel` (même fonction, mêmes routes) |
+| `POST /api/loans/[id]/cancel` | bouton « Récupérer l'escrow » | bouton « Refund » (même `cancelExpiredLoan`, mêmes routes) |
+
+Aucun fichier sous `src/app/api/**`, `contracts/**`, `src/runner/**`, `src/lib/runner/**`, ni la marketplace, les datasets, le layout, la Sidebar ou les composants partagés n'est modifié. La page `/phala` et ses composants ne sont pas touchés.
+
+**États affichés d'un emprunt** (`loanDisplayState`, pastille sur chaque carte)
+
+| État affiché | Condition (statut du prêt) |
+|---|---|
+| Paiement en attente de finalité (« Payment awaiting finality ») | `SUBMITTING` ; `PENDING` avec un hash de lock ; `SETTLING` (release envoyé, en cours de confirmation) |
+| En cours (« In progress ») | `PENDING` sans hash de lock (prêt créé avant le devis, rien payé) ; `ESCROWED`, `TRAINING` dans leur délai |
+| Terminé (« Completed ») | `SETTLED` |
+| Échoué (« Failed ») | `CANCELLED` sans `cancelTxHash` ; ou `ESCROWED`/`TRAINING`/`SETTLING` échu sans modèle (voir règle de remboursement) |
+| Remboursé (« Refunded ») | `CANCELLED` avec `cancelTxHash` |
+| État inconnu | tout autre statut reçu de l'API |
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Pas d'état « échoué » côté serveur.** Le modèle `Loan` n'a pas de statut d'échec : `LoanStatus` vaut `PENDING | SUBMITTING | ESCROWED | TRAINING | SETTLING | SETTLED | CANCELLED`. L'état « échoué » est donc dérivé dans l'interface. Un entraînement est dit « échoué sans modèle livré » quand le serveur déclare le prêt remboursable (`refundable`, c'est-à-dire échéance dépassée sur un prêt actif) ET que `modelCid`, `settleTxHash` et `cancelTxHash` sont vides ET qu'une clé de prêt on-chain existe. Avant l'échéance, un job qui échoue reste « En cours » avec « Réessayer le job » : le contrat n'autorise le remboursement qu'après l'échéance, la slice ne le contourne pas.
+2. **Remboursement : écart avec l'ancien bouton, corrigé pour le cas bloquant.** L'ancien bouton « Récupérer l'escrow » s'affichait pour tout prêt `refundable`, y compris au fournisseur. Le nouveau bouton « Refund » est réservé à l'emprunteur et à deux cas : (a) échec sans modèle (`modelCid`, `settleTxHash`, `cancelTxHash` vides) ; (b) **remboursement de secours** : prêt échu avec `modelCid` posé mais sans `runnerReceipt`, `settleTxHash` et `cancelTxHash` vides. Dans le cas (b) « Finaliser le règlement » est impossible (il exige le reçu) et le réaper (`reaper-policy.ts`) ne fait que resynchroniser la base avec la chaîne (`reconcile-chain`), jamais de règlement ni de remboursement on-chain : sans secours, les fonds resteraient bloqués. L'état affiché est « Failed », avec une explication distincte (« The deadline has passed and the settlement can no longer be completed »). Un prêt échu avec `modelCid` ET `runnerReceipt` garde « Finaliser le règlement » et n'a pas de Refund. (Correction demandée par la coordination avant fusion de la PR.)
+3. **Self training : la page ne décide rien.** `GET /api/admin/me` est indicatif ; la protection reste celle des routes (slice N5). Un échec de cette route (réseau, 401, 500) laisse `admin = null` : ni self training ni encart de contact, plutôt que d'afficher l'encart à un administrateur sur une panne passagère. Seule la valeur exacte `admin === true` ouvre le self training.
+4. **Un non-admin n'émet plus aucun appel à `/api/datasets` ni `/api/train`.** Sur une instance de démonstration Phala, `/api/train` reste ouvert aux visiteurs côté serveur, mais la page Train ne l'appelle plus pour eux ; le parcours de démonstration vit dans `/phala` et n'est pas modifié.
+5. **Retrain = nouvel emprunt complet, flux existant.** Décision [01](01-decisions-avant-samedi.md) section 2 : la donnée est payée à nouveau plus le calcul. Le panneau affiche le prix de la fiche (`PriceBreakdown`, donnée + calcul = total, ou « indiqués dans le devis » si les frais de calcul sont inconnus), puis le bouton appelle `borrowDataset`, dont le devis signé (`ComputeQuoteDialog`) affiche le total exact avant toute approbation ou signature. Le prix de la fiche sert aussi de contrôle : `borrowDataset` refuse un devis dont le `datasetAmount` diffère. Aucune nouvelle transaction n'est créée.
+6. **Retrain proposé seulement à l'emprunteur d'un prêt `SETTLED`.** `GET /api/loans` renvoie aussi les prêts où l'on est fournisseur ; un fournisseur ne voit pas le bouton sur le prêt d'un tiers.
+7. **Avertissement de déterminisme complété.** Le texte commun `retrainDeterministic` (`DisclaimerNote`) ne contient que la première phrase du cahier ; la seconde (« Retrain only if the dataset has changed. ») est ajoutée à côté, sans modifier `src/lib/copy/disclaimers.ts`.
+8. **Encart de contact.** Texte exigé : « Want to train on your own data? Contact us at sirius.data.contact@gmail.com. » Il utilise `DisclaimerNote` (sans messages communs, pour ne pas afficher `contactUs`, dont le texte est différent) et le lien `mailto:` de `contactMailtoHref()`.
+9. **Avertissement qualité non ajouté.** Le cahier de la slice le laisse à une autre PR (encart en haut de page) pour limiter les conflits.
+10. **Libellé « Refund »** remplace « Récupérer l'escrow » (cahier : bouton « Remboursement »). L'ancienne clé de traduction reste dans `english.ts`, inutilisée.
+11. **Liens et texte de page non retouchés ailleurs.** Le tutoriel de la page (`src/lib/tour/content.ts`, hors périmètre) parle encore d'emprunter « un dataset du catalogue » : la marketplace est ce catalogue, le texte reste vrai mais mériterait une retouche (section 8).
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès côté serveur, route par route.** Aucune route n'est ajoutée ni modifiée. Les contrôles dont dépend la page :
+- `GET /api/admin/me` : authentifiée (`requireAuth`), `{ admin }` via `adminAllowed`, `cache-control: no-store` (N5, inchangée). La page n'en tire que l'affichage.
+- `GET /api/datasets`, `GET /api/train`, `POST /api/train`, `POST /api/train/[id]/key` : gardées côté serveur par `assertSelfTrainingAccess` (N5). Vérifier qu'un wallet non admin qui appelle ces routes à la main reçoit toujours 403 (hors démonstration Phala) : la page ne le garantit pas, elle ne fait que ne plus les appeler.
+- `GET /api/loans` : filtre `borrower` OU `provider` = session ; renvoie `refundable` calculé côté serveur (statut actif et échéance dépassée). Inchangée.
+- `POST /api/loans/[id]/cancel` : `cancelExpiredLoan` revérifie l'emprunteur, le statut actif, l'échéance on-chain, la portée de l'escrow, et ne renvoie qu'une transaction à signer par le wallet. C'est la seule garde réelle du remboursement ; la règle d'interface n'est qu'un second verrou.
+- `POST /api/loans`, `/authorize`, `/submit` : inchangées, appelées par `borrowDataset` (KYB, plafonds, devis signé côté serveur).
+- `GET /api/marketplace/[id]` : publique, 404 uniforme hors annonce en ligne.
+
+**Où tombe la règle « le remboursement n'est jamais proposé à tort ».** `canRefund` dans `src/lib/train/loan-display.ts` : statut `ESCROWED`, `TRAINING` ou `SETTLING`, ET `refundable === true` strictement (un `"true"` ou un `1` ne passent pas), ET `settleTxHash`, `cancelTxHash` vides, ET (`modelCid` vide, OU `modelCid` posé sans `runnerReceipt` : secours), ET `evmLoanKey` présent, ET `borrower` égal à l'adresse connectée (comparaison par `addressesEqual`, insensible à la casse, fausse si l'une des adresses est invalide). `refundLoan` dans la page relit `canRefund` au clic, refuse un double clic (verrou par `useRef`) et refuse pendant qu'un job de ce prêt tourne dans l'onglet. À relire en priorité : la table de vérité de `loan-display.test.ts` (test « Rembourser et état échoué restent cohérents », qui énumère 2 × 2 × 2 × 2 × 8 combinaisons).
+
+**Validation et bornes des entrées.** Aucune saisie utilisateur nouvelle. Les valeurs venues de l'API sont traitées comme non fiables : statut inconnu donne « État inconnu » et aucun bouton ; `admin` autre que `true` donne non-admin ; `borrower` absent ou invalide donne ni Retrain ni Refund ; montants affichés par `PriceBreakdown`, qui refuse les montants mal formés (« — » plutôt qu'un montant approché).
+
+**Fuites possibles.** `GET /api/loans` renvoie la ligne `Loan` complète (champs d'attestation compris) au fournisseur et à l'emprunteur : comportement préexistant, la page n'affiche pas de champ de plus. Les messages d'erreur passent par `messageOf` et `t()` comme avant. Aucun journal ajouté. Pour un non-admin, la liste des jobs de self training n'est plus demandée du tout.
+
+**Argent, escrow, contrats, moteur Phala.** Aucune transaction nouvelle, aucun changement de contrat, de montant ni de moteur. Le Retrain réutilise `borrowDataset` à l'identique (devis signé, total confirmé, approbation du total exact puis lock) ; le remboursement réutilise `cancelExpiredLoan` (`refund(loanKey)` signé par l'emprunteur, puis confirmation serveur). À vérifier : que le prix affiché dans le panneau Retrain (fiche publique, dernier devis connu) n'est jamais celui qui est payé ; seul le devis signé fait foi. Un écart de prix entre la fiche et le devis arrête le parcours avant toute signature (« Prix du dataset modifié » dans `borrowDataset`).
+
+**Base de données.** Aucune migration, aucun schéma, aucune requête nouvelle.
+
+**Interface : injection, liens.** Tout est rendu par React (échappé). Seul lien externe : `mailto:` construit à partir de la constante `CONTACT_EMAIL` par `contactMailtoHref()` (sans objet, sans contenu utilisateur). Les noms de datasets viennent de la base et sont affichés comme texte dans des titres, comme avant. Lien interne ajouté : `/marketplace`.
+
+**Textes : promesses sur les modèles ou la sécurité.**
+- « Linear and logistic regression are deterministic: retraining on the same data gives the same model. Retrain only if the dataset has changed. » : vrai pour les deux modèles du registre aujourd'hui ; à revoir quand un modèle non déterministe arrive.
+- Explication du remboursement : « The refund returns everything you paid except, where applicable, the compute actually consumed, as measured by the enclave. » Formulation prudente (« le cas échéant ») car un escrow historique sans devis ne retient rien. Le texte du devis v7 (déjà en place) dit la même chose.
+- « Un réentraînement est un nouvel emprunt complet : la donnée et le calcul sont payés à nouveau. » : conforme à la décision [01](01-decisions-avant-samedi.md).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Prérequis : deux wallets, A (non admin, emprunteur) et B (dans `SIRIUS_ADMIN_ADDRESSES`) ; un dataset en ligne.
+
+1. **Non-admin.** Se connecter avec A, ouvrir `/train`. Attendu : aucun catalogue, aucune section « My data », encart « Want to train on your own data? Contact us at sirius.data.contact@gmail.com. » (le lien ouvre un message vers cette adresse). Dans l'onglet réseau du navigateur : aucun appel à `/api/datasets` ni `/api/train`, un appel à `/api/admin/me`.
+2. **Admin.** Se connecter avec B. Attendu : section « My data » (self training) visible, pas d'encart de contact.
+3. **Panne de `/api/admin/me`.** Bloquer cette route dans les outils du navigateur et recharger avec B. Attendu : ni self training ni encart. Débloquer et recharger : le self training réapparaît.
+4. **États.** Avec A : lancer un emprunt, constater « Payment awaiting finality » après l'envoi du lock, « In progress » une fois l'escrow confirmé et pendant l'entraînement, « Payment awaiting finality » pendant le règlement (SETTLING), « Completed » ensuite.
+5. **Retrain.** Sur l'emprunt « Completed » : l'avertissement de déterminisme est visible avant tout clic. Cliquer « Retrain » : le prix de la fiche (donnée, calcul, total) s'affiche. « View the quote and retrain » ouvre le devis signé avec le total. Annuler : aucune transaction wallet, un prêt `PENDING` reste (il est annulé par le réaper après 10 minutes) et s'affiche « In progress », sans confirmation « emprunt déjà en cours » au Retrain suivant. Accepter : nouvel emprunt complet, nouvelle carte.
+6. **Retrain sur un dataset retiré.** Mettre le dataset en pause ou privé, ouvrir « Retrain ». Attendu : « This dataset is no longer available to borrow: retraining is not possible. », bouton désactivé.
+7. **Fournisseur.** Avec le wallet fournisseur du dataset, sur `/train` : le prêt de A apparaît (comportement préexistant), sans « Retrain » ni « Refund ».
+8. **Remboursement, cas positif.** Prêt `ESCROWED` dont l'échéance est dépassée sans job réussi (réduire le délai sur staging ou attendre). Attendu : état « Failed », bouton « Refund » et explication (« Training failed: no model was delivered. … »). Cliquer : le wallet demande `refund(loanKey)`, puis l'état devient « Refunded ». Un double clic rapide ne doit envoyer qu'une transaction.
+9. **Remboursement, cas négatifs.** Aucun bouton « Refund » : sur un prêt dans son délai (même si le job vient d'échouer) ; sur un prêt « Completed » ; sur un prêt « Refunded » ; sur un prêt échu avec `modelCid` posé (capsule prête) ; chez le fournisseur.
+10. **Prêt échu avec capsule prête.** Un prêt `TRAINING` avec `modelCid` et `runnerReceipt`, échu : « Finaliser le règlement » est proposé, pas « Refund ». Le même prêt échu avec `modelCid` mais sans `runnerReceipt` : état « Failed », bouton « Refund » de secours et explication « settlement can no longer be completed ».
+11. **Changement de wallet en cours de Retrain.** Ouvrir le panneau, changer de compte dans le wallet. Attendu : la page se remonte, le panneau disparaît, aucune transaction.
+12. **Démo Phala.** Ouvrir `/phala` (instance de démonstration) : parcours inchangé ; le lien « Standard training » mène à `/train`.
+13. **Langue.** Tous les nouveaux textes sont en anglais ; aucun libellé français visible (les états, l'encart, Retrain, Refund).
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
 
+**Unitaires** (`src/lib/train/loan-display.test.ts`, dans le script `test`, 15 tests) : un état par statut ; statut inconnu, vide ou en minuscules ; libellés et variantes de chaque état ; Refund proposé dans les cas valides (casse d'adresse différente, `TRAINING`, `SETTLING`) ; Refund refusé à un tiers, au fournisseur, sans wallet, sans `borrower`, avec une adresse invalide ; Refund refusé si `refundable` n'est pas strictement `true` (`undefined`, `"true"`, `1`) ; Refund refusé avec `modelCid`, `settleTxHash` ou `cancelTxHash`, pour un prêt `SETTLED`, `CANCELLED`, `PENDING`, `SUBMITTING`, de statut inconnu, ou sans `evmLoanKey` ; test de cohérence qui énumère toutes les combinaisons (statut, `refundable`, `modelCid`, `settleTxHash`, `cancelTxHash`) et vérifie que `canRefund` vrai implique « échoué » et aucune trace de modèle ; Retrain proposé sur `SETTLED` réglé de l'emprunteur seulement ; détection d'un autre emprunt actif (PENDING sans lock ignoré) ; `parseAdminResponse` ; traduction anglaise de chaque libellé d'état. `src/lib/i18n/english.test.ts` passe (clés statiques, paramètres).
+
+**e2e** (Playwright, port 3217 en local) :
+- `e2e/train.spec.ts` (nouveau, 6 tests) : non-admin sans catalogue ni self training, encart exact, aucun appel `/api/datasets` ni `/api/train` ; réponse `/api/admin/me` en erreur ; admin garde le self training ; états lisibles ; Retrain seulement sur l'emprunt terminé de l'emprunteur, avec l'avertissement à côté ; Refund seulement sur l'échec sans modèle, avec l'explication, et absent dans six cas négatifs.
+- `e2e/billing-v7.spec.ts` : I5 et I8 adaptés (champ `borrower`, bouton « Refund », envoi de `refund(loanKey)`), nouveau test « N4 : Retrain » (prix de la fiche, `POST /api/loans` avec le seul `datasetId`, devis avec le total 8.75 USDC, annulation sans aucune transaction).
+- `e2e/responsive.spec.ts` : fixtures avec `borrower` et hash, `/api/admin/me` simulé admin, catalogue absent, Refund et Retrain dans le contrôle de mise en page à sept largeurs.
+- `e2e/audit-regressions.spec.ts` : mocks admin ; la pagination ne concerne plus que les datasets de l'équipe.
+
+**Ce que les tests ne couvrent pas.** Aucun test d'intégration contre un vrai serveur ni une vraie chaîne : le remboursement signé on-chain n'est vérifié que par simulation (billing-v7 I8, déjà là). Pas de test du comportement sur une instance de démonstration Phala réelle (`/phala` n'est pas modifié). Pas de test de focus clavier ni de lecteur d'écran. Les sélecteurs e2e de carte reposent sur la profondeur DOM de `Card` (`locator("../../../..")`), fragile à un changement de structure.
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- `refundable` (serveur) signifie « statut actif et `evmDeadline` dépassé » ; la slice n'a pas relu l'échéance on-chain côté interface.
+- Un prêt `SETTLING` a toujours un `modelCid` (posé quand le prêt passe à `TRAINING`) : il n'est donc jamais « échoué sans modèle » et le remboursement n'y est jamais proposé.
+- Le réaper serveur ne règle ni ne rembourse on-chain un prêt échu (il resynchronise seulement la base avec la chaîne, vérifié dans `reaper-policy.ts`) : c'est pourquoi le remboursement de secours existe.
+- `GET /api/marketplace/[id]` renvoie `providerPriceAtomic` identique au prix qui sera dans le devis ; sinon `borrowDataset` arrête le parcours (c'est voulu).
+- `adminAllowed` et les routes de self training se comportent comme décrit dans [10](10-self-training.md) (N5) : non vérifié ici, la slice ne les modifie pas.
+- Le statut `CANCELLED` sans `cancelTxHash` est un prêt abandonné ou en cours de réconciliation, jamais un remboursement réussi.
+- Sur la production, `/api/marketplace/[id]` est joignable depuis la page Train (même origine).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Prêt échu avec capsule prête : corrigé.** Un prêt échu avec `modelCid` et sans `runnerReceipt` avait perdu tout bouton (fonds bloquables). Il a maintenant le « Refund » de secours (`isOverdueWithoutReceipt`, `canRescueRefund`). Avec `runnerReceipt`, « Finaliser le règlement » reste la seule action ; si ce règlement tardif était refusé en boucle (clé non livrable après l'échéance), l'emprunteur n'aurait pas de remboursement dans l'interface : cas résiduel, à confirmer avec le contrat (un `refund` serait accepté par `/cancel`).
+2. **État « Paiement en attente de finalité » pour `SETTLING`.** Le cahier ne dit pas si cet état désigne le verrouillage ou le règlement ; la slice couvre les deux. Le message d'attente de finalité réseau (15 à 30 minutes) reste affiché par l'erreur d'`resumeLoanSettlement`.
+3. **Prix de la fiche différent du devis.** Pendant un Retrain, si le prix change après l'ouverture du panneau, `borrowDataset` lève « Dataset price changed. Reload the catalog. » : le catalogue n'est plus sur cette page, le message est imprécis ; fermer et rouvrir le panneau suffit.
+4. **Erreurs du Retrain** s'affichent dans la bannière en haut de page (désormais `role="alert"`), pas dans le panneau, qui peut être loin en bas.
+5. **Un prêt `PENDING` créé par un Retrain annulé** reste visible jusqu'à son annulation par le réaper (10 minutes) : « In progress » sans paiement envoyé. Comportement hérité du parcours d'emprunt (le prêt est créé avant le devis).
+6. **Boutons de job pour un fournisseur.** Un fournisseur qui voit le prêt d'un tiers peut encore voir les boutons « Lancer le job », « Réconcilier » existants (ils échouent côté serveur, `assertOwner`) : comportement préexistant non corrigé, hors périmètre.
+7. **Tests unitaires sous Windows.** Voir section 9 : 72 échecs de tests existants en environnement Windows, sans lien avec les fichiers de la slice ; à confirmer sur la CI Linux.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+| Priorité | Quoi |
+|---|---|
+| ~~P1~~ fait | Prêt échu avec capsule prête : remboursement de secours sans `runnerReceipt` (test unitaire et e2e ajoutés). Reste P2 : proposer aussi un secours quand le règlement tardif avec reçu échoue en boucle. |
+| P1 | Page Certificat, bouton « Certificat » par entraînement terminé, statistiques d'entraînement : autre slice ([09](09-train-et-certificat.md)). |
+| P2 | Retoucher le tutoriel de la page Train (`src/lib/tour/content.ts`) : il parle encore d'emprunter « un dataset du catalogue ». |
+| P2 | Masquer les boutons d'action de job (« Lancer le job », « Réconcilier », « Finaliser ») au fournisseur qui ne les peut pas utiliser. |
+| P2 | Remplacer les sélecteurs e2e `locator("../../../..")` par un `data-testid` sur la carte de prêt. |
+| P2 | Message d'écart de prix adapté à la page Train (au lieu de « Reload the catalog »). |
+| P3 | Page dédiée `/admin/self-training` ([10](10-self-training.md), après le 6). |
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node 22.16.0, pnpm 11.18.0 (`npx -y pnpm@11.18.0 --config.script-shell=bash`), `DATABASE_URL=postgresql://x:y@localhost:5432/z`, branche `feat/train` après fusion de `origin/staging` (deux fusions, à chaque fois en conflit sur la liste du script `test` de `package.json` ; la seconde aussi sur `english.ts` : les imports et propagations de `settings-en` et de `train-en` sont conservés ensemble).
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Done in 1m 32s using pnpm v11.18.0` au premier passage ; `Already up to date` après la fusion ; `postinstall: ✔ Generated Prisma Client (7.8.0)` |
+| `pnpm exec prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma`, code 0 |
+| `pnpm exec tsc --noEmit` | code 0, aucune erreur |
+| `pnpm lint` | code 0, aucune remarque |
+| `node --import tsx --test src/lib/train/loan-display.test.ts` | `# tests 15`, `# pass 15`, `# fail 0` |
+| `node --import tsx --test src/lib/i18n/english.test.ts` | `# tests 7`, `# pass 7`, `# fail 0` |
+| `pnpm test` (après `pnpm datasets:generate`) | `# tests 743`, `# pass 671`, `# fail 72`. Les 72 échecs sont tous de l'environnement Windows et aucun ne touche la slice : tests qui comparent des chemins en `/` à des chemins en `\` (`self-training-routes.test.ts`, `disclaimers.test.ts`, graphe d'imports), tests du registre anti-rejeu et des volumes du runner, budget Phala. `loan-display.test.ts` et `english.test.ts` passent. Le nombre d'échecs est le même (72) avant et après chacune des deux fusions avec `staging`. Non rejoué sur Linux : la CI est le juge. `pnpm datasets:generate` réécrit les CSV d'exemple (fins de ligne Windows) : ils ont été remis à l'état du dépôt avant le commit. |
+| `pnpm audit:deps` | `2 vulnerabilities found`, `Severity: 1 low \| 1 high (1 ignored)`, même état que `staging`, aucune dépendance ajoutée |
+| `pnpm test:e2e` (Playwright, port 3217 au lieu de 3100, config temporaire supprimée ensuite) | `111 passed (57.3s)` après la seconde fusion (le total suit les tests de `staging`), dont les 6 de `e2e/train.spec.ts`, le nouveau test Retrain de `billing-v7.spec.ts`, et les suites `responsive`, `audit-regressions`, `marketplace`, `documentation` ; premier passage avant fusion : `103 passed (55.9s)` |
+| `git diff --name-only staging...HEAD` | `docs/passage-mainnet/audit.md`, `e2e/audit-regressions.spec.ts`, `e2e/billing-v7.spec.ts`, `e2e/responsive.spec.ts`, `e2e/train.spec.ts`, `package.json`, `src/app/(app)/train/page.tsx`, `src/components/train/RetrainPanel.tsx`, `src/lib/i18n/english.ts`, `src/lib/i18n/train-en.ts`, `src/lib/train/loan-display.test.ts`, `src/lib/train/loan-display.ts`. Aucun fichier interdit. |
+| `git log staging..HEAD --format=%B` passé au crible des motifs de signature d'assistant (nom de l'assistant, ligne de co-auteur, mention de génération automatique, lien de session) et de `[skip ci]` | aucune occurrence ; aucun fichier ni dossier de configuration d'assistant versionné (`next dev` en recrée en local pendant les e2e : ils sont ignorés globalement et absents de `git status`) |
+
+Non lancés : `pnpm build`, `pnpm test:phala-demo`, `pnpm test:operations`, `pnpm test:postgres`, `pnpm contracts:test`, `pnpm test:billing` (hors périmètre de la slice, aucun fichier concerné modifié ; la CI les exécute).
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Deux passes de revue adversariale par des agents de revue indépendants (lecture seule), plus une relecture personnelle. Fichiers relus : `page.tsx`, `loan-display.ts`, `RetrainPanel.tsx`, `train-en.ts`, e2e.
+
+**Passe 1.** Rien trouvé sur un remboursement ou un Retrain proposé à tort. Corrigé :
+- Un prêt `PENDING` sans hash de lock (devis refusé) était présenté comme « paiement en attente de finalité » et déclenchait la confirmation « emprunt déjà en cours » : il est désormais « En cours » et ignoré par `hasOtherActiveLoan`. Tests ajoutés.
+- Une erreur d'actualisation après un Retrain réussi s'affichait comme un échec de l'emprunt : `onBorrowed` est sorti du `try`, son erreur est ignorée.
+- Une erreur de `/api/admin/me` faisait afficher l'encart de contact à un admin : l'état reste `null` (ni self training ni encart).
+- Le texte de remboursement promettait une retenue de calcul dans tous les cas : adouci (« where applicable »), test e2e adapté.
+- Le bouton « Refund » restait actif pendant un job TEE du même prêt, et son double clic reposait sur un état React asynchrone : désactivation pendant le job, verrou `useRef`, `canRefund` relu au clic.
+
+**Passe 2.** Rien de nouveau sur le remboursement indu, les erreurs avalées ou les textes. Corrigé : `role="alert"` sur la bannière d'erreur de la page (les erreurs du Retrain n'étaient pas annoncées), `autoFocus` sur le bouton de confirmation à l'ouverture du panneau.
+
+**Écarté ou reporté.**
+- Perte du retour de focus au bouton « Retrain » après « Cancel » : mineur, non traité.
+- Sélecteurs e2e à profondeur DOM fixe : reporté (section 8). Le cas e2e « échu avec `modelCid` sans `runnerReceipt` » est désormais couvert.
+- Perte du bouton de remboursement pour un prêt échu avec capsule prête, signalée par les deux passes puis par la coordination (le réaper ne rembourse pas) : corrigé par le remboursement de secours sans `runnerReceipt` (section 2, point 2).
+- Message « Reload the catalog » imprécis sur cette page : reporté (P2).
+
+Troisième relecture après les derniers correctifs : aucun nouveau problème.
 
 ---
 

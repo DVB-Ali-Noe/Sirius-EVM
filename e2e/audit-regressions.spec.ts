@@ -36,6 +36,7 @@ test("Entraîner ignore la réponse privée d'un compte remplacé", async ({ pag
   const ready = new Promise<void>(r => { requested = r; });
   await page.route("**/api/**", route => {
     const url = new URL(route.request().url());
+    if (url.pathname === "/api/admin/me") return route.fulfill({ json: { admin: true } });
     if (url.pathname === "/api/datasets" && !url.search) {
       if (!ownerB) { delayed.push(route); requested(); return; }
       return route.fulfill({ json: [dataset("B", B)] });
@@ -280,24 +281,24 @@ test("un login tardif est invalidé si le wallet change pendant verify", async (
   await expect(page.getByRole("button", { name: "Sign in", exact: false })).toBeEnabled();
 });
 
-for (const catalogue of [false, true]) {
-  test(`Entraîner charge les datasets après la première page (${catalogue ? "catalogue" : "privés"})`, async ({ page }) => {
-    await page.route("**/api/**", route => {
-      const url = new URL(route.request().url());
-      if (url.pathname === "/api/datasets" && url.searchParams.has("status") === catalogue) {
-        const second = url.searchParams.has("cursor");
-        return route.fulfill({ json: [dataset(second ? "25" : "1", catalogue ? B : A)], headers: second ? {} : { "x-sirius-next-cursor": "page-2" } });
-      }
-      return route.fulfill({ json: ["/api/datasets", "/api/loans", "/api/train"].includes(url.pathname) ? [] : { known: true } });
-    });
-    await page.goto("/train");
-    await connect(page);
-    await page.getByRole("button", { name: "Show more", exact: true }).click();
-    await expect(page.getByText("Private dataset 25", { exact: true })).toBeVisible();
-    await expect(page.getByText("Private dataset 1", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0);
+// Le catalogue a quitté la page Train : seule la liste des datasets de l'équipe (self training) se pagine encore.
+test("Entraîner charge les datasets de l'équipe après la première page", async ({ page }) => {
+  await page.route("**/api/**", route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/admin/me") return route.fulfill({ json: { admin: true } });
+    if (url.pathname === "/api/datasets") {
+      const second = url.searchParams.has("cursor");
+      return route.fulfill({ json: [dataset(second ? "25" : "1", A)], headers: second ? {} : { "x-sirius-next-cursor": "page-2" } });
+    }
+    return route.fulfill({ json: ["/api/loans", "/api/train"].includes(url.pathname) ? [] : { known: true } });
   });
-}
+  await page.goto("/train");
+  await connect(page);
+  await page.getByRole("button", { name: "Show more", exact: true }).click();
+  await expect(page.getByText("Private dataset 25", { exact: true })).toBeVisible();
+  await expect(page.getByText("Private dataset 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0);
+});
 
 for (const succeeds of [true, false]) {
   test(`Wallet retire le crédit de l'ancien escrow, confirmation=${succeeds}`, async ({ page }) => {
