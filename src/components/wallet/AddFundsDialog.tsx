@@ -5,7 +5,7 @@ import { useLocale } from "@/components/i18n/LocaleProvider";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import type { EvmNetwork } from "@/lib/evm/networks";
 import {
-  amountDecimals,
+  AMOUNT_DECIMALS,
   fetchOnrampOptions,
   fundingChoices,
   openOnrampUrl,
@@ -28,7 +28,7 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
 const CHOICE_COPY: Record<FundingChoice, { title: string; body: string }> = {
   card: { title: "Par carte bancaire", body: "Achète des USDG ou de l’ETH avec MoonPay." },
   transfer: { title: "Depuis un autre wallet", body: "Envoie des USDG ou de l’ETH depuis l’app Robinhood, Kraken ou ton wallet." },
-  bridge: { title: "Depuis une autre chaîne", body: "Ton USDC sur Base arrive en USDG sur Robinhood Chain." },
+  bridge: { title: "Depuis une autre chaîne", body: "Ton USDC sur Base arrive en USDG, ou en ETH pour le gas, sur Robinhood Chain." },
 };
 
 interface AddFundsDialogProps {
@@ -233,13 +233,14 @@ function PurchasePanel({ method, minCardUsd }: { method: OnrampMethod; minCardUs
   const errorId = useId();
   const card = method === "card";
   const min = card ? minCardUsd : undefined;
-  const unit = card ? "USD" : asset === "ETH" ? "ETH" : "USDC";
+  // Le pont part toujours de l’USDC de Base : le montant y est en USDC, même pour recevoir de l’ETH.
+  const unit = card ? "USD" : "USDC";
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
     setOpenedUrl(null);
-    const check = parseAmount(amount, { decimals: amountDecimals(method, asset), min });
+    const check = parseAmount(amount, { decimals: AMOUNT_DECIMALS, min });
     if (!check.ok) {
       setError(check.error);
       return;
@@ -256,9 +257,10 @@ function PurchasePanel({ method, minCardUsd }: { method: OnrampMethod; minCardUs
     }
   };
 
-  const assets: { value: OnrampAsset; label: string }[] = card
-    ? [{ value: "USDG", label: "USDG" }, { value: "ETH", label: "ETH pour le gas" }]
-    : [{ value: "USDG", label: "USDC sur Base → USDG" }, { value: "ETH", label: "ETH pour le gas" }];
+  const assets: { value: OnrampAsset; label: string }[] = [
+    { value: "USDG", label: "USDG" },
+    { value: "ETH", label: "ETH pour le gas" },
+  ];
 
   return (
     <form onSubmit={submit} noValidate className="space-y-4">
@@ -271,7 +273,7 @@ function PurchasePanel({ method, minCardUsd }: { method: OnrampMethod; minCardUs
       ) : (
         <ul className="list-disc space-y-1.5 pl-5 text-xs text-muted">
           <li>{t("Le pont s’ouvre dans un nouvel onglet. Connecte-y le wallet qui détient tes fonds sur Base.")}</li>
-          <li>{t("L’USDC envoyé depuis Base arrive en USDG sur l’adresse de ton compte, sur Robinhood Chain.")}</li>
+          <li>{t("Tu paies en USDC sur Base. Tu reçois de l’USDG, ou de l’ETH pour le gas, sur l’adresse de ton compte, sur Robinhood Chain.")}</li>
           <li>{t("Vérifie l’adresse de destination sur le pont avant de confirmer.")}</li>
         </ul>
       )}
@@ -300,7 +302,7 @@ function PurchasePanel({ method, minCardUsd }: { method: OnrampMethod; minCardUs
 
       <div>
         <label htmlFor={amountId} className="text-xs uppercase tracking-wider text-muted">
-          {card ? t("Montant en USD") : t("Montant en {unit}", { unit })}
+          {card ? t("Montant en USD") : t("Montant en USDC sur Base")}
         </label>
         <div className="mt-1 flex items-center gap-2">
           <input

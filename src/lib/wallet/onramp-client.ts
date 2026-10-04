@@ -37,7 +37,7 @@ export interface OnrampRequest {
 export type FundingChoice = "card" | "transfer" | "bridge";
 
 /** Minimum affiché tant que le serveur n'en donne pas : la carte est alors fermée de toute façon. */
-export const DEFAULT_MIN_CARD_USD = 20;
+export const DEFAULT_MIN_CARD_USD = 5;
 
 /** Plafond de saisie : au-delà, c'est une faute de frappe, pas un achat. Le serveur reste juge. */
 export const MAX_AMOUNT = 1_000_000;
@@ -93,11 +93,12 @@ export function fundingChoices(options: OnrampOptions): FundingChoice[] {
   return choices;
 }
 
-/** Nombre de décimales admises dans la saisie : centimes pour un montant en dollars. */
-export function amountDecimals(method: OnrampMethod, asset: OnrampAsset): number {
-  if (method === "card") return 2;
-  return asset === "ETH" ? 6 : 2;
-}
+/**
+ * Décimales admises dans la saisie. Le montant est toujours ce que l'utilisateur paie : des
+ * dollars pour la carte, de l'USDC de Base pour le pont, y compris quand il reçoit de l'ETH.
+ * Deux décimales dans les deux cas.
+ */
+export const AMOUNT_DECIMALS = 2;
 
 export type AmountCheck = { ok: true; amount: number } | { ok: false; error: string };
 

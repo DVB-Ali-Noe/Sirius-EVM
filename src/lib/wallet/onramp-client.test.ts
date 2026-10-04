@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addFundsOptions } from "@/components/wallet/add-funds";
 import {
+  AMOUNT_DECIMALS,
   DEFAULT_MIN_CARD_USD,
-  amountDecimals,
   fallbackOnrampOptions,
   fetchOnrampOptions,
   fundingChoices,
@@ -120,9 +120,9 @@ test("demande : POST JSON avec méthode, jeton et montant, sans aucune adresse",
 });
 
 test("demande : pont en ETH, corps exact", async () => {
-  const { impl, calls } = fakeFetch(() => json({ url: "https://app.across.to/bridge?toChain=4663" }));
-  await requestOnrampUrl({ method: "bridge", asset: "ETH", amount: 0.01 }, impl);
-  assert.deepEqual(JSON.parse(calls[0].init?.body as string), { method: "bridge", asset: "ETH", amount: 0.01 });
+  const { impl, calls } = fakeFetch(() => json({ url: "https://relay.link/bridge/robinhood?fromChainId=8453" }));
+  await requestOnrampUrl({ method: "bridge", asset: "ETH", amount: 25 }, impl);
+  assert.deepEqual(JSON.parse(calls[0].init?.body as string), { method: "bridge", asset: "ETH", amount: 25 });
 });
 
 test("demande : l'erreur du serveur est rendue telle quelle, pour être traduite à l'affichage", async () => {
@@ -170,7 +170,34 @@ test("montant : virgule ou point, minimum de la carte, décimales bornées", () 
   }
   assert.deepEqual(parseAmount("0.000001", { decimals: 6 }), { ok: true, amount: 0.000001 });
   assert.deepEqual(parseAmount("2000000", { decimals: 2 }), { ok: false, error: "Montant trop élevé" });
-  assert.equal(amountDecimals("card", "ETH"), 2, "la carte se règle en dollars");
-  assert.equal(amountDecimals("bridge", "USDG"), 2);
-  assert.equal(amountDecimals("bridge", "ETH"), 6);
+  // Carte en dollars, pont en USDC de Base (même pour recevoir de l'ETH) : centimes seulement.
+  assert.equal(AMOUNT_DECIMALS, 2);
+  assert.equal(parseAmount("0.015", { decimals: AMOUNT_DECIMALS }).ok, false);
+});
+
+// ---- Contrat avec le serveur (slice F1) ----
+
+test("contrat : les options produites par le serveur sont acceptées telles quelles", async () => {
+  const { onrampOptions } = await import("@/lib/onramp/onramp");
+  const env = { NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY: "pk_live_x", MOONPAY_SECRET_KEY: "sk_live_x" };
+  for (const [network, serverEnv] of [["mainnet", env], ["mainnet", {}], ["testnet", env]] as const) {
+    const server = onrampOptions(network, serverEnv);
+    const { impl } = fakeFetch(() => json(server));
+    assert.deepEqual(await fetchOnrampOptions(network, impl), server);
+  }
+});
+
+test("contrat : le corps envoyé passe la validation du serveur, carte et pont, USDG et ETH", async () => {
+  const { parseOnrampRequest } = await import("@/lib/onramp/onramp");
+  for (const request of [
+    { method: "card", asset: "USDG", amount: 5 },
+    { method: "card", asset: "ETH", amount: 50.5 },
+    { method: "bridge", asset: "USDG", amount: 1 },
+    { method: "bridge", asset: "ETH", amount: 25 },
+  ] as const) {
+    const { impl, calls } = fakeFetch(() => json({ url: "https://example.com/" }));
+    await requestOnrampUrl(request, impl);
+    const sent = JSON.parse(calls[0].init?.body as string) as Record<string, unknown>;
+    assert.deepEqual(parseOnrampRequest(sent), request);
+  }
 });

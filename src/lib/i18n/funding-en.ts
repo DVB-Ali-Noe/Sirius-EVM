@@ -11,7 +11,7 @@ export const FUNDING_MESSAGES_EN: Record<string, string> = {
   "Depuis un autre wallet": "From another wallet",
   "Envoie des USDG ou de l’ETH depuis l’app Robinhood, Kraken ou ton wallet.": "Send USDG or ETH from the Robinhood app, Kraken or your wallet.",
   "Depuis une autre chaîne": "From another chain",
-  "Ton USDC sur Base arrive en USDG sur Robinhood Chain.": "Your USDC on Base arrives as USDG on Robinhood Chain.",
+  "Ton USDC sur Base arrive en USDG, ou en ETH pour le gas, sur Robinhood Chain.": "Your USDC on Base arrives as USDG, or as ETH for gas, on Robinhood Chain.",
   "Les fonds arrivent sur l’adresse de ton compte, sur Robinhood Chain. Le solde affiché est celui lu sur la chaîne : il change quand les fonds sont arrivés.":
     "Funds arrive at your account address, on Robinhood Chain. The balance shown is read from the chain: it changes once the funds have arrived.",
   "Autres moyens": "Other methods",
@@ -30,14 +30,13 @@ export const FUNDING_MESSAGES_EN: Record<string, string> = {
   "Garde un peu d’ETH pour payer les frais réseau.": "Keep a little ETH to pay network fees.",
   "Le pont s’ouvre dans un nouvel onglet. Connecte-y le wallet qui détient tes fonds sur Base.":
     "The bridge opens in a new tab. Connect the wallet that holds your funds on Base.",
-  "L’USDC envoyé depuis Base arrive en USDG sur l’adresse de ton compte, sur Robinhood Chain.":
-    "USDC sent from Base arrives as USDG at your account address, on Robinhood Chain.",
+  "Tu paies en USDC sur Base. Tu reçois de l’USDG, ou de l’ETH pour le gas, sur l’adresse de ton compte, sur Robinhood Chain.":
+    "You pay in USDC on Base. You receive USDG, or ETH for gas, at your account address, on Robinhood Chain.",
   "Vérifie l’adresse de destination sur le pont avant de confirmer.": "Check the destination address on the bridge before you confirm.",
   "Recevoir": "Receive",
   "ETH pour le gas": "ETH for gas",
-  "USDC sur Base → USDG": "USDC on Base → USDG",
   "Montant en USD": "Amount in USD",
-  "Montant en {unit}": "Amount in {unit}",
+  "Montant en USDC sur Base": "Amount in USDC on Base",
   "Minimum : {min} USD": "Minimum: {min} USD",
   "La page MoonPay s’est ouverte dans un nouvel onglet.": "The MoonPay page opened in a new tab.",
   "Le pont s’est ouvert dans un nouvel onglet.": "The bridge opened in a new tab.",
@@ -47,7 +46,6 @@ export const FUNDING_MESSAGES_EN: Record<string, string> = {
 
   // Erreurs du client
   "Indique un montant": "Enter an amount",
-  "Montant invalide": "Invalid amount",
   "Montant trop élevé": "Amount too high",
   "Montant inférieur au minimum": "Amount below the minimum",
   "Service d’ajout de fonds injoignable": "Funding service unreachable",
