@@ -57,7 +57,6 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Remboursés (échec ou délai dépassé)": "Refunded (failed or timed out)",
   "Les revenus réglés sont crédités sur ton wallet dans l’escrow, tous datasets confondus : retraits et solde à retirer sont sur la page":
     "Settled revenue is credited to your wallet in the escrow, across all datasets: withdrawals and the balance to withdraw are on the page",
-  "Wallet": "Wallet",
   "{count} emprunt(s) au montant illisible, exclu(s) des totaux.": "{count} borrow(s) with an unreadable amount, excluded from the totals.",
   "Statistiques calculées sur les 5 000 prêts les plus récents, réservations comprises.": "Statistics computed on the 5,000 most recent loans, reservations included.",
   "Emprunts par semaine (8 dernières semaines, UTC)": "Borrows per week (last 8 weeks, UTC)",
