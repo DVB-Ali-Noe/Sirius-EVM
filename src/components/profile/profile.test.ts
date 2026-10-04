@@ -110,7 +110,7 @@ test("visite guidée : un abonné qui n'accuse pas réception ne compte pas comm
 test("le lien Wallet n'est plus dans le menu latéral, et le bouton profil est monté dans le layout", () => {
   const sidebar = read("../layout/Sidebar.tsx");
   assert.doesNotMatch(sidebar, /href:\s*"\/wallet"/);
-  const layout = read("../../app/(app)/layout.tsx");
+  const layout = read("../layout/AppShell.tsx");
   assert.match(layout, /<ProfileMenu \/>/);
 });
 
