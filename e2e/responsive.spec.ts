@@ -37,14 +37,15 @@ const linearDataset = {
 const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"].map((status) => ({
   id: `responsive-loan-${status}`,
   datasetId: dataset.id,
+  borrower: WALLET,
   dataset: { name: `${status} ${LONG_NAME}`, runnerReceipt: dataset.runnerReceipt },
   amountUsdcAtomic: dataset.priceUsdcAtomic,
   modelId: dataset.modelId,
   modelVersion: dataset.modelVersion,
   status,
   evmLockTxHash: null,
-  evmLoanKey: null,
-  settleTxHash: null,
+  evmLoanKey: status === "PENDING" || status === "SUBMITTING" ? null : `0x${"9".repeat(64)}`,
+  settleTxHash: status === "SETTLED" ? `0x${"e".repeat(64)}` : null,
   cancelTxHash: null,
   modelCid: status === "SETTLING" ? "bafy-layout-model" : null,
   runnerReceipt: status === "SETTLING" ? "layout-fixture" : null,
@@ -92,6 +93,7 @@ test.beforeEach(async ({ page }) => {
       case "/api/marketplace":
         body = catalogueBody([dataset, linearDataset]);
         break;
+      case `/api/marketplace/${dataset.id}`:
       case `/api/marketplace/${linearDataset.id}`:
         body = {
           dataset: {
@@ -117,6 +119,9 @@ test.beforeEach(async ({ page }) => {
             { ...linearDataset, provider: WALLET },
             { ...dataset, id: "responsive-draft", name: `Brouillon ${LONG_NAME}`, status: "DRAFT", ipfsCid: null },
           ];
+        break;
+      case "/api/admin/me":
+        body = { admin: true };
         break;
       case "/api/account/status":
         body = { known: true };
@@ -256,8 +261,16 @@ for (const screen of SCREENS) {
       await expect(pending.getByRole("button", { name: "Recover lock" })).toBeEnabled();
       await expectContainedLayout(page);
 
-      await page.getByRole("button", { name: "Borrow", exact: true }).first().click();
-      await expect(page.getByRole("button", { name: "Confirm escrow" })).toBeVisible();
+      // Catalogue retiré de la page Train : l'emprunt part de la marketplace.
+      await expect(page.getByRole("button", { name: "Borrow", exact: true })).toHaveCount(0);
+      const refundable = page.getByRole("heading", { name: `Remboursable ${LONG_NAME}`, exact: true }).locator("../../../..");
+      await expect(refundable.getByRole("button", { name: "Refund", exact: true })).toBeVisible();
+      await expect(refundable.getByTestId("refund-explanation")).toBeVisible();
+      await expectContainedLayout(page);
+
+      const settled = page.getByRole("heading", { name: `SETTLED ${LONG_NAME}`, exact: true }).locator("../../../..");
+      await settled.getByRole("button", { name: "Retrain", exact: true }).click();
+      await expect(settled.getByRole("button", { name: "View the quote and retrain" })).toBeVisible();
       await expectContainedLayout(page);
     });
 
