@@ -6,8 +6,14 @@ const CONTRACTS = ["ESCROW", "DATASET", "KYB", "USDC"];
 const MEASURES = { SIRIUS_EXPECTED_MRTD: 96, SIRIUS_EXPECTED_RTMR3: 96,
   SIRIUS_EXPECTED_COMPOSE_HASH: 64, SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: 64, NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: 64 };
 
-/** USDC ponté officiel de Robinhood Chain mainnet, 6 décimales. */
-export const MAINNET_USDC = "0x80e0e24718dbfcad49ecaa6f1e6c89a190586ca8";
+/**
+ * USDG (Paxos) sur Robinhood Chain mainnet, 6 décimales, en minuscules pour les comparaisons.
+ * Ce module reste du JavaScript sans chargeur TypeScript : la valeur est recopiée depuis
+ * src/lib/evm/stablecoin.ts, et src/lib/evm/stablecoin.test.ts vérifie qu'elles restent égales.
+ */
+export const MAINNET_STABLECOIN = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
+/** @deprecated Nom historique gardé par compatibilité (cahier des charges A8) : vaut l'USDG, pas l'USDC. Aucun importateur hors tests. */
+export const MAINNET_USDC = MAINNET_STABLECOIN;
 
 export function checkReleaseEnvironments(next, reaper, runner, network = "testnet") {
   if (network !== "testnet" && network !== "mainnet") throw new Error("Réseau attendu : testnet ou mainnet");
@@ -51,7 +57,7 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   if (next.NEXT_PUBLIC_EVM_NETWORK !== network) issues.push("next.NEXT_PUBLIC_EVM_NETWORK");
   if (network === "mainnet") {
     for (const role of Object.keys(roles)) {
-      if (roles[role].SIRIUS_USDC_ADDRESS?.toLowerCase() !== MAINNET_USDC) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);
+      if (roles[role].SIRIUS_USDC_ADDRESS?.trim().toLowerCase() !== MAINNET_STABLECOIN) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);
       if (roles[role].SIRIUS_KYB_MODE === "open") issues.push(`${role}.SIRIUS_KYB_MODE.open`);
       if (roles[role].SIRIUS_LEGACY_ESCROW_ADDRESSES?.trim()) issues.push(`${role}.SIRIUS_LEGACY_ESCROW_ADDRESSES.inherited`);
     }

@@ -3,10 +3,17 @@
  * `contracts/scripts/deploy.ts`. Sur mainnet, chaque raccourci de testnet devient un refus.
  */
 
+import { MAINNET_STABLECOIN_ADDRESS, MAINNET_STABLECOIN_SYMBOL } from "../src/lib/evm/stablecoin";
+
 export const MAINNET_CHAIN_ID = 4663;
 export const TESTNET_CHAIN_ID = 46630;
-/** USDC natif de Robinhood Chain mainnet, six décimales. */
-export const MAINNET_USDC = "0x80e0e24718dbfcad49ecaa6f1e6c89a190586ca8";
+/**
+ * Seul jeton accepté sur mainnet : USDG (Paxos), six décimales, en minuscules pour
+ * les comparaisons. Source unique dans src/lib/evm/stablecoin.ts.
+ */
+export const MAINNET_STABLECOIN = MAINNET_STABLECOIN_ADDRESS;
+/** @deprecated Nom historique gardé par compatibilité (cahier des charges A8) : vaut l'USDG, pas l'USDC. Aucun importateur hors tests. */
+export const MAINNET_USDC = MAINNET_STABLECOIN;
 
 type Env = Record<string, string | undefined>;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -49,7 +56,9 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
 
   const usdc = address(env, "SIRIUS_USDC_ADDRESS");
   if (!usdc) throw new Error("SIRIUS_USDC_ADDRESS doit être une adresse EVM non nulle");
-  if (mainnet && usdc !== MAINNET_USDC) throw new Error(`Sur mainnet, SIRIUS_USDC_ADDRESS doit être l'USDC natif ${MAINNET_USDC}`);
+  if (mainnet && usdc !== MAINNET_STABLECOIN) {
+    throw new Error(`Sur mainnet, SIRIUS_USDC_ADDRESS doit être l'${MAINNET_STABLECOIN_SYMBOL} de Paxos ${MAINNET_STABLECOIN} : aucun autre jeton, USDC compris`);
+  }
   const lockAuthorizer = address(env, "SIRIUS_LOCK_AUTHORIZER");
   if (!lockAuthorizer) throw new Error("SIRIUS_LOCK_AUTHORIZER doit être une adresse EVM non nulle");
 

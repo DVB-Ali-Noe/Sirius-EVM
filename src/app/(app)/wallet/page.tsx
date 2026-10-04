@@ -11,6 +11,7 @@ import { normalizeAddress } from "@/components/profile/address";
 import { useWalletStore } from "@/stores/wallet";
 import { fetchGasBalance, fetchUsdcBalance, type GasBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
+import { stablecoinSymbol } from "@/lib/evm/stablecoin";
 import { addFunds } from "@/lib/wallet/onramp";
 import { addressExplorerUrl } from "@/lib/evm/explorer";
 import { resolveClientNetwork } from "@/lib/evm/networks";
@@ -128,7 +129,7 @@ function WalletPageContent() {
             <span className="text-3xl font-semibold tracking-tight">
               {balError ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "…"}
             </span>
-            <span className="text-sm text-muted">{process.env.NEXT_PUBLIC_EVM_NETWORK === "mainnet" ? "USDC" : t("test USDC")}</span>
+            <span className="text-sm text-muted">{NETWORK === "mainnet" ? stablecoinSymbol(NETWORK) : t("test USDC")}</span>
           </div>
           {gas && (
             <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>

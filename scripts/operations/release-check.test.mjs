@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkReleaseEnvironments } from "./release-check.mjs";
+import { checkReleaseEnvironments, MAINNET_STABLECOIN, MAINNET_USDC } from "./release-check.mjs";
+
+/** USDG (Paxos) sur Robinhood Chain mainnet, forme checksummée telle qu'un opérateur la colle. */
+const USDG_CHECKSUMMED = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+/** Ancien USDC natif de Robinhood Chain mainnet, refusé depuis le passage à USDG. */
+const LEGACY_USDC = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
 
 function environments() {
   const common = { EVM_NETWORK: "testnet", SIRIUS_BILLING_VERSION: "7", SIRIUS_EVM_FINALITY: "finalized",
@@ -36,7 +41,7 @@ test("les clés de déploiement et les master keys n’entrent dans aucun servic
 
 function mainnetEnvironments() {
   const [next, reaper, runner] = environments();
-  const usdc = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
+  const usdc = USDG_CHECKSUMMED;
   for (const env of [next, reaper, runner]) { env.EVM_NETWORK = "mainnet"; env.SIRIUS_USDC_ADDRESS = usdc; }
   Object.assign(next, { NEXT_PUBLIC_EVM_NETWORK: "mainnet", NEXT_PUBLIC_SIRIUS_USDC_ADDRESS: usdc,
     SIRIUS_MAX_LOAN_USDC: "50", SIRIUS_MAX_EXPOSURE_USDC: "500", NEXT_PUBLIC_WEB3AUTH_NETWORK: "sapphire_mainnet" });
@@ -51,9 +56,35 @@ test("une configuration mainnet complète passe, et une configuration testnet es
   assert.equal(checkReleaseEnvironments(...mainnetEnvironments()).configurationReady, false);
 });
 
-test("le mode mainnet refuse l'USDC de test, la démo, le faucet, le KYB ouvert et les plafonds absents", () => {
+test("le jeton mainnet de la vérification de sortie est l'USDG de Paxos, en minuscules, avec son alias historique", () => {
+  assert.equal(MAINNET_STABLECOIN, USDG_CHECKSUMMED.toLowerCase());
+  assert.equal(MAINNET_USDC, MAINNET_STABLECOIN);
+});
+
+test("le mode mainnet accepte l'USDG sous toute casse pour chaque rôle, et rien d'autre", () => {
+  for (const [role, index] of [["next", 0], ["reaper", 1], ["runner", 2]]) {
+    for (const token of [LEGACY_USDC, LEGACY_USDC.toLowerCase(), `0x${"5".repeat(40)}`, ""]) {
+      const env = mainnetEnvironments();
+      env[index].SIRIUS_USDC_ADDRESS = token;
+      if (index === 0) env[0].NEXT_PUBLIC_SIRIUS_USDC_ADDRESS = token;
+      const result = checkReleaseEnvironments(...env, "mainnet");
+      assert.equal(result.configurationReady, false, `${role} ${token}`);
+      assert.ok(result.issues.includes(`${role}.SIRIUS_USDC_ADDRESS.mainnet`), `${role} ${token}`);
+    }
+  }
+  const env = mainnetEnvironments();
+  for (const e of env) e.SIRIUS_USDC_ADDRESS = USDG_CHECKSUMMED.toLowerCase();
+  env[0].NEXT_PUBLIC_SIRIUS_USDC_ADDRESS = USDG_CHECKSUMMED;
+  assert.equal(checkReleaseEnvironments(...env, "mainnet").configurationReady, true);
+  // Hors mainnet, aucun jeton n'est imposé : la configuration testnet garde son jeton d'essai.
+  assert.equal(checkReleaseEnvironments(...environments()).configurationReady, true);
+});
+
+test("le mode mainnet refuse l'ancien USDC, la démo, le faucet, le KYB ouvert et les plafonds absents", () => {
   const cases = [
     [(env) => { env[2].SIRIUS_USDC_ADDRESS = `0x${"5".repeat(40)}`; }, "runner.SIRIUS_USDC_ADDRESS.mainnet"],
+    [(env) => { env[2].SIRIUS_USDC_ADDRESS = LEGACY_USDC; }, "runner.SIRIUS_USDC_ADDRESS.mainnet"],
+    [(env) => { env[1].SIRIUS_USDC_ADDRESS = LEGACY_USDC.toLowerCase(); }, "reaper.SIRIUS_USDC_ADDRESS.mainnet"],
     [(env) => { env[0].SIRIUS_DEPLOYMENT_MODE = "demo"; }, "next.demo-mode"],
     [(env) => { env[0].SIRIUS_FAUCET_KEY = "x"; }, "next.faucet-key"],
     [(env) => { env[1].SIRIUS_KYB_MODE = "open"; }, "reaper.SIRIUS_KYB_MODE.open"],

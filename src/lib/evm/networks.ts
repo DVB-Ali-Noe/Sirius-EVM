@@ -59,16 +59,20 @@ export const EVM_CHAIN_IDS: Record<EvmNetwork, number> = {
 };
 
 /**
- * Précision du contrat USDC de chaque réseau.
+ * Précision du jeton de règlement de chaque réseau (nom historique : « USDC »).
  *
  * Ce n'est pas une convention universelle : le contrat vérifié du testnet
- * Robinhood expose 18 décimales, là où l'USDC de référence en expose 6. Une
- * valeur fausse ici ne lève aucune erreur — elle décale silencieusement tous les
- * montants d'un facteur de puissance de dix, et rend les prêts gratuits.
+ * Robinhood expose 18 décimales, là où l'USDG de Paxos retenu pour le mainnet
+ * (`0x5fc5…d168`, voir stablecoin.ts) en expose 6 — valeur lue on-chain sur le
+ * RPC mainnet le 4 octobre 2026, identique à celle de l'USDC qu'il remplace.
+ * Une valeur fausse ici ne lève aucune erreur — elle décale silencieusement tous
+ * les montants d'un facteur de puissance de dix, et rend les prêts gratuits.
  *
  * `contracts/scripts/deploy.ts` lit `decimals()` on-chain et refuse de déployer
- * si la valeur ne correspond pas à celle déclarée ici. C'est ce contrôle, et non
- * cette table, qui fait autorité.
+ * si la valeur ne correspond pas à celle déclarée ici ; `phala-v7-preflight`
+ * et le conteneur d'initialisation du runner font le même contrôle. Ce sont ces
+ * contrôles, et non cette table, qui font autorité. USDG étant un proxy
+ * évolutif, ils relisent la valeur courante à chaque exécution.
  */
 export const USDC_DECIMALS_BY_NETWORK: Record<EvmNetwork, number> = {
   mainnet: 6,

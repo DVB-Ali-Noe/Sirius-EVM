@@ -1390,42 +1390,173 @@ Condition d'arrêt : le tour 2 n'a rien trouvé de nouveau ; la revue s'arrête 
 
 ## A8 — Passage à USDG
 
+Branche `feat/usdg`, base `staging` (tête `e829cfc` au départ). Cahier des charges : [01-decisions-avant-samedi.md](01-decisions-avant-samedi.md), section 1. Jeton retenu : **USDG** (« Global Dollar », Paxos), `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` sur Robinhood Chain mainnet (4663), à la place de l'USDC natif `0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Fichiers modifiés (tous dans le périmètre autorisé) :**
+
+| Fichier | Changement |
+|---|---|
+| `src/lib/evm/stablecoin.ts` (**nouveau**) | Source unique du jeton de règlement : `MAINNET_STABLECOIN_ADDRESS` (USDG, minuscules), `MAINNET_STABLECOIN_SYMBOL` (« USDG »), `MAINNET_STABLECOIN_NAME`, `MAINNET_STABLECOIN_DECIMALS` (6), `TESTNET_STABLECOIN_LABEL` (« test USDC »), `stablecoinSymbol(network)`. Le commentaire d'en-tête consigne la lecture on-chain du 4 octobre (nom, symbole, décimales, proxy, code hashes). |
+| `src/lib/evm/stablecoin.test.ts` (**nouveau**) | 5 tests : adresse officielle, minuscules et checksum EIP-55 ; nom/symbole/décimales alignés sur `USDC_DECIMALS_BY_NETWORK` ; **les quatre scripts imposent la même adresse** et leur alias `MAINNET_USDC` aussi ; `stablecoinSymbol` (mainnet → « USDG », testnet → « test USDC », réseau inconnu → erreur) ; cohérence avec les clés i18n. |
+| `scripts/deploy-policy.ts` | `MAINNET_STABLECOIN` importé de `stablecoin.ts` (plus de littéral local), alias `@deprecated MAINNET_USDC` conservé ; message d'erreur « doit être l'USDG de Paxos 0x5fc5…, aucun autre jeton, USDC compris ». Comparaison inchangée : `address()` normalise (trim, regex, minuscules) puis `usdc !== MAINNET_STABLECOIN`. |
+| `scripts/initialize-runner-volume.ts` | Même constante pour la politique de facturation ; message « USDG de Paxos uniquement… ». `billing.usdc` est déjà imposé en minuscules par `validateBillingPolicy` (regex `^0x[0-9a-f]{40}$`), la comparaison stricte est donc correcte. |
+| `scripts/phala-v7-preflight.ts` | Même constante ; message « Jeton mainnet attendu : USDG de Paxos 0x5fc5…d168 » ; message de code/précision rendu neutre (« jeton de règlement ») ; commentaire sur ce que prouve le code hash d'un proxy. |
+| `scripts/operations/release-check.mjs` | Littéral USDG local (module JavaScript sans chargeur TypeScript) **vérifié égal** à `stablecoin.ts` par `stablecoin.test.ts` ; alias `MAINNET_USDC` ; comparaison désormais après `trim().toLowerCase()`. |
+| `scripts/check-phala-v7.ts` | Message d'échec : « code et décimales du jeton de règlement (USDG de Paxos sur mainnet) ». |
+| `src/lib/evm/networks.ts` | `USDC_DECIMALS_BY_NETWORK.mainnet` **reste 6** (confirmé on-chain). Seul le commentaire change : il nomme l'USDG, la date de lecture, et rappelle que les contrôles on-chain font autorité et relisent la valeur courante derrière le proxy. |
+| `src/app/(app)/dashboard/page.tsx`, `src/app/(app)/wallet/page.tsx` | Ligne du libellé du solde : `network === "mainnet" ? stablecoinSymbol(network) : t("test USDC")`, avec `const network = resolveClientNetwork()` (inliné au build par Next). Imports ajoutés. |
+| `src/app/status/page.tsx` | `const symbol = stablecoinSymbol(network)` (composant serveur) ; ligne du contrat (`["USDC", …]` → `[symbol, …]`) **et** les trois autres mentions mainnet du jeton (« with real USDC », plafond par prêt, exposition totale), voir §2.3. |
+| `package.json` | Script `test` : ajout de `scripts/operations/release-check.test.mjs` (**n'était pas exécuté par la suite jusqu'ici**) et `src/lib/evm/stablecoin.test.ts`. |
+| `scripts/deploy-policy.test.ts`, `scripts/initialize-runner-volume.test.ts`, `scripts/phala-v7-preflight.test.ts`, `scripts/operations/release-check.test.mjs` | Tests USDG et refus de l'ancien USDC, voir §5. |
+| `docs/MAINNET-RUNBOOKS.md` | Table des politiques runner (`usdc` = USDG), commande d'exécution à blanc avec l'adresse USDG et le **code hash du proxy**, paragraphe « ce que prouve le code hash, et ce qu'il ne prouve pas », pouvoirs de gel/pause de Paxos. |
+| `docs/passage-mainnet/01-decisions-avant-samedi.md` | Section 1 : adresse confirmée, tableau des vérifications on-chain, état des fichiers adaptés, support d'Across. |
+| `docs/passage-mainnet/audit.md` | Cette section uniquement. |
+
+**Aucune** modification de : contrats, ABI, `contracts/scripts/deploy.ts`, `src/app/api/onramp/route.ts`, base de données (pas de migration), traductions (`src/lib/i18n/**` : aucune clé ajoutée ni retirée, voir §2.5), routes API, moteur Phala, variables d'environnement (noms `SIRIUS_USDC_ADDRESS`, `SIRIUS_USDC_CODE_HASH`, `NEXT_PUBLIC_SIRIUS_USDC_ADDRESS` conservés).
+
+**Routes, tables, colonnes** : aucune.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Source unique plutôt que quatre littéraux.** Les trois scripts TypeScript importent l'adresse depuis `src/lib/evm/stablecoin.ts` ; `release-check.mjs` garde un littéral (il est lancé en JavaScript pur sur le VPS, sans `tsx`), et `stablecoin.test.ts` vérifie que les quatre valeurs et les quatre alias sont identiques. Une dérive future casse la suite. Les contextes d'exécution ont été vérifiés : `node --import tsx` depuis la racine (scripts, `contracts/scripts/deploy.ts` qui importe déjà `src/lib/evm/networks`), `Dockerfile.runner` copie `src` en entier et `scripts/initialize-runner-volume.ts`, `tsconfig.json` racine a `allowJs` (import du `.mjs` dans le test).
+2. **Code hash lu on-chain, mais c'est celui d'un proxy.** Accès réseau disponible : `eth_getCode` sur le RPC public puis keccak256 (viem). Le contrat USDG est un **proxy ERC-1967** de 170 octets (slot d'implémentation renseigné, slot d'admin vide : la mise à niveau est pilotée par l'implémentation, donc par Paxos). Le hash `0x864cc9ad…36a6` est stable à travers les mises à niveau de Paxos ; il ne prouve pas que la logique du jeton est inchangée, seulement que l'adresse contient le même proxy. Conséquences documentées dans les runbooks : c'est **l'adresse épinglée** qui identifie le jeton ; les décimales sont relues à travers le proxy (contrôle utile à chaque exécution) ; en cas de refus du hash avec la bonne adresse, relever le nouveau hash et vérifier sur l'explorateur, jamais contourner. Implémentation du jour : `0x68184c449e1a8f34fa18d289737129fd27b66f8f`, hash `0x3a551ac5…3baf`, notés pour l'audit, non contrôlés par le code (voir §8).
+3. **Page `/status` : quatre mentions au lieu d'une.** Le cahier des charges parle de « la ligne du libellé du jeton ». Dans ce fichier, trois autres chaînes n'apparaissent **que sur mainnet** et affirmaient « real USDC » et des plafonds « en USDC » : elles seraient fausses dès le lancement. Elles utilisent la même constante `symbol`. Le texte mainnet précise « (Global Dollar, issued by Paxos) » pour que l'utilisateur comprenne qu'il ne s'agit pas de l'USDC. Aucune autre ligne du fichier n'est touchée.
+4. **Forme du libellé dans `wallet` et `dashboard`.** `src/lib/evm/balance.test.ts` (hors périmètre) exige la présence **littérale** de `t("test USDC")` dans ces deux pages (« un solde libellé en dollars sans mention se lit comme de la vraie monnaie »). La forme `t(stablecoinSymbol(network))` la faisait échouer. Plutôt que de modifier un test hors périmètre, la ligne garde la branche testnet explicite et prend le symbole mainnet dans le helper : `network === "mainnet" ? stablecoinSymbol(network) : t("test USDC")`. `stablecoin.test.ts` garantit par ailleurs que `stablecoinSymbol("testnet")` vaut cette même clé. Proposition (hors périmètre) : relâcher la regex de `balance.test.ts` vers `stablecoinSymbol\(` une fois les slices fusionnées.
+5. **Traductions inchangées.** « USDG » est un symbole, pas un texte : il ne passe pas par une clé (et `translateEnglish` renvoie une clé inconnue telle quelle, comportement couvert par `english.test.ts`). « test USDC » garde sa clé existante. Les clés contenant « USDC » (`Montant (USDC)`, `Lock USDC`, `Remboursement USDC`, `Prix par entraînement (USDC)`, `Emprunt · escrow USDC`, `Acheter des USDC par carte (MoonPay)`, `Solde USDC indisponible`, `{usdc} USDC envoyés.`…) sont utilisées par des pages d'autres slices (marketplace, upload, train, explorer, composants partagés) : les changer sans toucher leurs appelants ne servirait à rien et créerait des conflits. Voir §8.
+6. **Across : pas de changement, et une bonne nouvelle.** `src/app/api/onramp/route.ts` renvoie `https://app.across.to/bridge` sur mainnet. D'après l'annonce d'Across (« Bridge to Robinhood Chain with Across »), l'USDC envoyé depuis 13 chaînes **arrive sur Robinhood Chain en USDG**, l'USDG d'Ethereum passe directement, et la sortie convertit l'USDG en USDC. Le pont livrait donc déjà de l'USDG : avant cette slice, un utilisateur qui ajoutait des fonds recevait un jeton que l'escrow USDC aurait refusé. Avec USDG, le parcours d'ajout de fonds et l'escrow sont enfin alignés. Vérifié par lecture de la page d'Across (source secondaire : un billet de blog, pas une liste de routes signée) ; **à confirmer à la main** sur `app.across.to` avant le lancement (§4, cas 7).
+7. **Décimales.** `USDC_DECIMALS_BY_NETWORK.mainnet` est déjà à 6 ; `decimals()` lu on-chain = 6. Aucun changement de valeur, commentaire mis à jour. Le testnet reste à 18.
+8. **Constantes en minuscules.** Toutes les constantes sont en minuscules (vérifié par test), et chaque point de comparaison normalise son entrée : `deploy-policy` (`address()` : trim, regex, `toLowerCase`), `phala-v7-preflight` (`address()` : trim, `toLowerCase`, regex minuscules), `initialize-runner-volume` (`validateBillingPolicy` refuse toute majuscule), `release-check` (`trim().toLowerCase()`, ajouté). Une adresse USDG checksummée collée telle quelle par un opérateur est donc acceptée.
+9. **Identité des commits.** Commits au nom du propriétaire (identité git du worktree, identique aux commits de `staging`), sans ligne de co-signature, identifiant de session ni lien d'outil, ni dans les commits, ni dans la PR, ni dans les fichiers.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès côté serveur** : aucune route touchée. Les scripts sont des outils d'opérateur, lancés à la main avec des variables d'environnement.
+
+**Validation et bornes de chaque entrée (le point central de la slice)** :
+
+- `scripts/deploy-policy.ts` `deploymentPlan()` : sur 4663, `SIRIUS_USDC_ADDRESS` doit, après trim et minuscules, valoir exactement `0x5fc5360d0400a0fd4f2af552add042d716f1d168`. Refusés : l'ancien USDC natif (toute casse), tout autre jeton, l'adresse nulle, une valeur vide ou absente, une valeur sans `0x`, une adresse tronquée. Sur 46630, aucun jeton n'est imposé (inchangé). Le message d'erreur contient l'adresse attendue et **jamais** la valeur reçue.
+- `scripts/initialize-runner-volume.ts` `initializeRunnerVolume()` : cible mainnet ⇒ `billing.usdc === USDG` (minuscules imposées par la validation de la politique), `usdcDecimals === 6`, `chainId === 4663`. La ligne de commande vérifie en plus `billing.usdc === SIRIUS_USDC_ADDRESS.trim().toLowerCase()`. Un refus n'écrit aucun fichier.
+- `scripts/phala-v7-preflight.ts` `mainnetV7Configuration()` : `SIRIUS_USDC_ADDRESS` normalisée, doit valoir l'USDG ; `checkV7()` relit le code (hash attendu dans `SIRIUS_USDC_CODE_HASH`) et `decimals()` (6) au bloc finalisé, puis vérifie `escrow.usdc() == SIRIUS_USDC_ADDRESS`.
+- `scripts/operations/release-check.mjs` `--network=mainnet` : pour chacun des trois rôles (Next, reaper, runner), `SIRIUS_USDC_ADDRESS` trim/minuscules doit valoir l'USDG, sinon `issue <rôle>.SIRIUS_USDC_ADDRESS.mainnet` ; `NEXT_PUBLIC_SIRIUS_USDC_ADDRESS` doit égaler `SIRIUS_USDC_ADDRESS` (inchangé).
+- `contracts/scripts/deploy.ts` (hors périmètre, lecture) : appelle `deploymentPlan`, puis lit `getBytecode` et `decimals()` on-chain et refuse tout écart avec `SIRIUS_USDC_CODE_HASH` et `USDC_DECIMALS_BY_NETWORK`. Rien à changer dans ce fichier : le jeton vient de la politique.
+
+**Fuites** : aucune donnée utilisateur manipulée. Les messages d'erreur des scripts ne reflètent pas la valeur d'entrée (test dédié dans `deploy-policy.test.ts`).
+
+**Impact sur l'argent, l'escrow, les contrats, le moteur Phala** :
+
+- L'escrow v7 est déployé avec l'adresse USDG dans son constructeur, immuable. Un mauvais jeton ici rendrait tout prêt impossible ou gratuit ; d'où le triple contrôle (politique, code hash, décimales).
+- **Proxy évolutif** : Paxos peut changer la logique d'USDG à tout moment, sans changer le code hash du proxy. Une mise à niveau introduisant des frais de transfert ou un rebasage casserait l'hypothèse de l'escrow (« `transferFrom` de N crédite exactement N »). Probabilité faible pour un stablecoin réglementé à parité ; à surveiller (§7).
+- **Pouvoir de gel et de pause** : l'implémentation expose `paused()` (lu : `false`) et, selon le standard Paxos, un gel d'adresses. Un gel de l'escrow, du Safe (`computeRecipient`) ou d'un utilisateur bloque règlements et remboursements pour les prêts concernés. L'escrow ne peut rien contre cela ; c'est inhérent au choix d'un stablecoin réglementé. Aucune mitigation technique possible côté Sirius hors surveillance et communication aux utilisateurs.
+- Le moteur Phala (runner) ne change pas : il lit `billing.usdc` depuis la politique validée à l'initialisation du volume.
+- Pas de prêt existant sur mainnet : aucune migration de fonds.
+
+**Base de données** : aucune.
+
+**Interface** : aucun contenu utilisateur ; le libellé vient d'une constante. Sur testnet, l'affichage est identique à avant (« test USDC » via `t()`). Sur mainnet, « USDG » au lieu de « USDC » sur wallet, dashboard et `/status`. Les autres pages affichent encore « USDC » (§8).
+
+**Textes** : `/status` annonce « real USDG (Global Dollar, issued by Paxos) ». Aucune promesse ajoutée. `src/app/terms/page.tsx` (slice A4) dit encore « real USDC » : à corriger dans cette slice-là (§8).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. **Exécution à blanc mainnet avec USDG** (par Ali ou Noé, clé de déploiement en main, voir runbooks) : `SIRIUS_DEPLOY_NETWORK=mainnet SIRIUS_ALLOW_MAINNET=true SIRIUS_BILLING_VERSION=7 SIRIUS_DEPLOY_DRY_RUN=true SIRIUS_USDC_ADDRESS=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 SIRIUS_USDC_CODE_HASH=0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6 SIRIUS_KYB_ADMIN=<Safe> SIRIUS_KYB_VERIFIER=<vérif> SIRIUS_LOCK_AUTHORIZER=<CVM> pnpm contracts:deploy:testnet`. Attendu : « USDC : 0x5fc5… (6 décimales) », contrôle du Safe comme contrat, aucune transaction.
+2. **Même commande avec l'ancien USDC** `0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8` : refus immédiat par la politique, message « doit être l'USDG de Paxos … aucun autre jeton, USDC compris », avant toute lecture RPC.
+3. **Même commande avec l'adresse USDG en minuscules, puis avec des espaces autour** : acceptée dans les deux cas.
+4. **Même commande avec un code hash faux** (par exemple l'ancien `0x487e3e7b…e694` de l'USDC) : la politique passe, puis `deploy.ts` refuse « Code hash USDC inattendu : 0x864c… » (il affiche le hash lu, utile pour mettre à jour la commande).
+5. **`pnpm phala:preflight-v7 --network=mainnet`** avec `SIRIUS_USDC_ADDRESS` = USDG et `SIRIUS_USDC_CODE_HASH` = hash du proxy, contrats non configurés : `chainChecksPassed` dépend des soldes, `usdc.decimals` = 6, `issues` contient `contracts.not_configured`. Avec l'ancien USDC : refus « Jeton mainnet attendu : USDG de Paxos ».
+6. **`node scripts/operations/release-check.mjs --network=mainnet <next> <reaper> <runner>`** avec un seul rôle sur l'ancien USDC : `configurationReady: false`, `issues` contient `<rôle>.SIRIUS_USDC_ADDRESS.mainnet`.
+7. **Across** : ouvrir `https://app.across.to/bridge`, choisir destination Robinhood Chain, source Base/Arbitrum en USDC ; vérifier que le jeton de réception proposé est bien **USDG** (`0x5fc5…d168`), et que l'USDG sur Ethereum est accepté en entrée. Si ce n'est pas le cas, la décision 1 du cahier des charges (autre moyen d'ajout de fonds) redevient ouverte.
+8. **Staging (testnet)** : pages `/wallet` et `/dashboard` affichent toujours « test USDC » à côté du solde, en anglais comme en français ; `/status` affiche « test USDC » sur la ligne du contrat (au lieu de « USDC » auparavant).
+9. **Production (mainnet, après déploiement)** : `/wallet` et `/dashboard` affichent « USDG » ; `/status` affiche « real USDG (Global Dollar, issued by Paxos) », « <n> USDG » aux plafonds, et « USDG » sur la ligne du contrat avec l'adresse `0x5fc5…`.
+10. **Explorateur** : vérifier sur `robinhoodchain.blockscout.com/address/0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` que le proxy et son implémentation sont vérifiés, nommés « Global Dollar », émis par Paxos, et que l'implémentation n'a ni fonction de frais ni de rebasage. L'API de l'explorateur répond par un défi anti-robot en ligne de commande : à faire dans un navigateur.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**Ajoutés ou modifiés** :
+
+- `src/lib/evm/stablecoin.test.ts` (nouveau, 5 tests, ajouté à `pnpm test`) : adresse officielle, minuscules, checksum EIP-55 (`getAddress` de viem : une faute de frappe casserait le test), différence avec l'ancien USDC ; nom/symbole/décimales et alignement avec `USDC_DECIMALS_BY_NETWORK` (mainnet 6, testnet 18) ; **égalité des constantes et des alias des quatre scripts** ; `stablecoinSymbol` sur les deux réseaux, jamais « test » sur mainnet, erreur sur `""`, `"Mainnet"`, `"4663"`, `undefined`, `null` ; « test USDC » a une clé i18n et « USDG » n'en a pas.
+- `scripts/deploy-policy.test.ts` : constante et alias ; mainnet accepte l'USDG checksummé, minuscules, majuscules, avec espaces ; refuse l'ancien USDC (deux casses), l'adresse nulle, vide, absente, tronquée, sans `0x` ; le message ne reflète pas la valeur refusée ; le testnet accepte l'ancien USDC, l'USDG ou un jeton quelconque (inchangé).
+- `scripts/initialize-runner-volume.test.ts` : constante et alias ; mainnet refuse l'ancien USDC (message `/USDG/`), un jeton quelconque, l'USDG en majuscules (la politique validée est toujours en minuscules), 18 décimales, chaîne 46630 ; politique mainnet valide avec l'USDG.
+- `scripts/phala-v7-preflight.test.ts` : constante et alias ; configuration mainnet normalise l'adresse checksummée en minuscules ; refuse l'ancien USDC (deux casses, message `/USDG/`) ; le testnet accepte l'USDG comme l'ancien USDC sans imposer de jeton.
+- `scripts/operations/release-check.test.mjs` (**désormais exécuté par `pnpm test`**) : constante et alias ; pour chacun des trois rôles, l'ancien USDC (deux casses), un jeton quelconque et la valeur vide produisent `<rôle>.SIRIUS_USDC_ADDRESS.mainnet` ; USDG en minuscules côté serveur et checksummé côté public accepté ; testnet sans jeton imposé ; cas supplémentaires dans le test existant.
+
+**Non couvert** :
+
+- L'exécution à blanc réelle contre le RPC mainnet (`contracts/scripts/deploy.ts`) : demande la clé de déploiement, à faire par Ali ou Noé (§4, cas 1).
+- Le préflight réel contre le RPC mainnet avec le hash du proxy (les tests mockent le client).
+- Le rendu des pages (`/status`, `/wallet`, `/dashboard`) sur mainnet : aucun test e2e ne tourne en mode mainnet. Les tests e2e existants couvrent le testnet, inchangé.
+- La table des routes d'Across (vérification manuelle, §4 cas 7).
+- Les tests `initialize-runner-volume` qui écrivent des fichiers échouent **sur Windows** (contrôle de mode `0o077` et garde CLI sur `/`), avant comme après la slice (vérifié en relançant le fichier de test de `staging` sur ce poste : mêmes quatre échecs) ; ils passent sous Linux (CI). Les assertions USDG de ces tests s'exécutent avant l'écriture et passent.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+1. L'adresse de la documentation Paxos (« USDG on Main Networks », ligne Robinhood) est l'adresse officielle, et c'est celle que donne aussi la page « Robinhood Chain Token Contracts » de docs.robinhood.com (vu par recherche, pas relu dans le document lui-même).
+2. Le RPC public `https://rpc.mainnet.chain.robinhood.com` renvoie l'état réel de la chaîne (chainId `0x1237` = 4663 vérifié dans la même session).
+3. USDG n'a ni frais de transfert ni rebasage : cohérent avec un stablecoin Paxos à parité et avec les lectures (`totalSupply` stable entre deux appels), mais la source de l'implémentation n'a pas été relue (explorateur inaccessible en ligne de commande). À confirmer (§4, cas 10).
+4. Paxos ne mettra pas à niveau l'implémentation entre l'exécution à blanc et le déploiement d'une manière qui change `decimals()`. Si cela arrivait, `deploy.ts` refuserait (contrôle on-chain).
+5. Across livre bien de l'USDG sur Robinhood Chain, d'après son annonce (§2.6).
+6. `NEXT_PUBLIC_EVM_NETWORK` est renseigné à `mainnet` en production (sinon le libellé afficherait « test USDC » sur de vrais fonds : `release-check` l'impose déjà, `next.NEXT_PUBLIC_EVM_NETWORK`).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Proxy évolutif, pouvoir de Paxos** : mise à niveau de la logique (frais, rebasage, nouvelles conditions), pause globale, gel d'adresses. Le code hash contrôlé ne détecte rien de cela. Impact : règlements ou remboursements bloqués pour les prêts en cours ; fonds immobilisés dans l'escrow tant que le gel dure. Mitigation : surveillance (`paused()`, événements de gel, annonces Paxos), et le fait que l'escrow v7 n'accepte que des montants bornés (plafonds d'exposition).
+2. **Le code hash ne distingue pas deux proxys ERC-1967 identiques** : un autre jeton Paxos déployé avec le même proxy aurait le même hash. C'est l'adresse épinglée qui protège ; le hash ne couvre que « adresse vide » et « contrat d'une autre forme ».
+3. **Libellés « USDC » restants** sur marketplace, upload, train, explorer, composants partagés, `terms` et `tariff-proposal.json` (`priceUnit: "USDC"`) : un utilisateur mainnet verra « USDC » à côté de prix réglés en USDG. Pas de risque de fonds, mais une incohérence visible le jour du lancement si les autres slices ne reprennent pas `stablecoinSymbol`.
+4. **Liquidité et ajout de fonds** : si Across ne livrait pas d'USDG (hypothèse 5 fausse), les utilisateurs n'auraient aucun moyen simple d'obtenir le jeton de l'escrow.
+5. **Fichier `release-check.mjs`** : littéral dupliqué, protégé par un test, mais un opérateur qui modifierait le `.mjs` sur le VPS sans passer par le dépôt ne serait pas protégé.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+| Priorité | Quoi | Qui |
+|---|---|---|
+| P0 | Exécution à blanc du déploiement mainnet avec la commande des runbooks (§4, cas 1 à 4) ; relever le code hash si Paxos a mis à niveau entre-temps | Ali ou Noé, samedi |
+| P0 | Vérifier à la main sur l'explorateur que le proxy et l'implémentation sont vérifiés et émis par Paxos, sans frais ni rebasage (§4, cas 10) | Ali ou Noé |
+| P0 | Confirmer sur `app.across.to` que la destination Robinhood Chain livre de l'USDG (§4, cas 7) | Ali ou Noé |
+| P1 | Reprendre les libellés « USDC » des pages marketplace, upload, train, explorer, composants partagés (`PriceBreakdown` prend déjà un `token.symbol`) et `terms` avec `stablecoinSymbol` ; puis adapter les clés i18n correspondantes | slices N2, N3, N4, A7, A2, A4 |
+| P1 | Relâcher `src/lib/evm/balance.test.ts` (regex `t\("test USDC"\)`) vers `stablecoinSymbol\(` pour permettre `t(stablecoinSymbol(network))` dans les pages | après fusion |
+| P1 | Rabattre le `stablecoinSymbol` de `src/components/profile/network.ts` (slice A5, mêmes valeurs) sur `src/lib/evm/stablecoin.ts` : une ligne de réexport. En attendant, `stablecoin.test.ts` vérifie que les deux coïncident | après fusion |
+| P2 | Préflight : lire le slot d'implémentation ERC-1967 et rapporter son adresse et son code hash dans le rapport (`usdc.implementation`), pour tracer les mises à niveau de Paxos d'un préflight à l'autre ; optionnellement `paused()` | après lancement |
+| P2 | `deploy/operations/tariff-proposal.json` : `priceUnit` « USDC » → « USDG » lors de la prochaine proposition tarifaire mainnet | opérations |
+| P2 | `docs/MAINNET-LAUNCH.md`, `docs/MAINNET-LAUNCH-PLAN.md`, `docs/AUDIT-2026-10-01.md` mentionnent encore l'USDC `0x80e0…` : documents historiques, hors périmètre ; ajouter une note de renvoi vers la décision USDG | documentation |
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : **Windows 11**, Node 22.16.0, pnpm 11.18.0 via `corepack`, Docker absent, `DATABASE_URL="postgresql://x:y@localhost:5432/z"` (factice, aucune base). Worktree de la branche `feat/usdg` après fusion de `origin/staging` (`ec0b768`, onze PR fusionnées pendant la slice : conflits résolus dans `package.json`, union des 92 fichiers de test sans perte ni doublon, et `src/app/(app)/wallet/page.tsx`, où la constante `NETWORK` introduite par A5 remplace mon `const network`).
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Done in 4.9s using pnpm v11.18.0`, `postinstall: ✔ Generated Prisma Client (7.8.0)`, code 0. Sans `DATABASE_URL`, le postinstall échoue sur `PrismaConfigEnvError` (préexistant). |
+| `pnpm prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma`, code 0 |
+| `pnpm exec tsc --noEmit` | aucune erreur, code 0 (relancé après chaque correctif, dont la fusion) |
+| `pnpm lint` | `eslint` sans sortie, code 0 (idem) |
+| `pnpm audit:deps` | `2 vulnerabilities found — Severity: 1 low \| 1 high (1 ignored)`, code 0 (état préexistant du dépôt) |
+| `pnpm test` | **Ne démarre pas tel quel sous Windows** : le script commence par `NODE_OPTIONS="…" node …`, que le shell Windows ne comprend pas (`'NODE_OPTIONS' n'est pas reconnu`). Équivalent lancé avec la variable exportée et la liste de fichiers lue dans `package.json`. Un premier passage global s'est **bloqué** après `scripts/runner-cli.test.ts` (processus enfant Windows jamais terminé) ; relancé fichier par fichier avec un délai maximal de 90 s par fichier : **92 fichiers, 633 tests passés, 72 échecs**, tous dans 8 fichiers et tous dus à l'environnement Windows, détaillés ci-dessous. |
+| Tests de la slice (`stablecoin`, `deploy-policy`, `phala-v7-preflight`, `release-check`, plus les gardes `english` et `balance`) | `39 tests, 39 pass, 0 fail` (dernier passage, après fusion) |
+| `scripts/initialize-runner-volume.test.ts` | 4 pass, 4 fail : `Registre anti-rejeu remplacé ou indisponible` ×3 et `Missing expected rejection` ×1. Reproduits à l'identique avec le fichier de test de `origin/staging` sur ce poste : contrôle de mode POSIX (`mode & 0o077`, Windows renvoie 0o666) et garde CLI sur `/`. Les assertions USDG du test mainnet s'exécutent et passent avant l'écriture qui échoue. |
+| Lecture on-chain (`eth_chainId`, `eth_getCode`, `eth_call`, `eth_getStorageAt` sur `https://rpc.mainnet.chain.robinhood.com`) | chaîne `0x1237` (4663) ; USDG : code 170 octets, keccak256 `0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6`, `name` « Global Dollar », `symbol` « USDG », `decimals` 6, `paused` false, `totalSupply` 700 104 924,001817, slot d'implémentation ERC-1967 → `0x68184c449e1a8f34fa18d289737129fd27b66f8f` (18 644 octets, keccak256 `0x3a551ac5c744af57e68a1d1431ac403c0f516ffd7d224a75746aee11fc4f3baf`), slot d'admin vide. Ancien USDC `0x80e0…` : 835 octets, keccak256 `0x487e3e7b…e694` (celui des anciens runbooks), 6 décimales, pas de proxy. Le second relecteur a refait la lecture indépendamment : mêmes valeurs. |
+| API Blockscout (`/api/v2/smart-contracts/0x5fc5…`) | HTTP 403 / défi Cloudflare en ligne de commande : vérification du contrat à faire dans un navigateur (§4, cas 10). |
+| `git log origin/staging..HEAD --format=%B` | aucun `Co-Authored-By`, `Claude`, lien de session ni `[skip ci]` ; auteur `alibenyezza` sur les deux commits. |
+
+**Échecs d'environnement Windows (72), tous préexistants et sans lien avec la slice** : `src/lib/runner/replay.test.ts` (7, `Registre anti-rejeu…`), `src/lib/runner/budget.test.ts` (54, `Répertoire privé requis pour le budget runner` : mode POSIX), `src/runner/server.test.ts` (1, idem), `src/lib/runner/monitoring.test.ts` (1, idem), `scripts/runner-cli.test.ts` (1, CLI enfant Windows), `scripts/initialize-runner-volume.test.ts` (4, ci-dessus), `src/lib/auth/self-training-routes.test.ts` (3, chemins `src\app\…` contre `src/app/…`), `src/lib/copy/disclaimers.test.ts` (1, `src/lib/tee/contract.ts absent du graphe`, séparateur de chemin). Le reste de la suite, dont tous les tests ajoutés ou modifiés par la slice, passe. La CI tourne sous Linux et n'a pas ces échecs.
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Deux relecteurs adversariaux indépendants (sécurité : « aucun autre jeton sur mainnet » ; exactitude : testnet inchangé, décimales, docs), lancés sur le diff avant fusion. Aucun des deux n'a trouvé de point bloquant.
+
+**Corrigé à la suite des revues** :
+
+1. Tests trop faibles (`assert.throws` sans motif, ou alternance `/USDG|non nulle/`) : `deploy-policy.test.ts` sépare désormais « jeton bien formé mais différent » (motif `/USDG/`) et « valeur mal formée » (motif `/non nulle/`) ; `phala-v7-preflight.test.ts` exige `/USDG/` pour `address(1)`, l'ancien USDC sous deux casses et avec espaces ; `initialize-runner-volume.test.ts` exige `/USDG/` pour l'ancien USDC et un jeton quelconque, et garde `Error` seulement pour l'USDG en majuscules (refusé plus tôt, par la validation de la politique).
+2. `phala-v7-preflight.ts` : le message d'épinglage interpole la constante au lieu d'une abréviation en dur ; « Empreinte USDC requise » devient « Empreinte du jeton de règlement requise : SIRIUS_USDC_CODE_HASH ».
+3. `src/app/status/page.tsx` : « Global Dollar » vient de `MAINNET_STABLECOIN_NAME`.
+4. Commentaire de `stablecoinSymbol` et nom du test associé : ils affirmaient que le résultat « passe par `t()` », ce qui n'est vrai que du libellé testnet. Reformulés.
+5. Commentaire de l'alias `MAINNET_USDC` : « conservé pour les imports existants » alors qu'aucun importateur n'existe hors tests ; devient « gardé par compatibilité (cahier des charges A8)… Aucun importateur hors tests ».
+6. `initialize-runner-volume.test.ts` : constante `LEGACY_USDC` déplacée après le bloc d'imports.
+7. Après la fusion de `staging` : la slice A5 a ajouté une clé i18n `"USDG": "USDG"`, ce qui cassait mon assertion « aucune clé pour un symbole ». L'invariant réel est `t("USDG") === "USDG"` : test réécrit ainsi. A5 a aussi son propre `stablecoinSymbol` dans `src/components/profile/network.ts` (mêmes valeurs) : le test vérifie désormais que les deux helpers coïncident sur les deux réseaux, en attendant que celui de A5 soit rabattu sur `src/lib/evm/stablecoin.ts` (§8).
+
+**Signalé par les revues et écarté ou reporté (hors périmètre de la slice, consigné en §8)** : libellés « USDC » dans `explorer`, `train`, `ComputeQuoteDialog`, `EscrowCredits`, `terms` ; `docs/MAINNET-LAUNCH.md`, `docs/MAINNET-LAUNCH-PLAN.md` (dont la case de checklist « `usdc()` = 0x80e0…6cA8 »), `docs/AUDIT-2026-10-01.md`, `.env.example` (« keccak256 du bytecode USDC »), `deploy/phala/compose.init-v7.yaml` (`Token testnet attendu requis` alors qu'il sert aussi à l'init mainnet) et le commentaire de `contracts/scripts/deploy.ts:87` (« l'USDC natif ») qui pointent encore l'ancien jeton ; `src/worker/mainnet-guard.ts` ne vérifie que la présence de `SIRIUS_USDC_ADDRESS`, pas sa valeur (atténué : jeton figé dans le constructeur de l'escrow, préflight qui compare `escrow.usdc()` à la configuration) ; double exécution inoffensive de `release-check.test.mjs` (`test` et `test:operations`) ; sur testnet, la ligne de contrat de `/status` s'intitule « TEST USDC » (cosmétique) ; message post-ajout de fonds « {usdc} USDC envoyés. » dans wallet/dashboard : il n'apparaît que sur le chemin faucet, donc jamais sur mainnet (sur mainnet, `addFunds` lève « Pont ouvert : envoie de l'USDC vers Robinhood Chain depuis un autre réseau », exact puisque l'utilisateur envoie de l'USDC et reçoit de l'USDG).
+
+**Vérifié conforme par les revues** : normalisation et comparaison en minuscules dans les quatre scripts ; refus de l'ancien USDC testé partout ; alias cohérent ; messages sans reflet de l'entrée ; testnet strictement inchangé ; décimales cohérentes (table, constante, préflight, runner) ; `resolveClientNetwork()` déjà appelé au niveau module par d'autres composants (aucun nouveau cas de levée) ; aucun effet de bord à l'import des scripts dans le test croisé ; `tsc -p contracts/tsconfig.v7.json` (celui de la CI) passe.
 
 ---
 
