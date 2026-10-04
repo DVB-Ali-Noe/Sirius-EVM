@@ -95,6 +95,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Dataset mis en pause.": "Dataset paused.",
   "Dataset remis en ligne.": "Dataset back online.",
   "Rendre privé": "Make private",
+  "Déploiement de démonstration : les datasets restent hors marketplace.": "Demo deployment: datasets stay off the marketplace.",
   "Passage en privé…": "Making private…",
   "Dataset rendu privé.": "Dataset made private.",
   "« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours ou réservé.":

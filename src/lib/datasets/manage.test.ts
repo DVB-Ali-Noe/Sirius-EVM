@@ -519,7 +519,7 @@ test("vue du propriétaire : champ par champ, consentement ré-inclus, aucun sec
     [{ datasetId: "ds1", status: "ESCROWED" }, { datasetId: "ds1", status: "SETTLED" }, { datasetId: "other", status: "ESCROWED" }]);
   const view = await readOwnerView(store.db, "ds1", OWNER, NOW);
   assert.deepEqual(Object.keys(view).sort(), [
-    "category", "columnCount", "consent", "createdAt", "deletionPending", "description", "displayStatus", "evmDatasetId", "evmMintTxHash",
+    "canRelist", "category", "columnCount", "consent", "createdAt", "deletionPending", "description", "displayStatus", "evmDatasetId", "evmMintTxHash",
     "id", "ipfsCid", "keyDestroyedAt", "listedAt", "listingExpired", "listingExpiresAt", "merkleRoot", "modelId", "modelVersion", "name",
     "priceUsdcAtomic", "rowCount", "sizeBytes", "status", "updatedAt",
   ]);
@@ -702,6 +702,9 @@ test("routes /settings : session obligatoire, 404 pour un autre wallet, prix ref
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   const view = await response.json();
   assert.equal(view.consent.version, "v1");
+  assert.equal(view.canRelist, true);
+  const demoRoute = load<typeof import("../../app/api/datasets/[id]/settings/route")>("src/app/api/datasets/[id]/settings/route.ts", routeDeps(store, session), { SIRIUS_PHALA_DEMO: "true" });
+  assert.equal((await (await demoRoute.GET(new Request(url), ctx("ds1"))).json()).canRelist, false, "en démo, la fiche sait que rien ne repasse en ligne");
   assert.ok(!JSON.stringify(view).includes("SECRET-KEY"));
 
   session.current = { address: OTHER };

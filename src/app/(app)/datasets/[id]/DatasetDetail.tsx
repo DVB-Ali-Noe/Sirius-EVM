@@ -441,10 +441,12 @@ function ListingCard({ view, busy, run }: {
   const [days, setDays] = useState<ListingExtensionDays>(30);
   const canPause = view.status === "LISTED";
   // Mêmes règles que le serveur (visibilityTransition) ; le serveur reste seul juge.
-  const canResume = (view.status === "UNLISTED" || view.status === "PRIVATE") && !!view.evmDatasetId && !view.listingExpired;
+  const canResume = view.canRelist && (view.status === "UNLISTED" || view.status === "PRIVATE") && !!view.evmDatasetId && !view.listingExpired;
   // La route de visibilité refuse le passage en privé pendant un emprunt : le bouton est masqué.
   const canMakePrivate = (view.status === "LISTED" || view.status === "UNLISTED") && view.displayStatus !== "borrowed";
-  const canExtend = (EXTENSIBLE_STATUSES as readonly string[]).includes(view.status) && view.listingExpiresAt !== null;
+  // En démo, prolonger une annonce en ligne expirée la remettrait en ligne : refus certain.
+  const canExtend = (EXTENSIBLE_STATUSES as readonly string[]).includes(view.status) && view.listingExpiresAt !== null
+    && (view.canRelist || !(view.status === "LISTED" && view.listingExpired));
   if (!(EXTENSIBLE_STATUSES as readonly string[]).includes(view.status)) return null;
 
   return (
@@ -498,7 +500,10 @@ function ListingCard({ view, busy, run }: {
           {t("« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours ou réservé.")}
         </p>
       )}
-      {(view.status === "UNLISTED" || view.status === "PRIVATE") && view.listingExpired && (
+      {!view.canRelist && view.status !== "LISTED" && (
+        <p className="mt-2 text-xs text-muted">{t("Déploiement de démonstration : les datasets restent hors marketplace.")}</p>
+      )}
+      {view.canRelist && (view.status === "UNLISTED" || view.status === "PRIVATE") && view.listingExpired && (
         <p className="mt-2 text-xs text-muted">{t("Annonce expirée : prolonge-la avant de la remettre en ligne.")}</p>
       )}
 

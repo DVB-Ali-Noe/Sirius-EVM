@@ -73,7 +73,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       });
       await applyVisibility(prisma, row, transition);
     }
-    return NextResponse.json(await readOwnerView(prisma, row.id, session.address), { headers: NO_STORE });
+    return NextResponse.json(await readOwnerView(prisma, row.id, session.address, Date.now(), { demoMode }), { headers: NO_STORE });
   } catch (err) {
     return errorResponse(err);
   }

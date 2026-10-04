@@ -11,6 +11,9 @@ export const runtime = "nodejs";
 // Fiche du fournisseur : réservée au wallet de la session, jamais mise en cache. Un dataset
 // absent et celui d'un autre wallet répondent pareil (404), pour ne pas révéler un identifiant.
 const NO_STORE = { "cache-control": "private, no-store" };
+// Déploiement de démonstration Phala : rien n'y repasse en ligne (voir manage.ts).
+const demoMode = () => process.env.SIRIUS_PHALA_DEMO === "true";
+
 
 const readLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 60, maxGlobal: 1_000 });
 const writeLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 20, maxGlobal: 400 });
@@ -24,7 +27,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const session = requireAuth(req);
     enforceRateLimit(readLimiter, `subject:${session.address}`);
     const { id } = await params;
-    return NextResponse.json(await readOwnerView(prisma, id, session.address), { headers: NO_STORE });
+    return NextResponse.json(await readOwnerView(prisma, id, session.address, Date.now(), { demoMode: demoMode() }), { headers: NO_STORE });
   } catch (err) {
     return errorResponse(err);
   }
@@ -39,7 +42,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const patch = validateDetailsPatch(await readJson<Record<string, unknown>>(req, MAX_DETAILS_BODY_BYTES));
     const row = await loadOwnedDataset(prisma, id, session.address);
     await applyDetails(prisma, row, patch);
-    return NextResponse.json(await readOwnerView(prisma, row.id, session.address), { headers: NO_STORE });
+    return NextResponse.json(await readOwnerView(prisma, row.id, session.address, Date.now(), { demoMode: demoMode() }), { headers: NO_STORE });
   } catch (err) {
     return errorResponse(err);
   }

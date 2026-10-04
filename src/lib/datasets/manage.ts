@@ -725,6 +725,12 @@ export interface OwnerDatasetView {
   evmDatasetId: string | null;
   evmMintTxHash: string | null;
   deletionPending: boolean;
+  /**
+   * Le déploiement autorise-t-il une remise sur la marketplace ? Faux en démo Phala, où
+   * rien ne repasse en ligne : la fiche masque alors les actions qui feraient signer un
+   * grant pour un refus certain.
+   */
+  canRelist: boolean;
   listedAt: string | null;
   listingExpiresAt: string | null;
   listingExpired: boolean;
@@ -743,7 +749,12 @@ function iso(value: Date | null | undefined): string | null {
  * `runnerReceipt`, ni l'adresse du fournisseur, ni les métriques brutes ne sortent.
  * `inFlightLoans` sert à la pastille ; `null` si inconnu.
  */
-export function toOwnerView(row: OwnerDatasetRow, inFlightLoans: number | null, now: number = Date.now()): OwnerDatasetView {
+export function toOwnerView(
+  row: OwnerDatasetRow,
+  inFlightLoans: number | null,
+  now: number = Date.now(),
+  options: TransitionOptions = {},
+): OwnerDatasetView {
   const metrics = publicDatasetMetrics(row.metrics);
   const givenAt = iso(row.trainingConsentAt);
   const revokedAt = iso(row.trainingConsentRevokedAt);
@@ -765,6 +776,7 @@ export function toOwnerView(row: OwnerDatasetRow, inFlightLoans: number | null, 
     evmDatasetId: row.evmDatasetId,
     evmMintTxHash: row.evmMintTxHash,
     deletionPending: row.status === "DELETED" && !!row.evmDatasetId && !row.evmDestroyTxHash && !row.deletionReconciledAt,
+    canRelist: !options.demoMode,
     listedAt: iso(row.listedAt),
     listingExpiresAt: iso(row.listingExpiresAt),
     listingExpired: isListingExpired(row.listingExpiresAt, now),
@@ -776,14 +788,20 @@ export function toOwnerView(row: OwnerDatasetRow, inFlightLoans: number | null, 
 }
 
 /** Lit la ligne complète du propriétaire (consentement ré-inclus) et son nombre de prêts en cours. */
-export async function readOwnerView(db: ManageDb, id: unknown, owner: string, now: number = Date.now()): Promise<OwnerDatasetView> {
+export async function readOwnerView(
+  db: ManageDb,
+  id: unknown,
+  owner: string,
+  now: number = Date.now(),
+  options: TransitionOptions = {},
+): Promise<OwnerDatasetView> {
   const datasetId = assertDatasetId(id);
   const provider = tryNormalizeAddress(owner);
   if (!provider) throw new AppError("Dataset introuvable", 404);
   const row: OwnerDatasetRow | null = await db.dataset.findFirst({ where: { id: datasetId, provider }, omit: { ...OWNER_VIEW_OMIT } });
   if (!row || !addressesEqual(row.provider, owner)) throw new AppError("Dataset introuvable", 404);
   const inFlight = await db.loan.count({ where: { datasetId, status: { in: [...IN_FLIGHT_LOAN_STATUSES] } } });
-  return toOwnerView(row, inFlight, now);
+  return toOwnerView(row, inFlight, now, options);
 }
 
 /** Statistiques privées d'un dataset ; le contrôle de propriété est fait avant toute lecture des prêts. */
