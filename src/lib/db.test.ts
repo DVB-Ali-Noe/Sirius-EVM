@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 test("les conflits de sérialisation et de commit sont repris, les autres erreurs ne le sont pas", async () => {
@@ -31,5 +32,15 @@ test("les conflits de sérialisation et de commit sont repris, les autres erreur
   } finally {
     Reflect.set(prisma, "$transaction", original);
     await prisma.$disconnect();
+  }
+});
+
+test("le client omet par défaut la DEK enveloppée et le consentement à l'amélioration des modèles", () => {
+  // Garde sur la source : ces colonnes ne doivent jamais sortir sur le catalogue public, dont
+  // les routes projettent la ligne Dataset entière ; une lecture qui en a besoin les ré-inclut.
+  const source = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+  const omit = /omit:\s*\{\s*dataset:\s*\{([^}]*)\}/.exec(source)?.[1] ?? "";
+  for (const column of ["wrappedKey", "trainingConsentAt", "trainingConsentVersion", "trainingConsentRevokedAt"]) {
+    assert.match(omit, new RegExp(`\\b${column}:\\s*true`), `${column} doit être omis par défaut`);
   }
 });

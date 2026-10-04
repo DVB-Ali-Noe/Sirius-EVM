@@ -7,6 +7,7 @@ import { setSession, type SessionSource } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
+import { touchUserProfileAfterLogin } from "@/lib/users/profile";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,9 @@ export async function POST(req: Request) {
       message: authenticatedMessage,
     });
     await verifyChallenge(authenticatedMessage, verifiedAddress, origin);
+    // Profil créé ou daté après la preuve de possession ; une panne de base n'empêche
+    // jamais la connexion et ne journalise que la classe de l'erreur.
+    await touchUserProfileAfterLogin(verifiedAddress);
 
     const res = NextResponse.json({ address: verifiedAddress, source: authenticatedSource });
     setSession(res, { address: verifiedAddress, source: authenticatedSource });

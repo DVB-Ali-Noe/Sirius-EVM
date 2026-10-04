@@ -22,7 +22,7 @@ Le préflight de la pipeline lit `SIRIUS_MIGRATION_ESCROW_ADDRESSES` (tous les a
 |---|---|---|
 | `ops:db-inventory snapshot <env-privé> [--before=photo.json]` | Photo en lecture seule : schéma, migrations, comptes, empreintes, agrégats métier, datasets à réimporter | Non |
 | `ops:db-inventory compare avant.json après.json --migrations=…` | Écarts entre deux photos, attentes lues dans les fichiers SQL des migrations | Non |
-| `ops:db-inventory expect --migrations=…` | Colonnes, types et index qu'une migration a le droit d'ajouter | Non |
+| `ops:db-inventory expect --migrations=…` | Tables (avec leur clé primaire), colonnes, types et index qu'une migration a le droit d'ajouter | Non |
 | `ops:postgres backup` / `verify` | Sauvegarde chiffrée et restauration locale de contrôle | Non |
 | `contracts:check-upgrade` | Préflight de changement d'escrow : historiques déclarés, prêts terminés, aucun fonds verrouillé dans un ancien escrow | Non |
 | `runner:check-migration` | Préflight de bascule Phala : datasets, entraînements et prêts d'un autre runner ; modèles historiques à préserver | Non |
@@ -84,6 +84,8 @@ Après les deux migrations, sur une base historique :
 - mêmes prêts par escrow, mêmes reçus, même ensemble de modèles.
 
 La répétition de cette séquence sur PostgreSQL est le test `db-inventory.test.ts` : base historique synthétique, deux migrations, comparaison sans écart, puis détection d'une valeur retouchée.
+
+Pour une migration qui crée des tables (comme `20261003000000_add_user_profiles` : `UserProfile`, `DatasetAccessLog`), `expect` les annonce avec leur clé primaire ; une table annoncée n'est plus un `table-unexpected`, et une table annoncée mais absente est l'écart critique `table-not-added`. Pour une table créée, l'outil vérifie son existence, sa clé primaire (`<table>_pkey`), la présence de chacune de ses colonnes (`column-not-added`) et de chacun de ses index annoncés (`index-not-added`). Limite connue : il ne compare ni le type, la nullabilité et le défaut des colonnes d'une table neuve, ni ses contraintes `CHECK`. Attention, `prisma migrate deploy` n'applique pas un fichier de migration en une transaction : si un ordre échoue, les ordres précédents du même fichier restent appliqués et la migration est marquée non terminée dans `_prisma_migrations`. En cas d'échec, lire l'erreur, constater l'état réel en base (`information_schema`, `pg_constraint`), nettoyer à la main ce qui a été appliqué, puis `prisma migrate resolve --rolled-back <nom>` avant de relancer.
 
 ## Escrows à déclarer
 
