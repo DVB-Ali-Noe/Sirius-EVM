@@ -17,7 +17,8 @@ function truncate(address: string): string {
 const EXPECTED_NETWORK = resolveClientNetwork();
 
 /** dropUp : ouvre le menu vers le haut (footer de sidebar, sinon clippé en bas de viewport). */
-export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
+/** `menuAlign` : bord du bouton sur lequel le menu s'aligne (gauche quand le bouton est en début de ligne). */
+export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?: boolean; menuAlign?: "left" | "right" }) {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const network = useWalletStore((s) => s.network);
@@ -35,7 +36,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   // En sidebar (dropUp) le conteneur est étroit : bouton pleine largeur centré + menu
   // calé sur la largeur du footer (sinon w-64/w-72 déborde de la colonne).
   const triggerFull = dropUp ? "w-full justify-center" : "";
-  const menuWidth = dropUp ? "inset-x-0" : "right-0";
+  const menuWidth = dropUp ? "inset-x-0" : menuAlign === "left" ? "left-0" : "right-0";
 
   useEffect(() => {
     if (!open) return;
