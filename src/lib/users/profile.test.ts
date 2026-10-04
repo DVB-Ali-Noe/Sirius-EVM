@@ -359,12 +359,22 @@ test("après connexion, une panne de base ne fait pas échouer la connexion et n
   assert.equal(warnings.length, 3, "aucun avertissement quand tout va bien");
 });
 
-/** Base gelée : l'upsert ne répond qu'une fois `release()` appelé, pour libérer le compteur en vol. */
+/**
+ * Base gelée : l'upsert ne répond qu'une fois `release()` appelé. Toute base gelée est libérée
+ * en `afterEach`, même si une assertion a échoué avant : le compteur de touches en vol du
+ * module est partagé par tous les tests du fichier.
+ */
+const frozenDbs: Array<() => void> = [];
 function frozenDb() {
   let release = () => {};
   const pending = new Promise<never>((_, reject) => { release = () => reject(new Error("abandonnée")); });
+  frozenDbs.push(release);
   return { db: { userProfile: { upsert: () => pending } }, release };
 }
+afterEach(async () => {
+  for (const release of frozenDbs.splice(0)) release();
+  await new Promise((resolve) => setImmediate(resolve));
+});
 
 test("après connexion, une base qui ne répond pas est abandonnée après le délai de garde", async () => {
   const frozen = frozenDb();
@@ -375,8 +385,6 @@ test("après connexion, une base qui ne répond pas est abandonnée après le d�
   assert.match(warnings[0], /\(ProfileTimeout\)/);
   assert.ok(!warnings[0].includes(SUBJECT));
   assert.ok(profile.LOGIN_PROFILE_TIMEOUT_MS >= 1_000 && profile.LOGIN_PROFILE_TIMEOUT_MS <= 5_000, "délai court mais réaliste pour une base distante");
-  frozen.release();
-  await new Promise((resolve) => setImmediate(resolve));
 });
 
 test("après connexion, les mises à jour en vol sont plafonnées et la requête porte ses propres délais PostgreSQL", async () => {
@@ -409,6 +417,36 @@ test("après connexion, les mises à jour en vol sont plafonnées et la requête
   assert.equal(warnings.length, 4, "aucun avertissement sur le chemin transactionnel");
 });
 
+test("hors connexion, GET et PATCH posent aussi des délais PostgreSQL bornés à leur transaction, sans imbrication", async () => {
+  const statements: string[] = [];
+  let transactions = 0;
+  const store = fakeDb();
+  // Comme le vrai client Prisma : le client de transaction expose encore `$transaction` à l'exécution.
+  const tx: Record<string, unknown> = { ...(store.db as object), $executeRawUnsafe: async (sql: string) => { statements.push(sql); return 0; } };
+  const transactional = { ...(store.db as object), $transaction: async (fn: (tx: unknown) => Promise<unknown>) => { transactions++; return fn(tx); } };
+  tx.$transaction = transactional.$transaction;
+  const view = await profile.ensureUserProfileWithin(MIXED_CASE, transactional as never);
+  assert.equal(view.address, SUBJECT);
+  assert.equal(transactions, 1, "une seule transaction : jamais d'imbrication, qui épuiserait le pool");
+  assert.deepEqual(statements, [`SET LOCAL lock_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`, `SET LOCAL statement_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`]);
+  statements.length = 0;
+  await profile.ensureUserProfileWithin(SUBJECT, store.db, 1_000);
+  assert.deepEqual(statements, [], "sans client transactionnel, upsert direct");
+  const direct = fakeDb();
+  await profile.ensureUserProfile(SUBJECT, { ...(direct.db as object), $transaction: async () => { throw new Error("ne doit pas être appelé"); } } as never);
+  assert.ok(direct.rows.has(SUBJECT), "ensureUserProfile n'ouvre jamais de transaction, même si le client le permet");
+  await profile.updateUserProfile(SUBJECT, { featureTours: { wallet: true } }, async (action) => action(tx as never));
+  assert.deepEqual(statements, [`SET LOCAL lock_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`, `SET LOCAL statement_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`]);
+  assert.deepEqual(store.rows.get(SUBJECT)!.featureTours, { wallet: true });
+  assert.ok(profile.PROFILE_DB_TIMEOUT_MS > profile.LOGIN_PROFILE_TIMEOUT_MS && profile.PROFILE_DB_TIMEOUT_MS <= 10_000, "plus large qu'à la connexion, mais borné");
+  // Reprises sérialisables épuisées : 409 réessayable plutôt qu'un 500 opaque.
+  const exhausted = new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "test" });
+  await assert.rejects(profile.updateUserProfile(SUBJECT, { tourCompletedAt: true }, async () => { throw exhausted; }),
+    (error: unknown) => error instanceof AppError && error.status === 409 && translateEnglish(error.message) !== error.message);
+  const outage = new Error("connection lost");
+  await assert.rejects(profile.updateUserProfile(SUBJECT, { tourCompletedAt: true }, async () => { throw outage; }), (error) => error === outage);
+});
+
 // Chargement d'une route avec ses dépendances simulées, comme audit-regressions.test.ts.
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
@@ -420,16 +458,19 @@ function load<T>(file: string, dependencies: Record<string, unknown>): T {
   return exports as T;
 }
 
-function profileRoute(store: ReturnType<typeof fakeDb>, session: { address: string } | null = { address: SUBJECT }) {
-  return load<typeof import("../../app/api/profile/route")>("src/app/api/profile/route.ts", {
+function profileRoute(store: ReturnType<typeof fakeDb>, initial: { address: string } | null = { address: SUBJECT }) {
+  // La session est mutable pour qu'un même chargement (donc les mêmes limiteurs) serve plusieurs wallets.
+  const session = { current: initial };
+  const route = load<typeof import("../../app/api/profile/route")>("src/app/api/profile/route.ts", {
     "next/server": { NextResponse }, "@/lib/errors": errors, "@/lib/http/body": body, "@/lib/http/rate-limit": rate,
-    "@/lib/auth/require-auth": { requireAuth: () => { if (!session) throw new AppError("Authentification requise", 401); return session; } },
+    "@/lib/auth/require-auth": { requireAuth: () => { if (!session.current) throw new AppError("Authentification requise", 401); return session.current; } },
     "@/lib/users/profile": {
       MAX_PROFILE_PATCH_CHARS: profile.MAX_PROFILE_PATCH_CHARS,
-      ensureUserProfile: (address: unknown) => profile.ensureUserProfile(address, store.db),
+      ensureUserProfileWithin: (address: unknown) => profile.ensureUserProfileWithin(address, store.db),
       updateUserProfile: (address: unknown, input: unknown) => profile.updateUserProfile(address, input, store.transaction),
     },
   });
+  return Object.assign(route, { session });
 }
 
 function patch(route: ReturnType<typeof profileRoute>, payload: unknown, headers: Record<string, string> = {}) {
@@ -510,8 +551,13 @@ test("GET et PATCH /api/profile sont limités en débit par wallet, avant toute 
   for (let i = 0; i < 60; i++) reads.push((await route.GET(new Request("https://test.invalid/api/profile"))).status);
   assert.deepEqual(reads.slice(0, 59), Array(59).fill(200));
   assert.equal(reads[59], 429, "61e lecture refusée");
-  const other = profileRoute(store, { address: OTHER });
-  assert.equal((await other.GET(new Request("https://test.invalid/api/profile"))).status, 200, "la limite est par wallet");
+  // Même chargement, donc mêmes limiteurs : un autre wallet passe, le premier reste refusé.
+  route.session.current = { address: OTHER };
+  assert.equal((await route.GET(new Request("https://test.invalid/api/profile"))).status, 200, "la limite de lecture est par wallet");
+  assert.equal((await patch(route, { tourCompletedAt: true })).status, 200, "la limite d'écriture est par wallet");
+  route.session.current = { address: SUBJECT };
+  assert.equal((await route.GET(new Request("https://test.invalid/api/profile"))).status, 429);
+  assert.equal((await patch(route, { tourCompletedAt: true })).status, 429);
 });
 
 test("la connexion crée le profil du wallet vérifié et réussit même si la base est en panne", async () => {
@@ -575,6 +621,4 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   assert.equal(response.status, 401);
   assert.equal(touched.length, 3, "aucun profil n'est touché quand le challenge est refusé, même avec une signature valide");
   assert.equal(sessions.length, 3);
-  frozen.release();
-  await new Promise((resolve) => setImmediate(resolve));
 });

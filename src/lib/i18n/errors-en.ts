@@ -528,4 +528,5 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Réglage de profil inconnu": "Unknown profile setting",
   "Langue non prise en charge": "Unsupported language",
   "Entrée du journal des accès invalide": "Invalid dataset access log entry",
+  "Profil modifié en même temps, réessaie": "Profile changed concurrently, try again",
 };

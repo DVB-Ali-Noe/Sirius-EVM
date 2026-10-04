@@ -14,7 +14,7 @@ Aujourd'hui, la base n'a pas de table des utilisateurs : un compte n'existe qu'�
 
 | Champ | Usage |
 |---|---|
-| `address` | Clé, adresse du wallet en minuscules |
+| `address` | Clé, adresse du wallet en minuscules. La base refuse toute adresse qui n'est pas `0x` suivi de 40 hexadécimaux minuscules (contrainte `UserProfile_address_lowercase`) : passer par `normalizeAddress()` avant toute écriture, y compris depuis un script ou l'admin |
 | `tourCompletedAt` | Tuto de première connexion terminé ([04](04-dashboard.md)) |
 | `featureTours` | Tutos par page déjà vus ([02](02-general.md)) |
 | `settings` | Réglages ([13](13-reglages.md)) : langue, menu replié |
@@ -46,7 +46,7 @@ Les champs sont posés par la migration `20261003000000_add_user_profiles` (A1).
 
 ## 3. Journal des accès — P1
 
-Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset (`datasetId`, clé étrangère), le wallet (`address`, minuscules), le prêt (`loanId`, sans clé étrangère pour survivre à tout nettoyage), la date (`createdAt`), le modèle livré (`modelCid`) et son empreinte (`modelFingerprint`). Index sur `datasetId` et `address`. La clé étrangère est en `ON DELETE RESTRICT` : un dataset journalisé ne peut plus être supprimé physiquement, ce qui convient au modèle actuel où la suppression est le statut `DELETED` ; un futur script de purge devra détacher les journaux d'abord. Écrite au moment de la livraison de la clé du modèle par `recordDatasetAccess()` de `src/lib/users/profile.ts`, qui accepte une transaction pour s'inscrire dans celle de la livraison. La fonction existe et est testée ; son branchement sur la livraison reste à faire. Lecture réservée à l'admin : aucune route ne l'expose.
+Pour le traçage déclaré ([06](06-mes-datasets.md)) : une table `DatasetAccessLog` avec le dataset (`datasetId`, clé étrangère), le wallet (`address`, minuscules, contrainte `DatasetAccessLog_address_lowercase` en base), le prêt (`loanId`, sans clé étrangère pour survivre à tout nettoyage), la date (`createdAt`), le modèle livré (`modelCid`) et son empreinte (`modelFingerprint`). Index sur `datasetId` et `address`. La clé étrangère est en `ON DELETE RESTRICT` : un dataset journalisé ne peut plus être supprimé physiquement, ce qui convient au modèle actuel où la suppression est le statut `DELETED` ; un futur script de purge devra détacher les journaux d'abord. Écrite au moment de la livraison de la clé du modèle par `recordDatasetAccess()` de `src/lib/users/profile.ts`, qui accepte une transaction pour s'inscrire dans celle de la livraison. La fonction existe et est testée ; son branchement sur la livraison reste à faire. Lecture réservée à l'admin : aucune route ne l'expose.
 
 ## 4. Textes d'avertissement communs — P0
 

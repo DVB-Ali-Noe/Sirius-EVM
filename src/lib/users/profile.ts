@@ -80,6 +80,25 @@ export interface UserProfileRow {
 /** Client Prisma ou transaction : la même fonction sert hors et dans une transaction. */
 type Db = Pick<Prisma.TransactionClient, "userProfile" | "datasetAccessLog">;
 
+/** Client capable d'ouvrir une transaction interactive ; les stubs de test peuvent s'en passer. */
+type TransactionalDb = Db & Partial<Pick<typeof prisma, "$transaction">>;
+
+/**
+ * Délais PostgreSQL posés sur les requêtes de profil hors connexion (GET et PATCH) : une ligne
+ * verrouillée par une autre session ne doit jamais suspendre une requête sans borne ni, à cinq
+ * requêtes, retenir tout le pool de l'instance. Au-delà, la requête échoue en erreur opaque et
+ * le client réessaie.
+ */
+export const PROFILE_DB_TIMEOUT_MS = 5_000;
+
+/** `SET LOCAL` des délais, bornés à la transaction ; la valeur est un entier calculé, jamais une entrée. */
+async function setLocalTimeouts(tx: Partial<Pick<Prisma.TransactionClient, "$executeRawUnsafe">>, timeoutMs: number): Promise<void> {
+  if (!tx.$executeRawUnsafe) return;
+  const budget = Math.max(1, Math.floor(timeoutMs));
+  await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = ${budget}`);
+  await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${budget}`);
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
@@ -238,6 +257,7 @@ export async function updateUserProfile(
   const patch = validateProfilePatch(input);
   const now = new Date();
   const row = await transaction(async (tx) => {
+    await setLocalTimeouts(tx, PROFILE_DB_TIMEOUT_MS);
     const existing = await tx.userProfile.findUnique({ where: { address: canonical } });
     const data: Prisma.UserProfileUncheckedUpdateInput = { lastSeenAt: now };
     if (patch.tourCompletedAt !== undefined) {
@@ -255,6 +275,13 @@ export async function updateUserProfile(
       create: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical, createdAt: now },
       update: data,
     });
+  }).catch((error: unknown) => {
+    // Reprises sérialisables épuisées sous forte contention sur la même ligne : aucune écriture
+    // perdue, le client rejoue ; un 409 est plus juste qu'un 500 opaque.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      throw new AppError("Profil modifié en même temps, réessaie", 409);
+    }
+    throw error;
   });
   return toUserProfileView(row);
 }
@@ -270,8 +297,7 @@ export const LOGIN_PROFILE_TIMEOUT_MS = 2_000;
 export const MAX_IN_FLIGHT_LOGIN_TOUCHES = 2;
 let inFlightLoginTouches = 0;
 
-/** Client capable d'ouvrir une transaction interactive ; les stubs de test peuvent s'en passer. */
-type LoginDb = Db & Partial<Pick<typeof prisma, "$transaction">>;
+type LoginDb = TransactionalDb;
 
 /**
  * Après une connexion réussie : crée ou date le profil sans jamais faire échouer ni
@@ -313,13 +339,16 @@ export async function touchUserProfileAfterLogin(
   }
 }
 
-/** Upsert sous délais PostgreSQL : un verrou ou un serveur lent rend la connexion au lieu de la garder. */
-async function ensureUserProfileWithin(address: unknown, db: LoginDb, timeoutMs: number): Promise<UserProfileView> {
+/**
+ * Upsert sous délais PostgreSQL : un verrou ou un serveur lent rend la connexion au lieu de la
+ * garder. À appeler avec le client racine seulement : la transaction ouverte ici délègue à
+ * `ensureUserProfile`, qui n'en ouvre jamais (un client de transaction Prisma expose encore
+ * `$transaction` à l'exécution, et une imbrication épuiserait le pool).
+ */
+export async function ensureUserProfileWithin(address: unknown, db: TransactionalDb = prisma, timeoutMs = PROFILE_DB_TIMEOUT_MS): Promise<UserProfileView> {
   if (!db.$transaction) return ensureUserProfile(address, db);
-  const budget = Math.max(1, Math.floor(timeoutMs));
   return db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = ${budget}`);
-    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${budget}`);
+    await setLocalTimeouts(tx, timeoutMs);
     return ensureUserProfile(address, tx);
   });
 }

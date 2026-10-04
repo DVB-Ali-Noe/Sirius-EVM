@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
-import { ensureUserProfile, MAX_PROFILE_PATCH_CHARS, updateUserProfile } from "@/lib/users/profile";
+import { ensureUserProfileWithin, MAX_PROFILE_PATCH_CHARS, updateUserProfile } from "@/lib/users/profile";
 
 export const runtime = "nodejs";
 
@@ -17,12 +17,15 @@ const writeLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 2
 // Marge au-dessus de la borne du module : un corps plus gros est refusé avant d'être lu.
 const MAX_PATCH_BODY_BYTES = 2 * MAX_PROFILE_PATCH_CHARS;
 
-/** Profil du wallet connecté, créé à la volée s'il manque (session ouverte avant la migration). */
+/**
+ * Profil du wallet connecté, créé à la volée s'il manque (session ouverte avant la migration).
+ * L'upsert porte ses délais PostgreSQL : une ligne verrouillée ne retient pas une connexion du pool.
+ */
 export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(readLimiter, `subject:${session.address}`);
-    return NextResponse.json(await ensureUserProfile(session.address), { headers: NO_STORE });
+    return NextResponse.json(await ensureUserProfileWithin(session.address), { headers: NO_STORE });
   } catch (err) {
     return errorResponse(err);
   }

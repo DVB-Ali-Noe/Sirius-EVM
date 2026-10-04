@@ -115,9 +115,12 @@ test("une table créée par une migration annoncée n'est pas un écart ; absent
   const unexpected = compareInventories(before, after);
   assert.ok(codes(unexpected).includes("table-unexpected:UserProfile"));
   assert.ok(codes(unexpected).includes("index-unexpected:UserProfile_pkey"));
+  // La photo synthétique n'a pas de table Dataset : ses colonnes ajoutées ne sont pas contrôlées ici
+  // (la boucle des colonnes ne parcourt que les tables de la photo « avant »), le rejeu réel sur
+  // PostgreSQL du test suivant les couvre.
   const announced = compareInventories(before, after, expected);
-  const remaining = codes(announced).filter((code) => !code.startsWith("column-not-added:Dataset."));
-  assert.deepEqual(remaining, [], "tables, clés primaires et index annoncés ne sont plus signalés");
+  assert.deepEqual(codes(announced), [], "tables, colonnes, clés primaires et index annoncés ne sont plus signalés");
+  assert.equal(announced.ok, true);
   const missing = compareInventories(before, clone(before), expected);
   assert.equal(missing.ok, false);
   assert.ok(codes(missing).includes("table-not-added:UserProfile"));
