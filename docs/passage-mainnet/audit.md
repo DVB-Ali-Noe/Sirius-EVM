@@ -2381,40 +2381,242 @@ Corrigé :
 
 ## N6 — Certificat d'exécution
 
+Branche `feat/certificat`, partie de `staging` (`fd3cefc`, après la PR #45 marketplace). Cahier des charges : [09-train-et-certificat.md](09-train-et-certificat.md), partie « Certificat d'exécution », avec [12-test-phala.md](12-test-phala.md) et le [plan global](00-PLAN-GLOBAL.md). Commits : implémentation (`92be486`), une correction par passage de revue (`2afe697`, `76802e9`, `740439f`, §10), fusion de `origin/staging` (`538af6c`), correction d'un minuteur (`bc25afe`), puis cette section ; empreintes visibles avec `git log staging..HEAD`. Tout est vérifiable depuis `git diff staging...HEAD`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Routes (nouvelles, publiques, lecture seule, sans session)**
+
+| Route | Rôle |
+|---|---|
+| Page `/certificate/[loanId]` (`src/app/certificate/[loanId]/page.tsx`) | Certificat d'exécution d'un emprunt, rendu côté serveur, hors du groupe `(app)` comme `/proof/[id]`. Quatre états : 404 (`notFound()`), « Certificate not available yet », « Too many requests », certificat. Métadonnées `robots: noindex, nofollow`. |
+| `GET /api/certificate/[loanId]/attestation` (`src/app/api/certificate/[loanId]/attestation/route.ts`) | Attestation brute en JSON, `content-disposition: attachment; filename="sirius-certificate-<loanId>.json"`, `cache-control: no-store`. 404 `{"error":"Certificate not found"}` identique pour tout ce qui n'est pas un certificat prêt ; 429 au-delà du débit ; 500 générique sinon. |
+
+**Contenu de la page (certificat prêt)** : nom du dataset avec lien vers `/proof/[datasetId]`, profil de modèle (`modelDisplayName`), empreinte du modèle livré (`modelCid`), date d'enregistrement du règlement (`settledAt`, UTC, libellé « Settlement recorded »), transaction de règlement avec lien explorateur (`transactionExplorerUrl`, sans lien si aucun explorateur n'est configuré), réseau, hash SHA-256 du résultat attesté (`attestationHash`), verdict (titre + résumé), quatre contrôles (« Bound to this run », « Intel TDX hardware », « Code identity », « Event log ») avec état Passed / Failed / Not checked, trois mesures (MRTD, RTMR3, compose hash) avec leur correspondance aux valeurs épinglées `SIRIUS_EXPECTED_MRTD`, `SIRIUS_EXPECTED_RTMR3`, `SIRIUS_EXPECTED_COMPOSE_HASH` (« Matches the pinned value » / « Differs from the pinned value » / « No pinned value configured »), mention que la page ne juge pas la qualité du modèle et ne contient ni ligne du dataset ni clé, bouton « Download raw attestation (JSON) » (`<a download>`, sans JavaScript).
+
+**Modules (`src/lib/certificate/`, nouveaux)**
+
+| Fichier | Contenu |
+|---|---|
+| `resolve.ts` | `server-only`. `isCertificateLoanId` (`^[A-Za-z0-9_-]{1,64}$`), `resolveCertificate` (règles d'accès et contrôles de cohérence, §3), `networkForChain`, `certificateExport` (contenu du JSON). Types `CertificateLoanRow`, `CertificateRecord`, `CertificateResolution`. |
+| `load.ts` | `server-only`. Lecture Prisma `findUnique` avec projection explicite (`CERTIFICATE_SELECT`, 20 colonnes du prêt + 7 du dataset), `loadCertificate`. Identifiant hors format : aucune requête. |
+| `verification.ts` | `server-only`. `BoundedQuoteVerifier` (cache, plafonds, échéances, §3), `verificationCacheKey`, `verifyCertificate` (singleton `globalThis` branché sur `verifyTdxQuote`). |
+| `presentation.ts` | Pur (aucun accès serveur). `presentVerification` : du résultat de vérification au verdict, aux contrôles et aux mesures affichés ; `formatCertificateDate`. |
+| `display.ts` | Pur. `certificateViewProps` : projection du certificat vers les seules propriétés de la vue (frontière de confidentialité), `certificateDownloadPath`. |
+| `download.ts` | `server-only`. `certificateDownloadResponse` (logique de la route, injectable pour les tests), `certificateDownloadLimiter`. |
+| `page-guard.ts` | `server-only`. `certificatePageLimiter`, `certificateClientKey`, `allowCertificatePage` : débit de la page. |
+| `certificate-view.render.tsx` | Script de rendu HTML statique pour les tests (processus sans `react-server`, comme `shared-components.render.tsx`). Jamais importé par l'application. |
+| `*.test.ts` | Six fichiers de tests (§5). |
+
+**Composants** : `src/app/certificate/[loanId]/certificate-view.tsx` (nouveau, sans état ni accès serveur) : `CertificateView`, `CertificateUnavailable`, `CertificateBusy`. Textes en anglais écrits directement, comme `/proof/[id]` (composant serveur sans contexte de locale) : aucune clé de traduction ajoutée.
+
+**Autres fichiers** : `package.json` (six fichiers de tests ajoutés au script `test`), `e2e/certificate.spec.ts` (nouveau, §5), cette section.
+
+**Aucune** modification de : base de données (aucune migration, aucune colonne), contrats, escrow, moteur Phala et runner (`src/runner/**`, `src/lib/runner/**`), `src/lib/tee/**` (réutilisé sans modification : `verifyTdxQuote`, `parseLoanAttestationPayload`, `hashLoanAttestationPayload`), `src/app/api/loans/**` (la route `GET /api/loans/[id]/attestation` reste réservée aux parties), page Train, layout, composants partagés, `next.config.ts`, `src/proxy.ts`. Aucune dépendance ajoutée (`@phala/dcap-qvl` déjà présent).
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Pas de bouton « Certificat » sur la page Train.** Le cahier des charges le demande, la consigne de la slice l'interdit (une autre session modifie la page Train et ajoutera le lien). Tant qu'il n'existe pas, la page n'est atteignable que par son URL. Lien à ajouter : `/certificate/${loan.id}` pour un prêt `SETTLED`.
+2. **Accès : même règle de visibilité que `/proof/[id]`.** Certificat servi seulement si le dataset est `LISTED`, `UNLISTED` ou `SUSPENDED` avec titre on-chain (`evmDatasetId`). Un dataset passé en `PRIVATE`, `DELETED` ou `DRAFT` après l'emprunt ferme le certificat (404). Choix conservateur : le certificat nomme le dataset et renvoie vers sa preuve ; il ne doit pas rouvrir un nom que le fournisseur a retiré. Conséquence : un emprunteur perd son certificat public si le fournisseur supprime le dataset (l'attestation reste disponible pour lui via `GET /api/loans/[id]/attestation`).
+3. **Trois réponses distinctes, et seulement trois.** 404 indistinct pour « identifiant hors format », « prêt inexistant » et « dataset fermé » ; « Certificate not available yet » (HTTP 200, aucun détail) pour tout prêt existant non `SETTLED` (PENDING, SUBMITTING, ESCROWED, TRAINING, SETTLING, CANCELLED), sans attestation, sans `modelCid`, sans `settleTxHash` bien formé, avec une attestation qui ne se recoupe pas avec la ligne, sur un déploiement d'escrow non approuvé ou sur une chaîne inconnue de l'application. Un prêt annulé ou remboursé n'a jamais de certificat ; le texte le dit sans dire lequel des cas s'applique. Le JSON rend 404 pour les deux premiers groupes (il n'a pas d'état « pas encore »).
+4. **Contrôles de cohérence recopiés de la route attestation.** `resolveCertificate` refait exactement les contrôles de `GET /api/loans/[id]/attestation` (hash du payload, chaîne, escrow, prêt, clé de prêt, dataset, CID, parties, montant, hash de devis, `challengeDays`, racine Merkle, profil et version de modèle, `modelCid`). La route existante n'est pas modifiable dans cette slice : la logique est dupliquée, pas partagée (§8).
+5. **Vérification de quote : en cache et bornée, pas à la demande.** Le cahier des charges laisse le choix. La page vérifie au rendu, avec cache par contenu, une seule vérification en vol par certificat, au plus 10 vérifications matérielles neuves par minute et 5 simultanées par instance, attente maximale de 8 s pendant le rendu, échéance dure de 30 s, et repli sur les contrôles locaux (sans réseau) au-delà. Une vérification plus lente que le rendu est confiée à `after()` (Next 16) pour finir et remplir le cache. Le téléchargement JSON, lui, ne vérifie rien.
+6. **Rédaction du verdict : le titre « Executed inside an Intel TDX enclave on Phala Cloud » n'apparaît que si tout est vérifié** : quote liée au prêt (`reportDataMatches`), matériel et TCB acceptés par Intel (`hardwareVerified === true`, TCB `UpToDate`), identité du code complète (`codeIdentityMatches === true`, donc les trois valeurs épinglées configurées et égales, et l'event-log rejoué). Sinon :
+   - « Enclave execution not confirmed » (verdict `failed`) seulement pour un échec franc : quote non liée au prêt, ou event-log incohérent avec RTMR3 ;
+   - « Enclave execution not fully confirmed » (verdict `incomplete`) pour tout le reste : vérification en attente, simulateur, collatérale injoignable ou signature refusée (indiscernables dans `verifyTdxQuote`), TCB déclassé aujourd'hui, mesures différentes des valeurs épinglées aujourd'hui (le résumé évoque une mise à jour de l'enclave), valeur épinglée absente, erreur de vérification ;
+   - « No hardware attestation recorded » (verdict `unattested`) si aucune quote n'est enregistrée (mode non Phala).
+   Raison de ne pas classer en échec un écart d'épinglage ou de TCB : les valeurs épinglées et l'état du TCB sont ceux d'aujourd'hui ; une mise à jour de l'enclave ou une révision du TCB par Intel les produirait sur tous les certificats antérieurs, authentiques au moment du calcul. La ligne de contrôle concernée reste « Failed » et la note sous les mesures le dit.
+7. **Quote et mesures : affichées depuis la quote, pas depuis la base.** MRTD et RTMR3 sont lus dans la quote par `verifyTdxQuote` ; le compose hash vient de l'évidence enregistrée, lié à RTMR3 par le rejeu de l'event-log. Une mesure non hexadécimale n'est pas affichée.
+8. **Ce que la page n'affiche pas** : adresses du fournisseur et de l'emprunteur, montant, clé de prêt, escrow, payload attesté, hash d'enveloppe, devis, reçus (runner, audit HMAC), quote brute et event-log (seulement dans le JSON). « Pas d'adresse complète inutile » : aucune adresse n'est utile au lecteur pour juger l'exécution.
+9. **Ce que le JSON contient, et pourquoi les adresses y sont.** `format`, `loanId`, `chainId`, `settlementTxHash`, `modelCid`, `attestation.{payload, payloadSha256, tdxQuote, eventLog, composeHash}`, `howToVerify` (six étapes en anglais). Le payload est la chaîne exacte dont le SHA-256 est dans `report_data` de la quote : impossible de le tronquer sans rendre la vérification impossible. Il contient les adresses complètes du fournisseur et de l'emprunteur, le montant atomique, la clé de prêt, l'escrow, la racine Merkle, le CID chiffré du dataset, `releaseEnvelopeHash` et `billingQuoteHash`. Tous sont publics on-chain (événements de lock et de règlement de l'escrow, titre du dataset) ou sur `/proof/[id]`, ou sont des hashes. Le préimage d'escrow n'y figure pas (le payload ne contient que le hash de l'enveloppe), et le certificat n'existe qu'après `SETTLED`, donc après publication on-chain du préimage. Le reçu d'audit HMAC (`auditReceipt`), servi par la route des parties, n'est pas exporté : il n'est vérifiable qu'avec la clé de l'enclave.
+10. **`modelCid` rendu public.** Le cahier des charges demande « l'empreinte du modèle livré ». Jusqu'ici le CID n'était servi qu'à l'emprunteur. Le blob IPFS est chiffré, la clé passe par l'enveloppe de l'emprunteur : le CID révèle l'existence et la taille du chiffré, pas le modèle.
+11. **Débit de la page.** Ajouté après la première revue : 60 affichages par minute par client, 1 200 au total par instance, consommés une seule fois par requête (React `cache` partagé entre `generateMetadata` et la page), avant toute lecture en base ; un identifiant hors format ne consomme rien. Au-delà, état « Too many requests » en HTTP 200 (une page serveur Next ne peut pas fixer son statut sans passer par le proxy, hors périmètre ; `noindex` limite l'effet sur les aperçus). Téléchargement JSON : 20 par minute par client, 240 au total.
+12. **`noindex`.** Un certificat se partage par lien ; rien ne justifie qu'il soit indexé. `/proof/[id]` ne le fait pas.
+13. **Date affichée.** `settledAt` est écrit au moment où le serveur constate le règlement (y compris par le reaper ou une reprise), pas l'horodatage du bloc : libellé « Settlement recorded », pas « Settled on ». La date on-chain est dans la transaction liée.
+14. **Démo Phala (self training, [12](12-test-phala.md)).** Hors périmètre : pas de modèle `Loan`, pas de règlement. La présentation (`presentation.ts`, `certificate-view.tsx`) est réutilisable.
+15. **Statistiques d'entraînement** (durée, métriques, horodatage de la quote) : V1.1, non faites.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès, route par route**
+
+- `/certificate/[loanId]` : aucune session lue, aucun cookie. `src/proxy.ts` ne fait que la CSP. Ordre dans `certificateFor` (`page.tsx`) : format (`isCertificateLoanId`) → débit (`allowCertificatePage(await headers())`) → `loadCertificate`. Dans `resolveCertificate` (`resolve.ts`) : prêt absent ou `id` hors format → `not-found` ; statut du dataset hors `LISTED`/`UNLISTED`/`SUSPENDED`, ou `SUSPENDED` sans `evmDatasetId` → `not-found` ; statut du prêt ≠ `SETTLED`, `attestationHash`/`attestationPayload`/`modelCid`/`settleTxHash` absent, `settleTxHash` hors `^0x[0-9a-fA-F]{64}$`, `attestationHash` hors SHA-256, profil de modèle inconnu, payload illisible, `loanEscrowBinding` qui lève (escrow non approuvé, `SIRIUS_ESCROW_ADDRESS` manquante), chaîne inconnue, ou l'un des 16 recoupements faux → `unavailable`.
+- `GET /api/certificate/[loanId]/attestation` : mêmes règles (même `loadCertificate`), débit avant tout, puis format, puis lecture ; tout état autre que `ready` → 404 au corps constant.
+- Vérifier qu'aucune règle d'accès ne repose sur l'interface : le lien Train n'existe pas encore, et la page ne doit rien montrer de plus à qui devine une URL.
+
+**Validation et bornes de chaque entrée**
+
+- `loanId` : seule entrée de l'appelant. `^[A-Za-z0-9_-]{1,64}$` avant toute requête, avant le débit et avant l'en-tête `content-disposition` (aucun guillemet, CR ou LF possible).
+- En-tête `x-real-ip` : lu seulement si `SIRIUS_TRUST_PROXY_HEADERS=true` ; une valeur hors `^[A-Fa-f0-9:.]{3,64}$` est regroupée sous une clé commune (la page ne lève pas, à la différence de `requestClientKey` qui renvoie 400 sur les routes API).
+- Données en base relues comme non fiables : payload borné à 4 096 caractères et canonique (`parseLoanAttestationPayload`), quote hexadécimale de longueur paire et ≤ 64 Kio de texte avant tout appel (`isWellFormed`), event-log ≤ 2 Mio et compose hash SHA-256 sinon ignorés (pas de rejeu), mesures affichées seulement si hexadécimales, nom du dataset échappé par React (vide → « Untitled dataset »).
+
+**Fuites possibles**
+
+- Projection Prisma explicite (`load.ts`) : ni `billingQuote`, ni `runnerReceipt`, ni `auditReceipt`, ni `evmHashlock`, ni `wrappedKey`, ni `KeyGrant`. Vérifier que `CertificateLoanRow` n'est jamais passé à la vue : `display.ts` est la seule projection vers `CertificateViewProps`, et le payload n'en fait pas partie (test « propriétés de la vue »).
+- Les métadonnées (`<title>`) ne contiennent le nom du dataset que pour un certificat prêt ; « not available » et « busy » ont un titre générique.
+- Messages d'erreur : JSON 404 constant, 500 via `errorResponse` (« Erreur interne — réessaye. », journal sans message). `resolveCertificate` et le vérificateur avalent leurs exceptions sans journaliser : rien sur la quote, le payload ou la ligne n'arrive dans les journaux.
+- Temps de réponse : inexistant et dataset fermé font la même lecture par clé primaire ; la différence avec un prêt présent mais non réglé est assumée (état distinct demandé).
+- JSON : contenu listé en §2.9 ; à valider par l'auditeur comme « déjà public ».
+
+**Exactitude de la vérification affichée**
+
+- `presentation.ts` contre `verifyTdxQuote` (`src/lib/tee/quote.ts`) : `hardwareVerified` vaut `null` au simulateur (y compris via `isSimulator()` quand `skipHardware` n'est pas passé), `false` avec `tcbStatus` si Intel répond un TCB non accepté, `false` sans `tcbStatus` pour toute exception de `getCollateralAndVerify` (signature, révocation, debug, réseau) ; `codeIdentityMatches` vaut `null` si une valeur épinglée ou l'évidence manque. Le titre vérifié n'est atteignable que par la conjonction §2.6 (tests « aucun autre état… »).
+- **Limite héritée importante** : `verifyTdxQuote` ne compare que MRTD, RTMR3 et le compose hash. RTMR0 à RTMR2 (noyau, ligne de commande, initrd de l'image dstack) et `mrConfigId` ne sont ni épinglés ni vérifiés. Un hôte TDX authentique qui démarrerait une image OS modifiée avec le même firmware pourrait étendre RTMR3 avec les digests d'un event-log authentique et obtenir le verdict vérifié. Le résumé ne dit donc plus « produced by the enclave code Sirius publishes » mais « carries the enclave measurements Sirius pins ». Correctif dans `quote.ts`, hors périmètre (§8, P0).
+- Les valeurs épinglées sont celles du serveur au moment de l'affichage ; voir §2.6 pour la conséquence d'une mise à jour d'enclave.
+
+**Déni de service et coût**
+
+- Appels sortants : seulement `getCollateralAndVerify` (jusqu'à environ six `fetch` vers la collatérale Intel / PCCS, sans délai ni `AbortSignal` dans `@phala/dcap-qvl`). Bornes par instance : cache par contenu (1 h si concluant, 5 min si non concluant ou abandonné, 1 min sur erreur), 500 entrées par cache (éviction de la plus ancienne), une vérification en vol par clé, 10 neuves par minute, 5 simultanées, 30 s d'échéance dure, et au plus 10 appels réellement non terminés (abandonnés compris) avant de refuser toute vérification neuve.
+- CPU : contrôles locaux (parse de quote, rejeu d'event-log jusqu'à 2 Mio, deux passes dans `identity.ts`) et SHA-256 de la clé de cache (event-log compris) à chaque affichage d'un certificat prêt ; les contrôles locaux sont en cache, le SHA-256 non. Le tout derrière le débit de la page.
+- Base : une lecture par clé primaire par affichage, derrière le débit ; la ligne lue comprend la quote et l'event-log.
+- Mémoire : caches bornés, minuteurs annulés, promesses en vol bornées par les plafonds ; une promesse abandonnée à l'échéance garde sa fermeture (quote, event-log) jusqu'à la fin réelle de son `fetch`.
+
+**Impact sur l'argent, l'escrow, les contrats, le moteur Phala** : aucun. Lecture seule ; aucune transaction, aucun appel au runner, aucun accès au registre de budget. `loanEscrowBinding` ne fait que lire la configuration.
+
+**Base de données** : aucune migration, aucune écriture.
+
+**Interface** : tout passe par l'échappement React (pas de `dangerouslySetInnerHTML`) ; liens internes `/proof/<encodeURIComponent(id)>` et `/api/certificate/<encodeURIComponent(id)>/attestation` ; lien externe construit sur la base fixe de l'explorateur avec un hash validé, `target="_blank" rel="noreferrer noopener"`. CSP du proxy appliquée à la page ; `nosniff` et `X-Frame-Options: DENY` globaux.
+
+**Textes** : relire `presentation.ts` et `certificate-view.tsx`. Aucune promesse sur la qualité du modèle (« This certificate covers how the model was produced, not its quality »). « on Phala Cloud » repose sur le compose hash épinglé de l'application Phala, pas sur une preuve cryptographique du fournisseur d'hébergement.
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Prérequis : un prêt `SETTLED` en mode Phala (quote, event-log, compose hash enregistrés) sur un dataset `LISTED`, son identifiant (`/explorer` ou base), et les trois `SIRIUS_EXPECTED_*` configurés.
+
+1. Ouvrir `/certificate/<id>` en navigation privée, sans wallet → page rendue sans JavaScript nécessaire, nom du dataset, lien « on-chain proof » qui ouvre `/proof/<datasetId>`, CID du modèle, transaction de règlement cliquable vers l'explorateur testnet, trois mesures. Si tout est vérifié : titre « Executed inside an Intel TDX enclave on Phala Cloud », quatre contrôles « Passed », trois « Matches the pinned value ».
+2. Recharger immédiatement → même verdict, rendu rapide (cache) ; aucun nouvel appel sortant vers la collatérale dans les journaux réseau du serveur.
+3. Cliquer « Download raw attestation (JSON) » → fichier `sirius-certificate-<id>.json`. Vérifier `sha256(attestation.payload) == attestation.payloadSha256` (par exemple `node -e` ou `sha256sum` sur la chaîne exacte), et que `report_data` de la quote commence par ce hash (`dcap-qvl` ou outil Phala).
+4. Inspecter le HTML de la page : aucune adresse `0x` à 40 caractères, aucun montant.
+5. `/certificate/<id d'un prêt TRAINING ou ESCROWED>` → « Certificate not available yet », aucun nom de dataset, titre d'onglet générique. Même chose pour un prêt `CANCELLED` (remboursé).
+6. `/certificate/cnexistepas00000000000000` et `/certificate/abc!` → 404. `GET /api/certificate/abc!/attestation` et `GET /api/certificate/<id non réglé>/attestation` → 404 au même corps `{"error":"Certificate not found"}`.
+7. Passer le dataset du prêt en `PRIVATE` (ou le supprimer) → la page et le JSON rendent 404 ; repasser en `LISTED` → le certificat revient.
+8. Retirer `SIRIUS_EXPECTED_COMPOSE_HASH` puis redémarrer → « Enclave execution not fully confirmed », mesure « No pinned value configured », contrôle « Code identity » « Not checked ».
+9. Mettre une valeur épinglée fausse (64 hex différents) puis redémarrer → « not fully confirmed », résumé « may have been upgraded since », mesure « Differs from the pinned value ».
+10. Mettre une valeur épinglée mal formée (`abc`) → la page s'affiche quand même, contrôles locaux en échec de lecture : état « The TDX quote could not be read or checked » (pas de 500).
+11. Couper l'accès sortant à la collatérale (pare-feu, ou PCCS injoignable) → le premier affichage attend au plus 8 s puis montre les mesures avec « Intel TDX hardware : Not checked » et « Reload this page in a few minutes » ; pas de « Failed ».
+12. Ouvrir 70 fois la page en une minute depuis la même IP (derrière l'ingress avec `SIRIUS_TRUST_PROXY_HEADERS=true`) → à partir de la 61ᵉ, « Too many requests ». Même essai sur le JSON : 429 à partir de la 21ᵉ.
+13. Prêt `SETTLED` sans quote (instance hors Phala) → « No hardware attestation recorded », aucun contrôle ni mesure, bouton de téléchargement présent (`tdxQuote: null`).
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+Ajoutés au script `test` : `resolve.test.ts` (11 tests), `verification.test.ts` (14), `presentation.test.ts` (9), `download.test.ts` (5), `page-guard.test.ts` (2), `certificate-view.test.ts` (6, via le rendu en processus séparé) : 47 tests. E2E : `e2e/certificate.spec.ts` (2).
+
+- **Accès et états** : identifiant borné ; 404 pour inexistant, hors format, `DRAFT`/`LISTING`/`PRIVATE`/`DELETED`, `SUSPENDED` sans titre ; certificat pour `LISTED`/`UNLISTED`/`SUSPENDED` avec titre ; « pas encore disponible » pour les six autres statuts et pour neuf pièces manquantes ou mal formées ; quatorze recoupements faussés un par un, hash faux, escrow non approuvé, chaîne inconnue.
+- **Absence de champs privés** : record affichable sans adresse, montant, clé ni escrow ; propriétés de la vue sans adresse, montant, payload ni hash d'enveloppe ; export JSON à clés exactes, sans reçu, devis, hashlock ni clé ; HTML de chaque état sans adresse complète ni nom de champ interne ; états « pas encore disponible » et « busy » sans nom de dataset, CID, `0x` ni lien.
+- **404** : route JSON hors format sans lecture en base ; corps identique pour inexistant et non disponible ; 429 sans lecture ; 500 sans détail.
+- **Verdicts** : seul le cas tout-vérifié porte le titre ; neuf autres combinaisons ne le portent pas ; échecs francs, TCB déclassé, collatérale injoignable, épinglage différent, simulateur, en attente, sans quote, mesure non hexadécimale ; date UTC.
+- **Vérificateur** : cache et expiration, déduplication en vol, plafond par fenêtre, repli local mis en cache, délai de rendu avec remise à `after()`, échéance dure (place rendue, appel compté), plafond des appels non terminés, plafond simultané, vérificateur qui lève de façon synchrone, erreur → contrôles locaux et nouvel essai après une minute, TTL non concluant de cinq minutes, quotes mal formées ou démesurées sans appel, éviction, clé de cache sensible à chaque pièce et valeur épinglée.
+- **Échappement** : nom et CID hostiles rendus en texte.
+- **E2E** (sans base, comme toute la suite) : `/certificate/<hors format>` → 404, aucun appel API du navigateur, ni titre vérifié ni bouton ; `GET /api/certificate/bad%21id/attestation` → 404 JSON `no-store`.
+
+Non couvert :
+- aucun test avec une vraie quote TDX : le dépôt n'a pas de quote d'exemple, et `verifyTdxQuote` n'est pas exercé de bout en bout par ces tests (il l'est par ses propres tests, hors slice) ; le câblage `verifyCertificate` → `verifyTdxQuote` (`skipHardware`) n'est vérifié que par lecture ;
+- la page elle-même (`page.tsx`) n'est pas rendue par un test : le partage d'un seul jeton de débit entre métadonnées et page par `cache`, l'appel réel de `after()` et la lecture de `headers()` ne sont vérifiés que par lecture et par la doc locale de Next 16.3.7 ;
+- les états « prêt » et « pas encore disponible » ne sont pas couverts en e2e (il faudrait une base) ;
+- aucun test de charge ni de comportement multi-instances ;
+- la cohérence de `resolveCertificate` avec la route `GET /api/loans/[id]/attestation` est vérifiée par lecture, pas par un test commun.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- `cuid()` reste le générateur d'identifiants de `Loan` (25 caractères `[a-z0-9]`) : la borne `^[A-Za-z0-9_-]{1,64}$` les accepte.
+- `SETTLED` n'est posé qu'après confirmation on-chain du règlement (vrai dans `settle.ts`, le reaper et la reprise aujourd'hui) : le préimage est donc public quand le certificat apparaît.
+- Les adresses du fournisseur et de l'emprunteur, le montant et la clé de prêt sont lisibles on-chain dans les événements de l'escrow (v6 et v7) : leur présence dans le payload exporté n'expose rien de neuf.
+- Le blob IPFS désigné par `modelCid` est chiffré pour l'emprunteur seul.
+- `SIRIUS_EXPECTED_MRTD`, `SIRIUS_EXPECTED_RTMR3` et `SIRIUS_EXPECTED_COMPOSE_HASH` sont configurés sur l'application web (et pas seulement sur le runner) en staging et en production ; sinon aucun certificat n'atteint le verdict vérifié.
+- L'application web peut joindre la collatérale Intel / PCCS depuis Vercel et le VPS (même besoin que la route attestation existante).
+- `SIRIUS_TRUST_PROXY_HEADERS=true` en production derrière un ingress qui écrase `X-Real-IP` (sinon seul le plafond global s'applique).
+- `after()` maintient bien l'instance pendant la fin de la vérification sur Vercel (comportement documenté de Next 16, non observé ici).
+- Les quotes TDX enregistrées tiennent sous 64 Kio de texte hexadécimal et les event-logs sous 2 Mio.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Identité de l'OS non vérifiée** (§3) : RTMR0-2 et `mrConfigId` ignorés par `verifyTdxQuote`. Le verdict vérifié repose sur MRTD + RTMR3 + compose hash, comme toute la vérification existante du projet. C'est le risque principal de la page : elle rend public un verdict que seule la route des parties exposait.
+2. **Plafonds par instance** : sur Vercel, chaque instance a son cache, son débit et ses plafonds. Un attaquant qui force la montée en instances multiplie les vérifications neuves (10 par minute et par instance). Correctif durable : persister le résultat de vérification (§8).
+3. **Appels réseau non annulables** : `dcap-qvl` n'a ni délai ni `AbortSignal`. Une vérification abandonnée à 30 s continue jusqu'aux délais par défaut d'undici (plusieurs minutes) ; au plus 10 tels appels par instance avant refus de toute vérification neuve.
+4. **Valeurs épinglées et TCB d'aujourd'hui** : après une mise à jour d'enclave ou une révision du TCB, les certificats antérieurs passent en « not fully confirmed », avec une explication mais sans preuve qu'ils étaient valides à l'époque.
+5. **Collatérale injoignable ≡ signature refusée** : `verifyTdxQuote` ne les distingue pas ; la page affiche « Not checked » dans les deux cas, donc une quote à la signature réellement invalide n'apparaît pas en « Failed » (jamais en vérifié non plus), et elle est revérifiée toutes les cinq minutes dans la limite des plafonds.
+6. **Seul `UpToDate` est accepté** : des quotes Phala authentiques en `SWHardeningNeeded` ou `ConfigurationNeeded` s'afficheront « not fully confirmed ».
+7. **Limiteurs globaux sans ingress de confiance** : sans `SIRIUS_TRUST_PROXY_HEADERS=true`, un seul client peut épuiser le quota de la page (1 200/min) ou du JSON (240/min) d'une instance et bloquer les autres visiteurs une minute.
+8. **« Too many requests » en HTTP 200** : un aperçu de lien pris à ce moment-là affiche ce texte.
+9. **Certificat fermé avec le dataset** (§2.2).
+10. **CPU par affichage** : SHA-256 de l'event-log (jusqu'à 2 Mio) pour la clé de cache à chaque affichage d'un certificat prêt, borné par le débit.
+11. **Logique de cohérence dupliquée** avec `GET /api/loans/[id]/attestation` : une évolution du payload (version 3) doit toucher les deux.
+12. **JSON volumineux** : jusqu'à environ 2 Mio par réponse (event-log), 240 réponses par minute et par instance au plus.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0** : bouton « Certificate » sur chaque entraînement `SETTLED` de la page Train, vers `/certificate/${loan.id}` (session Train).
+- **P0** : configurer `SIRIUS_EXPECTED_MRTD`, `SIRIUS_EXPECTED_RTMR3`, `SIRIUS_EXPECTED_COMPOSE_HASH` et `SIRIUS_TRUST_PROXY_HEADERS=true` sur les projets Vercel staging et production ; vérifier un certificat réel sur staging (§4).
+- **P0** (couloir TEE) : épingler et vérifier RTMR0-2 (ou l'empreinte d'image OS dstack) et `mrConfigId` dans `verifyTdxQuote` ; exiger leur correspondance dans `codeIdentityMatches`.
+- **P1** : persister le résultat de vérification au règlement (colonnes `quoteVerifiedAt`, `tcbStatus`, verdict, valeurs épinglées utilisées) et faire de la page un simple lecteur : supprime l'amplification multi-instances et fige le verdict « au moment du calcul ».
+- **P1** : historique des mesures approuvées (liste des compose hash et RTMR3 successifs) pour qu'une mise à jour d'enclave ne déclasse pas les certificats antérieurs.
+- **P1** : distinguer dans `verifyTdxQuote` l'échec de collatérale (réseau) du refus de vérification (signature, révocation).
+- **P1** : passer à `dcap-qvl` un `fetch` avec délai et taille maximale (dispatcher undici ou fork).
+- **P2** : extraire les contrôles de cohérence du payload dans un module partagé par la route attestation et le certificat.
+- **P2** : publier les valeurs de mesure attendues (page de documentation ou JSON signé) pour qu'un tiers compare sans faire confiance au serveur ; commande de revérification hors ligne (V1.2 de [09](09-train-et-certificat.md)).
+- **P2** : statistiques d'entraînement (durée, métriques, horodatage et état du TCB de la quote) ; certificat de la démo Phala ([12](12-test-phala.md)).
+- **P2** : test e2e des états « prêt » et « pas encore disponible » avec une base de test ; quote TDX d'exemple dans les fixtures.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Git Bash, Node v22, pnpm 11.18.0 lancé par `npx -y pnpm@11.18.0` (l'installation locale de pnpm est cassée), `DATABASE_URL=postgresql://x:y@localhost:5432/z` (factice), aucune base, aucun RPC, aucune collatérale Intel. Le script `test` utilise la syntaxe POSIX `NODE_OPTIONS=… node …` : lancé avec `--config.script-shell=bash`. Toutes les commandes ci-dessous sur la tête de la branche après fusion de `origin/staging` (`ec0b768`, PR #44 et #46 ; seul conflit : la liste du script `test`, résolue en gardant les deux côtés).
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Already up to date`, `Done in 518ms using pnpm v11.18.0`, code 0 (premier passage : `Done in 1m 16.8s`, postinstall `✔ Generated Prisma Client (7.8.0)`) |
+| `pnpm exec prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma in 118ms`, code 0 |
+| `pnpm exec tsc --noEmit` | aucune sortie, code 0 |
+| `pnpm lint` | `eslint`, aucune remarque, code 0 |
+| `pnpm --config.script-shell=bash test` | `# tests 776`, `# pass 704`, `# fail 72`, `# cancelled 0`, code 1. **Échec d'environnement, pas de la slice** : les 72 échecs sont tous dans des fichiers hors slice qui dépendent de POSIX (`src/lib/runner/budget.test.ts` 54, `replay.test.ts` 7, `scripts/initialize-runner-volume.test.ts` 4, `src/lib/auth/self-training-routes.test.ts` 3 — chemins `\\` au lieu de `/`, `src/runner/server.test.ts`, `src/lib/runner/monitoring.test.ts`, `src/lib/copy/disclaimers.test.ts` — graphe d'imports avec chemins Windows, `scripts/runner-cli.test.ts`, 1 chacun) ; même liste de fichiers et même nombre avant la fusion (`# tests 722`, `# pass 650`, `# fail 72`) et que le relevé de `staging` sur cette machine consigné par N3. Les 47 tests de la slice passent tous. |
+| Tests de la slice seuls (`node --import tsx --test src/lib/certificate/*.test.ts`, `NODE_OPTIONS=--conditions=react-server`) | `# tests 47`, `# pass 47`, `# fail 0`, `# cancelled 0` ; répété 8 fois après la dernière correction, 8 fois vert |
+| `pnpm audit:deps` | `2 vulnerabilities found`, `Severity: 1 low \| 1 high (1 ignored)`, code 0 ; aucune dépendance ajoutée, état identique à `staging` |
+| E2E, suite complète (`playwright test`, chromium, `next dev`, port 3137 via une configuration locale hors dépôt qui étend `playwright.config.ts`, car 3100 est réservé à une autre session) | après fusion : `107 passed (1.0m)`, code 0 ; avant fusion : `99 passed (52.0s)` ; `e2e/certificate.spec.ts` seul : `2 passed` |
+| `git diff --name-only staging...HEAD` (contre `origin/staging`) | 19 fichiers + cette section : `e2e/certificate.spec.ts`, `package.json`, `src/app/api/certificate/[loanId]/attestation/route.ts`, `src/app/certificate/[loanId]/{certificate-view,page}.tsx`, `src/lib/certificate/{display,download,load,page-guard,presentation,resolve,verification}.ts`, `src/lib/certificate/certificate-view.render.tsx`, `src/lib/certificate/{certificate-view,download,page-guard,presentation,resolve,verification}.test.ts`. Aucun fichier interdit (ni page Train, ni `src/app/api/loans/**`, ni `src/lib/tee/**`, ni runner, ni contrats, ni layout, ni composant partagé). |
+| `git log staging..HEAD --format=%B` passé au crible (co-signature, nom de l'assistant, lien de session, mention de génération, `[skip ci]`) | aucune occurrence ; auteur et committeur de chaque commit : `alibenyezza` |
+
+Non exécuté : `pnpm build` (non demandé ; la compilation Turbopack de la page et de la route a été exercée par `next dev` pendant les e2e), `test:postgres`, contrats, `test:phala-demo`. Aucun certificat réel n'a été affiché : pas de base ni de prêt Phala réglé sur la machine (§4 à faire sur staging).
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
 
+Méthode : trois passages de relecture adversariale par des agents indépendants, en lecture seule, avec accès au dépôt et à `node_modules`. Passage 1 : deux relecteurs en parallèle (fuite de données, contrôle d'accès, injection et exactitude du verdict ; déni de service, cache et robustesse de la vérification). Passage 2 : un relecteur sur le code corrigé, avec la liste de ce qui était déjà traité, chargé de vérifier les corrections et de chercher du neuf. Passage 3 : un relecteur sur les seules corrections du passage 2. Arrêt quand un passage ne remonte plus rien de nouveau à corriger.
+
+**Passage 1, défauts remontés et suite** (corrections dans `2afe697`)
+
+| Défaut | Gravité | Suite |
+|---|---|---|
+| Verdict vérifié atteignable avec un OS non mesuré (RTMR0-2, `mrConfigId` ignorés par `quote.ts`) | haute | hors périmètre (`src/lib/tee/**` interdit) : résumé reformulé pour ne dire que ce qui est vérifié ; documenté §3, §7.1, §8 P0 |
+| Page publique sans limite de débit (lecture en base, parse, rendu à chaque requête) | haute | corrigé : `page-guard.ts`, débit avant toute lecture, un jeton par requête |
+| Plafond « global » par instance en serverless | haute | documenté §7.2, §8 P1 (persistance du verdict) |
+| `dcap-qvl` sans délai réseau : vérifications bloquées accumulées | moyenne | corrigé : échéance dure 30 s, plafond de 5 simultanées ; non-annulation documentée §7.3 |
+| Collatérale injoignable affichée « Failed » | moyenne | corrigé : « Not checked », verdict `incomplete` |
+| Écart avec les valeurs épinglées après mise à jour d'enclave affiché comme échec | moyenne | corrigé : verdict `incomplete` avec explication |
+| Vérification lente : le remplissage du cache après la réponse n'est pas garanti en serverless | moyenne | corrigé : promesse confiée à `after()` |
+| Contrôles locaux recalculés, double rejeu de l'event-log | moyenne | en cache ; double passe dans `identity.ts` hors périmètre ; borné par le débit (§7.10) |
+| Pannes déterministes et simulateur consomment le budget de vérification | basse | accepté (budget d'une vérification par minute et par clé au plus) |
+| Clé de cache sans la quote, l'event-log ni les valeurs épinglées | basse | corrigé : `verificationCacheKey` (SHA-256 de toutes les pièces) |
+| JSON servi en 200 alors que la page dit « pas disponible » pour une chaîne inconnue ; explorateur absent → 500 | basse | corrigé : chaîne résolue dans `resolveCertificate`, lien explorateur facultatif |
+| Event-log inutilisable annoncé « No event log was recorded » | basse | corrigé : « No usable event log » |
+| Libellé « rate-limited » pour un dépassement de délai | basse | corrigé |
+| `settledAt` = heure d'enregistrement | basse | corrigé : libellé « Settlement recorded » |
+| Débit global du JSON monopolisable, sortie volumineuse | basse | plafonds abaissés (20/240) ; prérequis d'ingress documenté §7.7, §8 |
+| Entrée « en vol » orpheline si le vérificateur levait de façon synchrone (trouvé en relisant pendant le passage) | basse | corrigé : `Promise.resolve().then`, test dédié |
+
+Tenté sans défaut au passage 1 : projection Prisma, champs de la vue et du JSON, préimage (absent du payload, certificat après `SETTLED` seulement), datasets privés ou supprimés (404 identique, même lecture), escrow non approuvé, `content-disposition` (identifiant borné), XSS (échappement React, hrefs encodés ou sur base fixe), liens externes, cache de page entre visiteurs (layout `force-dynamic`, JSON `no-store`), TD en mode debug (refusée par `dcap-qvl`), simulateur et valeurs épinglées absentes (jamais « vérifié »), rejets non gérés, minuteurs, cohérence avec la route attestation (16 recoupements identiques, `auditReceipt` non exporté).
+
+**Passage 2** (corrections dans `76802e9`) : corrections du passage 1 vérifiées justes (`after()` et `headers()` conformes à la doc locale de Next 16.3.7, `cache` partagé entre métadonnées et page, clé de cache sans collision, aucune exception non rattrapée pendant le rendu). Nouveaux défauts :
+
+| Défaut | Gravité | Suite |
+|---|---|---|
+| Une vérification abandonnée ou en erreur affichait « quote illisible » pendant 5 min, sans mesures, et pouvait masquer un échec franc (`reportDataMatches=false`) visible juste avant | moyenne | corrigé : entrée sans résultat → contrôles locaux (`pending` avec mesures) ; `error` réservé à l'échec des contrôles locaux |
+| L'échéance dure rendait la place sans arrêter l'appel : la concurrence réelle n'était plus bornée | basse | corrigé : compteur des appels non terminés, refus au-delà de 2 × `maxInFlight`, test dédié |
+| TCB déclassé depuis affiché comme échec franc (même raisonnement que l'épinglage) | basse | corrigé : verdict `incomplete`, résumé avec le statut TCB |
+| « The Intel TDX quote below » alors qu'aucune quote n'est affichée | basse | corrigé |
+| « Too many requests » servi en HTTP 200 | basse | accepté et documenté (§2.11, §7.8) |
+| Test sans échéance dure laissant deux minuteurs de 30 s (fichier de test à 31 s) | basse | corrigé (le fichier passe en moins de 2 s) |
+| Branchement de la page (`after()`, jeton unique, `headers()`) non testé | basse | documenté §5 |
+
+**Passage 3** (sur `76802e9` seul) : corrections du passage 2 vérifiées justes (compteur des appels non terminés jamais négatif, aucun rejet non géré, aucun appel réseau ni boucle via les contrôles locaux, verdict vérifié non atteignable à tort, statut TCB `Revoked` toujours en « Not checked » car `dcap-qvl` lève). Un défaut réel : le test du plafond simultané était devenu instable (3 échecs sur 11 en suite complète) à cause de l'échéance dure de 20 ms et de la granularité des minuteurs Windows ; un commentaire de type périmé. **Corrigés** (`740439f`) : l'échéance dure revient à sa valeur par défaut dans ce test et son minuteur ne retient plus le processus.
+
+**Vérification de cette dernière correction** : le passage de la suite complète a montré que détacher aussi l'attente du rendu (et pas seulement l'échéance dure) laissait la boucle d'événements se vider pendant un test qui l'attendait (11 tests « cancelled »). **Corrigé** (`bc25afe`) : seul le minuteur de l'échéance dure est détaché. Suite complète ensuite : `# cancelled 0`, tests de la slice 8 fois verts d'affilée. Pas de passage de revue supplémentaire : la correction tient en une condition sur un minuteur, couverte par la suite.
+
+Écarté : aucun défaut remonté n'a été jugé faux. Ceux non corrigés sont hors périmètre (`src/lib/tee/**`, proxy) ou acceptés, et listés en §7 et §8.
