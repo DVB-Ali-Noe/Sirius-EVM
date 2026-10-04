@@ -60,7 +60,7 @@ export function ProductTour() {
   const current = steps[step];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div data-product-tour className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-xl">
         <div className="text-xs uppercase tracking-wider text-muted">
           {t("Étape {current} / {total}", { current: step + 1, total: steps.length })}
