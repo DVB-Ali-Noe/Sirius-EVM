@@ -1359,42 +1359,204 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## N2 — Upload en deux étapes
 
+Branche `feat/upload-deux-etapes`, partie de `staging` (e829cfc), `origin/staging` (2f6ae81, PR #39) refusionné avant la PR. Cahier : [07-upload.md](07-upload.md), [01 §3-4](01-decisions-avant-samedi.md), [16 §2 et §4](16-socle-technique.md). La vague 1 avait livré les colonnes `category`, `listingExpiresAt`, `trainingConsentAt/Version/RevokedAt` (A1) et les composants `PriceBreakdown`, `DisclaimerNote`, `src/lib/copy/disclaimers.ts` (A2) ; cette slice est la première à **écrire** ces colonnes et à **monter** ces composants sur une page réelle.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+`git diff --name-only origin/staging...HEAD` : 32 fichiers (liste en fin de section). Aucune migration, aucun contrat, aucun fichier du runner (`src/runner/**`, `src/lib/runner/**`) ni de `src/components/**`.
+
+**Page d'upload (`src/app/(app)/datasets/new/`)**
+- `page.tsx` : devient un **composant serveur** (`export const dynamic = "force-dynamic"`, option encore documentée dans Next 16 sans `cacheComponents`) qui lit le tarif en vigueur (`publishedTariff()`) et le jeton du réseau (`settlementToken()`), puis rend le formulaire client. Il remplace l'ancien formulaire à une étape (prix + « délai de remboursement » 1–30 jours).
+- `NewDatasetWizard.tsx` (client) : trois phases `data` → `securing` → `pricing` ; fichier lu en mémoire (`ArrayBuffer` + texte) ; contrôle du CSV recalculé quand le profil change ; empreinte SHA-256 locale pendant la transition (durée minimale 2,4 s, lignes affichées en séquence, états annoncés aux lecteurs d'écran, une erreur ramène à l'étape 1) ; publication avec progression par étape ; reprise de la seule inscription on-chain quand le dataset est déjà scellé ; focus clavier replacé sur le panneau à chaque changement d'étape.
+- `DataStep.tsx` : dépôt (glisser-déposer + champ natif), raison exacte du refus (`role="alert"`), résumé du fichier accepté (lignes de données, colonnes, colonnes numériques, colonne cible = dernière colonne numérique, liste dépliable), jeu d'exemple, nom (120), description (2 000), catégorie obligatoire (liste fixe), profil d'entraînement. Encart `DisclaimerNote messages={["dataLimits"]}`.
+- `PricingStep.tsx` : « What I want to earn per loan ({symbol}) », `PriceBreakdown perspective="provider"` en direct dès qu'une saisie est valide (part, frais de calcul du profil choisi, total emprunteur, minimum), durée 7 / 30 / 90 jours (30 par défaut, échéance indicative « à compter de l'inscription on-chain »), note sur le délai de sécurité de 3 jours fixé par Sirius, estimations (lignes, colonnes, taille chiffrée ≈ taille + 16 octets d'étiquette AES-GCM, modèle, cible), `DisclaimerNote variant="warning"` (texte commun `modelQuality` + `contactUs`), case de consentement décochée (texte de 07 au mot près, version affichée), progression (brouillon, chiffrement, scellement, titre on-chain avec sous-étapes), erreurs avec lien vers Mes datasets si le dataset est déjà scellé. **Sans tarif chargé, la publication est suspendue** avec explication.
+- `wizard-types.ts` : types partagés et classes Tailwind communes (anneau de focus `focus-visible`, visible en contraste forcé).
+
+**Logique de publication (`src/lib/datasets/`, nouveaux fichiers ; `manage.ts` non touché)**
+- `publication.ts` (pur) : `MAX_NAME_LENGTH` / `MAX_DESCRIPTION_LENGTH` (partagées formulaire + route), `DATASET_CATEGORIES` (Finance, Health, Commerce, Industry, Mobility, Energy, Marketing, Other — identifiants stockés), `DATASET_CATEGORY_LABEL_KEYS`, `parseDatasetCategory`, `LISTING_DURATIONS_DAYS` [7, 30, 90], `DEFAULT_LISTING_DURATION_DAYS` 30, `parseListingDurationDays`, `listingExpiryFrom`, **`ESCROW_CHALLENGE_DAYS = 3`**, `TRAINING_CONSENT_TEXT_KEY` + `TRAINING_CONSENT_VERSION` (`2026-10-04`), `parseTrainingConsent` (booléen strict, absent = non), `rebasedListingExpiry`.
+- `csv-check.ts` (pur, navigateur et Node) : `checkFileSize`, `inspectCsv(text, modelId)` qui reproduit dans le même ordre les contrôles de `validateTrainingDataset` (`src/lib/tee/train.ts`) avec le même parseur `parseCsv` et les constantes importées (`MAX_DATASET_BYTES`, `MAX_CSV_ROWS`, `MAX_CSV_COLUMNS`, `MIN_TRAINING_ROWS`, `MIN_ROWS_PER_PARAMETER`, `MAX_TRAINING_FEATURES`, `MAX_TRAINING_OPERATIONS`), `csvRejectionText` (raison traduite).
+- `price-input.ts` (pur) : `parseProviderPrice(value, decimals)` (mêmes règles que `priceUsdcToAtomic`, précision passée par le serveur), `minimumProviderPriceAtomic(decimals)`.
+- `tariff.ts` (pur) : `PublishedTariff`, `tariffFromPolicy(policy, scope)` (frais = max(profil, minimum), comme `prepareComputeQuote`), `legacyTariff` (frais nuls sans facturation v7), `providerPriceBreakdown`. `tariff-server.ts` (`server-only`) : `publishedTariff()` lit `billingPolicy()` (`RUNNER_BILLING_POLICY_FILE`), vérifie chaîne, jeton et décimales, mémoïse 5 s ; `null` en cas d'absence, de péremption ou d'incohérence.
+- `token.ts` : `settlementToken(network)` → `{ symbol: "USDG" | "USDC", decimals: USDC_DECIMALS }`.
+- `create-request.ts` (pur) : `parseCreateDatasetRequest(body)`, toute la validation serveur de `POST /api/datasets` ; `challengeDays` toujours `ESCROW_CHALLENGE_DAYS`.
+- `draft.ts` (`server-only`) : `createDatasetDraft(request, provider)` = `beginDatasetIngestion` (pipeline inchangé, `challengeDays: 3`) puis lecture de `createdAt` et `updateMany` conditionné (`DRAFT`, même fournisseur, sans CID ni clé) posant `category`, `listingExpiresAt = createdAt + durée`, `trainingConsentAt`, `trainingConsentVersion` ; échec → brouillon supprimé et erreur propagée.
+- `draft-response.ts` (pur) : `checkDraftResponse` relit la réponse du serveur avant chiffrement et signature (identifiant, clé d'ingestion, prix atomique, taille, profil, catégorie, durée, consentement, **`challengeDays === 3`**).
+- `upload-client.ts` (client) : `uploadAndPublishDataset` = brouillon → chiffrement (`encryptDatasetForRunner`, inchangé) → grant `seal-dataset` (mêmes `intentParts`, même ordre que l'ancienne page) → `POST /api/datasets/{id}/upload` → `publishDataset` ; `UploadError` porte l'étape et l'identifiant scellé.
+- `client.ts` : `publishDataset(datasetId, onStage?)` gagne un rappel de progression facultatif ; signature rétro-compatible (Mes datasets et la démo Phala l'appellent sans second argument).
+
+**Routes**
+- `src/app/api/datasets/route.ts` : `POST` réécrit autour de `parseCreateDatasetRequest` + `createDatasetDraft` ; `GET` inchangé. Corps accepté : `name`, `description?`, `sizeBytes`, `priceUsdc`, `category`, `listingDays`, `trainingConsent?`, `modelId`. Réponse 201 : champs de `beginDatasetIngestion` + `category`, `listingDays`, `listingExpiresAt`, `trainingConsentAt`, `trainingConsentVersion`, `challengeDays: 3`.
+- `src/app/api/datasets/[id]/upload/route.ts` et `[id]/list/route.ts` : **non modifiés**.
+
+**Mise en ligne (`src/lib/sirius/provider.ts`)** : `markDatasetListed` rebase `listingExpiresAt` sur la date de mise en ligne avec la durée choisie (`rebasedListingExpiry`) à la transition `DRAFT` → `LISTED` ; rien n'est touché si la valeur n'est pas reconnue ou en mode `SIRIUS_PHALA_DEMO`. `provider.test.ts` : une ligne (dépendance simulée `@/lib/datasets/publication`).
+
+**Démo Phala (`src/lib/phala-demo/training-client.ts`)** : une ligne, le corps de `POST /api/datasets` envoie `category: "Other"`, `listingDays: 7`, `trainingConsent: false` et plus de `challengeDays` (sinon la démo, conservée sur staging, recevait 400).
+
+**Traductions** : `src/lib/i18n/upload-en.ts` (nouveau, fusionné dans `EN_MESSAGES` par `english.ts`, +2 lignes). Texte du consentement et catégories au mot près.
+
+**Tests** : `package.json`, 6 fichiers ajoutés à la fin du script `test` (après `access-log-wiring.test.ts` de staging). E2E : `e2e/upload.spec.ts` (nouveau, 3 tests), `e2e/responsive.spec.ts` (test de l'upload adapté).
+
+Liste des fichiers : `e2e/responsive.spec.ts`, `e2e/upload.spec.ts`, `package.json`, `src/app/(app)/datasets/new/{DataStep,NewDatasetWizard,PricingStep}.tsx`, `src/app/(app)/datasets/new/{page.tsx,wizard-types.ts}`, `src/app/api/datasets/route.ts`, `src/lib/datasets/{client,create-request,csv-check,draft,draft-response,price-input,publication,tariff,tariff-server,token,upload-client}.ts`, `src/lib/datasets/{create-request,csv-check,draft-response,price-input,publication,tariff}.test.ts`, `src/lib/i18n/{english,upload-en}.ts`, `src/lib/phala-demo/training-client.ts`, `src/lib/sirius/{provider,provider.test}.ts`, `docs/passage-mainnet/audit.md`.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **L'« animation de chiffrement » ne chiffre pas.** La clé de chiffrement est dérivée de l'identifiant du brouillon et de la clé d'ingestion de l'enclave, obtenus par `POST /api/datasets`, qui exige le prix — connu seulement à l'étape 2. Créer le brouillon avant le prix aurait multiplié les brouillons abandonnés (quotas de `pipeline.ts` : 5 ouverts, 10 par heure). La transition fait donc **ce qu'elle dit** : fichier lu en mémoire, empreinte SHA-256 calculée sur l'appareil (affichée), et l'annonce que le chiffrement aura lieu ici, à la publication, pour la clé de l'enclave. Le chiffrement réel est l'étape « Encrypting on your device » de la progression. Une erreur (digest impossible) ramène à l'étape 1 avec son message.
+2. **Colonne cible affichée, pas choisie.** L'enclave entraîne toujours sur la **dernière colonne numérique** (`validateTrainingDataset` appelle `trainingColumns` sans cible, `src/lib/tee/train.ts`) et `ModelSelection` ne transporte aucune cible ; le runner est hors périmètre. Le formulaire montre la cible que l'enclave utilisera et explique comment la changer (réordonner les colonnes). Laisser choisir une cible non honorée aurait été un mensonge.
+3. **Tarif lu depuis la politique de facturation du runner, sur l'instance Next.** Aucune route (Next ni runner) n'expose le tarif et `src/runner/**` est interdit. `publishedTariff()` lit `RUNNER_BILLING_POLICY_FILE` avec `billingPolicy()` (même format, même validation que le runner), refuse une politique d'une autre chaîne, d'un autre jeton ou d'une autre précision, et mémoïse 5 s (page publique, lecture disque). Conséquence opérationnelle : **l'instance Next doit recevoir la même copie de la politique que le runner** (§8). Sans elle, la page le dit et **suspend la publication** : le cahier exige la décomposition avant « Publier », et un fournisseur ne doit pas publier sans connaître le total payé par l'emprunteur. Revue : première version autorisait la publication sans décomposition ; corrigé.
+4. **Sans facturation v7 (`SIRIUS_BILLING_VERSION` ≠ 7), frais de calcul nuls.** L'escrow v6 bloque le seul prix du dataset (`lockUsdcTransaction`, contrat v6) ; `SiriusEscrowV7.sol` crédite `datasetAmount` au fournisseur et `computeAmount` au `computeRecipient` sans prélèvement. Le tarif `legacy-v6` affiche 0 avec un texte dédié. C'est la situation du testnet de staging et des e2e.
+5. **Le minimum « imposé par le tarif » est `MIN_PRICE_USDC_ATOMIC` (0,001 jeton)**, seul plancher que la route applique à la part du fournisseur (`priceUsdcToAtomic`) et que `parseComputeQuote` exige sur le total. La politique de facturation n'a pas de minimum sur la part fournisseur. Il est connu localement (`minimumProviderPriceAtomic`) et affiché même sans tarif ; le champ refuse en dessous ; `PriceBreakdown` afficherait l'alerte si un tarif futur posait un minimum plus haut.
+6. **Durée de publication ancrée sur `createdAt` puis rebasée à la mise en ligne.** `listingExpiresAt` est posé à la création du brouillon (seule place persistante sans nouvelle colonne, `prisma/` interdit) à `createdAt + durée` exactement, puis recalculé dans `markDatasetListed` : même durée, nouveau point de départ. Un brouillon scellé mais signé plusieurs jours après garde ses 7 / 30 / 90 jours pleins. La durée est reconnue par différence arrondie au jour (tolérance d'une minute, défensive) ; une valeur inconnue n'est pas touchée (datasets d'avant le champ, lignes modifiées par N1). Revue : première version prenait l'horloge serveur après l'appel runner (jusqu'à 60 s) ; corrigé.
+7. **Deux écritures pour un brouillon.** `beginDatasetIngestion` (`pipeline.ts`, hors périmètre) ne connaît pas les champs de catalogue ; `createDatasetDraft` les pose juste après par `updateMany` conditionné et supprime le brouillon si cette écriture échoue. Entre les deux, le brouillon existe sans catégorie quelques millisecondes ; il n'est pas publiable (pas de CID) et le client ne connaît pas encore son identifiant.
+8. **Le client relit la réponse du serveur** (`checkDraftResponse`) avant de chiffrer et de signer : prix, taille, profil, catégorie, durée, consentement et `challengeDays === 3`. Une réponse altérée arrête tout avant l'envoi du fichier (e2e dédié).
+9. **Deux constantes privées de `train.ts` reproduites** dans `csv-check.ts` : `MAX_ABS_VALUE` (1e12) et `LOGISTIC_ITERATIONS` (200), non exportées et `src/lib/tee/**` interdit. Toutes les autres limites sont importées. `csv-check.test.ts` rejoue `validateTrainingDataset` sur les fichiers à la frontière (99/100 lignes, 319/320 à 31 variables, 3125/3126 logistique, 19 531/19 532 linéaire, 19 999/20 000, 1e12 / 1e12+1) : toute dérive casse le test.
+10. **Catégories stockées en anglais** (`Finance`, `Health`, …), clés de traduction françaises pour l'affichage, comme le reste de l'interface. Comparaison exacte côté serveur, sans normalisation.
+11. **Consentement : absent = non.** Le corps peut omettre `trainingConsent` ; toute valeur non booléenne est refusée. Date et version posées **uniquement** si `true`. Le retrait depuis la fiche (N1) est annoncé au futur (« You will be able to withdraw it… ») : il n'existe pas encore.
+12. **Prix saisi en texte** (`inputMode="decimal"`), converti avec `token.decimals = USDC_DECIMALS` (même source que la route) ; `price-input.test.ts` vérifie l'accord avec `priceUsdcToAtomic`. Message d'erreur serveur neutre quant au jeton (« Invalid price (0.001 to 1,000,000 per loan) »).
+13. **Reprise après échec.** Si l'inscription on-chain échoue après le scellement, le bouton devient « Resume the on-chain registration », les champs et le retour sont gelés, et seule `publishDataset` est relancée : pas de second brouillon. Si l'échec précède le scellement, le brouillon reste (nettoyé après 30 minutes par `pipeline.ts`, ou supprimé par le runner sur refus du fichier) et une nouvelle tentative crée un nouveau brouillon — comme l'ancienne page.
+14. **Fichiers hors de la liste explicite, modifiés d'une ligne chacun** : `src/lib/sirius/provider.test.ts` (son bac à sable refuse toute dépendance non simulée) et `src/lib/phala-demo/training-client.ts` (la démo Phala, conservée sur staging selon 12-test-phala.md, créait des datasets sans catégorie ni durée et aurait reçu 400 ; trouvé en revue).
+15. **E2E existants adaptés** (`responsive.spec.ts`) et spec dédié ajouté, la consigne demandant de vérifier et d'adapter les e2e de publication.
+16. **Jeton affiché** : `settlementToken` donne USDG sur mainnet, USDC sur le testnet ; A8 pourra la remplacer par sa fabrique.
+17. **`origin/staging` refusionné** (2f6ae81, journal des accès) ; seul conflit : la ligne `test` de `package.json`, résolue en gardant les deux listes.
+18. **Identité des commits** : auteur et committeur `alibenyezza <149864846+alibenyezza@users.noreply.github.com>`, aucune signature d'assistant. `CLAUDE.md` / `AGENTS.md` générés par `next dev` dans le worktree : non versionnés.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès, route par route**
+- `POST /api/datasets` : `requireAuth` avant toute lecture du corps ; le fournisseur est `session.address`, jamais le corps. `beginDatasetIngestion` applique `requireAcceptedKyb` et les quotas (inchangés). L'`updateMany` de `draft.ts` est conditionné à `provider` + `status: "DRAFT"` + `ipfsCid: null` + `wrappedKey: null`.
+- `POST /api/datasets/[id]/upload`, `POST/PUT /api/datasets/[id]/list` : inchangés (grant runner authentifié, `assertOwner`).
+- `page.tsx` : composant serveur sans authentification ; il ne lit que le tarif et le réseau, rien du wallet. `PublishedTariff` renvoyé au navigateur contient uniquement `tariffVersion`, les deux montants de calcul, le minimum et les décimales — ni `computeRecipient`, ni `costReference`, ni `validUntil`, ni le chemin du fichier.
+
+**Validation et bornes** (`create-request.ts`, tests) : nom 1–120 après `trim`, description ≤ 2 000, `sizeBytes` entier sûr 1..`MAX_DATASET_BYTES`, `priceUsdc` chaîne 0,001..1 000 000 avec au plus `USDC_DECIMALS` décimales, `category` exacte dans la liste, `listingDays` nombre ∈ {7, 30, 90} (« 30 » refusé), `trainingConsent` booléen ou absent, `modelId` connu (`Object.hasOwn`). **`challengeDays` n'est pas lu** : `grep challengeDays src/lib/datasets/create-request.ts` ne montre que la constante. Ordre des contrôles fixe (test). Corps : `readJson` 16 Ko.
+
+**Fuites** : les messages d'erreur ne reprennent jamais une valeur reçue ; `tariff-server.ts` et `draft.ts` ne journalisent que la classe de l'erreur ou l'identifiant ; la réponse du `POST` renvoie au fournisseur sa propre trace de consentement, ce qui est voulu — les lectures de catalogue restent protégées par l'`omit` de `db.ts`. Aucune donnée d'un autre wallet n'est lue.
+
+**Argent, escrow, contrats, Phala** : aucun changement de contrat ni de moteur. Chaîne `challengeDays = 3` : constante → `createDatasetDraft` → ligne `Dataset` → `authorizeDatasetUpload` → `sealDatasetInRunner` (le runner borne 1..30 et compare l'intent, `src/runner/handler.ts`) → reçu de l'enclave → `prepareComputeQuote` (`challengeDays: input.dataset.challengeDays`) → `parseComputeQuote` (1..30) → `lock`. Le navigateur signe l'intent `seal-dataset` avec `String(draft.challengeDays)` après avoir vérifié `=== 3`. Frais de calcul affichés = `max(profile.computeAmount, minimumComputeAmount)`, identiques à `prepareComputeQuote` (test). Total = somme exacte en `bigint` (`PriceBreakdown`) ; fuzz de revue : 600 000 saisies, 0 divergence entre `parseProviderPrice` et `priceUsdcToAtomic` (6 et 18 décimales).
+
+**Base de données** : aucune migration ; les colonnes écrites existent depuis A1. Cohérence : `category` ∈ liste fixe, `listingExpiresAt` = `createdAt` + durée puis mise en ligne + durée, `trainingConsentAt` et `trainingConsentVersion` nuls ou tous deux posés, `challengeDays` = 3 sur toute ligne créée par cette route. Les lignes antérieures gardent leur valeur (01 §3). Le défaut Prisma `challengeDays @default(7)` subsiste (aucun chemin ne l'utilise, voir §8).
+
+**Interface** : aucun `dangerouslySetInnerHTML` ; noms de fichier, de colonnes, messages serveur rendus par React (échappés). Liens : `/datasets` en dur, `mailto:` via `DisclaimerNote`. Texte du consentement et catégories constants.
+
+**Textes** : avertissement commun inchangé (`modelQuality` + `contactUs`, source unique 16 §4) ; « Encryption happens here, at publication, for the enclave key: your plain data never leaves your browser » est vrai (`encryptDatasetForRunner`, ECDH P-256 + HKDF + AES-GCM dans le navigateur) ; « No extra commission during the beta » : vrai au vu du contrat v7 et du v6 (frais de réseau à part, comme partout) ; « The enclave trains on the last numeric column » : `train.ts`, `targetIdx = numeric[numeric.length - 1]`.
+
+**Signatures d'assistant** : `git log origin/staging..HEAD --format=%B` sans `Co-Authored-By`, `Claude`, `Generated`, lien `claude.ai`, `[skip ci]`.
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. **Fichier refusé avant tout envoi.** Déposer un CSV de 3 lignes → « Not enough rows: 2, minimum 100 for this number of features. », bouton « Continue to pricing » désactivé, onglet Réseau vide. Fichier de 3 Mio + 1 octet → « File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB. » sans lecture du contenu. Fichier vide → « The file is empty. ».
+2. **Profil et cible.** Charger `credit-default-train.csv` en logistique → accepté, cible `defaulted`. Basculer sur linéaire → toujours accepté. Charger `housing-prices-train.csv` puis passer en logistique → « For logistic regression, the target column “price_eur” must contain only 0 and 1… » ; revenir en linéaire → accepté.
+3. **En-têtes.** Deux colonnes du même nom ou une colonne sans nom → « Invalid header… ». Colonne texte au milieu → acceptée si au moins deux colonnes numériques, absente de « Show numeric columns ».
+4. **Transition.** « Continue to pricing » : trois lignes s'allument l'une après l'autre, l'empreinte s'affiche, l'étape 2 arrive après 2 à 3 secondes ; « Step 2 of 2 » ; le focus est sur le panneau ; « ← Back to your data » revient avec le fichier et les champs intacts.
+5. **Prix.** Champ vide → encart neutre « Enter your share to see what the borrower will pay. Minimum… », pas d'alerte. `0.0001` → « Invalid amount… », bouton désactivé. `12.5` → « You receive 12.50 USDG / Compute fee (Phala enclave) x / Borrower pays 12.50 + x USDG », « Minimum set by the tariff: 0.001 USDG. ». `20,5` (virgule) → invalide. `1000000` → accepté ; `1000000.01` → invalide. Changer de profil à l'étape 1 puis revenir : les frais suivent le profil.
+6. **Tarif absent.** Instance sans `RUNNER_BILLING_POLICY_FILE` (ou périmé) en v7 → encart jaune « The tariff in force could not be loaded… Publication is paused… », minimum affiché, bouton désactivé « Publication paused: tariff unavailable. ». Sur staging (v6) : « Compute fee 0.00 », texte « No compute fee with the current escrow… ».
+7. **Durée.** 30 jours coché par défaut ; choisir 90 → « Listed for 90 days from the on-chain registration (around AAAA-MM-JJ) » ; après publication, `listingExpiresAt` en base = date de mise en ligne + 90 jours. Laisser un brouillon scellé 2 jours avant de signer le titre depuis Mes datasets → échéance = mise en ligne + 90 jours.
+8. **Consentement.** Publier sans cocher → `trainingConsentAt` et `trainingConsentVersion` nuls. Cocher → date de la requête et `2026-10-04`. `GET /api/datasets?status=LISTED` ne renvoie pas ces champs.
+9. **challengeDays forcé.** Rejouer `POST /api/datasets` avec `curl` et `"challengeDays": 30` (ou `"1"`, `null`) → 201 avec `"challengeDays": 3` ; ligne en base à 3 ; l'emprunt ultérieur montre un devis à 3 jours (`ComputeQuoteDialog`).
+10. **Catégorie et durée hors liste par `curl`.** `"category": "finance"` → 400 « Category required » ; `"listingDays": "30"` → 400 « Invalid listing duration… » ; `"trainingConsent": "true"` → 400 « Invalid consent value ».
+11. **Réponse altérée.** Avec un proxy, `challengeDays` de la réponse mis à 7 → « Inconsistent escrow safety delay », étape « Creating the draft » en échec, aucun `upload` envoyé (reproduit par l'e2e).
+12. **Progression et échec.** Refuser la signature du titre dans le wallet → « Transaction rejected in your wallet. », étape « Registering the title on-chain » en échec, « The dataset is sealed by the enclave. Finish the on-chain registration from My data assets », champs gelés, bouton « Resume the on-chain registration » ; cliquer → nouvelle demande de signature, pas de second dataset dans Mes datasets.
+13. **Annulation du sélecteur de fichier** pendant une lecture → le formulaire ne reste pas sur « Reading the file… ».
+14. **Démo Phala** (`SIRIUS_PHALA_DEMO=true`, `/phala`) : le parcours crée toujours son dataset (catégorie Other, 7 jours).
+15. **Écran 320 px et police 200 %** : aucun défilement horizontal (e2e `responsive` sur l'étape 1 à 7 tailles ; l'étape 2 n'y est vérifiée qu'à la main).
+16. **Mes datasets** : après la publication, redirection vers `/datasets`, le dataset apparaît en ligne avec sa catégorie et son échéance (affichage à la charge de N1).
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+Ajoutés au script `test` (6 fichiers, 36 tests) :
+- `publication.test.ts` : liste et libellés des catégories (traduits, identiques aux identifiants), correspondance exacte, durées strictes, échéance en millisecondes exactes, constante 3 dans 1..30, consentement strict, texte du consentement au mot près et version datée, rebase (trois durées, décalage toléré, valeurs inconnues ignorées).
+- `csv-check.test.ts` : **parité avec `validateTrainingDataset`** sur 27 cas de bord (lignes, variables, budget de calcul, parseur, en-têtes, classes logistiques, `1e12`, hexadécimal, espaces, `Infinity`, CRLF, guillemets), raisons alignées sur les messages de l'enclave, résumé exact, dépendance au profil, bornes de taille, textes traduits sans paramètre pendant, **jeux d'exemple du formulaire acceptés** par les deux contrôles.
+- `create-request.test.ts` : normalisation, `challengeDays` ignoré pour 13 valeurs, catégorie, durée, consentement, bornes de nom/description/taille/prix/profil, ordre des erreurs, corps non objet, traduction de chaque message.
+- `tariff.test.ts` : frais = max(profil, minimum), refus d'une politique d'une autre chaîne / jeton / précision, tarif v6 nul, décomposition exacte et minimum, **`publishedTariff()` réel** avec un fichier temporaire (valide, mémoïsation, autre chaîne, périmé, illisible, absent, v6, version inconnue).
+- `price-input.test.ts` : plancher local = `MIN_PRICE_USDC_ATOMIC`, accord avec `priceUsdcToAtomic` sur 40 saisies, précision paramétrée, entrées invalides.
+- `draft-response.test.ts` : relecture conforme, `challengeDays` ≠ 3 refusé (7 variantes), termes différents refusés, réponses malformées (dont identifiant de 9 et 65 caractères).
+
+E2E (`e2e/upload.spec.ts`, 3 tests, API simulée, wallet qui signe réellement, chiffrement réel pour une clé P-256 générée par le test) : refus à l'étape 1 sans appel réseau ; parcours complet (exemple chargé, nom, catégorie, transition ≥ 2 s avec empreinte, prix sous le plancher refusé, décomposition, minimum, délai de 3 jours, 30 jours par défaut, 90 choisi, avertissement, consentement coché, publication, redirection, corps du `POST` sans `challengeDays`, enveloppe chiffrée avec grant runner, `list` appelé) ; réponse à 7 jours refusée avant tout chiffrement. `e2e/responsive.spec.ts` : étape 1 à 7 tailles d'écran avec le message de refus.
+
+**Angles morts :**
+- `createDatasetDraft` (deux écritures, suppression compensatoire) et le `POST` de la route n'ont pas de test unitaire (Prisma + `beginDatasetIngestion`) ; vérifiés par relecture et par le cas 9 à la main.
+- Le rebase dans `markDatasetListed` n'est testé qu'au niveau de la fonction pure ; `provider.test.ts` n'exerce pas la mise en ligne.
+- `NewDatasetWizard` / `PricingStep` : pas de test de rendu unitaire ; les e2e ne couvrent ni la reprise après signature refusée, ni le retour à l'étape 1, ni un tarif v7 (frais > 0), ni le tarif absent, ni le glisser-déposer, ni le clavier, ni l'étape 2 aux petites largeurs.
+- La parité `csv-check` ↔ enclave dépend de deux constantes recopiées (§2.9) ; détectée sur les frontières choisies, pas sur un changement d'algorithme du budget. BOM UTF-8 : le navigateur le retire (`TextDecoder`), l'enclave non (`Buffer.toString`) — même verdict sauf en-tête vide précédé d'un BOM (refusé par le navigateur, accepté par l'enclave : direction sûre).
+- Le corps envoyé par la démo Phala n'est couvert par aucun test (`test:phala-demo` ne l'exerce pas).
+- Les e2e ne lancent pas `next build` ; `next dev` compile le composant serveur sans erreur.
+- Aucun test d'accessibilité automatisé.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- L'instance Next de production reçoit `RUNNER_BILLING_POLICY_FILE` (même fichier que le runner). `deploy/vps/compose.yaml` ne le passe pas aujourd'hui, et `docs/BILLING-INTEGRATION.md` le décrit comme local au runner ; la politique ne contient que des montants publics.
+- La fiche du dataset (N1) affichera et renouvellera `listingExpiresAt`, et permettra de révoquer le consentement ; la marketplace (N3) filtrera sur `listingExpiresAt` futur (16 §2). Aujourd'hui aucune route ne lit ce champ.
+- Le texte anglais du consentement et des catégories est celui attendu par le propriétaire ; `2026-10-04` est la première version.
+- Les décimales de `USDC_DECIMALS_BY_NETWORK` correspondent au contrat déployé (contrôle au déploiement, hors slice).
+- `beginDatasetIngestion` reste la seule fabrique de brouillons ; aucun autre code n'écrit `challengeDays`.
+- `encryptDatasetForRunner` et `issueRunnerGrant` n'ont pas changé de contrat ; l'ordre des `intentParts` est celui du runner (`src/runner/handler.ts`, `seal-dataset`).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Tarif non déployé sur Next** → en v7, publication suspendue tant que le fichier n'est pas fourni à l'instance (voulu, mais à régler avant le 6, §8).
+2. **Deux constantes recopiées** (`1e12`, `200`) : une modification de `train.ts` hors des cas testés passerait inaperçue jusqu'au refus par l'enclave (jamais une acceptation à tort).
+3. **Brouillon transitoirement sans catégorie** (quelques millisecondes) et brouillon orphelin si Next tombe entre les deux écritures ou si la connexion tombe après un scellement réussi mais avant sa réponse (plafond de 5 brouillons ouverts, TTL 30 min sans CID ; un brouillon scellé se termine depuis Mes datasets).
+4. **Durée rebasée par heuristique** (différence arrondie au jour) : une autre slice qui écrirait une durée non proposée sur un brouillon ne serait pas rebasée.
+5. **Mode `SIRIUS_PHALA_DEMO`** : passage par `PRIVATE` sans rebase ; `setDatasetVisibility("LISTED")` ne rebase pas non plus. Testnet uniquement.
+6. **`dataLimits` optimiste** (A2 §7.1) toujours affiché tel quel à l'étape 1 ; le contrôle immédiat corrige l'attente (le vrai minimum de lignes est annoncé au refus).
+7. **Pas de choix de cible** : un fournisseur dont la cible n'est pas la dernière colonne numérique doit réordonner son fichier.
+8. **Frais de réseau** (gas du mint, de l'approve/lock) non mentionnés à l'étape 2 ; ils le sont au moment des transactions.
+9. **`listingExpiresAt` sans effet** tant que N1/N3 ne le lisent pas : un dataset reste en ligne après son échéance.
+10. **Re-parse complet** du CSV (jusqu'à 3 Mio) au changement de profil, sur le fil principal.
+11. **`pnpm audit:deps`** : 2 vulnérabilités (1 faible, 1 haute ignorée), identiques à `staging`.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0 (exploitation)** : fournir `RUNNER_BILLING_POLICY_FILE` à l'instance Next (compose VPS, `release-check`) ou exposer le tarif par une route runner ; sans quoi la publication reste suspendue en v7.
+- **P0 (N1)** : affichage et renouvellement de `listingExpiresAt`, révocation du consentement depuis la fiche ; **(N3)** filtre d'échéance sur la marketplace.
+- **P1** : test unitaire de `createDatasetDraft` avec Prisma simulé ; fixture de mise en ligne dans `provider.test.ts` vérifiant le rebase ; test du corps envoyé par la démo Phala.
+- **P1** : exporter `MAX_ABS_VALUE` et `LOGISTIC_ITERATIONS` depuis `train.ts` et faire renvoyer `createdAt` par `beginDatasetIngestion` (couloir runner/pipeline) ; aligner le défaut Prisma `challengeDays` sur 3.
+- **P2** : fabrique centrale du jeton (A8) ; e2e de la reprise après signature refusée, d'un tarif v7 et du tarif absent ; étape 2 aux petites largeurs ; mention des frais de réseau ; retrait du BOM dans `parseCsv` ; mémoïser le parse du CSV indépendamment du profil.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node v22.16.0, pnpm 11.18.0 via `corepack pnpm@11.18.0` (le `pnpm` installé, 10.17.1, refuse de basculer vers la version déclarée dans `packageManager` : outil manquant dans `%LOCALAPPDATA%\pnpm\.tools`), `DATABASE_URL=postgresql://x:y@localhost:5432/z` (factice). Le script `test` écrit `NODE_OPTIONS="…" node …` (syntaxe POSIX) : sous Windows il faut `pnpm --config.shell-emulator=true test`, sinon `'NODE_OPTIONS' n'est pas reconnu` (échec d'environnement, pas de la slice). Toutes les commandes ont été relancées sur l'arbre final fusionné (cca5d80).
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Already up to date`, `Done in 674ms`, exit 0 (première installation du worktree : `Done in 1m 48s`, `Generated Prisma Client (7.8.0)`) |
+| `pnpm prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma in 100ms`, exit 0 |
+| `pnpm exec tsc --noEmit` | aucune sortie, exit 0 |
+| `pnpm lint` | `eslint`, aucune sortie, exit 0 |
+| `pnpm test` (shell-emulator) | `tests 567`, `pass 492`, `fail 75`, exit 1. **Les 75 échecs sont exactement ceux d'une copie vierge de `origin/staging` (e829cfc) dans le même environnement** : `tests 530`, `pass 455`, `fail 75`, même liste nom pour nom (diff vide). Causes : séparateurs de chemin Windows (`src\app\api\train\…` attendu `src/app/api/train/…`, `self-training-routes.test.ts`, `disclaimers.test.ts` « contract.ts absent du graphe »), permissions POSIX (« Répertoire privé requis pour le budget runner », `budget.test.ts`), fichiers temporaires absents (`check-reaper.test.mjs`), CLI runner. La slice ajoute 36 tests, tous verts ; +1 test de staging (`access-log-wiring`) vert. Les tests de la slice seuls : `node --import tsx --test src/lib/datasets/*.test.ts src/lib/i18n/english.test.ts src/lib/sirius/provider.test.ts` → `tests 68`, `pass 68`, `fail 0` |
+| `pnpm test:phala-demo` | `tests 24`, `pass 12`, `fail 12` — même liste d'échecs que sur la copie vierge de `origin/staging` (environnement) ; le client modifié (`training-client.ts`) n'y est pas exercé |
+| `pnpm exec playwright test` (suite complète, Chromium) | `82 passed (51.2s)`, exit 0 (avant la fusion de staging : `82 passed (1.2m)`) ; dont `e2e/upload.spec.ts` 3/3 et `e2e/responsive.spec.ts` « le sélecteur de profil, le fichier et son contrôle restent dans le formulaire » 7/7 tailles |
+| `pnpm audit:deps` | `2 vulnerabilities found — Severity: 1 low | 1 high (1 ignored)`, exit 0 ; identique à `staging` |
+| `git diff --name-only origin/staging...HEAD` | 32 fichiers, tous listés en §1 (deux hors liste explicite, une ligne chacun, justifiés §2.14) |
+| `git log origin/staging..HEAD --format=%B` | aucune occurrence de `co-authored`, `claude`, `anthropic`, `generated`, `session`, `skip ci` ; auteur et committeur `alibenyezza` sur chaque commit |
+
+Non exécuté : `next build` (les e2e tournent sur `next dev`), tests de contrats (`contracts/**` non touché).
+
+Vérifications ponctuelles (hors suite, scripts jetables hors dépôt) : fuzz de 600 000 saisies de prix (`parseProviderPrice` ↔ `priceUsdcToAtomic`, 6 et 18 décimales, 0 divergence) ; 0 collision de clés entre `upload-en.ts` et les autres fichiers de traduction ; graphe d'imports des composants client sans `server-only` ni module Node ; `git merge-tree` avant fusion (seul conflit : `package.json`).
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Méthode : deux passes de revue adversariale par des agents indépendants, la première à trois angles (sécurité et validation serveur ; exactitude du prix, `challengeDays` et non-régression du scellement ; interface, accessibilité, traductions, tests et conformité à 07), la seconde par un relecteur unique chargé de vérifier chaque correction et de chercher ce qui restait. Scripts de revue (fuzz de 600 000 saisies de prix, collisions de clés de traduction, graphe d'imports du bundle client, vérification BOM) hors dépôt.
+
+| Passe | Constats retenus | Écartés |
+|---|---|---|
+| 1 | 1 bloquant, 4 importants, 14 mineurs | ~25 (vérifiés conformes) |
+| 2 | 0 bloquant, 0 important dans le code, 1 important de process (conflit `package.json` avec `origin/staging`), 6 mineurs | 8 |
+
+**Retenus et corrigés (commits 09fe866, 01026bb, 04b4765, d048377, fusion cca5d80) :**
+- Bloquant : la démo Phala (`training-client.ts`) appelait `POST /api/datasets` sans catégorie ni durée → 400 ; corps aligné, `challengeDays` retiré.
+- Importants : l'échéance partait de l'horloge serveur après un appel runner pouvant durer 60 s, ce qui faisait abandonner le rebase (`rebasedListingExpiry` → `null`) et raccourcissait la durée → ancrage sur `createdAt` ; publication possible sans décomposition quand le tarif manquait → suspendue avec explication ; promesse « You can withdraw this consent from the dataset page » sans fonction correspondante → au futur ; anneau de focus `outline-none` invisible en contraste forcé → `outline-hidden` + `focus-visible` ; double `role="alert"` et alerte sur champ vide → `PriceBreakdown` monté seulement sur saisie valide ; date d'échéance présentée comme ferme et en UTC → « for N days from the on-chain registration (around …) », mémoïsée.
+- Mineurs : deux résolutions des décimales (`settlementToken` ↔ `USDC_DECIMALS`) → une seule ; lecture disque à chaque requête sur une page publique → mémoïsée 5 s ; minimum « — » sans tarif → plancher local ; `readingFile` bloqué après annulation du sélecteur → remis à `false` ; `aria-busy` jamais levé → retiré ; focus perdu entre étapes → panneau focalisé (puis rendu stable en StrictMode) ; bornes nom/description recopiées → partagées dans `publication.ts` ; bannière d'erreur sans `wrap-anywhere` ; libellés d'étapes tronqués → retour à la ligne ; phrase coupée entre `t()` et JSX → deux clés ; états de la transition non annoncés aux lecteurs d'écran → `sr-only` ; « File too large: 3 MB, maximum 3 MB » → taille réelle en MB et en octets ; `ID_RE` borne basse non testée → cas de 9 caractères ; commentaires devenus inexacts → reformulés ; conflit `package.json` → `origin/staging` fusionné, les deux listes de tests conservées.
+
+**Écartés avec la raison :**
+- Reprise après un scellement réussi dont la réponse s'est perdue (brouillon orphelin) : comportement identique à l'ancienne page, pas de route sûre pour le détecter sans toucher N1 ; consigné §7.3.
+- `listingExpiresAt` sans effet côté catalogue et absence de révocation : périmètre N1/N3 ; consigné §6, §7.9, §8.
+- Défaut Prisma `challengeDays @default(7)` : `prisma/` hors périmètre, aucun chemin ne l'utilise ; §8.
+- `createdAt` relu par une requête au lieu d'être renvoyé par `beginDatasetIngestion` : `pipeline.ts` hors périmètre ; §8.
+- BOM UTF-8 : divergence dans la direction sûre, correctif dans `metrics.ts` hors périmètre ; §5, §8.
+- Couplage par sous-chaînes aux messages de `parseCsv` : protégé par le test de parité ; `metrics.ts` hors périmètre.
+- Re-parse au changement de profil, vouvoiement d'une clé (texte du cahier), DST sur des durées en millisecondes (cohérent avec un stockage d'instants) : acceptés, §7.
+- Texte de l'avertissement : 07 renvoie au texte commun de 16, qui est affiché (A2 §7.2).
+
+**Limite de la revue :** aucun relecteur humain ; les constats écartés l'ont été sur l'avis d'agents de revue et le mien. Les tests ont été exécutés sous Windows, où 75 tests de la suite échouent déjà sur `staging` pour des raisons d'environnement (séparateurs de chemin, permissions POSIX, fichiers temporaires) — vérifié sur une copie vierge de `origin/staging`, même liste d'échecs, voir §9.
 
 ---
 
