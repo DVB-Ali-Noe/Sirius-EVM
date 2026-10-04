@@ -80,3 +80,12 @@ test("landing : pied de page avec les liens conditions et état, et le réseau",
 test("conditions : journal des accès conservé 24 mois puis supprimé", () => {
   assert.match(terms, /kept for 24 months after the access, then deleted/);
 });
+
+test("connexion : la mention des conditions accompagne chaque bouton de connexion", () => {
+  const notice = read("../../components/wallet/TermsNotice.tsx");
+  assert.match(notice, /href="\/terms"/);
+  assert.match(notice, /rel="noopener noreferrer"/);
+  for (const file of ["../../components/wallet/ConnectButton.tsx", "../../components/wallet/SignInCta.tsx"]) {
+    assert.match(read(file), /<TermsNotice/, file);
+  }
+});
