@@ -58,15 +58,23 @@ test("le bouton profil donne le réseau, l'adresse, le solde et les liens, puis 
   await expect(page.getByRole("dialog", { name: "Profile menu" })).toHaveCount(0);
 });
 
-test("Échap ferme le menu et rend le focus au bouton ; la visite guidée sans abonné le dit", async ({ page }) => {
+test("Échap ferme le menu et rend le focus au bouton", async ({ page }) => {
   await openApp(page, "/explorer");
   await page.getByTestId("profile-button").click();
   const panel = page.getByRole("dialog", { name: "Profile menu" });
-  await panel.getByRole("button", { name: "Guided tour", exact: true }).click();
-  await expect(panel.getByRole("status")).toHaveText("The guided tour will be available soon.");
+  await expect(panel).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
   await expect(page.getByTestId("profile-button")).toBeFocused();
+});
+
+test("« Guided tour » relance le tuto d'accueil, sans message « bientôt disponible »", async ({ page }) => {
+  await openApp(page, "/explorer");
+  await page.getByTestId("profile-button").click();
+  await page.getByRole("button", { name: "Guided tour", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Profile menu" })).toHaveCount(0);
+  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toBeVisible();
+  await expect(page.getByText("The guided tour will be available soon.")).toHaveCount(0);
 });
 
 test("un abonné à l'événement de visite guidée est prévenu et le menu se ferme", async ({ page }) => {
