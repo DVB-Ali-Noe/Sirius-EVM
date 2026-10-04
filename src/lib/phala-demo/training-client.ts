@@ -45,7 +45,10 @@ export async function trainDemoFile(file: File, modelId: ModelId, target: string
   progress("Chiffrement de ton fichier…");
   const init = await json<{ datasetId: string; ingressKey: DatasetIngressKey; priceUsdcAtomic: string; challengeDays: number; sizeBytes: number; model: ModelSelection }>("/api/datasets", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: file.name.slice(0, 120), sizeBytes: bytes.length, priceUsdc: "0.001", challengeDays: 1, modelId }),
+    // Termes de publication exigés par la route (07-upload.md) : catégorie « Other », durée
+    // minimale, pas de consentement. Le délai de sécurité n'est plus une entrée : le serveur
+    // l'impose et le renvoie, et le grant ci-dessous reprend cette valeur.
+    body: JSON.stringify({ name: file.name.slice(0, 120), sizeBytes: bytes.length, priceUsdc: "0.001", category: "Other", listingDays: 7, trainingConsent: false, modelId }),
   });
   current();
   const envelope = await encryptDatasetForRunner(bytes.buffer, init.datasetId, init.ingressKey);

@@ -8,7 +8,14 @@ async function responseBody<T>(response: Response): Promise<T & { error?: string
   return response.json() as Promise<T & { error?: string }>;
 }
 
-export async function publishDataset(datasetId: string): Promise<void> {
+/** Étapes de l'inscription on-chain, pour afficher la progression (07-upload.md). */
+export type PublishDatasetStage = "preparing" | "signing" | "confirming";
+
+export async function publishDataset(
+  datasetId: string,
+  onStage: (stage: PublishDatasetStage) => void = () => {},
+): Promise<void> {
+  onStage("preparing");
   const preparation = await fetch(`/api/datasets/${datasetId}/list`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -20,7 +27,9 @@ export async function publishDataset(datasetId: string): Promise<void> {
   }
   if (prepared.reconciled) return;
   if (!prepared.transaction) throw new Error("Préparation du titre EVM échouée");
+  onStage("signing");
   const txHash = await sendActiveTransaction(guardDatasetTransaction(prepared.transaction, "mint"));
+  onStage("confirming");
   const submission = await fetch(`/api/datasets/${datasetId}/list`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
