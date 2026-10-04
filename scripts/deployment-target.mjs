@@ -16,7 +16,8 @@ const targets = {
     dossier_vps: "/opt/sirius-staging",
     // D-26 : le projet staging est l'instance Phala de démonstration ; l'ancienne origine reste en alias.
     url_publique: "https://phala.sirius-data.tech",
-    origines_alias: "https://sirius-evm-staging.vercel.app,https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app",
+    // demo.sirius-data.tech : déploiement staging figé, réservé à la session de training (src/lib/phala-demo/demo-host.ts).
+    origines_alias: "https://sirius-evm-staging.vercel.app,https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app,https://demo.sirius-data.tech",
   },
 };
 

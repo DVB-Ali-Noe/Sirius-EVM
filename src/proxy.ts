@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { DEMO_PAGE, demoOnlyRoute, isDemoOnlyHost } from "@/lib/phala-demo/demo-host";
 
 /**
  * Origines du portefeuille embarqué, ajoutées seulement là où il est proposé.
@@ -49,6 +50,15 @@ function contentSecurityPolicy(nonce: string): string {
 }
 
 export function proxy(request: NextRequest) {
+  // Adresse démo : seule la session de training Phala est servie (src/lib/phala-demo/demo-host.ts).
+  if (isDemoOnlyHost(request.headers.get("host"))) {
+    const decision = demoOnlyRoute(request.nextUrl.pathname);
+    if (decision === "block") return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (decision === "redirect") return NextResponse.redirect(new URL(DEMO_PAGE, request.url));
+  }
+  // Les routes API ne passent ici que pour la restriction de l'adresse démo : ailleurs, inchangées.
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.next();
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const policy = contentSecurityPolicy(nonce);
   const headers = new Headers(request.headers);
@@ -62,6 +72,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     {
       source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
       missing: [
