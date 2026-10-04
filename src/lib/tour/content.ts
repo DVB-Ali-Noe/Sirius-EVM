@@ -40,13 +40,13 @@ export const WELCOME_STEPS: readonly TourStep[] = [
   {
     title: "Publier un dataset",
     body: [
-      "Importez un CSV : il est chiffré dans votre navigateur avant l’envoi, puis inscrit on-chain. Vous fixez le prix et êtes payé à chaque emprunt réglé.",
+      "Importez un CSV : il est chiffré dans votre navigateur avant l’envoi. Une fois publié, il peut être emprunté : vous fixez le prix et êtes payé à chaque emprunt réglé.",
     ],
   },
   {
     title: "Votre wallet",
     body: [
-      "La page Wallet affiche votre solde et permet d’ajouter des fonds ou de les retirer vers une adresse que vous contrôlez. Les frais réseau sont payés à part, en ETH.",
+      "La page Wallet affiche votre solde et l’ETH disponible pour les frais réseau. Vous pouvez y ajouter des fonds et retirer vers votre wallet les règlements et remboursements crédités dans l’escrow.",
     ],
   },
   {
@@ -66,22 +66,23 @@ export const PAGE_TOURS: Readonly<Record<TourPageKey, TourStep>> = {
   dashboard: {
     title: "Tableau de bord",
     body: [
-      "Vue d’ensemble de votre compte : solde, activité récente et raccourcis vers les autres pages.",
+      "Vue d’ensemble de votre compte : solde et raccourcis vers les autres pages.",
     ],
     disclaimers: ["betaLimits"],
   },
   datasets: {
     title: "Mes datasets",
     body: [
-      "Les datasets publiés depuis ce wallet et leur état. D’ici, vous pouvez les gérer ou en publier un nouveau.",
+      "Les datasets importés depuis ce wallet et leur état. D’ici, vous pouvez les publier, les gérer ou en importer un nouveau.",
     ],
-    limits: ["Seuls les datasets publiés depuis ce wallet apparaissent ici."],
+    limits: ["Seuls les datasets importés depuis ce wallet apparaissent ici."],
   },
   upload: {
     title: "Publier un dataset",
     body: [
       "Importez un CSV, choisissez le modèle d’entraînement et fixez votre prix. Le fichier est chiffré dans votre navigateur avant d’être envoyé à l’enclave sécurisée.",
     ],
+    limits: ["Le dataset n’est empruntable qu’une fois publié."],
     disclaimers: ["dataLimits", "modelQuality", "contactUs"],
   },
   marketplace: {
@@ -95,9 +96,9 @@ export const PAGE_TOURS: Readonly<Record<TourPageKey, TourStep>> = {
   train: {
     title: "Entraîner un modèle",
     body: [
-      "Lancez l’entraînement sur un dataset emprunté et suivez son avancement. Le calcul tourne dans une enclave sécurisée et vous recevez le modèle entraîné.",
+      "Empruntez un dataset du catalogue, lancez l’entraînement et suivez son avancement. Le calcul tourne dans une enclave sécurisée et vous recevez le modèle entraîné.",
     ],
-    limits: ["Un seul entraînement s’exécute à la fois : les autres attendent leur tour."],
+    limits: ["Un seul entraînement s’exécute à la fois : si le moteur est occupé, réessayez un peu plus tard."],
     disclaimers: ["modelQuality", "retrainDeterministic", "contactUs"],
   },
   explorer: {
@@ -110,10 +111,10 @@ export const PAGE_TOURS: Readonly<Record<TourPageKey, TourStep>> = {
   wallet: {
     title: "Wallet",
     body: [
-      "Consultez votre solde, ajoutez des fonds et retirez-les vers une adresse que vous contrôlez.",
+      "Consultez votre solde et l’ETH disponible pour les frais réseau, ajoutez des fonds et retirez vers votre wallet les règlements et remboursements crédités dans l’escrow.",
     ],
     limits: [
-      "Un retrait est définitif : vérifiez l’adresse de destination avant de confirmer.",
+      "Les montants crédités dans l’escrow n’arrivent dans votre wallet qu’une fois retirés.",
       "Les frais réseau sont payés à part, en ETH.",
     ],
   },

@@ -105,10 +105,17 @@ export function tourPatchBody(patch: TourPatch): string | null {
   return Object.keys(body).length > 0 ? JSON.stringify(body) : null;
 }
 
-/** Envoie la progression ; `true` seulement si le serveur a répondu 2xx. */
-export async function saveTourProgress(fetchImpl: FetchLike, patch: TourPatch): Promise<boolean> {
+/**
+ * Envoie la progression. `true` seulement si le serveur a répondu 2xx avec le profil du
+ * wallet attendu : le cookie de session est partagé entre onglets, et une session ouverte
+ * entre-temps pour un autre wallet recevrait l'écriture. Dans ce cas la note locale du
+ * wallet attendu est gardée, pour être renvoyée quand sa session sera de nouveau active.
+ */
+export async function saveTourProgress(fetchImpl: FetchLike, patch: TourPatch, expectedAddress: string): Promise<boolean> {
   const body = tourPatchBody(patch);
   if (!body) return true;
+  const expected = canonicalTourAddress(expectedAddress);
+  if (!expected) return false;
   try {
     const response = await fetchImpl("/api/profile", {
       method: "PATCH",
@@ -117,7 +124,9 @@ export async function saveTourProgress(fetchImpl: FetchLike, patch: TourPatch): 
       cache: "no-store",
       credentials: "same-origin",
     });
-    return response.ok;
+    if (!response.ok) return false;
+    const view: unknown = await response.json();
+    return isPlainObject(view) && canonicalTourAddress(view.address) === expected;
   } catch {
     return false;
   }

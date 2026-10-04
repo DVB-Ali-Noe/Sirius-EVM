@@ -78,7 +78,8 @@ class FakeServer {
   readonly profiles = new Map<string, { tourCompletedAt: string | null; featureTours: Record<string, boolean> }>();
   readonly calls: Call[] = [];
   getMode: "ok" | "500" | "throw" | "empty" | "badJson" = "ok";
-  patchMode: "ok" | "500" | "throw" = "ok";
+  /** Mode du PATCH : réussite, exception réseau ou code HTTP d'échec. */
+  patchMode: "ok" | "throw" | number = "ok";
   /** Si posé, le GET attend ce verrou avant de répondre. */
   gate: Promise<void> | null = null;
 
@@ -95,17 +96,20 @@ class FakeServer {
     const respond = (ok: boolean, json: unknown) => ({ ok, json: async () => json });
     if (method === "GET") {
       const address = this.session;
+      // La réponse reflète la base au moment de l'émission, comme une vraie requête lente.
+      const row = address ? structuredClone(this.row(address)) : null;
       if (this.gate) await this.gate;
       if (this.getMode === "throw") throw new TypeError("Failed to fetch");
       if (this.getMode === "500") return respond(false, { error: "Erreur interne" });
       if (this.getMode === "empty") return respond(true, {});
       if (this.getMode === "badJson") return { ok: true, json: async () => { throw new SyntaxError("Unexpected token"); } };
-      if (!address) return respond(false, { error: "Authentification requise" });
-      return respond(true, profileBody(address, this.row(address)));
+      if (!address || !row) return respond(false, { error: "Authentification requise" });
+      return respond(true, profileBody(address, row));
     }
     assert.equal(method, "PATCH");
     if (this.patchMode === "throw") throw new TypeError("Failed to fetch");
-    if (this.patchMode === "500") return respond(false, { error: "Erreur interne" });
+    if (typeof this.patchMode === "number") return respond(false, { error: `HTTP ${this.patchMode}` });
+    if (!this.session) return respond(false, { error: "Authentification requise" });
     // Même validation que la vraie route : une forme refusée ferait un 400.
     const patch = profile.validateProfilePatch(body);
     const row = this.row(this.session!);
@@ -213,16 +217,23 @@ describe("écriture de la progression", () => {
     assert.deepEqual(JSON.parse(tourPatchBody({ featureTours: { admin: true } as never, tourCompletedAt: true })!), { tourCompletedAt: true });
   });
 
-  test("PATCH : true seulement sur une réponse 2xx", async () => {
+  test("PATCH : confirmé seulement sur une réponse 2xx portant le profil du wallet attendu", async () => {
     const calls: RequestInit[] = [];
-    const ok: FetchLike = async (_input, init) => { calls.push(init!); return { ok: true, json: async () => ({}) }; };
-    assert.equal(await saveTourProgress(ok, { tourCompletedAt: true }), true);
+    const answer = (ok: boolean, json: unknown): FetchLike => async (_input, init) => { calls.push(init!); return { ok, json: async () => json }; };
+    const patch = { tourCompletedAt: true } as const;
+    assert.equal(await saveTourProgress(answer(true, profileBody(A)), patch, A), true);
     assert.equal(calls[0].method, "PATCH");
     assert.equal((calls[0].headers as Record<string, string>)["content-type"], "application/json");
-    assert.equal(await saveTourProgress(async () => ({ ok: false, json: async () => ({}) }), { tourCompletedAt: true }), false);
-    assert.equal(await saveTourProgress(async () => { throw new TypeError("offline"); }, { tourCompletedAt: true }), false);
+    assert.equal(await saveTourProgress(answer(true, profileBody(A.toUpperCase().replace("0X", "0x"))), patch, A), true);
+    // Session d'un autre wallet ouverte entre-temps dans un autre onglet : non confirmé.
+    assert.equal(await saveTourProgress(answer(true, profileBody(B)), patch, A), false);
+    assert.equal(await saveTourProgress(answer(true, {}), patch, A), false);
+    assert.equal(await saveTourProgress(async () => ({ ok: true, json: async () => { throw new SyntaxError("x"); } }), patch, A), false);
+    assert.equal(await saveTourProgress(answer(false, profileBody(A)), patch, A), false);
+    assert.equal(await saveTourProgress(async () => { throw new TypeError("offline"); }, patch, A), false);
+    assert.equal(await saveTourProgress(async () => { throw new Error("ne doit pas être appelé"); }, patch, "x"), false);
     // Rien à écrire : aucun appel.
-    assert.equal(await saveTourProgress(async () => { throw new Error("ne doit pas être appelé"); }, {}), true);
+    assert.equal(await saveTourProgress(async () => { throw new Error("ne doit pas être appelé"); }, {}, A), true);
   });
 });
 
@@ -429,7 +440,7 @@ describe("contrôleur : repli quand l'API échoue", () => {
     assert.deepEqual(server.calls.at(-1), { method: "PATCH", body: { featureTours: { train: true } } });
   });
 
-  for (const mode of ["500", "throw"] as const) {
+  for (const mode of [500, 401, 403, 409, 429, "throw"] as const) {
     test(`écriture en échec (${mode}) : pas de réouverture en boucle, renvoi au chargement suivant`, async () => {
       const server = new FakeServer();
       server.patchMode = mode;
@@ -497,6 +508,107 @@ describe("contrôleur : repli quand l'API échoue", () => {
     controller.close();
     await flush();
     assert.notEqual(server.row(A).tourCompletedAt, null);
+  });
+});
+
+describe("contrôleur : courses et sorties", () => {
+  test("tuto fermé pendant une lecture lente : la réponse tardive ne le rouvre pas", async () => {
+    const server = new FakeServer();
+    server.row(A).tourCompletedAt = "2026-10-01T00:00:00.000Z";
+    let release!: () => void;
+    server.gate = new Promise<void>((resolve) => { release = resolve; });
+    const { storage, controller, snap } = setup({ server });
+    controller.setIdentity(A, true);
+    controller.setPath("/train");
+    // GET en vol : l'utilisateur ouvre le tuto par « ? » puis le ferme ; le PATCH passe avant.
+    controller.openPage("train");
+    controller.close();
+    controller.restartWelcome();
+    controller.close();
+    server.gate = null;
+    await flush();
+    assert.deepEqual(server.row(A).featureTours, { train: true }, "PATCH appliqué avant la réponse du GET");
+    assert.equal(storage.map.size, 0, "note locale effacée après confirmation");
+    release();
+    await flush();
+    assert.equal(snap().status, "ready");
+    assert.equal(snap().active, null, "la réponse du GET, partie avant la fermeture, ne rouvre rien");
+  });
+
+  test("PATCH confirmé pour un autre wallet (cookie partagé entre onglets) : la note locale est gardée", async () => {
+    const server = new FakeServer();
+    server.row(A).tourCompletedAt = "2026-10-01T00:00:00.000Z";
+    const { storage, controller } = setup({ server });
+    controller.setIdentity(A, true);
+    controller.setPath("/wallet");
+    await flush();
+    server.session = B; // un autre onglet a signé avec B
+    controller.close();
+    await flush();
+    assert.deepEqual(server.row(B).featureTours, { wallet: true }, "écrit chez B, ce qu'on ne peut empêcher côté client");
+    assert.deepEqual(readPending(storage, A), { welcome: false, pages: ["wallet"] }, "A garde sa note");
+    // Retour de la session de A : la note est renvoyée et confirmée.
+    server.session = A;
+    const again = setup({ server, storage });
+    again.controller.setIdentity(A, true);
+    again.controller.setPath("/wallet");
+    await flush();
+    assert.equal(again.snap().active, null);
+    assert.deepEqual(server.row(A).featureTours, { wallet: true });
+    assert.equal(storage.map.size, 0);
+  });
+
+  test("sortie des pages de l'application pendant la lecture : rien n'est ouvert ni compté comme vu", async () => {
+    const server = new FakeServer();
+    server.row(A).tourCompletedAt = "2026-10-01T00:00:00.000Z";
+    let release!: () => void;
+    server.gate = new Promise<void>((resolve) => { release = resolve; });
+    const { controller, snap } = setup({ server });
+    controller.setIdentity(A, true);
+    controller.setPath("/train");
+    controller.leavePages();
+    assert.equal(snap().pageKey, null);
+    server.gate = null;
+    release();
+    await flush();
+    assert.equal(snap().active, null, "aucun tuto posé pour une page qui n'est plus affichée");
+    controller.setPath("/explorer");
+    assert.deepEqual(snap().active && { kind: snap().active!.kind, manual: snap().active!.manual }, { kind: "page", manual: false });
+    assert.equal(server.count("PATCH"), 0, "le tuto de /train n'a pas été compté comme vu");
+  });
+
+  test("double montage (StrictMode) : sortie puis retour sur la même page rouvre le même tuto, sans écriture", async () => {
+    const server = new FakeServer();
+    server.row(A).tourCompletedAt = "2026-10-01T00:00:00.000Z";
+    const { controller, snap } = setup({ server });
+    controller.setIdentity(A, true);
+    controller.setPath("/train");
+    await flush();
+    assert.equal(snap().active?.kind, "page");
+    controller.leavePages();
+    assert.equal(snap().active, null);
+    controller.setPath("/train");
+    assert.equal(snap().active?.kind, "page");
+    await flush();
+    assert.equal(server.count("PATCH"), 0);
+  });
+
+  test("tuto relancé sous un wallet puis fermé sous un autre : rien n'est écrit pour le second", async () => {
+    const server = new FakeServer();
+    server.row(A).tourCompletedAt = "2026-10-01T00:00:00.000Z";
+    server.row(B).tourCompletedAt = null;
+    const { controller } = setup({ server });
+    controller.setIdentity(A, true);
+    controller.setPath("/borrow");
+    await flush();
+    controller.restartWelcome();
+    server.session = B;
+    controller.setIdentity(B, true);
+    await flush();
+    controller.close();
+    await flush();
+    assert.equal(server.row(B).tourCompletedAt, null);
+    assert.equal(server.count("PATCH"), 0);
   });
 });
 
@@ -622,7 +734,10 @@ describe("textes", () => {
 
   test("aucune promesse de performance, de rendement ou de sécurité absolue", () => {
     const english = tourTranslationKeys().map((key) => EN_MESSAGES[key]).join("\n");
-    for (const banned of [/guarantee/i, /\bstate[- ]of[- ]the[- ]art\b/i, /\bbest\b/i, /\baccurate\b/i, /\bprofit/i, /\b100 ?%/, /\bunhackable\b/i, /\bcompletely secure\b/i, /\brisk[- ]free\b/i]) {
+    for (const banned of [/guarantee/i, /\bstate[- ]of[- ]the[- ]art\b/i, /\bbest\b/i, /\baccurate\b/i, /\bprofit/i, /\b100 ?%/, /\bunhackable\b/i, /\bcompletely secure\b/i, /\brisk[- ]free\b/i,
+      // Fonctions qui n'existent pas aujourd'hui (relevé de la revue) : retrait vers une
+      // adresse tierce, file d'attente des entraînements, inscription on-chain dès l'import.
+      /address you control/i, /destination address/i, /wait their turn/i, /\bqueue/i, /then registered on-chain/i]) {
       assert.doesNotMatch(english, banned);
     }
   });

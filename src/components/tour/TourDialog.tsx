@@ -23,21 +23,24 @@ interface TourDialogProps {
 /**
  * Fenêtre modale des tutos.
  *
- * Accessibilité : `role="dialog"` + `aria-modal`, titre et texte reliés par
+ * Accessibilité : `role="dialog"` + `aria-modal`, titre et contenu reliés par
  * `aria-labelledby` / `aria-describedby`, focus placé sur l'action principale à
  * l'ouverture, piégé dans la fenêtre (Tab et Maj+Tab bouclent sur ses boutons et liens,
  * et y ramènent un focus resté sur le corps de la page), Échap ferme, et le focus revient
- * à l'élément qui l'avait avant l'ouverture. Le fond recouvre toute la page : la souris
- * ne peut rien atteindre derrière. Un clic sur le fond ne ferme pas : une fermeture
- * accidentelle vaudrait « vu ».
+ * à l'élément qui l'avait avant l'ouverture. Le fond recouvre toute la page et le reste de
+ * l'application (menu, page, bouton « ? ») est rendu `inert` le temps de l'ouverture :
+ * ni la souris, ni Tab depuis la barre d'adresse, ni un lecteur d'écran n'y accèdent. Un
+ * clic sur le fond ne ferme pas : une fermeture accidentelle vaudrait « vu ».
  *
- * Volontairement, la fenêtre ne reprend pas de force un focus parti dans une autre
- * fenêtre posée au-dessus (wallet embarqué, devis) : elle en bloquerait la saisie. Échap
- * et Tab ne sont alors pas interceptés non plus.
+ * Volontairement, seul le contenu de l'application est rendu inerte, pas le reste du
+ * `body` : une fenêtre tierce (confirmation du wallet embarqué) reste utilisable. La
+ * fenêtre ne lui reprend pas le focus, ni à l'ouverture ni ensuite, et n'intercepte ni Tab
+ * ni Échap tant que le focus y est.
  */
 export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
   const { t } = useLocale();
   const [index, setIndex] = useState(0);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -48,10 +51,25 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // Ouverture : mémorise le focus précédent, le place dans la fenêtre, installe le piège.
+  // Ouverture : mémorise le focus précédent, rend le reste de l'application inerte, place
+  // le focus dans la fenêtre et installe le piège.
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    primaryRef.current?.focus();
+    const overlay = overlayRef.current;
+    // Conteneur de l'application (layout) : ses autres enfants deviennent inertes.
+    const scope = overlay?.parentElement ?? null;
+    const focusWasFree = !previous || previous === document.body || previous === document.documentElement || Boolean(scope?.contains(previous));
+    const inerted: HTMLElement[] = [];
+    if (overlay && scope) {
+      for (const element of Array.from(scope.children)) {
+        if (element !== overlay && element instanceof HTMLElement && !element.inert) {
+          element.inert = true;
+          inerted.push(element);
+        }
+      }
+    }
+    // Ne prend pas le focus à une fenêtre tierce ouverte hors de l'application.
+    if (focusWasFree) primaryRef.current?.focus();
 
     function onKeyDown(event: KeyboardEvent) {
       const root = rootRef.current;
@@ -89,8 +107,9 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      for (const element of inerted) element.inert = false;
       // Rend le focus à l'élément d'origine s'il est encore dans la page.
-      if (previous?.isConnected) previous.focus();
+      if (focusWasFree && previous?.isConnected) previous.focus();
     };
   }, []);
 
@@ -109,7 +128,8 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
   const multi = count > 1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    // z-[60] : au-dessus des fenêtres du site (`Modal`, z-50), qui restent inertes dessous.
+    <div ref={overlayRef} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div
         ref={rootRef}
         role="dialog"
@@ -117,7 +137,7 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
         aria-labelledby={titleId}
         aria-describedby={bodyId}
         data-tour-dialog=""
-        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-xl wrap-anywhere"
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-border bg-surface p-6 shadow-xl wrap-anywhere"
       >
         <div className="text-xs uppercase tracking-wider text-muted">
           {eyebrow}
@@ -131,24 +151,29 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
         <h2 id={titleId} className="mt-2 text-xl font-semibold tracking-tight">
           {t(step.title)}
         </h2>
-        <div id={bodyId} className="mt-3 space-y-2 text-sm leading-relaxed text-muted">
-          {step.body.map((paragraph) => (
-            <p key={paragraph}>{t(paragraph)}</p>
-          ))}
-        </div>
-        {step.limits && step.limits.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-foreground/80">{t(TOUR_UI.limits)}</h3>
-            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-relaxed text-muted">
-              {step.limits.map((limit) => (
-                <li key={limit}>{t(limit)}</li>
+        {/* Tout le contenu de l'étape sert de description, y compris les textes communs. */}
+        <div id={bodyId}>
+          {step.body.length > 0 && (
+            <div className="mt-3 space-y-2 text-sm leading-relaxed text-muted">
+              {step.body.map((paragraph) => (
+                <p key={paragraph}>{t(paragraph)}</p>
               ))}
-            </ul>
-          </div>
-        )}
-        {step.disclaimers && step.disclaimers.length > 0 && (
-          <DisclaimerNote className="mt-4" messages={step.disclaimers} />
-        )}
+            </div>
+          )}
+          {step.limits && step.limits.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-foreground/80">{t(TOUR_UI.limits)}</h3>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-relaxed text-muted">
+                {step.limits.map((limit) => (
+                  <li key={limit}>{t(limit)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {step.disclaimers && step.disclaimers.length > 0 && (
+            <DisclaimerNote className="mt-4" messages={step.disclaimers} />
+          )}
+        </div>
 
         {multi && (
           <div aria-hidden="true" className="mt-5 flex items-center gap-1.5">

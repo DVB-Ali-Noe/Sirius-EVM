@@ -63,6 +63,10 @@ test("étape des limites de la bêta : textes communs, sans paragraphe vide", ()
   assert.match(out, /Sirius currently trains baseline models: linear and logistic regression on tabular data\./);
   assert.match(out, /Beta: invitation-only access, capped amounts per loan and in total\./);
   assert.doesNotMatch(out, /<p><\/p>/);
+  // La description reliée contient les textes communs, pas un bloc vide.
+  const describedBy = out.match(/aria-describedby="([^"]+)"/)?.[1];
+  const description = out.slice(out.indexOf(`id="${describedBy}"`));
+  assert.match(description.slice(0, description.indexOf("<button")), /Beta: invitation-only/);
 });
 
 test("tutos de page : un par page, accessibles, un seul bouton de fermeture", () => {
@@ -80,11 +84,13 @@ test("tuto d'upload : limites des données lues dans le code, contact", () => {
   const out = page("page-upload");
   assert.match(out, /CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features\./);
   assert.match(out, /mailto:sirius\.data\.contact@gmail\.com/);
+  assert.match(out, /<li>The dataset can only be borrowed once it is published\.<\/li>/);
 });
 
 test("tuto du wallet : section Limites en liste", () => {
   const out = page("page-wallet");
-  assert.match(out, /<h3[^>]*>Limits<\/h3><ul[^>]*><li>A withdrawal is final/);
+  assert.match(out, /<h3[^>]*>Limits<\/h3><ul[^>]*><li>Amounts credited in the escrow only reach your wallet once you withdraw them\./);
+  assert.doesNotMatch(out, /destination address|any address/, "aucun retrait vers une adresse tierce n'existe");
   assert.doesNotMatch(out, /mailto:/);
 });
 

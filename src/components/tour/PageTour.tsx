@@ -26,6 +26,10 @@ export function PageTour() {
     tourController.setPath(pathname);
   }, [pathname]);
 
+  // Sortie des pages de l'application (/docs, accueil) : plus d'ouverture automatique
+  // pour un chemin qui n'est plus affiché.
+  useEffect(() => () => tourController.leavePages(), []);
+
   const dialog =
     active?.kind === "page" ? (
       <TourDialog
