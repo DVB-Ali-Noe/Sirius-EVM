@@ -38,6 +38,19 @@ const listed = {
   metrics: { rowCount: 48_000, columnCount: 24 },
 };
 
+/** Réponse de `GET /api/marketplace/[id]` pour `listed` : frais de calcul du dernier devis connus. */
+const listingDetail = {
+  dataset: {
+    id: listed.id, name: listed.name, description: listed.description, category: "mobility", modelId: listed.modelId,
+    modelVersion: listed.modelVersion, rowCount: 48_000, columnCount: 24, sizeBytes: listed.sizeBytes, providerPriceAtomic: PRICE,
+    priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 0, verified: true,
+    listedAt: "2026-10-01T00:00:00.000Z", provider: PROVIDER, challengeDays: 3, settledCount: 0, refundedCount: 0, successRate: null,
+    computeFee: { kind: "quoted", atomic: COMPUTE },
+  },
+  token: { symbol: "USDC", decimals: DECIMALS },
+  kybAvailable: true,
+};
+
 function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
   return {
     version: 7, chainId: 46630, escrow: ESCROW, usdc: USDC, usdcDecimals: DECIMALS, runner: runner.address.toLowerCase() as Hex,
@@ -102,6 +115,8 @@ async function installApi(page: Page, api: Api) {
     const method = route.request().method();
     const path = url.pathname;
     if (path === "/api/datasets" && url.searchParams.get("status") === "LISTED") return json(route, [listed]);
+    // Fiche publique : l'emprunt part de `/marketplace/[id]`, avec le prix du dataset de la fiche.
+    if (path === `/api/marketplace/${listed.id}`) return json(route, listingDetail);
     if (path === "/api/datasets" || path === "/api/train") return json(route, []);
     if (path === "/api/loans" && method === "GET") return json(route, api.loans ?? []);
     if (path === "/api/loans" && method === "POST") { calls.prepare++; return json(route, api.prepare); }
@@ -142,7 +157,7 @@ test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; acc
     prepare: { loanId: LOAN_ID, approveTransaction: { to: USDC, data: "0x" }, lockTransaction: { to: ESCROW, data: "0x" }, billingQuote: signed },
     authorize: { lockTransaction: { to: ESCROW, data: "0x" }, authorizationDeadline: Math.floor(Date.now() / 1000) + 240, billingQuote: signed },
   });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -173,7 +188,7 @@ test("I4 : annuler le devis n'envoie aucune transaction et ne demande aucune aut
   const signed = await sign(quote());
   await installWallet(page);
   const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -189,7 +204,7 @@ test("I3 : un changement de compte pendant le devis ferme le devis sans rien sig
   const signed = await sign(quote());
   await installWallet(page);
   const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -210,7 +225,7 @@ for (const [title, prepare, message] of [
     const signed = await prepare();
     await installWallet(page);
     const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, ...(signed ? { billingQuote: signed } : {}) } });
-    await page.goto("/marketplace");
+    await page.goto(`/marketplace/${listed.id}`);
     await connect(page);
     await (await borrowButton(page)).click();
     await expect(page.getByText(message)).toBeVisible();
@@ -224,7 +239,7 @@ test("un devis présenté sur un escrow v6 est refusé : le parcours historique 
   const signed = await sign(quote());
   await installWallet(page, "sirius-escrow-usdc-v6");
   await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   await expect(page.getByText("Compute quote is missing or incompatible with the escrow")).toBeVisible();
