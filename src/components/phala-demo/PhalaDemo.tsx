@@ -162,7 +162,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       <div className="mt-6">{authenticated ? <button className={button} disabled={!available || busy || !file || !target} onClick={() => void train()}>{t("Entraîner avec Phala")}</button>
         // Sans wallet connecté : le menu de choix (Google, MetaMask, Phantom…) plutôt que
         // `window.ethereum`, que la dernière extension installée s'approprie.
-        : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <ConnectButton />}</div>
+        : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
     </Card>
