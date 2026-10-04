@@ -405,7 +405,7 @@ function TrainPageContent() {
       </div>
 
       {error && (
-        <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
         </div>
       )}

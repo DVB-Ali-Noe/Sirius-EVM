@@ -152,6 +152,7 @@ export function RetrainPanel({
               onClick={() => void confirm()}
               disabled={!canConfirm}
               aria-busy={busy}
+              autoFocus
               className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
             >
               {busy ? t("Escrow…") : t("Voir le devis et réentraîner")}
