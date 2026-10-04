@@ -37,6 +37,7 @@ import {
   extendListing,
   fetchDatasetStats,
   fetchOwnerView,
+  makePrivate,
   revokeConsent,
   saveDatasetDetails,
   type DatasetStatsView,
@@ -45,8 +46,15 @@ import {
 /** Statuts pour lesquels la page de preuve publique répond (voir `src/app/proof/[id]/page.tsx`). */
 const SHAREABLE = ["LISTED", "UNLISTED", "SUSPENDED"];
 
-/** Statuts pour lesquels la destruction existante (`DELETE /api/datasets/[id]`) a un sens. */
-const DESTROYABLE = ["DRAFT", "LISTED", "UNLISTED", "PRIVATE", "SUSPENDED"];
+/**
+ * Destruction existante (`DELETE /api/datasets/[id]`) proposée comme sur l'ancienne liste :
+ * brouillon, en ligne, en pause, privé, ou archivé avec un titre EVM.
+ */
+function canDestroy(view: OwnerDatasetView): boolean {
+  if (view.deletionPending) return true;
+  if (view.status === "SUSPENDED") return !!view.evmDatasetId;
+  return ["DRAFT", "LISTED", "UNLISTED", "PRIVATE"].includes(view.status);
+}
 
 export function DatasetDetail({ id }: { id: string }) {
   // Changer de wallet remonte le composant : rien de l'ancien compte ne reste affiché.
@@ -54,7 +62,7 @@ export function DatasetDetail({ id }: { id: string }) {
   return <DetailContent key={identity} id={id} />;
 }
 
-type Busy = null | "details" | "pause" | "resume" | "extend" | "consent" | "publish" | "destroy";
+type Busy = null | "details" | "pause" | "resume" | "private" | "extend" | "consent" | "publish" | "destroy";
 
 function DetailContent({ id }: { id: string }) {
   const { t } = useLocale();
@@ -121,7 +129,7 @@ function DetailContent({ id }: { id: string }) {
     }
   }
 
-  if (!connected || !address) {
+  if (!connected || !address || !authenticated) {
     return (
       <main className="mx-auto w-full max-w-4xl px-6 py-8">
         <Card className="flex flex-col items-start gap-4">
@@ -240,6 +248,7 @@ function DetailContent({ id }: { id: string }) {
             type="button"
             onClick={() => run("publish", () => publishDataset(view.id))}
             disabled={busy !== null || !model || (view.status === "DRAFT" && !view.ipfsCid)}
+            title={view.status === "DRAFT" && !view.ipfsCid ? t("Upload interrompu : supprime ce brouillon et recommence") : undefined}
             className="mt-3 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
             {busy === "publish"
@@ -256,14 +265,14 @@ function DetailContent({ id }: { id: string }) {
       )}
 
       {(EDITABLE_STATUSES as readonly string[]).includes(view.status) && (
-        <DetailsForm key={view.updatedAt} view={view} busy={busy} onSave={(details) => run("details", () => saveDatasetDetails(view.id, details), "Modifications enregistrées.")} />
+        <DetailsForm key={`${view.name}\u0000${view.description ?? ""}`} view={view} busy={busy} onSave={(details) => run("details", () => saveDatasetDetails(view.id, details), "Modifications enregistrées.")} />
       )}
 
       <ListingCard view={view} busy={busy} run={run} />
 
       <ConsentCard view={view} busy={busy} onRevoke={() => run("consent", () => revokeConsent(view.id), "Consentement retiré.")} />
 
-      {(DESTROYABLE.includes(view.status) || view.deletionPending) && (
+      {canDestroy(view) && (
         <DestroyCard view={view} busy={busy} onDestroy={() => run("destroy", () => destroyDataset(view.id), "Suppression enregistrée.")} />
       )}
     </main>
@@ -285,7 +294,7 @@ function StatusExplanation({ view }: { view: OwnerDatasetView }) {
   switch (view.status) {
     case "LISTED":
       lines.push(view.listingExpired
-        ? t("Annonce expirée : le dataset n’apparaît plus sur la marketplace. Prolonge-la pour le remettre en ligne.")
+        ? t("Annonce expirée : prolonge-la pour que le dataset reste publié.")
         : t("En ligne : visible sur la marketplace et empruntable."));
       break;
     case "UNLISTED":
@@ -346,7 +355,7 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
           <ol className="mt-2 flex flex-col gap-1.5">
             {stats.weekly.map((week) => (
               <li key={week.start} className="grid grid-cols-[7rem_1fr_2.5rem] items-center gap-3 text-xs">
-                <span className="text-muted tabular-nums">{t("Sem. du {date}", { date: formatUtcDate(week.start) })}</span>
+                <span className="text-muted tabular-nums">{t("7 j. depuis le {date}", { date: formatUtcDate(week.start) })}</span>
                 <span aria-hidden="true" className="h-2 rounded-full bg-border">
                   <span className="block h-2 rounded-full bg-accent" style={{ width: `${(week.count / peak) * 100}%` }} />
                 </span>
@@ -421,7 +430,11 @@ function ListingCard({ view, busy, run }: {
   const { t } = useLocale();
   const [days, setDays] = useState<ListingExtensionDays>(30);
   const canPause = view.status === "LISTED";
-  const canResume = (view.status === "UNLISTED" || view.status === "PRIVATE") && !!view.evmDatasetId && !view.listingExpired;
+  // Mêmes règles que le serveur (visibilityTransition) ; le serveur reste seul juge.
+  const canResume = (view.status === "UNLISTED" || (view.status === "PRIVATE" && view.listedAt !== null))
+    && !!view.evmDatasetId && !view.listingExpired;
+  const canMakePrivate = view.status === "LISTED" || view.status === "UNLISTED";
+  const relists = view.status === "LISTED" && view.listingExpired;
   const canExtend = (EXTENSIBLE_STATUSES as readonly string[]).includes(view.status) && view.listingExpiresAt !== null;
   if (!(EXTENSIBLE_STATUSES as readonly string[]).includes(view.status)) return null;
 
@@ -445,6 +458,16 @@ function ListingCard({ view, busy, run }: {
             {busy === "pause" ? t("Mise en pause…") : t("Mettre en pause")}
           </button>
         )}
+        {canMakePrivate && (
+          <button
+            type="button"
+            onClick={() => run("private", () => makePrivate(view.id), "Dataset rendu privé.")}
+            disabled={busy !== null}
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-white/20 disabled:opacity-50"
+          >
+            {busy === "private" ? t("Passage en privé…") : t("Rendre privé")}
+          </button>
+        )}
         {canResume && (
           <button
             type="button"
@@ -461,6 +484,14 @@ function ListingCard({ view, busy, run }: {
           {t("La pause retire le dataset de la marketplace. Elle n’arrête pas les emprunts en cours, et une personne qui a déjà son lien direct peut encore l’emprunter.")}
         </p>
       )}
+      {canMakePrivate && (
+        <p className="mt-2 text-xs text-muted">
+          {t("« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours.")}
+        </p>
+      )}
+      {view.status === "PRIVATE" && view.listedAt === null && (
+        <p className="mt-2 text-xs text-muted">{t("Ce dataset n’a jamais été publié sur la marketplace : il reste privé.")}</p>
+      )}
       {(view.status === "UNLISTED" || view.status === "PRIVATE") && view.listingExpired && (
         <p className="mt-2 text-xs text-muted">{t("Annonce expirée : prolonge-la avant de la remettre en ligne.")}</p>
       )}
@@ -470,7 +501,7 @@ function ListingCard({ view, busy, run }: {
           className="mt-4 flex flex-wrap items-end gap-3"
           onSubmit={(event) => {
             event.preventDefault();
-            void run("extend", () => extendListing(view.id, days), "Annonce prolongée.");
+            void run("extend", () => extendListing(view.id, days, relists), "Annonce prolongée.");
           }}
         >
           <label className="flex flex-col gap-1 text-sm">
@@ -523,7 +554,7 @@ function ConsentCard({ view, busy, onRevoke }: { view: OwnerDatasetView; busy: B
               disabled={busy !== null}
               className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-white/20 disabled:opacity-50"
             >
-              {t("Retirer mon consentement")}
+              {busy === "consent" ? t("Retrait…") : t("Retirer mon consentement")}
             </button>
           ) : (
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -580,7 +611,7 @@ function DestroyCard({ view, busy, onDestroy }: { view: OwnerDatasetView; busy: 
           disabled={busy !== null}
           className="mt-3 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
         >
-          {finalize ? t("Finaliser la suppression…") : t("Détruire ce dataset…")}
+          {busy === "destroy" ? t("Suppression…") : finalize ? t("Finaliser la suppression…") : t("Détruire ce dataset…")}
         </button>
       ) : (
         <form

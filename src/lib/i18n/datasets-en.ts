@@ -25,8 +25,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
 
   // Fiche : en-tête et description
   "Ce dataset n’existe pas ou n’appartient pas au wallet connecté.": "This dataset does not exist or does not belong to the connected wallet.",
-  "Annonce expirée : le dataset n’apparaît plus sur la marketplace. Prolonge-la pour le remettre en ligne.":
-    "Listing expired: the dataset no longer appears on the marketplace. Extend the listing to put it back online.",
+  "Annonce expirée : prolonge-la pour que le dataset reste publié.": "Listing expired: extend it to keep the dataset published.",
   "En ligne : visible sur la marketplace et empruntable.": "Online: visible on the marketplace and available to borrow.",
   "En pause : le dataset n’apparaît plus sur la marketplace. Une personne qui a déjà son lien direct peut encore l’emprunter.":
     "Paused: the dataset no longer appears on the marketplace. Someone who already has its direct link can still borrow it.",
@@ -62,7 +61,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "{count} emprunt(s) au montant illisible, exclu(s) des totaux.": "{count} borrow(s) with an unreadable amount, excluded from the totals.",
   "Statistiques calculées sur les 5 000 emprunts les plus récents.": "Statistics computed on the 5,000 most recent borrows.",
   "Emprunts par semaine (8 dernières semaines, UTC)": "Borrows per week (last 8 weeks, UTC)",
-  "Sem. du {date}": "Week of {date}",
+  "7 j. depuis le {date}": "7 days from {date}",
 
   // Fiche : publication du titre (brouillons)
   "Publication": "Publication",
@@ -95,6 +94,12 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
     "The duration is added to the current end date, or to today if the listing has expired. At most 365 days ahead.",
   "Dataset mis en pause.": "Dataset paused.",
   "Dataset remis en ligne.": "Dataset back online.",
+  "Rendre privé": "Make private",
+  "Passage en privé…": "Making private…",
+  "Dataset rendu privé.": "Dataset made private.",
+  "« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours.":
+    "“Make private” also closes borrowing through the direct link. It is not possible while a borrow is in progress.",
+  "Ce dataset n’a jamais été publié sur la marketplace : il reste privé.": "This dataset has never been published on the marketplace: it stays private.",
   "Annonce prolongée.": "Listing extended.",
 
   // Fiche : consentement
@@ -140,6 +145,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Champ de dataset non modifiable": "This dataset field cannot be changed",
   "Nom trop long (120 caractères maximum)": "Name too long (120 characters maximum)",
   "Nom invalide : caractères de contrôle interdits": "Invalid name: control characters are not allowed",
+  "Nom invalide : au moins une lettre ou un chiffre": "Invalid name: it needs at least one letter or digit",
   "Description trop longue (2 000 caractères maximum)": "Description too long (2,000 characters maximum)",
   "Description invalide : caractères de contrôle interdits": "Invalid description: control characters are not allowed",
   "Aucune modification de dataset": "No dataset change",

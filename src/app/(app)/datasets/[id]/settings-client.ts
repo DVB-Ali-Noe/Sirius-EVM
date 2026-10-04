@@ -1,6 +1,7 @@
 "use client";
 
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
+import { setDatasetVisibility } from "@/lib/datasets/client";
 import type { ListingExtensionDays, LoanStats, OwnerDatasetView } from "@/lib/datasets/manage";
 
 /**
@@ -64,9 +65,19 @@ export async function changeListing(id: string, action: "pause" | "resume"): Pro
   return parse<OwnerDatasetView>(response, "Échec du changement de visibilité");
 }
 
-export async function extendListing(id: string, days: ListingExtensionDays): Promise<OwnerDatasetView> {
-  const response = await fetch(datasetPath(id, "/settings/listing"), jsonRequest("POST", { action: "extend", days }));
+/**
+ * Prolongation. Si l'annonce est en ligne mais expirée, la prolonger la remet sur la
+ * marketplace : le serveur exige alors le même grant que la remise en ligne.
+ */
+export async function extendListing(id: string, days: ListingExtensionDays, relists: boolean): Promise<OwnerDatasetView> {
+  const authorization = relists ? await issueRunnerGrant("set-dataset-visibility", { datasetId: id }, [id, "LISTED"]) : undefined;
+  const response = await fetch(datasetPath(id, "/settings/listing"), jsonRequest("POST", { action: "extend", days, ...(authorization ? { authorization } : {}) }));
   return parse<OwnerDatasetView>(response, "Prolongation impossible");
+}
+
+/** Passage en privé par la route de visibilité existante (refusé pendant un emprunt en cours). */
+export async function makePrivate(id: string): Promise<void> {
+  await setDatasetVisibility(id, "PRIVATE");
 }
 
 export async function revokeConsent(id: string): Promise<OwnerDatasetView> {

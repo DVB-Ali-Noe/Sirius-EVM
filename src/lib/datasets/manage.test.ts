@@ -23,6 +23,7 @@ import {
   applyVisibility,
   displayStatus,
   extendedListingExpiry,
+  extensionRelists,
   formatUtcDate,
   formatUtcDateTime,
   isCountedBorrow,
@@ -123,7 +124,7 @@ test("pause : LISTED → UNLISTED uniquement", () => {
 });
 
 test("remise en ligne : UNLISTED ou PRIVATE → LISTED, jamais détruit, suspendu, brouillon ni expiré", () => {
-  const minted = { evmDatasetId: `0x${"01".repeat(32)}` };
+  const minted = { evmDatasetId: `0x${"01".repeat(32)}`, listedAt: new Date(NOW - DAY) };
   for (const status of ["UNLISTED", "PRIVATE"]) {
     assert.deepEqual(visibilityTransition("resume", { status, listingExpiresAt: null, ...minted }, NOW), { from: [status], to: "LISTED" });
     assert.equal(visibilityTransition("resume", { status, listingExpiresAt: new Date(NOW + 1), ...minted }, NOW).to, "LISTED");
@@ -135,6 +136,21 @@ test("remise en ligne : UNLISTED ou PRIVATE → LISTED, jamais détruit, suspend
   for (const status of ["LISTED", "DELETED", "SUSPENDED", "DRAFT", "LISTING", "__proto__"]) {
     rejectsWith(() => visibilityTransition("resume", { status, listingExpiresAt: null, ...minted }, NOW), 409, "Remise en ligne impossible pour ce dataset");
   }
+  // Un dataset privé jamais publié (création en démo, self-train) ne devient pas public par la fiche.
+  rejectsWith(() => visibilityTransition("resume", { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: null }, NOW), 409,
+    "Remise en ligne impossible pour ce dataset");
+  rejectsWith(() => visibilityTransition("resume", { status: "PRIVATE", listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
+    "Remise en ligne impossible pour ce dataset");
+  assert.equal(visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted, listedAt: null }, NOW, { demoMode: true }).to, "LISTED",
+    "UNLISTED n'est pas concerné par la règle du privé");
+});
+
+test("prolonger une annonce en ligne expirée la remet en ligne : signalé pour exiger le grant", () => {
+  assert.equal(extensionRelists({ status: "LISTED", listingExpiresAt: new Date(NOW) }, NOW), true);
+  assert.equal(extensionRelists({ status: "LISTED", listingExpiresAt: new Date(NOW + 1) }, NOW), false);
+  assert.equal(extensionRelists({ status: "UNLISTED", listingExpiresAt: new Date(NOW - DAY) }, NOW), false);
+  assert.equal(extensionRelists({ status: "PRIVATE", listingExpiresAt: new Date(NOW - DAY) }, NOW), false);
+  assert.equal(extensionRelists({ status: "LISTED", listingExpiresAt: null }, NOW), false);
 });
 
 test("prolongation : 7, 30 ou 90 jours, depuis la fin actuelle ou maintenant, plafonnée à 365 jours", () => {
@@ -170,7 +186,9 @@ test("corps de publication et de consentement : validation stricte", () => {
   rejectsWith(() => parseListingRequest({ action: "pause", authorization: [authorization] }), 400, "Confirmation wallet requise");
   rejectsWith(() => parseListingRequest({ action: "pause", authorization, status: "LISTED" }), 400, "Champ de réglage inconnu");
   rejectsWith(() => parseListingRequest({ action: "extend", days: 30, listingExpiresAt: "2099-01-01" }), 400, "Champ de réglage inconnu");
-  rejectsWith(() => parseListingRequest({ action: "extend", days: 30, authorization }), 400, "Champ de réglage inconnu");
+  assert.deepEqual(parseListingRequest({ action: "extend", days: 30, authorization }), { action: "extend", days: 30, authorization });
+  rejectsWith(() => parseListingRequest({ action: "extend", days: 30, authorization: "x" }), 400, "Confirmation wallet requise");
+  rejectsWith(() => parseListingRequest({ action: "extend", days: 30, authorization: null }), 400, "Confirmation wallet requise");
   rejectsWith(() => parseListingRequest(JSON.parse('{"action":"extend","days":30,"__proto__":{"x":1}}')), 400, "Champ de réglage inconnu");
   rejectsWith(() => parseListingRequest({ action: "extend" }), 400, "Durée de prolongation invalide (7, 30 ou 90 jours)");
   for (const action of ["delete", "LISTED", "", null, undefined, "constructor"]) {
@@ -229,7 +247,8 @@ test("emprunt compté : USDC parti du wallet (en cours, réglé, remboursé), ja
   assert.equal(isCountedBorrow({ status: "CANCELLED", cancelTxHash: null }), false);
   assert.equal(isCountedBorrow({ status: "CANCELLED", cancelTxHash: "" }), false);
   assert.equal(isCountedBorrow({ status: "CANCELLED", cancelTxHash: "0xabc" }), true);
-  for (const status of ["SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED"]) assert.equal(isCountedBorrow({ status }), true, status);
+  for (const status of ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"]) assert.equal(isCountedBorrow({ status }), true, status);
+  assert.equal(isCountedBorrow({ status: "SUBMITTING" }), false, "blocage non confirmé : peut revenir à PENDING");
   assert.equal(isCountedBorrow({ status: "inconnu" }), false);
   assert.equal(providerShareAtomic({ amountUsdcAtomic: "23", datasetAmountUsdcAtomic: "20" }), BigInt(20), "prêt v7 : part du dataset seulement");
   assert.equal(providerShareAtomic({ amountUsdcAtomic: "23", datasetAmountUsdcAtomic: null }), BigInt(23), "prêt antérieur : montant total");
@@ -355,9 +374,9 @@ function fakeDb(rows: Partial<FakeDataset>[], loans: Record<string, unknown>[] =
   const calls: { op: string; args: Record<string, unknown> }[] = [];
   const db = {
     dataset: {
-      async findUnique(args: { where: { id: string }; select?: Record<string, boolean>; omit?: Record<string, boolean> }) {
-        calls.push({ op: "dataset.findUnique", args });
-        const row = datasets.get(args.where.id);
+      async findFirst(args: { where: Record<string, unknown>; select?: Record<string, boolean>; omit?: Record<string, boolean> }) {
+        calls.push({ op: "dataset.findFirst", args });
+        const row = [...datasets.values()].find((candidate) => matches(candidate, args.where));
         if (!row) return null;
         // Comportement du client réel : `omit` global sur wrappedKey et le consentement.
         const globallyOmitted = ["wrappedKey", "trainingConsentAt", "trainingConsentVersion", "trainingConsentRevokedAt"]
@@ -443,7 +462,7 @@ test("prolongation : égalité stricte sur la date lue, deux prolongations simul
   await rejectsAsync(applyExtension(store.db, second, 30, NOW), 409, "Dataset modifié entre-temps : recharge la page");
   assert.equal(store.datasets.get("ds1")!.listingExpiresAt?.getTime(), NOW + 35 * DAY);
   const where = (store.calls.find((call) => call.op === "dataset.updateMany")!.args as { where: Record<string, unknown> }).where;
-  assert.deepEqual(where, { id: "ds1", provider: OWNER, status: { in: ["LISTED", "UNLISTED", "PRIVATE"] }, listingExpiresAt: end });
+  assert.deepEqual(where, { id: "ds1", provider: OWNER, status: "UNLISTED", listingExpiresAt: end });
 });
 
 test("nom et description : statuts modifiables seulement, propriétaire dans le where", async () => {
@@ -494,7 +513,7 @@ test("vue du propriétaire : champ par champ, consentement ré-inclus, aucun sec
   assert.equal(view.displayStatus, "borrowed");
   assert.equal(view.listingExpired, true);
   assert.equal(view.rowCount, 120);
-  const read = store.calls.find((call) => call.op === "dataset.findUnique")!.args as { omit?: Record<string, boolean> };
+  const read = store.calls.find((call) => call.op === "dataset.findFirst")!.args as { omit?: Record<string, boolean> };
   assert.deepEqual(read.omit, { trainingConsentAt: false, trainingConsentVersion: false, trainingConsentRevokedAt: false }, "wrappedKey reste omis");
   await rejectsAsync(readOwnerView(store.db, "ds1", OTHER, NOW), 404, "Dataset introuvable");
   assert.equal(store.calls.filter((call) => call.op === "loan.count").length, 1, "aucune lecture de prêt pour un autre wallet");
@@ -515,6 +534,74 @@ test("statistiques : propriété vérifiée avant toute lecture de prêts, plafo
   assert.deepEqual(query.where, { datasetId: "ds1" });
   assert.deepEqual(Object.keys(query.select).sort(), ["amountUsdcAtomic", "cancelTxHash", "createdAt", "datasetAmountUsdcAtomic", "status"],
     "ni l'emprunteur ni les preuves ne sont lus");
+});
+
+test("nom et description : caractères invisibles, bidi, substituts isolés, NFC, au moins un caractère visible", () => {
+  for (const name of ["a‏b", "a؜b", "a b", "​​", "aㅤb", "a­b", "a﻿b", "a\u{E0041}b", "x\uD800", "\uDC00x", "a⁠b"]) {
+    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères de contrôle interdits");
+  }
+  for (const name of ["---", "!!!", " . "]) rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : au moins une lettre ou un chiffre");
+  for (const description of ["a‎b", "a\u{E007F}b", "x\uDBFF", "a b"]) {
+    rejectsWith(() => validateDetailsPatch({ description }), 400, "Description invalide : caractères de contrôle interdits");
+  }
+  assert.deepEqual(validateDetailsPatch({ name: "Café \u{1F600} 2025" }), { name: "Café \u{1F600} 2025" }, "NFC, emoji bien formé accepté");
+  assert.deepEqual(validateDetailsPatch({ name: "日本語のデータ" }), { name: "日本語のデータ" });
+});
+
+test("retrait du consentement : le propriétaire est dans le where", async () => {
+  const store = fakeDb([{ id: "ds1", trainingConsentAt: new Date(NOW), trainingConsentVersion: "v1" }]);
+  await revokeTrainingConsent(store.db, await loadOwnedDataset(store.db, "ds1", OWNER), NOW);
+  const where = (store.calls.find((call) => call.op === "dataset.updateMany")!.args as { where: Record<string, unknown> }).where;
+  assert.deepEqual(where, { id: "ds1", provider: OWNER, trainingConsentAt: { not: null }, trainingConsentRevokedAt: null });
+  const read = store.calls.find((call) => call.op === "dataset.findFirst")!.args as { where: Record<string, unknown> };
+  assert.deepEqual(read.where, { id: "ds1", provider: OWNER }, "la lecture de propriété filtre déjà sur le wallet");
+});
+
+test("remise en ligne : titre EVM et publication passée rejoués par la base", async () => {
+  const store = fakeDb([{ id: "ds1", status: "UNLISTED" }]);
+  const row = await loadOwnedDataset(store.db, "ds1", OWNER);
+  store.datasets.get("ds1")!.evmDatasetId = null;
+  await rejectsAsync(applyVisibility(store.db, row, visibilityTransition("resume", row, NOW), NOW), 409);
+  assert.equal(store.datasets.get("ds1")!.status, "UNLISTED");
+
+  const privateStore = fakeDb([{ id: "ds2", status: "PRIVATE", listedAt: new Date(NOW - DAY) }]);
+  const privateRow = await loadOwnedDataset(privateStore.db, "ds2", OWNER);
+  privateStore.datasets.get("ds2")!.listedAt = null;
+  await rejectsAsync(applyVisibility(privateStore.db, privateRow, visibilityTransition("resume", privateRow, NOW), NOW), 409);
+  assert.equal(privateStore.datasets.get("ds2")!.status, "PRIVATE");
+  privateStore.datasets.get("ds2")!.listedAt = new Date(NOW - DAY);
+  await applyVisibility(privateStore.db, privateRow, visibilityTransition("resume", privateRow, NOW), NOW);
+  assert.equal(privateStore.datasets.get("ds2")!.status, "LISTED");
+});
+
+test("prolongation : un statut changé entre la lecture et l'écriture donne 409", async () => {
+  const store = fakeDb([{ id: "ds1", status: "UNLISTED", listingExpiresAt: new Date(NOW - DAY) }]);
+  const row = await loadOwnedDataset(store.db, "ds1", OWNER);
+  store.datasets.get("ds1")!.status = "LISTED";
+  await rejectsAsync(applyExtension(store.db, row, 30, NOW), 409, "Dataset modifié entre-temps : recharge la page");
+  assert.equal(store.datasets.get("ds1")!.listingExpiresAt!.getTime(), NOW - DAY, "rien n'est remis en ligne sans grant");
+});
+
+test("semaines : la borne de début de la plus ancienne fenêtre est incluse", () => {
+  const oldest = aggregateLoanStats([loan("SETTLED", NOW - STATS_WEEKS * WEEK), loan("SETTLED", NOW - STATS_WEEKS * WEEK - 1)], NOW);
+  assert.equal(oldest.weekly[0].count, 1);
+  assert.equal(oldest.weekly.reduce((sum, week) => sum + week.count, 0), 1);
+});
+
+test("vue du propriétaire : seuls les prêts en cours rendent la pastille « empruntée », destruction en attente exacte", async () => {
+  const store = fakeDb([
+    { id: "ds1", listingExpiresAt: null },
+    { id: "ds2", status: "DELETED", evmDatasetId: null },
+    { id: "ds3", status: "DELETED" },
+    { id: "ds4", status: "DELETED", evmDestroyTxHash: "0xdead" },
+  ], [
+    { datasetId: "ds1", status: "SETTLED" }, { datasetId: "ds1", status: "PENDING" }, { datasetId: "ds1", status: "SUBMITTING" },
+    { datasetId: "ds1", status: "CANCELLED" },
+  ]);
+  assert.equal((await readOwnerView(store.db, "ds1", OWNER, NOW)).displayStatus, "online");
+  assert.equal((await readOwnerView(store.db, "ds2", OWNER, NOW)).deletionPending, false, "sans titre EVM, rien à finaliser");
+  assert.equal((await readOwnerView(store.db, "ds3", OWNER, NOW)).deletionPending, true);
+  assert.equal((await readOwnerView(store.db, "ds4", OWNER, NOW)).deletionPending, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -645,6 +732,26 @@ test("route /settings/listing : grant exigé pour pause et reprise, lié au stat
   assert.equal(store.datasets.get("ds1")!.listingExpiresAt!.getTime(), end + 7 * DAY);
   response = await post("ds1", { action: "extend", days: 8 });
   assert.equal(response.status, 400);
+
+  // Annonce en ligne expirée : la prolonger la remet sur la marketplace, grant exigé.
+  store.datasets.get("ds1")!.listingExpiresAt = new Date(Date.now() - DAY);
+  const beforeRelist = grants.length;
+  response = await post("ds1", { action: "extend", days: 7 });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "Confirmation wallet requise");
+  response = await post("ds1", { action: "extend", days: 7, authorization: { valid: false } });
+  assert.equal(response.status, 401);
+  assert.ok(store.datasets.get("ds1")!.listingExpiresAt!.getTime() < Date.now(), "grant refusé : rien n'est prolongé");
+  response = await post("ds1", { action: "extend", days: 7, authorization: { valid: true } });
+  assert.equal(response.status, 200);
+  assert.equal(JSON.stringify((grants.at(-1)![2] as { intentParts: string[] }).intentParts), JSON.stringify(["ds1", "LISTED"]));
+  assert.equal(grants.length, beforeRelist + 2);
+  // Une prolongation impossible (horizon dépassé) ne consomme pas de grant.
+  const beforeImpossible = grants.length;
+  store.datasets.get("ds1")!.listingExpiresAt = new Date(Date.now() + 300 * DAY);
+  response = await post("ds1", { action: "extend", days: 90, authorization: { valid: true } });
+  assert.equal(response.status, 409);
+  assert.equal(grants.length, beforeImpossible);
 });
 
 test("route /settings/listing : limite de débit par wallet", async () => {

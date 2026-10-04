@@ -118,6 +118,9 @@ function DatasetsContent() {
         if (!res.ok) throw new Error("Statistiques indisponibles");
         return await res.json() as LoanRow[];
       });
+    // Le rejet est lu plus bas ; ce gestionnaire évite qu'un abandon avant cette lecture
+    // ne remonte comme rejet non géré.
+    loansPromise.catch(() => {});
 
     try {
       const all: DatasetRow[] = [];

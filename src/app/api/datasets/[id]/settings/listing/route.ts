@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { requireMutationGrant } from "@/lib/auth/mutation-grant";
-import { errorResponse } from "@/lib/errors";
+import { AppError, errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import {
   applyExtension,
   applyVisibility,
+  extendedListingExpiry,
+  extensionRelists,
   loadOwnedDataset,
   parseListingRequest,
   readOwnerView,
@@ -28,7 +30,11 @@ const MAX_LISTING_BODY_BYTES = 16 * 1024;
  * - `pause` (LISTED → UNLISTED) et `resume` (UNLISTED ou PRIVATE → LISTED) exigent le grant
  *   de mutation `set-dataset-visibility` de la route de visibilité existante, lié à
  *   l'identifiant et au statut visé, consommé une seule fois ;
- * - `extend` repousse `listingExpiresAt` de 7, 30 ou 90 jours.
+ * - `extend` repousse `listingExpiresAt` de 7, 30 ou 90 jours ; si l'annonce est LISTED et
+ *   déjà expirée, la prolonger la remet sur la marketplace et le même grant (cible LISTED)
+ *   est exigé.
+ * Un dataset PRIVATE jamais publié, ou tout dataset PRIVATE en déploiement de démo Phala,
+ * n'est pas remis en ligne par cette route.
  * Chaque transition est vérifiée en lecture puis rejouée par la base au moment d'écrire.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -39,9 +45,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const request = parseListingRequest(await readJson<Record<string, unknown>>(req, MAX_LISTING_BODY_BYTES));
     const row = await loadOwnedDataset(prisma, id, session.address);
     if (request.action === "extend") {
+      // Contrôlée avant le grant : une prolongation impossible ne consomme rien.
+      extendedListingExpiry(row, request.days);
+      if (extensionRelists(row)) {
+        // Prolonger une annonce LISTED expirée la remet sur la marketplace : même grant que
+        // la remise en ligne.
+        if (!request.authorization) throw new AppError("Confirmation wallet requise", 400);
+        await requireMutationGrant(session, request.authorization as RunnerGrant, {
+          operation: "set-dataset-visibility",
+          datasetId: row.id,
+          intentParts: [row.id, "LISTED"],
+        });
+      }
       await applyExtension(prisma, row, request.days);
     } else {
-      const transition = visibilityTransition(request.action, row);
+      const transition = visibilityTransition(request.action, row, Date.now(), {
+        demoMode: process.env.SIRIUS_PHALA_DEMO === "true",
+      });
       await requireMutationGrant(session, request.authorization as RunnerGrant, {
         operation: "set-dataset-visibility",
         datasetId: row.id,

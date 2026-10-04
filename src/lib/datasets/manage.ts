@@ -12,7 +12,7 @@
  * requêtes concurrentes ne peuvent pas produire une transition que les règles refusent.
  */
 import { AppError } from "@/lib/app-error";
-import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
+import { addressesEqual, normalizeAddress, tryNormalizeAddress } from "@/lib/evm/address";
 import { publicDatasetMetrics } from "@/lib/sirius/metrics";
 import type { StatusKind } from "@/components/ui/status";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
@@ -23,8 +23,12 @@ export type DatasetStatusValue = (typeof DATASET_STATUSES)[number];
 export const LOAN_STATUSES = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"] as const;
 export type LoanStatusValue = (typeof LOAN_STATUSES)[number];
 
-/** Prêts dont l'USDC est parti du wallet de l'emprunteur et pas encore résolu : « emprunt en cours ». */
-export const IN_FLIGHT_LOAN_STATUSES: readonly LoanStatusValue[] = ["SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"];
+/**
+ * Prêts dont le blocage USDC est confirmé et pas encore résolu : « emprunt en cours ».
+ * SUBMITTING en est exclu : la transaction de blocage peut encore échouer et le prêt
+ * revenir à PENDING (`borrower.ts`), ce n'est pas encore un emprunt.
+ */
+export const IN_FLIGHT_LOAN_STATUSES: readonly LoanStatusValue[] = ["ESCROWED", "TRAINING", "SETTLING"];
 
 /** Durées de prolongation proposées par la fiche (07-upload.md : 7, 30 ou 90 jours). */
 export const LISTING_EXTENSION_DAYS = [7, 30, 90] as const;
@@ -52,10 +56,18 @@ const DATASET_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** Montant atomique : entier décimal positif ou nul, sans signe ni exposant. */
 const ATOMIC_RE = /^(0|[1-9][0-9]{0,77})$/;
 
-// Contrôles C0 (hors tabulation et sauts de ligne), DEL, C1, et caractères de contrôle
-// bidirectionnel qui permettent d'afficher un nom différent de celui stocké.
-const FORBIDDEN_DESCRIPTION_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/;
-const FORBIDDEN_NAME_CHARS = /[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/;
+// Caractères refusés dans le nom et la description : contrôles C0 (hors tabulation et sauts
+// de ligne pour la description), DEL, C1 ; marques et contrôles bidirectionnels (U+061C,
+// U+200E-F, U+202A-E, U+2066-9) qui affichent un texte différent de celui stocké ;
+// caractères invisibles ou de format (U+00AD, U+180E, U+200B-D, U+2028-9, U+2060-4,
+// U+206A-F, U+FEFF, U+FFF9-B, remplissages hangul, étiquettes U+E0000-E007F).
+const INVISIBLE_CHARS = "\\u00AD\\u061C\\u115F\\u1160\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\u3164\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}";
+const FORBIDDEN_DESCRIPTION_CHARS = new RegExp(`[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F${INVISIBLE_CHARS}]`, "u");
+const FORBIDDEN_NAME_CHARS = new RegExp(`[\\u0000-\\u001F\\u007F-\\u009F${INVISIBLE_CHARS}]`, "u");
+/** Demi-paire de substitution UTF-16 isolée : chaîne mal formée. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+/** Un nom doit contenir au moins une lettre ou un chiffre visible. */
+const VISIBLE_NAME = /[\p{L}\p{N}]/u;
 
 /**
  * Symbole du jeton de règlement affiché par la mosaïque et la fiche. Le reste du site écrit
@@ -146,6 +158,13 @@ export interface ListingState {
   status: string;
   listingExpiresAt: Date | null;
   evmDatasetId?: string | null;
+  /** Dernière mise au catalogue ; nulle pour un dataset qui n'a jamais été public. */
+  listedAt?: Date | null;
+}
+
+export interface TransitionOptions {
+  /** Déploiement de démonstration Phala : les datasets y restent privés (`provider.ts`). */
+  demoMode?: boolean;
 }
 
 export interface VisibilityTransition {
@@ -154,12 +173,18 @@ export interface VisibilityTransition {
 }
 
 /**
- * Pause : LISTED → UNLISTED uniquement. Remise en ligne : UNLISTED ou PRIVATE → LISTED, si le
- * titre EVM existe et si l'annonce n'est pas expirée. DRAFT, LISTING, SUSPENDED et DELETED
- * n'ont aucune transition ici : un dataset détruit, suspendu ou en cours de publication ne
- * peut pas être remis en ligne depuis la fiche.
+ * Pause : LISTED → UNLISTED uniquement. Remise en ligne : UNLISTED → LISTED, ou PRIVATE →
+ * LISTED pour un dataset qui a déjà été public (`listedAt` posé) hors déploiement de démo,
+ * si le titre EVM existe et si l'annonce n'est pas expirée. DRAFT, LISTING, SUSPENDED et
+ * DELETED n'ont aucune transition ici : un dataset détruit, suspendu ou en cours de
+ * publication ne peut pas être remis en ligne depuis la fiche.
  */
-export function visibilityTransition(action: "pause" | "resume", state: ListingState, now: number = Date.now()): VisibilityTransition {
+export function visibilityTransition(
+  action: "pause" | "resume",
+  state: ListingState,
+  now: number = Date.now(),
+  options: TransitionOptions = {},
+): VisibilityTransition {
   if (action === "pause") {
     if (state.status !== "LISTED") throw new AppError("Seul un dataset en ligne peut être mis en pause", 409);
     return { from: ["LISTED"], to: "UNLISTED" };
@@ -168,6 +193,9 @@ export function visibilityTransition(action: "pause" | "resume", state: ListingS
     throw new AppError("Remise en ligne impossible pour ce dataset", 409);
   }
   if (!state.evmDatasetId) throw new AppError("Remise en ligne impossible pour ce dataset", 409);
+  if (state.status === "PRIVATE" && (options.demoMode || !state.listedAt)) {
+    throw new AppError("Remise en ligne impossible pour ce dataset", 409);
+  }
   if (isListingExpired(state.listingExpiresAt, now)) {
     throw new AppError("Annonce expirée : prolonge-la avant de la remettre en ligne", 409);
   }
@@ -206,10 +234,18 @@ export function extendedListingExpiry(state: ListingState, days: ListingExtensio
   return new Date(next);
 }
 
+/**
+ * Prolonger une annonce LISTED déjà expirée la remet de fait sur la marketplace : la route
+ * exige alors le même grant que la remise en ligne (`set-dataset-visibility`, cible LISTED).
+ */
+export function extensionRelists(state: ListingState, now: number = Date.now()): boolean {
+  return state.status === "LISTED" && isListingExpired(state.listingExpiresAt, now);
+}
+
 /** Corps de `POST /api/datasets/[id]/settings/listing`, validé strictement. */
 export type ListingRequest =
   | { action: "pause" | "resume"; authorization: unknown }
-  | { action: "extend"; days: ListingExtensionDays };
+  | { action: "extend"; days: ListingExtensionDays; authorization?: unknown };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -232,8 +268,11 @@ export function parseListingRequest(input: unknown): ListingRequest {
     return { action, authorization: input.authorization };
   }
   if (action === "extend") {
-    assertOnlyKeys(input, ["action", "days"]);
-    return { action, days: parseExtensionDays(input.days) };
+    assertOnlyKeys(input, ["action", "days", "authorization"]);
+    const days = parseExtensionDays(input.days);
+    if (!Object.hasOwn(input, "authorization")) return { action, days };
+    if (!isPlainObject(input.authorization)) throw new AppError("Confirmation wallet requise", 400);
+    return { action, days, authorization: input.authorization };
   }
   throw new AppError("Action de publication inconnue", 400);
 }
@@ -274,10 +313,12 @@ export function validateDetailsPatch(input: unknown): DetailsPatch {
   if (Object.hasOwn(input, "name")) {
     const name = input.name;
     if (typeof name !== "string") throw new AppError("Nom manquant", 400);
-    const trimmed = name.trim();
+    if (LONE_SURROGATE.test(name)) throw new AppError("Nom invalide : caractères de contrôle interdits", 400);
+    const trimmed = name.normalize("NFC").trim();
     if (trimmed === "") throw new AppError("Nom manquant", 400);
     if (trimmed.length > MAX_DATASET_NAME_LENGTH) throw new AppError("Nom trop long (120 caractères maximum)", 400);
     if (FORBIDDEN_NAME_CHARS.test(trimmed)) throw new AppError("Nom invalide : caractères de contrôle interdits", 400);
+    if (!VISIBLE_NAME.test(trimmed)) throw new AppError("Nom invalide : au moins une lettre ou un chiffre", 400);
     patch.name = trimmed;
   }
   if (Object.hasOwn(input, "description")) {
@@ -286,7 +327,8 @@ export function validateDetailsPatch(input: unknown): DetailsPatch {
       patch.description = null;
     } else {
       if (typeof description !== "string") throw new AppError("Description invalide", 400);
-      const trimmed = description.trim();
+      if (LONE_SURROGATE.test(description)) throw new AppError("Description invalide : caractères de contrôle interdits", 400);
+      const trimmed = description.normalize("NFC").trim();
       if (trimmed.length > MAX_DATASET_DESCRIPTION_LENGTH) {
         throw new AppError("Description trop longue (2 000 caractères maximum)", 400);
       }
@@ -480,6 +522,7 @@ const OWNER_CHECK_SELECT = {
   status: true,
   listingExpiresAt: true,
   evmDatasetId: true,
+  listedAt: true,
 } as const;
 
 interface OwnerCheckRow {
@@ -488,6 +531,7 @@ interface OwnerCheckRow {
   status: string;
   listingExpiresAt: Date | null;
   evmDatasetId: string | null;
+  listedAt: Date | null;
 }
 
 /** Sous-ensemble du client Prisma utilisé ici ; les tests le simulent. */
@@ -505,7 +549,10 @@ export function assertDatasetId(id: unknown): string {
  */
 export async function loadOwnedDataset(db: ManageDb, id: unknown, owner: string): Promise<OwnerCheckRow> {
   const datasetId = assertDatasetId(id);
-  const row: OwnerCheckRow | null = await db.dataset.findUnique({ where: { id: datasetId }, select: { ...OWNER_CHECK_SELECT } });
+  const provider = tryNormalizeAddress(owner);
+  if (!provider) throw new AppError("Dataset introuvable", 404);
+  // Le propriétaire est dans la requête : la ligne d'un autre wallet n'est jamais lue.
+  const row: OwnerCheckRow | null = await db.dataset.findFirst({ where: { id: datasetId, provider }, select: { ...OWNER_CHECK_SELECT } });
   if (!row || !addressesEqual(row.provider, owner)) throw new AppError("Dataset introuvable", 404);
   return row;
 }
@@ -521,6 +568,8 @@ export async function applyVisibility(db: ManageDb, row: OwnerCheckRow, transiti
   };
   if (transition.to === "LISTED") {
     where.evmDatasetId = { not: null };
+    // Un dataset privé ne repasse en ligne que s'il a déjà été public (voir visibilityTransition).
+    if (transition.from.includes("PRIVATE")) where.listedAt = { not: null };
     // L'expiration est rejouée par la base : une annonce qui expire entre la lecture et
     // l'écriture n'est pas remise en ligne.
     where.OR = [{ listingExpiresAt: null }, { listingExpiresAt: { gt: new Date(now) } }];
@@ -537,7 +586,9 @@ export async function applyExtension(db: ManageDb, row: OwnerCheckRow, days: Lis
     where: {
       id: row.id,
       provider: normalizeAddress(row.provider),
-      status: { in: [...EXTENSIBLE_STATUSES] },
+      // Statut exact lu : un dataset passé de UNLISTED à LISTED entre-temps ne serait plus
+      // couvert par la décision « grant requis ou non » prise par la route.
+      status: row.status as DatasetStatusValue,
       // Égalité stricte avec la date lue : deux prolongations simultanées ne s'additionnent
       // pas en silence, la seconde reçoit un 409 et l'utilisateur voit la nouvelle date.
       listingExpiresAt: row.listingExpiresAt,
@@ -691,7 +742,9 @@ export function toOwnerView(row: OwnerDatasetRow, inFlightLoans: number | null, 
 /** Lit la ligne complète du propriétaire (consentement ré-inclus) et son nombre de prêts en cours. */
 export async function readOwnerView(db: ManageDb, id: unknown, owner: string, now: number = Date.now()): Promise<OwnerDatasetView> {
   const datasetId = assertDatasetId(id);
-  const row: OwnerDatasetRow | null = await db.dataset.findUnique({ where: { id: datasetId }, omit: { ...OWNER_VIEW_OMIT } });
+  const provider = tryNormalizeAddress(owner);
+  if (!provider) throw new AppError("Dataset introuvable", 404);
+  const row: OwnerDatasetRow | null = await db.dataset.findFirst({ where: { id: datasetId, provider }, omit: { ...OWNER_VIEW_OMIT } });
   if (!row || !addressesEqual(row.provider, owner)) throw new AppError("Dataset introuvable", 404);
   const inFlight = await db.loan.count({ where: { datasetId, status: { in: [...IN_FLIGHT_LOAN_STATUSES] } } });
   return toOwnerView(row, inFlight, now);
