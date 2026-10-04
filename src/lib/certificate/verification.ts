@@ -115,12 +115,13 @@ function isWellFormed(input: VerificationInput): boolean {
   );
 }
 
-function delay<T>(ms: number, value: T): { promise: Promise<T>; cancel: () => void } {
+function delay<T>(ms: number, value: T, background = false): { promise: Promise<T>; cancel: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const promise = new Promise<T>((resolve) => {
     timer = setTimeout(() => resolve(value), ms);
-    // Une attente ou une échéance ne doit jamais, à elle seule, garder le processus en vie.
-    timer.unref?.();
+    // L'échéance dure tourne en arrière-plan : elle ne doit pas, à elle seule, garder le processus
+    // en vie. L'attente du rendu, elle, est attendue et doit le garder.
+    if (background) timer.unref?.();
   });
   return { promise, cancel: () => timer && clearTimeout(timer) };
 }
@@ -205,7 +206,7 @@ export class BoundedQuoteVerifier {
   }
 
   private start(key: string, input: VerificationInput): Promise<Entry> {
-    const deadline = delay(this.hardDeadlineMs, ABANDONED);
+    const deadline = delay(this.hardDeadlineMs, ABANDONED, true);
     // `Promise.resolve().then` : même un vérificateur qui lèverait de façon synchrone
     // passe par le rejet, et l'entrée en vol est posée avant d'être retirée.
     this.outstanding += 1;
