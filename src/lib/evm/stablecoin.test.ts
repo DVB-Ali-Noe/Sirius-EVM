@@ -10,7 +10,8 @@ import {
   MAINNET_STABLECOIN_ADDRESS, MAINNET_STABLECOIN_DECIMALS, MAINNET_STABLECOIN_NAME, MAINNET_STABLECOIN_SYMBOL,
   stablecoinSymbol, TESTNET_STABLECOIN_LABEL,
 } from "./stablecoin";
-import { EN_MESSAGES } from "../i18n/english";
+import { EN_MESSAGES, translateEnglish } from "../i18n/english";
+import { stablecoinSymbol as profileStablecoinSymbol } from "../../components/profile/network";
 
 /** Adresse officielle d'USDG sur Robinhood Chain (documentation Paxos), forme checksummée. */
 const USDG_OFFICIAL = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
@@ -54,9 +55,16 @@ test("le libellé affiché est USDG sur mainnet et le jeton d'essai sur testnet,
   for (const network of ["", "Mainnet", "4663", undefined, null]) {
     assert.throws(() => stablecoinSymbol(network as unknown as EvmNetwork), /Réseau inconnu/, String(network));
   }
+  // La slice A5 a son propre helper dans components/profile/network.ts : tant qu'il n'est pas
+  // rabattu sur celui-ci, les deux doivent donner le même libellé sur chaque réseau.
+  for (const network of ["mainnet", "testnet"] as const) {
+    assert.equal(profileStablecoinSymbol(network), stablecoinSymbol(network), network);
+  }
 });
 
-test("le jeton d'essai garde sa clé de traduction, USDG est un symbole sans traduction", () => {
+test("le jeton d'essai garde sa clé de traduction, et le symbole USDG reste identique dans les deux langues", () => {
   assert.equal(EN_MESSAGES[TESTNET_STABLECOIN_LABEL], "test USDC");
-  assert.equal(Object.hasOwn(EN_MESSAGES, MAINNET_STABLECOIN_SYMBOL), false, "un symbole de jeton ne se traduit pas");
+  assert.equal(translateEnglish(TESTNET_STABLECOIN_LABEL), "test USDC");
+  // Qu'une clé « USDG » existe ou non (une autre slice en a ajouté une), t() doit rendre le symbole tel quel.
+  assert.equal(translateEnglish(MAINNET_STABLECOIN_SYMBOL), MAINNET_STABLECOIN_SYMBOL, "un symbole de jeton ne se traduit pas");
 });

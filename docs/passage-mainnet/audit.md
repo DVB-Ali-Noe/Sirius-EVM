@@ -1515,17 +1515,48 @@ Branche `feat/usdg`, base `staging` (tête `e829cfc` au départ). Cahier des cha
 | P0 | Confirmer sur `app.across.to` que la destination Robinhood Chain livre de l'USDG (§4, cas 7) | Ali ou Noé |
 | P1 | Reprendre les libellés « USDC » des pages marketplace, upload, train, explorer, composants partagés (`PriceBreakdown` prend déjà un `token.symbol`) et `terms` avec `stablecoinSymbol` ; puis adapter les clés i18n correspondantes | slices N2, N3, N4, A7, A2, A4 |
 | P1 | Relâcher `src/lib/evm/balance.test.ts` (regex `t\("test USDC"\)`) vers `stablecoinSymbol\(` pour permettre `t(stablecoinSymbol(network))` dans les pages | après fusion |
+| P1 | Rabattre le `stablecoinSymbol` de `src/components/profile/network.ts` (slice A5, mêmes valeurs) sur `src/lib/evm/stablecoin.ts` : une ligne de réexport. En attendant, `stablecoin.test.ts` vérifie que les deux coïncident | après fusion |
 | P2 | Préflight : lire le slot d'implémentation ERC-1967 et rapporter son adresse et son code hash dans le rapport (`usdc.implementation`), pour tracer les mises à niveau de Paxos d'un préflight à l'autre ; optionnellement `paused()` | après lancement |
 | P2 | `deploy/operations/tariff-proposal.json` : `priceUnit` « USDC » → « USDG » lors de la prochaine proposition tarifaire mainnet | opérations |
 | P2 | `docs/MAINNET-LAUNCH.md`, `docs/MAINNET-LAUNCH-PLAN.md`, `docs/AUDIT-2026-10-01.md` mentionnent encore l'USDC `0x80e0…` : documents historiques, hors périmètre ; ajouter une note de renvoi vers la décision USDG | documentation |
 
 ### 9. Résultats des vérifications
 
-_Voir ci-dessous, complété en fin de session._
+Environnement : **Windows 11**, Node 22.16.0, pnpm 11.18.0 via `corepack`, Docker absent, `DATABASE_URL="postgresql://x:y@localhost:5432/z"` (factice, aucune base). Worktree de la branche `feat/usdg` après fusion de `origin/staging` (`ec0b768`, onze PR fusionnées pendant la slice : conflits résolus dans `package.json`, union des 92 fichiers de test sans perte ni doublon, et `src/app/(app)/wallet/page.tsx`, où la constante `NETWORK` introduite par A5 remplace mon `const network`).
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Done in 4.9s using pnpm v11.18.0`, `postinstall: ✔ Generated Prisma Client (7.8.0)`, code 0. Sans `DATABASE_URL`, le postinstall échoue sur `PrismaConfigEnvError` (préexistant). |
+| `pnpm prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma`, code 0 |
+| `pnpm exec tsc --noEmit` | aucune erreur, code 0 (relancé après chaque correctif, dont la fusion) |
+| `pnpm lint` | `eslint` sans sortie, code 0 (idem) |
+| `pnpm audit:deps` | `2 vulnerabilities found — Severity: 1 low \| 1 high (1 ignored)`, code 0 (état préexistant du dépôt) |
+| `pnpm test` | **Ne démarre pas tel quel sous Windows** : le script commence par `NODE_OPTIONS="…" node …`, que le shell Windows ne comprend pas (`'NODE_OPTIONS' n'est pas reconnu`). Équivalent lancé avec la variable exportée et la liste de fichiers lue dans `package.json`. Un premier passage global s'est **bloqué** après `scripts/runner-cli.test.ts` (processus enfant Windows jamais terminé) ; relancé fichier par fichier avec un délai maximal de 90 s par fichier : **92 fichiers, 633 tests passés, 72 échecs**, tous dans 8 fichiers et tous dus à l'environnement Windows, détaillés ci-dessous. |
+| Tests de la slice (`stablecoin`, `deploy-policy`, `phala-v7-preflight`, `release-check`, plus les gardes `english` et `balance`) | `39 tests, 39 pass, 0 fail` (dernier passage, après fusion) |
+| `scripts/initialize-runner-volume.test.ts` | 4 pass, 4 fail : `Registre anti-rejeu remplacé ou indisponible` ×3 et `Missing expected rejection` ×1. Reproduits à l'identique avec le fichier de test de `origin/staging` sur ce poste : contrôle de mode POSIX (`mode & 0o077`, Windows renvoie 0o666) et garde CLI sur `/`. Les assertions USDG du test mainnet s'exécutent et passent avant l'écriture qui échoue. |
+| Lecture on-chain (`eth_chainId`, `eth_getCode`, `eth_call`, `eth_getStorageAt` sur `https://rpc.mainnet.chain.robinhood.com`) | chaîne `0x1237` (4663) ; USDG : code 170 octets, keccak256 `0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6`, `name` « Global Dollar », `symbol` « USDG », `decimals` 6, `paused` false, `totalSupply` 700 104 924,001817, slot d'implémentation ERC-1967 → `0x68184c449e1a8f34fa18d289737129fd27b66f8f` (18 644 octets, keccak256 `0x3a551ac5c744af57e68a1d1431ac403c0f516ffd7d224a75746aee11fc4f3baf`), slot d'admin vide. Ancien USDC `0x80e0…` : 835 octets, keccak256 `0x487e3e7b…e694` (celui des anciens runbooks), 6 décimales, pas de proxy. Le second relecteur a refait la lecture indépendamment : mêmes valeurs. |
+| API Blockscout (`/api/v2/smart-contracts/0x5fc5…`) | HTTP 403 / défi Cloudflare en ligne de commande : vérification du contrat à faire dans un navigateur (§4, cas 10). |
+| `git log origin/staging..HEAD --format=%B` | aucun `Co-Authored-By`, `Claude`, lien de session ni `[skip ci]` ; auteur `alibenyezza` sur les deux commits. |
+
+**Échecs d'environnement Windows (72), tous préexistants et sans lien avec la slice** : `src/lib/runner/replay.test.ts` (7, `Registre anti-rejeu…`), `src/lib/runner/budget.test.ts` (54, `Répertoire privé requis pour le budget runner` : mode POSIX), `src/runner/server.test.ts` (1, idem), `src/lib/runner/monitoring.test.ts` (1, idem), `scripts/runner-cli.test.ts` (1, CLI enfant Windows), `scripts/initialize-runner-volume.test.ts` (4, ci-dessus), `src/lib/auth/self-training-routes.test.ts` (3, chemins `src\app\…` contre `src/app/…`), `src/lib/copy/disclaimers.test.ts` (1, `src/lib/tee/contract.ts absent du graphe`, séparateur de chemin). Le reste de la suite, dont tous les tests ajoutés ou modifiés par la slice, passe. La CI tourne sous Linux et n'a pas ces échecs.
 
 ### 10. Revue interne de la session
 
-_Voir ci-dessous, complété en fin de session._
+Deux relecteurs adversariaux indépendants (sécurité : « aucun autre jeton sur mainnet » ; exactitude : testnet inchangé, décimales, docs), lancés sur le diff avant fusion. Aucun des deux n'a trouvé de point bloquant.
+
+**Corrigé à la suite des revues** :
+
+1. Tests trop faibles (`assert.throws` sans motif, ou alternance `/USDG|non nulle/`) : `deploy-policy.test.ts` sépare désormais « jeton bien formé mais différent » (motif `/USDG/`) et « valeur mal formée » (motif `/non nulle/`) ; `phala-v7-preflight.test.ts` exige `/USDG/` pour `address(1)`, l'ancien USDC sous deux casses et avec espaces ; `initialize-runner-volume.test.ts` exige `/USDG/` pour l'ancien USDC et un jeton quelconque, et garde `Error` seulement pour l'USDG en majuscules (refusé plus tôt, par la validation de la politique).
+2. `phala-v7-preflight.ts` : le message d'épinglage interpole la constante au lieu d'une abréviation en dur ; « Empreinte USDC requise » devient « Empreinte du jeton de règlement requise : SIRIUS_USDC_CODE_HASH ».
+3. `src/app/status/page.tsx` : « Global Dollar » vient de `MAINNET_STABLECOIN_NAME`.
+4. Commentaire de `stablecoinSymbol` et nom du test associé : ils affirmaient que le résultat « passe par `t()` », ce qui n'est vrai que du libellé testnet. Reformulés.
+5. Commentaire de l'alias `MAINNET_USDC` : « conservé pour les imports existants » alors qu'aucun importateur n'existe hors tests ; devient « gardé par compatibilité (cahier des charges A8)… Aucun importateur hors tests ».
+6. `initialize-runner-volume.test.ts` : constante `LEGACY_USDC` déplacée après le bloc d'imports.
+7. Après la fusion de `staging` : la slice A5 a ajouté une clé i18n `"USDG": "USDG"`, ce qui cassait mon assertion « aucune clé pour un symbole ». L'invariant réel est `t("USDG") === "USDG"` : test réécrit ainsi. A5 a aussi son propre `stablecoinSymbol` dans `src/components/profile/network.ts` (mêmes valeurs) : le test vérifie désormais que les deux helpers coïncident sur les deux réseaux, en attendant que celui de A5 soit rabattu sur `src/lib/evm/stablecoin.ts` (§8).
+
+**Signalé par les revues et écarté ou reporté (hors périmètre de la slice, consigné en §8)** : libellés « USDC » dans `explorer`, `train`, `ComputeQuoteDialog`, `EscrowCredits`, `terms` ; `docs/MAINNET-LAUNCH.md`, `docs/MAINNET-LAUNCH-PLAN.md` (dont la case de checklist « `usdc()` = 0x80e0…6cA8 »), `docs/AUDIT-2026-10-01.md`, `.env.example` (« keccak256 du bytecode USDC »), `deploy/phala/compose.init-v7.yaml` (`Token testnet attendu requis` alors qu'il sert aussi à l'init mainnet) et le commentaire de `contracts/scripts/deploy.ts:87` (« l'USDC natif ») qui pointent encore l'ancien jeton ; `src/worker/mainnet-guard.ts` ne vérifie que la présence de `SIRIUS_USDC_ADDRESS`, pas sa valeur (atténué : jeton figé dans le constructeur de l'escrow, préflight qui compare `escrow.usdc()` à la configuration) ; double exécution inoffensive de `release-check.test.mjs` (`test` et `test:operations`) ; sur testnet, la ligne de contrat de `/status` s'intitule « TEST USDC » (cosmétique) ; message post-ajout de fonds « {usdc} USDC envoyés. » dans wallet/dashboard : il n'apparaît que sur le chemin faucet, donc jamais sur mainnet (sur mainnet, `addFunds` lève « Pont ouvert : envoie de l'USDC vers Robinhood Chain depuis un autre réseau », exact puisque l'utilisateur envoie de l'USDC et reçoit de l'USDG).
+
+**Vérifié conforme par les revues** : normalisation et comparaison en minuscules dans les quatre scripts ; refus de l'ancien USDC testé partout ; alias cohérent ; messages sans reflet de l'entrée ; testnet strictement inchangé ; décimales cohérentes (table, constante, préflight, runner) ; `resolveClientNetwork()` déjà appelé au niveau module par d'autres composants (aucun nouveau cas de levée) ; aucun effet de bord à l'import des scripts dans le test croisé ; `tsc -p contracts/tsconfig.v7.json` (celui de la CI) passe.
 
 ---
 
