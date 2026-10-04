@@ -36,6 +36,8 @@ import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { stablecoinTicker } from "@/lib/evm/stablecoin";
+import { resolveClientNetwork } from "@/lib/evm/networks";
 import {
   modelSelection,
   modelDisplayName,
@@ -524,7 +526,7 @@ function TrainPageContent() {
                     </>}
                     {advanced && (
                       <>
-                        <Field label={t("Lock USDC")} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
+                        <Field label={t("Lock {token}", { token: stablecoinTicker(resolveClientNetwork()) })} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
                         <Field
                           label={t("Remboursable après")}
                           value={l.evmDeadline ? new Date(l.evmDeadline).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US") : "—"}

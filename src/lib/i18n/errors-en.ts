@@ -459,7 +459,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Transaction refusée : envoi d’ETH inattendu": "Transaction rejected: unexpected ETH transfer",
   "Transaction refusée : opération inattendue": "Transaction rejected: unexpected operation",
   "Transaction refusée : opération inattendue sur le jeton USDC": "Transaction rejected: unexpected operation on the USDC token",
-  "Pont ouvert : envoie de l’USDC vers Robinhood Chain depuis un autre réseau": "Bridge opened: send USDC to Robinhood Chain from another network",
+  "Pont ouvert : envoie de l’USDC ou de l’USDG vers Robinhood Chain depuis un autre réseau, il arrive en USDG": "Bridge opened: send USDC or USDG to Robinhood Chain from another network, it arrives as USDG",
   "Plafond d’exposition totale de la bêta atteint, réessaie plus tard": "Beta total exposure limit reached, try again later",
   "Plafonds de prêt non configurés sur mainnet": "Loan limits are not configured on mainnet",
   "SIRIUS_MAX_LOAN_USDC invalide : montant USDC positif attendu": "Invalid SIRIUS_MAX_LOAN_USDC: positive USDC amount expected",

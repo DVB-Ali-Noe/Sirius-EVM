@@ -42,6 +42,14 @@ const SYMBOL_BY_NETWORK: Record<EvmNetwork, string> = {
  * les pages passent à `t()`. Un réseau inconnu lève une erreur plutôt que
  * d'afficher un libellé faux à côté d'un solde.
  */
+/**
+ * Ticker court pour les libellés techniques (« Lock USDG », crédits à retirer) : USDG sur
+ * mainnet, USDC sur testnet, jamais traduit.
+ */
+export function stablecoinTicker(network: EvmNetwork): "USDG" | "USDC" {
+  return network === "mainnet" ? MAINNET_STABLECOIN_SYMBOL : "USDC";
+}
+
 export function stablecoinSymbol(network: EvmNetwork): string {
   const symbol = SYMBOL_BY_NETWORK[network];
   if (!symbol) throw new Error(`Réseau inconnu pour le jeton de règlement : ${String(network)}`);
