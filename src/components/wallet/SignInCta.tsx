@@ -6,6 +6,7 @@ import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { connectWallet } from "./WalletConnector";
+import { TermsNotice } from "./TermsNotice";
 
 // État partagé : la connexion change la révision du wallet et remonte les parents indexés
 // sur elle, alors que la signature attend encore dans le wallet.
@@ -42,6 +43,7 @@ export function SignInCta({ children }: { children: React.ReactNode }) {
         {pending ? (connected ? t("Signature…") : t("Connexion…")) : connected ? t("Se connecter") : children}
       </button>
       {connected && !pending && <p className="text-xs text-muted">{t("Signe pour prouver la possession du wallet")}</p>}
+      <TermsNotice />
       {error && <p role="alert" className="text-xs text-negative">{t(error)}</p>}
     </div>
   );

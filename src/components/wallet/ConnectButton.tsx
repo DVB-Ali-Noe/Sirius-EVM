@@ -9,6 +9,7 @@ import { resolveClientNetwork } from "@/lib/evm/networks";
 import { openEmbeddedWallet, openWalletModal } from "./WalletConnector";
 import { logoutCurrentWallet } from "./logout";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { TermsNotice } from "./TermsNotice";
 
 function truncate(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -178,6 +179,7 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
                   <span className="mt-0.5 block text-xs text-muted">Phantom, MetaMask, Rabby, Coinbase Wallet…</span>
                 </button>
               )}
+              <TermsNotice className="border-t border-border px-4 py-3" />
             </div>
           </>
         )}
@@ -263,6 +265,7 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
                 </span>
               </button>
             )}
+            {!authenticated && <TermsNotice className="border-b border-border px-4 py-3" />}
             {authError && <p role="alert" className="px-4 py-3 text-xs text-negative">{t(authError)}</p>}
             <button
               onClick={handleDisconnect}
