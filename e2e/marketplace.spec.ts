@@ -79,7 +79,8 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await expect(page.getByText("Prices include the compute fee from the latest quote")).toBeVisible();
 
   await card.getByRole("link", { name: item.name }).click();
-  await expect(page).toHaveURL(new RegExp(`/marketplace/${item.id}$`));
+  // Premier passage en développement : la route de la fiche se compile pendant la navigation.
+  await expect(page).toHaveURL(new RegExp(`/marketplace/${item.id}$`), { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: item.name, level: 1 })).toBeVisible();
   // La description est rendue comme du texte, jamais comme du HTML.
   await expect(page.getByText("<script>alert(1)</script>")).toBeVisible();
