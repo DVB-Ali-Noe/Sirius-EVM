@@ -12,7 +12,9 @@ import { useLocale } from "@/components/i18n/LocaleProvider";
 import { formatCount } from "@/lib/copy/numbers";
 import { messageOf } from "@/lib/errors-client";
 import { formatBytes, truncate } from "@/lib/format";
-import { USDC_DECIMALS } from "@/lib/evm/usdc";
+import { settlementToken } from "@/lib/datasets/token";
+import { PublishDraftButton } from "./PublishDraftButton";
+import { DATASET_CATEGORY_LABEL_KEYS, parseDatasetCategory } from "@/lib/datasets/publication";
 import { transactionExplorerUrl } from "@/lib/evm/explorer";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { modelDisplayName, modelSelection } from "@/lib/models/registry";
@@ -25,7 +27,6 @@ import {
   LISTING_EXTENSION_DAYS,
   MAX_DATASET_DESCRIPTION_LENGTH,
   MAX_DATASET_NAME_LENGTH,
-  SETTLEMENT_TOKEN_SYMBOL,
   formatUtcDate,
   formatUtcDateTime,
   type ListingExtensionDays,
@@ -166,7 +167,9 @@ function DetailContent({ id }: { id: string }) {
   }
 
   const model = modelSelection(view.modelId, view.modelVersion);
-  const token = { symbol: SETTLEMENT_TOKEN_SYMBOL, decimals: stats?.tokenDecimals ?? USDC_DECIMALS };
+  // Symbole selon le réseau ; décimales du serveur quand les statistiques les donnent.
+  const baseToken = settlementToken(network);
+  const token = { ...baseToken, decimals: stats?.tokenDecimals ?? baseToken.decimals };
   const price = formatTokenWithSymbol(view.priceUsdcAtomic, token) ?? "—";
 
   return (
@@ -179,7 +182,7 @@ function DetailContent({ id }: { id: string }) {
           <StatusPill status={view.displayStatus} className="shrink-0" />
         </div>
         <div className="flex flex-wrap gap-2">
-          {view.category && <Badge variant="muted">{view.category}</Badge>}
+          {categoryLabel(view.category, t) && <Badge variant="muted">{categoryLabel(view.category, t)}</Badge>}
           <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
         </div>
         <StatusExplanation view={view} />
@@ -244,23 +247,15 @@ function DetailContent({ id }: { id: string }) {
         <Card>
           <h2 className="text-base font-semibold">{t("Publication")}</h2>
           <p className="mt-1 text-sm text-muted">{t("Le titre EVM de ce dataset n’est pas encore publié.")}</p>
-          <button
-            type="button"
-            onClick={() => run("publish", () => publishDataset(view.id))}
-            disabled={busy !== null || !model || (view.status === "DRAFT" && !view.ipfsCid)}
-            title={view.status === "DRAFT" && !view.ipfsCid ? t("Upload interrompu : supprime ce brouillon et recommence") : undefined}
-            className="mt-3 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-          >
-            {busy === "publish"
-              ? t("Publication…")
-              : !model
-                ? t("Réimport requis")
-                : view.status === "LISTING"
-                  ? t("Réconcilier…")
-                  : view.ipfsCid
-                    ? t("Publier le titre")
-                    : t("Upload incomplet")}
-          </button>
+          <PublishDraftButton
+            status={view.status}
+            ipfsCid={view.ipfsCid}
+            modelValid={Boolean(model)}
+            pending={busy === "publish"}
+            disabled={busy !== null}
+            onPublish={() => run("publish", () => publishDataset(view.id))}
+            className="mt-3"
+          />
         </Card>
       )}
 
@@ -277,6 +272,12 @@ function DetailContent({ id }: { id: string }) {
       )}
     </main>
   );
+}
+
+/** Catégorie de la liste fixe de l'upload, traduite ; une valeur inconnue n'est pas affichée. */
+function categoryLabel(value: string | null, t: (key: string) => string): string | null {
+  const category = parseDatasetCategory(value);
+  return category ? t(DATASET_CATEGORY_LABEL_KEYS[category]) : null;
 }
 
 function BackLink() {

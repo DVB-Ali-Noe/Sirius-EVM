@@ -73,13 +73,6 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 /** Un nom doit contenir au moins une lettre ou un chiffre visible. */
 const VISIBLE_NAME = /[\p{L}\p{N}]/u;
 
-/**
- * Symbole du jeton de règlement affiché par la mosaïque et la fiche. Le reste du site écrit
- * encore « USDC » en dur ; la slice USDG (A8) n'a qu'à changer cette constante ici.
- * Les décimales viennent de `USDC_DECIMALS` (réseau), jamais d'une valeur écrite en dur.
- */
-export const SETTLEMENT_TOKEN_SYMBOL = "USDC";
-
 // ---------------------------------------------------------------------------
 // Dates
 

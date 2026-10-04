@@ -8,13 +8,16 @@ import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { messageOf } from "@/lib/errors-client";
 import { acceptKybCredential } from "@/lib/kyb/client";
-import { USDC_DECIMALS } from "@/lib/evm/usdc";
+import { resolveClientNetwork } from "@/lib/evm/networks";
+import { settlementToken } from "@/lib/datasets/token";
+import { publishDataset } from "@/lib/datasets/client";
+import { PublishDraftButton } from "./[id]/PublishDraftButton";
+import { DATASET_CATEGORY_LABEL_KEYS, parseDatasetCategory } from "@/lib/datasets/publication";
 import { addressesEqual } from "@/lib/evm/address";
 import { modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
 import {
   DATASET_SORTS,
-  SETTLEMENT_TOKEN_SYMBOL,
   aggregateLoanStats,
   displayStatus,
   isListingExpired,
@@ -29,6 +32,7 @@ interface DatasetRow {
   name: string;
   status: string;
   category: string | null;
+  ipfsCid: string | null;
   modelId: string | null;
   modelVersion: string | null;
   sizeBytes: number | null;
@@ -54,7 +58,14 @@ const SORT_LABELS: Record<DatasetSort, string> = {
 
 const SORT_STORAGE_KEY = "sirius.datasets.sort";
 
-const TOKEN = { symbol: SETTLEMENT_TOKEN_SYMBOL, decimals: USDC_DECIMALS };
+// Jeton de règlement du réseau (USDG sur mainnet, USDC de test sur testnet), fabrique de l'upload.
+const TOKEN = settlementToken(resolveClientNetwork());
+
+/** Catégorie de la liste fixe de l'upload, traduite ; une valeur inconnue n'est pas affichée. */
+function categoryLabel(value: string | null, t: (key: string) => string): string | null {
+  const category = parseDatasetCategory(value);
+  return category ? t(DATASET_CATEGORY_LABEL_KEYS[category]) : null;
+}
 
 export default function DatasetsPage() {
   const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
@@ -83,6 +94,7 @@ function DatasetsContent() {
   const [error, setError] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [sort, setSort] = useState<DatasetSort>("date");
+  const [publishingId, setPublishingId] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -116,7 +128,9 @@ function DatasetsContent() {
     const loansPromise = fetch("/api/loans", { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) throw new Error("Statistiques indisponibles");
-        return await res.json() as LoanRow[];
+        const rows: unknown = await res.json();
+        if (!Array.isArray(rows)) throw new Error("Statistiques indisponibles");
+        return rows as LoanRow[];
       });
     // Le rejet est lu plus bas ; ce gestionnaire évite qu'un abandon avant cette lecture
     // ne remonte comme rejet non géré.
@@ -177,6 +191,21 @@ function DatasetsContent() {
       actif = false;
     };
   }, [address]);
+
+  // Publication d'un brouillon depuis sa carte, comme sur l'ancienne liste (la fiche propose
+  // la même action) : bloquée sans profil valide ou sans fichier envoyé.
+  async function handlePublish(id: string) {
+    setError(null);
+    setPublishingId(id);
+    try {
+      await publishDataset(id);
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setPublishingId(null);
+      await load();
+    }
+  }
 
   async function handleOnboard() {
     setError(null);
@@ -298,7 +327,7 @@ function DatasetsContent() {
           <li key={dataset.id} className="flex min-w-0 flex-col gap-1.5">
             <DatasetCard
               name={dataset.name}
-              category={dataset.category}
+              category={categoryLabel(dataset.category, t)}
               modelId={dataset.modelId}
               modelVersion={dataset.modelVersion}
               rowCount={dataset.metrics?.rowCount ?? null}
@@ -314,6 +343,15 @@ function DatasetsContent() {
               href={`/datasets/${encodeURIComponent(dataset.id)}`}
             />
             <CardCaption dataset={dataset} status={status} now={loadedAt} />
+            <PublishDraftButton
+              status={dataset.status}
+              ipfsCid={dataset.ipfsCid}
+              modelValid={Boolean(modelSelection(dataset.modelId, dataset.modelVersion))}
+              pending={publishingId === dataset.id}
+              disabled={publishingId !== null}
+              onPublish={() => void handlePublish(dataset.id)}
+              className="self-start"
+            />
           </li>
         ))}
       </ul>
