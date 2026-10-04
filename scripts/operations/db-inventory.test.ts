@@ -27,6 +27,18 @@ test("les attentes viennent des fichiers SQL des migrations en attente, pas d'un
   assert.deepEqual(rename.columnsRemoved.Loan, ["auditTxHash"]);
   assert.deepEqual(rename.columnsAdded.Loan, ["auditReceipt", "attestationPayload"]);
   assert.throws(() => migrationDirectories(MIGRATIONS, ["20990101000000_nope"]), /inconnue/);
+  // Une migration qui crée des tables annonce les tables, leurs clés primaires et leurs index.
+  const profiles = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
+  assert.deepEqual(profiles.tablesAdded, ["DatasetAccessLog", "UserProfile"]);
+  assert.deepEqual(profiles.columnsAdded.Dataset, ["category", "listingExpiresAt", "trainingConsentAt", "trainingConsentVersion", "trainingConsentRevokedAt"]);
+  assert.deepEqual(profiles.columnsAdded.UserProfile, ["address", "tourCompletedAt", "featureTours", "settings", "kybStatus", "kybCheckedAt", "blockedAt", "blockedReason", "blockedBy", "createdAt", "lastSeenAt"]);
+  assert.deepEqual(profiles.columnsAdded.DatasetAccessLog, ["id", "datasetId", "loanId", "address", "modelCid", "modelFingerprint", "createdAt"]);
+  // Les tables historiques sont lues de la même façon, sans confondre une contrainte avec une colonne.
+  const init = expectedChanges(migrationDirectories(MIGRATIONS, ["20260825000000_init_postgres"]));
+  assert.ok(init.tablesAdded.includes("Loan") && init.tablesAdded.includes("KeyGrant"));
+  assert.deepEqual(init.columnsAdded.KeyGrant, ["id", "datasetId", "loanId", "grantee", "keyRef", "status", "createdAt", "revokedAt"]);
+  assert.deepEqual(profiles.indexesAdded, ["DatasetAccessLog_pkey", "DatasetAccessLog_datasetId_idx", "DatasetAccessLog_address_idx", "UserProfile_pkey"]);
+  assert.deepEqual(profiles.columnsRemoved, {});
 });
 
 test("l'en-tête d'un reçu runner est lu sans vérifier ni exposer sa signature", () => {
@@ -84,6 +96,43 @@ test("lignes perdues, valeurs modifiées, colonne perdue, index perdu et colonne
   const result = compareInventories(before, added);
   assert.equal(result.ok, true);
   assert.ok(codes(result).includes("column-unexpected:Loan.extra"));
+});
+
+test("une table créée par une migration annoncée n'est pas un écart ; absente, elle est critique", () => {
+  const before = photo();
+  const expected = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
+  const after = clone(before) as ReturnType<typeof photo> & { columns: Record<string, unknown[]>; counts: Record<string, number> };
+  after.tables = ["Loan", "UserProfile", "DatasetAccessLog"];
+  const columnsOf = (table: string) => expected.columnsAdded[table].map((name) => ({ name, type: "text", nullable: true, default: null }));
+  after.columns = { ...after.columns, UserProfile: columnsOf("UserProfile"), DatasetAccessLog: columnsOf("DatasetAccessLog") };
+  after.counts = { ...after.counts, UserProfile: 0, DatasetAccessLog: 0 };
+  after.indexes = [...after.indexes,
+    { name: "UserProfile_pkey", definition: "CREATE UNIQUE INDEX \"UserProfile_pkey\" ON \"UserProfile\" USING btree (address)" },
+    { name: "DatasetAccessLog_pkey", definition: "CREATE UNIQUE INDEX \"DatasetAccessLog_pkey\" ON \"DatasetAccessLog\" USING btree (id)" },
+    { name: "DatasetAccessLog_datasetId_idx", definition: "CREATE INDEX \"DatasetAccessLog_datasetId_idx\" ON \"DatasetAccessLog\" USING btree (\"datasetId\")" },
+    { name: "DatasetAccessLog_address_idx", definition: "CREATE INDEX \"DatasetAccessLog_address_idx\" ON \"DatasetAccessLog\" USING btree (address)" }];
+  after.migrations = [...after.migrations, { name: "20261003000000_add_user_profiles", checksum: "b", rolledBack: false, unfinished: false }];
+  const unexpected = compareInventories(before, after);
+  assert.ok(codes(unexpected).includes("table-unexpected:UserProfile"));
+  assert.ok(codes(unexpected).includes("index-unexpected:UserProfile_pkey"));
+  // La photo synthétique n'a pas de table Dataset : ses colonnes ajoutées ne sont pas contrôlées ici
+  // (la boucle des colonnes ne parcourt que les tables de la photo « avant »), le rejeu réel sur
+  // PostgreSQL du test suivant les couvre.
+  const announced = compareInventories(before, after, expected);
+  assert.deepEqual(codes(announced), [], "tables, colonnes, clés primaires et index annoncés ne sont plus signalés");
+  assert.equal(announced.ok, true);
+  const missing = compareInventories(before, clone(before), expected);
+  assert.equal(missing.ok, false);
+  assert.ok(codes(missing).includes("table-not-added:UserProfile"));
+  assert.ok(codes(missing).includes("table-not-added:DatasetAccessLog"));
+  // Une table créée sans l'une de ses colonnes, ou sans un index annoncé, est un écart critique.
+  const incomplete = clone(after);
+  incomplete.columns.UserProfile = columnsOf("UserProfile").filter((c) => c.name !== "blockedBy");
+  incomplete.indexes = incomplete.indexes.filter((index: { name: string }) => index.name !== "DatasetAccessLog_address_idx");
+  const partial = compareInventories(before, incomplete, expected);
+  assert.equal(partial.ok, false);
+  assert.ok(codes(partial).includes("column-not-added:UserProfile.blockedBy"));
+  assert.ok(codes(partial).includes("index-not-added:DatasetAccessLog_address_idx"));
 });
 
 const url = process.env.SIRIUS_TEST_DATABASE_URL ?? (process.env.CI ? process.env.DATABASE_URL : undefined);

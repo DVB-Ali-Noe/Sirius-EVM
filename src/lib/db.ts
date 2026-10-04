@@ -21,6 +21,9 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 // `omit` global : la DEK enveloppée ne doit JAMAIS sortir dans une réponse API.
 // Les rares lectures serveur qui en ont besoin la ré-incluent via `omit: { wrappedKey: false }`.
+// Même règle pour le consentement à l'amélioration des modèles : c'est une trace contractuelle
+// propre au fournisseur, pas une donnée de catalogue, et `datasetResponse()` projette la ligne
+// entière vers des routes publiques. La fiche du fournisseur et l'admin la ré-incluent de même.
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
@@ -28,6 +31,9 @@ export const prisma =
     omit: {
       dataset: {
         wrappedKey: true,
+        trainingConsentAt: true,
+        trainingConsentVersion: true,
+        trainingConsentRevokedAt: true,
       },
     },
   });
