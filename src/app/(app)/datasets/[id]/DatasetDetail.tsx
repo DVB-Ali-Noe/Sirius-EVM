@@ -245,7 +245,7 @@ function DetailContent({ id }: { id: string }) {
 
       {(view.status === "DRAFT" || view.status === "LISTING") && (
         <Card>
-          <h2 className="text-base font-semibold">{t("Publication")}</h2>
+          <h2 className="text-base font-semibold">{t("Publication du titre EVM")}</h2>
           <p className="mt-1 text-sm text-muted">{t("Le titre EVM de ce dataset n’est pas encore publié.")}</p>
           <PublishDraftButton
             status={view.status}

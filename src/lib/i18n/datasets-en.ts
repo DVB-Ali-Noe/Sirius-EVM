@@ -8,7 +8,6 @@
  */
 export const DATASETS_MESSAGES_EN: Record<string, string> = {
   // Mosaïque
-  "Trier par": "Sort by",
   "Date": "Date",
   "Revenus": "Revenue",
   "{count} dataset(s), dont {online} en ligne ou emprunté(s).": "{count} dataset(s), {online} online or borrowed.",
@@ -63,7 +62,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "7 j. depuis le {date}": "7 days from {date}",
 
   // Fiche : publication du titre (brouillons)
-  "Publication": "Publication",
+  "Publication du titre EVM": "EVM title publication",
   "Le titre EVM de ce dataset n’est pas encore publié.": "This dataset’s EVM title is not published yet.",
 
   // Fiche : nom et description
