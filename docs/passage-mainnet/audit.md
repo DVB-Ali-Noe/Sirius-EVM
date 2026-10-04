@@ -1431,42 +1431,244 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## N1 — Mes datasets
 
+Branche `feat/mes-datasets`, PR vers `staging`. Partie de `staging` à `e829cfc`, mise à jour par quatre fusions de `origin/staging` (`2f6ae81` journal des accès, `7156291` tutos et page Wallet, `41a91ed` upload en deux étapes N2, `fd3cefc` marketplace N3) ; conflits limités à la ligne `test` de `package.json` et aux imports de `english.ts`, résolus en gardant tous les ajouts. Tout ce qui suit se vérifie avec `git diff origin/staging...HEAD` (18 fichiers, liste en §1). Correctifs après la première CI : voir §11.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+Aucune table, colonne, migration ni contrat. La slice lit et écrit les colonnes posées par A1 (`listingExpiresAt`, `trainingConsentAt`, `trainingConsentVersion`, `trainingConsentRevokedAt`) et `status`, `name`, `description`, `listedAt` existants.
+
+**Routes**
+
+| Route | Méthode | Rôle | Garde |
+|---|---|---|---|
+| `/api/datasets/[id]/settings` (nouvelle) | GET | Vue du propriétaire : description, état affiché, annonce, consentement | session, propriétaire, 60/min/wallet |
+| idem | PATCH | Nom et description (clés `name`, `description` seules ; le prix est refusé explicitement) | origine + session, propriétaire, 20/min/wallet |
+| `/api/datasets/[id]/settings/listing` (nouvelle) | POST | `pause` (LISTED → UNLISTED), `resume` (UNLISTED ou PRIVATE titré → LISTED, jamais en démo Phala), `extend` (7, 30 ou 90 jours) | origine + session, propriétaire, grant `set-dataset-visibility` pour `pause`, `resume` et la prolongation d'une annonce LISTED expirée, 20/min/wallet |
+| `/api/datasets/[id]/settings/consent` (nouvelle) | POST | Retrait du consentement à l'amélioration des modèles (`{ action: "revoke" }` seul) | origine + session, propriétaire, 10/min/wallet |
+| `/api/datasets/[id]/stats` (nouvelle) | GET | Emprunts (total, en cours, 8 semaines glissantes, dernier), revenus gagnés et bloqués dans l'escrow, entraînements livrés et remboursés | session, propriétaire, 60/min/wallet |
+| `/api/datasets/[id]` (modifiée) | PATCH | Sélecteur de visibilité existant : propriété désormais vérifiée dans la requête (404 uniforme au lieu de 403/404), et mêmes règles de passage à Public que la fiche (`assertVisibilityChange`) | inchangée sinon (grant, `setDatasetVisibility`) |
+
+Toutes les réponses privées portent `cache-control: private, no-store`.
+
+**Fichiers**
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib/datasets/manage.ts` (nouveau) | Règles partagées navigateur/serveur, sans `server-only` ni client Prisma à l'exécution (types seulement) : `displayStatus` (statut → pastille), `isListingExpired`, `visibilityTransition`, `assertVisibilityChange`, `extendedListingExpiry`, `extensionRelists`, `parseListingRequest`, `parseConsentRequest`, `validateDetailsPatch`, `aggregateLoanStats`, `isCountedBorrow`, `providerShareAtomic`, `sortDatasets`, `formatUtcDate(Time)` ; accès base à client injecté : `loadOwnedDataset`, `applyVisibility`, `applyExtension`, `applyDetails`, `revokeTrainingConsent`, `readOwnerView`, `toOwnerView` (dont `canRelist`), `readDatasetStats`. |
+| `src/lib/datasets/manage.test.ts` (nouveau) | 35 tests (§5). |
+| `src/app/api/datasets/[id]/settings/route.ts`, `settings/listing/route.ts`, `settings/consent/route.ts`, `stats/route.ts` (nouveaux) | Routes ci-dessus, minces : session → limite → corps → propriété → règle → écriture conditionnelle → vue. |
+| `src/app/api/datasets/[id]/route.ts` | PATCH seulement (voir tableau). GET, POST et DELETE inchangés. |
+| `src/app/(app)/datasets/page.tsx` | Réécrite : mosaïque de `DatasetCard` (1 à 4 colonnes), `DatasetAddTile` vers `/datasets/new` en premier, tri date / revenus / emprunts (mémorisé en `localStorage`), légende sous la carte quand la pastille ne suffit pas, bouton de publication sous la carte d'un brouillon, KYB repris de l'ancienne page. |
+| `src/app/(app)/datasets/[id]/page.tsx` (nouveau) | Composant serveur qui passe l'identifiant à la fiche ; aucun contrôle (les routes le font). |
+| `src/app/(app)/datasets/[id]/DatasetDetail.tsx` (nouveau) | Fiche : description, prix non modifiable expliqué, statistiques, publication d'un brouillon (reprise de l'ancienne liste), nom et description, publication sur la marketplace (pause, remise en ligne, « Rendre privé », prolongation), consentement, destruction en double confirmation. |
+| `src/app/(app)/datasets/[id]/settings-client.ts` (nouveau) | Appels de la fiche vers les routes privées ; émission des grants. |
+| `src/app/(app)/datasets/[id]/PublishDraftButton.tsx` (nouveau) | Bouton « Publier le titre / Réconcilier / Réimport requis / Upload incomplet » d'un brouillon, partagé par la carte de la mosaïque et la fiche (règles de l'ancienne liste). |
+| `e2e/datasets.spec.ts`, `e2e/account-switch.spec.ts` | Adaptés à la mosaïque et à la fiche sans retirer de vérification (§11), avec l'autorisation explicite du coordinateur. |
+| `src/lib/i18n/datasets-en.ts` (nouveau) + `src/lib/i18n/english.ts` (+2 lignes) | Traductions anglaises de toutes les nouvelles chaînes, fusionnées dans `EN_MESSAGES`. |
+| `package.json` | `src/lib/datasets/manage.test.ts` ajouté à la fin du script `test`. |
+| `docs/passage-mainnet/audit.md` | Cette section. |
+
+**Non touché** : `src/app/(app)/datasets/new/**`, `src/app/api/datasets/route.ts`, marketplace, `layout.tsx`, Sidebar, dashboard, `src/components/ui/**`, `src/components/datasets/**`, `src/lib/datasets/client.ts`, `src/lib/sirius/**`, `prisma/**`, contrats, runner.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **États de la pastille** (`displayStatus`) : DELETED → *Détruit* ; DRAFT et LISTING → *En attente* ; LISTED, UNLISTED ou PRIVATE avec au moins un prêt ESCROWED, TRAINING ou SETTLING → *Emprunté* (prioritaire : c'est l'information urgente) ; UNLISTED et PRIVATE → *En pause* ; LISTED dont `listingExpiresAt` est atteinte → *Expiré* ; sinon *En ligne*. Un statut inconnu donne *En attente*, jamais *En ligne*. Une date d'expiration illisible vaut expirée.
+2. **Écart composant : il manque des états à `StatusPill`.** `status.ts` (A2, non modifiable ici) n'a ni *Suspendu/Archivé*, ni *Privé*, ni *Brouillon*. Choix : SUSPENDED → *Échoué* (pastille rouge, « à regarder »), PRIVATE → *En pause*, DRAFT/LISTING → *En attente*, avec une **légende sous la carte** (« Archivé par Sirius : plus disponible à l'emprunt. », « Privé : visible par toi seul. », « Brouillon : publication non terminée. »…) et l'explication complète dans la fiche. **Demande pour A2** : ajouter `archived` (ou `suspended`), `private` et `draft` à `STATUS_KINDS`, puis remplacer le pont dans `displayStatus`.
+3. **Pause = LISTED → UNLISTED, et c'est dit.** Comme décidé en A1 (16 § 2), UNLISTED reste empruntable par lien direct. La fiche l'écrit en toutes lettres (« Une personne qui a déjà son lien direct peut encore l'emprunter »). Pour fermer aussi le lien direct, la fiche propose **« Rendre privé »**, qui passe par la route de visibilité existante (refusée par `setDatasetVisibility` pendant un emprunt en cours ou réservé). L'ancien sélecteur à trois positions a disparu de l'interface (la route reste).
+4. **Pause et remise en ligne permises pendant un emprunt**, contrairement à `setDatasetVisibility` qui refuse tout changement si un prêt est PENDING à SETTLING. LISTED et UNLISTED sont tous deux dans `BORROWABLE_STATUSES` et `borrower.ts` (préparation et blocage) accepte les deux : un prêt en cours n'est pas affecté (vérifié en lecture par deux relecteurs). Le passage en PRIVATE, qui le serait, garde la règle stricte de la route existante.
+5. **Démo Phala et datasets privés.** En démo (`SIRIUS_PHALA_DEMO=true`), `markDatasetListed` crée les datasets en PRIVATE : **rien n'y repasse en ligne** (reprise, prolongation d'une annonce LISTED expirée, PATCH vers LISTED, PATCH PRIVATE → UNLISTED). Hors démo, tout dataset titré a été publié LISTED à sa création ; un PRIVATE ou UNLISTED titré peut donc repasser en ligne, même si `listedAt` est nul (la migration du 27 septembre ne l'a rempli que pour les LISTED : s'appuyer sur `listedAt` bloquait à tort ces anciens datasets, constat de la passe 4). Un PRIVATE sans titre EVM ne passe ni en UNLISTED ni en LISTED. Les mêmes règles s'appliquent au PATCH existant (`assertVisibilityChange`), y compris le détour PRIVATE → UNLISTED → LISTED ; LISTED → LISTED y reste accepté comme avant. La vue du propriétaire porte `canRelist` (faux en démo) pour que la fiche ne propose pas une action qui ferait signer un grant pour un refus certain.
+6. **Remise en ligne d'une annonce expirée refusée** (« prolonge-la d'abord »), sur la fiche comme sur le PATCH existant.
+7. **Prolongation** : 7, 30 ou 90 jours (07-upload.md), ajoutés à la fin actuelle si elle est future, à maintenant sinon ; horizon plafonné à 365 jours (choix de la slice, pour éviter une annonce quasi permanente) ; refusée pour une annonce sans date (`listingExpiresAt` nul = publiée avant le champ, n'expire jamais : la prolonger lui imposerait une fin) ; permise pour LISTED, UNLISTED et PRIVATE (sinon un privé expiré ne pourrait plus jamais être republié). **Prolonger une annonce LISTED déjà expirée la remet sur la marketplace : le même grant que la remise en ligne est alors exigé**, et la base refuse d'écrire si l'annonce a expiré entre la décision de la route et l'écriture sans grant.
+8. **Grants** : `pause`, `resume` et la prolongation qui remet en ligne réutilisent l'opération existante `set-dataset-visibility` avec l'intention `[id, statut visé]`, exactement comme le PATCH existant. Un grant signé pour une route vaut donc pour l'autre, pour le même identifiant et la même cible ; le nonce est consommé une seule fois dans la table `MutationGrant` commune. Ajouter une opération dédiée aurait demandé de modifier `src/lib/runner/authorization*` (hors périmètre). Nom, description et retrait du consentement n'exigent pas de grant : écritures en base uniquement, sans effet sur l'argent ni la visibilité, comme `PATCH /api/profile` (A1). Le grant est signé sans interaction par la clé de session du navigateur : il protège contre la falsification inter-sites et le rejeu, pas contre un script exécuté dans la page.
+9. **Prix non modifiable**, expliqué dans la fiche (« inscrit dans le reçu signé par l'enclave au scellement… détruis et republie »). Le PATCH refuse `price`, `priceUsdc` et `priceUsdcAtomic` avec ce message.
+10. **Consentement** : seul le **retrait** existe (pose `trainingConsentRevokedAt`, garde date et version initiales, une seule fois, possible même après destruction). Donner un consentement depuis la fiche supposerait le texte versionné de l'upload (N2) : non fait.
+11. **Statistiques.**
+    - *Emprunt* = prêt dont le blocage USDC est confirmé : ESCROWED, TRAINING, SETTLING, SETTLED, ou CANCELLED **avec** `cancelTxHash` (remboursement confirmé, donc blocage réel). PENDING, SUBMITTING (le blocage peut encore échouer et revenir à PENDING) et CANCELLED sans transaction n'en sont pas.
+    - *Revenus gagnés* = somme, sur les prêts SETTLED, de `datasetAmountUsdcAtomic` (prêts v7 : la part de calcul va à l'enclave) ou de `amountUsdcAtomic` (prêts antérieurs au devis, montant entier au fournisseur). Sommes en `bigint`, exactes au-delà de 2⁵³ ; un montant illisible est exclu et compté à part.
+    - *Bloqué dans l'escrow* = même part sur les prêts en cours.
+    - *Retirés / à retirer* : **non disponibles par dataset**. L'escrow crédite le wallet du fournisseur (`creditOf`), tous datasets confondus ; la fiche le dit et renvoie vers la page Wallet. Écart assumé avec 06.
+    - *Entraînements livrés* = SETTLED ; *remboursés (échec ou délai dépassé)* = CANCELLED avec remboursement. Le libellé ne prétend pas distinguer échec et expiration.
+    - *Par semaine* : 8 fenêtres glissantes de 7 jours se terminant à l'instant de la requête, UTC, bornes [début, fin) ; libellé « 7 days from <date> » pour ne pas suggérer des semaines calendaires.
+    - *Dernier emprunt* : `createdAt` du prêt (réservation), pas l'heure du blocage.
+    - Fiche : 5 000 prêts au plus lus (`truncated` affiché). Mosaïque : agrégat dans le navigateur à partir de `/api/loans` (route existante, tous les prêts du wallet, filtrés sur `provider`) avec la même fonction : mêmes chiffres, sans plafond.
+12. **Mosaïque** : toutes les pages de `/api/datasets` sont suivies (au plus 20 × 24) pour que le tri porte sur tout ; au-delà, un message le dit. Les datasets détruits **et réconciliés** n'y apparaissent pas (filtre de la route de liste, N2) : la pastille *Détruit* ne se voit que pour une suppression à finaliser, et sur la fiche. Les états de la mosaïque sont calculés à l'instant du chargement (rendu pur).
+13. **Propriété** : lecture par `findFirst({ id, provider })`. Absent, autre wallet et identifiant hors format (`^[A-Za-z0-9_-]{1,64}$`) donnent le même 404 « Dataset introuvable », sans lecture de la ligne d'autrui.
+14. **Écritures conditionnelles** : chaque écriture rejoue en base les conditions vérifiées en lecture (`updateMany` avec propriétaire, statut exact, titre EVM, `listedAt`, expiration, date d'expiration lue à la milliseconde) ; `count !== 1` → 409 « Dataset modifié entre-temps : recharge la page ». Deux prolongations simultanées ne s'additionnent pas.
+15. **Validation du nom et de la description** plus stricte qu'à la création : mêmes longueurs (120 / 2 000), normalisation NFC, refus des substituts isolés, des contrôles C0/C1, des marques et contrôles bidirectionnels, des caractères invisibles ou de format (liste en `manage.ts`) ; ZWNJ et ZWJ admis (persan, langues indiennes, emojis composés) ; U+00AD, U+180E et U+2800 refusés dans le nom seulement ; au moins une lettre ou un chiffre dans le nom. Description vide → `null`. La fiche n'envoie que les champs modifiés : un ancien nom que ces règles refuseraient n'empêche pas de corriger la description.
+16. **Jeton et catégories** : fabrique de l'upload `settlementToken(réseau)` (`src/lib/datasets/token.ts`, N2) : USDG sur mainnet, USDC de test sur testnet, décimales `USDC_DECIMALS` ; la fiche prend les décimales renvoyées par `/stats` (serveur). Catégories traduites par `DATASET_CATEGORY_LABEL_KEYS` de N2 ; une catégorie inconnue n'est pas affichée.
+17. **Traductions** dans un fichier séparé `datasets-en.ts` (comme `shared-en.ts`) plutôt qu'en bout de `english.ts` et `errors-en.ts`, pour limiter les conflits avec les slices parallèles ; erreurs serveur comprises.
+18. **Fonctions de l'ancienne liste conservées** : publication d'un brouillon (sur la carte et sur la fiche, même bouton), réconciliation LISTING, suppression d'un brouillon, finalisation d'une suppression, KYB, liens « Preuve publique » et explorateur, champs avancés (CID, Merkle, titre EVM) ; ils sont sur la fiche. Destruction proposée pour un dataset archivé seulement s'il a un titre EVM, comme avant.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès, route par route**
+
+- `GET /api/datasets/[id]/settings` : `requireAuth` (session signée, 401 sinon) → limite `subject:<adresse>` → `readOwnerView` : `findFirst({ id, provider: <adresse normalisée de la session> })` avec `omit` qui ré-inclut seulement les trois colonnes de consentement (`wrappedKey` reste omis globalement) → 404 sinon → compte des prêts en cours → vue construite champ par champ.
+- `PATCH /api/datasets/[id]/settings` : `requireAuth` (Origin et `Sec-Fetch-Site` vérifiés, puis session) → limite → `readJson` 16 Kio → `validateDetailsPatch` (avant la base : un corps invalide ne révèle rien sur l'existence) → `loadOwnedDataset` (404) → `applyDetails` : statut parmi DRAFT, LISTING, LISTED, UNLISTED, PRIVATE, rejoué en base avec le propriétaire.
+- `POST /api/datasets/[id]/settings/listing` : `requireAuth` → limite → `readJson` 16 Kio → `parseListingRequest` → `loadOwnedDataset` (404 avant tout grant) → règle (409 avant tout grant) → `requireMutationGrant` si `pause`, `resume`, ou prolongation d'une annonce LISTED expirée (sujet du grant = wallet de la session, opération, `datasetId`, intention `[id, cible]`, nonce unique) → écriture conditionnelle.
+- `POST /api/datasets/[id]/settings/consent` : `requireAuth` → limite → `readJson` 1 Kio → `parseConsentRequest` → `loadOwnedDataset` → `updateMany` conditionné sur propriétaire, consentement donné et non retiré.
+- `GET /api/datasets/[id]/stats` : `requireAuth` → limite → `loadOwnedDataset` (**avant** toute lecture de prêt) → `loan.findMany({ where: { datasetId }, select: { status, createdAt, amountUsdcAtomic, datasetAmountUsdcAtomic, cancelTxHash } })` : ni l'emprunteur ni les preuves ne sont lus.
+- `PATCH /api/datasets/[id]` : `loadOwnedDataset` remplace `findUnique` + `assertOwner` ; `assertVisibilityChange` avant le grant ; le reste inchangé.
+- La page `/datasets/[id]` ne fait aucun contrôle et n'en a pas besoin : elle n'affiche que ce que les routes renvoient. Aucun contrôle ne repose sur un bouton masqué (les règles de la fiche sont des copies d'affichage des règles serveur).
+
+**Validation et bornes**
+
+- Corps : `readJson` exige `application/json`, refuse `Transfer-Encoding`, un encodage non identity, un `Content-Length` au-delà de la borne (413 avant lecture) et tout JSON non objet. Clés inconnues refusées (`__proto__` et `constructor` issus de `JSON.parse` compris). `days` : nombre exactement 7, 30 ou 90. `authorization` : objet simple. `action` : liste fermée.
+- Identifiant : `^[A-Za-z0-9_-]{1,64}$`, sinon 404 sans requête.
+- Nom et description : voir §2.15.
+
+**Fuites possibles**
+
+- Les vues sont construites champ par champ : pas d'adresse du fournisseur, pas de `wrappedKey`, pas de `runnerReceipt`, pas de métriques brutes (seuls `rowCount` et `columnCount` validés par `publicDatasetMetrics`). Test : clés de la réponse énumérées, chaînes secrètes absentes.
+- Le consentement ne sort que par les routes privées ; l'`omit` global de `src/lib/db.ts` n'est pas touché, et aucune route publique ne fait de `select` sur ces colonnes.
+- Erreurs : `AppError` à message fixe ; les autres passent par `errorResponse` (500 opaque, classe seule journalisée). Aucun `console.log` ajouté.
+- `/api/loans` (utilisé par la mosaïque) renvoie toujours au fournisseur des lignes complètes, adresses des emprunteurs comprises : antérieur à la slice.
+
+**Argent, escrow, contrats, Phala** : aucune transaction, aucun appel RPC ni runner nouveau. La destruction réutilise `destroyDataset` existant (transaction de tombstone signée dans le wallet). Les changements de visibilité restent entre LISTED et UNLISTED (tous deux empruntables) sauf le passage en PRIVATE, gardé par la règle existante. Les revenus affichés sont une lecture de la base, pas des montants on-chain.
+
+**Base de données** : aucune migration. Écritures `updateMany` conditionnelles uniquement (§2.14). La forme `listingExpiresAt: <date>` + `AND: [{ listingExpiresAt: { gt } }]` a été validée contre le client Prisma 7 réel par un relecteur (la requête atteint la connexion ; un `where` volontairement faux lève `PrismaClientValidationError`).
+
+**Interface** : aucun `dangerouslySetInnerHTML` ; nom et description rendus par React (échappés), `whitespace-pre-line` pour la description ; liens internes construits avec `encodeURIComponent`, lien explorateur depuis une base fixe ; `DatasetCard` filtre lui-même `href` (`safeInternalHref`). Double confirmation de destruction : ouvrir le panneau, puis taper le nom exact, puis signer dans le wallet.
+
+**Textes** : la fiche ne promet pas que l'expiration retire le dataset de la marketplace (voir §7.1) ; elle dit que la pause n'arrête pas l'emprunt par lien direct ; elle dit que les retraits ne sont pas ventilés par dataset ; le texte du consentement reprend celui de 07 (enclave seulement, usages futurs).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Préparation : deux wallets A et B connectés dans deux navigateurs ; un dataset de A publié (LISTED). Les appels manuels se font depuis la console du site (`fetch` avec l'en-tête `content-type: application/json`).
+
+1. **Mosaïque** : `/datasets` → la tuile « Publish a dataset » est la première et ouvre `/datasets/new` ; chaque carte montre nom, modèle, lignes, colonnes, taille, prix « Provider receives », pastille, emprunts, revenus. Trier par Revenue puis Borrows puis Date : l'ordre suit ; recharger : le tri est gardé. À 360 px : une colonne, pas de défilement horizontal.
+2. **Fiche d'un autre wallet** : B ouvre `/datasets/<id de A>` → « Dataset not found ». `fetch("/api/datasets/<id de A>/stats")` → 404 ; même réponse pour `/api/datasets/inexistant/stats` et `/api/datasets/..%2Fx/stats`.
+3. **Sans session** : navigation privée, `GET /api/datasets/<id>/settings` → 401.
+4. **Prix** : `fetch("/api/datasets/<id>/settings",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({priceUsdcAtomic:"1"})})` → 400 « The price cannot be changed… ». La fiche affiche le prix et l'explication.
+5. **Nom** : renommer en « Ventes 2025 » → enregistré, la mosaïque suit. Essayer un nom de 121 caractères (refusé côté formulaire et serveur), un nom contenant U+202E (inversion bidirectionnelle) (400 « invisible or control characters »), « --- » (400 « at least one letter or digit »), un nom persan avec ZWNJ (accepté).
+6. **Pause** : « Pause » → signature silencieuse, pastille *Paused*, le dataset disparaît de la marketplace (filtre `LISTED` de la liste publique), mais `/marketplace` par lien direct ou `POST /api/loans` avec son identifiant reste possible (comportement voulu et affiché). « Put back online » → *Online*.
+7. **Rendre privé** : sur un dataset sans emprunt → *Paused* + légende « Private » ; pendant un emprunt réservé ou en cours le bouton est masqué (ou 409 « Visibility change failed… » si l'état a changé entre-temps).
+8. **Expiration** (nécessite une date posée à la main tant que l'upload ne la pose pas : `UPDATE "Dataset" SET "listingExpiresAt" = now() - interval '1 day' WHERE id = '<id>'`) : pastille *Expired* ; « Put back online » d'un UNLISTED expiré absent, `POST …/settings/listing {action:"resume"}` → 409 ; « Extend by 7 days » d'un LISTED expiré → signature, nouvelle fin à J+7 ; prolonger encore → la durée s'ajoute à la fin ; au-delà de 365 jours → 409.
+9. **Annonce sans date** : la fiche affiche « Listing without an end date… », pas de formulaire de prolongation ; l'appel direct `extend` → 409.
+10. **Concurrence** : ouvrir la fiche dans deux onglets, prolonger dans l'un puis dans l'autre → le second reçoit 409 « The dataset changed in the meantime: reload the page ».
+11. **Consentement** (nécessite `trainingConsentAt` posé à la main tant que l'upload ne l'écrit pas) : « Withdraw my consent » → confirmation → « Consent withdrawn on <date> » ; un second appel → 409.
+12. **Destruction** : « Destroy this dataset… » → champ de confirmation ; le bouton reste grisé tant que le nom n'est pas exact ; puis signature du tombstone ; la fiche passe à *Destroyed*. Un dataset archivé sans titre EVM ne propose pas la destruction.
+13. **Démo Phala** (`SIRIUS_PHALA_DEMO=true`) : la fiche n'affiche ni « Put back online » ni la prolongation d'une annonce en ligne expirée, mais « Demo deployment: datasets stay off the marketplace. » ; les appels directs (`resume`, `extend` d'une annonce LISTED expirée, `PATCH /api/datasets/<id>` en `LISTED` ou PRIVATE → `UNLISTED`) répondent 409 sans consommer de grant. Hors démo, un ancien dataset PRIVATE titré dont `listedAt` est nul repasse en ligne.
+14. **Limite de débit** : 21 `POST …/settings/listing` en moins d'une minute depuis le même wallet → le 21ᵉ reçoit 429.
+15. **Statistiques** : sur un dataset avec un prêt réglé et un prêt remboursé, la fiche et la carte affichent le même nombre d'emprunts (2) et les mêmes revenus (part du dataset du prêt réglé) ; une réservation abandonnée (PENDING) n'est pas comptée.
+16. **Brouillon** : un DRAFT sans CID affiche « Incomplete upload » grisé avec l'info-bulle « Upload interrompu… » ; sa destruction reste possible.
+17. **Wallet connecté mais non authentifié** : la fiche affiche « Connect a wallet… » au lieu de charger indéfiniment.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+`src/lib/datasets/manage.test.ts` (35 tests, `node:test`, ajouté au script `test`) :
+- états affichés (table complète, toujours un `StatusKind` connu), expiration (bornes, date illisible) ;
+- transitions : pause, remise en ligne (UNLISTED, PRIVATE titré avec ou sans `listedAt`, démo, titre EVM, expiration), `assertVisibilityChange` (toutes les cibles, détour par UNLISTED, LISTED → LISTED), prolongation (durées, base, horizon exact 365, annonce sans date, statuts), `extensionRelists` ;
+- corps : clés inconnues, `__proto__`, autorisation mal formée, actions inconnues ;
+- nom et description : bornes exactes, contrôles, bidi, invisibles, substituts isolés, NFC, ZWNJ/ZWJ, langues variées, refus du prix ;
+- statistiques : définition d'un emprunt, part du fournisseur v7 et ancienne, sommes au-delà de 2⁵³, bornes des 8 fenêtres (début inclus, fin exclue, plus ancienne), dates futures ou illisibles, plafond de 5 000 ;
+- tri (bigint, inconnus en dernier, égalités) ; dates UTC ;
+- base simulée : propriété dans la requête, 404 uniforme sans requête pour un identifiant hors format, `where` exacts des écritures (propriétaire, statut, titre EVM, `listedAt`, expiration, date lue), courses (pause deux fois, expiration ou destruction entre lecture et écriture, statut changé avant une prolongation, deux prolongations), consentement (une fois, trace initiale gardée), vue (clés énumérées, secrets absents, `omit`) ;
+- routes chargées dans un contexte VM avec dépendances simulées (motif de `audit-regressions.test.ts`) : 401, 404 d'un autre wallet, prix refusé, 413, grant exigé et lié à la cible, transitions refusées sans consommer de grant, prolongation d'une annonce expirée (sans grant 400, grant refusé 401, accepté 200), démo Phala par variable d'environnement, limite de débit (21ᵉ appel 429, quota par wallet), consentement, statistiques, PATCH existant (expiration, privé jamais publié, détour, démo, 404 uniforme, LISTED → LISTED).
+
+Mutations jouées par les relecteurs (§10) : 26 + 23 + 3, toutes tuées après les ajouts de tests sauf une équivalente (borne de fin `<` / `<=` absorbée par la garde du créneau) et une devenue équivalente (le précontrôle `extendedListingExpiry` avant le grant : une annonce LISTED expirée repart toujours d'aujourd'hui, donc une prolongation qui exige un grant n'est jamais hors horizon).
+
+**Angles morts** :
+- Interface : couverte par les e2e Playwright (§11) pour la mosaïque, la publication bloquée d'un brouillon sans profil, la double confirmation de suppression, l'archivé, l'erreur de finalisation, le changement de compte et la mise en page de 320 à 1440 px (`responsive.spec.ts`, inchangé). Ne sont pas couverts en e2e : pause, remise en ligne, prolongation, retrait du consentement et statistiques non nulles (routes simulées seulement en tests unitaires). `next build` n'a pas été lancé.
+- Pas de test contre PostgreSQL réel : la base est simulée (le `where` simulé couvre `in`, `not`, `gt`, `OR`, `AND`, égalité de dates). La forme du `where` a été validée contre le client Prisma réel sans base.
+- `requireMutationGrant` est simulé dans les tests de route : la vérification cryptographique du grant est celle, existante, de `src/lib/runner/authorization.ts`.
+- La concordance mosaïque/fiche repose sur la même fonction ; aucun test ne compare les deux sources de prêts.
+- Sous Windows, `english.test.ts` ne vérifie pas les messages `error:` des routes (test sur `"/api/"` dans un chemin à `\`) ; vérifié à part par script et par les relecteurs. Sur Linux (CI) la vérification s'applique.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- Depuis N2 (fusionnée), `listingExpiresAt` est posé à la création du brouillon et recalé à la publication (`rebasedListingExpiry`), et `trainingConsentAt` / `trainingConsentVersion` sont écrits si la case est cochée : prolongation et retrait du consentement deviennent effectifs pour les nouveaux datasets. Les datasets antérieurs gardent une annonce sans date (prolongation refusée, voir §2.7). Le futur consommateur du consentement respectera `trainingConsentRevokedAt` (« le retrait vaut pour les usages futurs »).
+- La marketplace (N3) appliquera la règle de 16 § 2 : `status = LISTED` **et** annonce non expirée.
+- Un prêt v7 crédite au fournisseur exactement `datasetAmountUsdcAtomic` au règlement, un prêt antérieur le montant entier (vérifié en lecture des contrats et de `settle.ts` par un relecteur, pas par exécution).
+- `cancelTxHash` n'est posé que pour un remboursement réellement confirmé on-chain (`cancel.ts`, `settle.ts`, `reaper.ts`).
+- Les identifiants de dataset sont des cuid (`^[A-Za-z0-9_-]{1,64}$`).
+- `SIRIUS_PHALA_DEMO` vaut exactement `true` en démo (validé par `src/lib/runner/config.ts`).
+- Hors démo, aucun chemin ne crée de dataset PRIVATE titré sans l'avoir publié LISTED (`markDatasetListed` est le seul à poser le titre ; vérifié en lecture par un relecteur).
+- La session ne contient qu'une adresse EVM valide (sinon 404).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **L'expiration n'est appliquée que par le nouveau catalogue de la marketplace.** Depuis N3 (fusionnée), `/api/marketplace` (`src/lib/marketplace/listing.ts`) n'affiche que les annonces LISTED non expirées. En revanche l'ancienne liste publique `GET /api/datasets?status=LISTED` filtre seulement `status = LISTED`, et `src/lib/sirius/borrower.ts` (préparation et blocage) ne regarde pas `listingExpiresAt` : une annonce *Expirée* disparaît de la marketplace mais reste **empruntable par son identifiant**. **Actif depuis la fusion de N2** : chaque nouvelle annonce a une date de fin (7, 30 ou 90 jours). Correction restante (hors fichiers de la slice) : `OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: now } }]` dans la disponibilité de `prepareLoan` et du blocage, et dans le `where` public de `GET /api/datasets?status=LISTED` si cette liste reste exposée. Le texte de la fiche a été reformulé pour ne pas promettre le retrait.
+2. **La pause n'arrête pas l'emprunt par lien direct** (UNLISTED empruntable). Affiché ; « Rendre privé » ferme l'accès. Si la pause doit fermer l'emprunt, c'est au couloir des prêts.
+3. **Création non alignée** : `POST /api/datasets` (N2) ne vérifie que la longueur du nom ; un nom avec un caractère bidi peut être créé et s'affiche sur la marketplace et `/proof/[id]`. Il faudrait partager `validateDetailsPatch` (ou une fonction dédiée de `manage.ts`).
+4. **`setDatasetVisibility` ne rejoue pas `listedAt` ni l'expiration en base** : pour le PATCH existant, la vérification `assertVisibilityChange` est faite en lecture ; une fenêtre de course de quelques millisecondes subsiste (la route de la fiche, elle, rejoue tout).
+5. **Limites de débit en mémoire, par instance** (motif existant du dépôt) : contournables en multipliant les instances, plafond global partagé par tous les wallets, au-delà de 1 024 clés un seau commun.
+6. **Grant interchangeable** entre le PATCH existant et `/settings/listing` pour le même identifiant et la même cible (§2.8) ; l'intention ne lie pas l'état de départ. Sans effet exploitable trouvé (nonce unique, mêmes règles).
+7. **Un grant peut être consommé sans écriture** (course → 409) : il se re-signe sans interaction.
+8. **Nom et description modifiables pendant un emprunt**, sans historique ; `/proof/[id]` affiche le nom courant à côté de l'ancrage immuable.
+9. **Mosaïque dépendante de `/api/loans`**, non paginée et lourde (attestations), qui échoue entièrement si un prêt a un devis incohérent : la mosaïque affiche alors « — » pour emprunts et revenus avec un message, jamais un faux zéro.
+10. **États incomplets de `StatusPill`** (§2.2) : *Archivé* s'affiche « Failed », *Privé* « Paused » (avec légende).
+11. **Traductions** : fusion par *spread* sans détection de collision ; une slice parallèle (marketplace) qui définirait la même clé française (par exemple « Trier par », « Prix », « Date ») avec un autre anglais écraserait l'une des deux sans bruit. Vérifié sans collision au moment de la PR contre `staging`.
+12. **Dataset créé en démo puis démo désactivée** sur la même base : PRIVATE, titré, jamais public, il devient publiable par la fiche ou le PATCH. Seul le propriétaire peut le faire, avec son grant, et le KYB a été exigé au mint. À revoir si une même base passe de la démo à la production.
+13. Dates en UTC (« 7 days from 2026-10-04 »), pas dans le fuseau du navigateur : choix de cohérence serveur/navigateur.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0 (couloir des prêts), désormais urgent** : appliquer l'expiration dans `borrower.ts` (et dans l'ancienne liste publique si elle reste exposée) (§7.1) ; la marketplace la respecte depuis N3, mais l'emprunt par identifiant non. N2 pose `listingExpiresAt` depuis sa fusion : la première échéance arrive 7 jours après la première publication.
+- **P1 (N2)** : partager la validation du nom et de la description à la création (§7.3).
+- **P1 (A2)** : états `archived`, `private`, `draft` dans `StatusPill` (§2.2).
+- **P2** : rejouer `listedAt` et l'expiration dans `setDatasetVisibility` ou faire passer le PATCH existant par `applyVisibility` (§7.4) ; opération de grant dédiée aux réglages d'annonce ; limites de débit partagées ; route d'agrégat paginée pour la mosaïque au lieu de `/api/loans` ; retraits par dataset (05, V1.1) ; e2e de la pause, de la prolongation et du consentement ; donner (et non seulement retirer) le consentement depuis la fiche.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Git Bash, Node v22.16.0, pnpm 11.18.0 lancé par `npx -y pnpm@11.18.0` (le pnpm global de la machine est cassé : « Failed to switch pnpm to v11.18.0 … ENOENT », sans rapport avec la slice). Mesures refaites après la fusion de N2 puis de N3 (`origin/staging` à `fd3cefc`) et les correctifs e2e de §11.
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` sans `DATABASE_URL` | **échec, exit 1** : `postinstall` → `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL`. Environnement, comme noté en A2. |
+| `pnpm install --frozen-lockfile` avec `DATABASE_URL=postgresql://x:y@localhost:5432/z` | `Already up to date`, `Done … using pnpm v11.18.0`, exit 0 |
+| `pnpm prisma generate` (même URL factice) | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma`, exit 0 |
+| `pnpm exec tsc --noEmit` | aucune sortie, exit 0 |
+| `pnpm lint` | `$ eslint`, aucune autre sortie, exit 0 |
+| `pnpm test` | **échec d'environnement, exit 1** : sous Windows, pnpm exécute le script avec `cmd.exe`, qui ne comprend pas la syntaxe `NODE_OPTIONS="…" node …` (« 'NODE_OPTIONS' n'est pas reconnu en tant que commande interne »). Aucun test lancé. Sur Linux (CI) le script fonctionne tel quel. |
+| Même liste de fichiers que le script `test`, lancée directement (`node --import tsx --test …` avec `NODE_OPTIONS=--conditions=react-server`) | `tests 721`, `pass 649`, `fail 72`, exit 1. **Les 72 échecs sont exactement ceux de la base** `e829cfc` lancée de la même façon sur la même machine (`tests 530`, `pass 458`, `fail 72`, liste des titres en échec identique, comparée par `diff`) : chemins Windows (`src\app\…` au lieu de `src/app/…` dans `self-training-routes.test.ts` et `disclaimers.test.ts`), registres SQLite et processus enfants du runner (`budget.test.ts`, `replay.test.ts`, `runner-cli.test.ts`, `initialize-runner-volume.test.ts`…). Aucun ne touche un fichier de la slice. Les 35 tests de `manage.test.ts` et les 7 de `english.test.ts` passent. |
+| `node --import tsx --test src/lib/datasets/manage.test.ts src/lib/i18n/english.test.ts` | `tests 42`, `pass 42`, `fail 0` |
+| `pnpm audit:deps` | `2 vulnerabilities found`, `Severity: 1 low \| 1 high (1 ignored)`, exit 0 ; identique à `staging` (A2) |
+| `pnpm exec playwright test` (suite complète, configuration du dépôt dupliquée localement sur le port libre 3157, `--workers=1` comme en CI) | `97 passed (2.4m)`, exit 0 (avant la fusion de N3 : `92 passed (1.6m)`) |
+| `git diff --name-only origin/staging...HEAD` | 18 fichiers : ceux de §1, `e2e/datasets.spec.ts`, `e2e/account-switch.spec.ts` (autorisés par le coordinateur) et cette section de `docs/passage-mainnet/audit.md` |
+| `git log origin/staging..HEAD --format=%B` | aucune signature d'assistant (recherche de `co-authored`, `claude`, `anthropic`, `generated with`, `session`, `skip ci` : aucune occurrence) ; auteur et committeur `alibenyezza` |
+
+Non exécuté : `next build`, tests PostgreSQL (`test:postgres`), contrats.
+
+Vérifications ponctuelles hors suite : script qui liste toutes les chaînes `t("…")`, `AppError`, `error:` et messages de la slice et vérifie leur présence dans `EN_MESSAGES` (aucune manquante) ; collisions de clés entre `datasets-en.ts` et `errors-en`, `phala-en`, `shared-en`, `profile-en`, `tour-en`, `english.ts` (une seule, « Wallet », de traduction identique : retirée de `datasets-en.ts`) ; aucun caractère invisible, bidi ou combinant littéral dans les sources de la slice (tous écrits en séquences `\u`).
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Méthode : six passes de relecture adversariale par des agents indépendants, en lecture seule sur le dépôt (scripts jetables hors dépôt, mutations temporaires restaurées, `git status` propre vérifié à chaque fin), chacun avec le diff, la spécification et la liste des limites déjà assumées. Passe 1 : deux relecteurs en parallèle (sécurité ; exactitude, tests et cas limites avec mutations). Passes 2 à 6 : un relecteur sur tous les axes, centré sur les correctifs précédents. Chaque correctif a été suivi de `tsc`, `lint` et des tests ciblés, puis commité séparément (`fix(datasets): … passe de revue`).
+
+| Passe | Constats retenus et corrigés | Écartés ou documentés |
+|---|---|---|
+| 1 (sécurité) | prolongation d'une annonce LISTED expirée sans grant ; remise en ligne d'un PRIVATE en démo ; validation Unicode trop faible (RLM, ALM, ZWSP, U+2028, étiquettes, substituts isolés, nom invisible) ; lecture de la ligne avant contrôle du propriétaire | expiration non appliquée par le catalogue et `borrower.ts` (§7.1) ; validation absente à la création (§7.3) ; limites de débit en mémoire (§7.5) ; grant interchangeable entre routes (§7.6) ; consentement jamais écrit (§6) ; nom modifiable pendant un emprunt (§7.8) |
+| 1 (exactitude) | texte « n'apparaît plus sur la marketplace » faux ; passage en PRIVATE perdu par rapport à l'ancienne page (« Rendre privé » ajouté) ; SUBMITTING compté comme emprunt ; libellé des semaines ; destruction proposée pour un archivé sans titre ; info-bulle de brouillon perdue ; rejet non géré de `/api/loans` après abandon ; fiche bloquée pour un wallet non authentifié ; formulaire réinitialisé par une pause ; libellés « en cours » jamais affichés ; plafond « 5 000 emprunts » inexact ; 5 mutations survivantes (propriétaire du retrait, titre EVM rejoué, borne de la plus ancienne semaine, prêts non en cours sur la pastille, `deletionPending`) | divergence de règle « pas de changement pendant un emprunt » entre routes (§2.4) ; `/api/loans` lourd (§7.9) |
+| 2 | contournement des règles par le PATCH existant ; nom existant invalide bloquant la sauvegarde de la description ; ZWNJ, ZWJ, U+00AD, U+180E refusés à tort ; course sur la prolongation sans grant ; « Rendre privé » proposé pendant un emprunt ; besoin de grant calculé au chargement ; 4 mutations survivantes | grant consommé si l'écriture échoue (§7.7) ; allongement d'un nom par NFC (cas marginal, refusé par le serveur) |
+| 3 | détour PRIVATE → UNLISTED → LISTED par le PATCH existant ; LISTED → LISTED refusé (comportement d'avant rétabli) ; horloge locale seule pour le besoin de grant ; texte « en cours » vs « réservé » ; U+034F, U+17B4-5, U+2800 admis | — |
+| 4 | règle fondée sur `listedAt` bloquant les anciens datasets (remplacée par la règle du titre EVM hors démo) ; prolongation qui remet en ligne en démo | commentaires périmés corrigés |
+| 5 | la fiche proposait en démo une remise en ligne vouée au refus après signature (`canRelist`) | dataset créé en démo puis démo désactivée (§7.12) |
+| 6 | **aucun constat nouveau** | deux détails sans conséquence : en démo, une ancienne annonce LISTED expirée perd « Prolonger » sans message ; une expiration entre chargement et clic donne un 409 |
+
+**Mutations** : passe 1, 26 mutations de `manage.ts` (20 tuées, 5 survivantes corrigées par des tests, 1 équivalente) ; passe 2, 23 mutations (19 tuées, 4 survivantes : 3 corrigées par des tests, 1 devenue équivalente, voir §5) ; passe 3, 3 mutations (tuées) ; passe 4, matrice exhaustive de `assertVisibilityChange` (7 statuts × 4 cibles × démo × `listedAt` × expiration × titre).
+
+**Vérifications de relecteurs à retenir** : la forme `where` de `applyExtension` acceptée par le client Prisma 7 réel ; les 404 identiques pour un dataset absent, d'un autre wallet ou mal formé ; l'absence d'effet d'une pause sur un prêt en cours (`BORROWABLE_STATUSES`, `borrower.ts`, `settle.ts`) ; la concordance mosaïque/fiche ; les parts de revenu conformes aux contrats v6 et v7.
+
+**Limite de la revue** : relecteurs IA, sans relecture humaine ; pas de `next build` ; pas de base PostgreSQL. Le rendu réel est désormais vérifié par les e2e (§11).
+
+### 11. Correctifs après la première CI (e2e)
+
+La CI de la PR #44 échouait à l'étape « Tests end-to-end » sur 11 tests (avec reprises) : `account-switch.spec.ts` (pagination), les trois tests de `datasets.spec.ts`, et `responsive.spec.ts` « titres et actions des datasets ne se chevauchent pas » sur les 7 écrans. Tous visaient l'ancienne liste.
+
+**Comportements vérifiés et ce qui a changé**
+- *La réponse datasets d'un compte précédent est ignorée* : comportement conservé (la page est remontée par identité de wallet et la requête en cours est abandonnée). La mosaïque suit désormais seule les curseurs (pas de bouton « Show more ») : le test attend la requête de **seconde page** du compte A (`cursor=page-2`, vérifié), change de compte, libère la réponse tardive, et vérifie toujours qu'aucun « Dataset A » n'apparaît, que « Dataset B » reste affiché et qu'aucun état de pagination de A ne survit (ni bouton « Show more », ni message de troncature).
+- *La publication d'un brouillon sans profil valide est bloquée, sa suppression reste possible* : la page avait perdu le bouton de publication sur la liste (il n'existait que sur la fiche) ; **la page est corrigée** : le bouton revient sous la carte du brouillon (`PublishDraftButton`, partagé avec la fiche). Le test vérifie désormais : sur la carte, « Missing profile », la légende « Legacy dataset… », « Re-upload required » désactivé, « Publish title » actif pour le brouillon valide ; sur la fiche, « Re-upload required » désactivé, aucun « Publish title », puis « Destroy this dataset… » ouvre la double confirmation dont le bouton final reste désactivé tant que le nom n'est pas tapé exactement, et s'active ensuite. L'ancien bouton « Delete draft » est remplacé par cette double confirmation (exigence de 06).
+- *Archivé supprimable sans remise en publication* : sur la fiche, « Destroy this dataset… » actif ; ni « Publish title », ni « Put back online », ni « Pause », ni « Make private ».
+- *Erreur de finalisation qui laisse réessayer* : la confirmation n'est plus `window.confirm` mais le nom tapé ; l'erreur 503 du serveur s'affiche traduite et « Finalize deletion… » reste disponible.
+- `responsive.spec.ts` (non modifié) attend sur `/datasets` un bouton « Incomplete upload » désactivé pour un brouillon sans fichier : satisfait par le retour du bouton sur la carte, mise en page contenue de 320 à 1440 px.
+- Contrôle de non-affaiblissement : en retirant `!model` de la condition de désactivation du bouton, le test `datasets.spec.ts` échoue (`toBeDisabled`), puis repasse une fois la ligne restaurée.
+
+**Intégration de N2** : jeton et catégories via `settlementToken` et `DATASET_CATEGORY_LABEL_KEYS` (§2.16) ; `SETTLEMENT_TOKEN_SYMBOL` supprimé ; §6, §7.1 et §8 mis à jour (l'expiration devient un risque actif). Une réponse non tableau de `/api/loans` est traitée comme « statistiques indisponibles » au lieu d'une exception.
+
+**Fusion de N3** : la marketplace traduit « Publication » par « Published » ; le titre de la carte de publication d'un brouillon passe donc à la clé distincte « Publication du titre EVM » (« EVM title publication »), et la clé en double « Trier par » est retirée de `datasets-en.ts` (même traduction côté marketplace). Aucune collision restante entre `datasets-en.ts` et les autres fichiers de traduction.
+
+**Résultats** : suite e2e complète en local, `97 passed`, exit 0 après la fusion de N3 (§9). Une première exécution avec 7 workers en parallèle sur `next dev` avait donné des dépassements de délai sur des pages hors slice (catalogue, prêts, preuves d'audit) et sur la première compilation de `/datasets/[id]` : la suite repasse entièrement avec un seul worker comme en CI, et l'attente du titre de la fiche est portée à 30 s pour la première compilation de la route dynamique.
 
 ---
 
