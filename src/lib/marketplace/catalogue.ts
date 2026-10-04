@@ -142,7 +142,9 @@ export async function computeFeesFor(db: MarketplaceDb, mode: BillingMode, now: 
         modelVersion: MODEL_REGISTRY[id].version,
         computeAmountUsdcAtomic: { not: null },
         evmLockTxHash: { not: null },
-        status: { in: [...LOCKED_STATUSES, "CANCELLED"] },
+        // Même règle que `borrowCount` : un lock annulé (revert) passe CANCELLED sans transaction
+        // de remboursement et garde son `evmLockTxHash` soumis ; il n'est jamais lu.
+        OR: [{ status: { in: [...LOCKED_STATUSES] } }, { status: "CANCELLED", cancelTxHash: { not: null } }],
         createdAt: { gte: since },
       },
       orderBy: { createdAt: "desc" },

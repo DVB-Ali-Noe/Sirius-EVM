@@ -20,6 +20,12 @@ const KYB_RECHECK_MS = 31_000;
 
 const LOAN_EN_COURS = new Set(["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"]);
 
+/** Compte signé à l'instant présent (lu dans le store, pas dans une fermeture périmée). */
+function currentSession(): string | null {
+  const { authenticated, address } = useWalletStore.getState();
+  return authenticated && address ? address : null;
+}
+
 interface ActiveLoan {
   datasetId: string;
   borrower: string;
@@ -58,8 +64,12 @@ export function BorrowPanel({
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [busy, setBusy] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [borrowedCount, setBorrowedCount] = useState(0);
+  // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
+  // changement de wallet ou une déconnexion, rien du compte précédent ne reste affiché.
+  const [errorState, setErrorState] = useState<{ session: string | null; message: string } | null>(null);
+  const [borrowed, setBorrowed] = useState<{ session: string | null; count: number }>({ session: null, count: 0 });
+  const setError = (message: string | null) =>
+    setErrorState(message === null ? null : { session: currentSession(), message });
   // Chaque lecture est rangée avec le compte qui l'a faite : après un changement de wallet, la
   // valeur d'un autre compte n'est jamais réutilisée. Le panneau n'est pas remonté à chaque
   // révision du wallet, sinon une connexion en cours perdrait son état et ses erreurs.
@@ -71,6 +81,7 @@ export function BorrowPanel({
   // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
   const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
   const dejaEmprunte = Boolean(loans && loans.session === sessionKey && loans.active);
+  const error = errorState && errorState.session === sessionKey ? errorState.message : null;
 
   // Prêt déjà en cours sur ce dataset pour ce compte : emprunter deux fois est légitime, mais
   // on demande confirmation pour distinguer l'intention du double clic.
@@ -91,7 +102,7 @@ export function BorrowPanel({
     return () => {
       actif = false;
     };
-  }, [sessionKey, datasetId, borrowedCount]);
+  }, [sessionKey, datasetId, borrowed.count]);
 
   // L'attestation KYB est posée juste après la signature ; ce formulaire n'est qu'un secours.
   // Une première lecture « absente » peut précéder la fin de cette attestation automatique :
@@ -103,15 +114,18 @@ export function BorrowPanel({
     void fetch(`/api/account/status?address=${encodeURIComponent(sessionKey)}`)
       .then((r) => (r.ok ? (r.json() as Promise<{ known?: unknown }>) : null))
       .then((corps) => {
-        if (!actif || !corps) return;
-        const missing = corps.known !== true;
-        if (missing && rechecked !== sessionKey) {
+        if (!actif) return;
+        // Statut illisible (503, 429) ou « absent » : une relecture plus tard, puis on s'en tient là.
+        const missing = corps ? corps.known !== true : null;
+        if (missing !== false && rechecked !== sessionKey) {
           timer = setTimeout(() => setRechecked(sessionKey), KYB_RECHECK_MS);
           return;
         }
-        setKyb({ session: sessionKey, missing });
+        if (missing !== null) setKyb({ session: sessionKey, missing });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (actif && rechecked !== sessionKey) timer = setTimeout(() => setRechecked(sessionKey), KYB_RECHECK_MS);
+      });
     return () => {
       actif = false;
       if (timer) clearTimeout(timer);
@@ -147,7 +161,9 @@ export function BorrowPanel({
     }
     setBusy(true);
     try {
-      if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) setBorrowedCount((count) => count + 1);
+      if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) {
+        setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
+      }
     } catch (err) {
       setError(messageOf(err));
     } finally {
@@ -207,7 +223,7 @@ export function BorrowPanel({
           {t(error)}
         </p>
       )}
-      {borrowedCount > 0 && !error && (
+      {borrowed.count > 0 && borrowed.session === sessionKey && !error && (
         <p role="status" className="rounded-lg border border-positive/40 bg-positive/10 px-3 py-2 text-sm">
           {t("Emprunt enregistré. Lancez l’entraînement depuis la page")}{" "}
           <Link href="/train" className="font-medium underline underline-offset-2">{t("Entraîner")}</Link>.

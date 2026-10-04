@@ -235,7 +235,9 @@ export default function MarketplaceListingPage() {
           <p className="mt-2 text-sm text-muted">
             {result.data.billingMode === "v6"
               ? t("Aucun frais de calcul n’est prélevé : le montant verrouillé est rendu en entier.")
-              : t("Seul le calcul réellement consommé est retenu, le reste est remboursé.")}{" "}
+              : result.data.billingMode === "v7"
+                ? t("Seul le calcul réellement consommé est retenu, le reste est remboursé.")
+                : t("Le devis précise ce qui est retenu en cas d’échec, avant tout paiement.")}{" "}
             {days < 1
               ? t("Sans règlement à l’échéance de l’escrow, vous récupérez vos fonds depuis la page Entraîner.")
               : days === 1

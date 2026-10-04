@@ -124,7 +124,8 @@ test("catalogue : statistiques, frais du dernier devis et prix total", async () 
     modelVersion: "1.0.0",
     computeAmountUsdcAtomic: { not: null },
     evmLockTxHash: { not: null },
-    status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"] },
+    // Un CANCELLED sans transaction de remboursement (lock annulé) n'est jamais lu.
+    OR: [{ status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] } }, { status: "CANCELLED", cancelTxHash: { not: null } }],
     createdAt: { gte: new Date(NOW.getTime() - COMPUTE_QUOTE_MAX_AGE_MS) },
   })));
   assert.doesNotMatch(JSON.stringify(result), /quotedAt|2026-10-04T12/);

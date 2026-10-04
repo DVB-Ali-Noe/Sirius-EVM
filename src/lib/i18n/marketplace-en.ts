@@ -77,6 +77,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
     "A completed loan is either settled to the provider or refunded; a refund follows a failed training or a training that was never started.",
   "Aucun frais de calcul n’est prélevé : le montant verrouillé est rendu en entier.":
     "No compute fee is charged: the locked amount is returned in full.",
+  "Le devis précise ce qui est retenu en cas d’échec, avant tout paiement.":
+    "The quote states what is retained if training fails, before any payment.",
   "Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.":
     "Borrowing unavailable: the provider’s KYB attestation is missing or expired.",
   "Aucun emprunt terminé": "No completed loan yet",

@@ -53,6 +53,9 @@ export function MarketplaceCatalogue() {
     const search = next.toString();
     router.replace(search ? `${pathname}?${search}` : pathname, { scroll: false });
   }, [key, pathname, router]);
+  // Référence stable entre deux changements d'URL : le délai de la recherche n'est pas relancé
+  // à chaque rendu (réponse reçue, favori).
+  const commitSearch = useCallback((q: string) => update({ q }), [update]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,7 +112,7 @@ export function MarketplaceCatalogue() {
         className="mb-6"
         onSubmit={(event) => event.preventDefault()}
       >
-        <SearchBox value={query.get("q") ?? ""} onCommit={(q) => update({ q })} />
+        <SearchBox value={query.get("q") ?? ""} urlKey={key} onCommit={commitSearch} />
       </form>
 
       <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
@@ -298,16 +301,22 @@ export function MarketplaceCatalogue() {
  * reprend la main quand elle change d'ailleurs (retour arrière, réinitialisation), sans écraser
  * une frappe en cours.
  */
-function SearchBox({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+function SearchBox({ value, urlKey, onCommit }: { value: string; urlKey: string; onCommit: (value: string) => void }) {
   const { t } = useLocale();
   const [draft, setDraft] = useState(value);
   // Dernière valeur reçue de l'URL. `draft` n'est repris que si l'URL change, et seulement si elle
   // ne fait pas que confirmer ce qui vient d'être envoyé : une frappe en cours n'est jamais écrasée.
   const [received, setReceived] = useState(value);
+  const [receivedKey, setReceivedKey] = useState(urlKey);
   const [sent, setSent] = useState<string | null>(null);
-  if (value !== received) {
-    setReceived(value);
-    if (value !== sent) setDraft(value);
+  // Tout changement d'URL clôt l'envoi en cours, même s'il a été supplanté par un autre filtre :
+  // sinon la valeur envoyée mais jamais appliquée bloquerait la recherche suivante.
+  if (urlKey !== receivedKey) {
+    setReceivedKey(urlKey);
+    if (value !== received) {
+      setReceived(value);
+      if (value !== sent) setDraft(value);
+    }
     setSent(null);
   }
 
