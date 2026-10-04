@@ -45,8 +45,8 @@ Le calendrier reste serré : la partie datasets et les tutos occupent samedi et 
 | Conditions d'utilisation | Se connecter vaut acceptation : mention « By signing in, you accept the Terms » sous chaque connexion. Pas de case à cocher |
 | Journal des accès | Conservé 24 mois après l'accès, puis supprimé (purge automatique à faire en V1.2) |
 | Safe | 2/3 plutôt que 2/2 : Ali, Noé et une clé matérielle de secours rangée hors ligne. Vérifier que app.safe.global gère Robinhood Chain 4663 |
-| KYB | **À trancher.** Le registre ouvert est refusé sur mainnet par trois garde-fous (`deploy-policy.ts`, `phala-v7-preflight.ts`, `release-check.mjs`). Recommandé : registre strict utilisé comme invitation (`scripts/operations/kyb-invite.ts`, un code signé par adresse), qui fait l'accès sur invitation de la bêta sans redéployer l'escrow plus tard |
-| Ajouter des fonds sur mainnet | Pont et réception par QR déjà en place ; recherche en cours sur les services qui livrent de l'USDG sur 4663 (pont, carte, swap) avant toute intégration |
+| KYB | **Strict, utilisé comme invitation** (décidé le 4 octobre). Le registre ouvert reste refusé sur mainnet par les trois garde-fous. Chaque testeur reçoit un code signé pour son adresse (`scripts/operations/kyb-invite.ts`). Admin du registre : le Safe ; vérificateur : une adresse dédiée, distincte de l'admin |
+| Ajouter des fonds sur mainnet | Fenêtre à trois choix (F1 et F2, fusionnées) : carte via MoonPay (`usdg_robinhood`, masquée sans clés live), depuis un autre wallet (QR et adresse, avertissement réseau et jeton), depuis une autre chaîne via Relay (USDC sur Base vers USDG ou ETH). Testnet : faucet inchangé. Test réel lundi sur mainnet |
 | Démo | `demo.sirius-data.tech` : déploiement staging figé, seule `/phala` est servie. RTMR3 change à chaque redémarrage de la machine Phala : à trancher au second audit pour la production |
 
 ## Répartition avant le 6
