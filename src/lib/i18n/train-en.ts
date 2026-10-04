@@ -5,6 +5,8 @@
  * « Échoué », « Remboursé » et « État inconnu » existent déjà dans `shared-en.ts`.
  */
 export const TRAIN_MESSAGES_EN: Record<string, string> = {
+  // Lien vers la page publique du certificat (slice N6)
+  "Certificat d’exécution": "Execution certificate",
   // États d'un emprunt (src/lib/train/loan-display.ts)
   "Paiement en attente de finalité": "Payment awaiting finality",
   "En cours": "In progress",

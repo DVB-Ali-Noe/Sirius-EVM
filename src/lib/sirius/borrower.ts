@@ -18,6 +18,7 @@ import { lockAuthorizationDeadline } from "./lock-policy";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
+import { isListingExpired } from "@/lib/datasets/manage";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
@@ -42,6 +43,8 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   if (!isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
+  // Une annonce expirée n'est plus empruntable, même par son lien direct.
+  if (isListingExpired(dataset.listingExpiresAt)) throw new AppError("Annonce expirée", 409);
   if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt) {
     throw new AppError("Dataset EVM incomplet", 409);
   }
@@ -91,6 +94,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         evmDatasetId: { not: null },
         wrappedKey: { not: null },
         runnerReceipt: { not: null },
+        OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: new Date() } }],
       },
       data: { updatedAt: new Date() },
     });
@@ -188,6 +192,7 @@ export async function renewLoanLock(loanId: string, borrower: string) {
     dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
+  if (isListingExpired(dataset.listingExpiresAt)) throw new AppError("Annonce expirée", 409);
   if (await readLoan(loan.evmLoanKey as Hex)) throw new AppError("Emprunt déjà verrouillé", 409);
   await assertCurrentRunner(loan);
   await assertCurrentRunner(dataset);

@@ -16,7 +16,7 @@ Fusionné dans staging, CI verte :
 
 Le message de connexion n'est pas au format standard des wallets (SIWE). Un faux site pourrait obtenir une vraie signature. Les sessions ont déjà été réduites à 24 heures. La correction touche le format vérifié par l'enclave : un jour et demi de travail. **Reportée à la V1.2.** Pendant la bêta, l'accès sur invitation et les plafonds limitent l'impact.
 
-### 2. Test complet sur testnet — vendredi 3 et samedi 4
+### 2. Test complet sur testnet — lundi 5
 
 Validé avec Ali le 2 octobre : nouvelle machine Phala en mode normal, comptes générés et comptes MetaMask.
 
@@ -35,13 +35,13 @@ Validé avec Ali le 2 octobre : nouvelle machine Phala en mode normal, comptes g
 9. Parcours manuel avec les MetaMask : publication avec un compte, emprunt avec un autre.
 10. Rapport, machine arrêtée.
 
-C'est aussi la répétition de la mise en production de samedi.
+C'est aussi la répétition de la mise en production.
 
-### 3. Second audit multi-agents — fin de vendredi ou samedi
+### 3. Second audit multi-agents — lundi 5
 
-Session cloud sur Fable, environ 100 euros de crédits, plafond de 120 agents. Douze zones, vérification par trois sceptiques, critique de couverture, rapport. Tout problème critique ou élevé est corrigé avant le gel du samedi minuit, ou reporte le lancement.
+Session cloud sur Fable, environ 100 euros de crédits, plafond de 120 agents. Douze zones, vérification par trois sceptiques, critique de couverture, rapport. Tout problème critique ou élevé est corrigé avant la décision de lundi 20h, ou reporte le lancement.
 
-### 4. Éléments externes — avant samedi matin
+### 4. Éléments externes — avant lundi matin
 
 | Élément | Qui le fournit |
 |---|---|
@@ -56,16 +56,16 @@ Session cloud sur Fable, environ 100 euros de crédits, plafond de 120 agents. D
 | `EVM_NETWORK=mainnet` dans l'environnement GitHub production | Ali |
 | Configuration du nettoyeur de staging à compléter | Ali |
 
-### 5. Mise en production — samedi 4 et dimanche 5 matin
+### 5. Mise en production — dimanche 4 et lundi 5 matin
 
-Le gel du code est à samedi minuit. Ce qui ne dépend pas des pages du site se prépare samedi, en parallèle du code :
+Le gel du code est à dimanche minuit. Ce qui ne dépend pas des pages du site se prépare dimanche, en parallèle du code :
 
 1. Machine Phala de production, en mode normal, avec l'origine `https://sirius-data.tech`.
 2. Contrats mainnet : exécution à blanc, puis déploiement avec USDG, Safe en admin KYB, deux vérificateurs.
 3. Initialisation de la machine avec les politiques mainnet, activation, mesures épinglées, redémarrage de vérification.
 4. Base de production neuve créée et migrée.
 
-Après le gel, dimanche matin :
+Après le gel, lundi matin :
 
 5. Fusion staging → main par PR, puis approbation du déploiement dans l'onglet Actions.
 6. Vercel production configuré pour mainnet, nettoyeur de production démarré.
@@ -73,6 +73,6 @@ Après le gel, dimanche matin :
 8. Premier prêt réel de 5 USDG, de bout en bout, certificat vérifié.
 9. Retrait de la clé de déploiement de toute machine, ETH envoyé à l'adresse de règlement.
 
-### 6. Décision — dimanche 5 à 20h
+### 6. Décision — lundi 5 à 20h
 
 Checklist dans [00-PLAN-GLOBAL.md](00-PLAN-GLOBAL.md).

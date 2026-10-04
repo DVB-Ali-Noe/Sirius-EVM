@@ -1,6 +1,6 @@
-# Décisions à prendre avant samedi matin
+# Décisions à prendre avant le déploiement mainnet
 
-Les contrats mainnet sont déployés **samedi 4 octobre**. Ils sont immuables : toute décision qui touche ce qu'ils enregistrent doit être prise avant. Ce fichier liste les quatre décisions, l'option retenue et ce qu'elle implique dans le code.
+Les contrats mainnet sont déployés **lundi 5 octobre**. Ils sont immuables : toute décision qui touche ce qu'ils enregistrent doit être prise avant. Ce fichier liste les quatre décisions, l'option retenue et ce qu'elle implique dans le code.
 
 Priorité : **P0**. Responsables : Ali et Noé.
 
@@ -55,7 +55,7 @@ Les variables d'environnement gardent leur nom historique `SIRIUS_USDC_ADDRESS` 
 
 **Décision** : chaque ré-entraînement est **un nouvel emprunt complet**. La donnée est payée à nouveau, plus le calcul.
 
-**Pourquoi.** Le contrat v7 refuse un prêt dont le montant de la donnée vaut zéro (`ZeroAmount`). Faire payer seulement le calcul demanderait de modifier le contrat avant samedi, sans audit de cette modification : un risque disproportionné à deux jours du lancement.
+**Pourquoi.** Le contrat v7 refuse un prêt dont le montant de la donnée vaut zéro (`ZeroAmount`). Faire payer seulement le calcul demanderait de modifier le contrat avant le déploiement, sans audit de cette modification : un risque disproportionné à deux jours du lancement.
 
 **Ce que ça implique** :
 
