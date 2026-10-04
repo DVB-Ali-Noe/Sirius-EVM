@@ -1318,7 +1318,7 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## N1 — Mes datasets
 
-Branche `feat/mes-datasets`, PR vers `staging`. Partie de `staging` à `e829cfc`, mise à jour par trois fusions de `origin/staging` (`2f6ae81` journal des accès, `7156291` tutos et page Wallet, `41a91ed` upload en deux étapes N2) ; conflits limités à la ligne `test` de `package.json` et aux imports de `english.ts`, résolus en gardant tous les ajouts. Tout ce qui suit se vérifie avec `git diff origin/staging...HEAD` (18 fichiers, liste en §1). Correctifs après la première CI : voir §11.
+Branche `feat/mes-datasets`, PR vers `staging`. Partie de `staging` à `e829cfc`, mise à jour par quatre fusions de `origin/staging` (`2f6ae81` journal des accès, `7156291` tutos et page Wallet, `41a91ed` upload en deux étapes N2, `fd3cefc` marketplace N3) ; conflits limités à la ligne `test` de `package.json` et aux imports de `english.ts`, résolus en gardant tous les ajouts. Tout ce qui suit se vérifie avec `git diff origin/staging...HEAD` (18 fichiers, liste en §1). Correctifs après la première CI : voir §11.
 
 ### 1. Ce qui a changé
 
@@ -1475,7 +1475,7 @@ Mutations jouées par les relecteurs (§10) : 26 + 23 + 3, toutes tuées après 
 
 ### 7. Risques résiduels et limites connues
 
-1. **L'expiration n'est appliquée nulle part côté serveur en dehors de la slice.** Le catalogue public (`src/app/api/datasets/route.ts`) filtre seulement `status = LISTED`, et `src/lib/sirius/borrower.ts` (préparation et blocage) ne regarde pas `listingExpiresAt`. Une annonce *Expirée* reste donc listée et empruntable. **Actif depuis la fusion de N2** : chaque nouvelle annonce a une date de fin (7, 30 ou 90 jours) ; à son échéance, la fiche l'affiche *Expirée* alors que le catalogue et l'emprunt l'acceptent encore. Correction (hors fichiers de la slice) : `OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: now } }]` dans le `where` public de la liste et dans la disponibilité de `prepareLoan` et du blocage. Le texte de la fiche a été reformulé pour ne pas promettre le retrait.
+1. **L'expiration n'est appliquée que par le nouveau catalogue de la marketplace.** Depuis N3 (fusionnée), `/api/marketplace` (`src/lib/marketplace/listing.ts`) n'affiche que les annonces LISTED non expirées. En revanche l'ancienne liste publique `GET /api/datasets?status=LISTED` filtre seulement `status = LISTED`, et `src/lib/sirius/borrower.ts` (préparation et blocage) ne regarde pas `listingExpiresAt` : une annonce *Expirée* disparaît de la marketplace mais reste **empruntable par son identifiant**. **Actif depuis la fusion de N2** : chaque nouvelle annonce a une date de fin (7, 30 ou 90 jours). Correction restante (hors fichiers de la slice) : `OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: now } }]` dans la disponibilité de `prepareLoan` et du blocage, et dans le `where` public de `GET /api/datasets?status=LISTED` si cette liste reste exposée. Le texte de la fiche a été reformulé pour ne pas promettre le retrait.
 2. **La pause n'arrête pas l'emprunt par lien direct** (UNLISTED empruntable). Affiché ; « Rendre privé » ferme l'accès. Si la pause doit fermer l'emprunt, c'est au couloir des prêts.
 3. **Création non alignée** : `POST /api/datasets` (N2) ne vérifie que la longueur du nom ; un nom avec un caractère bidi peut être créé et s'affiche sur la marketplace et `/proof/[id]`. Il faudrait partager `validateDetailsPatch` (ou une fonction dédiée de `manage.ts`).
 4. **`setDatasetVisibility` ne rejoue pas `listedAt` ni l'expiration en base** : pour le PATCH existant, la vérification `assertVisibilityChange` est faite en lecture ; une fenêtre de course de quelques millisecondes subsiste (la route de la fiche, elle, rejoue tout).
@@ -1491,14 +1491,14 @@ Mutations jouées par les relecteurs (§10) : 26 + 23 + 3, toutes tuées après 
 
 ### 8. Reste à faire
 
-- **P0 (couloirs marketplace et prêts), désormais urgent** : appliquer l'expiration dans le catalogue public et dans `borrower.ts` (§7.1) ; N2 pose `listingExpiresAt` depuis sa fusion, la première échéance arrive 7 jours après la première publication.
+- **P0 (couloir des prêts), désormais urgent** : appliquer l'expiration dans `borrower.ts` (et dans l'ancienne liste publique si elle reste exposée) (§7.1) ; la marketplace la respecte depuis N3, mais l'emprunt par identifiant non. N2 pose `listingExpiresAt` depuis sa fusion : la première échéance arrive 7 jours après la première publication.
 - **P1 (N2)** : partager la validation du nom et de la description à la création (§7.3).
 - **P1 (A2)** : états `archived`, `private`, `draft` dans `StatusPill` (§2.2).
 - **P2** : rejouer `listedAt` et l'expiration dans `setDatasetVisibility` ou faire passer le PATCH existant par `applyVisibility` (§7.4) ; opération de grant dédiée aux réglages d'annonce ; limites de débit partagées ; route d'agrégat paginée pour la mosaïque au lieu de `/api/loans` ; retraits par dataset (05, V1.1) ; e2e de la pause, de la prolongation et du consentement ; donner (et non seulement retirer) le consentement depuis la fiche.
 
 ### 9. Résultats des vérifications
 
-Environnement : Windows 11, Git Bash, Node v22.16.0, pnpm 11.18.0 lancé par `npx -y pnpm@11.18.0` (le pnpm global de la machine est cassé : « Failed to switch pnpm to v11.18.0 … ENOENT », sans rapport avec la slice). Mesures refaites après la fusion de N2 (`origin/staging` à `41a91ed`) et les correctifs e2e de §11.
+Environnement : Windows 11, Git Bash, Node v22.16.0, pnpm 11.18.0 lancé par `npx -y pnpm@11.18.0` (le pnpm global de la machine est cassé : « Failed to switch pnpm to v11.18.0 … ENOENT », sans rapport avec la slice). Mesures refaites après la fusion de N2 puis de N3 (`origin/staging` à `fd3cefc`) et les correctifs e2e de §11.
 
 | Commande | Résultat exact |
 |---|---|
@@ -1508,10 +1508,10 @@ Environnement : Windows 11, Git Bash, Node v22.16.0, pnpm 11.18.0 lancé par `np
 | `pnpm exec tsc --noEmit` | aucune sortie, exit 0 |
 | `pnpm lint` | `$ eslint`, aucune autre sortie, exit 0 |
 | `pnpm test` | **échec d'environnement, exit 1** : sous Windows, pnpm exécute le script avec `cmd.exe`, qui ne comprend pas la syntaxe `NODE_OPTIONS="…" node …` (« 'NODE_OPTIONS' n'est pas reconnu en tant que commande interne »). Aucun test lancé. Sur Linux (CI) le script fonctionne tel quel. |
-| Même liste de fichiers que le script `test`, lancée directement (`node --import tsx --test …` avec `NODE_OPTIONS=--conditions=react-server`) | `tests 681`, `pass 609`, `fail 72`, exit 1. **Les 72 échecs sont exactement ceux de la base** `e829cfc` lancée de la même façon sur la même machine (`tests 530`, `pass 458`, `fail 72`, liste des titres en échec identique, comparée par `diff`) : chemins Windows (`src\app\…` au lieu de `src/app/…` dans `self-training-routes.test.ts` et `disclaimers.test.ts`), registres SQLite et processus enfants du runner (`budget.test.ts`, `replay.test.ts`, `runner-cli.test.ts`, `initialize-runner-volume.test.ts`…). Aucun ne touche un fichier de la slice. Les 35 tests de `manage.test.ts` et les 7 de `english.test.ts` passent. |
+| Même liste de fichiers que le script `test`, lancée directement (`node --import tsx --test …` avec `NODE_OPTIONS=--conditions=react-server`) | `tests 721`, `pass 649`, `fail 72`, exit 1. **Les 72 échecs sont exactement ceux de la base** `e829cfc` lancée de la même façon sur la même machine (`tests 530`, `pass 458`, `fail 72`, liste des titres en échec identique, comparée par `diff`) : chemins Windows (`src\app\…` au lieu de `src/app/…` dans `self-training-routes.test.ts` et `disclaimers.test.ts`), registres SQLite et processus enfants du runner (`budget.test.ts`, `replay.test.ts`, `runner-cli.test.ts`, `initialize-runner-volume.test.ts`…). Aucun ne touche un fichier de la slice. Les 35 tests de `manage.test.ts` et les 7 de `english.test.ts` passent. |
 | `node --import tsx --test src/lib/datasets/manage.test.ts src/lib/i18n/english.test.ts` | `tests 42`, `pass 42`, `fail 0` |
 | `pnpm audit:deps` | `2 vulnerabilities found`, `Severity: 1 low \| 1 high (1 ignored)`, exit 0 ; identique à `staging` (A2) |
-| `pnpm exec playwright test` (suite complète, configuration du dépôt dupliquée localement sur le port libre 3157, `--workers=1` comme en CI) | `92 passed (1.6m)`, exit 0 |
+| `pnpm exec playwright test` (suite complète, configuration du dépôt dupliquée localement sur le port libre 3157, `--workers=1` comme en CI) | `97 passed (2.4m)`, exit 0 (avant la fusion de N3 : `92 passed (1.6m)`) |
 | `git diff --name-only origin/staging...HEAD` | 18 fichiers : ceux de §1, `e2e/datasets.spec.ts`, `e2e/account-switch.spec.ts` (autorisés par le coordinateur) et cette section de `docs/passage-mainnet/audit.md` |
 | `git log origin/staging..HEAD --format=%B` | aucune signature d'assistant (recherche de `co-authored`, `claude`, `anthropic`, `generated with`, `session`, `skip ci` : aucune occurrence) ; auteur et committeur `alibenyezza` |
 
@@ -1553,7 +1553,9 @@ La CI de la PR #44 échouait à l'étape « Tests end-to-end » sur 11 tests (av
 
 **Intégration de N2** : jeton et catégories via `settlementToken` et `DATASET_CATEGORY_LABEL_KEYS` (§2.16) ; `SETTLEMENT_TOKEN_SYMBOL` supprimé ; §6, §7.1 et §8 mis à jour (l'expiration devient un risque actif). Une réponse non tableau de `/api/loans` est traitée comme « statistiques indisponibles » au lieu d'une exception.
 
-**Résultats** : suite e2e complète en local, `92 passed`, exit 0 (§9). Une première exécution avec 7 workers en parallèle sur `next dev` avait donné des dépassements de délai sur des pages hors slice (catalogue, prêts, preuves d'audit) et sur la première compilation de `/datasets/[id]` : la suite repasse entièrement avec un seul worker comme en CI, et l'attente du titre de la fiche est portée à 30 s pour la première compilation de la route dynamique.
+**Fusion de N3** : la marketplace traduit « Publication » par « Published » ; le titre de la carte de publication d'un brouillon passe donc à la clé distincte « Publication du titre EVM » (« EVM title publication »), et la clé en double « Trier par » est retirée de `datasets-en.ts` (même traduction côté marketplace). Aucune collision restante entre `datasets-en.ts` et les autres fichiers de traduction.
+
+**Résultats** : suite e2e complète en local, `97 passed`, exit 0 après la fusion de N3 (§9). Une première exécution avec 7 workers en parallèle sur `next dev` avait donné des dépassements de délai sur des pages hors slice (catalogue, prêts, preuves d'audit) et sur la première compilation de `/datasets/[id]` : la suite repasse entièrement avec un seul worker comme en CI, et l'attente du titre de la fiche est portée à 30 s pour la première compilation de la route dynamique.
 
 ---
 
