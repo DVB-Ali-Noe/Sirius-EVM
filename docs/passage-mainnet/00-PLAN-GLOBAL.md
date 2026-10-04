@@ -1,6 +1,6 @@
 # Passage au mainnet — plan global
 
-Lancement de la bêta restreinte sur Robinhood Chain mainnet : **lundi 6 octobre 2026**.
+Lancement de la bêta restreinte sur Robinhood Chain mainnet : **mardi 6 octobre 2026**.
 
 Ce dossier reprend :
 
@@ -10,11 +10,11 @@ Ce dossier reprend :
 
 ## Le principe
 
-**Seuls les contrats sont figés samedi.** Une fois déployés sur mainnet, ils ne changent plus sans redéploiement et migration. Tout le reste — pages, textes, tableaux de bord — peut être mis à jour à tout moment après le lancement, par une PR puis un clic d'approbation sur l'environnement de production.
+**Seuls les contrats sont figés avant le déploiement mainnet.** Une fois déployés sur mainnet, ils ne changent plus sans redéploiement et migration. Tout le reste — pages, textes, tableaux de bord — peut être mis à jour à tout moment après le lancement, par une PR puis un clic d'approbation sur l'environnement de production.
 
 D'où trois règles :
 
-1. Les **décisions qui touchent les contrats** sont prises avant samedi : [01-decisions-avant-samedi.md](01-decisions-avant-samedi.md). Elles sont tranchées : USDG, ré-entraînement en nouvel emprunt complet, délai de sécurité fixé à 3 jours, gain du fournisseur plus frais de calcul sans commission.
+1. Les **décisions qui touchent les contrats** sont prises avant le déploiement : [01-decisions-avant-samedi.md](01-decisions-avant-samedi.md). Elles sont tranchées : USDG, ré-entraînement en nouvel emprunt complet, délai de sécurité fixé à 3 jours, gain du fournisseur plus frais de calcul sans commission.
 2. Avant le 6, on livre **toute la partie datasets, les tutos, les avertissements et les petites features**, chacun dans son couloir pour éviter les conflits.
 3. On lance le 6 **avec ce qui est prêt et testé**. Une feature inachevée attend la semaine suivante ; elle n'est jamais fusionnée à moitié.
 
@@ -22,23 +22,23 @@ D'où trois règles :
 
 | Quand | Quoi | Qui |
 |---|---|---|
-| **Jeudi 2, soir** | Relecture de ce dossier, adresse USDG officielle ([01](01-decisions-avant-samedi.md)) | Ali et Noé |
-| **Vendredi 3, d'abord** | Socle : table des utilisateurs, champs datasets, textes communs, composants partagés ([16](16-socle-technique.md)) | Ali |
-| **Vendredi 3 et samedi 4** | Partie datasets, tutos et petites features en parallèle (répartition ci-dessous) | Ali et Noé, chacun avec Claude Code |
-| **Vendredi 3 et samedi 4** | Test complet sur testnet et second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
-| **Samedi 4, en parallèle du code** | Ce qui ne dépend pas des pages : contrats mainnet, machine Phala de production, base de production. Le code des contrats et du moteur ne bouge plus | Noé pour la machine et les contrats, Ali pour la base |
-| **Samedi 4, minuit** | **Gel du code** : seules les corrections critiques passent ensuite | — |
-| **Dimanche 5, matin** | Fusion staging → main, approbation, réglage de la production, premier prêt réel de 5 USDG | Ali et Noé |
-| **Dimanche 5, journée** | Tests complets en production et sur testnet, corrections critiques uniquement. **Décision de lancer à 20h** | Ali et Noé |
-| **Lundi 6** | Ouverture de la bêta restreinte et annonce | Ali et Noé |
+| **Vendredi 2, soir** | Relecture de ce dossier, adresse USDG officielle ([01](01-decisions-avant-samedi.md)) | Ali et Noé |
+| **Samedi 3, d'abord** | Socle : table des utilisateurs, champs datasets, textes communs, composants partagés ([16](16-socle-technique.md)) | Ali |
+| **Samedi 3 et dimanche 4** | Partie datasets, tutos et petites features en parallèle (répartition ci-dessous) | Ali et Noé, chacun avec Claude Code |
+| **Dimanche 4, en parallèle du code** | Ce qui ne dépend pas des pages : contrats mainnet, machine Phala de production, base de production. Le code des contrats et du moteur ne bouge plus | Noé pour la machine et les contrats, Ali pour la base |
+| **Dimanche 4, minuit** | **Gel du code** : seules les corrections critiques passent ensuite | — |
+| **Lundi 5, matin** | Test complet sur testnet et second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
+| **Lundi 5, matin** | Fusion staging → main, approbation, réglage de la production, premier prêt réel de 5 USDG | Ali et Noé |
+| **Lundi 5, journée** | Tests complets en production et sur testnet, corrections critiques uniquement. **Décision de lancer à 20h** | Ali et Noé |
+| **Mardi 6** | Ouverture de la bêta restreinte et annonce | Ali et Noé |
 
-Le gel du code a été déplacé au samedi minuit, le 3 octobre, pour garder tout le dimanche aux tests. Les contrats et la machine de production sont donc préparés samedi en parallèle du code : sinon toute la mise en production tomberait dimanche, le jour des tests.
+Le gel du code est à dimanche minuit, pour garder tout le lundi aux tests. Les contrats et la machine de production sont préparés dimanche en parallèle du code : sinon toute la mise en production tomberait lundi, le jour des tests.
 
-Le calendrier reste serré : la partie datasets et les tutos occupent vendredi et samedi. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
+Le calendrier reste serré : la partie datasets et les tutos occupent samedi et dimanche. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
 
 ## Répartition avant le 6
 
-Chacun ne touche que ses fichiers : aucun conflit de fusion. Les composants partagés sont créés une fois par Ali vendredi matin, puis réutilisés.
+Chacun ne touche que ses fichiers : aucun conflit de fusion. Les composants partagés sont créés une fois par Ali en premier, puis réutilisés.
 
 | Ali | Noé |
 |---|---|
@@ -50,7 +50,7 @@ Chacun ne touche que ses fichiers : aucun conflit de fusion. Les composants part
 | Explorer : renommage, vue par utilisateur ([11](11-explorer.md)) | Certificat d'exécution, si le temps le permet ([09](09-train-et-certificat.md)) |
 | Adaptation au jeton USDG ([01](01-decisions-avant-samedi.md)) | — |
 
-Noé porte aussi la mise en production de samedi.
+Noé porte aussi la préparation de la production de dimanche.
 
 ## Priorités
 
@@ -85,7 +85,7 @@ Noé porte aussi la mise en production de samedi.
 4. Ajout de fonds par carte en USDG ([05](05-wallet.md)).
 5. Notifications par email et interface en français ([13](13-reglages.md)).
 
-## Checklist de décision — dimanche 5 à 20h
+## Checklist de décision — lundi 5 à 20h
 
 - [ ] Contrats mainnet déployés avec USDG, vérifiés sur l'explorateur, admin KYB = Safe.
 - [ ] Machine Phala de production active, mesures épinglées, même adresse de règlement après redémarrage.
