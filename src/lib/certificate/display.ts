@@ -1,5 +1,5 @@
 import type { CertificateViewProps } from "@/app/certificate/[loanId]/certificate-view";
-import { EVM_CHAIN_IDS, EVM_CHAINS, type EvmNetwork } from "@/lib/evm/networks";
+import { EVM_CHAINS } from "@/lib/evm/networks";
 import { transactionExplorerUrl } from "@/lib/evm/explorer";
 import { formatCertificateDate, presentVerification, type VerificationOutcome } from "./presentation";
 import type { CertificateRecord } from "./resolve";
@@ -10,23 +10,19 @@ import type { CertificateRecord } from "./resolve";
  * clé de prêt) reste côté serveur et ne passe que par le téléchargement JSON.
  */
 
-function networkForChain(chainId: number): EvmNetwork | null {
-  for (const network of Object.keys(EVM_CHAIN_IDS) as EvmNetwork[]) {
-    if (EVM_CHAIN_IDS[network] === chainId) return network;
-  }
-  return null;
-}
-
 export function certificateDownloadPath(loanId: string): string {
   return `/api/certificate/${encodeURIComponent(loanId)}/attestation`;
 }
 
-export function certificateViewProps(
-  record: CertificateRecord,
-  outcome: VerificationOutcome,
-): CertificateViewProps | null {
-  const network = networkForChain(record.settlement.chainId);
-  if (!network) return null;
+export function certificateViewProps(record: CertificateRecord, outcome: VerificationOutcome): CertificateViewProps {
+  const network = record.settlement.network;
+  let settlementHref: string | null;
+  try {
+    settlementHref = transactionExplorerUrl(network, record.settlement.txHash);
+  } catch {
+    // Aucun explorateur configuré pour ce réseau : le hash reste affiché, sans lien.
+    settlementHref = null;
+  }
   return {
     datasetName: record.dataset.name.trim() || "Untitled dataset",
     proofHref: `/proof/${encodeURIComponent(record.dataset.id)}`,
@@ -35,7 +31,7 @@ export function certificateViewProps(
     settledAt: formatCertificateDate(record.settledAt),
     networkLabel: EVM_CHAINS[network].name,
     settlementTxHash: record.settlement.txHash,
-    settlementHref: transactionExplorerUrl(network, record.settlement.txHash),
+    settlementHref,
     attestationHash: record.evidence.payloadHash,
     downloadHref: certificateDownloadPath(record.loanId),
     presentation: presentVerification(outcome),

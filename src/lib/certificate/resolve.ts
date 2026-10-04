@@ -3,6 +3,7 @@ import { hashLoanAttestationPayload, parseLoanAttestationPayload } from "@/lib/t
 import { loanEscrowBinding } from "@/lib/evm/history";
 import type { EvmEscrowBinding } from "@/lib/tee/evm-binding";
 import { modelDisplayName, modelSelection } from "@/lib/models/registry";
+import { EVM_CHAIN_IDS, type EvmNetwork } from "@/lib/evm/networks";
 
 /**
  * Résolution d'un certificat d'exécution public à partir d'une ligne de prêt.
@@ -38,6 +39,14 @@ const MAX_EVENT_LOG = 2 * 1024 * 1024;
  * fermée (dataset passé en privé, supprimé), le certificat l'est aussi.
  */
 const VISIBLE_DATASET_STATUSES = new Set(["LISTED", "UNLISTED", "SUSPENDED"]);
+
+/** Réseau connu de l'application pour un identifiant de chaîne, sinon `null`. */
+export function networkForChain(chainId: number): EvmNetwork | null {
+  for (const network of Object.keys(EVM_CHAIN_IDS) as EvmNetwork[]) {
+    if (EVM_CHAIN_IDS[network] === chainId) return network;
+  }
+  return null;
+}
 
 export function isCertificateLoanId(value: unknown): value is string {
   return typeof value === "string" && LOAN_ID.test(value);
@@ -90,7 +99,7 @@ export interface CertificateRecord {
   dataset: { id: string; name: string };
   model: { name: string; cid: string };
   settledAt: Date | null;
-  settlement: { txHash: string; chainId: number };
+  settlement: { txHash: string; chainId: number; network: EvmNetwork };
   evidence: CertificateEvidence;
 }
 
@@ -129,10 +138,13 @@ export function resolveCertificate(
   if (!model) return UNAVAILABLE;
 
   let chainId: number;
+  let network: EvmNetwork | null;
   try {
     const payload = parseLoanAttestationPayload(loan.attestationPayload);
     const escrow = binding(loan);
     chainId = escrow.chainId;
+    network = networkForChain(chainId);
+    if (!network) return UNAVAILABLE;
     if (
       hashLoanAttestationPayload(loan.attestationPayload) !== loan.attestationHash.toLowerCase() ||
       payload.chainId !== escrow.chainId ||
@@ -174,7 +186,7 @@ export function resolveCertificate(
       dataset: { id: dataset.id, name: dataset.name },
       model: { name: modelDisplayName(model), cid: loan.modelCid },
       settledAt: loan.settledAt,
-      settlement: { txHash: loan.settleTxHash, chainId },
+      settlement: { txHash: loan.settleTxHash, chainId, network },
       evidence: {
         payload: loan.attestationPayload,
         payloadHash: loan.attestationHash.toLowerCase(),

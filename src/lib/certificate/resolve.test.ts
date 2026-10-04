@@ -165,7 +165,7 @@ test("certificat prêt : seuls les champs du certificat, payload gardé pour l'e
   const { record } = result;
   assert.deepEqual(record.dataset, { id: "cdataset0000000000000000001", name: "Retail churn" });
   assert.deepEqual(record.model, { name: "Binary logistic regression v1.0.0", cid: "bafy-model" });
-  assert.deepEqual(record.settlement, { txHash: SETTLE_TX, chainId: CHAIN_ID });
+  assert.deepEqual(record.settlement, { txHash: SETTLE_TX, chainId: CHAIN_ID, network: "testnet" });
   assert.equal(record.evidence.payloadHash, row().attestationHash);
   assert.equal(record.evidence.composeHash, "c".repeat(64));
   // En dehors du payload attesté, aucune adresse, montant ou clé de prêt.
@@ -234,9 +234,11 @@ test("propriétés de la vue : aucune adresse, aucun montant, aucun payload", ()
   }
   assert.equal(props.proofHref, "/proof/cdataset0000000000000000001");
   assert.equal(props.downloadHref, "/api/certificate/cloan000000000000000000001/attestation");
-  assert.equal(props.settlementHref.endsWith(`/tx/${SETTLE_TX}`), true);
+  assert.equal(props.settlementHref?.endsWith(`/tx/${SETTLE_TX}`), true);
   assert.equal(props.settledAt, "2026-10-03 08:15 UTC");
-  // Chaîne inconnue : pas de lien explorateur inventé.
-  const other = { ...result.record, settlement: { ...result.record.settlement, chainId: 1 } };
-  assert.equal(certificateViewProps(other, { status: "absent" }), null);
+});
+
+test("chaîne inconnue de l'application : pas encore disponible (page et JSON alignés)", () => {
+  const otherChain = () => ({ chainId: 1, escrow: ESCROW });
+  assert.deepEqual(resolveCertificate(row({ evmChainId: 1 }, { chainId: 1 }), otherChain), { kind: "unavailable" });
 });

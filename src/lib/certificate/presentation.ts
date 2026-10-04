@@ -77,7 +77,7 @@ function hardwareCheck(outcome: VerificationOutcome): CertificateCheck {
     return {
       label,
       state: "unknown",
-      detail: "Not checked yet: verification against Intel collateral is rate-limited. Reload this page in a minute.",
+      detail: "Not checked yet: verification against Intel collateral is busy or slow right now. Reload this page in a minute.",
     };
   }
   if (outcome.status !== "complete") {
@@ -97,10 +97,12 @@ function hardwareCheck(outcome: VerificationOutcome): CertificateCheck {
   if (tcbStatus) {
     return { label, state: "fail", detail: `TCB status ${tcbStatus} is not accepted (UpToDate required).` };
   }
+  // `verifyTdxQuote` rend la même valeur pour une signature refusée et pour une collatérale
+  // injoignable : on ne peut pas conclure à un échec, seulement à une absence de preuve.
   return {
     label,
-    state: "fail",
-    detail: "The quote could not be verified against Intel collateral (signature rejected or collateral unreachable).",
+    state: "unknown",
+    detail: "Could not be confirmed against Intel collateral: the signature was rejected or the collateral was unreachable.",
   };
 }
 
@@ -124,14 +126,15 @@ function codeCheck(verification: QuoteVerificationView): CertificateCheck {
     return {
       label,
       state: "pass",
-      detail: "MRTD, RTMR3 and compose hash match the values pinned by Sirius, and the event log replays to RTMR3.",
+      detail: "MRTD, RTMR3 and compose hash match the values pinned by Sirius today, and the event log replays to RTMR3.",
     };
   }
   if (verification.codeIdentityMatches === false) {
     return {
       label,
       state: "fail",
-      detail: "At least one measurement differs from the value pinned by Sirius today, or the event log does not replay.",
+      detail:
+        "At least one measurement differs from the value pinned by Sirius today (for example after an enclave upgrade), or the event log does not replay.",
     };
   }
   return {
@@ -149,7 +152,7 @@ function eventLogCheck(verification: QuoteVerificationView): CertificateCheck {
   if (verification.eventLogMatches === false) {
     return { label, state: "fail", detail: "The event log does not replay to RTMR3 or does not record this compose hash." };
   }
-  return { label, state: "unknown", detail: "No event log was recorded for this run." };
+  return { label, state: "unknown", detail: "No usable event log was recorded for this run." };
 }
 
 export function presentVerification(outcome: VerificationOutcome): CertificatePresentation {
@@ -196,17 +199,34 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
       verdict: "verified",
       headline: VERIFIED_HEADLINE,
       summary:
-        "The hardware quote below is genuine, is bound to this loan's result, and was produced by the enclave code Sirius publishes.",
+        "The Intel TDX quote below is genuine, is bound to this loan's result, and carries the enclave measurements Sirius pins.",
       checks,
       measurements,
     };
   }
-  if (checks.some((check) => check.state === "fail")) {
+  // Échec franc : quote non liée au prêt, TCB refusé, event-log incohérent. Un simple
+  // écart avec les valeurs épinglées aujourd'hui n'en est pas un : une mise à jour de
+  // l'enclave le produit sur tous les certificats antérieurs.
+  const hardFailure =
+    !verification.reportDataMatches ||
+    verification.eventLogMatches === false ||
+    (outcome.status === "complete" && verification.hardwareVerified === false && verification.tcbStatus !== undefined);
+  if (hardFailure) {
     return {
       verdict: "failed",
       headline: "Enclave execution not confirmed",
       summary:
         "At least one check below did not pass. Download the raw attestation to verify it independently.",
+      checks,
+      measurements,
+    };
+  }
+  if (verification.codeIdentityMatches === false) {
+    return {
+      verdict: "incomplete",
+      headline: "Enclave execution not fully confirmed",
+      summary:
+        "An Intel TDX attestation was recorded for this training, but its measurements differ from the ones Sirius pins today. The enclave may have been upgraded since.",
       checks,
       measurements,
     };

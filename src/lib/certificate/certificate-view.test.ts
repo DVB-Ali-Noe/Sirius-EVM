@@ -43,17 +43,28 @@ test("certificat vérifié : titre, mesures, règlement, lien de preuve et tél�
 });
 
 test("échec, attente, erreur, sans quote : jamais le titre d'exécution vérifiée", () => {
-  for (const name of ["failed", "pending", "error", "unattested"]) {
+  for (const name of ["failed", "hard-failed", "pending", "error", "unattested"]) {
     const out = page(name);
     assert.equal(out.includes(HEADLINE), false, name);
     assert.match(out, /Download raw attestation \(JSON\)/, name);
   }
-  assert.match(page("failed"), /data-verdict="failed"/);
+  assert.match(page("hard-failed"), /data-verdict="failed"/);
+  assert.match(page("hard-failed"), /Enclave execution not confirmed/);
+  assert.match(page("failed"), /data-verdict="incomplete"/);
+  assert.match(page("failed"), /may have been upgraded/);
   assert.match(page("failed"), /data-pin="mismatch"/);
   assert.match(page("pending"), /Reload this page in a minute/);
   assert.match(page("unattested"), /No hardware attestation recorded/);
-  assert.equal(page("unattested").includes("Settled"), false, "date absente : ligne omise");
+  assert.equal(page("unattested").includes("Settlement recorded"), false, "date absente : ligne omise");
+  assert.match(page("no-explorer"), new RegExp(`0x(12){32}`));
+  assert.equal(page("no-explorer").includes("target=\"_blank\""), false, "sans explorateur : pas de lien");
   assert.equal(page("error").includes("MRTD"), false);
+});
+
+test("débit dépassé : message clair, aucun détail", () => {
+  const out = page("busy");
+  assert.match(out, /Too many requests/);
+  for (const leak of ["Retail churn", "bafy", "0x", "/proof/"]) assert.equal(out.includes(leak), false, leak);
 });
 
 test("pas encore disponible : message clair, aucun détail du prêt", () => {

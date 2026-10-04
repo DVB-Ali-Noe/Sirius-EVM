@@ -16,8 +16,8 @@ import { certificateExport, isCertificateLoanId, type CertificateResolution } fr
 
 export const certificateDownloadLimiter = new FixedWindowRateLimiter({
   windowMs: 60_000,
-  maxPerKey: 30,
-  maxGlobal: 600,
+  maxPerKey: 20,
+  maxGlobal: 240,
 });
 
 function noStore(response: NextResponse): NextResponse {

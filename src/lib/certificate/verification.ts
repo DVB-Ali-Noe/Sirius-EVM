@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { verifyTdxQuote, type QuoteVerification } from "@/lib/tee/quote";
 import type { CertificateRecord } from "./resolve";
 import type { VerificationOutcome } from "./presentation";
@@ -10,20 +11,23 @@ import type { VerificationOutcome } from "./presentation";
  * sur le réseau. Une page publique qui la déclencherait à chaque affichage servirait
  * d'amplificateur : chaque requête anonyme coûterait des appels sortants. D'où :
  *
- * - un cache par prêt et par hash d'attestation (une heure si la vérification a abouti,
- *   cinq minutes si elle n'a pas pu conclure, une minute en cas d'erreur) ;
- * - une seule vérification en vol par prêt (les visiteurs simultanés l'attendent) ;
- * - un plafond global de vérifications neuves par fenêtre : au-delà, la page affiche
- *   « en attente » sans rien appeler ;
- * - un délai maximal d'attente : au-delà, la page s'affiche avec « en attente », et la
- *   vérification en cours remplit le cache pour l'affichage suivant.
+ * - un cache par contenu (prêt, payload, quote, event-log, compose hash et valeurs
+ *   épinglées) : une heure si la vérification a conclu, cinq minutes si la collatérale n'a
+ *   pas permis de conclure, une minute en cas d'erreur ;
+ * - une seule vérification en vol par certificat (les visiteurs simultanés l'attendent) ;
+ * - un plafond de vérifications neuves par fenêtre et un plafond de vérifications
+ *   simultanées : au-delà, la page affiche « en attente » sans rien appeler ;
+ * - une attente maximale pendant le rendu (au-delà, « en attente » ; la vérification
+ *   continue et remplit le cache, maintenue par `after()` côté page) ;
+ * - une échéance dure : `dcap-qvl` n'a aucun délai réseau, une vérification bloquée est
+ *   abandonnée (comptée comme non concluante) pour libérer sa place.
  *
  * Les contrôles locaux (report data, mesures, rejeu de l'event-log) ne touchent pas le
- * réseau ; ils sont calculés une fois et mis en cache de la même façon, pour que la page
- * affiche les mesures même quand la vérification matérielle est en attente.
+ * réseau ; ils sont calculés une fois et mis en cache, pour que la page affiche les
+ * mesures même quand la vérification matérielle est en attente.
  *
- * Le cache est propre au processus : sur une plateforme qui multiplie les instances,
- * le plafond s'applique par instance (voir la section N6 de l'audit).
+ * Le cache et les plafonds sont propres au processus : sur une plateforme qui multiplie
+ * les instances, ils s'appliquent par instance (voir la section N6 de l'audit).
  */
 
 const QUOTE_HEX = /^[0-9a-fA-F]+$/;
@@ -37,13 +41,15 @@ export interface VerificationInput {
 }
 
 type Verify = (input: VerificationInput, skipHardware: boolean) => Promise<QuoteVerification>;
+/** Reçoit une vérification qui continue après la réponse (`after()` côté page). */
+export type KeepAlive = (pending: Promise<unknown>) => void;
 
 export interface BoundedVerifierOptions {
   verify: Verify;
   now?: () => number;
-  /** Résultat matériel concluant (vérifié ou TCB refusé avec un statut). */
+  /** Résultat matériel concluant (vérifié, ou TCB refusé avec un statut, ou simulateur). */
   conclusiveTtlMs?: number;
-  /** Vérification aboutie sans conclusion matérielle (collatérale injoignable, signature refusée). */
+  /** Vérification sans conclusion matérielle (collatérale injoignable, signature refusée). */
   inconclusiveTtlMs?: number;
   /** La vérification a levé une erreur (quote illisible, mesure épinglée invalide). */
   failureTtlMs?: number;
@@ -53,6 +59,10 @@ export interface BoundedVerifierOptions {
   windowMs?: number;
   /** Attente maximale d'une vérification matérielle pendant le rendu. */
   timeoutMs?: number;
+  /** Au-delà, la vérification est abandonnée et sa place libérée. */
+  hardDeadlineMs?: number;
+  /** Vérifications matérielles simultanées au plus. */
+  maxInFlight?: number;
 }
 
 interface Entry {
@@ -99,6 +109,16 @@ function isWellFormed(input: VerificationInput): boolean {
   );
 }
 
+function delay<T>(ms: number, value: T): { promise: Promise<T>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(value), ms);
+  });
+  return { promise, cancel: () => timer && clearTimeout(timer) };
+}
+
+const ABANDONED: unique symbol = Symbol("abandonnée");
+
 export class BoundedQuoteVerifier {
   private readonly verify: Verify;
   private readonly now: () => number;
@@ -108,6 +128,8 @@ export class BoundedQuoteVerifier {
   private readonly maxFreshPerWindow: number;
   private readonly windowMs: number;
   private readonly timeoutMs: number;
+  private readonly hardDeadlineMs: number;
+  private readonly maxInFlight: number;
   private readonly full: BoundedCache;
   private readonly local: BoundedCache;
   private readonly inFlight = new Map<string, Promise<Entry>>();
@@ -122,6 +144,8 @@ export class BoundedQuoteVerifier {
     this.maxFreshPerWindow = options.maxFreshPerWindow ?? 10;
     this.windowMs = options.windowMs ?? 60_000;
     this.timeoutMs = options.timeoutMs ?? 8_000;
+    this.hardDeadlineMs = options.hardDeadlineMs ?? 30_000;
+    this.maxInFlight = options.maxInFlight ?? 5;
     const maxEntries = options.maxEntries ?? 500;
     this.full = new BoundedCache(maxEntries);
     this.local = new BoundedCache(maxEntries);
@@ -130,6 +154,11 @@ export class BoundedQuoteVerifier {
   /** Nombre d'entrées en cache (tests). */
   get cachedEntries(): number {
     return this.full.size + this.local.size;
+  }
+
+  /** Vérifications matérielles en cours (tests). */
+  get inFlightCount(): number {
+    return this.inFlight.size;
   }
 
   private consumeFresh(now: number): boolean {
@@ -161,37 +190,35 @@ export class BoundedQuoteVerifier {
   }
 
   private start(key: string, input: VerificationInput): Promise<Entry> {
-    const running = (async (): Promise<Entry> => {
-      try {
-        const value = await this.verify(input, false);
-        const entry = { expiresAt: this.now() + this.ttlFor(value), value };
+    const deadline = delay(this.hardDeadlineMs, ABANDONED);
+    // `Promise.resolve().then` : même un vérificateur qui lèverait de façon synchrone
+    // passe par le rejet, et l'entrée en vol est posée avant d'être retirée.
+    const attempt = Promise.resolve().then(() => this.verify(input, false));
+    const running: Promise<Entry> = Promise.race([attempt, deadline.promise])
+      .then(
+        (value): Entry =>
+          value === ABANDONED
+            ? // Échéance dépassée : non concluant, la place est rendue ; l'appel réseau
+              // sous-jacent ne peut pas être annulé et finit seul.
+              { expiresAt: this.now() + this.inconclusiveTtlMs, value: null }
+            : { expiresAt: this.now() + this.ttlFor(value), value },
+        (): Entry => ({ expiresAt: this.now() + this.failureTtlMs, value: null }),
+      )
+      .then((entry) => {
         this.full.set(key, entry);
         return entry;
-      } catch {
-        const entry = { expiresAt: this.now() + this.failureTtlMs, value: null };
-        this.full.set(key, entry);
-        return entry;
-      } finally {
-        this.inFlight.delete(key);
-      }
-    })();
+      })
+      .finally(() => {
+        deadline.cancel();
+        if (this.inFlight.get(key) === running) this.inFlight.delete(key);
+      });
+    // Un rejet tardif après l'échéance ne doit pas devenir un rejet non géré.
+    attempt.catch(() => undefined);
     this.inFlight.set(key, running);
     return running;
   }
 
-  private async wait(running: Promise<Entry>): Promise<Entry | null> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), this.timeoutMs);
-    });
-    try {
-      return await Promise.race([running, timeout]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
-  async check(key: string, input: VerificationInput): Promise<VerificationOutcome> {
+  async check(key: string, input: VerificationInput, keepAlive?: KeepAlive): Promise<VerificationOutcome> {
     // Rien d'invalide ne part vers la collatérale Intel.
     if (!isWellFormed(input)) return { status: "error" };
 
@@ -200,11 +227,18 @@ export class BoundedQuoteVerifier {
 
     let running = this.inFlight.get(key);
     if (!running) {
-      if (!this.consumeFresh(this.now())) return this.localChecks(key, input);
+      if (this.inFlight.size >= this.maxInFlight || !this.consumeFresh(this.now())) {
+        return this.localChecks(key, input);
+      }
       running = this.start(key, input);
     }
-    const entry = await this.wait(running);
-    if (!entry) return this.localChecks(key, input);
+    const wait = delay(this.timeoutMs, null);
+    const entry = await Promise.race([running, wait.promise]);
+    wait.cancel();
+    if (!entry) {
+      keepAlive?.(running);
+      return this.localChecks(key, input);
+    }
     return entry.value ? { status: "complete", verification: entry.value } : { status: "error" };
   }
 }
@@ -219,10 +253,32 @@ function certificateVerifier(): BoundedQuoteVerifier {
   return globalForVerifier.siriusCertificateVerifier;
 }
 
+/**
+ * Clé de cache : tout ce qui entre dans la vérification, valeurs épinglées comprises.
+ * Une pièce complétée après coup ou un épinglage modifié donne une nouvelle entrée.
+ */
+export function verificationCacheKey(record: CertificateRecord, env: Record<string, string | undefined> = process.env): string {
+  const hash = createHash("sha256");
+  for (const part of [
+    record.loanId,
+    record.evidence.payloadHash,
+    record.evidence.quote ?? "",
+    record.evidence.eventLog ?? "",
+    record.evidence.composeHash ?? "",
+    env.SIRIUS_EXPECTED_MRTD ?? "",
+    env.SIRIUS_EXPECTED_RTMR3 ?? "",
+    env.SIRIUS_EXPECTED_COMPOSE_HASH ?? "",
+    env.DSTACK_SIMULATOR_ENDPOINT ? "simulateur" : "",
+  ]) {
+    hash.update(String(part.length)).update(":").update(part);
+  }
+  return hash.digest("hex");
+}
+
 /** Résultat affichable de la vérification pour un certificat prêt. */
-export async function verifyCertificate(record: CertificateRecord): Promise<VerificationOutcome> {
+export async function verifyCertificate(record: CertificateRecord, keepAlive?: KeepAlive): Promise<VerificationOutcome> {
   const { quote, payloadHash, eventLog, composeHash } = record.evidence;
   if (!quote) return { status: "absent" };
   const evidence = eventLog && composeHash ? { eventLog, composeHash } : undefined;
-  return certificateVerifier().check(`${record.loanId}:${payloadHash}`, { quote, payloadHash, evidence });
+  return certificateVerifier().check(verificationCacheKey(record), { quote, payloadHash, evidence }, keepAlive);
 }

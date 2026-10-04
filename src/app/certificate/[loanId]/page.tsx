@@ -1,10 +1,14 @@
 import { cache } from "react";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import type { Metadata } from "next";
 import { loadCertificate } from "@/lib/certificate/load";
+import { allowCertificatePage } from "@/lib/certificate/page-guard";
+import { isCertificateLoanId, type CertificateResolution } from "@/lib/certificate/resolve";
 import { verifyCertificate } from "@/lib/certificate/verification";
 import { certificateViewProps } from "@/lib/certificate/display";
-import { CertificateUnavailable, CertificateView } from "./certificate-view";
+import { CertificateBusy, CertificateUnavailable, CertificateView } from "./certificate-view";
 
 /**
  * Certificat d'exécution public d'un entraînement d'emprunt.
@@ -15,16 +19,22 @@ import { CertificateUnavailable, CertificateView } from "./certificate-view";
  * 404 indistinct ; prêt non réglé ou sans attestation cohérente → état « pas encore
  * disponible », sans aucun détail.
  *
- * La vérification de la quote est bornée et mise en cache (`verification.ts`) : la page
- * ne peut pas servir à multiplier les appels à la collatérale Intel.
+ * Coût borné : débit plafonné avant toute lecture en base (`page-guard.ts`), vérification
+ * de la quote mise en cache et plafonnée (`verification.ts`).
  */
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ loanId: string }> };
+type PageState = CertificateResolution | { kind: "busy" };
 
-/** Une seule lecture en base par requête, partagée entre les métadonnées et la page. */
-const certificateFor = cache(loadCertificate);
+/** Une seule lecture (et un seul jeton de débit) par requête, métadonnées comprises. */
+const certificateFor = cache(async (loanId: string): Promise<PageState> => {
+  // Hors format : 404 sans lecture en base ni jeton consommé.
+  if (!isCertificateLoanId(loanId)) return { kind: "not-found" };
+  if (!allowCertificatePage(await headers())) return { kind: "busy" };
+  return loadCertificate(loanId);
+});
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { loanId } = await params;
@@ -33,6 +43,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const robots = { index: false, follow: false };
   if (certificate.kind === "not-found") return { title: "Certificate not found", robots };
   if (certificate.kind === "unavailable") return { title: "Certificate not available yet", robots };
+  if (certificate.kind === "busy") return { title: "Execution certificate", robots };
   return {
     title: `${certificate.record.dataset.name} — execution certificate`,
     description:
@@ -45,10 +56,10 @@ export default async function CertificatePage({ params }: Params) {
   const { loanId } = await params;
   const certificate = await certificateFor(loanId);
   if (certificate.kind === "not-found") notFound();
+  if (certificate.kind === "busy") return <CertificateBusy />;
   if (certificate.kind === "unavailable") return <CertificateUnavailable />;
 
-  const outcome = await verifyCertificate(certificate.record);
-  const props = certificateViewProps(certificate.record, outcome);
-  if (!props) return <CertificateUnavailable />;
-  return <CertificateView {...props} />;
+  // Une vérification plus lente que le rendu continue après la réponse et remplit le cache.
+  const outcome = await verifyCertificate(certificate.record, (pending) => after(() => pending));
+  return <CertificateView {...certificateViewProps(certificate.record, outcome)} />;
 }

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BoundedQuoteVerifier, MAX_QUOTE_HEX_LENGTH, verifyCertificate, type VerificationInput } from "./verification";
+import {
+  BoundedQuoteVerifier,
+  MAX_QUOTE_HEX_LENGTH,
+  verificationCacheKey,
+  verifyCertificate,
+  type VerificationInput,
+} from "./verification";
 import type { QuoteVerificationView } from "./presentation";
 import type { CertificateRecord } from "./resolve";
 
@@ -63,6 +69,7 @@ test("une seule vérification en vol par certificat, attendue par les visiteurs 
   let release!: (value: QuoteVerificationView) => void;
   h.setVerify(() => new Promise((resolve) => (release = resolve)));
   const pending = Array.from({ length: 10 }, () => h.verifier.check("loan:hash", input));
+  await new Promise((resolve) => setImmediate(resolve));
   release(result());
   const outcomes = await Promise.all(pending);
   assert.equal(h.calls.hardware, 1);
@@ -91,13 +98,70 @@ test("délai dépassé : page servie avec les contrôles locaux, le cache se rem
   const h = harness({ timeoutMs: 20 });
   let release!: (value: QuoteVerificationView) => void;
   h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise((resolve) => (release = resolve))));
-  const first = await h.verifier.check("loan:hash", input);
+  const kept: Array<Promise<unknown>> = [];
+  const first = await h.verifier.check("loan:hash", input, (pending) => kept.push(pending));
   assert.equal(first.status, "pending");
+  assert.equal(kept.length, 1, "la vérification en cours est confiée à after()");
   release(result());
+  await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   const second = await h.verifier.check("loan:hash", input);
   assert.equal(second.status, "complete");
   assert.equal(h.calls.hardware, 1);
+});
+
+test("vérificateur qui lève de façon synchrone : erreur en cache, aucune entrée en vol orpheline", async () => {
+  const h = harness();
+  h.setVerify(() => {
+    throw new Error("synchrone");
+  });
+  assert.deepEqual(await h.verifier.check("loan:hash", input), { status: "error" });
+  h.advance(60_000);
+  h.setVerify(async () => result());
+  assert.equal((await h.verifier.check("loan:hash", input)).status, "complete");
+  assert.equal(h.calls.hardware, 2);
+});
+
+test("vérifications bloquées : plafond de vérifications simultanées, rien de plus ne part", async () => {
+  const h = harness({ timeoutMs: 5, maxInFlight: 2, maxFreshPerWindow: 1_000 });
+  h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise(() => {})));
+  for (let i = 0; i < 10; i++) assert.equal((await h.verifier.check(`loan-${i}:hash`, input)).status, "pending");
+  assert.equal(h.calls.hardware, 2);
+});
+
+test("échéance dure : une vérification bloquée est abandonnée et sa place rendue", async () => {
+  const h = harness({ timeoutMs: 5, hardDeadlineMs: 20, maxInFlight: 1 });
+  h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise(() => {})));
+  assert.equal((await h.verifier.check("loan-a:hash", input)).status, "pending");
+  assert.equal(h.verifier.inFlightCount, 1);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(h.verifier.inFlightCount, 0);
+  // Abandon mis en cache comme non concluant : pas de relance immédiate.
+  assert.deepEqual(await h.verifier.check("loan-a:hash", input), { status: "error" });
+  assert.equal(h.calls.hardware, 1);
+  // La place est libre pour un autre certificat.
+  h.setVerify(async () => result());
+  assert.equal((await h.verifier.check("loan-b:hash", input)).status, "complete");
+});
+
+test("clé de cache : change avec chaque pièce et chaque valeur épinglée", () => {
+  const record = {
+    loanId: "cloan",
+    evidence: { payload: "{}", payloadHash: "a".repeat(64), quote: "ab", eventLog: "[]", composeHash: "c".repeat(64) },
+  } as unknown as CertificateRecord;
+  const base = verificationCacheKey(record, {});
+  assert.equal(base, verificationCacheKey(record, {}));
+  const variants = [
+    verificationCacheKey({ ...record, loanId: "cother" } as CertificateRecord, {}),
+    verificationCacheKey({ ...record, evidence: { ...record.evidence, quote: "cd" } } as CertificateRecord, {}),
+    verificationCacheKey({ ...record, evidence: { ...record.evidence, eventLog: "[ ]" } } as CertificateRecord, {}),
+    verificationCacheKey({ ...record, evidence: { ...record.evidence, composeHash: null } } as CertificateRecord, {}),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_MRTD: "1" }),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_RTMR3: "1" }),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_COMPOSE_HASH: "1" }),
+    verificationCacheKey(record, { DSTACK_SIMULATOR_ENDPOINT: "http://x" }),
+  ];
+  assert.equal(new Set([base, ...variants]).size, variants.length + 1);
 });
 
 test("erreur de vérification : état d'erreur, réessai après une minute seulement", async () => {

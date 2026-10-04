@@ -9,7 +9,7 @@ const record: CertificateRecord = {
   dataset: { id: "cdataset", name: "Retail churn" },
   model: { name: "Logistic regression v1.0.0", cid: "bafy-model" },
   settledAt: new Date("2026-10-03T08:15:42Z"),
-  settlement: { txHash: `0x${"12".repeat(32)}`, chainId: 46630 },
+  settlement: { txHash: `0x${"12".repeat(32)}`, chainId: 46630, network: "testnet" },
   evidence: {
     payload: "{\"version\":1}",
     payloadHash: "a".repeat(64),

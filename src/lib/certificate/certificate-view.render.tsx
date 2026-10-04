@@ -8,6 +8,7 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  CertificateBusy,
   CertificateUnavailable,
   CertificateView,
   type CertificateViewProps,
@@ -53,11 +54,19 @@ const cases = {
       })}
     />
   ),
+  "hard-failed": (
+    <CertificateView
+      {...base}
+      presentation={presentVerification({ status: "complete", verification: { ...verification, reportDataMatches: false } })}
+    />
+  ),
   pending: <CertificateView {...base} presentation={presentVerification({ status: "pending", verification })} />,
   error: <CertificateView {...base} presentation={presentVerification({ status: "error" })} />,
   unattested: <CertificateView {...base} settledAt={null} presentation={presentVerification({ status: "absent" })} />,
   hostile: <CertificateView {...base} datasetName={hostile} modelCid={hostile} />,
+  "no-explorer": <CertificateView {...base} settlementHref={null} />,
   unavailable: <CertificateUnavailable />,
+  busy: <CertificateBusy />,
 };
 
 const output: Record<string, string> = {};

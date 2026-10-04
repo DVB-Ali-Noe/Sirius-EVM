@@ -21,7 +21,7 @@ export interface CertificateViewProps {
   settledAt: string | null;
   networkLabel: string;
   settlementTxHash: string;
-  settlementHref: string;
+  settlementHref: string | null;
   attestationHash: string;
   downloadHref: string;
   presentation: CertificatePresentation;
@@ -108,12 +108,16 @@ export function CertificateView(props: CertificateViewProps) {
         </Row>
         <Row label="Model fingerprint (CID)">{props.modelCid}</Row>
         {props.settledAt && (
-          <Row label="Settled" mono={false}>
+          <Row label="Settlement recorded" mono={false}>
             {props.settledAt}
           </Row>
         )}
         <Row label="Settlement transaction">
-          <ExternalLink href={props.settlementHref}>{props.settlementTxHash}</ExternalLink>
+          {props.settlementHref ? (
+            <ExternalLink href={props.settlementHref}>{props.settlementTxHash}</ExternalLink>
+          ) : (
+            props.settlementTxHash
+          )}
         </Row>
         <Row label="Network" mono={false}>
           {props.networkLabel}
@@ -178,6 +182,18 @@ export function CertificateUnavailable() {
         <Link href="/marketplace" className="text-accent hover:text-accent/80">
           Browse datasets on Sirius →
         </Link>
+      </p>
+    </main>
+  );
+}
+
+export function CertificateBusy() {
+  return (
+    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+      <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Too many requests</h1>
+      <p className="mt-4 max-w-prose text-sm text-muted">
+        Certificates are being opened faster than this server serves them. Try again in a minute.
       </p>
     </main>
   );

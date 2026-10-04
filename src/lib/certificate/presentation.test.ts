@@ -68,18 +68,31 @@ test("échecs : verdict « failed » et ligne en échec explicite", () => {
   assert.equal(tcb.verdict, "failed");
   assert.match(tcb.checks.find((c) => c.label === "Intel TDX hardware")?.detail ?? "", /OutOfDate is not accepted/);
 
+  const eventLog = presentVerification({
+    status: "complete",
+    verification: verification({ eventLogMatches: false, codeIdentityMatches: false }),
+  });
+  assert.equal(eventLog.verdict, "failed");
+});
+
+test("collatérale injoignable ou signature refusée (indiscernables) : non confirmé, pas « échec »", () => {
   const unreachable = presentVerification({
     status: "complete",
     verification: verification({ hardwareVerified: false, tcbStatus: undefined }),
   });
-  assert.equal(unreachable.verdict, "failed");
-  assert.match(unreachable.checks[1].detail, /signature rejected or collateral unreachable/);
+  assert.equal(unreachable.verdict, "incomplete");
+  assert.equal(unreachable.checks[1].state, "unknown");
+  assert.match(unreachable.checks[1].detail, /signature was rejected or the collateral was unreachable/);
+});
 
+test("mesures différentes des valeurs épinglées aujourd'hui : non confirmé, mise à jour possible", () => {
   const code = presentVerification({
     status: "complete",
     verification: verification({ codeIdentityMatches: false, baseImageMatches: false }),
   });
-  assert.equal(code.verdict, "failed");
+  assert.equal(code.verdict, "incomplete");
+  assert.match(code.summary, /may have been upgraded/);
+  assert.equal(code.checks.find((c) => c.label === "Code identity")?.state, "fail");
   assert.equal(code.measurements[0].pin, "mismatch");
 });
 
@@ -87,7 +100,7 @@ test("incomplet : vérification en attente, simulateur, valeurs non épinglées"
   const pending = presentVerification({ status: "pending", verification: verification() });
   assert.equal(pending.verdict, "incomplete");
   assert.equal(pending.checks[1].state, "unknown");
-  assert.match(pending.checks[1].detail, /rate-limited/);
+  assert.match(pending.checks[1].detail, /busy or slow/);
 
   const simulator = presentVerification({ status: "complete", verification: verification({ hardwareVerified: null }) });
   assert.equal(simulator.verdict, "incomplete");
