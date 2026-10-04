@@ -119,6 +119,8 @@ function delay<T>(ms: number, value: T): { promise: Promise<T>; cancel: () => vo
   let timer: ReturnType<typeof setTimeout> | undefined;
   const promise = new Promise<T>((resolve) => {
     timer = setTimeout(() => resolve(value), ms);
+    // Une attente ou une échéance ne doit jamais, à elle seule, garder le processus en vie.
+    timer.unref?.();
   });
   return { promise, cancel: () => timer && clearTimeout(timer) };
 }

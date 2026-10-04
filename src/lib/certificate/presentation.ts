@@ -26,7 +26,7 @@ export type VerificationOutcome =
   | { status: "absent" }
   /** Vérification complète, matériel compris (ou simulateur). */
   | { status: "complete"; verification: QuoteVerificationView }
-  /** Contrôles locaux seulement : vérification matérielle plafonnée ou trop lente. */
+  /** Contrôles locaux seulement : vérification matérielle plafonnée, lente, échouée ou abandonnée. */
   | { status: "pending"; verification: QuoteVerificationView }
   /** La quote n'a pas pu être lue ou vérifiée. */
   | { status: "error" };

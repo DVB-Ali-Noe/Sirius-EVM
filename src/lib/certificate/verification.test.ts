@@ -123,7 +123,7 @@ test("vérificateur qui lève de façon synchrone : erreur en cache, aucune entr
 });
 
 test("vérifications bloquées : plafond de vérifications simultanées, rien de plus ne part", async () => {
-  const h = harness({ timeoutMs: 5, hardDeadlineMs: 20, maxInFlight: 2, maxFreshPerWindow: 1_000 });
+  const h = harness({ timeoutMs: 5, maxInFlight: 2, maxFreshPerWindow: 1_000 });
   h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise(() => {})));
   for (let i = 0; i < 10; i++) assert.equal((await h.verifier.check(`loan-${i}:hash`, input)).status, "pending");
   assert.equal(h.calls.hardware, 2);
