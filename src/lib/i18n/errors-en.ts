@@ -208,6 +208,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Dataset indisponible": "Dataset unavailable",
   "Dataset introuvable": "Dataset not found",
   "Dataset non disponible": "Dataset unavailable",
+  "Annonce expirée": "This listing has expired",
   "Dataset ou profil du lock hors scope": "Lock dataset or training profile does not match the request",
   "Description invalide": "Invalid description",
   "Digest d’event-log TDX invalide": "Invalid TDX event-log digest",
