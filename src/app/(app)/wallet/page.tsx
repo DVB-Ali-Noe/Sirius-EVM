@@ -5,7 +5,7 @@ import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
 import { SecureAccountCard } from "@/components/wallet/SecureAccount";
-import { ReceiveFunds } from "@/components/wallet/ReceiveFunds";
+import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
 import { addFundsOptions } from "@/components/wallet/add-funds";
 import { normalizeAddress } from "@/components/profile/address";
 import { useWalletStore } from "@/stores/wallet";
@@ -31,8 +31,10 @@ function WalletPageContent() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const starterFunds = useWalletStore((s) => s.starterFunds);
   const { locale, t } = useLocale();
-  // Mainnet : réception par transfert (adresse + QR) en plus du pont. Testnet : faucet seul.
+  // Testnet : le faucet, inchangé. Mainnet : le bouton ouvre la fenêtre « Ajouter des fonds »
+  // (carte, autre wallet, autre chaîne), qui lit elle-même les options du serveur.
   const fundsOptions = addFundsOptions(NETWORK);
+  const [fundsDialog, setFundsDialog] = useState(false);
   const checksummed = normalizeAddress(address);
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
@@ -139,13 +141,22 @@ function WalletPageContent() {
           {balError && <p className="mt-2 text-xs text-negative">{t("Solde indisponible.")}</p>}
         </div>
         <div className="flex flex-col items-end gap-2">
-          {(fundsOptions.faucet || fundsOptions.bridge) && (
+          {fundsOptions.faucet ? (
             <button
               onClick={handleAddFunds}
               disabled={fundsPending}
               className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
             >
-              {fundsPending ? (fundsOptions.faucet ? t("Envoi en cours…") : t("Ouverture du pont…")) : fundsOptions.faucet ? t("Ajouter des fonds") : t("Utiliser le pont")}
+              {fundsPending ? t("Envoi en cours…") : t("Ajouter des fonds")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setFundsDialog(true)}
+              aria-haspopup="dialog"
+              className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90"
+            >
+              {t("Ajouter des fonds")}
             </button>
           )}
           {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
@@ -157,7 +168,7 @@ function WalletPageContent() {
         </div>
       </Card>
 
-      {fundsOptions.transfer && <ReceiveFunds network={NETWORK} address={address} />}
+      {fundsDialog && <AddFundsDialog network={NETWORK} address={address} onClose={() => setFundsDialog(false)} />}
 
       <EscrowCredits onWithdraw={refresh} />
 

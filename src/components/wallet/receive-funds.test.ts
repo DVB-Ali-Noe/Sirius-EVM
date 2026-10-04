@@ -34,6 +34,16 @@ test("réception par transfert : le réseau de test annonce le jeton de test et 
   assert.ok(html.testnet.includes(`href="https://explorer.testnet.chain.robinhood.com/address/${CHECKSUM}"`));
 });
 
+test("réception par transfert dans la fenêtre « Ajouter des fonds » : QR, adresse et copie, sans titre ni renvoi au pont", () => {
+  const embedded = html.embedded;
+  assert.match(embedded, /data-testid="receive-qr"/);
+  assert.ok(embedded.includes(`>${CHECKSUM}</p>`));
+  assert.match(embedded, />Copy address</);
+  assert.doesNotMatch(embedded, /<h2|<h3/, "la fenêtre porte son propre titre");
+  assert.doesNotMatch(embedded, /bridge button/i);
+  assert.match(embedded, /Network fees are paid in ETH/);
+});
+
 test("réception par transfert : une adresse invalide n'affiche ni adresse, ni QR code, ni lien", () => {
   assert.equal(html.invalid, "");
   assert.equal(html.empty, "");

@@ -14,6 +14,7 @@ import { addFunds } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
+import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
 
 interface ReputationSnapshot {
   score: number;
@@ -66,6 +67,8 @@ function DashboardPageContent() {
   const [error, setError] = useState(false);
   const [fundsPending, setFundsPending] = useState(false);
   const [fundsMessage, setFundsMessage] = useState<string | null>(null);
+  // Mainnet : « Ajouter des fonds » ouvre la fenêtre de choix. Testnet : le faucet, inchangé.
+  const [fundsDialog, setFundsDialog] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -169,7 +172,9 @@ function DashboardPageContent() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <button
-            onClick={handleAddFunds}
+            type="button"
+            onClick={network === "mainnet" ? () => setFundsDialog(true) : handleAddFunds}
+            aria-haspopup={network === "mainnet" ? "dialog" : undefined}
             disabled={fundsPending}
             className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
@@ -214,6 +219,8 @@ function DashboardPageContent() {
           </Link>
         ))}
       </div>
+
+      {fundsDialog && <AddFundsDialog network={network} address={address} onClose={() => setFundsDialog(false)} />}
     </main>
   );
 }

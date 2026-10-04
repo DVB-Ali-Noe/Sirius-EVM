@@ -17,6 +17,7 @@ const hostile = "<img src=x onerror=alert(1)>";
 const cases: Record<string, React.ReactNode> = {
   mainnet: <ReceiveFunds network="mainnet" address={lower} />,
   testnet: <ReceiveFunds network="testnet" address={lower} />,
+  embedded: <ReceiveFunds network="mainnet" address={lower} embedded />,
   invalid: <ReceiveFunds network="mainnet" address={hostile} />,
   empty: <ReceiveFunds network="mainnet" address="" />,
 };

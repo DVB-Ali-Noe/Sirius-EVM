@@ -3037,3 +3037,60 @@ Non couvert : l'acceptation réelle des liens par MoonPay et Relay (pas de mode 
 - `npx pnpm@11.18.0 exec tsc --noEmit` : OK.
 - `npx pnpm@11.18.0 lint` : OK.
 - `NODE_OPTIONS=--conditions=react-server npx tsx --test src/lib/onramp/onramp.test.ts` : 17/17. Avec `english.test.ts`, `tour.test.ts`, `demo-host.test.ts`, `wallet/onramp.test.ts` et `stablecoin.test.ts` : 84/84.
+
+## F2 — Ajout de fonds, interface
+
+Branche `feat/onramp-interface`, PR vers `staging`. Interface seulement : les routes `GET /api/onramp/options` et `POST /api/onramp` sont celles de la slice F1 (#58, `src/app/api/onramp/**`, `src/lib/onramp/**`, `src/lib/moonpay/**`, non touchés ici), fusionnée dans `staging` pendant cette slice ; l'interface a été alignée sur son code au moment de la fusion de `origin/staging`. Tout ce qui suit est vérifiable depuis `git diff staging...HEAD`.
+
+### 1. Périmètre
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib/wallet/onramp-client.ts` (nouveau) | Client du contrat d'API : lecture des options avec repli, demande d'URL, validation des montants, filtre d'URL, ouverture en nouvel onglet. `fetch` injectable |
+| `src/components/wallet/AddFundsDialog.tsx` (nouveau) | Fenêtre « Add funds » : trois choix, formulaires carte et pont, panneau de transfert |
+| `src/components/wallet/ReceiveFunds.tsx` | Prop `embedded` : rendu sans carte ni titre, sans le renvoi au bouton de pont. Rendu autonome inchangé |
+| `src/app/(app)/wallet/page.tsx` | Mainnet : le bouton « Add funds » ouvre la fenêtre (il ouvrait le pont, libellé « Use the bridge »). La carte de réception en ligne est retirée de la page : elle est dans la fenêtre. Testnet : inchangé |
+| `src/app/(app)/dashboard/page.tsx` | Mainnet : le bouton ouvre la fenêtre. Testnet : faucet inchangé |
+| `src/lib/i18n/funding-en.ts` (nouveau), `english.ts` | Traductions anglaises, fusionnées dans `EN_MESSAGES` |
+| `src/lib/wallet/onramp-client.test.ts` (nouveau), `receive-funds.*` | Tests, ajoutés au script `test` |
+
+Non touchés : `src/lib/wallet/onramp.ts` (`addFunds()` sert toujours le faucet testnet ; sa branche mainnet n'est plus appelée par l'interface), `add-funds.ts`, `src/components/ui/**`, la lecture du solde.
+
+### 2. Décisions
+
+- **Le réseau du build décide de la fenêtre, le serveur décide des choix.** `resolveClientNetwork() === "mainnet"` ouvre la fenêtre ; testnet garde `addFunds()` et le faucet, à l'identique. Dans la fenêtre, seuls les choix à `true` de `/api/onramp/options` sont affichés, dans l'ordre carte, autre wallet, autre chaîne ; `faucet` n'est jamais un choix de la fenêtre.
+- **Repli sans la route.** Panne réseau, statut non 2xx (404 tant que F1 n'est pas fusionnée, 401), JSON illisible, forme inattendue ou `network` différent de celui du build : `addFundsOptions(network)` avec `card: false`. Sur mainnet, cela donne « autre wallet » et « autre chaîne ». Seuls les champs du contrat sont recopiés.
+- **Aucune adresse envoyée.** Le corps de `POST /api/onramp` est reconstruit champ par champ (`method`, `asset`, `amount`) : même un objet plus large passé par erreur ne fait rien partir d'autre. Le serveur prend l'adresse dans la session.
+- **`amount` est un nombre JSON, et c'est toujours ce que l'utilisateur paie** : des dollars pour la carte, de l'USDC de Base pour le pont (lien Relay en `EXACT_INPUT`), y compris quand il reçoit de l'ETH. Deux décimales. Saisie en texte (`inputMode="decimal"`), virgule acceptée, ni exposant ni hexadécimal, plafond de saisie à 1 000 000. Minimum de la carte : `minCardUsd` du serveur (5 USD), vérifié aussi côté client pour un message immédiat. Les bornes du serveur (carte 5 à 10 000 USD, pont 1 à 100 000 USDC) ne sont pas recopiées : le serveur reste juge et son message est traduit.
+- **URL renvoyée filtrée** : https absolue seulement, sans identifiants (`javascript:`, `data:`, `http:`, relatif refusés), puis `window.open(url, "_blank", "noopener,noreferrer")`.
+- **Erreurs** : `error` du serveur affiché après `t()` (traduit s'il est connu, sinon affiché tel quel), sinon « Ajout de fonds indisponible ».
+- **Le solde ne bouge pas** : la fenêtre n'écrit dans aucun état de la page. Le solde affiché reste celui lu sur la chaîne.
+- **Accessibilité**, sur le modèle de `TourDialog` : `role="dialog"`, `aria-modal`, titre et description reliés, focus sur le titre à l'ouverture et à chaque changement de vue, Tab et Maj+Tab piégés, Échap ferme (écoute en capture sur `window`), clic sur le fond ferme (aucune opération en cours n'est perdue), focus rendu au bouton d'origine, défilement de la page bloqué. Erreurs en `role="alert"`, champ `aria-invalid`. `Modal.tsx` (partagé) n'a pas été modifié : il n'a ni piège de focus ni retour du focus, et `ComputeQuoteDialog` en dépend.
+- **360 px** : fenêtre `w-full max-w-lg` dans une marge de 16 px, hauteur bornée à `100dvh - 2rem` avec défilement interne ; QR de 176 px centré. Vérifié sans défilement horizontal.
+
+### 3. Risques
+
+| Risque | Parade | Reste |
+|---|---|---|
+| **Mauvais réseau** (USDG ou ETH envoyé sur Ethereum, Base, etc. vers l'adresse) | Avertissement visible en tête du panneau « autre wallet » (encart jaune) : seulement USDG ou ETH, seulement sur Robinhood Chain, sinon perdus ; sources confirmées citées (app Robinhood, Kraken, réseau « Robinhood Chain ») ; conseil d'un petit premier envoi | L'adresse est la même sur toutes les chaînes EVM : un envoi sur une autre chaîne n'est pas détruit (récupérable avec la même clé, si l'utilisateur la contrôle), mais Sirius ne le verra jamais. Le texte dit « perdus » pour rester simple |
+| **Mauvais jeton** (USDC d'une autre chaîne, jeton non pris en charge) | Même avertissement ; le pont annonce explicitement « USDC sur Base → USDG » | Un jeton ERC-20 quelconque envoyé sur Robinhood Chain arrive bien, mais n'est ni affiché ni utilisable |
+| **Popup bloquée** : `window.open` est appelé après l'appel réseau, hors du geste utilisateur (Safari surtout) | Avec `noopener`, `window.open` renvoie toujours `null`, le blocage n'est pas détectable : un lien de secours « Nothing opened? Open the page here. » (`target="_blank" rel="noopener noreferrer"`) est toujours affiché après l'obtention de l'URL | Un second onglet si l'utilisateur clique le lien alors que le premier s'était ouvert : sans conséquence |
+| URL malveillante renvoyée par le serveur | Filtre https | La confiance dans le domaine (MoonPay, pont) reste côté serveur (F1) |
+| Fonds payés livrés à une autre adresse | Le client n'envoie aucune adresse | Dépend de F1 : l'adresse doit venir de la session |
+| Montant dû à une faute de frappe | Validation, minimum, plafond | Le montant final est confirmé chez MoonPay ou sur le pont |
+
+### 4. Tests
+
+- **Unitaires** (`src/lib/wallet/onramp-client.test.ts`, 18 tests, `fetch` simulé) : contrat vérifié contre le code de F1 (les options de `onrampOptions` passent telles quelles, le corps envoyé passe `parseOnrampRequest` pour carte et pont, USDG et ETH) ; options reprises telles quelles, champs en trop ignorés ; repli sur 404, 401, 500, panne réseau, HTML, booléen en texte, minimum négatif, réseau inconnu, `null`, réseau différent du build ; repli égal à `addFundsOptions` avec `card: false` ; choix affichés selon les options et le réseau (testnet : aucun, le faucet garde son bouton) ; corps exact sans adresse même si l'appelant en passe une ; erreur du serveur rendue telle quelle ; message générique ; URL non https refusée ; `noopener,noreferrer` ; montants.
+- **Rendu** (`receive-funds.test.ts`) : nouveau cas `embedded` (QR, adresse, copie, ni titre ni renvoi au pont). Les cas existants passent sans modification.
+- **i18n** : `english.test.ts` vérifie que toutes les clés `t()` statiques ont une traduction (vert).
+- **e2e existants (testnet)** : `profile.spec.ts` (dont « sur testnet, la page Wallet garde le faucet »), `wallet.spec.ts`, `sirius.spec.ts`, `audit-regressions.spec.ts`, `upload.spec.ts` : 37/37, sans modification.
+- **e2e mainnet, local et non versionné** (build `NEXT_PUBLIC_EVM_NETWORK=mainnet`, routes simulées) : 5/5 — Wallet et dashboard à 360 px (fenêtre ouverte, trois choix, pas de défilement horizontal, Tab piégé, Échap ferme et rend le focus au bouton) ; carte (USDG par défaut, minimum refusé, corps `{ method: "card", asset: "USDG", amount: 50 }`, ouverture `_blank` + `noopener,noreferrer`, erreur serveur traduite) ; autre wallet (avertissement, sources, QR, adresse) ; pont vers de l'ETH (montant en USDC, `25` → `{ method: "bridge", asset: "ETH", amount: 25 }`) ; sans la route options, pas de carte ; clic sur le fond ferme. Non versionné parce que la configuration Playwright du dépôt ne construit qu'un réseau (testnet).
+
+### 5. Points à relire
+
+1. **Contrat avec F1** : aligné et testé contre `src/lib/onramp/onramp.ts`. Le pont part toujours de l'USDC de Base : « ETH pour le gas » sur le pont veut dire « payer en USDC, recevoir de l'ETH ». À confirmer que c'est bien l'intention produit.
+2. **Carte de réception retirée de la page Wallet mainnet** : l'adresse et le QR ne sont plus visibles qu'en ouvrant la fenêtre. L'adresse reste dans l'en-tête de la page et dans le bouton profil.
+3. **La branche mainnet de `addFunds()` n'est plus appelée par l'interface** : à retirer ou à réécrire avec F1, qui change `GET /api/onramp`.
+4. **Messages d'erreur du serveur** : affichés après `t()`. Ceux de F1 sont déjà dans `errors-en.ts` ; tout nouveau message serveur devra y être ajouté, sinon il s'affiche en français.
+5. **Fenêtre tierce du wallet embarqué** : la fenêtre ne rend pas le reste de la page `inert` (contrairement à `TourDialog`) et intercepte Échap même si le focus est dans une fenêtre tierce. Sans conséquence aujourd'hui : aucune signature n'est demandée depuis la fenêtre.
