@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runSelfTrain } from "@/lib/sirius/self-train";
+import { assertSelfTrainingAccess, isDemoTrainingGrant } from "@/lib/sirius/self-training-access";
 import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
@@ -8,10 +9,14 @@ import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 
 export const runtime = "nodejs";
 
-/** Liste les jobs self-train du compte authentifié. */
+/**
+ * Liste les jobs self-train du compte authentifié. Réservé à l'équipe ; sur une instance de
+ * démonstration Phala, la page de démo en a besoin pour lister ses propres entraînements.
+ */
 export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
+    assertSelfTrainingAccess(session, true);
     const jobs = await prisma.trainingJob.findMany({
       where: { owner: session.address },
       orderBy: { createdAt: "desc" },
@@ -27,6 +32,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
+    // Premier refus avant toute lecture du corps : hors démo, un wallet non admin ne voit
+    // même pas le format attendu.
+    assertSelfTrainingAccess(session, true);
     const { datasetId, jobId, datasetReceipt, authorization, deliveryPublicKey } = await readJson<{
       datasetId?: unknown;
       jobId?: unknown;
@@ -34,6 +42,9 @@ export async function POST(req: Request) {
       authorization?: RunnerGrant;
       deliveryPublicKey?: unknown;
     }>(req);
+    // Second refus : sur une instance de démo, seul un entraînement porté par un grant de
+    // démo reste ouvert aux visiteurs. Le runner vérifie ensuite ce grant contre la session.
+    assertSelfTrainingAccess(session, isDemoTrainingGrant(authorization));
     if (
       typeof datasetId !== "string" ||
       !datasetId ||

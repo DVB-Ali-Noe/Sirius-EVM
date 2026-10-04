@@ -1,10 +1,15 @@
 import { defineConfig, devices } from "playwright/test";
+import { privateKeyToAccount } from "viem/accounts";
 
 const port = 3100;
 const baseURL = `http://127.0.0.1:${port}`;
 const mockUsdcAddress = "0x5555555555555555555555555555555555555555";
 // Le parcours v7 lit la version et le signataire de l'escrow côté navigateur : il lui faut une adresse.
 const mockEscrowAddress = "0x6666666666666666666666666666666666666666";
+// Le wallet des tests (même clé que e2e/helpers/wallet.ts) fait partie de l'équipe : le self
+// training lui reste ouvert côté serveur. Seule la suite e2e lit cette valeur ; la production
+// garde sa propre liste.
+const e2eWalletAddress = privateKeyToAccount(`0x${"11".repeat(32)}`).address.toLowerCase();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -45,6 +50,7 @@ export default defineConfig({
       NEXT_PUBLIC_SIRIUS_USDC_ADDRESS: mockUsdcAddress,
       NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS: mockEscrowAddress,
       SIRIUS_APP_ORIGIN: baseURL,
+      SIRIUS_ADMIN_ADDRESSES: e2eWalletAddress,
     },
     url: baseURL,
     reuseExistingServer: false,

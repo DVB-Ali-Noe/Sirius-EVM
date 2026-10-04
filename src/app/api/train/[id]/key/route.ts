@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { selfTrainModelKeyInRunner } from "@/lib/tee/runner-client";
+import { assertSelfTrainingAccess } from "@/lib/sirius/self-training-access";
 import { assertAuthenticGrant, requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
@@ -16,10 +17,14 @@ const keyDeliveryLimiter = new FixedWindowRateLimiter({
   maxGlobal: 200,
 });
 
-/** Re-livre la clé du modèle d'un self-train terminé (dérivée, jamais stockée). */
+/**
+ * Re-livre la clé du modèle d'un self-train terminé (dérivée, jamais stockée). Réservé à
+ * l'équipe, sans exception de démo : la démo Phala livre ses clés par `/api/phala-demo/results`.
+ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
+    assertSelfTrainingAccess(session);
     enforceRateLimit(keyDeliveryLimiter, `subject:${session.address}`);
     const { id } = await params;
     const { authorization, deliveryPublicKey } = await readJson<{
