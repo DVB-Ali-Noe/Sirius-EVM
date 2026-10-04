@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { SERVER_TOUR_SNAPSHOT, TourController, type TourSnapshot } from "@/lib/tour/controller";
 import { toursSuppressedForE2e, type StorageLike } from "@/lib/tour/progress";
 import type { TourPageKey } from "@/lib/tour/keys";
+import { GUIDED_TOUR_EVENT } from "@/components/profile/guided-tour";
 
 /** `localStorage`, ou `null` s'il est absent ou interdit (navigation privée, iframe sandboxée). */
 function browserStorage(): StorageLike | null {
@@ -38,6 +39,20 @@ export function useTourSnapshot(): TourSnapshot {
  */
 export function restartWelcomeTour(): void {
   tourController.restartWelcome();
+}
+
+/**
+ * Abonne `restart` à la demande « Visite guidée » du menu profil (`sirius:guided-tour:start`,
+ * voir `src/components/profile/guided-tour.ts`). `preventDefault()` sert d'accusé de
+ * réception : sans lui le menu afficherait « bientôt disponible ». Renvoie le désabonnement.
+ */
+export function subscribeGuidedTourRequests(target: EventTarget = window, restart: () => void = restartWelcomeTour): () => void {
+  const onStart = (event: Event) => {
+    event.preventDefault();
+    restart();
+  };
+  target.addEventListener(GUIDED_TOUR_EVENT, onStart);
+  return () => target.removeEventListener(GUIDED_TOUR_EVENT, onStart);
 }
 
 /** Relance le tuto d'une page donnée (utilisé par le bouton « ? »). */
