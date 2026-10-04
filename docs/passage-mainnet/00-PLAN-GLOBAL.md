@@ -26,15 +26,28 @@ D'où trois règles :
 | **Samedi 3, d'abord** | Socle : table des utilisateurs, champs datasets, textes communs, composants partagés ([16](16-socle-technique.md)) | Ali |
 | **Samedi 3 et dimanche 4** | Partie datasets, tutos et petites features en parallèle (répartition ci-dessous) | Ali et Noé, chacun avec Claude Code |
 | **Dimanche 4, en parallèle du code** | Ce qui ne dépend pas des pages : contrats mainnet, machine Phala de production, base de production. Le code des contrats et du moteur ne bouge plus | Noé pour la machine et les contrats, Ali pour la base |
-| **Dimanche 4, minuit** | **Gel du code** : seules les corrections critiques passent ensuite | — |
-| **Lundi 5, matin** | Test complet sur testnet et second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
-| **Lundi 5, matin** | Fusion staging → main, approbation, réglage de la production, premier prêt réel de 5 USDG | Ali et Noé |
-| **Lundi 5, journée** | Tests complets en production et sur testnet, corrections critiques uniquement. **Décision de lancer à 20h** | Ali et Noé |
-| **Mardi 6** | Ouverture de la bêta restreinte et annonce | Ali et Noé |
+| **Dimanche 4** | Session de training publique sur demo.sirius-data.tech, jusqu'à minuit | Ali |
+| **Lundi 5** | Ajustements du front | Noé, puis Ali |
+| **Quand Ali et Noé disent « fini »** | Plus aucune fusion dans staging, sauf correction critique. Test complet sur testnet, puis second audit multi-agents ([17](17-audit-et-lancement-restants.md)) | Ali avec Claude Code |
+| **Après le test et l'audit** | Fusion staging → main, approbation, réglage de la production, premier prêt réel de 5 USDG. **Décision de lancer** | Ali et Noé |
+| **Mardi 6, si tout est vert** | Ouverture de la bêta restreinte et annonce. Sinon, report d'un jour | Ali et Noé |
 
-Le gel du code est à dimanche minuit, pour garder tout le lundi aux tests. Les contrats et la machine de production sont préparés dimanche en parallèle du code : sinon toute la mise en production tomberait lundi, le jour des tests.
+**Pas de gel du code à heure fixe** (décision du 4 octobre). On code tant que nécessaire ; le signal « fini » d'Ali et Noé déclenche le test complet et l'audit, qui valident cette version précise. Ce qui est codé ensuite part en V1.1, sur des branches, et se fusionne après le lancement. Les contrats et la machine de production se préparent en parallèle du code, ils n'en dépendent pas.
 
 Le calendrier reste serré : la partie datasets et les tutos occupent samedi et dimanche. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
+
+## Décisions du 4 octobre
+
+| Sujet | Décision |
+|---|---|
+| Gel du code | Pas d'heure fixe : test et audit au signal « fini » d'Ali et Noé |
+| Session | Reste à 24 heures jusqu'à la connexion SIWE (V1.2) |
+| Conditions d'utilisation | Se connecter vaut acceptation : mention « By signing in, you accept the Terms » sous chaque connexion. Pas de case à cocher |
+| Journal des accès | Conservé 24 mois après l'accès, puis supprimé (purge automatique à faire en V1.2) |
+| Safe | 2/3 plutôt que 2/2 : Ali, Noé et une clé matérielle de secours rangée hors ligne. Vérifier que app.safe.global gère Robinhood Chain 4663 |
+| KYB | **À trancher.** Le registre ouvert est refusé sur mainnet par trois garde-fous (`deploy-policy.ts`, `phala-v7-preflight.ts`, `release-check.mjs`). Recommandé : registre strict utilisé comme invitation (`scripts/operations/kyb-invite.ts`, un code signé par adresse), qui fait l'accès sur invitation de la bêta sans redéployer l'escrow plus tard |
+| Ajouter des fonds sur mainnet | Pont et réception par QR déjà en place ; recherche en cours sur les services qui livrent de l'USDG sur 4663 (pont, carte, swap) avant toute intégration |
+| Démo | `demo.sirius-data.tech` : déploiement staging figé, seule `/phala` est servie. RTMR3 change à chaque redémarrage de la machine Phala : à trancher au second audit pour la production |
 
 ## Répartition avant le 6
 
@@ -85,7 +98,7 @@ Noé porte aussi la préparation de la production de dimanche.
 4. Ajout de fonds par carte en USDG ([05](05-wallet.md)).
 5. Notifications par email et interface en français ([13](13-reglages.md)).
 
-## Checklist de décision — lundi 5 à 20h
+## Checklist de décision — après le test et l'audit
 
 - [ ] Contrats mainnet déployés avec USDG, vérifiés sur l'explorateur, admin KYB = Safe.
 - [ ] Machine Phala de production active, mesures épinglées, même adresse de règlement après redémarrage.
