@@ -59,11 +59,14 @@ const ATOMIC_RE = /^(0|[1-9][0-9]{0,77})$/;
 // Caractères refusés dans le nom et la description : contrôles C0 (hors tabulation et sauts
 // de ligne pour la description), DEL, C1 ; marques et contrôles bidirectionnels (U+061C,
 // U+200E-F, U+202A-E, U+2066-9) qui affichent un texte différent de celui stocké ;
-// caractères invisibles ou de format (U+00AD, U+180E, U+200B-D, U+2028-9, U+2060-4,
-// U+206A-F, U+FEFF, U+FFF9-B, remplissages hangul, étiquettes U+E0000-E007F).
-const INVISIBLE_CHARS = "\\u00AD\\u061C\\u115F\\u1160\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\u3164\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}";
+// caractères invisibles ou de format (U+200B, U+2028-9, U+2060-4, U+206A-F, U+FEFF,
+// U+FFF9-B, remplissages hangul, étiquettes U+E0000-E007F). U+200C et U+200D (ZWNJ, ZWJ)
+// restent admis : le persan, les langues indiennes et les emojis composés en ont besoin.
+// Le nom refuse en plus U+00AD et U+180E (invisibles dans un titre court), que la
+// description admet (césure allemande, mongol).
+const INVISIBLE_CHARS = "\\u061C\\u115F\\u1160\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\u3164\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}";
 const FORBIDDEN_DESCRIPTION_CHARS = new RegExp(`[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F${INVISIBLE_CHARS}]`, "u");
-const FORBIDDEN_NAME_CHARS = new RegExp(`[\\u0000-\\u001F\\u007F-\\u009F${INVISIBLE_CHARS}]`, "u");
+const FORBIDDEN_NAME_CHARS = new RegExp(`[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u180E${INVISIBLE_CHARS}]`, "u");
 /** Demi-paire de substitution UTF-16 isolée : chaîne mal formée. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 /** Un nom doit contenir au moins une lettre ou un chiffre visible. */
@@ -313,11 +316,11 @@ export function validateDetailsPatch(input: unknown): DetailsPatch {
   if (Object.hasOwn(input, "name")) {
     const name = input.name;
     if (typeof name !== "string") throw new AppError("Nom manquant", 400);
-    if (LONE_SURROGATE.test(name)) throw new AppError("Nom invalide : caractères de contrôle interdits", 400);
+    if (LONE_SURROGATE.test(name)) throw new AppError("Nom invalide : caractères invisibles ou de contrôle interdits", 400);
     const trimmed = name.normalize("NFC").trim();
     if (trimmed === "") throw new AppError("Nom manquant", 400);
     if (trimmed.length > MAX_DATASET_NAME_LENGTH) throw new AppError("Nom trop long (120 caractères maximum)", 400);
-    if (FORBIDDEN_NAME_CHARS.test(trimmed)) throw new AppError("Nom invalide : caractères de contrôle interdits", 400);
+    if (FORBIDDEN_NAME_CHARS.test(trimmed)) throw new AppError("Nom invalide : caractères invisibles ou de contrôle interdits", 400);
     if (!VISIBLE_NAME.test(trimmed)) throw new AppError("Nom invalide : au moins une lettre ou un chiffre", 400);
     patch.name = trimmed;
   }
@@ -327,13 +330,13 @@ export function validateDetailsPatch(input: unknown): DetailsPatch {
       patch.description = null;
     } else {
       if (typeof description !== "string") throw new AppError("Description invalide", 400);
-      if (LONE_SURROGATE.test(description)) throw new AppError("Description invalide : caractères de contrôle interdits", 400);
+      if (LONE_SURROGATE.test(description)) throw new AppError("Description invalide : caractères invisibles ou de contrôle interdits", 400);
       const trimmed = description.normalize("NFC").trim();
       if (trimmed.length > MAX_DATASET_DESCRIPTION_LENGTH) {
         throw new AppError("Description trop longue (2 000 caractères maximum)", 400);
       }
       if (FORBIDDEN_DESCRIPTION_CHARS.test(trimmed)) {
-        throw new AppError("Description invalide : caractères de contrôle interdits", 400);
+        throw new AppError("Description invalide : caractères invisibles ou de contrôle interdits", 400);
       }
       patch.description = trimmed === "" ? null : trimmed;
     }
@@ -580,8 +583,22 @@ export async function applyVisibility(db: ManageDb, row: OwnerCheckRow, transiti
   if (count !== 1) throw new AppError(CONCURRENT_CHANGE, 409);
 }
 
-export async function applyExtension(db: ManageDb, row: OwnerCheckRow, days: ListingExtensionDays, now: number = Date.now()): Promise<Date> {
+/**
+ * Prolonge l'annonce. `grantChecked` indique que la route a vérifié le grant de remise en
+ * ligne ; sans lui, la base refuse d'écrire si l'annonce LISTED a expiré entre la décision
+ * de la route et l'écriture (la prolongation la remettrait en ligne sans signature).
+ */
+export async function applyExtension(
+  db: ManageDb,
+  row: OwnerCheckRow,
+  days: ListingExtensionDays,
+  now: number = Date.now(),
+  options: { grantChecked?: boolean } = {},
+): Promise<Date> {
   const next = extendedListingExpiry(row, days, now);
+  const unexpiredGuard: Prisma.DatasetWhereInput[] = row.status === "LISTED" && !options.grantChecked
+    ? [{ listingExpiresAt: { gt: new Date(now) } }]
+    : [];
   const { count } = await db.dataset.updateMany({
     where: {
       id: row.id,
@@ -592,6 +609,7 @@ export async function applyExtension(db: ManageDb, row: OwnerCheckRow, days: Lis
       // Égalité stricte avec la date lue : deux prolongations simultanées ne s'additionnent
       // pas en silence, la seconde reçoit un 409 et l'utilisateur voit la nouvelle date.
       listingExpiresAt: row.listingExpiresAt,
+      ...(unexpiredGuard.length > 0 ? { AND: unexpiredGuard } : {}),
     },
     data: { listingExpiresAt: next },
   });

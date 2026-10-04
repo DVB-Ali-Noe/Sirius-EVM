@@ -45,9 +45,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const request = parseListingRequest(await readJson<Record<string, unknown>>(req, MAX_LISTING_BODY_BYTES));
     const row = await loadOwnedDataset(prisma, id, session.address);
     if (request.action === "extend") {
+      const now = Date.now();
       // Contrôlée avant le grant : une prolongation impossible ne consomme rien.
-      extendedListingExpiry(row, request.days);
-      if (extensionRelists(row)) {
+      extendedListingExpiry(row, request.days, now);
+      const relists = extensionRelists(row, now);
+      if (relists) {
         // Prolonger une annonce LISTED expirée la remet sur la marketplace : même grant que
         // la remise en ligne.
         if (!request.authorization) throw new AppError("Confirmation wallet requise", 400);
@@ -57,7 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           intentParts: [row.id, "LISTED"],
         });
       }
-      await applyExtension(prisma, row, request.days);
+      await applyExtension(prisma, row, request.days, now, { grantChecked: relists });
     } else {
       const transition = visibilityTransition(request.action, row, Date.now(), {
         demoMode: process.env.SIRIUS_PHALA_DEMO === "true",

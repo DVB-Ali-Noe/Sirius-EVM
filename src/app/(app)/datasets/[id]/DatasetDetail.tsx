@@ -349,7 +349,7 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
           {stats.unreadableAmounts > 0 && (
             <p className="mt-1 text-xs text-negative">{t("{count} emprunt(s) au montant illisible, exclu(s) des totaux.", { count: stats.unreadableAmounts })}</p>
           )}
-          {stats.truncated && <p className="mt-1 text-xs text-muted">{t("Statistiques calculées sur les 5 000 emprunts les plus récents.")}</p>}
+          {stats.truncated && <p className="mt-1 text-xs text-muted">{t("Statistiques calculées sur les 5 000 prêts les plus récents, réservations comprises.")}</p>}
 
           <h3 className="mt-5 text-sm font-medium">{t("Emprunts par semaine (8 dernières semaines, UTC)")}</h3>
           <ol className="mt-2 flex flex-col gap-1.5">
@@ -372,13 +372,16 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
 function DetailsForm({ view, busy, onSave }: {
   view: OwnerDatasetView;
   busy: Busy;
-  onSave: (details: { name: string; description: string | null }) => void;
+  onSave: (details: { name?: string; description?: string | null }) => void;
 }) {
   const { t } = useLocale();
   const [name, setName] = useState(view.name);
   const [description, setDescription] = useState(view.description ?? "");
   const trimmedName = name.trim();
-  const changed = trimmedName !== view.name || (description.trim() || null) !== view.description;
+  const nextDescription = description.trim() || null;
+  const nameChanged = trimmedName !== view.name;
+  const descriptionChanged = nextDescription !== view.description;
+  const changed = nameChanged || descriptionChanged;
   const valid = trimmedName.length > 0 && trimmedName.length <= MAX_DATASET_NAME_LENGTH && description.trim().length <= MAX_DATASET_DESCRIPTION_LENGTH;
   return (
     <Card>
@@ -387,7 +390,14 @@ function DetailsForm({ view, busy, onSave }: {
         className="mt-3 flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          if (changed && valid) onSave({ name: trimmedName, description: description.trim() || null });
+          // Seuls les champs modifiés partent : un ancien nom que la validation actuelle
+          // refuserait n'empêche pas de corriger la description.
+          if (changed && valid) {
+            onSave({
+              ...(nameChanged ? { name: trimmedName } : {}),
+              ...(descriptionChanged ? { description: nextDescription } : {}),
+            });
+          }
         }}
       >
         <label className="flex flex-col gap-1 text-sm">
@@ -433,8 +443,8 @@ function ListingCard({ view, busy, run }: {
   // Mêmes règles que le serveur (visibilityTransition) ; le serveur reste seul juge.
   const canResume = (view.status === "UNLISTED" || (view.status === "PRIVATE" && view.listedAt !== null))
     && !!view.evmDatasetId && !view.listingExpired;
-  const canMakePrivate = view.status === "LISTED" || view.status === "UNLISTED";
-  const relists = view.status === "LISTED" && view.listingExpired;
+  // La route de visibilité refuse le passage en privé pendant un emprunt : le bouton est masqué.
+  const canMakePrivate = (view.status === "LISTED" || view.status === "UNLISTED") && view.displayStatus !== "borrowed";
   const canExtend = (EXTENSIBLE_STATUSES as readonly string[]).includes(view.status) && view.listingExpiresAt !== null;
   if (!(EXTENSIBLE_STATUSES as readonly string[]).includes(view.status)) return null;
 
@@ -501,6 +511,8 @@ function ListingCard({ view, busy, run }: {
           className="mt-4 flex flex-wrap items-end gap-3"
           onSubmit={(event) => {
             event.preventDefault();
+            // Recalculé au clic : l'annonce peut avoir expiré depuis l'ouverture de la page.
+            const relists = view.status === "LISTED" && view.listingExpiresAt !== null && Date.parse(view.listingExpiresAt) <= Date.now();
             void run("extend", () => extendListing(view.id, days, relists), "Annonce prolongée.");
           }}
         >

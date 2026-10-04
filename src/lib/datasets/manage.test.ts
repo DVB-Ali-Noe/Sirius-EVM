@@ -218,10 +218,10 @@ test("validateDetailsPatch : nom, description, bornes exactes et refus du prix",
   rejectsWith(() => validateDetailsPatch({ description: "d".repeat(2001) }), 400, "Description trop longue (2 000 caractères maximum)");
   for (const name of ["", "   ", 12, null, ["x"]]) rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom manquant");
   for (const name of ["a\nb", "a\u0000b", "a\u007fb", "a\u0085b", "a\u202Eb", "a\u2066b", "a\tb"]) {
-    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères de contrôle interdits");
+    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères invisibles ou de contrôle interdits");
   }
   for (const description of ["a\u0000b", "a\u001bb", "a\u202Db", "a\u2069b", "a\u009fb"]) {
-    rejectsWith(() => validateDetailsPatch({ description }), 400, "Description invalide : caractères de contrôle interdits");
+    rejectsWith(() => validateDetailsPatch({ description }), 400, "Description invalide : caractères invisibles ou de contrôle interdits");
   }
   rejectsWith(() => validateDetailsPatch({ description: 3 }), 400, "Description invalide");
   for (const key of ["priceUsdcAtomic", "priceUsdc", "price"]) {
@@ -343,6 +343,7 @@ interface FakeDataset {
 function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, condition]) => {
     if (key === "OR") return (condition as Record<string, unknown>[]).some((branch) => matches(row, branch));
+    if (key === "AND") return (condition as Record<string, unknown>[]).every((branch) => matches(row, branch));
     const value = row[key];
     if (condition === null) return value === null;
     if (condition instanceof Date) return value instanceof Date && value.getTime() === condition.getTime();
@@ -537,15 +538,45 @@ test("statistiques : propriété vérifiée avant toute lecture de prêts, plafo
 });
 
 test("nom et description : caractères invisibles, bidi, substituts isolés, NFC, au moins un caractère visible", () => {
-  for (const name of ["a‏b", "a؜b", "a b", "​​", "aㅤb", "a­b", "a﻿b", "a\u{E0041}b", "x\uD800", "\uDC00x", "a⁠b"]) {
-    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères de contrôle interdits");
+  for (const name of ["a\u200Fb", "a\u061Cb", "a\u2028b", "\u200B\u200B", "a\u3164b", "a\u00ADb", "a\u180Eb", "a\uFEFFb", "a\u{E0041}b", "x\uD800", "\uDC00x", "a\u2060b"]) {
+    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères invisibles ou de contrôle interdits");
   }
-  for (const name of ["---", "!!!", " . "]) rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : au moins une lettre ou un chiffre");
-  for (const description of ["a‎b", "a\u{E007F}b", "x\uDBFF", "a b"]) {
-    rejectsWith(() => validateDetailsPatch({ description }), 400, "Description invalide : caractères de contrôle interdits");
+  for (const name of ["---", "!!!", "\u00A0.\u00A0"]) rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : au moins une lettre ou un chiffre");
+  for (const description of ["a\u200Eb", "a\u{E007F}b", "x\uDBFF", "a\u2029b", "a\u202Eb"]) {
+    rejectsWith(() => validateDetailsPatch({ description }), 400, "Description invalide : caractères invisibles ou de contrôle interdits");
   }
-  assert.deepEqual(validateDetailsPatch({ name: "Café \u{1F600} 2025" }), { name: "Café \u{1F600} 2025" }, "NFC, emoji bien formé accepté");
+  assert.deepEqual(validateDetailsPatch({ name: "Cafe\u0301 \u{1F600} 2025" }), { name: "Café \u{1F600} 2025" }, "NFC, emoji bien formé accepté");
+  assert.deepEqual(validateDetailsPatch({ description: "Cafe\u0301" }), { description: "Café" }, "description normalisée en NFC");
   assert.deepEqual(validateDetailsPatch({ name: "日本語のデータ" }), { name: "日本語のデータ" });
+  // ZWNJ et ZWJ sont nécessaires au persan, aux langues indiennes et aux emojis composés.
+  const persian = "می\u200Cخواهم";
+  const family = "Data \u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+  const hindi = "क\u094D\u200Dष";
+  for (const value of [persian, family, hindi]) {
+    assert.deepEqual(validateDetailsPatch({ name: value, description: value }), { name: value, description: value });
+  }
+  // Césure conditionnelle et séparateur mongol admis dans une description, pas dans un nom.
+  assert.deepEqual(validateDetailsPatch({ description: "Donau\u00ADdampf ᠠ\u180Eᠡ" }), { description: "Donau\u00ADdampf ᠠ\u180Eᠡ" });
+});
+
+test("lecture de la fiche : le propriétaire est dans la requête", async () => {
+  const store = fakeDb([{ id: "ds1" }]);
+  await readOwnerView(store.db, "ds1", OWNER_MIXED, NOW);
+  const read = store.calls.find((call) => call.op === "dataset.findFirst")!.args as { where: Record<string, unknown> };
+  assert.deepEqual(read.where, { id: "ds1", provider: OWNER });
+});
+
+test("prolongation sans grant : la base refuse si l'annonce en ligne a expiré entre la décision et l'écriture", async () => {
+  const end = new Date(NOW + 1000);
+  const store = fakeDb([{ id: "ds1", status: "LISTED", listingExpiresAt: end }]);
+  const row = await loadOwnedDataset(store.db, "ds1", OWNER);
+  await rejectsAsync(applyExtension(store.db, row, 7, NOW + 2000), 409);
+  assert.equal(store.datasets.get("ds1")!.listingExpiresAt!.getTime(), end.getTime());
+  await applyExtension(store.db, row, 7, NOW + 2000, { grantChecked: true });
+  assert.equal(store.datasets.get("ds1")!.listingExpiresAt!.getTime(), NOW + 2000 + 7 * DAY);
+  const unlisted = fakeDb([{ id: "ds2", status: "UNLISTED", listingExpiresAt: end }]);
+  await applyExtension(unlisted.db, await loadOwnedDataset(unlisted.db, "ds2", OWNER), 7, NOW + 2000);
+  assert.equal(unlisted.datasets.get("ds2")!.listingExpiresAt!.getTime(), NOW + 2000 + 7 * DAY, "en pause, prolonger ne remet rien en ligne");
 });
 
 test("retrait du consentement : le propriétaire est dans le where", async () => {
@@ -607,10 +638,10 @@ test("vue du propriétaire : seuls les prêts en cours rendent la pastille « em
 // ---------------------------------------------------------------------------
 // Routes chargées avec leurs dépendances simulées (motif de audit-regressions.test.ts)
 
-function load<T>(file: string, dependencies: Record<string, unknown>): T {
+function load<T>(file: string, dependencies: Record<string, unknown>, env: Record<string, string> = {}): T {
   const exports = {};
   const source = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  runInNewContext(source, { exports, Buffer, Date, Map, Set, console, process: { env: {} }, require: (name: string) => {
+  runInNewContext(source, { exports, Buffer, Date, Map, Set, console, process: { env }, require: (name: string) => {
     assert.ok(Object.hasOwn(dependencies, name), `Dépendance inattendue : ${name}`);
     return dependencies[name];
   } });
@@ -746,7 +777,8 @@ test("route /settings/listing : grant exigé pour pause et reprise, lié au stat
   assert.equal(response.status, 200);
   assert.equal(JSON.stringify((grants.at(-1)![2] as { intentParts: string[] }).intentParts), JSON.stringify(["ds1", "LISTED"]));
   assert.equal(grants.length, beforeRelist + 2);
-  // Une prolongation impossible (horizon dépassé) ne consomme pas de grant.
+  // Annonce en ligne non expirée : la prolongation ne demande ni ne consomme de grant, et une
+  // prolongation au-delà de l'horizon est refusée.
   const beforeImpossible = grants.length;
   store.datasets.get("ds1")!.listingExpiresAt = new Date(Date.now() + 300 * DAY);
   response = await post("ds1", { action: "extend", days: 90, authorization: { valid: true } });
@@ -800,31 +832,76 @@ test("routes /settings/consent et /stats : propriétaire seulement", async () =>
   assert.equal(json.tokenDecimals, 6);
 });
 
-test("route PATCH /api/datasets/[id] existante : une annonce expirée ne repasse pas Public", async () => {
-  const datasets = new Map([["ds1", { provider: OWNER, listingExpiresAt: new Date(Date.now() - DAY) }], ["ds2", { provider: OWNER, listingExpiresAt: null }]]);
+test("route /settings/listing en démo Phala : un dataset privé déjà publié n'est pas remis en ligne", async () => {
+  const store = fakeDb([{ id: "ds1", status: "PRIVATE", listedAt: new Date(NOW - DAY) }]);
+  const session = { current: { address: OWNER } as { address: string } | null };
+  const grants: unknown[][] = [];
+  const url = "https://test.invalid/api/datasets/ds1/settings/listing";
+  const demo = load<typeof import("../../app/api/datasets/[id]/settings/listing/route")>("src/app/api/datasets/[id]/settings/listing/route.ts",
+    routeDeps(store, session, grants), { SIRIUS_PHALA_DEMO: "true" });
+  let response = await demo.POST(jsonRequest(url, "POST", { action: "resume", authorization: { valid: true } }), ctx("ds1"));
+  assert.equal(response.status, 409);
+  assert.equal(grants.length, 0);
+  assert.equal(store.datasets.get("ds1")!.status, "PRIVATE");
+  const normal = load<typeof import("../../app/api/datasets/[id]/settings/listing/route")>("src/app/api/datasets/[id]/settings/listing/route.ts",
+    routeDeps(store, session, grants), { SIRIUS_PHALA_DEMO: "false" });
+  response = await normal.POST(jsonRequest(url, "POST", { action: "resume", authorization: { valid: true } }), ctx("ds1"));
+  assert.equal(response.status, 200);
+  assert.equal(store.datasets.get("ds1")!.status, "LISTED");
+});
+
+function legacyRoute(store: ReturnType<typeof fakeDb>, env: Record<string, string> = {}) {
   const visibility: unknown[][] = [];
+  const grants: unknown[][] = [];
+  const session = { current: { address: OWNER } };
   const route = load<typeof import("../../app/api/datasets/[id]/route")>("src/app/api/datasets/[id]/route.ts", {
     "next/server": { NextResponse },
-    "@/lib/db": { prisma: { dataset: { findUnique: async ({ where }: { where: { id: string } }) => datasets.get(where.id) ?? null } } },
+    "@/lib/db": { prisma: store.db },
     "@/lib/sirius/provider": {
       setDatasetVisibility: async (...args: unknown[]) => { visibility.push(args); return { id: args[0], status: args[2], metrics: null }; },
       deleteDataset: async () => { throw new Error("non attendu"); },
       prepareDatasetDestruction: async () => { throw new Error("non attendu"); },
     },
-    "@/lib/auth/require-auth": { requireAuth: () => ({ address: OWNER }), assertOwner: () => {} },
+    "@/lib/auth/require-auth": { requireAuth: () => session.current, assertOwner: () => { throw new Error("non attendu"); } },
     "@/lib/auth/session": { readSession: () => null },
     "@/lib/errors": errors,
     "@/lib/http/body": body,
     "@/lib/sirius/dataset-response": { datasetResponse: (row: unknown) => row },
-    "@/lib/auth/mutation-grant": { requireMutationGrant: async () => {} },
+    "@/lib/auth/mutation-grant": { requireMutationGrant: async (...args: unknown[]) => { grants.push(args); } },
     "@/lib/datasets/manage": manage,
-  });
+  }, env);
   const patch = (id: string, visibilityValue: string) =>
     route.PATCH(jsonRequest(`https://test.invalid/api/datasets/${id}`, "PATCH", { visibility: visibilityValue, authorization: {} }), ctx(id));
-  const response = await patch("ds1", "LISTED");
+  return { patch, visibility, grants, session };
+}
+
+test("route PATCH /api/datasets/[id] existante : mêmes règles de passage à Public que la fiche, 404 uniforme", async () => {
+  const store = fakeDb([
+    { id: "ds1", status: "UNLISTED", listingExpiresAt: new Date(Date.now() - DAY) },
+    { id: "ds2", status: "UNLISTED", listingExpiresAt: null },
+    { id: "ds3", status: "PRIVATE", listedAt: null },
+    { id: "ds4", status: "PRIVATE", listedAt: new Date(NOW - DAY) },
+    { id: "ds5", status: "DELETED" },
+    { id: "ds6", provider: OTHER, status: "UNLISTED" },
+  ]);
+  const legacy = legacyRoute(store);
+  let response = await legacy.patch("ds1", "LISTED");
   assert.equal(response.status, 409);
   assert.equal((await response.json()).error, "Annonce expirée : prolonge-la avant de la remettre en ligne");
-  assert.equal(visibility.length, 0);
-  assert.equal((await patch("ds1", "PRIVATE")).status, 200, "les autres visibilités restent possibles");
-  assert.equal((await patch("ds2", "LISTED")).status, 200, "sans date de fin, rien ne change");
+  for (const id of ["ds3", "ds5"]) {
+    response = await legacy.patch(id, "LISTED");
+    assert.equal(response.status, 409, id);
+  }
+  assert.equal(legacy.grants.length, 0, "une transition refusée ne consomme pas de grant");
+  assert.equal(legacy.visibility.length, 0);
+  assert.equal((await legacy.patch("ds1", "PRIVATE")).status, 200, "les autres visibilités restent possibles");
+  assert.equal((await legacy.patch("ds2", "LISTED")).status, 200, "sans date de fin");
+  assert.equal((await legacy.patch("ds4", "LISTED")).status, 200, "privé déjà publié");
+  for (const id of ["ds6", "absent"]) {
+    response = await legacy.patch(id, "UNLISTED");
+    assert.equal(response.status, 404, id);
+    assert.deepEqual(JSON.parse(JSON.stringify(await response.json())), { error: "Dataset introuvable" });
+  }
+  const demo = legacyRoute(store, { SIRIUS_PHALA_DEMO: "true" });
+  assert.equal((await demo.patch("ds4", "LISTED")).status, 409, "en démo, rien ne repasse Public");
 });

@@ -52,7 +52,7 @@ function jsonRequest(method: "PATCH" | "POST", body: unknown): RequestInit {
   return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-export async function saveDatasetDetails(id: string, details: { name: string; description: string | null }): Promise<OwnerDatasetView> {
+export async function saveDatasetDetails(id: string, details: { name?: string; description?: string | null }): Promise<OwnerDatasetView> {
   const response = await fetch(datasetPath(id, "/settings"), jsonRequest("PATCH", details));
   return parse<OwnerDatasetView>(response, "Enregistrement impossible");
 }
