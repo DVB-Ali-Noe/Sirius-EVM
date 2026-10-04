@@ -37,6 +37,14 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
   for (const migration of migrations.slice(cutoff)) await client.query(readFileSync(join("prisma/migrations", migration, "migration.sql"), "utf8"));
   const historical = (await client.query('SELECT "billingQuote", "runnerKind", "modelCid", "amountUsdcAtomic" FROM "Loan" WHERE id = $1', ["history-loan"])).rows[0];
   assert.deepEqual(historical, { billingQuote: null, runnerKind: "UNKNOWN", modelCid: "bafy-history", amountUsdcAtomic: "1000" });
+  // Socle A1 : la base tient l'invariant « adresse en minuscules » sur les tables créées, que Prisma ne voit pas.
+  for (const [table, columns, values] of [["UserProfile", "(address)", "($1)"], ["DatasetAccessLog", '(id, "datasetId", address)', "('log-check', 'history', $1)"]] as const) {
+    await assert.rejects(client.query(`INSERT INTO "${table}" ${columns} VALUES ${values}`, [`0x${"AB".repeat(20)}`]), (error: unknown) =>
+      (error as { constraint?: string }).constraint === `${table}_address_lowercase`, `${table} doit refuser une adresse en casse mixte`);
+    await client.query(`INSERT INTO "${table}" ${columns} VALUES ${values}`, [`0x${"ab".repeat(20)}`]);
+  }
+  assert.equal((await client.query('SELECT count(*)::int AS n FROM "UserProfile"')).rows[0].n, 1);
+  assert.deepEqual((await client.query('SELECT "featureTours", "settings" FROM "UserProfile"')).rows[0], { featureTours: {}, settings: {} });
 
   const operatorCodeHash = hashOperatorCode("correct-operator-code");
   async function race(providers: string[], task: "ingest" | "loan" | "training" | "operator-code" = "ingest") {
