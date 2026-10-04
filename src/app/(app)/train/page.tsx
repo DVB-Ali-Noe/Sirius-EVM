@@ -630,6 +630,12 @@ function TrainPageContent() {
                       <Field label={t("Règlement tx")} value={l.settleTxHash ? truncate(l.settleTxHash) : "—"} mono />
                     )}
                   </dl>
+                  <Link
+                    href={`/certificate/${encodeURIComponent(l.id)}`}
+                    className="mt-3 mr-2 inline-block rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive"
+                  >
+                    {t("Certificat d’exécution")}
+                  </Link>
                   {delivered[l.id] && (
                     <button
                       onClick={() => void inspectModel(l.id, delivered[l.id])}
