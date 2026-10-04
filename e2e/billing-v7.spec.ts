@@ -248,7 +248,7 @@ test("un devis présenté sur un escrow v6 est refusé : le parcours historique 
 });
 
 const loanBase = {
-  id: "loan-failed", datasetId: listed.id, amountUsdcAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), usdcDecimals: DECIMALS,
+  id: "loan-failed", datasetId: listed.id, borrower: BORROWER, amountUsdcAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), usdcDecimals: DECIMALS,
   datasetAmountUsdcAtomic: PRICE, computeAmountUsdcAtomic: COMPUTE, modelId: "linear_regression", modelVersion: "1.0.0",
   evmLockTxHash: hash(9), evmLoanKey: hash(8), settleTxHash: null, cancelTxHash: null, modelCid: null, runnerReceipt: null,
   evmDeadline: "2026-10-01T10:13:06.000Z", createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: listed.name, runnerReceipt: null }, refundable: false,
@@ -273,8 +273,8 @@ test("I8 : après l'échéance, récupérer l'escrow envoie refund(loanKey) au b
   const calls = await installApi(page, { prepare: {}, loans: [{ ...loanBase, id: "loan-refundable", status: "ESCROWED", refundable: true }], cancel: [{ transaction: refundTx }, {}] });
   await page.goto("/train");
   await connect(page);
-  await expect(page.getByRole("button", { name: "Recover escrow" })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Recover escrow" }).click();
+  await expect(page.getByRole("button", { name: "Refund", exact: true })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Refund", exact: true }).click();
   await expect.poll(() => calls.cancel).toBe(2);
   const sent = await transactions(page);
   expect(sent).toHaveLength(1);
@@ -282,4 +282,37 @@ test("I8 : après l'échéance, récupérer l'escrow envoie refund(loanKey) au b
   const decoded = decodeFunctionData({ abi: siriusescrowAbi, data: sent[0].data });
   expect(decoded.functionName).toBe("refund");
   expect(decoded.args?.[0]).toBe(hash(8));
+});
+
+test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant tout paiement", async ({ page }) => {
+  const signed = await sign(quote());
+  await installWallet(page);
+  const calls = await installApi(page, {
+    prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed },
+    loans: [{ ...loanBase, id: "loan-done", status: "SETTLED", settleTxHash: hash(6), modelCid: "bafy-model" }],
+  });
+  // Enregistrée après installApi : Playwright essaie les routes de la plus récente à la plus ancienne.
+  const bodies: unknown[] = [];
+  await page.route("**/api/loans", (route) => {
+    if (route.request().method() === "POST") bodies.push(route.request().postDataJSON());
+    return route.fallback();
+  });
+  await page.goto("/train");
+  await connect(page);
+  const retrain = page.getByRole("button", { name: "Retrain", exact: true });
+  await expect(retrain).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("retrain-panel")).toContainText("Linear and logistic regression are deterministic");
+  await retrain.click();
+  // Prix de la fiche avant même le devis : donnée + calcul = total.
+  await expect(page.getByTestId("retrain-panel").getByText("8.75 USDC", { exact: true })).toBeVisible();
+  expect(calls.prepare).toBe(0);
+  await page.getByRole("button", { name: "View the quote and retrain" }).click();
+  const dialog = page.getByRole("dialog", { name: "Training quote" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("8.75 USDC", { exact: true })).toBeVisible();
+  expect(bodies).toEqual([{ datasetId: listed.id }]);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await transactions(page)).toHaveLength(0);
+  expect(calls.authorize).toBe(0);
 });

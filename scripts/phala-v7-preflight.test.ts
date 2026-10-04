@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { keccak256, type PublicClient } from "viem";
-import { checkMainnetV7, checkTestnetV7, MAINNET_USDC, mainnetV7Configuration, testnetV7Configuration } from "./phala-v7-preflight";
+import { checkMainnetV7, checkTestnetV7, MAINNET_STABLECOIN, MAINNET_USDC, mainnetV7Configuration, testnetV7Configuration } from "./phala-v7-preflight";
+
+/** Ancien USDC natif de Robinhood Chain mainnet, refusé depuis le passage à USDG. */
+const LEGACY_USDC = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -100,18 +103,32 @@ test("le préflight B bloque un token divergent, un ancien escrow, un autre sign
 });
 
 const mainnetEnvironment = () => ({ ...environment(), EVM_NETWORK: "mainnet", SIRIUS_KYB_MODE: "strict",
-  SIRIUS_USDC_ADDRESS: MAINNET_USDC, SIRIUS_COMPUTE_RECIPIENT: address(7), SIRIUS_KYB_ADMIN: address(7) });
+  SIRIUS_USDC_ADDRESS: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", SIRIUS_COMPUTE_RECIPIENT: address(7), SIRIUS_KYB_ADMIN: address(7) });
 
-test("le préflight mainnet exige KYB strict, l'USDC ponté et un compte de gouvernance unique", () => {
+test("le jeton mainnet du préflight est l'USDG de Paxos, en minuscules, avec son alias historique", () => {
+  assert.equal(MAINNET_STABLECOIN, "0x5fc5360d0400a0fd4f2af552add042d716f1d168");
+  assert.equal(MAINNET_USDC, MAINNET_STABLECOIN);
+});
+
+test("le préflight mainnet exige KYB strict, l'USDG de Paxos et un compte de gouvernance unique", () => {
   const config = mainnetV7Configuration(mainnetEnvironment());
   assert.equal(config.chainId, 4663);
   assert.equal(config.decimals, 6);
+  assert.equal(config.usdc, MAINNET_STABLECOIN, "l'adresse checksummée est normalisée en minuscules");
   assert.equal(config.kybAdmin, address(7));
-  for (const change of [{ SIRIUS_KYB_MODE: "open" }, { EVM_NETWORK: "testnet" }, { SIRIUS_USDC_ADDRESS: address(1) },
+  for (const change of [{ SIRIUS_KYB_MODE: "open" }, { EVM_NETWORK: "testnet" },
     { SIRIUS_KYB_ADMIN: "" }, { SIRIUS_KYB_ADMIN: address(8) }, { SIRIUS_KYB_ADMIN: address(2), SIRIUS_COMPUTE_RECIPIENT: address(2) }]) {
-    assert.throws(() => mainnetV7Configuration({ ...mainnetEnvironment(), ...change }));
+    assert.throws(() => mainnetV7Configuration({ ...mainnetEnvironment(), ...change }), JSON.stringify(change));
+  }
+  // Tout jeton bien formé autre que l'USDG est refusé par l'épinglage lui-même, pas par la forme de l'adresse.
+  for (const token of [address(1), LEGACY_USDC, LEGACY_USDC.toLowerCase(), ` ${LEGACY_USDC} `]) {
+    assert.throws(() => mainnetV7Configuration({ ...mainnetEnvironment(), SIRIUS_USDC_ADDRESS: token }), /USDG/, token);
   }
   assert.throws(() => testnetV7Configuration(mainnetEnvironment()));
+  // Le testnet n'épingle aucun jeton : l'USDG comme l'ancien USDC y passent la configuration.
+  for (const token of [LEGACY_USDC, MAINNET_STABLECOIN]) {
+    assert.equal(testnetV7Configuration({ ...environment(), SIRIUS_USDC_ADDRESS: token }).decimals, 18, token);
+  }
 });
 
 function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin?: string } = {}) {
