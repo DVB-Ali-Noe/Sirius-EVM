@@ -2,13 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
-import { disconnectWallet } from "@/lib/wallet/manager";
-import { markWalletDisconnected } from "@/lib/wallet/intent";
 import { embeddedConfigured, selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
-import { signInWithWallet, signOut } from "@/lib/auth/client";
+import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { openEmbeddedWallet, openWalletModal } from "./WalletConnector";
+import { logoutCurrentWallet } from "./logout";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 function truncate(address: string): string {
@@ -106,15 +105,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
 
   const handleDisconnect = async () => {
     setOpen(false);
-    try {
-      // Posée avant toute chose : si la révocation ou la déconnexion de session
-      // échoue, le geste de l'utilisateur doit tout de même être respecté.
-      markWalletDisconnected();
-      await signOut();
-      await disconnectWallet();
-    } finally {
-      useWalletStore.getState().setDisconnected();
-    }
+    await logoutCurrentWallet();
   };
 
   const handleCopyAddress = async () => {

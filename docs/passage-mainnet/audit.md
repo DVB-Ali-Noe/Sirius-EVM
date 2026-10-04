@@ -779,42 +779,215 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## A5 — Bouton profil et page Wallet
 
+Branche `feat/profil-wallet`, PR vers `staging`. Spécification : [05-wallet.md](05-wallet.md) (P1 « avant le 6 »), [02-general.md](02-general.md) section 5, [13-reglages.md](13-reglages.md), [14-kyb.md](14-kyb.md). Tout ce qui suit est vérifiable depuis `git diff staging...HEAD`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Aucune route serveur, aucune table, aucune colonne, aucun contrat, aucune variable d'environnement nouvelle.** Tout est côté navigateur.
+
+| Fichier | Changement |
+|---|---|
+| `src/components/profile/ProfileMenu.tsx` (nouveau) | Bouton profil, monté dans le layout de l'application. Visible seulement connecté avec une adresse EVM valide. Fenêtre volante (`role="dialog"`, pas `role="menu"`) : badge réseau, avertissement « mauvais réseau », adresse raccourcie avec copie et lien explorateur, solde, liens Wallet, Settings, KYB, « Guided tour », « Log out ». Le solde n'est lu qu'à l'ouverture. |
+| `src/components/profile/address.ts` (nouveau) | `normalizeAddress` (valide et met en casse EIP-55, `null` sinon) et `shortAddress` (`0x2f9B…D13D`). Toute adresse affichée, copiée, encodée en QR ou liée à l'explorateur passe par `normalizeAddress`. |
+| `src/components/profile/network.ts` (nouveau) | `networkBadge` (libellé et couleur : mainnet vert, testnet ambre), `stablecoinSymbol` (« USDG » sur mainnet, « test USDC » sur testnet), `isWrongNetwork`, `formatTokenAmount` (séparateurs, troncature sans arrondi, « <0.0001 » pour un solde non nul trop petit). |
+| `src/components/profile/guided-tour.ts` (nouveau) | Point d'accroche de la visite guidée : événement DOM annulable `sirius:guided-tour:start`, voir section 2. |
+| `src/components/profile/useCopy.ts` (nouveau) | Copie dans le presse-papiers, ne lève jamais, annonce l'échec. |
+| `src/components/wallet/add-funds.ts` (nouveau) | `addFundsOptions(network)` : choix du parcours (faucet, pont, transfert). |
+| `src/components/wallet/qr.ts`, `QrCode.tsx` (nouveaux) | QR code local : matrice calculée par `qrcode-generator`, dessinée en SVG React (un seul `<path>`), noir sur blanc, zone de silence de 4 modules. |
+| `src/components/wallet/ReceiveFunds.tsx` (nouveau) | Section « Add funds » par transfert : adresse complète, QR code, copie, lien explorateur, cinq mises en garde. Affichée seulement sur mainnet. |
+| `src/components/wallet/logout.ts` (nouveau) | Déconnexion complète (`markWalletDisconnected`, `signOut`, `disconnectWallet`, puis `setDisconnected` dans un `finally`), extraite de `ConnectButton` pour être partagée avec le bouton profil. |
+| `src/components/wallet/ConnectButton.tsx` | `handleDisconnect` appelle `logoutCurrentWallet()`. Comportement identique, trois imports devenus inutiles retirés. Rien d'autre. |
+| `src/components/layout/Sidebar.tsx` | Une ligne retirée : le lien Wallet du menu latéral. |
+| `src/app/(app)/layout.tsx` | Deux lignes ajoutées : l'import et `<ProfileMenu />` en tête du conteneur de contenu. |
+| `src/app/(app)/wallet/page.tsx` | Lien « View on explorer » sous l'adresse ; `ReceiveFunds` sous la carte de solde sur mainnet ; le bouton historique s'appelle « Use the bridge » sur mainnet (« Add funds » sur testnet) et le message « Fonds de démarrage non reçus » (faucet) n'est affiché que sur testnet. La ligne du libellé du jeton (`"USDC"` / `t("test USDC")`) est intacte, une autre tranche la modifie. Cartes `EscrowCredits` (retraits) et `SecureAccountCard` inchangées. |
+| `src/lib/i18n/profile-en.ts` (nouveau), `english.ts` | Traductions anglaises de la tranche, fusionnées dans `EN_MESSAGES` (deux lignes ajoutées à `english.ts`). |
+| `package.json`, `pnpm-lock.yaml` | Dépendance `qrcode-generator` 2.0.4 ; trois fichiers de test ajoutés au script `test`. |
+| `e2e/profile.spec.ts` (nouveau) | Dix tests e2e (voir section 5). |
+| Tests | `src/components/profile/profile.test.ts`, `src/components/wallet/add-funds.test.ts`, `src/components/wallet/receive-funds.test.ts` (+ `receive-funds.render.tsx`, script de rendu). |
+
+**Composants non touchés** : `EscrowCredits.tsx`, `src/lib/wallet/transaction-guard.ts`, `src/lib/wallet/**` (dont `onramp.ts`), `src/app/api/**`, `src/lib/evm/**`, composants partagés `src/components/ui/**` et `src/components/datasets/**`.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Position du bouton : en flux, pas fixe.** La spécification dit « en haut à droite ». Une position `fixed` a été essayée puis écartée après revue : entre 768 et 1500 px de large elle recouvrait les actions à droite de l'en-tête de Marketplace et de Mes datasets (bouton « Configurer le KYB »). Le bouton est donc une ligne alignée à droite en tête du contenu, sur ordinateur et sur mobile. Conséquence : il défile avec la page et décale le contenu d'environ 48 px vers le bas sur toutes les pages de l'application. Il n'est donc pas visible en permanence après défilement. Un e2e vérifie l'absence de chevauchement à 1100 px et 390 px.
+2. **Le bouton de connexion de la barre latérale reste.** Le cahier ne demande que de retirer le lien Wallet. Le bouton profil n'existe que connecté (la connexion et « Se connecter » par signature restent dans la barre latérale et l'en-tête mobile). Conséquence : le bouton affiche la même adresse que celui de la barre latérale. Pour que les tests e2e existants (qui cherchent un bouton nommé comme l'adresse, sans `exact` ambigu) ne trouvent pas deux boutons, le bouton profil a pour nom accessible « Profile menu ».
+3. **Plus aucun lien vers `/wallet` quand on n'est pas connecté.** Conséquence directe du retrait du lien et du choix précédent. La page reste joignable par son URL et affiche alors le bouton de connexion. Voulu par la spécification, à confirmer.
+4. **Fenêtre volante, pas `role="menu"`.** Le contenu mêle informations et actions, que le motif ARIA « menu » ne prévoit pas ; cela évite aussi toute collision avec les `getByRole("menu")` des e2e existants. Fermeture par Échap (le focus revient au bouton), clic à l'extérieur et choix d'un lien.
+5. **Réseau affiché = réseau du site**, pas celui du wallet (`NEXT_PUBLIC_EVM_NETWORK`, via `resolveClientNetwork()`). Un écart avec le réseau du wallet est signalé par un message rouge, un point rouge sur le bouton, et le **solde n'est pas lu** dans ce cas (`eth_call` part sur la chaîne du wallet et rendrait le solde d'un autre jeton sous l'étiquette du jeton du site). Ajout par rapport au cahier, trouvé en revue.
+6. **Libellé du jeton : « USDG » sur mainnet** via `stablecoinSymbol`, conformément à [01-decisions-avant-samedi.md](01-decisions-avant-samedi.md). Le décompte du solde passe toujours par `fetchUsdcBalance` et `formatUsdcAtomic` : le nom des fonctions dit USDC, mais l'adresse du jeton vient de `SIRIUS_USDC_ADDRESS` (qui désignera l'USDG au déploiement, tranche A8) et les décimales de la table `USDC_DECIMALS_BY_NETWORK` (6 sur mainnet, valeur annoncée pour l'USDG et à confirmer on-chain, voir [01](01-decisions-avant-samedi.md)).
+7. **Solde tronqué, jamais arrondi**, à quatre décimales, sans passage par un flottant (BigInt). Un solde non nul inférieur à 0,0001 s'affiche « <0.0001 » (pas « 0 »).
+8. **Parcours d'ajout de fonds.**
+   - testnet : inchangé (faucet ; le bouton garde son libellé « Add funds » et ses messages).
+   - mainnet : le bouton historique appelle toujours `addFunds()` (`POST /api/faucet`, puis `GET /api/onramp` si le serveur répond 503, ce qui ouvre le pont Across). Il est renommé « Use the bridge ». En plus, la section « Add funds » affiche l'adresse, un QR code et l'explication du transfert d'USDG.
+   - **Across n'a pas été vérifié** pour l'USDG (la spécification demandait de le vérifier). Le texte le dit : « le bouton de pont ouvre un service tiers, vérifie qu'il supporte USDG avant de l'utiliser ».
+9. **QR code.**
+   - Bibliothèque : `qrcode-generator` **2.0.4**, licence MIT, sans dépendance, publiée le 7 août 2025 (largement plus d'une semaine), déjà présente dans `pnpm-lock.yaml` comme dépendance indirecte de `qr-code-styling` : aucun paquet nouveau dans l'arbre de dépendances, seulement une arête directe. Version épinglée exactement (pas de `^`).
+   - Rendu : la bibliothèque ne sert qu'à calculer la matrice (`isDark`). Ses méthodes qui produisent du HTML (`createSvgTag`, `createImgTag`, `createDataURL`) ne sont pas utilisées (un test le vérifie) ; le dessin est du SVG React, sans `dangerouslySetInnerHTML`.
+   - Contenu encodé : l'adresse seule, en casse EIP-55. Pas d'URI `ethereum:` (certains wallets y voient une demande de paiement en ETH), pas de montant, pas de numéro de chaîne.
+   - Niveau de correction d'erreur M, version choisie automatiquement (42 octets, version 3, 29 modules).
+10. **Visite guidée : point d'accroche, pas de lancement.** `ProductTour.tsx` n'est pas dans le périmètre (une autre tranche y travaille) et n'expose aucune fonction de relance. Le bouton émet l'événement `sirius:guided-tour:start` (annulable). Le composant de visite doit s'y abonner et appeler `event.preventDefault()` pour dire qu'il prend la demande en charge ; l'exemple complet est dans le commentaire de `src/components/profile/guided-tour.ts`. Sans abonné, le menu affiche « The guided tour will be available soon. » au lieu d'un clic sans effet. **Tant que `ProductTour` ne s'abonne pas, le bouton ne lance rien** (voir section 8).
+11. **Réglages et KYB : liens seulement** (`/settings`, `/kyb`). Les pages n'existent pas dans cette branche (tranche A6) : les liens mènent à une page 404 jusqu'à sa fusion. La spécification donne « Réglages » en français ; l'interface est en anglais (« Settings »).
+12. **Libellé du jeton de la page Wallet non modifié** (consigne : une autre tranche change cette ligne). Tant qu'elle n'est pas fusionnée, la carte de solde affiche « USDC » sur mainnet alors que le reste de la page dit « USDG ». À vérifier à la fusion des deux tranches (section 8).
+13. **Historique des transactions, retrait général, revenus par dataset, « tout retirer » et achat par carte** : non faits, ce sont des éléments « après le 6 — V1.1 » de la spécification.
+14. **Déconnexion factorisée** dans `logout.ts` plutôt que dupliquée : une modification de la déconnexion (révocation de session, intention de l'utilisateur) vaut ainsi pour les deux boutons.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès côté serveur, route par route.** Cette tranche n'ajoute, ne modifie ni ne supprime aucune route, aucun contrôle d'authentification, aucun cookie. Les seules routes appelées sont existantes et inchangées : `POST /api/faucet` et `GET /api/onramp` (bouton « Add funds » / « Use the bridge », comme avant), `GET /api/wallet/credits` (retraits, inchangé), `signOut` (déconnexion, inchangé). Le bouton profil lui-même n'appelle aucune route : le solde est lu par `eth_call` via le wallet de l'utilisateur. **Rappel transverse : le masquage du bouton profil et le retrait du lien Wallet ne sont pas un contrôle d'accès** ; `/wallet`, `/settings` et `/kyb` restent accessibles par URL et ne s'appuient que sur la session côté serveur pour les données.
+
+**Validation et bornes de chaque entrée.**
+- L'adresse (venue du store du wallet, rempli par le navigateur) est validée par `viem.isAddress` en mode strict avant tout affichage : mauvaise longueur, somme de contrôle fausse en casse mixte, espaces, préfixe étranger, URI, HTML et valeurs non textuelles sont refusés (liste testée). Une adresse refusée ne produit ni bouton profil, ni QR code, ni lien ; elle n'est jamais « corrigée ».
+- L'adresse affichée, celle copiée, celle encodée dans le QR code et celle du lien explorateur sont la même chaîne `checksummed` (un test lit le HTML rendu).
+- Le montant du solde est une chaîne décimale validée par expression régulière (40 chiffres au plus pour chaque partie) avant mise en forme ; tout le reste renvoie `null` (« Balance unavailable. »).
+- Le réseau vient de `NEXT_PUBLIC_EVM_NETWORK` (`mainnet` ou `testnet`, sinon exception au chargement, comportement existant).
+
+**Fuites possibles.**
+- Le QR code est généré dans le navigateur : aucune requête réseau, aucun service tiers, l'adresse ne part nulle part (un test vérifie l'absence de `fetch`, `XMLHttpRequest`, `sendBeacon` et d'URL dans `qr.ts`, `QrCode.tsx`, `ReceiveFunds.tsx`).
+- L'adresse est publique par nature. Aucun journal ajouté. Les erreurs de lecture du solde sont avalées (« Balance unavailable. »), sans message technique affiché.
+- Seule l'adresse du compte connecté est affichée ; aucune donnée d'un autre wallet.
+- Les liens vers l'explorateur sont construits par `addressExplorerUrl` (hôte issu de `EVM_CHAINS`, adresse passée par `encodeURIComponent`), ouverts avec `target="_blank" rel="noopener noreferrer"`. Un test impose `rel` sur chaque `target="_blank"` du bouton profil. Le pont Across est ouvert par `onramp.ts` (inchangé) avec `noopener,noreferrer`.
+
+**Impact sur l'argent, l'escrow, les contrats, le moteur Phala.**
+- Aucun contrat, aucune ABI, aucun moteur Phala touchés. `transaction-guard.ts`, `transaction-client.ts` et `EscrowCredits.tsx` sont intacts (aucun diff) : les retraits passent par la même garde. Le bouton profil n'envoie aucune transaction.
+- **Risque nouveau principal, côté utilisateur : l'envoi d'un mauvais jeton ou sur un mauvais réseau vers l'adresse affichée.** Le texte le dit en toutes lettres (« Only send USDG, on Robinhood Chain… may be lost permanently »), recommande un premier petit transfert, la comparaison du début et de la fin de l'adresse, et rappelle que le gas se paie en ETH. L'auditeur doit juger si ces mises en garde suffisent pour la bêta.
+- Le QR code encode l'adresse du compte (celui du wallet connecté, qu'il soit externe ou le compte Google intégré). Vérifier que, pour un compte intégré, c'est bien l'adresse qui reçoit les fonds et peut les retirer.
+- Le solde affiché dans le menu est lu par `eth_call` sur la chaîne du wallet ; il est masqué (« — ») quand le wallet n'est pas sur le réseau du site. La page Wallet garde sa lecture existante, qui n'a pas ce garde-fou (inchangée).
+
+**Base de données.** Aucune migration, aucune table, aucune colonne.
+
+**Interface : injection HTML, liens, contenus fournis par les utilisateurs.**
+- Aucun `dangerouslySetInnerHTML` ni `innerHTML` dans les fichiers de la tranche (tests de présence). Le chemin SVG du QR code ne contient que des commandes numériques (`M x y h n v1 h-n z`), vérifiées par expression régulière dans un test.
+- Les trois liens internes (`/wallet`, `/settings`, `/kyb`) sont des constantes.
+- Aucun contenu fourni par un utilisateur n'est affiché (seulement l'adresse validée et les libellés fixes).
+
+**Textes : aucune promesse fausse.**
+- Aucune affirmation de sécurité sur les modèles ou les fonds. Le texte du pont dit qu'il s'agit d'un service tiers et qu'il faut vérifier qu'il supporte l'USDG. « Les fonds arrivent dès que le transfert est confirmé » est une affirmation sur le fonctionnement normal de la chaîne.
+- **Écart à signaler : `src/lib/wallet/onramp.ts` (hors périmètre) affiche encore, après ouverture du pont sur mainnet, « Pont ouvert : envoie de l’USDC vers Robinhood Chain depuis un autre réseau »**, ce qui contredit « USDG » sur la même page. À corriger avec la tranche A8 (USDG).
+
+**Autres points à vérifier.**
+- Dépendance `qrcode-generator` 2.0.4 : épinglée, présente dans le fichier de verrouillage avec empreinte, MIT, sans dépendance. Une version 1.5.2 du même paquet reste dans l'arbre via `qr-code-styling` (inchangée).
+- `pnpm audit` : exit 0 ; l'avis `GHSA-vfj7-8cjw-p6xm` est ignoré par la configuration existante.
+- La déconnexion a été extraite sans changement d'ordre : `markWalletDisconnected()`, puis `signOut()`, puis `disconnectWallet()`, puis `setDisconnected()` dans le `finally`. Le bouton profil ferme son panneau avant d'appeler la déconnexion et avale une éventuelle erreur (le store est de toute façon vidé).
+- Le panneau change de contenu si le compte change panneau ouvert (remontage par clé) ; la réponse tardive du solde d'un ancien compte est ignorée (`cancelled`).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Staging est sur testnet : la vue mainnet (QR code, badge vert, « USDG ») ne s'y voit pas. Pour la voir, lancer un build local avec `NEXT_PUBLIC_EVM_NETWORK=mainnet` et `EVM_NETWORK=mainnet`, ou attendre la production.
+
+1. **Connecté, testnet.** Ouvrir une page de l'application : le bouton profil (point ambre, adresse courte `0x1234…abcd`) apparaît en haut à droite du contenu. Clic : badge « Robinhood Chain testnet » ambre, adresse, boutons « Copy address » et « Explorer », solde « N test USDC », liens Wallet, Settings, KYB, « Guided tour », « Log out ». Résultat attendu : tout s'affiche, aucun lien Wallet dans le menu latéral.
+2. **Copie.** « Copy address » : le bouton passe à « Address copied » pendant environ 2 s ; coller dans un champ : l'adresse complète en casse mixte (EIP-55).
+3. **Explorateur.** « Explorer » ouvre un nouvel onglet sur `explorer.testnet.chain.robinhood.com/address/<adresse>` (production : `robinhoodchain.blockscout.com`).
+4. **Échap et clic à l'extérieur** ferment le menu ; avec Échap le focus revient au bouton profil.
+5. **Mauvais réseau.** Basculer le wallet sur un autre réseau : message rouge « Wrong network — switch your wallet to testnet. », point rouge sur le bouton, solde remplacé par « — ».
+6. **Changement de compte menu ouvert.** Choisir un autre compte dans le wallet : le menu affiche la nouvelle adresse et un solde rechargé, jamais celui de l'ancien compte.
+7. **Déconnexion externe menu ouvert.** Déconnecter depuis le wallet : le bouton disparaît ; reconnecter : le menu est fermé.
+8. **« Log out »** : session fermée, retour à l'état déconnecté, le bouton profil disparaît ; la barre latérale propose « Connect ».
+9. **« Guided tour »** : message « The guided tour will be available soon. » tant que `ProductTour` ne s'abonne pas ; une fois abonné, le menu se ferme et la visite démarre.
+10. **Settings, KYB** : 404 tant que la tranche A6 n'est pas fusionnée ; pages réelles ensuite.
+11. **Page Wallet, testnet.** Adresse avec lien « View on explorer » ; bouton « Add funds » : comportement du faucet inchangé (`1000 USDC et … ETH envoyés` selon l'instance), message « Starter funds not received » si le faucet a échoué ; pas de section QR code.
+12. **Page Wallet, mainnet (build local).** Carte « Add funds » : explication, QR code, adresse complète, copie, lien explorateur. Scanner le QR code avec un téléphone : le texte lu est exactement l'adresse affichée, en casse mixte, sans préfixe. Bouton « Use the bridge » : ouvre le pont (si connecté et authentifié) ; non authentifié, une erreur s'affiche.
+13. **Retraits.** Avec un crédit dans l'escrow : le panneau « USDC available to withdraw » et le bouton « Withdraw » fonctionnent comme avant, le solde se rafraîchit après le retrait.
+14. **Largeurs.** 390 px, 768 px, 1100 px, 1440 px : le bouton profil ne recouvre aucun titre ni bouton de page ; le panneau tient dans l'écran à 320 px.
+15. **Texte agrandi / zoom 200 %** : le panneau reste lisible, l'adresse coupée proprement.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**Tests unitaires** (ajoutés au script `test`, lancés avec `node --test`) :
+- `src/components/profile/profile.test.ts` (13 tests) : badge réseau (libellés, couleurs distinctes, présence dans le dictionnaire anglais), jeton affiché, « mauvais réseau » (sept cas), raccourci d'adresse et refus de seize entrées invalides (null, nombres, espaces, `javascript:`, somme de contrôle fausse…), normalisation EIP-55, formatage des montants (troncature, grands nombres, « <0.0001 », entrées refusées), point d'accroche de la visite guidée (sans abonné, abonné qui accuse réception, abonné qui n'accuse pas), absence du lien Wallet dans `Sidebar.tsx`, présence de `<ProfileMenu />` dans le layout, liens du bouton profil, `rel="noopener noreferrer"` sur tout `target="_blank"`, absence d'`innerHTML`.
+- `src/components/wallet/add-funds.test.ts` (7 tests) : choix du parcours mainnet et testnet, QR code (contenu = adresse EIP-55, matrice reconstruite depuis le chemin SVG identique à celle de la bibliothèque, motifs de repérage, zone de silence, refus de valeurs invalides, chemin purement numérique, aucun accès réseau ni HTML injecté dans le code).
+- `src/components/wallet/receive-funds.test.ts` (3 tests, rendu serveur dans un processus à part) : sur mainnet, adresse affichée en EIP-55, QR code, textes, lien Blockscout mainnet, aucune trace de l'explorateur testnet ; sur testnet, jeton et explorateur de test ; adresse invalide : rien n'est rendu.
+- `english.test.ts` passe (toute clé `t()` de la tranche a sa traduction).
+
+**e2e** (`e2e/profile.spec.ts`, 10 tests Playwright, dont deux largeurs pour le non-chevauchement) : plus de lien Wallet dans le menu latéral ; contenu complet du bouton profil, lien de l'explorateur de test, navigation vers Wallet ; Échap, focus et message de visite guidée sans abonné ; abonné à l'événement de visite guidée ; page Wallet testnet (faucet conservé, pas de QR code, lien explorateur) ; pas de bouton profil déconnecté ; non-chevauchement à 1100 px et 390 px ; wallet sur un autre réseau (avertissement, solde « — », zéro appel `eth_call`) ; déconnexion externe menu ouvert (le menu ne se rouvre pas à la reconnexion). Les e2e existants `wallet.spec.ts`, `account-switch.spec.ts`, `audit-regressions.spec.ts` (dont le retrait d'un ancien escrow) et `responsive.spec.ts` passent avec ceux de la tranche : 70 tests réussis, 0 échec sur ces cinq fichiers. Aucun e2e existant ne cliquait sur le lien Wallet du menu latéral, il n'y a donc rien eu à adapter.
+
+**Ce que les tests ne couvrent pas.**
+- **Aucun test e2e du parcours mainnet** : la configuration Playwright fixe `NEXT_PUBLIC_EVM_NETWORK=testnet`. Le rendu mainnet n'est couvert que par le test de rendu serveur de `ReceiveFunds` (réseau passé en propriété) et par les tests unitaires.
+- **Le QR code n'est pas décodé** par un lecteur : on vérifie qu'il reproduit la matrice de la bibliothèque et qu'il encode la bonne chaîne, pas qu'un téléphone le lit. À essayer à la main (cas 12).
+- Le menu n'est pas testé avec un vrai wallet (extension, compte Google intégré) ni avec un wallet sur un autre réseau.
+- La lecture du solde du menu n'est testée qu'avec un wallet simulé ; la gestion de la réponse tardive d'un ancien compte repose sur la relecture du code (drapeau `cancelled`), pas sur un test.
+- Le bouton « Use the bridge » est piloté par `addFundsOptions(...).bridge` : le test unitaire fige les valeurs par réseau, aucun test ne vérifie son masquage quand `bridge` vaudrait faux.
+- Un compte intégré (connexion sociale) : `fetchUsdcBalance` passe par `getExternalWallet()` ; pour un tel compte le menu affichera « Balance unavailable. », comme la page Wallet (préexistant, non testé).
+- Pas de test de lecteur d'écran ni de navigation au clavier complète (le piège de focus du panneau n'existe pas : le focus n'est pas déplacé dans le panneau à l'ouverture).
+- L'ordre exact des appels de déconnexion n'a pas de test automatisé propre (l'extraction repose sur la relecture et sur les e2e de connexion existants).
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- `NEXT_PUBLIC_EVM_NETWORK` est correctement défini au build de chaque environnement (`mainnet` en production, `testnet` sur staging). Si la production était construite avec `testnet`, le badge, les liens d'explorateur et la section d'ajout de fonds seraient ceux du testnet.
+- L'USDG a 6 décimales sur Robinhood Chain mainnet et `SIRIUS_USDC_ADDRESS` y désignera l'USDG ([01](01-decisions-avant-samedi.md)) ; la table `USDC_DECIMALS_BY_NETWORK` (6) et le contrôle du script de déploiement font autorité.
+- L'adresse du store du wallet est celle qui reçoit et peut retirer les fonds de l'utilisateur (vrai pour un wallet externe ; non vérifié pour le compte Google intégré).
+- Un transfert d'USDG standard vers cette adresse suffit à créditer le solde : l'adresse est un compte utilisateur normal, aucune étape côté Sirius.
+- Les plateformes d'échange et wallets des utilisateurs supportent Robinhood Chain et l'USDG ; non vérifié. Le texte parle d'« une plateforme d'échange qui supporte ce réseau ».
+- Le pont Across supporte l'USDG sur Robinhood Chain : **non vérifié** (le texte invite l'utilisateur à vérifier).
+- Les pages `/settings` et `/kyb` seront créées par la tranche A6 avec ces chemins.
+- `ProductTour` s'abonnera à `sirius:guided-tour:start` et appellera `preventDefault()`.
+- Le navigateur de l'utilisateur fournit `navigator.clipboard` (contexte sécurisé) ; sinon « Copy failed » s'affiche.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+- **Envoi d'un mauvais jeton ou sur un mauvais réseau** par un utilisateur pressé : mitigé par le texte, pas par le code (aucun moyen de l'empêcher côté Sirius). Fonds potentiellement perdus pour l'utilisateur.
+- **Contradiction de jeton affiché sur mainnet** tant que les tranches A8 et la ligne du libellé de la page Wallet ne sont pas fusionnées : « USDC » (page Wallet, message du pont de `onramp.ts`) contre « USDG » (le reste). Source de confusion, voir sections 2 et 3.
+- **Le bouton « Use the bridge » appelle d'abord `/api/faucet`** : sur mainnet le serveur répond 503, puis le pont s'ouvre. Tout autre statut (non authentifié, limitation de débit) affiche une erreur au lieu d'ouvrir le pont. `window.open` est appelé après deux appels réseau : Safari peut bloquer la fenêtre. Comportement hérité de `onramp.ts`, non modifié.
+- **Le solde de la page Wallet n'est pas protégé contre une réponse tardive d'un appel plus ancien** (deux rafraîchissements qui se chevauchent : le dernier terminé gagne). Préexistant, non corrigé ici ; le changement de compte est couvert par le remontage de la page.
+- **Le solde de la page Wallet est lu sur la chaîne du wallet** même en cas de mauvais réseau (préexistant).
+- **Le bouton profil défile avec la page** (voir section 2, point 1).
+- **Deux boutons affichant la même adresse** (profil et barre latérale) : redondant visuellement.
+- **Liens Settings et KYB morts** jusqu'à la fusion de A6.
+- **Visite guidée inopérante** jusqu'à ce que `ProductTour` s'abonne.
+- La permission de copie du presse-papiers peut être refusée par le navigateur (« Copy failed »).
+- Aucune règle de Content-Security-Policy n'a été ajoutée ; le QR code est du SVG intégré, donc sans impact sur une CSP stricte (pas d'image `data:`).
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+Priorité haute (avant le lancement) :
+1. **Fusionner la ligne du libellé du jeton** de `wallet/page.tsx` (autre tranche) : `t(stablecoinSymbol(NETWORK))` de `src/components/profile/network.ts` peut être réutilisé. Vérifier que la carte de solde dit « USDG » sur mainnet.
+2. **Corriger le message du pont dans `src/lib/wallet/onramp.ts`** (« envoie de l’USDC… » → USDG) avec la tranche A8.
+3. **Abonner `ProductTour`** à `GUIDED_TOUR_EVENT` (exemple dans `guided-tour.ts`), puis retirer le message « bientôt disponible » devenu inutile.
+4. **Vérifier que le pont Across supporte l'USDG** ; sinon masquer le bouton « Use the bridge » sur mainnet via `addFundsOptions` (champ `bridge`) et ne garder que le transfert.
+5. **Essayer le QR code à la main** avec au moins deux applications de wallet (cas 12).
+
+Priorité moyenne :
+6. Faire apparaître le lien Wallet pour un visiteur non connecté si le produit le souhaite (aujourd'hui l'URL seule).
+7. Rendre le bouton profil visible en permanence (barre fixe qui réserve sa place) si un besoin produit le justifie ; voir section 2, point 1.
+8. Protéger le solde de la page Wallet contre la réponse tardive d'un appel plus ancien, et le masquer en cas de mauvais réseau.
+9. Test e2e du parcours mainnet (nécessite une seconde configuration Playwright avec `NEXT_PUBLIC_EVM_NETWORK=mainnet`).
+
+V1.1 (spécification 05) : historique des transactions, retrait général avec vérification d'adresse, revenus par dataset, « tout retirer », achat par carte.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node, pnpm 11.18.0 lancé par `npx pnpm@11.18.0` (le lanceur local `pnpm` échoue avec « Failed to switch pnpm to v11.18.0 », problème d'installation locale, sans rapport avec le code). `DATABASE_URL=postgresql://x:y@localhost:5432/z`.
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | OK après ajout de la dépendance ; le premier essai sans `DATABASE_URL` échoue dans le `postinstall` (`prisma generate` exige la variable) : échec d'environnement, résolu en la fournissant. |
+| `pnpm prisma generate` | OK (« Generated Prisma Client (7.8.0) »), exécuté par le `postinstall`. |
+| `pnpm exec tsc --noEmit` | OK, aucune erreur (avec `--incremental false` : un fichier `tsconfig.tsbuildinfo` périmé produisait des erreurs fantômes, supprimé). |
+| `pnpm lint` | OK, 0 erreur, 0 avertissement. |
+| `pnpm test` | **Échec d'environnement Windows.** Le script `NODE_OPTIONS="…" node …` n'est pas exécutable par `cmd.exe` (« 'NODE_OPTIONS' n'est pas reconnu »). Même commande lancée à la main avec `NODE_OPTIONS` : 553 tests, 478 réussis, 75 échecs. **Les 75 mêmes échecs existent sur `origin/staging` seul** (530 tests, 455 réussis, 75 échecs ; comparaison des noms de tests : aucune différence). Causes : séparateurs de chemin Windows (`src\app\…` contre `src/app/…`), scripts bash et volumes du runner. Les 23 tests de la tranche passent. À rejouer sous Linux (CI). |
+| `pnpm audit:deps` | OK, code de sortie 0 : « 2 vulnerabilities found, 1 low, 1 high (1 ignored) », sans lien avec la tranche (avis existant ignoré par la configuration). |
+| `node --test` des trois fichiers de la tranche + `english.test.ts` | OK : 13 + 7 + 3 + 7 = 30 tests réussis, 0 échec. |
+| Playwright : `profile.spec.ts`, `wallet.spec.ts`, `account-switch.spec.ts`, `audit-regressions.spec.ts`, `responsive.spec.ts` | 70 tests réussis, 0 échec (délai de test relevé à 120 s en local pour absorber la compilation à froid du serveur de développement ; `profile.spec.ts` fixe 90 s). |
+| `git diff --name-only staging...HEAD` | Uniquement des fichiers autorisés (liste dans la PR). |
+| `git log staging..HEAD --format=%B` | Aucune signature d'assistant, aucun `Co-Authored-By`, aucun lien de session. |
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Trois passes de revue adversariale (agents en lecture seule, angles distincts), plus mes propres relectures.
+
+**Passe 1 — sécurité de l'adresse et du QR code.** Rien de bloquant. Confirmé : l'adresse affichée, copiée et encodée est une seule chaîne validée ; pas d'injection HTML ; liens protégés ; QR local ; dépendance correcte et présente dans le verrou ; capacité du QR suffisante.
+- Corrigé : **solde lu sur la chaîne du wallet** même en cas de mauvais réseau → le menu ne lit plus rien dans ce cas et affiche « — » ; **solde non nul affiché « 0 »** par la troncature → « <0.0001 » ; test ajouté.
+- Écarté, hors périmètre ou préexistant : libellé « USDC » de la carte de solde de la page Wallet (ligne réservée à une autre tranche : consigné en sections 2, 7 et 8) ; réponse tardive d'un ancien appel sur la page Wallet (préexistant, non régressif).
+- Remarque prise en compte : `ReceiveFunds` ne rend rien si l'adresse est invalide (voulu).
+
+**Passe 2 — non-régression et e2e.** Confirmé sans diff : `EscrowCredits.tsx`, `src/lib/wallet/**` ; `ConnectButton` équivalent (ordre, `finally`, imports) ; les sélecteurs des e2e existants ne rencontrent pas le bouton profil (nom accessible « Profile menu », `role="dialog"`) ; parcours testnet du faucet identique ; hooks dans l'ordre.
+- Corrigé : **bouton fixe recouvrant les actions à droite des en-têtes** (Marketplace, Mes datasets, de 768 à 1500 px) → bouton en flux, deux e2e de non-chevauchement ajoutés ; **menu rouvert tout seul après une déconnexion externe** → fermeture quand l'adresse disparaît ; **libellé « Envoi en cours… » faux pour le pont** → « Opening the bridge… ».
+- Écarté : le bouton « Use the bridge » appelle d'abord le faucet (comportement de `onramp.ts`, hors périmètre ; consigné en section 7) ; Échap qui ferme aussi un autre dialogue (le fond du panneau bloque l'interaction, cas improbable) ; absence de lien Wallet hors connexion (voulu par la spécification, consigné) ; « Guided tour » sans abonné (limite connue, documentée).
+
+**Passe 3 — contrôle des correctifs des passes 1 et 2.** Aucune régression trouvée, aucun fichier hors périmètre (23 fichiers modifiés, tous autorisés) ; `setOpen` pendant le rendu validé (motif React autorisé, hooks dans l'ordre) ; toutes les clés `t()` des trois composants ont une traduction.
+- Corrigé : focus perdu après « Guided tour » (retour au bouton profil quand la visite démarre) ; deux régions nommées « Profile menu » dans le dialogue (la navigation interne s'appelle « Navigation ») ; correctifs de la passe 1 sans test → deux e2e ajoutés (wallet sur un autre réseau : solde « — » et zéro `eth_call` ; déconnexion externe : menu non rouvert) ; champ `bridge` de `addFundsOptions` jamais lu → il pilote désormais l'affichage du bouton « Use the bridge » (le mettre à faux le masque si Across ne supporte pas l'USDG).
+- Écarté : focus après un clic sur un lien du menu (le focus suit la navigation) ; solde périmé affiché un instant au retour sur le bon réseau (jusqu'à la fin de la nouvelle lecture).
+
+**Corrections de mon fait, hors revue.** Erreur de TypeScript fantôme due à un fichier d'index incrémental périmé (supprimé) ; déclaration globale `window.__SIRIUS_E2E__` dupliquée dans mon e2e, qui entrait en conflit avec celle du pont de test (retirée, le type du pont est réutilisé) ; imports inutilisés dans un test.
 
 ---
 
@@ -1186,42 +1359,204 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## N2 — Upload en deux étapes
 
+Branche `feat/upload-deux-etapes`, partie de `staging` (e829cfc), `origin/staging` (2f6ae81, PR #39) refusionné avant la PR. Cahier : [07-upload.md](07-upload.md), [01 §3-4](01-decisions-avant-samedi.md), [16 §2 et §4](16-socle-technique.md). La vague 1 avait livré les colonnes `category`, `listingExpiresAt`, `trainingConsentAt/Version/RevokedAt` (A1) et les composants `PriceBreakdown`, `DisclaimerNote`, `src/lib/copy/disclaimers.ts` (A2) ; cette slice est la première à **écrire** ces colonnes et à **monter** ces composants sur une page réelle.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+`git diff --name-only origin/staging...HEAD` : 32 fichiers (liste en fin de section). Aucune migration, aucun contrat, aucun fichier du runner (`src/runner/**`, `src/lib/runner/**`) ni de `src/components/**`.
+
+**Page d'upload (`src/app/(app)/datasets/new/`)**
+- `page.tsx` : devient un **composant serveur** (`export const dynamic = "force-dynamic"`, option encore documentée dans Next 16 sans `cacheComponents`) qui lit le tarif en vigueur (`publishedTariff()`) et le jeton du réseau (`settlementToken()`), puis rend le formulaire client. Il remplace l'ancien formulaire à une étape (prix + « délai de remboursement » 1–30 jours).
+- `NewDatasetWizard.tsx` (client) : trois phases `data` → `securing` → `pricing` ; fichier lu en mémoire (`ArrayBuffer` + texte) ; contrôle du CSV recalculé quand le profil change ; empreinte SHA-256 locale pendant la transition (durée minimale 2,4 s, lignes affichées en séquence, états annoncés aux lecteurs d'écran, une erreur ramène à l'étape 1) ; publication avec progression par étape ; reprise de la seule inscription on-chain quand le dataset est déjà scellé ; focus clavier replacé sur le panneau à chaque changement d'étape.
+- `DataStep.tsx` : dépôt (glisser-déposer + champ natif), raison exacte du refus (`role="alert"`), résumé du fichier accepté (lignes de données, colonnes, colonnes numériques, colonne cible = dernière colonne numérique, liste dépliable), jeu d'exemple, nom (120), description (2 000), catégorie obligatoire (liste fixe), profil d'entraînement. Encart `DisclaimerNote messages={["dataLimits"]}`.
+- `PricingStep.tsx` : « What I want to earn per loan ({symbol}) », `PriceBreakdown perspective="provider"` en direct dès qu'une saisie est valide (part, frais de calcul du profil choisi, total emprunteur, minimum), durée 7 / 30 / 90 jours (30 par défaut, échéance indicative « à compter de l'inscription on-chain »), note sur le délai de sécurité de 3 jours fixé par Sirius, estimations (lignes, colonnes, taille chiffrée ≈ taille + 16 octets d'étiquette AES-GCM, modèle, cible), `DisclaimerNote variant="warning"` (texte commun `modelQuality` + `contactUs`), case de consentement décochée (texte de 07 au mot près, version affichée), progression (brouillon, chiffrement, scellement, titre on-chain avec sous-étapes), erreurs avec lien vers Mes datasets si le dataset est déjà scellé. **Sans tarif chargé, la publication est suspendue** avec explication.
+- `wizard-types.ts` : types partagés et classes Tailwind communes (anneau de focus `focus-visible`, visible en contraste forcé).
+
+**Logique de publication (`src/lib/datasets/`, nouveaux fichiers ; `manage.ts` non touché)**
+- `publication.ts` (pur) : `MAX_NAME_LENGTH` / `MAX_DESCRIPTION_LENGTH` (partagées formulaire + route), `DATASET_CATEGORIES` (Finance, Health, Commerce, Industry, Mobility, Energy, Marketing, Other — identifiants stockés), `DATASET_CATEGORY_LABEL_KEYS`, `parseDatasetCategory`, `LISTING_DURATIONS_DAYS` [7, 30, 90], `DEFAULT_LISTING_DURATION_DAYS` 30, `parseListingDurationDays`, `listingExpiryFrom`, **`ESCROW_CHALLENGE_DAYS = 3`**, `TRAINING_CONSENT_TEXT_KEY` + `TRAINING_CONSENT_VERSION` (`2026-10-04`), `parseTrainingConsent` (booléen strict, absent = non), `rebasedListingExpiry`.
+- `csv-check.ts` (pur, navigateur et Node) : `checkFileSize`, `inspectCsv(text, modelId)` qui reproduit dans le même ordre les contrôles de `validateTrainingDataset` (`src/lib/tee/train.ts`) avec le même parseur `parseCsv` et les constantes importées (`MAX_DATASET_BYTES`, `MAX_CSV_ROWS`, `MAX_CSV_COLUMNS`, `MIN_TRAINING_ROWS`, `MIN_ROWS_PER_PARAMETER`, `MAX_TRAINING_FEATURES`, `MAX_TRAINING_OPERATIONS`), `csvRejectionText` (raison traduite).
+- `price-input.ts` (pur) : `parseProviderPrice(value, decimals)` (mêmes règles que `priceUsdcToAtomic`, précision passée par le serveur), `minimumProviderPriceAtomic(decimals)`.
+- `tariff.ts` (pur) : `PublishedTariff`, `tariffFromPolicy(policy, scope)` (frais = max(profil, minimum), comme `prepareComputeQuote`), `legacyTariff` (frais nuls sans facturation v7), `providerPriceBreakdown`. `tariff-server.ts` (`server-only`) : `publishedTariff()` lit `billingPolicy()` (`RUNNER_BILLING_POLICY_FILE`), vérifie chaîne, jeton et décimales, mémoïse 5 s ; `null` en cas d'absence, de péremption ou d'incohérence.
+- `token.ts` : `settlementToken(network)` → `{ symbol: "USDG" | "USDC", decimals: USDC_DECIMALS }`.
+- `create-request.ts` (pur) : `parseCreateDatasetRequest(body)`, toute la validation serveur de `POST /api/datasets` ; `challengeDays` toujours `ESCROW_CHALLENGE_DAYS`.
+- `draft.ts` (`server-only`) : `createDatasetDraft(request, provider)` = `beginDatasetIngestion` (pipeline inchangé, `challengeDays: 3`) puis lecture de `createdAt` et `updateMany` conditionné (`DRAFT`, même fournisseur, sans CID ni clé) posant `category`, `listingExpiresAt = createdAt + durée`, `trainingConsentAt`, `trainingConsentVersion` ; échec → brouillon supprimé et erreur propagée.
+- `draft-response.ts` (pur) : `checkDraftResponse` relit la réponse du serveur avant chiffrement et signature (identifiant, clé d'ingestion, prix atomique, taille, profil, catégorie, durée, consentement, **`challengeDays === 3`**).
+- `upload-client.ts` (client) : `uploadAndPublishDataset` = brouillon → chiffrement (`encryptDatasetForRunner`, inchangé) → grant `seal-dataset` (mêmes `intentParts`, même ordre que l'ancienne page) → `POST /api/datasets/{id}/upload` → `publishDataset` ; `UploadError` porte l'étape et l'identifiant scellé.
+- `client.ts` : `publishDataset(datasetId, onStage?)` gagne un rappel de progression facultatif ; signature rétro-compatible (Mes datasets et la démo Phala l'appellent sans second argument).
+
+**Routes**
+- `src/app/api/datasets/route.ts` : `POST` réécrit autour de `parseCreateDatasetRequest` + `createDatasetDraft` ; `GET` inchangé. Corps accepté : `name`, `description?`, `sizeBytes`, `priceUsdc`, `category`, `listingDays`, `trainingConsent?`, `modelId`. Réponse 201 : champs de `beginDatasetIngestion` + `category`, `listingDays`, `listingExpiresAt`, `trainingConsentAt`, `trainingConsentVersion`, `challengeDays: 3`.
+- `src/app/api/datasets/[id]/upload/route.ts` et `[id]/list/route.ts` : **non modifiés**.
+
+**Mise en ligne (`src/lib/sirius/provider.ts`)** : `markDatasetListed` rebase `listingExpiresAt` sur la date de mise en ligne avec la durée choisie (`rebasedListingExpiry`) à la transition `DRAFT` → `LISTED` ; rien n'est touché si la valeur n'est pas reconnue ou en mode `SIRIUS_PHALA_DEMO`. `provider.test.ts` : une ligne (dépendance simulée `@/lib/datasets/publication`).
+
+**Démo Phala (`src/lib/phala-demo/training-client.ts`)** : une ligne, le corps de `POST /api/datasets` envoie `category: "Other"`, `listingDays: 7`, `trainingConsent: false` et plus de `challengeDays` (sinon la démo, conservée sur staging, recevait 400).
+
+**Traductions** : `src/lib/i18n/upload-en.ts` (nouveau, fusionné dans `EN_MESSAGES` par `english.ts`, +2 lignes). Texte du consentement et catégories au mot près.
+
+**Tests** : `package.json`, 6 fichiers ajoutés à la fin du script `test` (après `access-log-wiring.test.ts` de staging). E2E : `e2e/upload.spec.ts` (nouveau, 3 tests), `e2e/responsive.spec.ts` (test de l'upload adapté).
+
+Liste des fichiers : `e2e/responsive.spec.ts`, `e2e/upload.spec.ts`, `package.json`, `src/app/(app)/datasets/new/{DataStep,NewDatasetWizard,PricingStep}.tsx`, `src/app/(app)/datasets/new/{page.tsx,wizard-types.ts}`, `src/app/api/datasets/route.ts`, `src/lib/datasets/{client,create-request,csv-check,draft,draft-response,price-input,publication,tariff,tariff-server,token,upload-client}.ts`, `src/lib/datasets/{create-request,csv-check,draft-response,price-input,publication,tariff}.test.ts`, `src/lib/i18n/{english,upload-en}.ts`, `src/lib/phala-demo/training-client.ts`, `src/lib/sirius/{provider,provider.test}.ts`, `docs/passage-mainnet/audit.md`.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **L'« animation de chiffrement » ne chiffre pas.** La clé de chiffrement est dérivée de l'identifiant du brouillon et de la clé d'ingestion de l'enclave, obtenus par `POST /api/datasets`, qui exige le prix — connu seulement à l'étape 2. Créer le brouillon avant le prix aurait multiplié les brouillons abandonnés (quotas de `pipeline.ts` : 5 ouverts, 10 par heure). La transition fait donc **ce qu'elle dit** : fichier lu en mémoire, empreinte SHA-256 calculée sur l'appareil (affichée), et l'annonce que le chiffrement aura lieu ici, à la publication, pour la clé de l'enclave. Le chiffrement réel est l'étape « Encrypting on your device » de la progression. Une erreur (digest impossible) ramène à l'étape 1 avec son message.
+2. **Colonne cible affichée, pas choisie.** L'enclave entraîne toujours sur la **dernière colonne numérique** (`validateTrainingDataset` appelle `trainingColumns` sans cible, `src/lib/tee/train.ts`) et `ModelSelection` ne transporte aucune cible ; le runner est hors périmètre. Le formulaire montre la cible que l'enclave utilisera et explique comment la changer (réordonner les colonnes). Laisser choisir une cible non honorée aurait été un mensonge.
+3. **Tarif lu depuis la politique de facturation du runner, sur l'instance Next.** Aucune route (Next ni runner) n'expose le tarif et `src/runner/**` est interdit. `publishedTariff()` lit `RUNNER_BILLING_POLICY_FILE` avec `billingPolicy()` (même format, même validation que le runner), refuse une politique d'une autre chaîne, d'un autre jeton ou d'une autre précision, et mémoïse 5 s (page publique, lecture disque). Conséquence opérationnelle : **l'instance Next doit recevoir la même copie de la politique que le runner** (§8). Sans elle, la page le dit et **suspend la publication** : le cahier exige la décomposition avant « Publier », et un fournisseur ne doit pas publier sans connaître le total payé par l'emprunteur. Revue : première version autorisait la publication sans décomposition ; corrigé.
+4. **Sans facturation v7 (`SIRIUS_BILLING_VERSION` ≠ 7), frais de calcul nuls.** L'escrow v6 bloque le seul prix du dataset (`lockUsdcTransaction`, contrat v6) ; `SiriusEscrowV7.sol` crédite `datasetAmount` au fournisseur et `computeAmount` au `computeRecipient` sans prélèvement. Le tarif `legacy-v6` affiche 0 avec un texte dédié. C'est la situation du testnet de staging et des e2e.
+5. **Le minimum « imposé par le tarif » est `MIN_PRICE_USDC_ATOMIC` (0,001 jeton)**, seul plancher que la route applique à la part du fournisseur (`priceUsdcToAtomic`) et que `parseComputeQuote` exige sur le total. La politique de facturation n'a pas de minimum sur la part fournisseur. Il est connu localement (`minimumProviderPriceAtomic`) et affiché même sans tarif ; le champ refuse en dessous ; `PriceBreakdown` afficherait l'alerte si un tarif futur posait un minimum plus haut.
+6. **Durée de publication ancrée sur `createdAt` puis rebasée à la mise en ligne.** `listingExpiresAt` est posé à la création du brouillon (seule place persistante sans nouvelle colonne, `prisma/` interdit) à `createdAt + durée` exactement, puis recalculé dans `markDatasetListed` : même durée, nouveau point de départ. Un brouillon scellé mais signé plusieurs jours après garde ses 7 / 30 / 90 jours pleins. La durée est reconnue par différence arrondie au jour (tolérance d'une minute, défensive) ; une valeur inconnue n'est pas touchée (datasets d'avant le champ, lignes modifiées par N1). Revue : première version prenait l'horloge serveur après l'appel runner (jusqu'à 60 s) ; corrigé.
+7. **Deux écritures pour un brouillon.** `beginDatasetIngestion` (`pipeline.ts`, hors périmètre) ne connaît pas les champs de catalogue ; `createDatasetDraft` les pose juste après par `updateMany` conditionné et supprime le brouillon si cette écriture échoue. Entre les deux, le brouillon existe sans catégorie quelques millisecondes ; il n'est pas publiable (pas de CID) et le client ne connaît pas encore son identifiant.
+8. **Le client relit la réponse du serveur** (`checkDraftResponse`) avant de chiffrer et de signer : prix, taille, profil, catégorie, durée, consentement et `challengeDays === 3`. Une réponse altérée arrête tout avant l'envoi du fichier (e2e dédié).
+9. **Deux constantes privées de `train.ts` reproduites** dans `csv-check.ts` : `MAX_ABS_VALUE` (1e12) et `LOGISTIC_ITERATIONS` (200), non exportées et `src/lib/tee/**` interdit. Toutes les autres limites sont importées. `csv-check.test.ts` rejoue `validateTrainingDataset` sur les fichiers à la frontière (99/100 lignes, 319/320 à 31 variables, 3125/3126 logistique, 19 531/19 532 linéaire, 19 999/20 000, 1e12 / 1e12+1) : toute dérive casse le test.
+10. **Catégories stockées en anglais** (`Finance`, `Health`, …), clés de traduction françaises pour l'affichage, comme le reste de l'interface. Comparaison exacte côté serveur, sans normalisation.
+11. **Consentement : absent = non.** Le corps peut omettre `trainingConsent` ; toute valeur non booléenne est refusée. Date et version posées **uniquement** si `true`. Le retrait depuis la fiche (N1) est annoncé au futur (« You will be able to withdraw it… ») : il n'existe pas encore.
+12. **Prix saisi en texte** (`inputMode="decimal"`), converti avec `token.decimals = USDC_DECIMALS` (même source que la route) ; `price-input.test.ts` vérifie l'accord avec `priceUsdcToAtomic`. Message d'erreur serveur neutre quant au jeton (« Invalid price (0.001 to 1,000,000 per loan) »).
+13. **Reprise après échec.** Si l'inscription on-chain échoue après le scellement, le bouton devient « Resume the on-chain registration », les champs et le retour sont gelés, et seule `publishDataset` est relancée : pas de second brouillon. Si l'échec précède le scellement, le brouillon reste (nettoyé après 30 minutes par `pipeline.ts`, ou supprimé par le runner sur refus du fichier) et une nouvelle tentative crée un nouveau brouillon — comme l'ancienne page.
+14. **Fichiers hors de la liste explicite, modifiés d'une ligne chacun** : `src/lib/sirius/provider.test.ts` (son bac à sable refuse toute dépendance non simulée) et `src/lib/phala-demo/training-client.ts` (la démo Phala, conservée sur staging selon 12-test-phala.md, créait des datasets sans catégorie ni durée et aurait reçu 400 ; trouvé en revue).
+15. **E2E existants adaptés** (`responsive.spec.ts`) et spec dédié ajouté, la consigne demandant de vérifier et d'adapter les e2e de publication.
+16. **Jeton affiché** : `settlementToken` donne USDG sur mainnet, USDC sur le testnet ; A8 pourra la remplacer par sa fabrique.
+17. **`origin/staging` refusionné** (2f6ae81, journal des accès) ; seul conflit : la ligne `test` de `package.json`, résolue en gardant les deux listes.
+18. **Identité des commits** : auteur et committeur `alibenyezza <149864846+alibenyezza@users.noreply.github.com>`, aucune signature d'assistant. `CLAUDE.md` / `AGENTS.md` générés par `next dev` dans le worktree : non versionnés.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès, route par route**
+- `POST /api/datasets` : `requireAuth` avant toute lecture du corps ; le fournisseur est `session.address`, jamais le corps. `beginDatasetIngestion` applique `requireAcceptedKyb` et les quotas (inchangés). L'`updateMany` de `draft.ts` est conditionné à `provider` + `status: "DRAFT"` + `ipfsCid: null` + `wrappedKey: null`.
+- `POST /api/datasets/[id]/upload`, `POST/PUT /api/datasets/[id]/list` : inchangés (grant runner authentifié, `assertOwner`).
+- `page.tsx` : composant serveur sans authentification ; il ne lit que le tarif et le réseau, rien du wallet. `PublishedTariff` renvoyé au navigateur contient uniquement `tariffVersion`, les deux montants de calcul, le minimum et les décimales — ni `computeRecipient`, ni `costReference`, ni `validUntil`, ni le chemin du fichier.
+
+**Validation et bornes** (`create-request.ts`, tests) : nom 1–120 après `trim`, description ≤ 2 000, `sizeBytes` entier sûr 1..`MAX_DATASET_BYTES`, `priceUsdc` chaîne 0,001..1 000 000 avec au plus `USDC_DECIMALS` décimales, `category` exacte dans la liste, `listingDays` nombre ∈ {7, 30, 90} (« 30 » refusé), `trainingConsent` booléen ou absent, `modelId` connu (`Object.hasOwn`). **`challengeDays` n'est pas lu** : `grep challengeDays src/lib/datasets/create-request.ts` ne montre que la constante. Ordre des contrôles fixe (test). Corps : `readJson` 16 Ko.
+
+**Fuites** : les messages d'erreur ne reprennent jamais une valeur reçue ; `tariff-server.ts` et `draft.ts` ne journalisent que la classe de l'erreur ou l'identifiant ; la réponse du `POST` renvoie au fournisseur sa propre trace de consentement, ce qui est voulu — les lectures de catalogue restent protégées par l'`omit` de `db.ts`. Aucune donnée d'un autre wallet n'est lue.
+
+**Argent, escrow, contrats, Phala** : aucun changement de contrat ni de moteur. Chaîne `challengeDays = 3` : constante → `createDatasetDraft` → ligne `Dataset` → `authorizeDatasetUpload` → `sealDatasetInRunner` (le runner borne 1..30 et compare l'intent, `src/runner/handler.ts`) → reçu de l'enclave → `prepareComputeQuote` (`challengeDays: input.dataset.challengeDays`) → `parseComputeQuote` (1..30) → `lock`. Le navigateur signe l'intent `seal-dataset` avec `String(draft.challengeDays)` après avoir vérifié `=== 3`. Frais de calcul affichés = `max(profile.computeAmount, minimumComputeAmount)`, identiques à `prepareComputeQuote` (test). Total = somme exacte en `bigint` (`PriceBreakdown`) ; fuzz de revue : 600 000 saisies, 0 divergence entre `parseProviderPrice` et `priceUsdcToAtomic` (6 et 18 décimales).
+
+**Base de données** : aucune migration ; les colonnes écrites existent depuis A1. Cohérence : `category` ∈ liste fixe, `listingExpiresAt` = `createdAt` + durée puis mise en ligne + durée, `trainingConsentAt` et `trainingConsentVersion` nuls ou tous deux posés, `challengeDays` = 3 sur toute ligne créée par cette route. Les lignes antérieures gardent leur valeur (01 §3). Le défaut Prisma `challengeDays @default(7)` subsiste (aucun chemin ne l'utilise, voir §8).
+
+**Interface** : aucun `dangerouslySetInnerHTML` ; noms de fichier, de colonnes, messages serveur rendus par React (échappés). Liens : `/datasets` en dur, `mailto:` via `DisclaimerNote`. Texte du consentement et catégories constants.
+
+**Textes** : avertissement commun inchangé (`modelQuality` + `contactUs`, source unique 16 §4) ; « Encryption happens here, at publication, for the enclave key: your plain data never leaves your browser » est vrai (`encryptDatasetForRunner`, ECDH P-256 + HKDF + AES-GCM dans le navigateur) ; « No extra commission during the beta » : vrai au vu du contrat v7 et du v6 (frais de réseau à part, comme partout) ; « The enclave trains on the last numeric column » : `train.ts`, `targetIdx = numeric[numeric.length - 1]`.
+
+**Signatures d'assistant** : `git log origin/staging..HEAD --format=%B` sans `Co-Authored-By`, `Claude`, `Generated`, lien `claude.ai`, `[skip ci]`.
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. **Fichier refusé avant tout envoi.** Déposer un CSV de 3 lignes → « Not enough rows: 2, minimum 100 for this number of features. », bouton « Continue to pricing » désactivé, onglet Réseau vide. Fichier de 3 Mio + 1 octet → « File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB. » sans lecture du contenu. Fichier vide → « The file is empty. ».
+2. **Profil et cible.** Charger `credit-default-train.csv` en logistique → accepté, cible `defaulted`. Basculer sur linéaire → toujours accepté. Charger `housing-prices-train.csv` puis passer en logistique → « For logistic regression, the target column “price_eur” must contain only 0 and 1… » ; revenir en linéaire → accepté.
+3. **En-têtes.** Deux colonnes du même nom ou une colonne sans nom → « Invalid header… ». Colonne texte au milieu → acceptée si au moins deux colonnes numériques, absente de « Show numeric columns ».
+4. **Transition.** « Continue to pricing » : trois lignes s'allument l'une après l'autre, l'empreinte s'affiche, l'étape 2 arrive après 2 à 3 secondes ; « Step 2 of 2 » ; le focus est sur le panneau ; « ← Back to your data » revient avec le fichier et les champs intacts.
+5. **Prix.** Champ vide → encart neutre « Enter your share to see what the borrower will pay. Minimum… », pas d'alerte. `0.0001` → « Invalid amount… », bouton désactivé. `12.5` → « You receive 12.50 USDG / Compute fee (Phala enclave) x / Borrower pays 12.50 + x USDG », « Minimum set by the tariff: 0.001 USDG. ». `20,5` (virgule) → invalide. `1000000` → accepté ; `1000000.01` → invalide. Changer de profil à l'étape 1 puis revenir : les frais suivent le profil.
+6. **Tarif absent.** Instance sans `RUNNER_BILLING_POLICY_FILE` (ou périmé) en v7 → encart jaune « The tariff in force could not be loaded… Publication is paused… », minimum affiché, bouton désactivé « Publication paused: tariff unavailable. ». Sur staging (v6) : « Compute fee 0.00 », texte « No compute fee with the current escrow… ».
+7. **Durée.** 30 jours coché par défaut ; choisir 90 → « Listed for 90 days from the on-chain registration (around AAAA-MM-JJ) » ; après publication, `listingExpiresAt` en base = date de mise en ligne + 90 jours. Laisser un brouillon scellé 2 jours avant de signer le titre depuis Mes datasets → échéance = mise en ligne + 90 jours.
+8. **Consentement.** Publier sans cocher → `trainingConsentAt` et `trainingConsentVersion` nuls. Cocher → date de la requête et `2026-10-04`. `GET /api/datasets?status=LISTED` ne renvoie pas ces champs.
+9. **challengeDays forcé.** Rejouer `POST /api/datasets` avec `curl` et `"challengeDays": 30` (ou `"1"`, `null`) → 201 avec `"challengeDays": 3` ; ligne en base à 3 ; l'emprunt ultérieur montre un devis à 3 jours (`ComputeQuoteDialog`).
+10. **Catégorie et durée hors liste par `curl`.** `"category": "finance"` → 400 « Category required » ; `"listingDays": "30"` → 400 « Invalid listing duration… » ; `"trainingConsent": "true"` → 400 « Invalid consent value ».
+11. **Réponse altérée.** Avec un proxy, `challengeDays` de la réponse mis à 7 → « Inconsistent escrow safety delay », étape « Creating the draft » en échec, aucun `upload` envoyé (reproduit par l'e2e).
+12. **Progression et échec.** Refuser la signature du titre dans le wallet → « Transaction rejected in your wallet. », étape « Registering the title on-chain » en échec, « The dataset is sealed by the enclave. Finish the on-chain registration from My data assets », champs gelés, bouton « Resume the on-chain registration » ; cliquer → nouvelle demande de signature, pas de second dataset dans Mes datasets.
+13. **Annulation du sélecteur de fichier** pendant une lecture → le formulaire ne reste pas sur « Reading the file… ».
+14. **Démo Phala** (`SIRIUS_PHALA_DEMO=true`, `/phala`) : le parcours crée toujours son dataset (catégorie Other, 7 jours).
+15. **Écran 320 px et police 200 %** : aucun défilement horizontal (e2e `responsive` sur l'étape 1 à 7 tailles ; l'étape 2 n'y est vérifiée qu'à la main).
+16. **Mes datasets** : après la publication, redirection vers `/datasets`, le dataset apparaît en ligne avec sa catégorie et son échéance (affichage à la charge de N1).
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+Ajoutés au script `test` (6 fichiers, 36 tests) :
+- `publication.test.ts` : liste et libellés des catégories (traduits, identiques aux identifiants), correspondance exacte, durées strictes, échéance en millisecondes exactes, constante 3 dans 1..30, consentement strict, texte du consentement au mot près et version datée, rebase (trois durées, décalage toléré, valeurs inconnues ignorées).
+- `csv-check.test.ts` : **parité avec `validateTrainingDataset`** sur 27 cas de bord (lignes, variables, budget de calcul, parseur, en-têtes, classes logistiques, `1e12`, hexadécimal, espaces, `Infinity`, CRLF, guillemets), raisons alignées sur les messages de l'enclave, résumé exact, dépendance au profil, bornes de taille, textes traduits sans paramètre pendant, **jeux d'exemple du formulaire acceptés** par les deux contrôles.
+- `create-request.test.ts` : normalisation, `challengeDays` ignoré pour 13 valeurs, catégorie, durée, consentement, bornes de nom/description/taille/prix/profil, ordre des erreurs, corps non objet, traduction de chaque message.
+- `tariff.test.ts` : frais = max(profil, minimum), refus d'une politique d'une autre chaîne / jeton / précision, tarif v6 nul, décomposition exacte et minimum, **`publishedTariff()` réel** avec un fichier temporaire (valide, mémoïsation, autre chaîne, périmé, illisible, absent, v6, version inconnue).
+- `price-input.test.ts` : plancher local = `MIN_PRICE_USDC_ATOMIC`, accord avec `priceUsdcToAtomic` sur 40 saisies, précision paramétrée, entrées invalides.
+- `draft-response.test.ts` : relecture conforme, `challengeDays` ≠ 3 refusé (7 variantes), termes différents refusés, réponses malformées (dont identifiant de 9 et 65 caractères).
+
+E2E (`e2e/upload.spec.ts`, 3 tests, API simulée, wallet qui signe réellement, chiffrement réel pour une clé P-256 générée par le test) : refus à l'étape 1 sans appel réseau ; parcours complet (exemple chargé, nom, catégorie, transition ≥ 2 s avec empreinte, prix sous le plancher refusé, décomposition, minimum, délai de 3 jours, 30 jours par défaut, 90 choisi, avertissement, consentement coché, publication, redirection, corps du `POST` sans `challengeDays`, enveloppe chiffrée avec grant runner, `list` appelé) ; réponse à 7 jours refusée avant tout chiffrement. `e2e/responsive.spec.ts` : étape 1 à 7 tailles d'écran avec le message de refus.
+
+**Angles morts :**
+- `createDatasetDraft` (deux écritures, suppression compensatoire) et le `POST` de la route n'ont pas de test unitaire (Prisma + `beginDatasetIngestion`) ; vérifiés par relecture et par le cas 9 à la main.
+- Le rebase dans `markDatasetListed` n'est testé qu'au niveau de la fonction pure ; `provider.test.ts` n'exerce pas la mise en ligne.
+- `NewDatasetWizard` / `PricingStep` : pas de test de rendu unitaire ; les e2e ne couvrent ni la reprise après signature refusée, ni le retour à l'étape 1, ni un tarif v7 (frais > 0), ni le tarif absent, ni le glisser-déposer, ni le clavier, ni l'étape 2 aux petites largeurs.
+- La parité `csv-check` ↔ enclave dépend de deux constantes recopiées (§2.9) ; détectée sur les frontières choisies, pas sur un changement d'algorithme du budget. BOM UTF-8 : le navigateur le retire (`TextDecoder`), l'enclave non (`Buffer.toString`) — même verdict sauf en-tête vide précédé d'un BOM (refusé par le navigateur, accepté par l'enclave : direction sûre).
+- Le corps envoyé par la démo Phala n'est couvert par aucun test (`test:phala-demo` ne l'exerce pas).
+- Les e2e ne lancent pas `next build` ; `next dev` compile le composant serveur sans erreur.
+- Aucun test d'accessibilité automatisé.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- L'instance Next de production reçoit `RUNNER_BILLING_POLICY_FILE` (même fichier que le runner). `deploy/vps/compose.yaml` ne le passe pas aujourd'hui, et `docs/BILLING-INTEGRATION.md` le décrit comme local au runner ; la politique ne contient que des montants publics.
+- La fiche du dataset (N1) affichera et renouvellera `listingExpiresAt`, et permettra de révoquer le consentement ; la marketplace (N3) filtrera sur `listingExpiresAt` futur (16 §2). Aujourd'hui aucune route ne lit ce champ.
+- Le texte anglais du consentement et des catégories est celui attendu par le propriétaire ; `2026-10-04` est la première version.
+- Les décimales de `USDC_DECIMALS_BY_NETWORK` correspondent au contrat déployé (contrôle au déploiement, hors slice).
+- `beginDatasetIngestion` reste la seule fabrique de brouillons ; aucun autre code n'écrit `challengeDays`.
+- `encryptDatasetForRunner` et `issueRunnerGrant` n'ont pas changé de contrat ; l'ordre des `intentParts` est celui du runner (`src/runner/handler.ts`, `seal-dataset`).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Tarif non déployé sur Next** → en v7, publication suspendue tant que le fichier n'est pas fourni à l'instance (voulu, mais à régler avant le 6, §8).
+2. **Deux constantes recopiées** (`1e12`, `200`) : une modification de `train.ts` hors des cas testés passerait inaperçue jusqu'au refus par l'enclave (jamais une acceptation à tort).
+3. **Brouillon transitoirement sans catégorie** (quelques millisecondes) et brouillon orphelin si Next tombe entre les deux écritures ou si la connexion tombe après un scellement réussi mais avant sa réponse (plafond de 5 brouillons ouverts, TTL 30 min sans CID ; un brouillon scellé se termine depuis Mes datasets).
+4. **Durée rebasée par heuristique** (différence arrondie au jour) : une autre slice qui écrirait une durée non proposée sur un brouillon ne serait pas rebasée.
+5. **Mode `SIRIUS_PHALA_DEMO`** : passage par `PRIVATE` sans rebase ; `setDatasetVisibility("LISTED")` ne rebase pas non plus. Testnet uniquement.
+6. **`dataLimits` optimiste** (A2 §7.1) toujours affiché tel quel à l'étape 1 ; le contrôle immédiat corrige l'attente (le vrai minimum de lignes est annoncé au refus).
+7. **Pas de choix de cible** : un fournisseur dont la cible n'est pas la dernière colonne numérique doit réordonner son fichier.
+8. **Frais de réseau** (gas du mint, de l'approve/lock) non mentionnés à l'étape 2 ; ils le sont au moment des transactions.
+9. **`listingExpiresAt` sans effet** tant que N1/N3 ne le lisent pas : un dataset reste en ligne après son échéance.
+10. **Re-parse complet** du CSV (jusqu'à 3 Mio) au changement de profil, sur le fil principal.
+11. **`pnpm audit:deps`** : 2 vulnérabilités (1 faible, 1 haute ignorée), identiques à `staging`.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0 (exploitation)** : fournir `RUNNER_BILLING_POLICY_FILE` à l'instance Next (compose VPS, `release-check`) ou exposer le tarif par une route runner ; sans quoi la publication reste suspendue en v7.
+- **P0 (N1)** : affichage et renouvellement de `listingExpiresAt`, révocation du consentement depuis la fiche ; **(N3)** filtre d'échéance sur la marketplace.
+- **P1** : test unitaire de `createDatasetDraft` avec Prisma simulé ; fixture de mise en ligne dans `provider.test.ts` vérifiant le rebase ; test du corps envoyé par la démo Phala.
+- **P1** : exporter `MAX_ABS_VALUE` et `LOGISTIC_ITERATIONS` depuis `train.ts` et faire renvoyer `createdAt` par `beginDatasetIngestion` (couloir runner/pipeline) ; aligner le défaut Prisma `challengeDays` sur 3.
+- **P2** : fabrique centrale du jeton (A8) ; e2e de la reprise après signature refusée, d'un tarif v7 et du tarif absent ; étape 2 aux petites largeurs ; mention des frais de réseau ; retrait du BOM dans `parseCsv` ; mémoïser le parse du CSV indépendamment du profil.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node v22.16.0, pnpm 11.18.0 via `corepack pnpm@11.18.0` (le `pnpm` installé, 10.17.1, refuse de basculer vers la version déclarée dans `packageManager` : outil manquant dans `%LOCALAPPDATA%\pnpm\.tools`), `DATABASE_URL=postgresql://x:y@localhost:5432/z` (factice). Le script `test` écrit `NODE_OPTIONS="…" node …` (syntaxe POSIX) : sous Windows il faut `pnpm --config.shell-emulator=true test`, sinon `'NODE_OPTIONS' n'est pas reconnu` (échec d'environnement, pas de la slice). Toutes les commandes ont été relancées sur l'arbre final fusionné (cca5d80).
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Already up to date`, `Done in 674ms`, exit 0 (première installation du worktree : `Done in 1m 48s`, `Generated Prisma Client (7.8.0)`) |
+| `pnpm prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma in 100ms`, exit 0 |
+| `pnpm exec tsc --noEmit` | aucune sortie, exit 0 |
+| `pnpm lint` | `eslint`, aucune sortie, exit 0 |
+| `pnpm test` (shell-emulator) | `tests 567`, `pass 492`, `fail 75`, exit 1. **Les 75 échecs sont exactement ceux d'une copie vierge de `origin/staging` (e829cfc) dans le même environnement** : `tests 530`, `pass 455`, `fail 75`, même liste nom pour nom (diff vide). Causes : séparateurs de chemin Windows (`src\app\api\train\…` attendu `src/app/api/train/…`, `self-training-routes.test.ts`, `disclaimers.test.ts` « contract.ts absent du graphe »), permissions POSIX (« Répertoire privé requis pour le budget runner », `budget.test.ts`), fichiers temporaires absents (`check-reaper.test.mjs`), CLI runner. La slice ajoute 36 tests, tous verts ; +1 test de staging (`access-log-wiring`) vert. Les tests de la slice seuls : `node --import tsx --test src/lib/datasets/*.test.ts src/lib/i18n/english.test.ts src/lib/sirius/provider.test.ts` → `tests 68`, `pass 68`, `fail 0` |
+| `pnpm test:phala-demo` | `tests 24`, `pass 12`, `fail 12` — même liste d'échecs que sur la copie vierge de `origin/staging` (environnement) ; le client modifié (`training-client.ts`) n'y est pas exercé |
+| `pnpm exec playwright test` (suite complète, Chromium) | `82 passed (51.2s)`, exit 0 (avant la fusion de staging : `82 passed (1.2m)`) ; dont `e2e/upload.spec.ts` 3/3 et `e2e/responsive.spec.ts` « le sélecteur de profil, le fichier et son contrôle restent dans le formulaire » 7/7 tailles |
+| `pnpm audit:deps` | `2 vulnerabilities found — Severity: 1 low | 1 high (1 ignored)`, exit 0 ; identique à `staging` |
+| `git diff --name-only origin/staging...HEAD` | 32 fichiers, tous listés en §1 (deux hors liste explicite, une ligne chacun, justifiés §2.14) |
+| `git log origin/staging..HEAD --format=%B` | aucune occurrence de `co-authored`, `claude`, `anthropic`, `generated`, `session`, `skip ci` ; auteur et committeur `alibenyezza` sur chaque commit |
+
+Non exécuté : `next build` (les e2e tournent sur `next dev`), tests de contrats (`contracts/**` non touché).
+
+Vérifications ponctuelles (hors suite, scripts jetables hors dépôt) : fuzz de 600 000 saisies de prix (`parseProviderPrice` ↔ `priceUsdcToAtomic`, 6 et 18 décimales, 0 divergence) ; 0 collision de clés entre `upload-en.ts` et les autres fichiers de traduction ; graphe d'imports des composants client sans `server-only` ni module Node ; `git merge-tree` avant fusion (seul conflit : `package.json`).
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Méthode : deux passes de revue adversariale par des agents indépendants, la première à trois angles (sécurité et validation serveur ; exactitude du prix, `challengeDays` et non-régression du scellement ; interface, accessibilité, traductions, tests et conformité à 07), la seconde par un relecteur unique chargé de vérifier chaque correction et de chercher ce qui restait. Scripts de revue (fuzz de 600 000 saisies de prix, collisions de clés de traduction, graphe d'imports du bundle client, vérification BOM) hors dépôt.
+
+| Passe | Constats retenus | Écartés |
+|---|---|---|
+| 1 | 1 bloquant, 4 importants, 14 mineurs | ~25 (vérifiés conformes) |
+| 2 | 0 bloquant, 0 important dans le code, 1 important de process (conflit `package.json` avec `origin/staging`), 6 mineurs | 8 |
+
+**Retenus et corrigés (commits 09fe866, 01026bb, 04b4765, d048377, fusion cca5d80) :**
+- Bloquant : la démo Phala (`training-client.ts`) appelait `POST /api/datasets` sans catégorie ni durée → 400 ; corps aligné, `challengeDays` retiré.
+- Importants : l'échéance partait de l'horloge serveur après un appel runner pouvant durer 60 s, ce qui faisait abandonner le rebase (`rebasedListingExpiry` → `null`) et raccourcissait la durée → ancrage sur `createdAt` ; publication possible sans décomposition quand le tarif manquait → suspendue avec explication ; promesse « You can withdraw this consent from the dataset page » sans fonction correspondante → au futur ; anneau de focus `outline-none` invisible en contraste forcé → `outline-hidden` + `focus-visible` ; double `role="alert"` et alerte sur champ vide → `PriceBreakdown` monté seulement sur saisie valide ; date d'échéance présentée comme ferme et en UTC → « for N days from the on-chain registration (around …) », mémoïsée.
+- Mineurs : deux résolutions des décimales (`settlementToken` ↔ `USDC_DECIMALS`) → une seule ; lecture disque à chaque requête sur une page publique → mémoïsée 5 s ; minimum « — » sans tarif → plancher local ; `readingFile` bloqué après annulation du sélecteur → remis à `false` ; `aria-busy` jamais levé → retiré ; focus perdu entre étapes → panneau focalisé (puis rendu stable en StrictMode) ; bornes nom/description recopiées → partagées dans `publication.ts` ; bannière d'erreur sans `wrap-anywhere` ; libellés d'étapes tronqués → retour à la ligne ; phrase coupée entre `t()` et JSX → deux clés ; états de la transition non annoncés aux lecteurs d'écran → `sr-only` ; « File too large: 3 MB, maximum 3 MB » → taille réelle en MB et en octets ; `ID_RE` borne basse non testée → cas de 9 caractères ; commentaires devenus inexacts → reformulés ; conflit `package.json` → `origin/staging` fusionné, les deux listes de tests conservées.
+
+**Écartés avec la raison :**
+- Reprise après un scellement réussi dont la réponse s'est perdue (brouillon orphelin) : comportement identique à l'ancienne page, pas de route sûre pour le détecter sans toucher N1 ; consigné §7.3.
+- `listingExpiresAt` sans effet côté catalogue et absence de révocation : périmètre N1/N3 ; consigné §6, §7.9, §8.
+- Défaut Prisma `challengeDays @default(7)` : `prisma/` hors périmètre, aucun chemin ne l'utilise ; §8.
+- `createdAt` relu par une requête au lieu d'être renvoyé par `beginDatasetIngestion` : `pipeline.ts` hors périmètre ; §8.
+- BOM UTF-8 : divergence dans la direction sûre, correctif dans `metrics.ts` hors périmètre ; §5, §8.
+- Couplage par sous-chaînes aux messages de `parseCsv` : protégé par le test de parité ; `metrics.ts` hors périmètre.
+- Re-parse au changement de profil, vouvoiement d'une clé (texte du cahier), DST sur des durées en millisecondes (cohérent avec un stockage d'instants) : acceptés, §7.
+- Texte de l'avertissement : 07 renvoie au texte commun de 16, qui est affiché (A2 §7.2).
+
+**Limite de la revue :** aucun relecteur humain ; les constats écartés l'ont été sur l'avis d'agents de revue et le mien. Les tests ont été exécutés sous Windows, où 75 tests de la suite échouent déjà sur `staging` pour des raisons d'environnement (séparateurs de chemin, permissions POSIX, fichiers temporaires) — vérifié sur une copie vierge de `origin/staging`, même liste d'échecs, voir §9.
 
 ---
 

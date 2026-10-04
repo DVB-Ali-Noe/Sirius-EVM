@@ -1,6 +1,8 @@
 import { ERROR_MESSAGES_EN } from "./errors-en";
 import { PHALA_MESSAGES_EN } from "./phala-en";
 import { SHARED_MESSAGES_EN } from "./shared-en";
+import { UPLOAD_MESSAGES_EN } from "./upload-en";
+import { PROFILE_MESSAGES_EN } from "./profile-en";
 import { TOUR_MESSAGES_EN } from "./tour-en";
 import { MARKETPLACE_MESSAGES_EN } from "./marketplace-en";
 
@@ -8,6 +10,8 @@ export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
   ...PHALA_MESSAGES_EN,
   ...SHARED_MESSAGES_EN,
+  ...UPLOAD_MESSAGES_EN,
+  ...PROFILE_MESSAGES_EN,
   ...TOUR_MESSAGES_EN,
   ...MARKETPLACE_MESSAGES_EN,
   "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
