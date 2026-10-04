@@ -1,205 +1,183 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { Badge, type BadgeVariant } from "@/components/ui/Badge";
-import { Field } from "@/components/ui/Field";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
-import { formatBytes, truncate } from "@/lib/format";
-import { messageOf } from "@/lib/errors-client";
-import { useUiStore } from "@/stores/ui";
-import { useWalletStore } from "@/stores/wallet";
-import {
-  destroyDataset,
-  publishDataset,
-  setDatasetVisibility,
-} from "@/lib/datasets/client";
-import { acceptKybCredential } from "@/lib/kyb/client";
+import { DatasetAddTile, DatasetCard } from "@/components/datasets/DatasetCard";
 import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { modelDisplayName, modelSelection, type ModelId } from "@/lib/models/registry";
-import { transactionExplorerUrl } from "@/lib/evm/explorer";
+import { messageOf } from "@/lib/errors-client";
+import { acceptKybCredential } from "@/lib/kyb/client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
+import { settlementToken } from "@/lib/datasets/token";
+import { publishDataset } from "@/lib/datasets/client";
+import { PublishDraftButton } from "./[id]/PublishDraftButton";
+import { DATASET_CATEGORY_LABEL_KEYS, parseDatasetCategory } from "@/lib/datasets/publication";
+import { addressesEqual } from "@/lib/evm/address";
+import { modelSelection } from "@/lib/models/registry";
+import { useWalletStore } from "@/stores/wallet";
+import {
+  DATASET_SORTS,
+  aggregateLoanStats,
+  displayStatus,
+  isListingExpired,
+  isDatasetSort,
+  sortDatasets,
+  type DatasetSort,
+  type LoanForStats,
+} from "@/lib/datasets/manage";
 
-interface DatasetMetrics {
-  rowCount: number;
-  columnCount: number;
-}
-
-type DatasetStatus = "DRAFT" | "LISTING" | "LISTED" | "UNLISTED" | "PRIVATE" | "SUSPENDED" | "DELETED";
-
-interface Dataset {
+interface DatasetRow {
   id: string;
   name: string;
-  description: string | null;
-  status: DatasetStatus;
+  status: string;
+  category: string | null;
   ipfsCid: string | null;
-  merkleRoot: string | null;
-  evmDatasetId: string | null;
-  evmMintTxHash: string | null;
-  sizeBytes: number | null;
-  metrics: DatasetMetrics | null;
-  modelId: ModelId | null;
+  modelId: string | null;
   modelVersion: string | null;
+  sizeBytes: number | null;
+  metrics: { rowCount: number; columnCount: number } | null;
+  priceUsdcAtomic: string;
+  listingExpiresAt: string | null;
+  createdAt: string;
 }
 
-const STATUS_VARIANT: Record<DatasetStatus, BadgeVariant> = {
-  DRAFT: "warning",
-  LISTING: "warning",
-  LISTED: "positive",
-  UNLISTED: "accent",
-  PRIVATE: "muted",
-  SUSPENDED: "negative",
-  DELETED: "default",
+interface LoanRow extends LoanForStats {
+  datasetId: string;
+  provider: string;
+}
+
+/** Pages de 24 suivies au plus ce nombre de fois : le tri porte sur tout ce qui est chargé. */
+const MAX_PAGES = 20;
+
+const SORT_LABELS: Record<DatasetSort, string> = {
+  date: "Date",
+  revenue: "Revenus",
+  borrows: "Emprunts",
 };
 
-const STATUS_LABEL: Record<DatasetStatus, string> = {
-  DRAFT: "Brouillon",
-  LISTING: "Publication…",
-  LISTED: "Public",
-  UNLISTED: "Semi-privé",
-  PRIVATE: "Privé",
-  SUSPENDED: "Suspendu",
-  DELETED: "Supprimé",
-};
+const SORT_STORAGE_KEY = "sirius.datasets.sort";
 
-const VISIBILITY_OPTIONS = [
-  { value: "LISTED", label: "Public", hint: "Dans le catalogue, empruntable par tous" },
-  { value: "UNLISTED", label: "Semi-privé", hint: "Hors catalogue, empruntable par lien direct" },
-  { value: "PRIVATE", label: "Privé", hint: "Toi seul (self-train)" },
-] as const;
+// Jeton de règlement du réseau (USDG sur mainnet, USDC de test sur testnet), fabrique de l'upload.
+const TOKEN = settlementToken(resolveClientNetwork());
 
-const VISIBILITY_STATES: DatasetStatus[] = ["LISTED", "UNLISTED", "PRIVATE"];
-
-/** Statuts pour lesquels la page de preuve publique répond ; ailleurs elle renvoie 404. */
-const PARTAGEABLE: DatasetStatus[] = ["LISTED", "UNLISTED"];
+/** Catégorie de la liste fixe de l'upload, traduite ; une valeur inconnue n'est pas affichée. */
+function categoryLabel(value: string | null, t: (key: string) => string): string | null {
+  const category = parseDatasetCategory(value);
+  return category ? t(DATASET_CATEGORY_LABEL_KEYS[category]) : null;
+}
 
 export default function DatasetsPage() {
   const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
   return <DatasetsContent key={identity} />;
 }
 
+function readStoredSort(): DatasetSort {
+  try {
+    const stored = window.localStorage.getItem(SORT_STORAGE_KEY);
+    return isDatasetSort(stored) ? stored : "date";
+  } catch {
+    return "date";
+  }
+}
+
 function DatasetsContent() {
-  const advanced = useUiStore((s) => s.advanced);
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { t } = useLocale();
-  const network = resolveClientNetwork();
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [datasets, setDatasets] = useState<DatasetRow[] | null>(null);
+  const [loans, setLoans] = useState<LoanRow[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  // Instant de référence des états affichés (expiré ou non), pris au chargement : le rendu reste pur.
+  const [loadedAt, setLoadedAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [sort, setSort] = useState<DatasetSort>("date");
+  const [publishingId, setPublishingId] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
-  const mounted = useRef(false);
 
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      request.current?.abort();
-    };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- préférence locale lue après l'hydratation
+    setSort(readStoredSort());
+    return () => request.current?.abort();
   }, []);
 
-  // Dépend de l'adresse : les datasets sont scopés à l'identité authentifiée
-  // (un changement de wallet doit re-fetcher, pas garder l'ancienne liste).
-  const loadPage = useCallback(async (cursor: string | null, append: boolean) => {
-    if (!mounted.current) return;
+  function chooseSort(next: DatasetSort) {
+    setSort(next);
+    try {
+      window.localStorage.setItem(SORT_STORAGE_KEY, next);
+    } catch {
+      // Stockage indisponible (navigation privée) : le tri reste valable pour la session.
+    }
+  }
+
+  // Dépend de l'adresse : les datasets sont scopés à l'identité authentifiée.
+  const load = useCallback(async () => {
     request.current?.abort();
     if (!address || !authenticated) {
       setDatasets([]);
-      setNextCursor(null);
+      setLoans([]);
       return;
     }
-    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
     const controller = new AbortController();
     request.current = controller;
+    setError(null);
+    setStatsError(null);
+
+    const loansPromise = fetch("/api/loans", { signal: controller.signal, cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Statistiques indisponibles");
+        const rows: unknown = await res.json();
+        if (!Array.isArray(rows)) throw new Error("Statistiques indisponibles");
+        return rows as LoanRow[];
+      });
+    // Le rejet est lu plus bas ; ce gestionnaire évite qu'un abandon avant cette lecture
+    // ne remonte comme rejet non géré.
+    loansPromise.catch(() => {});
+
     try {
-      const res = await fetch(`/api/datasets${query}`, { signal: controller.signal });
-      if (!res.ok) throw new Error("Chargement des datasets impossible");
-      const page = await res.json() as Dataset[];
+      const all: DatasetRow[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const query: string = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+        const res: Response = await fetch(`/api/datasets${query}`, { signal: controller.signal, cache: "no-store" });
+        if (!res.ok) throw new Error("Chargement des datasets impossible");
+        all.push(...await res.json() as DatasetRow[]);
+        cursor = res.headers.get("x-sirius-next-cursor");
+        pages += 1;
+      } while (cursor && pages < MAX_PAGES);
       if (controller.signal.aborted) return;
-      setDatasets((current) => append ? [...current, ...page] : page);
-      setNextCursor(res.headers.get("x-sirius-next-cursor"));
-    } catch (error) {
-      if (!controller.signal.aborted) setError(messageOf(error));
+      setLoadedAt(Date.now());
+      setDatasets(all);
+      setTruncated(Boolean(cursor));
+    } catch (err) {
+      if (!controller.signal.aborted) setError(messageOf(err));
+    }
+
+    try {
+      const rows = await loansPromise;
+      if (controller.signal.aborted) return;
+      // /api/loans renvoie aussi les prêts où le wallet est emprunteur : seuls comptent ceux
+      // où il est fournisseur.
+      setLoans(rows.filter((loan) => addressesEqual(loan.provider, address)));
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        setLoans(null);
+        setStatsError(messageOf(err));
+      }
     }
   }, [address, authenticated]);
 
-  const refresh = useCallback(() => loadPage(null, false), [loadPage]);
-
-  async function loadMore() {
-    if (!nextCursor) return;
-    setLoadingMore(true);
-    try {
-      await loadPage(nextCursor, true);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch initial, setState post-await
-    refresh();
-  }, [refresh]);
+    load();
+  }, [load]);
 
-  async function handleList(dataset: Dataset) {
-    setError(null);
-    setPendingId(dataset.id);
-    try {
-      await publishDataset(dataset.id);
-      await refresh();
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setPendingId(null);
-    }
-  }
-
-  async function handleVisibility(id: string, visibility: string) {
-    setError(null);
-    setPendingId(id);
-    try {
-      if (!VISIBILITY_STATES.includes(visibility as DatasetStatus)) throw new Error(t("Visibilité invalide"));
-      await setDatasetVisibility(id, visibility as "LISTED" | "UNLISTED" | "PRIVATE");
-      await refresh();
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setPendingId(null);
-    }
-  }
-
-  async function handleDelete(dataset: Dataset) {
-    if (
-      !window.confirm(
-        dataset.status === "DELETED"
-          ? t("Vérifier le titre dans le registre EVM courant et finaliser la suppression ? Les éventuels anciens registres ne seront pas modifiés.")
-          : t("Supprimer ce dataset ? Sa clé active sera supprimée et son titre désactivé. Les sauvegardes et les modèles déjà livrés ne sont pas effacés."),
-      )
-    ) {
-      return;
-    }
-    setError(null);
-    setPendingId(dataset.id);
-    try {
-      await destroyDataset(dataset.id);
-      await refresh();
-    } catch (err) {
-      setError(messageOf(err));
-      await refresh();
-    } finally {
-      setPendingId(null);
-    }
-  }
-
-  // Le bouton ne s'affiche que si le registre refuse encore l'adresse. Sur une
-  // instance adossée au registre ouvert il ne paraît jamais ; il revient de lui-même
-  // le jour où l'escrow pointera de nouveau sur un registre gouverné.
+  // Le bouton ne s'affiche que si le registre refuse encore l'adresse (comportement repris
+  // de l'ancienne liste).
   const [kybManquant, setKybManquant] = useState<boolean | null>(null);
-
   useEffect(() => {
     if (!address) return;
     let actif = true;
@@ -214,6 +192,21 @@ function DatasetsContent() {
     };
   }, [address]);
 
+  // Publication d'un brouillon depuis sa carte, comme sur l'ancienne liste (la fiche propose
+  // la même action) : bloquée sans profil valide ou sans fichier envoyé.
+  async function handlePublish(id: string) {
+    setError(null);
+    setPublishingId(id);
+    try {
+      await publishDataset(id);
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setPublishingId(null);
+      await load();
+    }
+  }
+
   async function handleOnboard() {
     setError(null);
     try {
@@ -224,14 +217,39 @@ function DatasetsContent() {
     }
   }
 
-  const listed = datasets.filter((d) => d.status === "LISTED").length;
+  const cards = useMemo(() => {
+    if (!datasets) return [];
+    const now = loadedAt;
+    const byDataset = new Map<string, LoanRow[]>();
+    for (const loan of loans ?? []) {
+      const list = byDataset.get(loan.datasetId);
+      if (list) list.push(loan);
+      else byDataset.set(loan.datasetId, [loan]);
+    }
+    const rows = datasets.map((dataset) => {
+      const stats = loans ? aggregateLoanStats(byDataset.get(dataset.id) ?? [], now) : null;
+      return {
+        dataset,
+        id: dataset.id,
+        createdAt: dataset.createdAt,
+        earnedAtomic: stats ? stats.earnedAtomic : null,
+        borrowCount: stats ? stats.borrowCount : null,
+        status: displayStatus({
+          status: dataset.status,
+          listingExpiresAt: dataset.listingExpiresAt,
+          inFlightLoans: stats ? stats.inFlightCount : null,
+        }, now),
+      };
+    });
+    return sortDatasets(rows, sort);
+  }, [datasets, loans, sort, loadedAt]);
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
+      <main className="mx-auto w-full max-w-6xl px-6 py-8">
         <Card className="flex flex-col items-start gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Mes actifs data")}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{t("Mes datasets")}</h1>
             <p className="mt-1 text-sm text-muted">{t("Connecte un wallet pour gérer tes datasets.")}</p>
           </div>
           <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
@@ -240,21 +258,20 @@ function DatasetsContent() {
     );
   }
 
+  const online = cards.filter((card) => card.status === "online" || card.status === "borrowed").length;
+
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+    <main className="mx-auto w-full max-w-6xl px-6 py-8">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 basis-64">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Mes actifs data")}</h1>
-          <p className="mt-1 text-sm text-muted">
-            {t("{datasets} dataset{datasetSuffix} · {listed} public{publicSuffix}. Chaque titre est l'ancrage on-chain de ta donnée.", {
-              datasets: datasets.length,
-              datasetSuffix: datasets.length > 1 ? "s" : "",
-              listed,
-              publicSuffix: listed > 1 ? "s" : "",
-            })}
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Mes datasets")}</h1>
+          {datasets && (
+            <p className="mt-1 text-sm text-muted">
+              {t("{count} dataset(s), dont {online} en ligne ou emprunté(s).", { count: datasets.length, online })}
+            </p>
+          )}
         </div>
-        <div className="flex max-w-full flex-wrap items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-3">
           {kybManquant === true && (
             <button
               onClick={handleOnboard}
@@ -263,170 +280,109 @@ function DatasetsContent() {
               {t("Configurer le KYB")}
             </button>
           )}
-          <Link
-            href="/datasets/new"
-            className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90"
-          >
-            {t("Déposer")}
-          </Link>
+          <div role="group" aria-label={t("Trier par")} className="flex items-center gap-2">
+            <span className="text-xs text-muted">{t("Trier par")}</span>
+            <div className="grid grid-cols-3 rounded-lg border border-border p-0.5">
+              {DATASET_SORTS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => chooseSort(option)}
+                  aria-pressed={sort === option}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    sort === option ? "bg-accent text-background" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {t(SORT_LABELS[option])}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {kybManquant === true && <KybInviteForm role="provider" onAccepted={() => setKybManquant(false)} />}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
         </div>
       )}
+      {statsError && (
+        <div role="status" className="mb-6 rounded-lg border border-border bg-surface/50 px-4 py-3 text-sm text-muted">
+          {t("Emprunts et revenus indisponibles pour le moment : {reason}", { reason: t(statsError) })}
+        </div>
+      )}
+      {truncated && (
+        <p className="mb-4 text-xs text-muted">
+          {t("Seuls les {count} datasets les plus récents sont affichés et triés.", { count: datasets?.length ?? 0 })}
+        </p>
+      )}
 
-      <div className="flex flex-col gap-3">
-        {datasets.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted">
-            {t("Aucun dataset.")} <Link href="/datasets/new" className="text-foreground underline">{t("Dépose ton premier actif")}</Link>.
-          </p>
-        )}
-        {datasets.map((d) => (
-          <Card key={d.id}>
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 flex-1 basis-80">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="w-full font-medium">{d.name}</h3>
-                  <Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL[d.status])}</Badge>
-                  <DatasetProfileBadge dataset={d} />
-                  {/* Volontairement hors du mode avancé. L'en-tête de la page annonce que chaque
-                      titre est l'ancrage on-chain de la donnée ; ranger la preuve derrière un
-                      réglage revenait à faire cette promesse sans donner le moyen de la vérifier,
-                      au propriétaire précisément. */}
-                  {d.evmMintTxHash && (
-                    <a
-                      href={transactionExplorerUrl(network, d.evmMintTxHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={t("Vérifier l’ancrage on-chain de {name}", { name: d.name })}
-                      className="text-xs font-medium text-accent transition-colors hover:text-accent/80"
-                    >
-                      {t("Vérifier l’ancrage")} ↗
-                    </a>
-                  )}
-                  {/* La page de preuve s'ouvre sans compte : c'est le lien qu'un fournisseur
-                      envoie à un acheteur qui évalue, ou qu'il colle dans un fil. */}
-                  {d.evmMintTxHash && PARTAGEABLE.includes(d.status) && (
-                    <Link
-                      href={`/proof/${d.id}`}
-                      aria-label={t("Ouvrir la page de preuve publique de {name}", { name: d.name })}
-                      className="text-xs font-medium text-accent transition-colors hover:text-accent/80"
-                    >
-                      {t("Preuve publique")} ↗
-                    </Link>
-                  )}
-                </div>
-                {d.description && <p className="mt-1 text-sm text-muted">{d.description}</p>}
-                {d.status !== "DELETED" && !modelSelection(d.modelId, d.modelVersion) && (
-                  <p className="mt-2 text-sm text-negative">
-                    {t("Ancien dataset sans profil valide : supprime-le et importe-le à nouveau en choisissant un entraînement.")}
-                  </p>
-                )}
-                <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                  <Field label={t("Lignes")} value={d.metrics ? String(d.metrics.rowCount) : "—"} />
-                  <Field label={t("Colonnes")} value={d.metrics ? String(d.metrics.columnCount) : "—"} />
-                  <Field label={t("Taille")} value={formatBytes(d.sizeBytes)} />
-                  {advanced && (
-                    <>
-                      <Field label="CID" value={d.ipfsCid ? truncate(d.ipfsCid) : "—"} mono />
-                      <Field label="Merkle" value={d.merkleRoot ? truncate(d.merkleRoot) : "—"} mono />
-                      <Field label={t("Titre EVM")} value={d.evmDatasetId ? truncate(d.evmDatasetId) : "—"} mono />
-                    </>
-                  )}
-                </dl>
-              </div>
-              {(d.status === "DRAFT" || d.status === "LISTING") && (
-                <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
-                  <button
-                    onClick={() => handleList(d)}
-                    disabled={pendingId === d.id || !modelSelection(d.modelId, d.modelVersion) || (d.status === "DRAFT" && !d.ipfsCid)}
-                    title={!d.ipfsCid ? t("Upload interrompu : supprime ce brouillon et recommence") : undefined}
-                    className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-                  >
-                    {pendingId === d.id
-                      ? t("Publication…")
-                      : !modelSelection(d.modelId, d.modelVersion)
-                      ? t("Réimport requis")
-                      : d.status === "LISTING"
-                      ? t("Réconcilier…")
-                      : d.ipfsCid
-                        ? t("Publier le titre")
-                        : t("Upload incomplet")}
-                  </button>
-                  {d.status === "DRAFT" && (
-                    <button
-                      onClick={() => handleDelete(d)}
-                      disabled={pendingId === d.id}
-                      className="text-xs font-medium text-negative/80 transition-colors hover:text-negative disabled:opacity-50"
-                    >
-                      {t("Supprimer le brouillon")}
-                    </button>
-                  )}
-                </div>
-              )}
-              {(VISIBILITY_STATES.includes(d.status) || (d.status === "SUSPENDED" && d.evmDatasetId)) && (
-                <div className="flex max-w-full flex-col items-start gap-2 sm:items-end">
-                  {VISIBILITY_STATES.includes(d.status) && (
-                    <div className="grid max-w-full grid-cols-3 rounded-lg border border-border p-0.5">
-                      {VISIBILITY_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => handleVisibility(d.id, opt.value)}
-                          disabled={pendingId === d.id || d.status === opt.value}
-                          title={t(opt.hint)}
-                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-default ${
-                            d.status === opt.value
-                              ? "bg-accent text-background"
-                              : "text-muted hover:text-foreground disabled:opacity-50"
-                          }`}
-                        >
-                          {t(opt.label)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => handleDelete(d)}
-                    disabled={pendingId === d.id}
-                    className="text-xs font-medium text-negative/80 transition-colors hover:text-negative disabled:opacity-50"
-                  >
-                    {pendingId === d.id ? t("Suppression…") : t("Supprimer")}
-                  </button>
-                </div>
-              )}
-              {d.status === "DELETED" && d.evmDatasetId && (
-                <button
-                  onClick={() => handleDelete(d)}
-                  disabled={pendingId === d.id}
-                  className="max-w-full rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
-                >
-                  {pendingId === d.id ? t("Réconciliation…") : t("Finaliser la suppression")}
-                </button>
-              )}
-            </div>
-          </Card>
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <li>
+          <DatasetAddTile href="/datasets/new" />
+        </li>
+        {cards.map(({ dataset, status, borrowCount, earnedAtomic }) => (
+          <li key={dataset.id} className="flex min-w-0 flex-col gap-1.5">
+            <DatasetCard
+              name={dataset.name}
+              category={categoryLabel(dataset.category, t)}
+              modelId={dataset.modelId}
+              modelVersion={dataset.modelVersion}
+              rowCount={dataset.metrics?.rowCount ?? null}
+              columnCount={dataset.metrics?.columnCount ?? null}
+              sizeBytes={dataset.sizeBytes}
+              priceAtomic={dataset.priceUsdcAtomic}
+              priceKind="providerReceives"
+              token={TOKEN}
+              status={status}
+              // Statistiques indisponibles : NaN s'affiche « — » (formatCount), jamais un faux 0.
+              borrowCount={borrowCount ?? Number.NaN}
+              revenueAtomic={earnedAtomic}
+              href={`/datasets/${encodeURIComponent(dataset.id)}`}
+            />
+            <CardCaption dataset={dataset} status={status} now={loadedAt} />
+            <PublishDraftButton
+              status={dataset.status}
+              ipfsCid={dataset.ipfsCid}
+              modelValid={Boolean(modelSelection(dataset.modelId, dataset.modelVersion))}
+              pending={publishingId === dataset.id}
+              disabled={publishingId !== null}
+              onPublish={() => void handlePublish(dataset.id)}
+              className="self-start"
+            />
+          </li>
         ))}
-        {nextCursor && (
-          <button
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="mx-auto mt-3 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/20 disabled:opacity-50"
-          >
-            {loadingMore ? t("Chargement…") : t("Afficher plus")}
-          </button>
-        )}
-      </div>
+      </ul>
+
+      {datasets === null && !error && <p className="py-8 text-center text-sm text-muted">{t("Chargement…")}</p>}
+      {datasets !== null && datasets.length === 0 && !error && (
+        <p className="py-8 text-center text-sm text-muted">{t("Aucun dataset pour l’instant : publie le premier avec la tuile ci-dessus.")}</p>
+      )}
     </main>
   );
 }
 
-function DatasetProfileBadge({ dataset }: { dataset: Pick<Dataset, "modelId" | "modelVersion"> }) {
+/**
+ * Précision sous la carte quand la pastille ne suffit pas : brouillon, publication en cours,
+ * dataset privé, archivé par Sirius, en pause ou expiré pendant un emprunt, profil invalide.
+ */
+function CardCaption({ dataset, status, now }: { dataset: DatasetRow; status: string; now: number }) {
   const { t } = useLocale();
-  const model = modelSelection(dataset.modelId, dataset.modelVersion);
-  return <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>;
+  const notes: string[] = [];
+  if (dataset.status === "DRAFT") notes.push(t("Brouillon : publication non terminée."));
+  if (dataset.status === "LISTING") notes.push(t("Publication en cours."));
+  if (dataset.status === "PRIVATE") notes.push(t("Privé : visible par toi seul."));
+  if (dataset.status === "SUSPENDED") notes.push(t("Archivé par Sirius : plus disponible à l’emprunt."));
+  if (dataset.status === "DELETED") notes.push(t("Suppression à finaliser."));
+  if (status === "borrowed" && dataset.status === "UNLISTED") notes.push(t("En pause : hors marketplace."));
+  if (status === "borrowed" && dataset.status === "LISTED" && isListingExpired(dataset.listingExpiresAt, now)) {
+    notes.push(t("Annonce expirée."));
+  }
+  if (dataset.status !== "DELETED" && !modelSelection(dataset.modelId, dataset.modelVersion)) {
+    notes.push(t("Ancien dataset sans profil valide : supprime-le et importe-le à nouveau en choisissant un entraînement."));
+  }
+  if (notes.length === 0) return null;
+  return <p className="px-1 text-xs text-muted">{notes.join(" ")}</p>;
 }
