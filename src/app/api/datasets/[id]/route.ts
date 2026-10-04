@@ -12,6 +12,7 @@ import { readJson } from "@/lib/http/body";
 import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { requireMutationGrant } from "@/lib/auth/mutation-grant";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { isListingExpired } from "@/lib/datasets/manage";
 
 export const runtime = "nodejs";
 
@@ -48,9 +49,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }>(req);
     if (typeof visibility !== "string") return NextResponse.json({ error: "Visibilité invalide" }, { status: 400 });
     if (!authorization) return NextResponse.json({ error: "Confirmation wallet requise" }, { status: 400 });
-    const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
+    const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true, listingExpiresAt: true } });
     if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     assertOwner(session, owned.provider);
+    // Même règle que la remise en ligne de la fiche (`/settings/listing`) : une annonce
+    // expirée se prolonge d'abord, elle ne repasse pas « Public » par cette route.
+    if (visibility === "LISTED" && isListingExpired(owned.listingExpiresAt)) {
+      return NextResponse.json({ error: "Annonce expirée : prolonge-la avant de la remettre en ligne" }, { status: 409 });
+    }
     await requireMutationGrant(session, authorization, {
       operation: "set-dataset-visibility",
       datasetId: id,
