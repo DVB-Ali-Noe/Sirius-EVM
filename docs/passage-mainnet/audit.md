@@ -679,7 +679,51 @@ _À compléter en fin de session._
 
 ### 10. Revue interne de la session
 
-_À compléter en fin de session._
+Trois passes de revue adversariale par agents indépendants, en lecture seule sur le dépôt. Chaque passe : des relecteurs sous des angles distincts (contournement du contrôle d'accès, exactitude et non-régression, tests et cas limites, conformité au cahier des charges et aux conventions), puis trois réfutateurs par constat (reproduction, spécification, sévérité) ; un constat n'est retenu que si au moins deux réfutateurs ne parviennent pas à le réfuter.
+
+**Passe 1** (sur le premier commit, 4 relecteurs, 22 constats bruts ; 13 d'entre eux n'ont pas pu être vérifiés par les réfutateurs, les crédits d'usage étant épuisés en cours de passe : ils ont été jugés à la main, chaque décision est notée ici).
+
+Corrigé :
+- Le script de reprise `scripts/operations/verify-model-delivery.ts` appelle `GET /api/train` et `POST /api/train/[id]/key` en HTTP avec l'adresse de `ROBINHOOD_DEPLOYER_KEY` : soumis à la garde, non documenté, et la première version de cette section affirmait à tort qu'il ne passait pas par HTTP → documentation dans `.env.example`, `10-self-training.md`, `BACKUP-RECOVERY.md`, et correction de la section 3.
+- Tests d'inspection par recherche de texte : ne reconnaissaient que `export async function`, la chaîne exacte `from "@/lib/sirius/self-train"`, et ignoraient `runSelfTrainingInRunner` ; un commentaire ou une chaîne pouvait satisfaire le contrôle ; « corps non lu » n'était pas prouvé → réécriture sur l'arbre syntaxique TypeScript (toutes les formes d'export, réexport refusé, imports statiques/dynamiques/`require`), symboles runner ajoutés, `request.bodyUsed` vérifié dans le bac à sable.
+- Documentation plus stricte que le code : « corps non lu » sans condition alors que l'instance de démo lit le corps ; `/api/admin/me` présentée comme « réservée » ; plafond « dix entrées » sans dire que les doublons comptent → textes corrigés.
+- `.env.example` et `10-self-training.md` disaient que `SIRIUS_DEMO_OPERATORS` « ne concerne que le contrôleur » alors qu'elle est aussi lue côté Next (`requireDemoOperator`) → corrigé.
+- Préfixe `0X` : fermait toute la liste alors que la doc promettait « toute casse » → mis en minuscules avant validation, testé.
+- `isDemoTrainingGrant` acceptait 0 et les entiers négatifs → entier strictement positif exigé (la première ouverture de session porte la révision 1).
+- `phalaDemoInstance` plus permissive que `demoEnabled` (ne regardait ni `TEE_MODE` ni le simulateur) → alignée sur les mêmes conditions, sans lever.
+- Traduction en double : « Bientôt disponible » existait déjà dans `english.ts` → doublon retiré de `errors-en.ts`.
+- En-tête « Fichiers » de `10-self-training.md` sans les nouveaux modules → complété.
+- Test « la garde n'est importée que par les routes » trop large (une future page « bientôt » importerait le message) → seuls les appels à `assertSelfTrainingAccess` sont restreints.
+
+Écarté, avec la raison :
+- « Exemption démo décidée sur un champ forgeable » et « le second refus repose sur une valeur non authentifiée » : exact, mais c'est le comportement de la démo publique elle-même, borné à l'instance de démo testnet ; le grant est ensuite authentifié et le runner vérifie la session. Assumé en 2.1 et 7.
+- « Le critère Terminé quand de la doc 10 reste contredit sur staging » : même point ; staging est l'instance de démo. Décision à prendre par l'équipe (8.3).
+- « Pré-requis de déploiement non porté par le pipeline » : exact, mais le pipeline n'injecte aucune variable métier ; noté en 8.1.
+- « `warnedFor` et `console.warn` non isolés » : chaque fichier de test tourne dans son propre processus ; l'avertissement a tout de même été neutralisé dans les tests qui le déclenchent.
+- « Aucun e2e n'exerce la garde » : exact, angle mort noté en 5 et 8.5.
+- « Les 403 de la route de clé ne sont plus comptés par le rate limiter » : choix ; la garde est sans entrée-sortie, comme le 401 de `requireAuth` qui la précède déjà.
+- « `phalaDemoInstance` devrait réutiliser `demoEnabled` » : `demoEnabled` lève des 503 explicites qui révéleraient l'instance ; mêmes conditions reprises à l'identique, décision 2.14.
+- « Placement des tests sous `src/lib/auth` » : conforme aux voisins (`lifetimes.test.ts`).
+
+**Passe 2** (après corrections, 4 relecteurs, 15 constats bruts, 11 retenus, tous de sévérité basse ou moyenne, aucun défaut de contrôle d'accès).
+
+Corrigé :
+- `.env.example` annonçait un 403 inconditionnel, sans l'exception démo (relevé trois fois, par trois angles) → une phrase ajoutée avec renvoi vers la doc 10.
+- Résolution des imports par suffixe : `./self-train` depuis `src/lib/sirius/`, ou `@/lib/sirius/self-train.ts` avec extension, échappaient au test ; `runSelfTrain` non épinglé → résolution réelle des spécificateurs (alias, relatif, frère, extension), testée sur une source synthétique ; liste exacte des fichiers utilisant `runSelfTrain` (dont la fonction navigateur homonyme).
+- `export const { PUT } = …` ignoré en silence → refusé explicitement ; test « handlers exportés par le module transpilé = handlers inspectés ».
+- Énumération limitée à `route.ts` et aux sources `.ts/.tsx` → `route.(ts|tsx|js|mjs|cjs)` et sources `.js/.mjs/.cjs` incluses ; `src/runner/handler` (chemin runner en processus) épinglé à `src/lib/tee/runner-client.ts`.
+- Plafond « doublons compris » non épinglé par un test → ajouté.
+- Cas limite 4.5 : statut attendu faux (c'est un 401 « Autorisation runner invalide » quand la délégation manque, le 403 n'apparaît que si le sujet diffère) → corrigé.
+- Cas limite 4.6 : « 20 appels » ne discriminait rien (le limiteur en autorise 20) → 25 appels, et 429 au 21e pour un admin.
+- Cas limite 4.14 et `BACKUP-RECOVERY.md` : sur l'instance de démo, le script passe la liste et s'arrête sur la clé → les deux cas décrits.
+- Cas limite 4.15 : le refus de démarrage vient de `runnerEndpoint`, pas de `requiresPhalaRunner` → corrigé.
+
+Écarté, avec la raison :
+- `/api/phala-demo/results/[id]` et `/api/models/[cid]` sans garde admin : antérieurs à la slice, hors du périmètre (ils ne mènent pas à `self-train.ts`) ; livraison de la démo au propriétaire du job. Réfuté 3/3.
+- « L'arbre syntaxique ne prouve pas l'exécution » (garde dans une fermeture morte) et « `req.clone().json()` avant la garde invisible » : exacts comme limites de méthode, mais aucun code de ce genre n'existe et le bac à sable couvre les handlers existants ; notés en 5 comme angles morts.
+- Avertissement `[admin] … mal formée` dans la sortie d'un test vert : neutralisé malgré tout (correctif trivial).
+
+**Passe 3** : voir ci-dessous.
 
 ---
 
