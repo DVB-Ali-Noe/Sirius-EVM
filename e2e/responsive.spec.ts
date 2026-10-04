@@ -212,7 +212,7 @@ for (const screen of SCREENS) {
       await expectContainedLayout(page);
     });
 
-    test("le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
+    test("le sélecteur de profil, le fichier et son contrôle restent dans le formulaire", async ({ page }) => {
       await openLayoutPage(page, "/datasets/new", screen.fontSize);
       await page.getByLabel("Training profile").selectOption("logistic_regression");
       await page.locator('input[type="file"]').setInputFiles({
@@ -223,6 +223,9 @@ for (const screen of SCREENS) {
       await expect(page.getByLabel("Training profile")).toHaveValue("logistic_regression");
       await expect(page.getByLabel("Training profile").locator("option:checked")).toHaveText("Binary logistic regression · v1.0.0");
       await expect(page.getByText("— 480 training rows, separate test set.")).toBeVisible();
+      // Le contrôle du navigateur refuse le fichier avec sa raison, sans sortir de la carte.
+      await expect(page.getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
+      await expect(page.getByText(`${LONG_NAME}.csv`)).toBeVisible();
       await expectContainedLayout(page);
     });
 

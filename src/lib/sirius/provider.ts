@@ -15,6 +15,7 @@ import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { rebasedListingExpiry } from "@/lib/datasets/publication";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
 export type Visibility = (typeof VISIBILITY_STATES)[number];
@@ -100,11 +101,16 @@ async function markDatasetListed(
   onChainId: Hex,
   mint?: { txHash: string; blockNumber: bigint },
 ) {
+  // La durée de publication choisie à l'upload court depuis la mise en ligne, pas depuis
+  // la création du brouillon : un brouillon scellé peut attendre des jours avant la
+  // signature du titre. Même durée, nouveau point de départ (`rebasedListingExpiry`).
+  const listedAt = new Date();
+  const listingExpiresAt = rebasedListingExpiry(dataset, listedAt);
   const updated = await prisma.dataset.updateMany({
     where: { id: dataset.id, provider: normalizeAddress(dataset.provider), status: "DRAFT", evmDatasetId: null },
     data: {
       status: process.env.SIRIUS_PHALA_DEMO === "true" ? "PRIVATE" : "LISTED",
-      ...(process.env.SIRIUS_PHALA_DEMO === "true" ? {} : { listedAt: new Date() }),
+      ...(process.env.SIRIUS_PHALA_DEMO === "true" ? {} : { listedAt, ...(listingExpiresAt ? { listingExpiresAt } : {}) }),
       evmDatasetId: onChainId,
       evmChainId: resolveServerNetwork().chain.id,
       ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
