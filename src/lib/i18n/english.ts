@@ -9,6 +9,7 @@ import { TOUR_MESSAGES_EN } from "./tour-en";
 import { MARKETPLACE_MESSAGES_EN } from "./marketplace-en";
 import { TRAIN_MESSAGES_EN } from "./train-en";
 import { SETTINGS_MESSAGES_EN } from "./settings-en";
+import { FUNDING_MESSAGES_EN } from "./funding-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
@@ -22,6 +23,7 @@ export const EN_MESSAGES: Record<string, string> = {
   ...MARKETPLACE_MESSAGES_EN,
   ...TRAIN_MESSAGES_EN,
   ...SETTINGS_MESSAGES_EN,
+  ...FUNDING_MESSAGES_EN,
   "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",

@@ -17,8 +17,12 @@ import { buildAddressQr } from "./qr";
  *
  * L'adresse affichée est la même, validée, que celle encodée dans le QR code. Si elle n'est
  * pas valide, le composant n'affiche rien plutôt qu'une adresse douteuse.
+ *
+ * `embedded` : rendu dans la fenêtre « Ajouter des fonds », sans carte ni titre (la fenêtre
+ * porte les siens, et l'avertissement sur le réseau et les jetons acceptés), et sans le
+ * renvoi au bouton de pont.
  */
-export function ReceiveFunds({ network, address }: { network: EvmNetwork; address: string }) {
+export function ReceiveFunds({ network, address, embedded = false }: { network: EvmNetwork; address: string; embedded?: boolean }) {
   const { t } = useLocale();
   const { state, copy } = useCopy();
   const checksummed = normalizeAddress(address);
@@ -27,15 +31,9 @@ export function ReceiveFunds({ network, address }: { network: EvmNetwork; addres
 
   const token = stablecoinSymbol(network);
 
-  return (
-    <Card className="mb-6" data-testid="receive-funds">
-      <h2 className="text-base font-semibold tracking-tight">{t("Ajouter des fonds")}</h2>
-      <h3 className="mt-3 text-sm font-medium">{t("Recevoir des {token} par transfert", { token })}</h3>
-      <p className="mt-1 text-sm text-muted">
-        {t("Envoie des {token} sur Robinhood Chain à l’adresse ci-dessous, depuis un autre wallet ou une plateforme d’échange qui supporte ce réseau. Les fonds arrivent dès que le transfert est confirmé.", { token })}
-      </p>
-
-      <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+  const content = (
+    <>
+      <div className={`flex flex-col items-center gap-4 sm:flex-row sm:items-start ${embedded ? "" : "mt-4"}`}>
         <QrCode data={qr} label={t("QR code de ton adresse de wallet")} className="h-44 w-44 shrink-0 rounded-lg" />
         <div className="min-w-0 flex-1">
           <div className="text-xs uppercase tracking-wider text-muted">{t("Ton adresse")}</div>
@@ -61,12 +59,25 @@ export function ReceiveFunds({ network, address }: { network: EvmNetwork; addres
       </div>
 
       <ul className="mt-4 list-disc space-y-1.5 pl-5 text-xs text-muted">
-        <li>{t("N’envoie que des {token}, sur Robinhood Chain. Un autre jeton ou un autre réseau peut être perdu définitivement.", { token })}</li>
+        {!embedded && <li>{t("N’envoie que des {token}, sur Robinhood Chain. Un autre jeton ou un autre réseau peut être perdu définitivement.", { token })}</li>}
         <li>{t("Pour un premier transfert, envoie d’abord un petit montant et vérifie qu’il arrive.")}</li>
         <li>{t("Compare le début et la fin de l’adresse dans ton wallet avant de confirmer.")}</li>
         <li>{t("Les frais réseau se paient en ETH : garde un peu d’ETH sur la même adresse.")}</li>
-        <li>{t("Le bouton de pont ci-dessus ouvre un service tiers : vérifie qu’il supporte {token} avant de l’utiliser.", { token })}</li>
+        {!embedded && <li>{t("Le bouton de pont ci-dessus ouvre un service tiers : vérifie qu’il supporte {token} avant de l’utiliser.", { token })}</li>}
       </ul>
+    </>
+  );
+
+  if (embedded) return <div data-testid="receive-funds">{content}</div>;
+
+  return (
+    <Card className="mb-6" data-testid="receive-funds">
+      <h2 className="text-base font-semibold tracking-tight">{t("Ajouter des fonds")}</h2>
+      <h3 className="mt-3 text-sm font-medium">{t("Recevoir des {token} par transfert", { token })}</h3>
+      <p className="mt-1 text-sm text-muted">
+        {t("Envoie des {token} sur Robinhood Chain à l’adresse ci-dessous, depuis un autre wallet ou une plateforme d’échange qui supporte ce réseau. Les fonds arrivent dès que le transfert est confirmé.", { token })}
+      </p>
+      {content}
     </Card>
   );
 }
