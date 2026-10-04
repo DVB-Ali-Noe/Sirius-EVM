@@ -75,6 +75,9 @@ export interface MarketplaceDeps {
 /** Un devis plus ancien ne reflète plus forcément le tarif en vigueur : il n'est pas affiché. */
 export const COMPUTE_QUOTE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Durée de partage de la lecture du catalogue entre requêtes. */
+export const CATALOGUE_CACHE_TTL_MS = 10_000;
+
 const ATOMIC = /^[1-9][0-9]{0,77}$/;
 
 /** Statuts d'un prêt dont les fonds ont été verrouillés dans l'escrow. */
@@ -117,9 +120,11 @@ async function loanStatsFor(db: MarketplaceDb, ids: readonly string[]): Promise<
 
 /**
  * Frais de calcul par profil. En v7, le tarif n'est connu que du runner : on reprend le montant
- * du dernier devis signé pour ce profil (identique pour tous les emprunteurs, et public on-chain
- * dans les conditions du lock), s'il date de moins de 30 jours. Le devis présenté avant paiement
- * reste la seule valeur qui engage.
+ * du dernier devis d'un prêt dont les fonds ont été verrouillés (le montant figure alors dans les
+ * conditions du lock, publiques on-chain ; un devis préparé puis abandonné n'est jamais lu), pour
+ * le même profil et la même version, s'il date de moins de 30 jours. Le montant ne dépend que du
+ * profil (`prepareComputeQuote`), identique pour tous les emprunteurs. Le devis présenté avant
+ * paiement reste la seule valeur qui engage.
  */
 export async function computeFeesFor(db: MarketplaceDb, mode: BillingMode, now: Date): Promise<ComputeFees> {
   const ids = Object.keys(MODEL_REGISTRY) as ModelId[];
@@ -132,15 +137,20 @@ export async function computeFeesFor(db: MarketplaceDb, mode: BillingMode, now: 
   const since = new Date(now.getTime() - COMPUTE_QUOTE_MAX_AGE_MS);
   const entries = await Promise.all(ids.map(async (id): Promise<[ModelId, ComputeFee]> => {
     const latest = await db.loan.findFirst({
-      where: { modelId: id, computeAmountUsdcAtomic: { not: null }, createdAt: { gte: since } },
+      where: {
+        modelId: id,
+        modelVersion: MODEL_REGISTRY[id].version,
+        computeAmountUsdcAtomic: { not: null },
+        evmLockTxHash: { not: null },
+        status: { in: [...LOCKED_STATUSES, "CANCELLED"] },
+        createdAt: { gte: since },
+      },
       orderBy: { createdAt: "desc" },
       select: { computeAmountUsdcAtomic: true, createdAt: true },
     });
     const amount = latest?.computeAmountUsdcAtomic;
-    if (!latest || typeof amount !== "string" || !ATOMIC.test(amount) || !(latest.createdAt instanceof Date)) {
-      return [id, UNKNOWN_COMPUTE_FEE];
-    }
-    // La date du devis n'est pas renvoyée : elle dirait quand quelqu'un a préparé un emprunt.
+    if (!latest || typeof amount !== "string" || !ATOMIC.test(amount)) return [id, UNKNOWN_COMPUTE_FEE];
+    // La date du devis n'est pas renvoyée : elle dirait quand quelqu'un a emprunté.
     return [id, { kind: "quoted", atomic: amount }];
   }));
   return Object.fromEntries(entries) as ComputeFees;
@@ -167,7 +177,21 @@ export interface CatalogueResponse extends ListingPage {
   kybAvailable: boolean;
 }
 
-export async function loadCatalogue(query: MarketplaceQuery, deps: MarketplaceDeps): Promise<CatalogueResponse> {
+/**
+ * Lecture coûteuse et identique pour tous les visiteurs : datasets candidats, statistiques,
+ * frais et KYB. Elle peut être partagée quelques secondes entre requêtes (voir
+ * `createCatalogueSnapshotCache`) ; la règle « en ligne » est revérifiée à chaque requête avec
+ * l'heure courante.
+ */
+export interface CatalogueSnapshot {
+  rows: MarketplaceDatasetRow[];
+  truncated: boolean;
+  stats: Map<string, LoanStats>;
+  fees: ComputeFees;
+  kyb: Map<string, boolean | null>;
+}
+
+export async function readCatalogueSnapshot(deps: MarketplaceDeps): Promise<CatalogueSnapshot> {
   const now = deps.now();
   const rows = await deps.db.dataset.findMany({
     where: onlineDatasetWhere(now),
@@ -179,17 +203,50 @@ export async function loadCatalogue(query: MarketplaceQuery, deps: MarketplaceDe
   });
   const truncated = rows.length > MARKETPLACE_MAX_CANDIDATES;
   const online = rows.slice(0, MARKETPLACE_MAX_CANDIDATES).filter((row) => isOnlineDataset(row, now));
-
-  const ids = online.map((row) => row.id);
-  // Le KYB n'est lu que si le filtre ou l'affichage en a besoin : toujours, puisque la carte
-  // montre le badge. Les adresses sont celles des fournisseurs, publiques on-chain.
+  // Le KYB est toujours lu : la carte montre le badge. Adresses de fournisseurs, publiques on-chain.
   const providers = [...new Set(online.map((row) => row.provider))];
   const [stats, fees, kyb] = await Promise.all([
-    loanStatsFor(deps.db, ids),
+    loanStatsFor(deps.db, online.map((row) => row.id)),
     computeFeesFor(deps.db, deps.billingMode(), now),
     kybFor(deps, providers),
   ]);
+  return { rows: online, truncated, stats, fees, kyb };
+}
 
+/**
+ * Cache court du catalogue, partagé par toutes les requêtes d'une instance : une rafale de
+ * visiteurs (ou de requêtes hostiles) coûte une lecture de base par période, pas une par requête.
+ * Une lecture en cours est partagée ; un échec n'est pas mis en cache.
+ */
+export function createCatalogueSnapshotCache(ttlMs = CATALOGUE_CACHE_TTL_MS, clock: () => number = Date.now) {
+  let cached: { snapshot: CatalogueSnapshot; expiresAt: number } | null = null;
+  let inflight: Promise<CatalogueSnapshot> | null = null;
+  return function snapshot(deps: MarketplaceDeps): Promise<CatalogueSnapshot> {
+    if (cached && cached.expiresAt > clock()) return Promise.resolve(cached.snapshot);
+    if (!inflight) {
+      inflight = readCatalogueSnapshot(deps)
+        .then((value) => {
+          cached = { snapshot: value, expiresAt: clock() + ttlMs };
+          return value;
+        })
+        .finally(() => {
+          inflight = null;
+        });
+    }
+    return inflight;
+  };
+}
+
+export async function loadCatalogue(
+  query: MarketplaceQuery,
+  deps: MarketplaceDeps,
+  snapshot: (deps: MarketplaceDeps) => Promise<CatalogueSnapshot> = readCatalogueSnapshot,
+): Promise<CatalogueResponse> {
+  const { rows, truncated, stats, fees, kyb } = await snapshot(deps);
+  const now = deps.now();
+  // Revérifiée ici : une annonce expirée depuis la lecture mise en cache disparaît aussitôt.
+  const online = rows.filter((row) => isOnlineDataset(row, now));
+  const providers = [...new Set(online.map((row) => row.provider))];
   const candidates: ListingCandidate[] = online.map((row) => {
     const listing = toPublicListing(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees));
     const published = row.listedAt ?? row.createdAt;
@@ -213,6 +270,8 @@ export interface DetailResponse {
   dataset: PublicDetail;
   token: TokenInfo;
   kybAvailable: boolean;
+  /** Version de facturation : décide du texte « en cas d'échec » (retenue mesurée en v7 seulement). */
+  billingMode: BillingMode;
 }
 
 /** Fiche d'un dataset en ligne ; `null` pour tout autre état (pause, expiré, détruit, privé, inconnu). */
@@ -223,12 +282,14 @@ export async function loadListingDetail(id: string, deps: MarketplaceDeps): Prom
     select: MARKETPLACE_DATASET_SELECT,
   });
   if (!row || row.id !== id || !isOnlineDataset(row, now)) return null;
+  const billingMode = deps.billingMode();
   const [stats, fees, kyb] = await Promise.all([
     loanStatsFor(deps.db, [row.id]),
-    computeFeesFor(deps.db, deps.billingMode(), now),
+    computeFeesFor(deps.db, billingMode, now),
     kybFor(deps, [row.provider]),
   ]);
   return {
+    billingMode,
     dataset: toPublicDetail(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees)),
     token: deps.token,
     kybAvailable: kybAvailable(kyb, [row.provider]),

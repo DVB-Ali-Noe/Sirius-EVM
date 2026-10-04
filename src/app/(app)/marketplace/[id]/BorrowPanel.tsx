@@ -15,6 +15,9 @@ import { modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
 
 /** Statuts pendant lesquels des fonds sont déjà engagés sur ce dataset (repris de l'ancienne grille). */
+/** Au-delà du cache de 30 s de `/api/account/status`, pour relire un statut frais. */
+const KYB_RECHECK_MS = 31_000;
+
 const LOAN_EN_COURS = new Set(["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"]);
 
 interface ActiveLoan {
@@ -36,8 +39,15 @@ export function BorrowPanel({
   priceUsdcAtomic,
   modelId,
   modelVersion,
+  providerVerified,
 }: {
   datasetId: string;
+  /**
+   * Statut KYB du fournisseur lu par la fiche. `false` : l'emprunt serait refusé par le serveur
+   * et le contrat (`requireCounterpartyKyb`), le bouton est donc désactivé avant toute signature.
+   * `null` (illisible) laisse essayer : le serveur tranche.
+   */
+  providerVerified: boolean | null;
   priceUsdcAtomic: string;
   modelId: string | null;
   modelVersion: string | null;
@@ -50,11 +60,17 @@ export function BorrowPanel({
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [borrowedCount, setBorrowedCount] = useState(0);
-  // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
-  const [kybManquant, setKybManquant] = useState<boolean | null>(null);
-  const [dejaEmprunte, setDejaEmprunte] = useState(false);
+  // Chaque lecture est rangée avec le compte qui l'a faite : après un changement de wallet, la
+  // valeur d'un autre compte n'est jamais réutilisée. Le panneau n'est pas remonté à chaque
+  // révision du wallet, sinon une connexion en cours perdrait son état et ses erreurs.
+  const [kyb, setKyb] = useState<{ session: string; missing: boolean } | null>(null);
+  const [loans, setLoans] = useState<{ session: string; active: boolean } | null>(null);
+  const [rechecked, setRechecked] = useState<string | null>(null);
   const model = modelSelection(modelId, modelVersion);
   const sessionKey = authenticated && address ? address : null;
+  // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
+  const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
+  const dejaEmprunte = Boolean(loans && loans.session === sessionKey && loans.active);
 
   // Prêt déjà en cours sur ce dataset pour ce compte : emprunter deux fois est légitime, mais
   // on demande confirmation pour distinguer l'intention du double clic.
@@ -65,8 +81,11 @@ export function BorrowPanel({
       .then((r) => (r.ok ? (r.json() as Promise<ActiveLoan[]>) : null))
       .then((prets) => {
         if (!actif || !Array.isArray(prets)) return;
-        setDejaEmprunte(prets.some((pret) =>
-          pret.datasetId === datasetId && addressesEqual(pret.borrower, sessionKey) && LOAN_EN_COURS.has(pret.status)));
+        setLoans({
+          session: sessionKey,
+          active: prets.some((pret) =>
+            pret.datasetId === datasetId && addressesEqual(pret.borrower, sessionKey) && LOAN_EN_COURS.has(pret.status)),
+        });
       })
       .catch(() => {});
     return () => {
@@ -74,20 +93,30 @@ export function BorrowPanel({
     };
   }, [sessionKey, datasetId, borrowedCount]);
 
-  // L'attestation KYB est posée à la connexion ; ce formulaire n'est qu'un secours.
+  // L'attestation KYB est posée juste après la signature ; ce formulaire n'est qu'un secours.
+  // Une première lecture « absente » peut précéder la fin de cette attestation automatique :
+  // une seule relecture, quelques secondes plus tard, évite d'afficher le secours à tort.
   useEffect(() => {
     if (!sessionKey) return;
     let actif = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     void fetch(`/api/account/status?address=${encodeURIComponent(sessionKey)}`)
       .then((r) => (r.ok ? (r.json() as Promise<{ known?: unknown }>) : null))
       .then((corps) => {
-        if (actif && corps) setKybManquant(corps.known !== true);
+        if (!actif || !corps) return;
+        const missing = corps.known !== true;
+        if (missing && rechecked !== sessionKey) {
+          timer = setTimeout(() => setRechecked(sessionKey), KYB_RECHECK_MS);
+          return;
+        }
+        setKyb({ session: sessionKey, missing });
       })
       .catch(() => {});
     return () => {
       actif = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [sessionKey]);
+  }, [sessionKey, rechecked]);
 
   async function signIn() {
     setSigningIn(true);
@@ -108,6 +137,7 @@ export function BorrowPanel({
       await signIn();
       return;
     }
+    if (providerVerified === false) return;
     if (!model || !priceUsdcAtomic) {
       setError("Profil d’entraînement du dataset absent ou invalide");
       return;
@@ -129,7 +159,7 @@ export function BorrowPanel({
     setError(null);
     try {
       await acceptKybCredential("borrower");
-      setKybManquant(false);
+      if (sessionKey) setKyb({ session: sessionKey, missing: false });
     } catch (err) {
       setError(messageOf(err));
     }
@@ -144,7 +174,7 @@ export function BorrowPanel({
         <button
           type="button"
           onClick={() => void borrow()}
-          disabled={busy || signingIn || !model || !priceUsdcAtomic}
+          disabled={busy || signingIn || !model || !priceUsdcAtomic || providerVerified === false}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
@@ -166,7 +196,12 @@ export function BorrowPanel({
         </p>
       )}
       {!model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
-      {showKyb && <KybInviteForm role="borrower" onAccepted={() => setKybManquant(false)} />}
+      {providerVerified === false && (
+        <p className="text-xs text-negative">
+          {t("Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.")}
+        </p>
+      )}
+      {showKyb && <KybInviteForm role="borrower" onAccepted={() => sessionKey && setKyb({ session: sessionKey, missing: false })} />}
       {error && (
         <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-3 py-2 text-sm text-negative">
           {t(error)}

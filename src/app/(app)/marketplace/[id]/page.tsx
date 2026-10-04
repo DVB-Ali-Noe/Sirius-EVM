@@ -15,7 +15,6 @@ import { formatBytes, truncate } from "@/lib/format";
 import { categoryLabelKey } from "@/lib/marketplace/categories";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { MODEL_REGISTRY, modelDisplayName, modelSelection } from "@/lib/models/registry";
-import { useWalletStore } from "@/stores/wallet";
 import { BorrowPanel } from "./BorrowPanel";
 
 type LoadResult =
@@ -40,7 +39,6 @@ export default function MarketplaceListingPage() {
   const params = useParams<{ id: string }>();
   const id = typeof params?.id === "string" ? params.id : "";
   const { t } = useLocale();
-  const revision = useWalletStore((s) => s.revision);
   const [result, setResult] = useState<LoadResult | null>(null);
 
   useEffect(() => {
@@ -156,7 +154,7 @@ export default function MarketplaceListingPage() {
             <Fact label={t("Emprunts")} value={formatCount(dataset.borrowCount)} />
             <Fact label={t("Publication")} value={formatDate(dataset.listedAt)} />
             <Fact
-              label={t("Taux de réussite des entraînements")}
+              label={t("Emprunts réglés au fournisseur")}
               value={dataset.successRate === null
                 ? t("Aucun emprunt terminé")
                 : t("{rate} % ({settled} sur {count} emprunts terminés)", {
@@ -166,6 +164,9 @@ export default function MarketplaceListingPage() {
                 })}
             />
           </dl>
+          <p className="mt-3 text-xs text-muted">
+            {t("Un emprunt terminé est réglé au fournisseur ou remboursé ; un remboursement suit un échec de l’entraînement ou un entraînement jamais lancé.")}
+          </p>
         </Card>
 
         <Card>
@@ -232,7 +233,9 @@ export default function MarketplaceListingPage() {
         <Card>
           <h2 className="text-sm font-medium">{t("En cas d’échec")}</h2>
           <p className="mt-2 text-sm text-muted">
-            {t("Seul le calcul réellement consommé est retenu, le reste est remboursé.")}{" "}
+            {result.data.billingMode === "v6"
+              ? t("Aucun frais de calcul n’est prélevé : le montant verrouillé est rendu en entier.")
+              : t("Seul le calcul réellement consommé est retenu, le reste est remboursé.")}{" "}
             {days < 1
               ? t("Sans règlement à l’échéance de l’escrow, vous récupérez vos fonds depuis la page Entraîner.")
               : days === 1
@@ -245,8 +248,8 @@ export default function MarketplaceListingPage() {
 
         <Card className="md:col-span-2">
           <BorrowPanel
-            key={revision}
             datasetId={dataset.id}
+            providerVerified={dataset.verified}
             priceUsdcAtomic={dataset.providerPriceAtomic}
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}

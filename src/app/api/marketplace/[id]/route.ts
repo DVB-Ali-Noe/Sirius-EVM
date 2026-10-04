@@ -10,9 +10,9 @@ export const runtime = "nodejs";
  * Fiche publique d'un dataset de la marketplace, en lecture seule et sans session.
  *
  * Seul un dataset en ligne est servi. Pause, expiration, destruction, privé, brouillon ou
- * identifiant inconnu donnent la même 404, sans dire lequel : l'existence d'un dataset hors
- * catalogue n'est pas révélée. Le parcours d'emprunt par lien direct d'un dataset semi-privé
- * reste celui de `/api/datasets/[id]`, inchangé.
+ * identifiant inconnu donnent la même 404, sans dire lequel. Cette route ne révèle donc rien de
+ * plus ; attention toutefois, `GET /api/datasets/[id]` (hors de cette slice, inchangé) sert
+ * toujours la ligne d'un dataset `UNLISTED` (en pause) à qui connaît son identifiant.
  */
 
 const limiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 120, maxGlobal: 2_400 });

@@ -8,7 +8,7 @@ import * as errors from "../errors";
 import * as rate from "../http/rate-limit";
 import * as catalogue from "./catalogue";
 import * as query from "./query";
-import { COMPUTE_QUOTE_MAX_AGE_MS, loadCatalogue, loadListingDetail, type MarketplaceDb, type MarketplaceDeps } from "./catalogue";
+import { COMPUTE_QUOTE_MAX_AGE_MS, createCatalogueSnapshotCache, loadCatalogue, loadListingDetail, type MarketplaceDb, type MarketplaceDeps } from "./catalogue";
 import { MARKETPLACE_DATASET_SELECT, onlineDatasetWhere, type MarketplaceDatasetRow } from "./listing";
 import { assertNoPrivateData, PRIVATE_FIELDS, row } from "./test-fixtures";
 import { DEFAULT_MARKETPLACE_QUERY, MARKETPLACE_MAX_CANDIDATES, type MarketplaceQuery } from "./query";
@@ -30,7 +30,7 @@ interface Calls {
  * champs privés compris, et des datasets hors ligne. C'est le pire cas : la projection et la
  * revérification en mémoire doivent suffire à ne rien laisser passer.
  */
-function fakeDb(rows: Array<Record<string, unknown>>, options: { quote?: { computeAmountUsdcAtomic: string | null; createdAt: Date } | null } = {}) {
+function fakeDb(rows: ReadonlyArray<MarketplaceDatasetRow | Record<string, unknown>>, options: { quote?: { computeAmountUsdcAtomic: string | null; createdAt: Date } | null } = {}) {
   const calls: Calls = { findMany: [], findFirst: [], groupBy: [], loanFindFirst: [] };
   const db: MarketplaceDb = {
     dataset: {
@@ -40,7 +40,7 @@ function fakeDb(rows: Array<Record<string, unknown>>, options: { quote?: { compu
       },
       findFirst: async (args) => {
         calls.findFirst.push(args);
-        return (rows.find((r) => r.id === args.where.id) ?? null) as MarketplaceDatasetRow | null;
+        return (rows.find((r) => (r as { id?: unknown }).id === args.where.id) ?? null) as MarketplaceDatasetRow | null;
       },
     },
     loan: {
@@ -117,11 +117,16 @@ test("catalogue : statistiques, frais du dernier devis et prix total", async () 
     linear_regression: { kind: "quoted", atomic: "3000000" },
     logistic_regression: { kind: "quoted", atomic: "3000000" },
   });
-  // Un devis par profil, borné dans le temps, et jamais sa date dans la réponse.
-  assert.equal(calls.loanFindFirst.length, 2);
-  for (const call of calls.loanFindFirst) {
-    assert.deepEqual(call.where.createdAt, { gte: new Date(NOW.getTime() - COMPUTE_QUOTE_MAX_AGE_MS) });
-  }
+  // Un devis par profil et par version, d'un prêt réellement verrouillé (jamais un devis abandonné),
+  // borné dans le temps, et jamais sa date dans la réponse.
+  assert.deepEqual(calls.loanFindFirst.map((call) => call.where), ["linear_regression", "logistic_regression"].map((modelId) => ({
+    modelId,
+    modelVersion: "1.0.0",
+    computeAmountUsdcAtomic: { not: null },
+    evmLockTxHash: { not: null },
+    status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"] },
+    createdAt: { gte: new Date(NOW.getTime() - COMPUTE_QUOTE_MAX_AGE_MS) },
+  })));
   assert.doesNotMatch(JSON.stringify(result), /quotedAt|2026-10-04T12/);
 });
 
@@ -170,6 +175,42 @@ test("catalogue : plafond de lecture signalé, filtres et page appliqués côté
   assert.deepEqual(filtered.items.map((item) => item.id), ["future"]);
 });
 
+test("cache du catalogue : une lecture partagée par période, l'expiration revérifiée à chaque requête", async () => {
+  let clock = NOW.getTime();
+  const { db, calls } = fakeDb(ROWS);
+  const live = deps(db, { now: () => new Date(clock) });
+  const snapshot = createCatalogueSnapshotCache(10_000, () => clock);
+  const burst = await Promise.all(Array.from({ length: 25 }, () => loadCatalogue(q(), live, snapshot)));
+  assert.equal(calls.findMany.length, 1);
+  assert.ok(burst.every((result) => result.total === 3));
+  clock += 9_999;
+  assert.equal((await loadCatalogue(q(), live, snapshot)).total, 3);
+  assert.equal(calls.findMany.length, 1);
+  clock += 1;
+  await loadCatalogue(q(), live, snapshot);
+  assert.equal(calls.findMany.length, 2);
+
+  // Lecture encore en cache, mais « future » a expiré entre-temps : il disparaît sans relire la base.
+  const frozen = createCatalogueSnapshotCache(10_000, () => 0);
+  await loadCatalogue(q(), deps(db), frozen);
+  const reads = calls.findMany.length;
+  const later = await loadCatalogue(q(), deps(db, { now: () => new Date(NOW.getTime() + 60_001) }), frozen);
+  assert.deepEqual(later.items.map((item) => item.id).sort(), ["listed", "unknown-kyb"]);
+  assert.equal(calls.findMany.length, reads);
+  // Un échec n'est pas mis en cache.
+  const failing = fakeDb(ROWS);
+  let fail = true;
+  const inner = failing.db.dataset.findMany;
+  failing.db.dataset.findMany = async (args) => {
+    if (fail) throw new Error("panne");
+    return inner(args);
+  };
+  const retry = createCatalogueSnapshotCache(10_000, () => clock);
+  await assert.rejects(loadCatalogue(q(), deps(failing.db), retry));
+  fail = false;
+  assert.equal((await loadCatalogue(q(), deps(failing.db), retry)).total, 3);
+});
+
 test("fiche : seul un dataset en ligne est servi ; tout autre état donne la même absence", async () => {
   const { db, calls } = fakeDb(ROWS);
   const detail = await loadListingDetail("listed", deps(db));
@@ -181,6 +222,8 @@ test("fiche : seul un dataset en ligne est servi ; tout autre état donne la mê
   assert.equal(detail.dataset.successRate, 0.75);
   assert.deepEqual(detail.dataset.computeFee, { kind: "quoted", atomic: "3000000" });
   assert.deepEqual(detail.token, { symbol: "USDG", decimals: 6 });
+  assert.equal(detail.billingMode, "v7");
+  assert.equal((await loadListingDetail("listed", deps(db, { billingMode: () => "v6" })))!.billingMode, "v6");
   assertNoPrivateData(detail);
   for (const id of ["expired", "expired-now", "paused", "private", "destroyed", "key-gone", "draft", "inexistant"]) {
     assert.equal(await loadListingDetail(id, deps(db)), null, id);

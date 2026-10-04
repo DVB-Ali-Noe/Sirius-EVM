@@ -301,20 +301,24 @@ export function MarketplaceCatalogue() {
 function SearchBox({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
   const { t } = useLocale();
   const [draft, setDraft] = useState(value);
-  const [synced, setSynced] = useState(value);
-  if (value !== synced) {
-    setSynced(value);
-    setDraft(value);
+  // Dernière valeur reçue de l'URL. `draft` n'est repris que si l'URL change, et seulement si elle
+  // ne fait pas que confirmer ce qui vient d'être envoyé : une frappe en cours n'est jamais écrasée.
+  const [received, setReceived] = useState(value);
+  const [sent, setSent] = useState<string | null>(null);
+  if (value !== received) {
+    setReceived(value);
+    if (value !== sent) setDraft(value);
+    setSent(null);
   }
 
   useEffect(() => {
-    if (draft === synced) return;
+    if (draft === value || draft === sent) return;
     const timer = setTimeout(() => {
-      setSynced(draft);
+      setSent(draft);
       onCommit(draft);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [draft, synced, onCommit]);
+  }, [draft, value, sent, onCommit]);
 
   return (
     <input
@@ -325,8 +329,8 @@ function SearchBox({ value, onCommit }: { value: string; onCommit: (value: strin
       placeholder={t("Rechercher par nom ou description")}
       onChange={(event) => setDraft(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Enter" && draft !== synced) {
-          setSynced(draft);
+        if (event.key === "Enter" && draft !== value && draft !== sent) {
+          setSent(draft);
           onCommit(draft);
         }
       }}

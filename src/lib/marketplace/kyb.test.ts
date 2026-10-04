@@ -57,6 +57,34 @@ test("KYB : résultat mis en cache, échec retenu moins longtemps", async () => 
   assert.equal(reads, 3);
 });
 
+test("KYB : requêtes simultanées partagent la même lecture ; une relecture en échec garde la dernière valeur", async () => {
+  let clock = 0;
+  let reads = 0;
+  let fail = false;
+  let release: () => void = () => {};
+  const gate = () => new Promise<void>((resolve) => { release = resolve; });
+  let wait = gate();
+  const reader = createKybStatusReader(async () => {
+    reads++;
+    await wait;
+    if (fail) throw new Error("RPC");
+    return true;
+  }, { now: () => clock, timeoutMs: 1_000 });
+  const parallel = Promise.all(Array.from({ length: 20 }, () => reader([A])));
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  for (const result of await parallel) assert.equal(result.get(A), true);
+  assert.equal(reads, 1);
+
+  // Le cache expire, la relecture échoue : la dernière valeur connue reste servie un temps borné.
+  fail = true;
+  wait = Promise.resolve();
+  clock += 61_000;
+  assert.equal((await reader([A])).get(A), true);
+  clock += 10 * 60_000;
+  assert.equal((await reader([A])).get(A), null);
+});
+
 test("jeton affiché : USDG à 6 décimales sur mainnet, USDC du testnet à 18", () => {
   assert.deepEqual(marketplaceToken("mainnet"), { symbol: "USDG", decimals: 6 });
   assert.deepEqual(marketplaceToken("testnet"), { symbol: "USDC", decimals: 18 });

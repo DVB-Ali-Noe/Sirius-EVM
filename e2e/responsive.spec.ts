@@ -106,6 +106,7 @@ test.beforeEach(async ({ page }) => {
           },
           token: { symbol: "USDC", decimals: 18 },
           kybAvailable: true,
+          billingMode: "v6",
         };
         break;
       case "/api/datasets":

@@ -49,6 +49,7 @@ const listingDetail = {
   },
   token: { symbol: "USDC", decimals: DECIMALS },
   kybAvailable: true,
+  billingMode: "v7",
 };
 
 function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {

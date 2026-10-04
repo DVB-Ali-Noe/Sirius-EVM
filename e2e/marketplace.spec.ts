@@ -33,6 +33,7 @@ function detail(overrides: Record<string, unknown> = {}) {
     },
     token: TOKEN,
     kybAvailable: true,
+    billingMode: "v7",
   };
 }
 
@@ -122,8 +123,15 @@ test("filtres : catégorie, modèle, recherche, vérifiés, fourchettes et tri p
   await page.getByRole("radio", { name: "Binary logistic regression" }).click();
   await expect(page).toHaveURL(/model=logistic_regression/);
 
-  await page.getByRole("searchbox", { name: "Search datasets" }).fill("crédit pme");
+  // Frappe interrompue par l'envoi de la recherche : aucun caractère perdu, le champ ne se vide pas.
+  const search = page.getByRole("searchbox", { name: "Search datasets" });
+  await search.pressSequentially("crédit");
+  await expect(page).toHaveURL(/q=cr%C3%A9dit(&|$)/);
+  await expect(search).toHaveValue("crédit");
+  await search.pressSequentially(" pme", { delay: 150 });
+  await expect(search).toHaveValue("crédit pme");
   await expect(page).toHaveURL(/q=cr%C3%A9dit\+pme|q=cr%C3%A9dit%20pme/);
+  await expect(search).toHaveValue("crédit pme");
   expect(lastQuery().get("q")).toBe("crédit pme");
 
   await page.getByRole("checkbox", { name: "KYB-verified providers only" }).click();
@@ -156,6 +164,17 @@ test("une erreur de paramètre est affichée, un dataset hors ligne a une fiche 
   await page.goto("/marketplace/dataset-paused");
   await expect(page.getByRole("heading", { name: "Dataset unavailable" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Borrow" })).toHaveCount(0);
+});
+
+test("fournisseur sans KYB valide et facturation v6 : emprunt désactivé, texte d'échec adapté", async ({ page }) => {
+  await installApi(page, {
+    [`/api/marketplace/${item.id}`]: () => ({ body: { ...detail({ verified: false, computeFee: { kind: "none", atomic: "0" } }), billingMode: "v6" } }),
+  });
+  await page.goto(`/marketplace/${item.id}`);
+  await expect(page.getByRole("button", { name: "Borrow" })).toBeDisabled();
+  await expect(page.getByText("Borrowing unavailable: the provider’s KYB attestation is missing or expired.")).toBeVisible();
+  await expect(page.getByText("No compute fee is charged: the locked amount is returned in full.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Only the compute actually consumed is retained", { exact: false })).toHaveCount(0);
 });
 
 test("frais de calcul inconnus : la fiche n'invente pas de total et renvoie au devis", async ({ page }) => {

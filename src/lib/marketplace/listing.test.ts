@@ -35,10 +35,13 @@ test("en ligne : LISTED, clé active, annonce sans fin ou non expirée", () => {
   assert.equal(isOnlineDataset(row({ keyDestroyedAt: new Date("2026-10-02T00:00:00.000Z") }), NOW), false);
 });
 
-test("le filtre Prisma exprime la même règle que la vérification en mémoire", () => {
+test("le filtre Prisma exprime la même règle que la vérification en mémoire, plus la clé et le titre présents", () => {
   assert.deepEqual(onlineDatasetWhere(NOW), {
     status: "LISTED",
     keyDestroyedAt: null,
+    // Filtre seulement : ces deux colonnes ne sont jamais sélectionnées.
+    wrappedKey: { not: null },
+    evmDatasetId: { not: null },
     OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: NOW } }],
   });
 });
@@ -172,13 +175,17 @@ test("tris : récents, plus empruntés (égalité départagée par la date), pri
   assert.deepEqual(ids(CATALOGUE), ["a", "b", "c"]);
 });
 
-test("pagination : pages bornées, page au-delà de la fin vide mais cohérente", () => {
+test("pagination : pages bornées, page au-delà de la fin ramenée à la dernière", () => {
   const many = Array.from({ length: 50 }, (_, i) => candidate({ id: `d${String(i).padStart(2, "0")}` }));
   const first = paginate(many, 1, 24);
   assert.equal(first.items.length, 24);
   assert.equal(first.pageCount, 3);
   assert.equal(first.total, 50);
   assert.equal(paginate(many, 3, 24).items.length, 2);
-  assert.deepEqual(paginate(many, 4, 24).items, []);
+  // Au-delà de la fin : la dernière page, jamais une page vide qui ferait croire à un catalogue vide.
+  const beyond = paginate(many, 4, 24);
+  assert.equal(beyond.page, 3);
+  assert.equal(beyond.items.length, 2);
+  assert.equal(paginate([], 5, 24).page, 1);
   assert.equal(paginate([], 1, 24).pageCount, 1);
 });

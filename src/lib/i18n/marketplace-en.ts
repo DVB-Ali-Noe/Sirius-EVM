@@ -72,7 +72,13 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Le modèle entraîné : ses coefficients et ses métriques de qualité.": "The trained model: its coefficients and quality metrics.",
   "Statistiques publiques": "Public statistics",
   "Publication": "Published",
-  "Taux de réussite des entraînements": "Training success rate",
+  "Emprunts réglés au fournisseur": "Loans settled to the provider",
+  "Un emprunt terminé est réglé au fournisseur ou remboursé ; un remboursement suit un échec de l’entraînement ou un entraînement jamais lancé.":
+    "A completed loan is either settled to the provider or refunded; a refund follows a failed training or a training that was never started.",
+  "Aucun frais de calcul n’est prélevé : le montant verrouillé est rendu en entier.":
+    "No compute fee is charged: the locked amount is returned in full.",
+  "Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.":
+    "Borrowing unavailable: the provider’s KYB attestation is missing or expired.",
   "Aucun emprunt terminé": "No completed loan yet",
   "{rate} % ({settled} sur {count} emprunts terminés)": "{rate}% ({settled} of {count} completed loans)",
   "Adresse": "Address",

@@ -58,14 +58,20 @@ export interface MarketplaceDatasetRow {
 }
 
 /**
- * Filtre Prisma des datasets en ligne : publiés (`LISTED`), clé active présente, et annonce
- * non expirée (`listingExpiresAt` absent, pour les datasets publiés avant ce champ, ou futur).
- * La pause fait passer le statut à `UNLISTED` (docs 16) : elle est donc exclue ici.
+ * Filtre Prisma des datasets en ligne : publiés (`LISTED`), clé active présente (DEK enveloppée
+ * non effacée, titre on-chain minté), et annonce non expirée (`listingExpiresAt` absent, pour les
+ * datasets publiés avant ce champ, ou futur). La pause fait passer le statut à `UNLISTED`
+ * (docs 16) : elle est donc exclue ici.
+ *
+ * `wrappedKey` et `evmDatasetId` ne servent qu'au filtre : ils ne sont jamais sélectionnés
+ * (l'`omit` global ne porte que sur ce qui est renvoyé, pas sur le `where`).
  */
 export function onlineDatasetWhere(now: Date) {
   return {
     status: "LISTED" as const,
     keyDestroyedAt: null,
+    wrappedKey: { not: null },
+    evmDatasetId: { not: null },
     OR: [{ listingExpiresAt: null }, { listingExpiresAt: { gt: now } }],
   };
 }
@@ -299,11 +305,14 @@ export interface ListingPage {
 
 export function paginate(sorted: readonly ListingCandidate[], page: number, pageSize = MARKETPLACE_PAGE_SIZE): ListingPage {
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const start = (page - 1) * pageSize;
+  // Page au-delà de la fin (lien partagé, datasets retirés entre-temps) : ramenée à la dernière,
+  // plutôt qu'un catalogue vide qui se dirait vide.
+  const current = Math.min(Math.max(1, page), pageCount);
+  const start = (current - 1) * pageSize;
   return {
     items: sorted.slice(start, start + pageSize).map((candidate) => candidate.listing),
     total: sorted.length,
-    page,
+    page: current,
     pageCount,
     pageSize,
   };
