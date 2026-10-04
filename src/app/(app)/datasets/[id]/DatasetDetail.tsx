@@ -496,7 +496,7 @@ function ListingCard({ view, busy, run }: {
       )}
       {canMakePrivate && (
         <p className="mt-2 text-xs text-muted">
-          {t("« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours.")}
+          {t("« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours ou réservé.")}
         </p>
       )}
       {view.status === "PRIVATE" && view.listedAt === null && (
@@ -512,7 +512,8 @@ function ListingCard({ view, busy, run }: {
           onSubmit={(event) => {
             event.preventDefault();
             // Recalculé au clic : l'annonce peut avoir expiré depuis l'ouverture de la page.
-            const relists = view.status === "LISTED" && view.listingExpiresAt !== null && Date.parse(view.listingExpiresAt) <= Date.now();
+            const relists = view.status === "LISTED"
+              && (view.listingExpired || (view.listingExpiresAt !== null && Date.parse(view.listingExpiresAt) <= Date.now()));
             void run("extend", () => extendListing(view.id, days, relists), "Annonce prolongée.");
           }}
         >

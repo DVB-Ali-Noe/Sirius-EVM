@@ -141,8 +141,25 @@ test("remise en ligne : UNLISTED ou PRIVATE → LISTED, jamais détruit, suspend
     "Remise en ligne impossible pour ce dataset");
   rejectsWith(() => visibilityTransition("resume", { status: "PRIVATE", listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
     "Remise en ligne impossible pour ce dataset");
-  assert.equal(visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted, listedAt: null }, NOW, { demoMode: true }).to, "LISTED",
-    "UNLISTED n'est pas concerné par la règle du privé");
+  assert.equal(visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted, listedAt: null }, NOW).to, "LISTED",
+    "hors démo, un UNLISTED n'est pas concerné par la règle du privé");
+  rejectsWith(() => visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
+    "Remise en ligne impossible pour ce dataset");
+});
+
+test("route de visibilité existante : mêmes règles, et pas de détour PRIVATE → UNLISTED → LISTED", () => {
+  const minted = { evmDatasetId: `0x${"01".repeat(32)}` };
+  const neverPublished = { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: null };
+  const published = { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: new Date(NOW - DAY) };
+  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", neverPublished, NOW), 409, "Visibilité impossible pour ce dataset");
+  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", published, NOW, { demoMode: true }), 409, "Visibilité impossible pour ce dataset");
+  rejectsWith(() => manage.assertVisibilityChange("LISTED", neverPublished, NOW), 409, "Remise en ligne impossible pour ce dataset");
+  manage.assertVisibilityChange("UNLISTED", published, NOW);
+  manage.assertVisibilityChange("LISTED", published, NOW);
+  manage.assertVisibilityChange("PRIVATE", { status: "LISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true });
+  manage.assertVisibilityChange("UNLISTED", { status: "LISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true });
+  // LISTED → LISTED reste accepté comme avant la slice (rafraîchit listedAt), même expiré.
+  manage.assertVisibilityChange("LISTED", { status: "LISTED", listingExpiresAt: new Date(NOW - DAY), ...minted }, NOW);
 });
 
 test("prolonger une annonce en ligne expirée la remet en ligne : signalé pour exiger le grant", () => {
@@ -555,6 +572,11 @@ test("nom et description : caractères invisibles, bidi, substituts isolés, NFC
   for (const value of [persian, family, hindi]) {
     assert.deepEqual(validateDetailsPatch({ name: value, description: value }), { name: value, description: value });
   }
+  for (const name of ["a\u2800b", "a\u034Fb", "a\u17B4b"]) {
+    rejectsWith(() => validateDetailsPatch({ name }), 400, "Nom invalide : caractères invisibles ou de contrôle interdits");
+  }
+  rejectsWith(() => validateDetailsPatch({ description: "a\u034Fb" }), 400, "Description invalide : caractères invisibles ou de contrôle interdits");
+  assert.deepEqual(validateDetailsPatch({ description: "\u2801\u2800\u2803" }), { description: "\u2801\u2800\u2803" }, "braille admis en description");
   // Césure conditionnelle et séparateur mongol admis dans une description, pas dans un nom.
   assert.deepEqual(validateDetailsPatch({ description: "Donau\u00ADdampf ᠠ\u180Eᠡ" }), { description: "Donau\u00ADdampf ᠠ\u180Eᠡ" });
 });
@@ -883,6 +905,7 @@ test("route PATCH /api/datasets/[id] existante : mêmes règles de passage à Pu
     { id: "ds4", status: "PRIVATE", listedAt: new Date(NOW - DAY) },
     { id: "ds5", status: "DELETED" },
     { id: "ds6", provider: OTHER, status: "UNLISTED" },
+    { id: "ds7", status: "LISTED", listingExpiresAt: null },
   ]);
   const legacy = legacyRoute(store);
   let response = await legacy.patch("ds1", "LISTED");
@@ -902,6 +925,11 @@ test("route PATCH /api/datasets/[id] existante : mêmes règles de passage à Pu
     assert.equal(response.status, 404, id);
     assert.deepEqual(JSON.parse(JSON.stringify(await response.json())), { error: "Dataset introuvable" });
   }
+  response = await legacy.patch("ds3", "UNLISTED");
+  assert.equal(response.status, 409, "pas de détour par Semi-privé pour un privé jamais publié");
+  assert.equal((await response.json()).error, "Visibilité impossible pour ce dataset");
+  assert.equal((await legacy.patch("ds7", "LISTED")).status, 200, "LISTED → LISTED inchangé");
   const demo = legacyRoute(store, { SIRIUS_PHALA_DEMO: "true" });
   assert.equal((await demo.patch("ds4", "LISTED")).status, 409, "en démo, rien ne repasse Public");
+  assert.equal((await demo.patch("ds4", "UNLISTED")).status, 409, "ni Semi-privé depuis Privé");
 });

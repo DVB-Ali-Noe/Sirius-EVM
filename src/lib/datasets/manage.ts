@@ -62,11 +62,12 @@ const ATOMIC_RE = /^(0|[1-9][0-9]{0,77})$/;
 // caractères invisibles ou de format (U+200B, U+2028-9, U+2060-4, U+206A-F, U+FEFF,
 // U+FFF9-B, remplissages hangul, étiquettes U+E0000-E007F). U+200C et U+200D (ZWNJ, ZWJ)
 // restent admis : le persan, les langues indiennes et les emojis composés en ont besoin.
-// Le nom refuse en plus U+00AD et U+180E (invisibles dans un titre court), que la
-// description admet (césure allemande, mongol).
-const INVISIBLE_CHARS = "\\u061C\\u115F\\u1160\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\u3164\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}";
+// Sont aussi refusés U+034F et U+17B4-5 (invisibles). Le nom refuse en plus U+00AD, U+180E
+// et U+2800 (invisibles dans un titre court), que la description admet (césure allemande,
+// mongol, braille).
+const INVISIBLE_CHARS = "\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\u3164\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}";
 const FORBIDDEN_DESCRIPTION_CHARS = new RegExp(`[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F${INVISIBLE_CHARS}]`, "u");
-const FORBIDDEN_NAME_CHARS = new RegExp(`[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u180E${INVISIBLE_CHARS}]`, "u");
+const FORBIDDEN_NAME_CHARS = new RegExp(`[\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u180E\\u2800${INVISIBLE_CHARS}]`, "u");
 /** Demi-paire de substitution UTF-16 isolée : chaîne mal formée. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 /** Un nom doit contenir au moins une lettre ou un chiffre visible. */
@@ -196,7 +197,8 @@ export function visibilityTransition(
     throw new AppError("Remise en ligne impossible pour ce dataset", 409);
   }
   if (!state.evmDatasetId) throw new AppError("Remise en ligne impossible pour ce dataset", 409);
-  if (state.status === "PRIVATE" && (options.demoMode || !state.listedAt)) {
+  // En démo Phala, rien ne repasse en ligne ; ailleurs, un privé jamais publié non plus.
+  if (options.demoMode || (state.status === "PRIVATE" && !state.listedAt)) {
     throw new AppError("Remise en ligne impossible pour ce dataset", 409);
   }
   if (isListingExpired(state.listingExpiresAt, now)) {
@@ -235,6 +237,24 @@ export function extendedListingExpiry(state: ListingState, days: ListingExtensio
     throw new AppError("Prolongation limitée à 365 jours à l'avance", 409);
   }
   return new Date(next);
+}
+
+/**
+ * Contrôle d'un changement de visibilité par la route existante `PATCH /api/datasets/[id]`
+ * (sélecteur Public / Semi-privé / Privé) avec les mêmes règles que la fiche :
+ * - vers LISTED : celles de la remise en ligne (`visibilityTransition`), sauf LISTED → LISTED,
+ *   laissé tel quel (rafraîchit `listedAt`, comme avant la slice) ;
+ * - PRIVATE → UNLISTED : refusé pour un privé jamais publié ou en démo, sinon il deviendrait
+ *   empruntable par lien direct puis public en deux appels.
+ * Les autres passages (vers PRIVATE, LISTED → UNLISTED) restent régis par `setDatasetVisibility`.
+ */
+export function assertVisibilityChange(target: string, state: ListingState, now: number = Date.now(), options: TransitionOptions = {}): void {
+  if (target === "LISTED" && state.status !== "LISTED") {
+    visibilityTransition("resume", state, now, options);
+  }
+  if (target === "UNLISTED" && state.status === "PRIVATE" && (options.demoMode || !state.listedAt)) {
+    throw new AppError("Visibilité impossible pour ce dataset", 409);
+  }
 }
 
 /**

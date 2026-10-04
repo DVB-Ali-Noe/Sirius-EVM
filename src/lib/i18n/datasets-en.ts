@@ -97,8 +97,9 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Rendre privé": "Make private",
   "Passage en privé…": "Making private…",
   "Dataset rendu privé.": "Dataset made private.",
-  "« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours.":
-    "“Make private” also closes borrowing through the direct link. It is not possible while a borrow is in progress.",
+  "« Rendre privé » ferme aussi l’emprunt par lien direct. Ce n’est pas possible tant qu’un emprunt est en cours ou réservé.":
+    "“Make private” also closes borrowing through the direct link. It is not possible while a borrow is in progress or reserved.",
+  "Visibilité impossible pour ce dataset": "Visibility change not allowed for this dataset",
   "Ce dataset n’a jamais été publié sur la marketplace : il reste privé.": "This dataset has never been published on the marketplace: it stays private.",
   "Annonce prolongée.": "Listing extended.",
 
