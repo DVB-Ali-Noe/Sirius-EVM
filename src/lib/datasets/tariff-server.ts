@@ -15,7 +15,11 @@ import { legacyTariff, tariffFromPolicy, type PublishedTariff } from "./tariff";
  * publication reste possible, le devis réel étant de toute façon signé par l'enclave au
  * moment de l'emprunt.
  */
-export function publishedTariff(): PublishedTariff | null {
+/** Durée de réutilisation d'une lecture : la page est publique, le fichier n'est relu qu'à cette cadence. */
+const TARIFF_CACHE_MS = 5_000;
+let cached: { tariff: PublishedTariff | null; readAt: number } | null = null;
+
+function readPublishedTariff(): PublishedTariff | null {
   try {
     const minimum = MIN_PRICE_USDC_ATOMIC.toString();
     if (!billingEnabled()) return legacyTariff(USDC_DECIMALS, minimum);
@@ -30,4 +34,10 @@ export function publishedTariff(): PublishedTariff | null {
     console.error(`[upload] tarif indisponible (${error instanceof Error ? error.name : typeof error})`);
     return null;
   }
+}
+
+export function publishedTariff(now = Date.now()): PublishedTariff | null {
+  if (cached && now - cached.readAt < TARIFF_CACHE_MS && now >= cached.readAt) return cached.tariff;
+  cached = { tariff: readPublishedTariff(), readAt: now };
+  return cached.tariff;
 }

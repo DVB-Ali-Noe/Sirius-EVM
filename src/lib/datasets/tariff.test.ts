@@ -82,7 +82,10 @@ test("le tarif serveur suit la politique de facturation du runner, ou annonce so
     process.env.EVM_NETWORK = "testnet";
     process.env.SIRIUS_USDC_ADDRESS = USDC;
     process.env.RUNNER_BILLING_POLICY_FILE = file;
-    const { publishedTariff } = await import("./tariff-server");
+    const { publishedTariff: read } = await import("./tariff-server");
+    // Lecture mémoïsée quelques secondes : chaque relecture avance l'horloge passée en paramètre.
+    let clock = Date.now();
+    const publishedTariff = () => read((clock += 10_000));
 
     process.env.SIRIUS_BILLING_VERSION = "7";
     writeFileSync(file, JSON.stringify(policy({ usdcDecimals: 18 })));
@@ -94,6 +97,7 @@ test("le tarif serveur suit la politique de facturation du runner, ou annonce so
     assert.equal(live.minimumProviderAtomic, "1000000000000000", "0,001 jeton à 18 décimales");
 
     writeFileSync(file, JSON.stringify(policy({ usdcDecimals: 18, chainId: 1 })));
+    assert.equal(read(clock + 1_000)?.version, "tarif-test-2026-10", "relecture dans la fenêtre : valeur mémoïsée");
     assert.equal(publishedTariff(), null, "autre chaîne");
     writeFileSync(file, JSON.stringify(policy({ usdcDecimals: 18, validUntil: Date.now() - 1 })));
     assert.equal(publishedTariff(), null, "politique périmée");
