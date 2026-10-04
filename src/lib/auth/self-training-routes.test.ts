@@ -201,9 +201,11 @@ test("la résolution des imports reconnaît l'alias, les chemins relatifs, frèr
 
 test("aucun autre fichier n'atteint le self training, sous aucune forme d'import", () => {
   assert.deepEqual(importersOf("src/lib/sirius/self-train"), ["src/app/api/train/route.ts"]);
-  const outsideTee = SOURCES.filter((file) => !file.startsWith("src/lib/tee/"));
-  assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "selfTrainModelKeyInRunner") > 0).sort(), ["src/app/api/train/[id]/key/route.ts"]);
-  assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "runSelfTrainingInRunner") > 0).sort(), ["src/lib/sirius/self-train.ts"]);
+  // Listes exactes, `src/lib/tee/` compris : un réexport sous alias y serait vu.
+  assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "selfTrainModelKeyInRunner") > 0).sort(),
+    ["src/app/api/train/[id]/key/route.ts", "src/lib/tee/runner-client.ts"]);
+  assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "runSelfTrainingInRunner") > 0).sort(),
+    ["src/lib/sirius/self-train.ts", "src/lib/tee/runner-client.ts"]);
   // `runSelfTrain` est aussi le nom de la fonction navigateur de src/lib/train/client.ts ; tout nouvel usage doit être relu.
   assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "runSelfTrain") > 0).sort(),
     ["src/app/(app)/train/page.tsx", "src/app/api/train/route.ts", "src/lib/sirius/self-train.ts", "src/lib/train/client.ts"]);
@@ -409,6 +411,7 @@ test("instance de démo Phala sur testnet : la part publique de la démo reste o
     await send(train.POST, json(TRAIN, training()), calls, true);
     await send(train.POST, json(TRAIN, training({ demoSessionRevision: "3" })), calls, true);
     await send(train.POST, json(TRAIN, training({ demoSessionRevision: 0 })), calls, true);
+    await send(train.POST, json(TRAIN, training({ demoSessionRevision: -1 })), calls, true);
     await send(train.POST, json(TRAIN, training({ demoSessionRevision: 1.5 })), calls, true);
     await send(train.POST, json(TRAIN, { ...training(), authorization: { demoSessionRevision: 3 } }), calls, true);
 

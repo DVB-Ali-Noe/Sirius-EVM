@@ -26,14 +26,14 @@ Routes gardées par `assertSelfTrainingAccess` (`src/lib/sirius/self-training-ac
 
 | Route | Wallet authentifié hors équipe |
 |---|---|
-| `GET /api/train` | 403 « Bientôt disponible » |
+| `GET /api/train` | 403 « Bientôt disponible » (hors instance de démo, voir ci-dessous) |
 | `POST /api/train` | 403 « Bientôt disponible », corps non lu (hors instance de démo, voir ci-dessous) |
 | `POST /api/train/[id]/key` | 403 « Bientôt disponible », corps non lu |
 | `GET /api/admin/me` | `{ "admin": false }` ; indique à l'interface si le wallet connecté est admin, pour afficher ou masquer |
 
 Exception, uniquement sur une instance de démonstration Phala, aux mêmes conditions que `demoEnabled` (`SIRIUS_PHALA_DEMO=true`, `EVM_NETWORK=testnet`, `TEE_MODE=phala`, pas de simulateur dstack ; donc jamais sur mainnet) : la démo publique ([12](12-test-phala.md)) est elle-même un self training sur ses propres données et passe par `/api/train`. Un visiteur authentifié y garde la liste de ses jobs et le lancement d'un entraînement porté par un grant de démo (`payload.demoSessionRevision` entier strictement positif, vérifié ensuite par le runner contre la session ouverte). Sur une telle instance, `POST /api/train` lit donc le corps pour reconnaître le grant avant de refuser : un non-admin y reçoit les 400/415 habituels sur un corps mal formé. Le reste, dont la livraison de clé, reste réservé à l'équipe.
 
-Le script de reprise `pnpm ops:verify-model-delivery` ([BACKUP-RECOVERY](../BACKUP-RECOVERY.md)) se connecte avec l'adresse dérivée de `ROBINHOOD_DEPLOYER_KEY` et appelle `GET /api/train` puis `POST /api/train/[id]/key` : cette adresse doit figurer dans `SIRIUS_ADMIN_ADDRESSES` de l'instance interrogée, sinon il s'arrête sur « Requête refusée » (403).
+Le script de reprise `pnpm ops:verify-model-delivery` ([BACKUP-RECOVERY](../BACKUP-RECOVERY.md)) se connecte avec l'adresse dérivée de `ROBINHOOD_DEPLOYER_KEY` et appelle `GET /api/train` puis `POST /api/train/[id]/key` : cette adresse doit figurer dans `SIRIUS_ADMIN_ADDRESSES` de l'instance interrogée, sinon il s'arrête sans message lisible : exit 1, un diagnostic JSON sur stderr (`phase` « historique-proprietaire » ou « livraison-cle », `verified: false` ; le `httpStatus` de ce JSON peut refléter la déconnexion finale), et `failurePhase` + `httpStatus: 403` dans `report.json`. Seuls les modèles d'entraînement de l'inventaire sont concernés, pas les prêts.
 
 ## Après le 6 — V1.2
 
