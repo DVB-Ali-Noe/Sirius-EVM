@@ -123,7 +123,7 @@ test("vérificateur qui lève de façon synchrone : erreur en cache, aucune entr
 });
 
 test("vérifications bloquées : plafond de vérifications simultanées, rien de plus ne part", async () => {
-  const h = harness({ timeoutMs: 5, maxInFlight: 2, maxFreshPerWindow: 1_000 });
+  const h = harness({ timeoutMs: 5, hardDeadlineMs: 20, maxInFlight: 2, maxFreshPerWindow: 1_000 });
   h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise(() => {})));
   for (let i = 0; i < 10; i++) assert.equal((await h.verifier.check(`loan-${i}:hash`, input)).status, "pending");
   assert.equal(h.calls.hardware, 2);
@@ -136,9 +136,13 @@ test("échéance dure : une vérification bloquée est abandonnée et sa place r
   assert.equal(h.verifier.inFlightCount, 1);
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(h.verifier.inFlightCount, 0);
-  // Abandon mis en cache comme non concluant : pas de relance immédiate.
-  assert.deepEqual(await h.verifier.check("loan-a:hash", input), { status: "error" });
+  // Abandon mis en cache comme non concluant : pas de relance immédiate, et la page garde
+  // les contrôles locaux (mesures) au lieu d'annoncer une quote illisible.
+  const after = await h.verifier.check("loan-a:hash", input);
+  assert.equal(after.status, "pending");
   assert.equal(h.calls.hardware, 1);
+  // L'appel abandonné reste compté tant qu'il n'est pas terminé.
+  assert.equal(h.verifier.outstandingCount, 1);
   // La place est libre pour un autre certificat.
   h.setVerify(async () => result());
   assert.equal((await h.verifier.check("loan-b:hash", input)).status, "complete");
@@ -164,13 +168,25 @@ test("clé de cache : change avec chaque pièce et chaque valeur épinglée", ()
   assert.equal(new Set([base, ...variants]).size, variants.length + 1);
 });
 
-test("erreur de vérification : état d'erreur, réessai après une minute seulement", async () => {
+test("appels abandonnés non terminés : au-delà de 2 × maxInFlight, plus aucune vérification neuve", async () => {
+  const h = harness({ timeoutMs: 1, hardDeadlineMs: 5, maxInFlight: 1, maxFreshPerWindow: 1_000 });
+  h.setVerify((skip) => (skip ? Promise.resolve(result({ hardwareVerified: null })) : new Promise(() => {})));
+  for (let i = 0; i < 6; i++) {
+    await h.verifier.check(`loan-${i}:hash`, input);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  assert.equal(h.calls.hardware, 2);
+  assert.equal(h.verifier.outstandingCount, 2);
+});
+
+test("erreur de vérification : contrôles locaux affichés, réessai après une minute seulement", async () => {
   const h = harness();
-  h.setVerify(async () => {
+  h.setVerify(async (skip) => {
+    if (skip) return result({ hardwareVerified: null });
     throw new Error("collatérale");
   });
-  assert.deepEqual(await h.verifier.check("loan:hash", input), { status: "error" });
-  assert.deepEqual(await h.verifier.check("loan:hash", input), { status: "error" });
+  assert.equal((await h.verifier.check("loan:hash", input)).status, "pending");
+  assert.equal((await h.verifier.check("loan:hash", input)).status, "pending");
   assert.equal(h.calls.hardware, 1);
   h.advance(60_000);
   h.setVerify(async () => result());

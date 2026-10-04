@@ -20,7 +20,13 @@ import type { VerificationOutcome } from "./presentation";
  * - une attente maximale pendant le rendu (au-delà, « en attente » ; la vérification
  *   continue et remplit le cache, maintenue par `after()` côté page) ;
  * - une échéance dure : `dcap-qvl` n'a aucun délai réseau, une vérification bloquée est
- *   abandonnée (comptée comme non concluante) pour libérer sa place.
+ *   abandonnée (comptée comme non concluante) pour libérer sa place. L'appel réseau
+ *   sous-jacent ne peut pas être annulé : un second compteur suit les appels réellement
+ *   en cours, abandonnés compris, et bloque toute vérification neuve au-delà de
+ *   `2 × maxInFlight`.
+ *
+ * Une vérification sans résultat (erreur, échéance) n'efface pas les contrôles locaux :
+ * la page affiche alors l'état « en attente » avec les mesures, pas une quote illisible.
  *
  * Les contrôles locaux (report data, mesures, rejeu de l'event-log) ne touchent pas le
  * réseau ; ils sont calculés une fois et mis en cache, pour que la page affiche les
@@ -133,6 +139,8 @@ export class BoundedQuoteVerifier {
   private readonly full: BoundedCache;
   private readonly local: BoundedCache;
   private readonly inFlight = new Map<string, Promise<Entry>>();
+  /** Appels matériels pas encore terminés, y compris ceux abandonnés à l'échéance. */
+  private outstanding = 0;
   private window = { startedAt: 0, count: 0 };
 
   constructor(options: BoundedVerifierOptions) {
@@ -159,6 +167,11 @@ export class BoundedQuoteVerifier {
   /** Vérifications matérielles en cours (tests). */
   get inFlightCount(): number {
     return this.inFlight.size;
+  }
+
+  /** Appels matériels pas encore terminés, abandonnés compris (tests). */
+  get outstandingCount(): number {
+    return this.outstanding;
   }
 
   private consumeFresh(now: number): boolean {
@@ -193,7 +206,12 @@ export class BoundedQuoteVerifier {
     const deadline = delay(this.hardDeadlineMs, ABANDONED);
     // `Promise.resolve().then` : même un vérificateur qui lèverait de façon synchrone
     // passe par le rejet, et l'entrée en vol est posée avant d'être retirée.
+    this.outstanding += 1;
     const attempt = Promise.resolve().then(() => this.verify(input, false));
+    attempt.then(
+      () => (this.outstanding -= 1),
+      () => (this.outstanding -= 1),
+    );
     const running: Promise<Entry> = Promise.race([attempt, deadline.promise])
       .then(
         (value): Entry =>
@@ -212,8 +230,6 @@ export class BoundedQuoteVerifier {
         deadline.cancel();
         if (this.inFlight.get(key) === running) this.inFlight.delete(key);
       });
-    // Un rejet tardif après l'échéance ne doit pas devenir un rejet non géré.
-    attempt.catch(() => undefined);
     this.inFlight.set(key, running);
     return running;
   }
@@ -223,11 +239,17 @@ export class BoundedQuoteVerifier {
     if (!isWellFormed(input)) return { status: "error" };
 
     const cached = this.full.get(key, this.now());
-    if (cached) return cached.value ? { status: "complete", verification: cached.value } : { status: "error" };
+    if (cached) {
+      return cached.value ? { status: "complete", verification: cached.value } : this.localChecks(key, input);
+    }
 
     let running = this.inFlight.get(key);
     if (!running) {
-      if (this.inFlight.size >= this.maxInFlight || !this.consumeFresh(this.now())) {
+      if (
+        this.inFlight.size >= this.maxInFlight ||
+        this.outstanding >= 2 * this.maxInFlight ||
+        !this.consumeFresh(this.now())
+      ) {
         return this.localChecks(key, input);
       }
       running = this.start(key, input);
@@ -239,7 +261,7 @@ export class BoundedQuoteVerifier {
       keepAlive?.(running);
       return this.localChecks(key, input);
     }
-    return entry.value ? { status: "complete", verification: entry.value } : { status: "error" };
+    return entry.value ? { status: "complete", verification: entry.value } : this.localChecks(key, input);
   }
 }
 

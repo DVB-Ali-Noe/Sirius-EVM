@@ -77,7 +77,8 @@ function hardwareCheck(outcome: VerificationOutcome): CertificateCheck {
     return {
       label,
       state: "unknown",
-      detail: "Not checked yet: verification against Intel collateral is busy or slow right now. Reload this page in a minute.",
+      detail:
+        "Not confirmed yet: verification against Intel collateral is busy, slow or failed right now. Reload this page in a few minutes.",
     };
   }
   if (outcome.status !== "complete") {
@@ -95,7 +96,7 @@ function hardwareCheck(outcome: VerificationOutcome): CertificateCheck {
     return { label, state: "unknown", detail: "Not checked: this server runs the TEE simulator." };
   }
   if (tcbStatus) {
-    return { label, state: "fail", detail: `TCB status ${tcbStatus} is not accepted (UpToDate required).` };
+    return { label, state: "fail", detail: `Intel reports TCB status ${tcbStatus} for this platform today (UpToDate required).` };
   }
   // `verifyTdxQuote` rend la même valeur pour une signature refusée et pour une collatérale
   // injoignable : on ne peut pas conclure à un échec, seulement à une absence de preuve.
@@ -199,24 +200,31 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
       verdict: "verified",
       headline: VERIFIED_HEADLINE,
       summary:
-        "The Intel TDX quote below is genuine, is bound to this loan's result, and carries the enclave measurements Sirius pins.",
+        "The Intel TDX quote recorded for this loan passed Intel's signature and TCB checks, is bound to this loan's result, and carries the enclave measurements Sirius pins.",
       checks,
       measurements,
     };
   }
-  // Échec franc : quote non liée au prêt, TCB refusé, event-log incohérent. Un simple
-  // écart avec les valeurs épinglées aujourd'hui n'en est pas un : une mise à jour de
-  // l'enclave le produit sur tous les certificats antérieurs.
-  const hardFailure =
-    !verification.reportDataMatches ||
-    verification.eventLogMatches === false ||
-    (outcome.status === "complete" && verification.hardwareVerified === false && verification.tcbStatus !== undefined);
+  // Échec franc : quote non liée au prêt, ou event-log incohérent avec RTMR3. Un écart
+  // avec les valeurs épinglées aujourd'hui ou un TCB déclassé depuis n'en est pas un :
+  // une mise à jour de l'enclave ou une révision du TCB par Intel le produit sur tous
+  // les certificats antérieurs, revérifiés aujourd'hui.
+  const hardFailure = !verification.reportDataMatches || verification.eventLogMatches === false;
   if (hardFailure) {
     return {
       verdict: "failed",
       headline: "Enclave execution not confirmed",
       summary:
         "At least one check below did not pass. Download the raw attestation to verify it independently.",
+      checks,
+      measurements,
+    };
+  }
+  if (outcome.status === "complete" && verification.hardwareVerified === false && verification.tcbStatus) {
+    return {
+      verdict: "incomplete",
+      headline: "Enclave execution not fully confirmed",
+      summary: `An Intel TDX attestation was recorded for this training, but Intel reports TCB status ${verification.tcbStatus} for its platform today.`,
       checks,
       measurements,
     };

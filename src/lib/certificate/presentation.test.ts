@@ -65,8 +65,10 @@ test("échecs : verdict « failed » et ligne en échec explicite", () => {
     status: "complete",
     verification: verification({ hardwareVerified: false, tcbStatus: "OutOfDate" }),
   });
-  assert.equal(tcb.verdict, "failed");
-  assert.match(tcb.checks.find((c) => c.label === "Intel TDX hardware")?.detail ?? "", /OutOfDate is not accepted/);
+  // TCB déclassé depuis : non confirmé, pas un échec franc.
+  assert.equal(tcb.verdict, "incomplete");
+  assert.match(tcb.summary, /TCB status OutOfDate/);
+  assert.equal(tcb.checks.find((c) => c.label === "Intel TDX hardware")?.state, "fail");
 
   const eventLog = presentVerification({
     status: "complete",
@@ -100,7 +102,7 @@ test("incomplet : vérification en attente, simulateur, valeurs non épinglées"
   const pending = presentVerification({ status: "pending", verification: verification() });
   assert.equal(pending.verdict, "incomplete");
   assert.equal(pending.checks[1].state, "unknown");
-  assert.match(pending.checks[1].detail, /busy or slow/);
+  assert.match(pending.checks[1].detail, /busy, slow or failed/);
 
   const simulator = presentVerification({ status: "complete", verification: verification({ hardwareVerified: null }) });
   assert.equal(simulator.verdict, "incomplete");
