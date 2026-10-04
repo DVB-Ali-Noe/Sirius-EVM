@@ -675,7 +675,22 @@ Préparer deux wallets : A (dans `SIRIUS_ADMIN_ADDRESSES` de staging) et B (abse
 
 ### 9. Résultats des vérifications
 
-_À compléter en fin de session._
+Environnement : conteneur Linux, Node v22.22.0, pnpm 11.18.0, `DATABASE_URL="postgresql://x:y@localhost:5432/z"` (factice : `prisma generate` du postinstall exige la variable, aucune base n'est jointe). Série finale lancée sur l'état du code de `61087ca` (dernier commit de la branche), après chaque passe de revue les mêmes commandes avaient été relancées.
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` | exit 0 ; « Already up to date », `prisma generate` OK. Au tout premier appel sans `DATABASE_URL`, le postinstall échouait (« PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL ») : contrainte d'environnement, pas de la slice. |
+| `pnpm exec tsc --noEmit` | exit 0, aucune sortie. |
+| `pnpm lint` | exit 0 (`eslint`, aucune sortie). |
+| `pnpm test` | exit 0 ; 451 tests, 451 réussis, 0 échec (449 avant la slice + les deux nouveaux fichiers ; le compte net varie avec les sous-tests ajoutés) ; durée environ 18 s. |
+| `pnpm audit:deps` | exit 0 ; « 2 vulnerabilities found, Severity: 1 low, 1 high (1 ignored) » : identique à `staging` avant la slice (lockfile inchangé). |
+| `pnpm test:e2e` | exit 0 ; 71 tests, 71 réussis (1,8 min). Nécessite dans ce conteneur `PLAYWRIGHT_BROWSERS_PATH` pointant vers une copie du Chromium headless 1194 préinstallé renommée `chromium_headless_shell-1228` (Playwright 1.61 attend cette version et le téléchargement est bloqué par le proxy) ; sans cela les 71 tests échouent au lancement du navigateur (« Executable doesn't exist »), ce qui n'a rien à voir avec la slice. Le serveur `next dev` des e2e a démarré avec `SIRIUS_ADMIN_ADDRESSES` et l'import `viem/accounts` de `playwright.config.ts`. |
+| Tests ciblés `admin.test.ts` + `self-training-routes.test.ts` | 22 tests (8 + 14), 22 réussis, à chaque relance. |
+| `git diff --name-only staging...HEAD` | 13 fichiers, tous autorisés (liste en 1) ; aucun fichier sous `src/app/(app)/`, `src/components/`, `src/runner/`, `src/lib/runner/`. |
+| `git log staging..HEAD --format=%B` | 6 commits en français ; aucune signature d'assistant, aucun `[skip ci]` (vérifié par grep `co-authored\|claude\|anthropic\|generated\|skip ci` : aucune occurrence). |
+| `git diff staging...HEAD -- docs/passage-mainnet/audit.md` | un seul bloc modifié, la section N5. |
+
+Non lancés ici : `pnpm test:postgres` (pas de base), `pnpm test:billing` et `pnpm contracts:test` (compilation Hardhat), `pnpm build` (lancé une fois par un agent de revue de la passe 1 : exit 0, routes `/api/admin/me`, `/api/train`, `/api/train/[id]/key` compilées). Effet de bord d'environnement : `next dev` recrée `CLAUDE.md` et `AGENTS.md` à la racine ; ils ont été supprimés avant chaque commit et ne sont pas versionnés.
 
 ### 10. Revue interne de la session
 
