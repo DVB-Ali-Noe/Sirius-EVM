@@ -993,42 +993,155 @@ Trois passes de revue adversariale (agents en lecture seule, angles distincts), 
 
 ## A6 — Réglages et KYB
 
+Branche `feat/reglages-kyb`, PR vers `staging`. Tout ce qui suit est vérifiable depuis `git diff staging...HEAD`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Pages (nouvelles)**
+- `src/app/(app)/settings/page.tsx` : page `/settings`, simple enveloppe de `SettingsView`.
+- `src/app/(app)/kyb/page.tsx` : page `/kyb`, simple enveloppe de `KybView`. Les deux sont sous le layout `(app)` existant (menu, bouton profil, tutos), sans le modifier.
+
+**Route (nouvelle, lecture seule)**
+- `src/app/api/kyb/status/route.ts` : `GET /api/kyb/status`. `requireAuth` (adresse tirée de la session, jamais de la requête), limiteur 30 requêtes par minute par wallet (300 au total), réponse `cache-control: private, no-store`. Lit sur le registre KYB `isKybValid(adresse)` et `attestationOf(adresse)` en parallèle, et renvoie `{ valid, expiresAt, revoked }` (`expiresAt` en secondes Unix, `null` sans attestation, c'est-à-dire quand `verifier` est l'adresse nulle). Lecture du contrat en échec : 503 « Statut KYB indisponible ». Aucune écriture, aucune base de données. C'est la seule route ajoutée ; elle est nécessaire parce que la date d'expiration n'est exposée par aucune route existante (`/api/account/status` ne rend que `known`).
+
+**Composants (`src/components/settings/`, nouveaux)**
+- `SettingsView.tsx` : réseau (lecture seule), langue, bouton « Restart guided tour », éléments « Soon ».
+- `KybView.tsx` : état KYB, formulaire d'invitation existant (`KybInviteForm`, non modifié), contact, éléments « Soon ».
+- `SoonItem.tsx` : élément grisé (`opacity-50`, non interactif) avec la mention « Soon ».
+- `settings-logic.ts` : logique pure du réseau (`networkInfo`), de la langue (`savedLanguage`), constantes (`TESTNET_SITE_URL`, `KYB_CONTACT_EMAIL`, listes « Soon »).
+- `kyb-state.ts` : logique pure de l'état KYB (`parseKybStatus`, `parsePublicKybStatus`, `showsInvitationForm`, `formatKybDate`).
+- `settings.test.ts` : tests, voir §5.
+
+**Branchement du bouton « Guided tour » (modifications minimales)**
+- `src/components/tour/tour-store.ts` : nouvelle fonction `subscribeGuidedTourRequests(target = window, restart = restartWelcomeTour)` (+ un import de `GUIDED_TOUR_EVENT`). Elle écoute `sirius:guided-tour:start`, appelle `preventDefault()` (l'accusé de réception que `requestGuidedTour` attend) puis relance le tuto d'accueil. Elle renvoie la fonction de désabonnement.
+- `src/components/layout/ProductTour.tsx` : un seul `useEffect(() => subscribeGuidedTourRequests(), [])` (+ l'import). `ProductTour` est monté une fois dans le layout `(app)`, comme `ProfileMenu` : l'abonné existe donc partout où le bouton existe. Le message « La visite guidée sera bientôt disponible. » n'apparaît plus (le code de repli du menu reste, inatteignable tant que `ProductTour` est monté ; il n'a pas été touché, `ProfileMenu.tsx` n'étant pas dans le périmètre).
+
+**Traductions** : `src/lib/i18n/settings-en.ts` (nouveau), fusionné dans `EN_MESSAGES` par `src/lib/i18n/english.ts` (+2 lignes : import et `...SETTINGS_MESSAGES_EN`). Les textes de ces pages sont écrits directement en anglais (clé = valeur), sauf trois messages en français (`Connecte un wallet pour enregistrer tes réglages.`, `Connecte un wallet pour voir ton statut KYB.`, `Statut KYB indisponible`), et réutilisent `Réglages`, `Visite guidée`, `KYB`, `Connecter un wallet` déjà traduits.
+
+**Tests** : `package.json`, `src/components/settings/settings.test.ts` ajouté à la fin du script `test` (une seule ligne touchée). `e2e/settings-kyb.spec.ts` (nouveau, 7 scénarios). `e2e/profile.spec.ts` modifié : l'ancien scénario « la visite guidée sans abonné dit bientôt disponible » décrivait le comportement supprimé ; il est remplacé par « Échap ferme le menu et rend le focus » et par « Guided tour relance le tuto d'accueil, sans message bientôt disponible ». Le scénario « un abonné à l'événement est prévenu » est inchangé.
+
+**Base de données, contrats, tables, colonnes** : aucun changement. Pas de migration. `UserProfile.kybStatus` et `kybCheckedAt` ne sont ni lus ni écrits par cette slice (voir §2, point 4).
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Une route ajoutée alors que le cahier n'en prévoyait « qu'en cas de stricte nécessité ».** La date d'expiration n'est accessible par aucune fonction existante utilisable depuis le navigateur : `prepareKybAcceptance` / `persistAccepted` (`src/lib/sirius/kyb.ts`) sont des fonctions serveur qui lisent `attestationOf` mais écrivent dans la table `Credential` et ne sont pas exposées en lecture. Une route en lecture seule, sans effet de bord, est le plus petit ajout.
+2. **Deux niveaux de lecture selon la session.** Avec une session signée : `GET /api/kyb/status` (état complet, date). Wallet connecté mais sans session : repli sur `GET /api/account/status?address=` (public, existant, `known` seulement) : on peut afficher « Verified » ou « Not verified » mais pas la date. Sans wallet : aucun appel, message de connexion.
+3. **Cinq états plus « inconnu », pas deux.** « Vérifié », « expiré » (date passée), « révoqué », « inactif » (attestation ni expirée ni révoquée mais refusée par `isKybValid`, par exemple vérificateur retiré ou époque changée : jamais présentée comme « expirée » avec une date future), « absent », et « inconnu » (réponse en échec, 401, 429, 503, JSON invalide, forme inattendue). « Inconnu » n'affiche ni « Verified », ni « Not verified », ni le formulaire, seulement « Status unavailable » et « Retry » : une panne RPC ne doit jamais faire croire à un utilisateur vérifié qu'il ne l'est plus, ni l'inverse. Le formulaire n'apparaît que pour absent, expiré, révoqué, inactif.
+4. **Source de vérité = le contrat.** Le statut affiché vient de `isKybValid` et `attestationOf`. La colonne `UserProfile.kybStatus` (cache d'affichage prévu en V1.2) n'est ni lue ni écrite : la lire aurait introduit une seconde source pouvant diverger. Le point « Alimenter `kybStatus` depuis le contrat » du tableau des priorités (couloir A6, ligne 234 de ce fichier) n'est donc **pas** traité par cette slice (voir §8).
+5. **Date en UTC**, formatée côté navigateur (`toLocaleDateString` avec `timeZone: "UTC"`) et suffixée « (UTC) » : pas de décalage d'un jour selon le fuseau.
+6. **Langue : un seul choix, un bouton « Save ».** Avec une seule option, un `<select>` ne déclenche jamais `onChange` ; l'enregistrement passe donc par un bouton, activé seulement si la valeur affichée diffère de celle enregistrée (`PATCH /api/profile` avec `{ settings: { language: "en" } }`, la seule valeur acceptée par `PROFILE_LANGUAGES`). Aucune écriture automatique à l'affichage de la page. Sans session, le bouton est désactivé avec une explication.
+7. **Pas d'interrupteur testnet/mainnet.** Le réseau vient de `resolveClientNetwork()` (variable d'environnement du build), affiché en texte. Le lien « Try it on testnet » (`https://sirius-evm-staging.vercel.app`, `rel="noopener noreferrer"`, nouvel onglet) n'existe que sur mainnet.
+8. **Rôle du formulaire d'invitation** : `provider` (route `/api/provider/onboard`). Les deux routes d'onboarding (`provider` et `borrower`) sont strictement identiques (`diff` vide) : le choix n'a pas d'effet, et la page n'a pas de notion de rôle.
+9. **Textes « Soon »** : les descriptions reprennent les listes de `13-reglages.md` et `14-kyb.md` (notifications ; préférences d'affichage ; menu replié par défaut ; vérification en ligne sans invitation ; avantages : badge « Fournisseur vérifié », plafonds plus élevés après la bêta, accès anticipé). Ces éléments sont grisés, sans bouton ni lien ; ce sont des annonces, pas des engagements de date.
+10. **Textes écrits en anglais directement** (clé = valeur) plutôt qu'en français puis traduits, pour ces deux pages. L'interface n'a qu'une langue ; si le français arrive, ces textes devront recevoir une clé française.
+11. **Modification de `e2e/profile.spec.ts`** hors de la liste des fichiers autorisés : inévitable, car le scénario testait précisément le comportement « bientôt disponible » que le cahier demande de supprimer.
+12. **Identité des commits** : configuration git du dépôt, aucune ligne de signature d'assistant (vérifié par `git log staging..HEAD --format=%B`).
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+- **Contrôle d'accès côté serveur.** Une seule route ajoutée : `GET /api/kyb/status`. Elle commence par `requireAuth(req)` (401 sans session) ; l'adresse lue est `session.address`, aucun paramètre ni corps n'est lu. Il est donc impossible d'interroger le statut d'un autre wallet par cette route. `GET`/`PATCH /api/profile` (A1) et `GET /api/account/status` (existant, public, par adresse, déjà limité à 30 requêtes par minute et par client) sont réutilisés sans modification. Les pages elles-mêmes ne contrôlent rien : le masquage ou l'affichage d'un lien n'est jamais un contrôle d'accès (règle transverse). Les deux pages sont publiques par construction ; elles n'affichent aucune donnée sans le wallet connecté.
+- **Validation et bornes.** Aucune entrée utilisateur dans la route. Côté client, `parseKybStatus` n'accepte que `valid` et `revoked` booléens et `expiresAt` entier sûr positif ou nul ou `null` ; tout autre forme (y compris `valid: true` avec `revoked: true`, jamais produit par le contrat) donne « inconnu ». `parsePublicKybStatus` n'accepte que `known` booléen. La langue lue de `/api/profile` n'est retenue que si elle appartient à `["en"]`. Le seul champ saisi par l'utilisateur est le code d'invitation du formulaire existant (non modifié).
+- **Fuites possibles.** La route ne renvoie que trois champs du wallet de la session (état, échéance, révocation) ; pas d'adresse du vérificateur, pas d'`issuedAt`, pas de `verifierEpoch`. Messages d'erreur : « Statut KYB indisponible » (503) sans détail RPC, le reste passe par `errorResponse` (401, 429). Aucun `console.log` ajouté. `cache-control: private, no-store`. Vérifier qu'un échec du RPC n'écrit pas l'URL du RPC dans les journaux serveur (`errorResponse` est inchangé).
+- **Impact sur l'argent, l'escrow, les contrats, Phala.** Aucun. Lecture seule de deux fonctions `view` du registre KYB ; aucune transaction, signature ou écriture. Le seul flux qui écrit (acceptation d'une invitation, signature wallet puis transaction) est celui du formulaire existant, appelé tel quel.
+- **Base de données.** Aucune migration, aucune requête. La route n'utilise pas Prisma. `PATCH /api/profile` est appelé avec `{ settings: { language: "en" } }` seulement ; il fusionne clé par clé (comportement A1) et ne touche ni `sidebarCollapsed` ni les tutos.
+- **Interface : injection HTML, liens.** Aucun `dangerouslySetInnerHTML`. Textes en constantes passées à `t()`, valeurs dynamiques (`date`) passées par variables de traduction, rendues par React. Liens : `mailto:sirius.data.contact@gmail.com` (constante), `https://sirius-evm-staging.vercel.app` (constante, `rel="noopener noreferrer"`). Aucun contenu fourni par un utilisateur n'est affiché.
+- **Textes : aucune promesse fausse.** Relire `src/lib/i18n/settings-en.ts` et `settings-logic.ts`. Points sensibles : (a) « Business verification, recorded on-chain. It is required to lend and to borrow datasets on mainnet. » est exact d'après `14-kyb.md` (registre strict sur mainnet) ; (b) les avantages (badge, plafonds plus élevés, accès anticipé) sont présentés comme « Soon » et grisés, jamais comme acquis ; (c) « Online verification without an invitation ... be verified by a Sirius verifier » décrit la V1.2 prévue, sans date ; (d) « The status is read from the KYB registry contract. » est exact (`isKybValid`) ; (e) « We could not read your KYB status. This does not mean you are not verified. » ; (f) « Your attestation was revoked. Contact the Sirius team. » suppose que l'adresse de contact reste valide.
+- **Non-régression du bouton profil et des tutos.** `ProfileMenu.tsx` n'est pas modifié. Seul changement de comportement : le clic sur « Guided tour » ferme le menu (le focus revient au bouton profil) et ouvre le tuto d'accueil. Vérifier que le tuto d'accueil ne s'écrit en base qu'à sa fermeture, pour un wallet authentifié (comportement A3, inchangé), et qu'une relance ne remet pas `tourCompletedAt` à zéro.
+- **Remontage du composant d'état KYB.** `KybStatusCard` a une `key` `adresse:authenticated` : un changement de wallet ou l'ouverture de la session recharge l'état depuis zéro et annule la lecture en cours (drapeau `cancelled`). Vérifier qu'aucune réponse tardive d'un ancien wallet ne s'affiche.
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. **Menu profil, « Guided tour ».** Connecté, ouvrir le menu, cliquer « Guided tour » depuis `/explorer`, `/marketplace` et `/settings`. Attendu : le menu se ferme, la fenêtre « Welcome to Sirius » s'ouvre à l'étape 1, aucun message « available soon ». Échap la ferme, le focus revient.
+2. **Settings sans connexion.** Ouvrir `/settings` sans wallet. Attendu : message de connexion, réseau « Robinhood Chain testnet », aucun lien « Try it on testnet », trois éléments grisés « Soon », bouton « Restart guided tour » qui ouvre quand même le tuto.
+3. **Settings connecté.** Cliquer « Save » : « Language saved. » et le bouton se désactive. Recharger : le bouton reste désactivé (valeur relue de `/api/profile`). Couper `/api/profile` (outils du navigateur) puis « Save » : message d'erreur, la page reste utilisable.
+4. **Settings sur mainnet** (build avec `NEXT_PUBLIC_EVM_NETWORK=mainnet`). Attendu : « Robinhood Chain mainnet » et le lien « Try it on testnet » vers `https://sirius-evm-staging.vercel.app`, qui s'ouvre dans un nouvel onglet.
+5. **KYB, wallet non vérifié.** Attendu : « Not verified », formulaire « KYB invitation code », « No invitation? Write to us: sirius.data.contact@gmail.com ». Coller une invitation valide, confirmer dans le wallet : la page se recharge et affiche « Verified » avec « Attestation valid until <date> (UTC) ». Comparer la date à `attestationOf(adresse).expiresAt` sur l'explorateur.
+6. **KYB, wallet vérifié.** Aucun formulaire. La date correspond à celle du contrat.
+7. **KYB, attestation expirée** (inviter avec la durée minimale, attendre) : « Not verified » et « Your attestation expired on <date> (UTC) », formulaire visible.
+8. **KYB, attestation révoquée** (`revoke` par le vérificateur) : « Your attestation was revoked. », formulaire visible.
+9. **KYB, vérificateur retiré** de la liste après l'attestation : « Not verified », « no longer accepted by the registry », formulaire visible, **jamais** une date passée.
+10. **KYB, RPC en panne** (bloquer `/api/kyb/status` ou couper le RPC) : « Status unavailable », bouton « Retry », ni « Verified » ni formulaire. « Retry » relit.
+11. **KYB sans session signée** (wallet connecté, signature refusée) : « Verified » ou « Not verified » sans date ; invitation « Sign in with your wallet to accept an invitation. » à la place du formulaire.
+12. **Changement de compte** dans l'extension pendant que `/kyb` est ouvert : l'état de l'ancien compte disparaît, celui du nouveau se charge.
+13. **Mobile 320 px et texte agrandi.** Pas de défilement horizontal ; les cartes passent à la ligne.
+14. **Accessibilité** : navigation au clavier (Tab dans l'ordre, champs étiquetés, `<select>` nommé « Language »), message « Language saved. » annoncé (`role="status"`), message d'erreur annoncé (`role="alert"`).
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**`src/components/settings/settings.test.ts`** (ajouté au script `test`) :
+- réseau : libellé et lien vers le testnet seulement depuis mainnet ;
+- langue : valeur connue lue, tout le reste (`null`, texte, objet vide, `fr`, tableau) ignoré ;
+- état KYB : valide, expiré (avec horloge injectée), inactif (non expiré mais refusé), révoqué, absent ; réponses douteuses (`null`, types faux, entier négatif ou décimal, `valid` et `revoked` ensemble, objet d'erreur) toujours « inconnu » ; état public seulement attesté ou non ;
+- le formulaire d'invitation n'apparaît jamais pour « vérifié » ni « inconnu » ;
+- date d'expiration en UTC (31 décembre / 1er janvier à la seconde près) et date hors bornes ;
+- branchement de la visite guidée : `requestGuidedTour` rend `false` sans abonné, `true` avec, le tuto est relancé une fois, puis `false` après désabonnement.
+`english.test.ts` (existant) vérifie que chaque clé statique des nouveaux fichiers a une traduction.
+
+**`e2e/settings-kyb.spec.ts`** (7 scénarios, API simulées) : `/settings` sans connexion (réseau, pas de lien testnet, pas d'interrupteur, trois éléments « Soon », bouton de visite guidée) ; `/settings` connecté (PATCH exact `{ settings: { language: "en" } }`, message, bouton désactivé, relance du tuto) ; échec d'enregistrement ; `/kyb` sans connexion ; `/kyb` non vérifié (formulaire et `mailto:`) ; `/kyb` vérifié (date `January 1, 2027 (UTC)`, pas de formulaire) ; `/kyb` en échec (« inconnu », puis « Retry »). `e2e/profile.spec.ts` : nouveau scénario du bouton « Guided tour ».
+
+**Ce que les tests ne couvrent pas** : la route `GET /api/kyb/status` n'a pas de test (elle dépend du client RPC et de `requireAuth`, sans harnais de test dans le dépôt) ; sa lecture du contrat n'a donc été vérifiée que par relecture et par `tsc` ; le rendu mainnet (lien testnet) est testé par la logique, pas par l'e2e (la suite tourne en testnet) ; l'état « expiré » et « révoqué » n'ont pas de scénario e2e ; le flux complet d'acceptation d'invitation n'est pas rejoué (formulaire existant) ; le comportement réel de focus et du lecteur d'écran n'est pas automatisé.
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- `isKybValid` retourne vrai exactement quand l'attestation existe, n'est pas révoquée, n'est pas expirée et que le vérificateur est actif avec la même époque (d'après `contracts/src/SiriusKybRegistry.sol`, lignes 224 à 232, relues mais pas rejouées on-chain).
+- `attestationOf` d'une adresse sans attestation renvoie la structure à zéro, donc `verifier` est l'adresse nulle (comportement d'un `mapping` Solidity). La route s'en sert pour distinguer « absent ».
+- Le contrat compare l'expiration à `block.timestamp`, la page à l'horloge du navigateur : un écart de quelques secondes peut afficher « expiré » ou « inactif » un instant avant ou après le contrat. Sans conséquence, seul le contrat décide.
+- `NEXT_PUBLIC_EVM_NETWORK` est correctement posé au build de chaque site (production en `mainnet`, staging en `testnet`) ; la page n'affiche que cette valeur.
+- `https://sirius-evm-staging.vercel.app` est bien l'adresse du site de staging et `sirius.data.contact@gmail.com` une adresse relevée (valeurs données par le cahier des charges).
+- Les deux routes d'onboarding sont équivalentes (vérifié par `diff`), donc `role="provider"` convient à tout utilisateur.
+- Le store wallet distingue bien « connecté » (`connected`) et « session signée » (`authenticated`).
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+- **Non vérifié sans session** : « Verified » vient de `/api/account/status`, mis en cache 30 secondes côté serveur ; juste après une acceptation, l'état peut mettre jusqu'à 30 secondes à se mettre à jour pour un wallet sans session. Avec session, la route n'a pas de cache.
+- **Une lecture RPC par chargement de page** de `/kyb` pour un wallet connecté (limitée à 30 par minute et par wallet). Pas de partage avec le cache du catalogue.
+- **Date affichée en anglais uniquement** (`en-US`) tant que `locale` est toujours `"en"`.
+- **Éléments « Soon » non focalisables** et lus par un lecteur d'écran comme une liste ordinaire avec la mention « Soon » ; l'état « désactivé » n'est porté que visuellement (l'attribut ARIA `aria-disabled` n'est pas valide sur un `<li>`, signalé par le lint).
+- **Dérive possible entre l'interface et `PROFILE_LANGUAGES`** : la liste des langues (`LANGUAGE_CHOICES`) est dupliquée côté client (le module profil est `server-only`). Si le français est ajouté côté serveur, il faut l'ajouter ici aussi (le serveur refuserait de toute façon une valeur inconnue, 400).
+- **Tests Windows** : voir §9. Les échecs de la suite `pnpm test` en local sous Windows ne concernent pas cette slice.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **Priorité haute (avant mainnet)** : alimenter `UserProfile.kybStatus` et `kybCheckedAt` depuis le contrat (ligne du tableau de priorités du couloir A6), et préciser que `null` signifie « inconnu ». Non fait ici : la page lit directement le contrat. À faire dans une slice dédiée si un badge « Vérifié » doit s'afficher ailleurs sans lecture RPC.
+- **Priorité moyenne** : test de la route `GET /api/kyb/status` avec un client RPC simulé ; scénarios e2e « expiré » et « révoqué » ; rendu e2e en mainnet.
+- **Priorité moyenne** : relance de l'attestation avant expiration avec un rappel (V1.2 de `14-kyb.md`).
+- **Priorité basse** : parcours de vérification sans invitation (V1.2) ; notifications, préférences d'affichage, menu replié par défaut (`sidebarCollapsed` existe déjà côté base et API mais n'est pas branché) ; français.
+- **Priorité basse** : retirer de `ProfileMenu.tsx` le repli « bientôt disponible » devenu inatteignable (fichier hors périmètre de cette slice).
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node via `npx -y pnpm@11.18.0 --config.script-shell=bash`, `DATABASE_URL=postgresql://x:y@localhost:5432/z`, Playwright sur un port autre que 3100.
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | installation faite ; le `postinstall` (`prisma generate`) échoue sans `DATABASE_URL` (comportement connu), `prisma generate` relancé à part avec l'URL factice : « Generated Prisma Client (7.8.0) » |
+| `tsc --noEmit` | 0 erreur |
+| `pnpm lint` | 0 erreur, 0 avertissement |
+| `pnpm test` | voir ci-dessous |
+| `pnpm audit:deps` | 2 vulnérabilités : 1 basse, 1 haute (1 ignorée par la configuration du dépôt) ; commande en succès (code de sortie 0) |
+| Playwright (suite complète, port 3187, configuration temporaire non versionnée) | 105 scénarios : 103 réussis du premier coup, 2 en échec (`responsive.spec.ts`, « les profils du catalogue restent dans leur carte », 1024 px et 390 px texte agrandi : délai d'attente de la fiche marketplace pendant la compilation à froid du serveur de développement, sous la charge de la suite). Relancés seuls : 7 sur 7 réussis. Les 7 scénarios de `settings-kyb.spec.ts` et les scénarios de `profile.spec.ts` passent. |
+
+`pnpm test` sous Windows : 694 tests, 622 réussis, 72 en échec. Les 72 échecs sont tous hors de cette slice et dus à l'environnement Windows : séparateurs de chemin `\` dans les tests de routes et d'imports (`self-training-routes.test.ts`, `disclaimers.test.ts`), et tests du runner, du budget et de l'anti-rejeu qui lancent des processus Linux ou SQLite (`initialize-runner-volume`, `runner-cli`, `budget`, `replay`, etc.). Aucun test de `english`, `settings`, `profile`, `tour`, `kyb` ou `marketplace` n'échoue ; le test `english.test.ts` « toutes les clés statiques … ont une traduction » passe. À confirmer sur la CI Linux.
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Deux passes de revue adversariale, menées par l'auteur de la slice (relecture du code et des états, sans agent séparé).
+
+**Passe 1 — accès, exactitude des états KYB, bouton profil.**
+- Trouvé : un état « expiré » affiché avec une **date future** quand l'attestation n'est ni expirée ni révoquée mais refusée par le contrat (vérificateur retiré ou époque changée). Corrigé : état « inactif » distinct, `parseKybStatus` reçoit l'horloge, test ajouté.
+- Trouvé : le test e2e « lecture en échec » comptait les appels réseau et échouait à cause du double effet du mode de développement de React. Corrigé : l'échec est piloté par un drapeau et non par un compteur.
+- Trouvé : `new Error("profile")` dans `SettingsView` faisait échouer le contrôle de traduction (qui traite tout `Error(...)` comme message exposé). Corrigé : retour anticipé avec état d'erreur, sans exception.
+- Trouvé : un `<li>` avec `aria-disabled` (avertissement lint). Retiré (voir §7).
+- Vérifié : l'adresse de la route vient de la session ; aucune donnée d'un autre wallet ; la réponse d'un ancien wallet est annulée au changement de `key`.
+
+**Passe 2 — non-régression du menu profil et des tutos.**
+- Trouvé : l'ancien scénario e2e « bientôt disponible » devenait faux. Remplacé (voir §1).
+- Vérifié : `ProfileMenu.tsx` inchangé ; le désabonnement du `useEffect` est bien appelé au démontage ; `restartWelcomeTour` démarre le contrôleur s'il ne l'est pas ; un tuto relancé n'écrit rien en base sans wallet authentifié.
+- Vérifié : l'abonnement est unique (un seul `ProductTour` dans le layout) : un seul tuto s'ouvre par clic.
+- Écarté : afficher la date d'expiration aussi pour un wallet sans session (nécessiterait une route publique renvoyant l'échéance de n'importe quelle adresse : fuite d'information inutile).
+- Écarté : lire `UserProfile.kybStatus` pour accélérer la page (deuxième source de vérité, voir §2).
+
+Une troisième lecture n'a rien trouvé de nouveau.
 
 ---
 

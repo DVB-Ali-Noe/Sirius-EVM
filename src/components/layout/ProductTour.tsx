@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { TourDialog } from "@/components/tour/TourDialog";
-import { tourController, useTourSnapshot } from "@/components/tour/tour-store";
+import { subscribeGuidedTourRequests, tourController, useTourSnapshot } from "@/components/tour/tour-store";
 import { TOUR_UI, WELCOME_STEPS } from "@/lib/tour/content";
 
 export { restartWelcomeTour } from "@/components/tour/tour-store";
@@ -28,6 +28,9 @@ export function ProductTour() {
     tourController.start();
     tourController.setIdentity(connected ? address : null, connected && authenticated);
   }, [address, connected, authenticated]);
+
+  // Bouton « Visite guidée » du menu profil : l'abonné accuse réception de la demande.
+  useEffect(() => subscribeGuidedTourRequests(), []);
 
   if (active?.kind !== "welcome") return null;
   return <TourDialog key={`welcome-${active.id}`} eyebrow={t(TOUR_UI.welcomeLabel)} steps={WELCOME_STEPS} onClose={() => tourController.close()} />;
