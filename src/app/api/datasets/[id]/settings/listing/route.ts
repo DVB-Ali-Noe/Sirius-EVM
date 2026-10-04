@@ -33,8 +33,8 @@ const MAX_LISTING_BODY_BYTES = 16 * 1024;
  * - `extend` repousse `listingExpiresAt` de 7, 30 ou 90 jours ; si l'annonce est LISTED et
  *   déjà expirée, la prolonger la remet sur la marketplace et le même grant (cible LISTED)
  *   est exigé.
- * Un dataset PRIVATE jamais publié, ou tout dataset PRIVATE en déploiement de démo Phala,
- * n'est pas remis en ligne par cette route.
+ * En déploiement de démo Phala, rien n'est remis en ligne par cette route, ni par la
+ * reprise ni par la prolongation d'une annonce expirée.
  * Chaque transition est vérifiée en lecture puis rejouée par la base au moment d'écrire.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -44,12 +44,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const request = parseListingRequest(await readJson<Record<string, unknown>>(req, MAX_LISTING_BODY_BYTES));
     const row = await loadOwnedDataset(prisma, id, session.address);
+    const demoMode = process.env.SIRIUS_PHALA_DEMO === "true";
     if (request.action === "extend") {
       const now = Date.now();
       // Contrôlée avant le grant : une prolongation impossible ne consomme rien.
       extendedListingExpiry(row, request.days, now);
       const relists = extensionRelists(row, now);
       if (relists) {
+        if (demoMode) throw new AppError("Remise en ligne impossible pour ce dataset", 409);
         // Prolonger une annonce LISTED expirée la remet sur la marketplace : même grant que
         // la remise en ligne.
         if (!request.authorization) throw new AppError("Confirmation wallet requise", 400);
@@ -62,7 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await applyExtension(prisma, row, request.days, now, { grantChecked: relists });
     } else {
       const transition = visibilityTransition(request.action, row, Date.now(), {
-        demoMode: process.env.SIRIUS_PHALA_DEMO === "true",
+        demoMode,
       });
       await requireMutationGrant(session, request.authorization as RunnerGrant, {
         operation: "set-dataset-visibility",

@@ -162,12 +162,15 @@ export interface ListingState {
   status: string;
   listingExpiresAt: Date | null;
   evmDatasetId?: string | null;
-  /** Dernière mise au catalogue ; nulle pour un dataset qui n'a jamais été public. */
-  listedAt?: Date | null;
 }
 
 export interface TransitionOptions {
-  /** Déploiement de démonstration Phala : les datasets y restent privés (`provider.ts`). */
+  /**
+   * Déploiement de démonstration Phala : les datasets y sont créés PRIVATE (`provider.ts`,
+   * `markDatasetListed`) et rien n'y repasse en ligne. Hors démo, tout dataset doté d'un titre
+   * EVM a été publié LISTED à sa création : un PRIVATE ou UNLISTED titré a donc déjà été public
+   * (`listedAt` ne le dit pas pour les datasets antérieurs à la migration du 27 septembre).
+   */
   demoMode?: boolean;
 }
 
@@ -177,11 +180,10 @@ export interface VisibilityTransition {
 }
 
 /**
- * Pause : LISTED → UNLISTED uniquement. Remise en ligne : UNLISTED → LISTED, ou PRIVATE →
- * LISTED pour un dataset qui a déjà été public (`listedAt` posé) hors déploiement de démo,
- * si le titre EVM existe et si l'annonce n'est pas expirée. DRAFT, LISTING, SUSPENDED et
- * DELETED n'ont aucune transition ici : un dataset détruit, suspendu ou en cours de
- * publication ne peut pas être remis en ligne depuis la fiche.
+ * Pause : LISTED → UNLISTED uniquement. Remise en ligne : UNLISTED ou PRIVATE → LISTED, hors
+ * déploiement de démo, si le titre EVM existe et si l'annonce n'est pas expirée. DRAFT,
+ * LISTING, SUSPENDED et DELETED n'ont aucune transition ici : un dataset détruit, suspendu ou
+ * en cours de publication ne peut pas être remis en ligne depuis la fiche.
  */
 export function visibilityTransition(
   action: "pause" | "resume",
@@ -197,8 +199,8 @@ export function visibilityTransition(
     throw new AppError("Remise en ligne impossible pour ce dataset", 409);
   }
   if (!state.evmDatasetId) throw new AppError("Remise en ligne impossible pour ce dataset", 409);
-  // En démo Phala, rien ne repasse en ligne ; ailleurs, un privé jamais publié non plus.
-  if (options.demoMode || (state.status === "PRIVATE" && !state.listedAt)) {
+  // En démo Phala, rien ne repasse en ligne.
+  if (options.demoMode) {
     throw new AppError("Remise en ligne impossible pour ce dataset", 409);
   }
   if (isListingExpired(state.listingExpiresAt, now)) {
@@ -244,15 +246,15 @@ export function extendedListingExpiry(state: ListingState, days: ListingExtensio
  * (sélecteur Public / Semi-privé / Privé) avec les mêmes règles que la fiche :
  * - vers LISTED : celles de la remise en ligne (`visibilityTransition`), sauf LISTED → LISTED,
  *   laissé tel quel (rafraîchit `listedAt`, comme avant la slice) ;
- * - PRIVATE → UNLISTED : refusé pour un privé jamais publié ou en démo, sinon il deviendrait
- *   empruntable par lien direct puis public en deux appels.
+ * - PRIVATE → UNLISTED : refusé en démo (le dataset deviendrait empruntable par lien direct,
+ *   puis public en deux appels) et sans titre EVM.
  * Les autres passages (vers PRIVATE, LISTED → UNLISTED) restent régis par `setDatasetVisibility`.
  */
 export function assertVisibilityChange(target: string, state: ListingState, now: number = Date.now(), options: TransitionOptions = {}): void {
   if (target === "LISTED" && state.status !== "LISTED") {
     visibilityTransition("resume", state, now, options);
   }
-  if (target === "UNLISTED" && state.status === "PRIVATE" && (options.demoMode || !state.listedAt)) {
+  if (target === "UNLISTED" && state.status === "PRIVATE" && (options.demoMode || !state.evmDatasetId)) {
     throw new AppError("Visibilité impossible pour ce dataset", 409);
   }
 }
@@ -545,7 +547,6 @@ const OWNER_CHECK_SELECT = {
   status: true,
   listingExpiresAt: true,
   evmDatasetId: true,
-  listedAt: true,
 } as const;
 
 interface OwnerCheckRow {
@@ -554,7 +555,6 @@ interface OwnerCheckRow {
   status: string;
   listingExpiresAt: Date | null;
   evmDatasetId: string | null;
-  listedAt: Date | null;
 }
 
 /** Sous-ensemble du client Prisma utilisé ici ; les tests le simulent. */
@@ -591,8 +591,6 @@ export async function applyVisibility(db: ManageDb, row: OwnerCheckRow, transiti
   };
   if (transition.to === "LISTED") {
     where.evmDatasetId = { not: null };
-    // Un dataset privé ne repasse en ligne que s'il a déjà été public (voir visibilityTransition).
-    if (transition.from.includes("PRIVATE")) where.listedAt = { not: null };
     // L'expiration est rejouée par la base : une annonce qui expire entre la lecture et
     // l'écriture n'est pas remise en ligne.
     where.OR = [{ listingExpiresAt: null }, { listingExpiresAt: { gt: new Date(now) } }];

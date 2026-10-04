@@ -124,7 +124,7 @@ test("pause : LISTED → UNLISTED uniquement", () => {
 });
 
 test("remise en ligne : UNLISTED ou PRIVATE → LISTED, jamais détruit, suspendu, brouillon ni expiré", () => {
-  const minted = { evmDatasetId: `0x${"01".repeat(32)}`, listedAt: new Date(NOW - DAY) };
+  const minted = { evmDatasetId: `0x${"01".repeat(32)}` };
   for (const status of ["UNLISTED", "PRIVATE"]) {
     assert.deepEqual(visibilityTransition("resume", { status, listingExpiresAt: null, ...minted }, NOW), { from: [status], to: "LISTED" });
     assert.equal(visibilityTransition("resume", { status, listingExpiresAt: new Date(NOW + 1), ...minted }, NOW).to, "LISTED");
@@ -136,26 +136,24 @@ test("remise en ligne : UNLISTED ou PRIVATE → LISTED, jamais détruit, suspend
   for (const status of ["LISTED", "DELETED", "SUSPENDED", "DRAFT", "LISTING", "__proto__"]) {
     rejectsWith(() => visibilityTransition("resume", { status, listingExpiresAt: null, ...minted }, NOW), 409, "Remise en ligne impossible pour ce dataset");
   }
-  // Un dataset privé jamais publié (création en démo, self-train) ne devient pas public par la fiche.
-  rejectsWith(() => visibilityTransition("resume", { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: null }, NOW), 409,
-    "Remise en ligne impossible pour ce dataset");
-  rejectsWith(() => visibilityTransition("resume", { status: "PRIVATE", listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
-    "Remise en ligne impossible pour ce dataset");
-  assert.equal(visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted, listedAt: null }, NOW).to, "LISTED",
-    "hors démo, un UNLISTED n'est pas concerné par la règle du privé");
-  rejectsWith(() => visibilityTransition("resume", { status: "UNLISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
-    "Remise en ligne impossible pour ce dataset");
+  // En démo Phala (datasets créés PRIVATE), rien ne repasse en ligne.
+  for (const status of ["UNLISTED", "PRIVATE"]) {
+    rejectsWith(() => visibilityTransition("resume", { status, listingExpiresAt: null, ...minted }, NOW, { demoMode: true }), 409,
+      "Remise en ligne impossible pour ce dataset");
+  }
 });
 
 test("route de visibilité existante : mêmes règles, et pas de détour PRIVATE → UNLISTED → LISTED", () => {
   const minted = { evmDatasetId: `0x${"01".repeat(32)}` };
-  const neverPublished = { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: null };
-  const published = { status: "PRIVATE", listingExpiresAt: null, ...minted, listedAt: new Date(NOW - DAY) };
-  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", neverPublished, NOW), 409, "Visibilité impossible pour ce dataset");
-  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", published, NOW, { demoMode: true }), 409, "Visibilité impossible pour ce dataset");
-  rejectsWith(() => manage.assertVisibilityChange("LISTED", neverPublished, NOW), 409, "Remise en ligne impossible pour ce dataset");
-  manage.assertVisibilityChange("UNLISTED", published, NOW);
-  manage.assertVisibilityChange("LISTED", published, NOW);
+  const untitled = { status: "PRIVATE", listingExpiresAt: null, evmDatasetId: null };
+  const titled = { status: "PRIVATE", listingExpiresAt: null, ...minted };
+  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", untitled, NOW), 409, "Visibilité impossible pour ce dataset");
+  rejectsWith(() => manage.assertVisibilityChange("UNLISTED", titled, NOW, { demoMode: true }), 409, "Visibilité impossible pour ce dataset");
+  rejectsWith(() => manage.assertVisibilityChange("LISTED", titled, NOW, { demoMode: true }), 409, "Remise en ligne impossible pour ce dataset");
+  rejectsWith(() => manage.assertVisibilityChange("LISTED", untitled, NOW), 409, "Remise en ligne impossible pour ce dataset");
+  // Hors démo, un privé titré a été publié à sa création (même sans listedAt, antérieur au 27 septembre).
+  manage.assertVisibilityChange("UNLISTED", titled, NOW);
+  manage.assertVisibilityChange("LISTED", titled, NOW);
   manage.assertVisibilityChange("PRIVATE", { status: "LISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true });
   manage.assertVisibilityChange("UNLISTED", { status: "LISTED", listingExpiresAt: null, ...minted }, NOW, { demoMode: true });
   // LISTED → LISTED reste accepté comme avant la slice (rafraîchit listedAt), même expiré.
@@ -610,19 +608,16 @@ test("retrait du consentement : le propriétaire est dans le where", async () =>
   assert.deepEqual(read.where, { id: "ds1", provider: OWNER }, "la lecture de propriété filtre déjà sur le wallet");
 });
 
-test("remise en ligne : titre EVM et publication passée rejoués par la base", async () => {
+test("remise en ligne : titre EVM rejoué par la base", async () => {
   const store = fakeDb([{ id: "ds1", status: "UNLISTED" }]);
   const row = await loadOwnedDataset(store.db, "ds1", OWNER);
   store.datasets.get("ds1")!.evmDatasetId = null;
   await rejectsAsync(applyVisibility(store.db, row, visibilityTransition("resume", row, NOW), NOW), 409);
   assert.equal(store.datasets.get("ds1")!.status, "UNLISTED");
 
-  const privateStore = fakeDb([{ id: "ds2", status: "PRIVATE", listedAt: new Date(NOW - DAY) }]);
+  // Un privé d'avant la migration de listedAt (colonne nulle) repasse en ligne.
+  const privateStore = fakeDb([{ id: "ds2", status: "PRIVATE", listedAt: null }]);
   const privateRow = await loadOwnedDataset(privateStore.db, "ds2", OWNER);
-  privateStore.datasets.get("ds2")!.listedAt = null;
-  await rejectsAsync(applyVisibility(privateStore.db, privateRow, visibilityTransition("resume", privateRow, NOW), NOW), 409);
-  assert.equal(privateStore.datasets.get("ds2")!.status, "PRIVATE");
-  privateStore.datasets.get("ds2")!.listedAt = new Date(NOW - DAY);
   await applyVisibility(privateStore.db, privateRow, visibilityTransition("resume", privateRow, NOW), NOW);
   assert.equal(privateStore.datasets.get("ds2")!.status, "LISTED");
 });
@@ -854,8 +849,8 @@ test("routes /settings/consent et /stats : propriétaire seulement", async () =>
   assert.equal(json.tokenDecimals, 6);
 });
 
-test("route /settings/listing en démo Phala : un dataset privé déjà publié n'est pas remis en ligne", async () => {
-  const store = fakeDb([{ id: "ds1", status: "PRIVATE", listedAt: new Date(NOW - DAY) }]);
+test("route /settings/listing en démo Phala : rien n'est remis en ligne, ni par reprise ni par prolongation", async () => {
+  const store = fakeDb([{ id: "ds1", status: "PRIVATE" }, { id: "ds2", status: "LISTED", listingExpiresAt: new Date(Date.now() - DAY) }]);
   const session = { current: { address: OWNER } as { address: string } | null };
   const grants: unknown[][] = [];
   const url = "https://test.invalid/api/datasets/ds1/settings/listing";
@@ -865,6 +860,10 @@ test("route /settings/listing en démo Phala : un dataset privé déjà publié 
   assert.equal(response.status, 409);
   assert.equal(grants.length, 0);
   assert.equal(store.datasets.get("ds1")!.status, "PRIVATE");
+  response = await demo.POST(jsonRequest("https://test.invalid/api/datasets/ds2/settings/listing", "POST", { action: "extend", days: 7, authorization: { valid: true } }), ctx("ds2"));
+  assert.equal(response.status, 409);
+  assert.equal(grants.length, 0);
+  assert.ok(store.datasets.get("ds2")!.listingExpiresAt!.getTime() < Date.now(), "l'annonce expirée n'est pas prolongée en démo");
   const normal = load<typeof import("../../app/api/datasets/[id]/settings/listing/route")>("src/app/api/datasets/[id]/settings/listing/route.ts",
     routeDeps(store, session, grants), { SIRIUS_PHALA_DEMO: "false" });
   response = await normal.POST(jsonRequest(url, "POST", { action: "resume", authorization: { valid: true } }), ctx("ds1"));
@@ -901,8 +900,8 @@ test("route PATCH /api/datasets/[id] existante : mêmes règles de passage à Pu
   const store = fakeDb([
     { id: "ds1", status: "UNLISTED", listingExpiresAt: new Date(Date.now() - DAY) },
     { id: "ds2", status: "UNLISTED", listingExpiresAt: null },
-    { id: "ds3", status: "PRIVATE", listedAt: null },
-    { id: "ds4", status: "PRIVATE", listedAt: new Date(NOW - DAY) },
+    { id: "ds3", status: "PRIVATE", evmDatasetId: null },
+    { id: "ds4", status: "PRIVATE", listedAt: null },
     { id: "ds5", status: "DELETED" },
     { id: "ds6", provider: OTHER, status: "UNLISTED" },
     { id: "ds7", status: "LISTED", listingExpiresAt: null },
@@ -919,14 +918,14 @@ test("route PATCH /api/datasets/[id] existante : mêmes règles de passage à Pu
   assert.equal(legacy.visibility.length, 0);
   assert.equal((await legacy.patch("ds1", "PRIVATE")).status, 200, "les autres visibilités restent possibles");
   assert.equal((await legacy.patch("ds2", "LISTED")).status, 200, "sans date de fin");
-  assert.equal((await legacy.patch("ds4", "LISTED")).status, 200, "privé déjà publié");
+  assert.equal((await legacy.patch("ds4", "LISTED")).status, 200, "privé titré, même sans listedAt");
   for (const id of ["ds6", "absent"]) {
     response = await legacy.patch(id, "UNLISTED");
     assert.equal(response.status, 404, id);
     assert.deepEqual(JSON.parse(JSON.stringify(await response.json())), { error: "Dataset introuvable" });
   }
   response = await legacy.patch("ds3", "UNLISTED");
-  assert.equal(response.status, 409, "pas de détour par Semi-privé pour un privé jamais publié");
+  assert.equal(response.status, 409, "pas de Semi-privé pour un privé sans titre EVM");
   assert.equal((await response.json()).error, "Visibilité impossible pour ce dataset");
   assert.equal((await legacy.patch("ds7", "LISTED")).status, 200, "LISTED → LISTED inchangé");
   const demo = legacyRoute(store, { SIRIUS_PHALA_DEMO: "true" });

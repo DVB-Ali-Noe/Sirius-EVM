@@ -52,8 +52,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // Propriété vérifiée dans la requête : absent et autre wallet répondent le même 404.
     const owned = await loadOwnedDataset(prisma, id, session.address);
     // Même règles que la remise en ligne de la fiche (`/settings/listing`) : pas de passage à
-    // « Public » pour une annonce expirée, un dataset privé jamais publié, ni en démo Phala,
-    // et pas de détour par « Semi-privé » depuis un tel dataset privé.
+    // « Public » pour une annonce expirée ni en démo Phala, et pas de détour par
+    // « Semi-privé » depuis un dataset privé en démo.
     // `setDatasetVisibility` ne rejoue pas ces conditions en base (fenêtre de course minime,
     // documentée dans audit.md N1).
     assertVisibilityChange(visibility, owned, Date.now(), { demoMode: process.env.SIRIUS_PHALA_DEMO === "true" });
