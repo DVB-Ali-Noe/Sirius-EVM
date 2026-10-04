@@ -40,6 +40,8 @@ export function MarketplaceCatalogue() {
   const key = query.toString();
   const [result, setResult] = useState<LoadResult | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Incrémenté par « Réinitialiser » : remonte le champ de recherche, brouillon et envoi en vol compris.
+  const [resetNonce, setResetNonce] = useState(0);
   const favIds = useFavoritesStore((s) => s.ids);
   const toggleFav = useFavoritesStore((s) => s.toggle);
 
@@ -112,7 +114,7 @@ export function MarketplaceCatalogue() {
         className="mb-6"
         onSubmit={(event) => event.preventDefault()}
       >
-        <SearchBox value={query.get("q") ?? ""} urlKey={key} onCommit={commitSearch} />
+        <SearchBox key={resetNonce} value={query.get("q") ?? ""} urlKey={key} onCommit={commitSearch} />
       </form>
 
       <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
@@ -177,7 +179,10 @@ export function MarketplaceCatalogue() {
               <button
                 type="button"
                 className="text-xs font-medium text-muted underline underline-offset-2 hover:text-foreground"
-                onClick={() => router.replace(sort === "recent" ? pathname : `${pathname}?sort=${encodeURIComponent(sort)}`, { scroll: false })}
+                onClick={() => {
+                  setResetNonce((n) => n + 1);
+                  router.replace(sort === "recent" ? pathname : `${pathname}?sort=${encodeURIComponent(sort)}`, { scroll: false });
+                }}
               >
                 {t("Réinitialiser les filtres")}
               </button>

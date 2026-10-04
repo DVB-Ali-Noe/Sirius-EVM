@@ -152,6 +152,10 @@ test("filtres : catégorie, modèle, recherche, vérifiés, fourchettes et tri p
 
   await page.getByRole("button", { name: "Reset filters" }).click();
   await expect(page).toHaveURL(/\/marketplace\?sort=price$/);
+  // La réinitialisation vide aussi le champ, et la recherche effacée n'est pas renvoyée ensuite.
+  await expect(search).toHaveValue("");
+  await page.waitForTimeout(600);
+  await expect(page).toHaveURL(/\/marketplace\?sort=price$/);
 });
 
 test("une erreur de paramètre est affichée, un dataset hors ligne a une fiche d'absence", async ({ page }) => {
