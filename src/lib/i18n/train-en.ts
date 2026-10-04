@@ -25,6 +25,8 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
 
   // Remboursement, réservé aux échecs sans modèle livré
   "Rembourser": "Refund",
+  "L’échéance est dépassée et le règlement ne peut plus être finalisé : aucun modèle n’a été livré.":
+    "The deadline has passed and the settlement can no longer be completed: no model was delivered.",
   "Entraînement échoué : aucun modèle n’a été livré.": "Training failed: no model was delivered.",
   "Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.":
     "The refund returns everything you paid except, where applicable, the compute actually consumed, as measured by the enclave. You confirm it in your wallet; ETH network fees are paid separately.",

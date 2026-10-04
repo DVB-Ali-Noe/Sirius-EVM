@@ -22,6 +22,7 @@ export interface LoanDisplayInput {
   settleTxHash?: string | null;
   cancelTxHash?: string | null;
   modelCid?: string | null;
+  runnerReceipt?: string | null;
   /** Calculé par le serveur : prêt actif dont l'échéance est dépassée. */
   refundable?: boolean;
 }
@@ -77,6 +78,25 @@ export function isFailedWithoutModel(loan: LoanDisplayInput): boolean {
 }
 
 /**
+ * Échu avec une capsule de modèle mais sans reçu enclave : « Finaliser le règlement » exige le
+ * reçu, aucune action de règlement n'est possible et le réaper ne fait que resynchroniser la base
+ * avec la chaîne (jamais de remboursement ni de règlement). Sans secours, les fonds resteraient
+ * bloqués : le remboursement est donc proposé, même si `modelCid` est posé. Aucun modèle n'a été
+ * livré (`settleTxHash` vide, clé jamais libérée).
+ */
+export function isOverdueWithoutReceipt(loan: LoanDisplayInput): boolean {
+  return (
+    ESCROWED_STATUSES.has(loan.status) &&
+    loan.refundable === true &&
+    Boolean(loan.modelCid) &&
+    !loan.runnerReceipt &&
+    !loan.settleTxHash &&
+    !loan.cancelTxHash &&
+    Boolean(loan.evmLoanKey)
+  );
+}
+
+/**
  * État lisible d'un emprunt.
  *  - `awaiting-finality` : paiement envoyé mais pas finalisé (verrouillage SUBMITTING, ou PENDING avec
  *    un hash de lock, ou règlement SETTLING en cours de confirmation) ;
@@ -101,7 +121,7 @@ export function loanDisplayState(loan: LoanDisplayInput): LoanDisplayState {
     case "ESCROWED":
     case "TRAINING":
     case "SETTLING":
-      if (isFailedWithoutModel(loan)) return "failed";
+      if (isFailedWithoutModel(loan) || isOverdueWithoutReceipt(loan)) return "failed";
       return loan.status === "SETTLING" ? "awaiting-finality" : "in-progress";
     default:
       return "unknown";
@@ -123,11 +143,17 @@ export function canRetrain(loan: LoanDisplayInput, viewer: string | null | undef
 }
 
 /**
- * « Rembourser » : uniquement pour un entraînement échoué sans modèle livré, par son emprunteur.
- * Jamais sur un emprunt réglé, déjà remboursé, avec capsule préparée ou encore dans son délai.
+ * « Rembourser » : échec sans modèle livré, ou prêt échu dont la capsule ne peut plus être réglée
+ * (sans reçu), par son emprunteur. Jamais sur un emprunt réglé, déjà remboursé, avec un règlement
+ * encore possible (capsule et reçu) ou encore dans son délai.
  */
 export function canRefund(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
-  return isFailedWithoutModel(loan) && isBorrower(loan, viewer);
+  return (isFailedWithoutModel(loan) || isOverdueWithoutReceipt(loan)) && isBorrower(loan, viewer);
+}
+
+/** Remboursement de secours (échu, capsule sans reçu) : sert à choisir l'explication affichée. */
+export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+  return isOverdueWithoutReceipt(loan) && isBorrower(loan, viewer);
 }
 
 /** Un autre emprunt actif du même emprunteur sur ce dataset (confirmation avant d'en ouvrir un nouveau). */

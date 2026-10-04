@@ -19,6 +19,7 @@ import {
   LOAN_STATE_LABEL_KEY,
   LOAN_STATE_VARIANT,
   canRefund,
+  canRescueRefund,
   canRetrain,
   hasOtherActiveLoan,
   loanDisplayState,
@@ -502,6 +503,7 @@ function TrainPageContent() {
           {loans.map((l) => {
             const state = loanDisplayState(l);
             const refundAllowed = canRefund(l, address);
+            const rescueRefund = canRescueRefund(l, address);
             return (
             <Card key={l.id}>
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -598,7 +600,11 @@ function TrainPageContent() {
 
               {refundAllowed && (
                 <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
-                  <p className="font-medium text-negative">{t("Entraînement échoué : aucun modèle n’a été livré.")}</p>
+                  <p className="font-medium text-negative">
+                    {rescueRefund
+                      ? t("L’échéance est dépassée et le règlement ne peut plus être finalisé : aucun modèle n’a été livré.")
+                      : t("Entraînement échoué : aucun modèle n’a été livré.")}
+                  </p>
                   <p className="mt-1 text-muted">
                     {t("Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.")}
                   </p>

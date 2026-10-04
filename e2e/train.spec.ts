@@ -139,6 +139,7 @@ test("Refund n'apparaît que pour un échec sans modèle livré, avec l'explicat
       loan("in-time", { status: "ESCROWED", refundable: false }),
       loan("settled", { status: "SETTLED", settleTxHash: TX, modelCid: "bafy", refundable: true }),
       loan("prepared", { status: "TRAINING", modelCid: "bafy", runnerReceipt: "receipt", refundable: true }),
+      loan("rescue", { status: "TRAINING", modelCid: "bafy", runnerReceipt: null, refundable: true }),
       loan("settling", { status: "SETTLING", settleTxHash: TX, modelCid: "bafy", runnerReceipt: "receipt", refundable: true }),
       loan("refunded", { status: "CANCELLED", cancelTxHash: TX, refundable: true }),
       loan("provider-view", { status: "ESCROWED", refundable: true, borrower: OTHER, provider: ME }),
@@ -150,9 +151,14 @@ test("Refund n'apparaît que pour un échec sans modèle livré, avec l'explicat
   await expect(failed.getByRole("button", { name: "Refund", exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(failed.getByTestId("refund-explanation")).toContainText("no model was delivered");
   await expect(failed.getByTestId("refund-explanation")).toContainText("everything you paid except, where applicable, the compute actually consumed, as measured by the enclave");
+  // Échu avec capsule mais sans reçu : plus aucun règlement possible, remboursement de secours.
+  const rescue = card(page, "Dataset rescue");
+  await expect(rescue.getByRole("button", { name: "Refund", exact: true })).toBeVisible();
+  await expect(rescue.getByTestId("refund-explanation")).toContainText("settlement can no longer be completed");
+  await expect(rescue).toContainText("Failed");
   for (const name of ["in-time", "settled", "prepared", "settling", "refunded", "provider-view"]) {
     await expect(card(page, `Dataset ${name}`).getByRole("button", { name: "Refund", exact: true })).toHaveCount(0);
   }
-  await expect(page.getByRole("button", { name: "Refund", exact: true })).toHaveCount(1);
-  await expect(page.getByTestId("refund-explanation")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Refund", exact: true })).toHaveCount(2);
+  await expect(page.getByTestId("refund-explanation")).toHaveCount(2);
 });
