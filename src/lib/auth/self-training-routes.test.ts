@@ -14,21 +14,29 @@ import { EN_MESSAGES } from "../i18n/english";
 
 /**
  * Deux familles de contrôles sur le self training réservé à l'équipe (N5) :
- *  - par inspection de source : chaque route sous /api/train appelle la garde juste après
- *    `requireAuth`, avant tout corps, toute base, tout grant et tout runner ; et aucune autre
- *    route n'appelle le module self-train ;
+ *  - par inspection de l'arbre syntaxique (pas de simple recherche de texte, qu'un commentaire
+ *    ou une chaîne pourrait satisfaire) : chaque handler exporté sous /api/train appelle la
+ *    garde juste après `requireAuth`, avant tout corps, toute base, tout grant et tout runner ;
+ *    et aucun autre fichier n'atteint le module self-train ni les opérations runner du self
+ *    training, quelle que soit la forme de l'import ;
  *  - par exécution des routes dans un bac à sable (même technique que audit-regressions.test.ts) :
  *    un wallet non admin reçoit 403 « Bientôt disponible » sans qu'aucune dépendance coûteuse
- *    ne soit touchée.
+ *    ne soit touchée et sans que le corps soit lu.
  */
 
 const ROOT = process.cwd();
 const ADMIN = `0x${"ab".repeat(20)}`;
 const VISITOR = `0x${"cd".repeat(20)}`;
-const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "EVM_NETWORK"] as const;
+const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "EVM_NETWORK", "TEE_MODE", "DSTACK_SIMULATOR_ENDPOINT"] as const;
+const DEMO_ENV = { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", TEE_MODE: "phala" };
+const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
 function read(path: string): string {
   return readFileSync(join(ROOT, path), "utf8");
+}
+
+function parse(path: string): ts.SourceFile {
+  return ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true);
 }
 
 function sourceFiles(directory: string, keep: (name: string) => boolean): string[] {
@@ -40,76 +48,147 @@ function sourceFiles(directory: string, keep: (name: string) => boolean): string
 }
 
 const SELF_TRAINING_ROUTES = sourceFiles(join(ROOT, "src", "app", "api", "train"), (name) => name === "route.ts").sort();
+const SOURCES = sourceFiles(join(ROOT, "src"), (name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name));
 
-function handlers(source: string): { method: string; body: string }[] {
-  const matches = [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)];
-  return matches.map((match, index) => ({
-    method: match[1],
-    body: source.slice(match.index, matches[index + 1]?.index ?? source.length),
-  }));
+function isExported(node: ts.Node): boolean {
+  return (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0;
 }
+
+/** Handlers HTTP exportés, sous toutes les formes de déclaration ; une réexportation est refusée. */
+function handlers(source: ts.SourceFile): { method: string; node: ts.Node }[] {
+  const found: { method: string; node: ts.Node }[] = [];
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && isExported(statement)) {
+      if (HTTP_METHODS.has(statement.name.text)) found.push({ method: statement.name.text, node: statement });
+    } else if (ts.isVariableStatement(statement) && isExported(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && HTTP_METHODS.has(declaration.name.text)) {
+          found.push({ method: declaration.name.text, node: declaration.initializer ?? declaration });
+        }
+      }
+    } else if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+      assert.fail(`${source.fileName} : réexportation non inspectée (${statement.getText(source).slice(0, 60)})`);
+    }
+  }
+  return found;
+}
+
+interface Call { name: string; pos: number }
+
+/** Appels de fonction d'un handler, dans l'ordre du code, hors commentaires et chaînes. */
+function calls(node: ts.Node, source: ts.SourceFile): Call[] {
+  const out: Call[] = [];
+  const visit = (child: ts.Node) => {
+    if (ts.isCallExpression(child)) out.push({ name: child.expression.getText(source), pos: child.getStart(source) });
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return out.sort((a, b) => a.pos - b.pos);
+}
+
+function positions(node: ts.Node, source: ts.SourceFile, match: (child: ts.Node) => boolean): number[] {
+  const out: number[] = [];
+  const visit = (child: ts.Node) => { if (match(child)) out.push(child.getStart(source)); ts.forEachChild(child, visit); };
+  visit(node);
+  return out;
+}
+
+/** Spécificateurs de module importés par un fichier : import statique, réexport, import() et require(). */
+function importedModules(source: ts.SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      out.push(node.moduleSpecifier.text);
+    }
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText(source) === "require")
+      && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
+      out.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return out;
+}
+
+function identifiers(source: ts.SourceFile, name: string): number {
+  let count = 0;
+  const visit = (node: ts.Node) => { if (ts.isIdentifier(node) && node.text === name) count += 1; ts.forEachChild(node, visit); };
+  visit(source);
+  return count;
+}
+
+const EXPENSIVE = /^(prisma\.|readJson\b|assertAuthenticGrant\b|runSelfTrain\b|selfTrainModelKeyInRunner\b|enforceRateLimit\b|assertCurrentRunner\b|assertOwner\b)/;
 
 test("les routes de self training sont bien celles attendues", () => {
   assert.deepEqual(SELF_TRAINING_ROUTES, ["src/app/api/train/[id]/key/route.ts", "src/app/api/train/route.ts"]);
 });
 
 test("chaque handler de self training appelle la garde admin juste après requireAuth, avant tout le reste", () => {
-  const expensive = ["prisma.", "readJson", "assertAuthenticGrant(", "runSelfTrain(", "selfTrainModelKeyInRunner(",
-    "enforceRateLimit(", "await params", "assertCurrentRunner(", "assertOwner("];
   for (const file of SELF_TRAINING_ROUTES) {
-    const source = read(file);
-    assert.match(source, /from "@\/lib\/sirius\/self-training-access"/, `${file} importe la garde`);
+    const source = parse(file);
+    assert.ok(importedModules(source).some((module) => module.endsWith("/sirius/self-training-access")), `${file} importe la garde`);
     const exported = handlers(source);
     assert.ok(exported.length > 0, `${file} exporte au moins un handler`);
-    for (const { method, body: handler } of exported) {
-      const auth = handler.indexOf("requireAuth(");
-      const guard = handler.indexOf("assertSelfTrainingAccess(");
-      assert.ok(auth >= 0, `${file} ${method} : requireAuth`);
-      assert.ok(guard > auth, `${file} ${method} : la garde suit requireAuth`);
-      const between = handler.slice(auth, guard);
-      assert.doesNotMatch(between, /await /, `${file} ${method} : rien d'asynchrone entre requireAuth et la garde`);
-      for (const token of expensive) {
-        const index = handler.indexOf(token);
-        if (index >= 0) assert.ok(index > guard, `${file} ${method} : ${token} vient après la garde`);
+    for (const { method, node } of exported) {
+      const sequence = calls(node, source);
+      const auth = sequence.find((call) => call.name === "requireAuth");
+      const guard = sequence.find((call) => call.name === "assertSelfTrainingAccess");
+      assert.ok(auth, `${file} ${method} : requireAuth`);
+      assert.ok(guard && guard.pos > auth.pos, `${file} ${method} : la garde suit requireAuth`);
+      const awaits = positions(node, source, ts.isAwaitExpression);
+      assert.ok(!awaits.some((pos) => pos > auth.pos && pos < guard.pos), `${file} ${method} : rien d'asynchrone entre requireAuth et la garde`);
+      for (const call of sequence) {
+        if (EXPENSIVE.test(call.name)) assert.ok(call.pos > guard.pos, `${file} ${method} : ${call.name} vient après la garde`);
       }
+      const params = positions(node, source, (child) => ts.isIdentifier(child) && child.text === "params"
+        && !ts.isBindingElement(child.parent) && !ts.isParameter(child.parent) && !ts.isPropertySignature(child.parent));
+      for (const pos of params) assert.ok(pos > guard.pos, `${file} ${method} : params lu après la garde`);
     }
   }
 });
 
 test("la liste des jobs et le lancement tolèrent la démo Phala, la livraison de clé non", () => {
-  const train = read("src/app/api/train/route.ts");
-  const [get, post] = handlers(train);
-  assert.equal(get.method, "GET");
-  assert.match(get.body, /assertSelfTrainingAccess\(session, true\)/);
-  assert.equal(post.method, "POST");
-  const guards = [...post.body.matchAll(/assertSelfTrainingAccess\((.*?)\);/g)].map((match) => match[1]);
-  assert.deepEqual(guards, ["session, true", "session, isDemoTrainingGrant(authorization)"]);
-  assert.ok(post.body.indexOf("assertSelfTrainingAccess(session, true)") < post.body.indexOf("readJson"), "premier refus avant le corps");
-  assert.ok(post.body.indexOf("isDemoTrainingGrant(authorization)") < post.body.indexOf("assertAuthenticGrant("), "second refus avant le grant");
+  const train = parse("src/app/api/train/route.ts");
+  const byMethod = Object.fromEntries(handlers(train).map(({ method, node }) => [method, node]));
+  const args = (node: ts.Node) => calls(node, train).filter((call) => call.name === "assertSelfTrainingAccess")
+    .map((call) => train.text.slice(call.pos, train.text.indexOf(");", call.pos)).replace(/^assertSelfTrainingAccess\(/, ""));
+  assert.deepEqual(args(byMethod.GET), ["session, true"]);
+  assert.deepEqual(args(byMethod.POST), ["session, true", "session, isDemoTrainingGrant(authorization)"]);
+  const post = calls(byMethod.POST, train);
+  const first = post.find((call) => call.name === "assertSelfTrainingAccess")!;
+  const second = post.filter((call) => call.name === "assertSelfTrainingAccess")[1];
+  const readBody = post.find((call) => call.name === "readJson")!;
+  const grant = post.find((call) => call.name === "assertAuthenticGrant")!;
+  assert.ok(first.pos < readBody.pos, "premier refus avant le corps");
+  assert.ok(readBody.pos < second.pos && second.pos < grant.pos, "second refus entre le corps et le grant");
 
-  const key = read("src/app/api/train/[id]/key/route.ts");
-  const [post2] = handlers(key);
-  assert.deepEqual([...post2.body.matchAll(/assertSelfTrainingAccess\((.*?)\);/g)].map((match) => match[1]), ["session"]);
+  const key = parse("src/app/api/train/[id]/key/route.ts");
+  const [{ node }] = handlers(key);
+  assert.deepEqual(calls(node, key).filter((call) => call.name === "assertSelfTrainingAccess")
+    .map((call) => key.text.slice(call.pos, key.text.indexOf(");", call.pos))), ["assertSelfTrainingAccess(session"]);
 });
 
-test("aucune autre route n'atteint le self training ni la livraison de clé self-train", () => {
-  const sources = sourceFiles(join(ROOT, "src"), (name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name));
-  const selfTrainCallers = sources.filter((file) => /from "@\/lib\/sirius\/self-train"/.test(read(file)));
-  assert.deepEqual(selfTrainCallers.sort(), ["src/app/api/train/route.ts"]);
-  const keyCallers = sources.filter((file) => !file.startsWith("src/lib/tee/") && /\bselfTrainModelKeyInRunner\b/.test(read(file)));
-  assert.deepEqual(keyCallers.sort(), ["src/app/api/train/[id]/key/route.ts"]);
-  const guardUsers = sources.filter((file) => /from "@\/lib\/sirius\/self-training-access"/.test(read(file)));
-  assert.deepEqual(guardUsers.sort(), SELF_TRAINING_ROUTES, "la garde ne sert qu'aux routes de self training");
+test("aucun autre fichier n'atteint le self training, sous aucune forme d'import", () => {
+  const importers = (suffix: string) => SOURCES.filter((file) => importedModules(parse(file)).some((module) => module.endsWith(suffix))).sort();
+  assert.deepEqual(importers("/sirius/self-train"), ["src/app/api/train/route.ts"]);
+  const outsideTee = SOURCES.filter((file) => !file.startsWith("src/lib/tee/"));
+  assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "selfTrainModelKeyInRunner") > 0).sort(), ["src/app/api/train/[id]/key/route.ts"]);
+  assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "runSelfTrainingInRunner") > 0).sort(), ["src/lib/sirius/self-train.ts"]);
+  const guardCallers = SOURCES.filter((file) => file !== "src/lib/sirius/self-training-access.ts" && identifiers(parse(file), "assertSelfTrainingAccess") > 0).sort();
+  assert.deepEqual(guardCallers, SELF_TRAINING_ROUTES, "la garde n'est appelée que par les routes de self training");
 });
 
 test("/api/admin/me est authentifiée, sans base, et répond avec la même liste que la garde", () => {
-  const source = read("src/app/api/admin/me/route.ts");
-  const [get] = handlers(source);
-  assert.equal(get.method, "GET");
-  assert.ok(get.body.indexOf("requireAuth(") < get.body.indexOf("adminAllowed(session.address)"));
-  assert.doesNotMatch(source, /prisma|readJson/);
-  assert.match(source, /"cache-control": "no-store"/);
-  assert.match(read("src/lib/sirius/self-training-access.ts"), /adminAllowed\(session\.address\)/);
+  const source = parse("src/app/api/admin/me/route.ts");
+  const [{ method, node }] = handlers(source);
+  assert.equal(method, "GET");
+  const sequence = calls(node, source);
+  const auth = sequence.find((call) => call.name === "requireAuth")!;
+  const allowed = sequence.find((call) => call.name === "adminAllowed")!;
+  assert.ok(auth.pos < allowed.pos);
+  assert.ok(!importedModules(source).some((module) => module.endsWith("/lib/db") || module.endsWith("/http/body")));
+  assert.match(read("src/app/api/admin/me/route.ts"), /"cache-control": "no-store"/);
+  assert.equal(identifiers(parse("src/lib/sirius/self-training-access.ts"), "adminAllowed") > 0, true);
 });
 
 test("le message de refus est traduit et ne nomme ni la fonction ni le rôle", () => {
@@ -121,18 +200,20 @@ test("le message de refus est traduit et ne nomme ni la fonction ni le rôle", (
   assert.equal(error.status, 403);
 });
 
-test("l'exemption de démo exige SIRIUS_PHALA_DEMO=true ET le testnet, et un grant de démo bien formé", () => {
-  assert.equal(access.phalaDemoInstance({ SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet" }), true);
+test("l'exemption de démo exige la configuration complète d'une démo Phala et un grant de démo bien formé", () => {
+  assert.equal(access.phalaDemoInstance(DEMO_ENV), true);
+  assert.equal(access.phalaDemoInstance({ ...DEMO_ENV, DSTACK_SIMULATOR_ENDPOINT: "" }), true);
   for (const env of [
-    {}, { SIRIUS_PHALA_DEMO: "true" }, { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "mainnet" },
-    { SIRIUS_PHALA_DEMO: "1", EVM_NETWORK: "testnet" }, { SIRIUS_PHALA_DEMO: "TRUE", EVM_NETWORK: "testnet" },
-    { SIRIUS_PHALA_DEMO: "false", EVM_NETWORK: "testnet" }, { EVM_NETWORK: "testnet" },
+    {}, { SIRIUS_PHALA_DEMO: "true" }, { ...DEMO_ENV, EVM_NETWORK: "mainnet" }, { ...DEMO_ENV, EVM_NETWORK: undefined },
+    { ...DEMO_ENV, SIRIUS_PHALA_DEMO: "1" }, { ...DEMO_ENV, SIRIUS_PHALA_DEMO: "TRUE" }, { ...DEMO_ENV, SIRIUS_PHALA_DEMO: "false" },
+    { ...DEMO_ENV, TEE_MODE: "stub" }, { ...DEMO_ENV, TEE_MODE: undefined }, { ...DEMO_ENV, DSTACK_SIMULATOR_ENDPOINT: "http://sim" },
   ]) assert.equal(access.phalaDemoInstance(env), false, JSON.stringify(env));
-  assert.equal(access.isDemoTrainingGrant({ payload: { demoSessionRevision: 0 } }), true);
+  assert.equal(access.isDemoTrainingGrant({ payload: { demoSessionRevision: 1 } }), true);
   assert.equal(access.isDemoTrainingGrant({ payload: { demoSessionRevision: 12 } }), true);
   for (const grant of [undefined, null, "x", {}, { payload: null }, { payload: {} }, { payload: { demoSessionRevision: "12" } },
-    { payload: { demoSessionRevision: 1.5 } }, { payload: { demoSessionRevision: Number.MAX_SAFE_INTEGER + 1 } },
-    { demoSessionRevision: 1 }]) assert.equal(access.isDemoTrainingGrant(grant), false, JSON.stringify(grant));
+    { payload: { demoSessionRevision: 0 } }, { payload: { demoSessionRevision: -1 } }, { payload: { demoSessionRevision: 1.5 } },
+    { payload: { demoSessionRevision: Number.MAX_SAFE_INTEGER + 1 } }, { payload: { demoSessionRevision: Infinity } },
+    { payload: { demoSessionRevision: NaN } }, { demoSessionRevision: 1 }]) assert.equal(access.isDemoTrainingGrant(grant), false, String(JSON.stringify(grant)));
 });
 
 // ───────── Exécution des routes dans un bac à sable ─────────
@@ -202,21 +283,27 @@ const params = { params: Promise.resolve({ id: "job-1" }) };
 const grant = (extra: Record<string, unknown> = {}) => ({ payload: { subject: VISITOR, ...extra }, signature: "0x" });
 const training = (extra?: Record<string, unknown>) => ({ datasetId: "ds-1", jobId: "job-1", datasetReceipt: "receipt", authorization: grant(extra) });
 
-async function refused(response: Response, calls: string[]) {
+async function refused(request: Request, response: Response, calls: string[], bodyRead = false) {
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { error: "Bientôt disponible" });
   assert.deepEqual(calls, [], "aucune dépendance touchée avant le refus");
+  assert.equal(request.bodyUsed, bodyRead, bodyRead ? "sur la démo, le corps est lu pour reconnaître un grant de démo" : "le corps n'est pas lu avant le refus");
 }
+
+const send = async (route: (req: Request, ...rest: never[]) => Promise<Response>, request: Request, calls: string[], bodyRead = false) =>
+  refused(request, await route(request), calls, bodyRead);
+const sendKey = async (route: (req: Request, ctx: typeof params) => Promise<Response>, request: Request, calls: string[]) =>
+  refused(request, await route(request, params), calls);
 
 test("hors démo, un wallet non admin est refusé sur chaque route sans corps lu, ni base, ni grant, ni runner", async () => {
   await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN }, async () => {
     const { train, key, me, calls } = routes({ address: VISITOR, source: "external" });
-    await refused(await train.GET(new Request(TRAIN)), calls);
-    await refused(await train.POST(garbage(TRAIN)), calls);
-    await refused(await train.POST(json(TRAIN, training())), calls);
-    await refused(await train.POST(json(TRAIN, training({ demoSessionRevision: 1 }))), calls);
-    await refused(await key.POST(garbage(KEY), params), calls);
-    await refused(await key.POST(json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), params), calls);
+    await send(train.GET, new Request(TRAIN), calls);
+    await send(train.POST, garbage(TRAIN), calls);
+    await send(train.POST, json(TRAIN, training()), calls);
+    await send(train.POST, json(TRAIN, training({ demoSessionRevision: 1 })), calls);
+    await sendKey(key.POST, garbage(KEY), calls);
+    await sendKey(key.POST, json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), calls);
     const who = await me.GET(new Request(ME));
     assert.equal(who.status, 200);
     assert.deepEqual(await who.json(), { admin: false });
@@ -226,11 +313,12 @@ test("hors démo, un wallet non admin est refusé sur chaque route sans corps lu
 
 test("un wallet de l'équipe passe la garde, quelle que soit la casse, et le flux continue dans l'ordre", async () => {
   const mixed = `0xAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb`;
-  for (const [configured, address] of [[ADMIN, ADMIN], [mixed, ADMIN], [`${VISITOR},${ADMIN}`, mixed]]) {
+  const upper = `0X${"AB".repeat(20)}`;
+  for (const [configured, address] of [[ADMIN, ADMIN], [mixed, ADMIN], [`${VISITOR},${ADMIN}`, mixed], [upper, ADMIN], [ADMIN, upper]]) {
     await withEnv({ SIRIUS_ADMIN_ADDRESSES: configured }, async () => {
       const { train, key, me, calls } = routes({ address, source: "external" });
       const list = await train.GET(new Request(TRAIN));
-      assert.equal(list.status, 200);
+      assert.equal(list.status, 200, `${configured} / ${address}`);
       assert.deepEqual(calls.splice(0), ["findMany"]);
 
       const created = await train.POST(json(TRAIN, training()));
@@ -258,9 +346,9 @@ test("liste vide ou mal formée : même l'adresse attendue est refusée partout"
     for (const configured of [undefined, "", `${ADMIN},oops`, `${ADMIN},`]) {
       await withEnv(configured === undefined ? {} : { SIRIUS_ADMIN_ADDRESSES: configured }, async () => {
         const { train, key, me, calls } = routes({ address: ADMIN, source: "external" });
-        await refused(await train.GET(new Request(TRAIN)), calls);
-        await refused(await train.POST(json(TRAIN, training())), calls);
-        await refused(await key.POST(json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), params), calls);
+        await send(train.GET, new Request(TRAIN), calls);
+        await send(train.POST, json(TRAIN, training()), calls);
+        await sendKey(key.POST, json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), calls);
         assert.deepEqual(await (await me.GET(new Request(ME))).json(), { admin: false });
       });
     }
@@ -268,16 +356,17 @@ test("liste vide ou mal formée : même l'adresse attendue est refusée partout"
 });
 
 test("instance de démo Phala sur testnet : la part publique de la démo reste ouverte, le reste non", async () => {
-  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet" }, async () => {
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV }, async () => {
     const { train, key, me, calls } = routes({ address: VISITOR, source: "external" });
     const list = await train.GET(new Request(TRAIN));
     assert.equal(list.status, 200, "la page de démo liste ses propres jobs");
     assert.deepEqual(calls.splice(0), ["findMany"]);
 
-    await refused(await train.POST(json(TRAIN, training())), calls);
-    await refused(await train.POST(json(TRAIN, training({ demoSessionRevision: "3" }))), calls);
-    await refused(await train.POST(json(TRAIN, training({ demoSessionRevision: 1.5 }))), calls);
-    await refused(await train.POST(json(TRAIN, { ...training(), authorization: { demoSessionRevision: 3 } })), calls);
+    await send(train.POST, json(TRAIN, training()), calls, true);
+    await send(train.POST, json(TRAIN, training({ demoSessionRevision: "3" })), calls, true);
+    await send(train.POST, json(TRAIN, training({ demoSessionRevision: 0 })), calls, true);
+    await send(train.POST, json(TRAIN, training({ demoSessionRevision: 1.5 })), calls, true);
+    await send(train.POST, json(TRAIN, { ...training(), authorization: { demoSessionRevision: 3 } }), calls, true);
 
     const demo = await train.POST(json(TRAIN, training({ demoSessionRevision: 3 })));
     assert.equal(demo.status, 201, await demo.text());
@@ -287,24 +376,26 @@ test("instance de démo Phala sur testnet : la part publique de la démo reste o
     assert.equal(malformed.status, 415, "sur la démo, le corps est lu pour reconnaître un grant de démo");
     assert.deepEqual(calls.splice(0), []);
 
-    await refused(await key.POST(json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), params), calls);
+    await sendKey(key.POST, json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), calls);
     assert.deepEqual(await (await me.GET(new Request(ME))).json(), { admin: false });
   });
 });
 
-test("la démo n'exempte jamais hors testnet ni avec un drapeau approximatif", async () => {
+test("la démo n'exempte jamais hors testnet, hors enclave Phala, ni avec un drapeau approximatif", async () => {
   for (const env of [
-    { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "mainnet" },
-    { SIRIUS_PHALA_DEMO: "true" },
-    { SIRIUS_PHALA_DEMO: "1", EVM_NETWORK: "testnet" },
-    { SIRIUS_PHALA_DEMO: "false", EVM_NETWORK: "testnet" },
-    { EVM_NETWORK: "testnet" },
+    { ...DEMO_ENV, EVM_NETWORK: "mainnet" },
+    { SIRIUS_PHALA_DEMO: "true", TEE_MODE: "phala" },
+    { ...DEMO_ENV, SIRIUS_PHALA_DEMO: "1" },
+    { ...DEMO_ENV, SIRIUS_PHALA_DEMO: "false" },
+    { ...DEMO_ENV, TEE_MODE: "stub" },
+    { ...DEMO_ENV, DSTACK_SIMULATOR_ENDPOINT: "http://localhost:8090" },
+    { EVM_NETWORK: "testnet", TEE_MODE: "phala" },
   ]) {
     await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...env }, async () => {
       const { train, key, calls } = routes({ address: VISITOR, source: "external" });
-      await refused(await train.GET(new Request(TRAIN)), calls);
-      await refused(await train.POST(json(TRAIN, training({ demoSessionRevision: 3 }))), calls);
-      await refused(await key.POST(json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), params), calls);
+      await send(train.GET, new Request(TRAIN), calls);
+      await send(train.POST, json(TRAIN, training({ demoSessionRevision: 3 })), calls);
+      await sendKey(key.POST, json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), calls);
     });
   }
 });

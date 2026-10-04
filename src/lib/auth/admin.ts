@@ -12,7 +12,9 @@ import { isZeroAddress, tryNormalizeAddress, type CanonicalAddress } from "@/lib
  *   - variable absente ou vide → personne n'est administrateur ;
  *   - une seule entrée invalide (pas une adresse, adresse nulle, entrée vide après une
  *     virgule) → la liste entière est refusée, personne n'est administrateur ;
- *   - plus de MAX_ADMIN_ADDRESSES entrées → liste refusée.
+ *   - plus de MAX_ADMIN_ADDRESSES entrées (doublons compris) → liste refusée.
+ * La casse est indifférente, préfixe `0X` compris : tout est mis en minuscules avant la
+ * comparaison. La somme de contrôle EIP-55 n'est pas vérifiée, comme partout dans le projet.
  * Une faute de frappe ferme donc l'accès à tout le monde, ce qui se voit immédiatement,
  * plutôt que d'ouvrir l'accès à une adresse mal lue.
  */
@@ -27,7 +29,7 @@ export function adminAddresses(configured: string | undefined = process.env.SIRI
   const entries = configured.split(",").map((value) => value.trim());
   const addresses = new Set<CanonicalAddress>();
   for (const entry of entries) {
-    const normalized = tryNormalizeAddress(entry);
+    const normalized = tryNormalizeAddress(entry.toLowerCase());
     if (!normalized || isZeroAddress(normalized)) return reject(configured);
     addresses.add(normalized);
   }
@@ -47,7 +49,7 @@ function reject(configured: string): CanonicalAddress[] {
 
 /** Vrai si `address` (toute casse) figure dans la liste des administrateurs. */
 export function adminAllowed(address: unknown, configured: string | undefined = process.env.SIRIUS_ADMIN_ADDRESSES): boolean {
-  const normalized = tryNormalizeAddress(address);
+  const normalized = tryNormalizeAddress(typeof address === "string" ? address.toLowerCase() : address);
   if (!normalized) return false;
   return adminAddresses(configured).includes(normalized);
 }

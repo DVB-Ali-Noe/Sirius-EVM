@@ -22,7 +22,10 @@ test("la casse ne compte ni dans la variable ni dans l'adresse comparée", () =>
   assert.equal(adminAllowed(MIXED, lower), true);
   assert.equal(adminAllowed(lower, MIXED), true);
   assert.equal(adminAllowed(MIXED.toUpperCase().replace("0X", "0x"), MIXED), true);
+  assert.equal(adminAllowed(MIXED.toUpperCase(), MIXED), true, "préfixe 0X dans l'adresse comparée");
+  assert.equal(adminAllowed(lower, MIXED.toUpperCase()), true, "préfixe 0X dans la variable");
   assert.deepEqual(adminAddresses(MIXED), [lower], "la liste est canonique, en minuscules");
+  assert.deepEqual(adminAddresses(`${MIXED.toUpperCase()},${ALI}`), [lower, ALI]);
 });
 
 test("les espaces autour des virgules sont tolérés, les doublons fusionnés", () => {

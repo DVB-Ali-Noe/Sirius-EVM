@@ -1,5 +1,4 @@
 export const ERROR_MESSAGES_EN: Record<string, string> = {
-  "Bientôt disponible": "Coming soon",
   "Registre anti-rejeu remplacé ou indisponible": "Replay ledger was replaced or is unavailable",
   "Registre anti-rejeu absent ou inaccessible : intervention requise": "Replay ledger is missing or inaccessible: operator intervention required",
   "Bloc confirmé indisponible": "Confirmed block is unavailable",
