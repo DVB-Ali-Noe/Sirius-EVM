@@ -1,11 +1,13 @@
 import { ERROR_MESSAGES_EN } from "./errors-en";
 import { PHALA_MESSAGES_EN } from "./phala-en";
+import { LEGAL_MESSAGES_EN } from "./legal-en";
 import { SHARED_MESSAGES_EN } from "./shared-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
   ...PHALA_MESSAGES_EN,
   ...SHARED_MESSAGES_EN,
+  ...LEGAL_MESSAGES_EN,
   "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",

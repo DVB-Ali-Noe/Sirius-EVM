@@ -11,6 +11,7 @@ import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { addFunds } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 
 interface ReputationSnapshot {
   score: number;
@@ -143,6 +144,8 @@ function DashboardPageContent() {
         <h1 className="text-2xl font-semibold tracking-tight">{t("Tableau de bord")}</h1>
         <p className="mt-1 font-mono text-sm text-muted">{truncate(address)}</p>
       </div>
+
+      <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} className="mb-8" />
 
       <Card className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>

@@ -24,6 +24,7 @@ import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import {
   modelSelection,
   modelDisplayName,
@@ -389,6 +390,8 @@ function TrainPageContent() {
           </p>
         </div>
       </div>
+
+      <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} className="mb-6" />
 
       {error && (
         <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
