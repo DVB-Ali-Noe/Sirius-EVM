@@ -76,11 +76,14 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
       if (!root) return;
       const current = document.activeElement;
       const inside = current instanceof Node && root.contains(current);
-      // Focus parti dans une autre fenêtre (wallet embarqué, devis) : on ne lui vole ni le
-      // focus ni la touche Échap.
+      // Focus parti dans une fenêtre tierce hors de l'application (wallet embarqué) : on ne
+      // lui vole ni le focus ni la touche Échap.
       if (!inside && current && current !== document.body && current !== document.documentElement) return;
       if (event.key === "Escape") {
         event.preventDefault();
+        // Écoute en capture sur `window` : Échap ne ferme que le tuto, pas une fenêtre de la
+        // page restée dessous (devis), qui écoute `document` en phase de bouillonnement.
+        event.stopImmediatePropagation();
         onCloseRef.current();
         return;
       }
@@ -104,20 +107,23 @@ export function TourDialog({ eyebrow, steps, onClose }: TourDialogProps) {
       }
     }
 
-    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       for (const element of inerted) element.inert = false;
       // Rend le focus à l'élément d'origine s'il est encore dans la page.
       if (focusWasFree && previous?.isConnected) previous.focus();
     };
   }, []);
 
-  // Changement d'étape : un bouton qui disparaît (« Précédent » à la première étape) ne
-  // doit pas laisser le focus sur le corps de la page.
+  // Changement d'étape : un bouton qui disparaît (« Précédent » à la première étape) laisse
+  // le focus sur le corps de la page ; on le remet dans la fenêtre. Seulement dans ce cas :
+  // cet effet passe aussi au montage, et ne doit pas prendre le focus à une fenêtre tierce.
   useEffect(() => {
-    const root = rootRef.current;
-    if (root && !root.contains(document.activeElement)) primaryRef.current?.focus();
+    const current = document.activeElement;
+    if (rootRef.current && (!current || current === document.body || current === document.documentElement)) {
+      primaryRef.current?.focus();
+    }
   }, [index]);
 
   const count = steps.length;
