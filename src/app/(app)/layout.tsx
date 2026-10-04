@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ProductTour } from "@/components/layout/ProductTour";
+import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { SecureAccountBanner } from "@/components/wallet/SecureAccount";
 import { APP_BACKGROUND_BLOB_Z, useBlobStore } from "@/stores/blob";
 
@@ -20,6 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <ProductTour />
       {/* décalage pour la barre mobile (top-16 + nav) ; nul en desktop */}
       <div className="pt-28 md:pt-8">
+        <ProfileMenu />
         <SecureAccountBanner />
         {children}
       </div>
