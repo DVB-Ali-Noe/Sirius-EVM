@@ -1227,42 +1227,224 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## N3 — Marketplace
 
+Branche `feat/marketplace`, partie de `staging` (`e829cfc`). Cahier des charges : [08-marketplace.md](08-marketplace.md), avec [01](01-decisions-avant-samedi.md) §2 à §4, [02](02-general.md) §3 et [16](16-socle-technique.md). Commits : `35a9d40` (implémentation), `164e0df`, `5005a5f` et `4399603` (corrections des trois passages de revue, §10). Tout est vérifiable depuis `git diff staging...HEAD`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Routes (nouvelles, publiques, lecture seule, sans session)**
+
+| Route | Rôle |
+|---|---|
+| `GET /api/marketplace` (`src/app/api/marketplace/route.ts`) | Catalogue : datasets en ligne, recherche, filtres, tri et pagination calculés côté serveur. Réponse : `items` (cartes), `total`, `page`, `pageCount`, `pageSize`, `truncated`, `token`, `computeFees`, `kybAvailable`. |
+| `GET /api/marketplace/[id]` (`src/app/api/marketplace/[id]/route.ts`) | Fiche d'un dataset en ligne. Réponse : `dataset` (fiche), `token`, `kybAvailable`, `billingMode`. 404 identique (« Dataset introuvable ») pour tout autre cas. |
+
+Paramètres acceptés par le catalogue : `q`, `category`, `model`, `minPrice`, `maxPrice`, `minRows`, `maxRows`, `verified`, `sort` (`recent`, `borrowed`, `price`), `page`. Les autres sont ignorés.
+
+**Pages**
+
+| Fichier | Changement |
+|---|---|
+| `src/app/(app)/marketplace/page.tsx` | Réécrite : enveloppe `Suspense` de la grille (l'ancienne page, avec un bouton « Emprunter » par carte, est remplacée). |
+| `src/app/(app)/marketplace/_components/MarketplaceCatalogue.tsx` (nouveau) | Grille de `DatasetCard` dans une liste `ul`/`li`, recherche (envoi après 350 ms de pause ou sur Entrée), filtres à gauche (catégorie, modèle, prix total, lignes, fournisseur vérifié KYB), tri, pagination, filtres conservés dans l'URL, encart `DisclaimerNote`, étoile des favoris au-dessus de chaque carte. |
+| `src/app/(app)/marketplace/[id]/page.tsx` (nouveau) | Fiche publique : description, catégorie, lignes, colonnes, taille, modèle et ce qu'il produit, statistiques publiques, fournisseur (adresse raccourcie, KYB), lien `/proof/[id]`, `PriceBreakdown`, « ce que vous obtenez », « en cas d'échec », encart d'avertissement, bouton « Emprunter ». |
+| `src/app/(app)/marketplace/[id]/BorrowPanel.tsx` (nouveau) | Bouton « Emprunter » : demande la connexion puis la signature au clic si besoin, puis appelle le flux existant `borrowDataset` + `useComputeQuoteConfirmation`, inchangés. Reprend de l'ancienne grille la confirmation en cas de prêt déjà en cours et le formulaire KYB de secours. |
+| `src/app/(app)/borrow/**` | Inchangé (redirige toujours vers `/train`). |
+
+**Modules (`src/lib/marketplace/`, nouveaux)**
+
+| Fichier | Contenu |
+|---|---|
+| `categories.ts` | Liste fixe de l'upload (finance, health, commerce, industry, mobility, energy, marketing, other), `normalizeCategory` (identifiant ou libellé français ou anglais, sans casse ni accents), clés de traduction. Pur. |
+| `query.ts` | `parseMarketplaceQuery` : lecture stricte et bornée des paramètres, messages d'erreur (`QUERY_ERRORS`). Pur. |
+| `listing.ts` | `MARKETPLACE_DATASET_SELECT` (liste blanche de 16 colonnes), `onlineDatasetWhere` et `isOnlineDataset` (règle « en ligne »), projections `toPublicListing` / `toPublicDetail` construites champ par champ, filtrage, tri, pagination. Pur. |
+| `catalogue.ts` | `server-only`. `readCatalogueSnapshot` (lecture des candidats, statistiques de prêts, frais, KYB), `createCatalogueSnapshotCache` (lecture partagée 10 s), `loadCatalogue`, `loadListingDetail`. Dépendances injectées (base, KYB, facturation, horloge). |
+| `kyb.ts` | `server-only`. Lecteur du statut KYB on-chain (`isKybValid`) pour le badge : délai 2,5 s, lectures en cours partagées, cache 60 s (échec 10 s), dernière valeur connue servie 10 min au plus si la relecture échoue, 200 adresses au plus par requête. |
+| `server.ts` | `server-only`. Branchement réel : adaptateur Prisma explicite (quatre lectures typées), lecteur KYB sur `getPublicClient`, `billingEnabled()` → `v6`/`v7`/`unknown`, jeton. |
+| `token.ts` | Jeton affiché : `USDG` à 6 décimales sur mainnet, `USDC` à 18 sur testnet (table `USDC_DECIMALS_BY_NETWORK`). |
+| `test-fixtures.ts` | Jeux d'essai des tests (jamais importé par l'application). |
+
+**Traductions** : `src/lib/i18n/marketplace-en.ts` (nouveau), fusionné dans `EN_MESSAGES` par `src/lib/i18n/english.ts` (+2 lignes : import et `...MARKETPLACE_MESSAGES_EN`). Aucune clé existante modifiée ni supprimée.
+
+**Tests** : `query.test.ts`, `listing.test.ts`, `catalogue.test.ts`, `kyb.test.ts`, `client-graph.test.ts` sous `src/lib/marketplace/`, ajoutés à la fin du script `test` de `package.json` (aucune autre ligne touchée). E2E : `e2e/marketplace.spec.ts` (nouveau) ; `e2e/billing-v7.spec.ts`, `e2e/sirius.spec.ts`, `e2e/responsive.spec.ts` adaptés.
+
+**Aucune** table, colonne, migration, modification de `src/lib/db.ts`, de contrat, d'escrow, du moteur Phala, de `src/runner/**`, des composants partagés `src/components/**`, du layout `(app)`, de la Sidebar, du dashboard, ni de `src/app/(app)/datasets/**` ou `src/app/api/datasets/**`.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Consultation sans connexion.** Vérifié : le groupe `(app)` n'impose aucune connexion (`layout.tsx` ne fait que monter Sidebar, tuto et bandeau ; `src/proxy.ts` ne pose que la CSP). L'ancienne grille se lisait déjà sans wallet, via `GET /api/datasets?status=LISTED`. Rien n'a donc été « ouvert » côté accès : la marketplace a sa propre route publique, plus étroite que `/api/datasets` (liste blanche, voir §3), et la connexion n'est demandée qu'au clic sur « Emprunter » : `connectWallet()` puis `signInWithWallet()`, comme `SignInCta`. Après la signature, l'utilisateur clique une seconde fois : l'emprunt ne part jamais tout seul.
+2. **Nouvelle route plutôt que `GET /api/datasets`.** `/api/datasets` est hors périmètre et renvoie la ligne entière (CID, Merkle, reçu runner, identifiants EVM, `updatedAt`…), sans filtre d'expiration. `/api/marketplace` lit une liste blanche de colonnes et construit la réponse champ par champ.
+3. **« En ligne »** = `status = LISTED`, `keyDestroyedAt` nul, `listingExpiresAt` nul ou futur (strictement), plus `wrappedKey` et `evmDatasetId` non nuls (dataset réellement empruntable ; ces deux colonnes ne servent qu'au filtre, jamais sélectionnées). La règle de statut et d'expiration est revérifiée en mémoire sur chaque ligne et à chaque requête. La pause (`UNLISTED`, docs 16) est donc exclue de la grille **et** de la fiche : un dataset en pause a une fiche « indisponible », même s'il reste empruntable par lien direct via les routes existantes (décision P1 du couloir des prêts, non tranchée ici).
+4. **Filtrage en mémoire côté serveur, pas en SQL.** Le serveur lit au plus 500 datasets en ligne (les plus récemment créés), puis filtre, trie et pagine en mémoire. Raisons : le prix est une chaîne en base (tri numérique impossible en Prisma sans SQL brut), le nombre de lignes est dans un JSON, le KYB vient de la chaîne, et `contains` de Prisma n'échappe pas les jokers `%`/`_`. Pendant la bêta sur invitation le catalogue est très en dessous de 500 ; au-delà, la réponse porte `truncated: true` et la grille l'annonce. Passer au SQL est noté en §8.
+5. **Lecture partagée 10 s.** Après la première revue, la lecture (datasets, statistiques, frais, KYB) est mise en commun entre requêtes pendant 10 s par instance, lecture en cours partagée, échec jamais mis en cache. Conséquence : une pause ou un nouveau dataset apparaît dans la grille avec jusqu'à 10 s de retard ; l'expiration, elle, est revérifiée à chaque requête avec l'heure courante. La fiche n'utilise pas ce cache.
+6. **Prix total et frais de calcul (point à relire en priorité).** En facturation v7, le tarif de calcul n'est connu que du runner (fichier `RUNNER_BILLING_POLICY_FILE` sur le volume Phala) ; l'application web n'a aucun moyen de le lire. Le prix total affiché reprend donc le `computeAmountUsdcAtomic` du **dernier prêt verrouillé** (`evmLockTxHash` non nul, et statut ESCROWED, TRAINING, SETTLING, SETTLED, ou CANCELLED avec transaction de remboursement : un lock annulé n'est jamais lu) pour le même profil et la même version, de moins de 30 jours. Ce montant ne dépend que du profil (`prepareComputeQuote` : `max(computeAmount, minimum)`), il figure dans les conditions du lock on-chain, et sa date n'est pas renvoyée. La grille et la fiche disent que c'est le dernier devis et que le montant exact est celui du devis présenté avant paiement. Sans prêt récent, ou configuration illisible : la carte affiche « Provider receives » (le gain du fournisseur), la fiche n'affiche pas de total et renvoie au devis. En v6 : frais nuls, total = prix du dataset, exact. Le filtre et le tri par prix portent sur le prix affiché (total si connu, sinon gain du fournisseur).
+7. **Fournisseur sans KYB valide.** Le cahier demande un filtre « vérifié KYB » : les datasets d'un fournisseur non vérifié restent donc dans la grille, avec le badge « Provider not KYB-verified ». Mais `prepareLoan` refuse l'emprunt (`requireCounterpartyKyb`) : sur la fiche, le bouton est désactivé avec « Borrowing unavailable: the provider’s KYB attestation is missing or expired ». Statut illisible (`null`) : aucun badge, exclu du filtre « vérifiés », bouton actif (le serveur tranche).
+8. **Colonnes et types : écart.** Le cahier demande « colonnes et leur type ». La base ne stocke que les volumes (`rowCount`, `columnCount`) : `publicDatasetMetrics` élimine volontairement les statistiques détaillées et les noms de colonnes ne sont jamais en clair. La fiche affiche le nombre de colonnes et dit que les noms et types restent dans le fichier chiffré. Publier un schéma demanderait un choix du fournisseur à l'upload (N2).
+9. **Taux de réussite : libellé corrigé.** `successRate` = prêts réglés au fournisseur / (réglés + remboursés), sur les transactions confirmées. Un remboursement suit un échec **ou** un entraînement jamais lancé : la fiche l'intitule « Loans settled to the provider » et l'explique, plutôt que « taux de réussite des entraînements », qui aurait été trompeur. `borrowCount` = prêts dont les fonds ont été verrouillés (ESCROWED, TRAINING, SETTLING, SETTLED, ou CANCELLED avec transaction de remboursement) ; les réservations abandonnées ne comptent pas.
+10. **« En cas d'échec » dépend de la facturation.** v7 : « Only the compute actually consumed is retained; the rest is refunded. » v6 : « No compute fee is charged: the locked amount is returned in full. » Version illisible : « The quote states what is retained if training fails, before any payment. » Dans tous les cas : « If the loan is not settled after {n} days, you can recover your funds from the Train page », avec `n` = `challengeDays` **du dataset** (valeur reprise dans le devis et la deadline du lock), pas « 3 » en dur : les datasets publiés avant la décision 3 gardent leur valeur (1 à 30).
+11. **Catégories : liste tenue ici, en attendant N2.** Aucune liste n'existait dans le code de `staging`. `categories.ts` accepte l'identifiant (`health`) et les libellés français ou anglais (`Santé`, `Health`), sans casse ni accents ; toute autre valeur est traitée comme « sans catégorie » (non affichée, non filtrable). N2 doit écrire une de ces valeurs, idéalement l'identifiant, et peut importer `MARKETPLACE_CATEGORIES`.
+12. **Jeton.** `USDG` (6 décimales) sur mainnet, `USDC` (18) sur testnet, choisi par le serveur et renvoyé dans chaque réponse ; `marketplaceDeps()` refuse en 503 une configuration où la table et `USDC_DECIMALS` divergent. Le devis (`ComputeQuoteDialog`, hors périmètre) écrit toujours « USDC ».
+13. **Favoris conservés, réputation retirée.** L'étoile reste sur chaque carte (au-dessus du lien étiré de `DatasetCard`) ; les favoris passent en tête seulement avec le tri par défaut et à l'intérieur de la page, pour ne jamais réordonner en douce un tri choisi. La ligne « Confiance EVM score/100 · N règlements » de l'ancienne carte n'est plus affichée : remplacée par le badge KYB, le nombre d'emprunts et la part réglée. Les clés de traduction de l'ancienne page sont laissées dans `english.ts` (non supprimées pour éviter les conflits avec les autres slices).
+14. **Fiche rendue côté client.** La fiche appelle `/api/marketplace/[id]` depuis le navigateur, comme le reste du groupe `(app)` ; pas de rendu serveur ni de métadonnées par dataset (aperçu de lien générique).
+15. **Identité des commits.** Auteur et committeur : l'identité git locale du propriétaire (`alibenyezza`). Aucune ligne de co-signature, d'identifiant de session ni de mention d'outil, dans les commits, la PR et les fichiers.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès, route par route**
+
+- `GET /api/marketplace` et `GET /api/marketplace/[id]` : publics par conception. Aucune lecture de cookie ni de session (ni `readSession`, ni `requireAuth`) : la réponse ne dépend que de l'URL, identique pour tous (test : même corps avec un cookie forgé). Aucune écriture.
+- `BorrowPanel` n'appelle des routes authentifiées (`GET /api/loans`, `GET /api/account/status`, `POST /api/loans` via `borrowDataset`) qu'une fois le wallet signé ; leur contrôle d'accès est inchangé. Le bouton désactivé (KYB du fournisseur) n'est **pas** un contrôle : `prepareLoan` refuse de toute façon.
+- Débit : 60 requêtes/min par client et 1 200 par instance (catalogue), 120 et 2 400 (fiche). Sans `SIRIUS_TRUST_PROXY_HEADERS=true`, seule la limite globale s'applique (voir §7).
+
+**Validation et bornes**
+
+- `parseMarketplaceQuery` : paramètre répété → 400 ; `q` ≤ 100 points de code après suppression des espaces (valeur brute ≤ 400), contrôles C0/DEL/C1 refusés, 8 mots au plus, repliés (minuscules, sans accents), comparés par sous-chaîne (aucune expression régulière construite à partir de l'entrée) ; `category` et `model` : identifiants exacts (`__proto__`, `constructor` refusés) ; prix : décimal, 8 chiffres entiers au plus, décimales ≤ celles du jeton, converti en `bigint` sans arrondi, `min ≤ max` ; lignes : entier 0 à 20 000 ; `verified` ∈ {0, 1} ; `sort` fermé ; `page` 1 à 21 (au-delà de la dernière page réelle : ramenée à la dernière).
+- `[id]` : `^[A-Za-z0-9_-]{1,64}$`, sinon la même 404.
+- Coût par requête : lecture de 501 lignes au plus, 3 `groupBy` sur 500 ids au plus, 2 `findFirst` (un par profil), lectures KYB (≤ 200 adresses, partagées, en cache) ; le tout mis en commun 10 s.
+
+**Fuites possibles**
+
+- Colonnes lues : `MARKETPLACE_DATASET_SELECT` (id, name, description, category, provider, modelId, modelVersion, metrics, sizeBytes, priceUsdcAtomic, challengeDays, status, listedAt, listingExpiresAt, keyDestroyedAt, createdAt). Jamais `wrappedKey`, consentement, CID, Merkle, reçu runner, identifiants EVM, `updatedAt`. `metrics` est réduit à `rowCount`/`columnCount` par `publicDatasetMetrics`. `status`, `listingExpiresAt`, `keyDestroyedAt` et `createdAt` sont lus mais ne sortent pas.
+- Réponse : projection champ par champ ; une ligne qui contiendrait des champs privés (ré-inclusion future, jointure) ne peut pas fuir (tests avec une fausse base qui renvoie la ligne entière et des datasets hors ligne).
+- Prêts : seulement des comptes agrégés par dataset et un montant de frais par profil ; jamais d'emprunteur, de date de devis, de montant individuel. L'activité est déjà publique on-chain.
+- Existence : la fiche renvoie la même 404 pour inconnu, pause, expiré, privé, brouillon, détruit, id mal formé. **Mais** `GET /api/datasets/[id]` (hors slice) sert toujours un dataset `UNLISTED` à qui connaît son id, et `GET /api/datasets` en anonyme liste les LISTED expirés : la garantie « pause et expiration non révélées » ne vaut que pour les routes de la marketplace.
+- Fournisseur : adresse publique (titulaire du titre on-chain), affichée raccourcie (`0x930f…318b`, complète au survol).
+- Erreurs : `errorResponse` (message des seules `AppError`, sinon « Erreur interne » ; journal : classe de l'erreur seulement). Test : une panne de base contenant une chaîne de connexion ne laisse rien dans la réponse ni dans le journal. `cache-control: no-store` sur toutes les réponses, erreurs comprises.
+- Bundle client : test du graphe d'imports : les pages n'atteignent ni `src/lib/db.ts`, ni `catalogue.ts`/`server.ts`/`kyb.ts`, ni `server-only`, `pg`, `@prisma/*` (types serveur importés en `import type`).
+
+**Argent, escrow, contrats, Phala**
+
+- Aucune transaction construite par la slice. L'emprunt passe par `borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })`, inchangé, avec `priceUsdcAtomic` = `Dataset.priceUsdcAtomic` (contrôlé `^(0|[1-9][0-9]*)$`, sinon bouton désactivé), la même valeur que l'ancienne grille ; le contrôle « Prix du dataset modifié » et le devis signé restent les garde-fous. Le prix total affiché n'engage rien : le devis signé, affiché avant paiement, fait foi. Aucun envoi de transaction runner, aucun contrat ni moteur touché.
+
+**Base de données** : aucune migration, aucune contrainte. Lectures seulement, par un adaptateur typé de quatre opérations.
+
+**Interface**
+
+- Nom, description, catégorie : rendus par React (échappés), aucun `dangerouslySetInnerHTML` ; la description garde ses retours à la ligne (`whitespace-pre-line`). E2E : `<script>` dans la description affiché comme du texte.
+- Liens internes seulement (`/marketplace/<id encodé>`, `/proof/<id encodé>`, `/train`) ; `DatasetCard` passe par `safeInternalHref`. Le seul lien externe est le `mailto:` constant de `DisclaimerNote`.
+- Une catégorie inconnue en base n'est jamais affichée telle quelle.
+
+**Textes**
+
+- Aucun texte ne promet une qualité de modèle : encart commun `modelQuality` + `contactUs` sur la grille et la fiche ; « What it does » reprend la description du registre (« Predicts a continuous numeric value. », « Classifies a target strictly encoded as 0 or 1. »).
+- « Ce que vous obtenez » = texte de 01 §2 ; « en cas d'échec » adapté à v6/v7 et à `challengeDays` (§2.10) ; « KYB-verified provider » atteste le fournisseur, pas la donnée.
+- À vérifier : la mention « Prices include the compute fee from the latest quote » (§2.6) est vraie tant que le tarif n'a pas changé depuis le dernier prêt.
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+1. **Sans wallet** (navigation privée) : `/marketplace` affiche la grille ; ouvrir une carte → fiche complète. Onglet réseau : seuls `/api/marketplace` et `/api/marketplace/<id>` partent (aucun `/api/loans`, `/api/account/status`, `/api/datasets`).
+2. **Clic sur « Borrow » sans wallet installé** → « No wallet detected », rien d'autre ne part. **Avec un wallet non connecté** → fenêtre de connexion puis signature ; refuser la signature → message d'erreur affiché sous le bouton ; accepter → « Borrow » à recliquer, puis le devis s'ouvre.
+3. **Emprunt complet** depuis la fiche (v7) : le devis affiche les mêmes montants que la fiche si le tarif n'a pas changé ; accepter → approbation puis lock ; message « Loan recorded… » avec lien vers Train ; le prêt apparaît dans `/train`. Recliquer → confirmation « You already have an active loan… ».
+4. **Changement de compte** dans le wallet pendant le devis → le devis se ferme sans rien signer ; pendant la signature de connexion → le message d'erreur s'affiche (pas de panneau remis à zéro silencieusement).
+5. **Pause** : mettre un dataset en pause dans Mes datasets → il disparaît de la grille en 10 s au plus ; sa fiche dit « Dataset unavailable » immédiatement. **Expiration** : `listingExpiresAt` dans 1 minute → visible, puis absent de la grille et de la fiche à l'échéance (sans attendre le cache). **Destruction** : idem.
+6. **Fournisseur non vérifié** (attestation révoquée ou expirée) : badge « Provider not KYB-verified », bouton désactivé avec le message ; le filtre « KYB-verified providers only » le masque. RPC KYB en panne : aucun badge, mention « The KYB status of some providers could not be read », le filtre « vérifiés » ne montre rien de non vérifié.
+7. **Filtres** : chaque catégorie et chaque modèle ; recherche avec accents (« energie » trouve « Énergie »), avec `%`, `_`, `.*` (texte littéral) ; prix `1.5` à `20` ; prix avec trop de décimales (`0.0000001` sur mainnet) → « Invalid price » ; min > max → « Invalid price range » ; lignes `0` à `20000` ; tri par prix et par emprunts ; « Reset filters » ; retour arrière du navigateur (les filtres et le champ de recherche suivent l'URL).
+8. **Frappe pendant l'envoi** : taper « crédit », attendre, puis taper « pme » lentement → le champ ne se vide jamais et aucune lettre n'est perdue.
+9. **URL forgées** : `?page=999` → 400 ; `?page=3` sur un catalogue d'une page → dernière page affichée ; `?category=Santé` → 400 ; `?q=` de 101 caractères → 400 ; `?sort=price&sort=recent` → 400 ; `/marketplace/../datasets`, `/api/marketplace/%00` → 404.
+10. **Facturation v6** (staging VPS par défaut) : la carte affiche le prix du dataset comme total, la fiche « Compute fee 0.00 » et le texte d'échec v6. **v7 sans aucun prêt récent** : carte « Provider receives », fiche sans total, « Shown in the quote ».
+11. **Datasets anciens** : un dataset avec `challengeDays = 7` → « after 7 days » ; catégorie absente → pas de badge ; profil d'entraînement inconnu → « Missing profile » et bouton désactivé.
+12. **Mobile 320–390 px et texte agrandi** : bouton « Show filters », cartes et fiche sans débordement (e2e `responsive`).
+13. **Hostile** : nom ou description contenant `<img src=x onerror=alert(1)>` → affiché comme texte.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+Unitaires (ajoutés au script `test`) :
+- `query.test.ts` : valeurs par défaut, champs vides et paramètres inconnus ignorés, doublons, longueur en points de code (émojis), contrôles et `%00`/CRLF encodés, substituts isolés (devenus U+FFFD), caractères SQL et regex traités comme texte, repli des accents, 8 mots, catégories et modèles exacts, prix (décimales, `bigint`, bornes, formes refusées), lignes, `verified`, `sort`, `page`, traduction de chaque message d'erreur.
+- `listing.test.ts` : règle « en ligne » (LISTED, expiration future/présente/passée/illisible, chaque statut, clé détruite), filtre Prisma, liste blanche de colonnes, projection avec une ligne pleine de champs privés (clés exactes, aucune valeur « SECRET »), prix affiché (v6, inconnu, au-delà de 2⁵³, prix illisible), valeurs stockées douteuses, catégories et leurs traductions, chaque filtre, chaque tri, pagination (dont page au-delà de la fin).
+- `catalogue.test.ts` : avec une fausse base qui ignore `where`/`select` et renvoie des lignes privées et hors ligne : arguments exacts passés à Prisma, rien d'hors ligne ni de privé ne sort, statistiques, requête des frais (prêts verrouillés, profil et version), v6/v7/inconnu/montants invalides, KYB vrai/faux/illisible/en panne, plafond `truncated`, cache (une lecture pour 25 requêtes simultanées, expiration revérifiée sans relire la base, échec non mis en cache), fiche et `billingMode`, **routes réelles** chargées avec leurs dépendances (statut, `no-store`, même réponse avec cookie, 400 sur paramètres, 404 uniforme, panne de base opaque dans la réponse et le journal).
+- `kyb.test.ts` : valeurs non booléennes, délai, exceptions synchrones, adresses invalides, plafond de lectures, cache et TTL d'échec, lectures simultanées partagées, valeur périmée servie puis abandonnée ; jeton par réseau.
+- `client-graph.test.ts` : graphe d'imports des modules partagés et des deux pages.
+
+Mutations jouées, toutes détectées : projection remplacée par un étalement de la ligne (6 tests rouges) ; vérification « en ligne » en mémoire neutralisée (6 rouges) ; import à l'exécution de `catalogue.ts` depuis la fiche (graphe rouge).
+
+E2E (`playwright`, chromium) : `marketplace.spec.ts` (sans wallet : grille, fiche, prix, contact, aucun appel privé, clic « Borrow » sans wallet ; filtres et URL dont frappe pendant l'envoi et réinitialisation qui vide le champ sans renvoyer la recherche ; 400 affiché et fiche indisponible ; fournisseur non vérifié + v6 ; frais inconnus) ; `billing-v7.spec.ts` (tous les scénarios d'emprunt, désormais depuis la fiche) ; `sirius.spec.ts` (favoris) ; `responsive.spec.ts` (grille puis fiche, 7 largeurs).
+
+**Angles morts** : aucun test contre une vraie base PostgreSQL (les requêtes Prisma sont vérifiées par les types générés et les arguments exacts, pas exécutées) ; aucun test contre un vrai RPC (KYB) ni un vrai wallet (les e2e simulent l'API et le wallet) ; le parcours connexion → signature déclenché par « Borrow » n'est couvert qu'à l'état « aucun wallet » ; pas de test d'accessibilité automatisé ; `next build` non exécuté (voir §9).
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- Le montant de calcul d'un devis ne dépend que du profil (vrai dans `prepareComputeQuote` aujourd'hui) ; si le tarif devenait fonction du dataset ou de la taille, la mention « dernier devis » deviendrait fausse.
+- `challengeDays` du dataset est la valeur reprise dans le devis et la deadline (vrai en v6 et v7 aujourd'hui).
+- La slice upload (N2) écrira une catégorie reconnue par `normalizeCategory`.
+- L'emprunt d'un dataset dont le fournisseur n'a pas `isKybValid` est refusé par le serveur sur tous les réseaux (`requireCounterpartyKyb`).
+- `wrappedKey` non nul et `evmDatasetId` non nul sont nécessaires à l'emprunt (vrai dans `prepareLoan` aujourd'hui).
+- USDG à 6 décimales sur mainnet (« annoncé », à confirmer on-chain selon 01) ; testnet à 18.
+- Le catalogue reste sous 500 datasets en ligne pendant la bêta.
+- L'adresse `sirius.data.contact@gmail.com` (texte commun A2) est active.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Prix total indicatif en v7** (§2.6) : faux jusqu'au prochain prêt verrouillé après un changement de tarif ; inconnu tant qu'aucun prêt n'a été verrouillé depuis 30 jours (notamment juste après le lancement mainnet). Le devis signé reste correct.
+2. **Limiteur de débit global** : sans adresse client transmise par l'ingress, un seul client peut épuiser le quota de l'instance et renvoyer des 429 à tous les visiteurs pendant une minute. Le cache de 10 s limite le coût, pas ce blocage.
+3. **Badge KYB jusqu'à 10 min périmé** si le RPC tombe juste après une révocation ; l'emprunt, lui, revérifie on-chain. Au-delà du délai de 2,5 s, l'appel RPC n'est pas annulé (il finit en arrière-plan, une fois par adresse grâce au partage).
+4. **Grille en retard de 10 s** sur une pause ou une nouvelle publication (§2.5).
+5. **Routes hors slice** : `/api/datasets/[id]` sert un dataset en pause, `/api/datasets` liste les expirés, et le parcours d'emprunt n'applique pas `listingExpiresAt` : un dataset expiré reste empruntable par appel direct de l'API. À corriger dans les couloirs datasets et prêts.
+6. **Jeton** : la fiche affiche USDG sur mainnet, le devis et `/train` écrivent USDC.
+7. **Filtrage en mémoire plafonné à 500** (§2.4).
+8. **Mix total / gain du fournisseur** dans le tri par prix quand un profil a des frais connus et l'autre non.
+9. **Relecture du KYB de secours** au bout de 31 s : pendant ce délai, le formulaire de secours n'apparaît pas pour un compte vraiment sans attestation (l'emprunt échouerait alors avec le message serveur). Une seule relecture, y compris après un 503/429.
+10. **Retrait visible jusqu'à ~13 s dans la grille** : un passage en PRIVATE/UNLISTED ou une clé détruite n'est revérifié qu'à la lecture suivante (10 s après la fin d'une lecture qui peut durer 2,5 s à cause du KYB), par instance. Seuls le nom, la description et les volumes restent affichés ; la fiche renvoie 404 aussitôt.
+11. **Frappe perdue, cas rare** : si un filtre est cliqué pendant qu'un envoi de recherche est en vol **et** que Next rend les deux navigations successivement, le brouillon tapé entre-temps peut être remplacé par la valeur de l'URL. Le cas courant (seule la dernière navigation est rendue) conserve et renvoie le brouillon (e2e).
+12. **Erreur d'un compte réaffichée** si le même compte se reconnecte (message rangé par compte) ; cosmétique.
+13. **Provenance du runner non filtrée** : `prepareLoan` exige `runnerReceipt` et la provenance du runner courant ; un dataset d'un ancien runner peut apparaître empruntable et répondre 409 (comportement déjà présent avec l'ancienne grille).
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0** : couloir des prêts : appliquer `listingExpiresAt` (et décider pour `UNLISTED`) dans `prepareLoan` ; couloir datasets : restreindre `GET /api/datasets` anonyme aux datasets en ligne et à une liste blanche.
+- **P0** : N2 : écrire la catégorie avec un identifiant de `MARKETPLACE_CATEGORIES`.
+- **P1** : exposer le tarif de calcul en vigueur à l'application web (route du runner ou variable publiée avec la politique tarifaire), pour remplacer le « dernier devis ».
+- **P1** : libellé du jeton dans `ComputeQuoteDialog` et `/train` (USDG sur mainnet).
+- **P1** : exiger l'adresse client de l'ingress (`SIRIUS_TRUST_PROXY_HEADERS`) en production pour que le débit soit par client.
+- **P2** : filtrage et tri en SQL si le catalogue dépasse quelques centaines de datasets ; schéma de colonnes publiable au choix du fournisseur ; rendu serveur et métadonnées de la fiche ; nettoyage des clés de traduction de l'ancienne grille ; test e2e du parcours connexion + signature avec un faux wallet.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Git Bash, Node v22.16.0, pnpm 11.18.0 (lancé par `npx pnpm@11.18.0` : l'installation locale de pnpm 11 de la machine est cassée), `DATABASE_URL=postgresql://x:y@localhost:5432/z` (factice), aucune base ni RPC. Le script `test` utilise la syntaxe POSIX `NODE_OPTIONS=… node …` : lancé avec `--config.script-shell` pointant sur `bash.exe`. Toutes les commandes sur la tête de la branche.
+
+| Commande | Résultat exact |
+|---|---|
+| `pnpm install --frozen-lockfile` | `Already up to date`, `Done in 545ms using pnpm v11.18.0`, code 0 (premier passage : `Done in 1m 50.8s`, postinstall `✔ Generated Prisma Client (7.8.0)`) |
+| `pnpm prisma generate` | `✔ Generated Prisma Client (7.8.0) to .\src\generated\prisma in 113ms`, code 0 |
+| `pnpm exec tsc --noEmit` | aucune sortie, code 0 |
+| `pnpm lint` | `eslint`, aucune remarque, code 0 |
+| `pnpm test` | `# tests 567`, `# pass 495`, `# fail 72`, code 1. **Échec d'environnement, pas de la slice** : `staging` sur la même machine, avant la branche, donne `# tests 530`, `# pass 458`, `# fail 72` ; les 72 échecs de la branche sont tous des tests préexistants hors slice (aucun test marketplace ni `english.test.ts`), et la liste est identique d'un passage à l'autre de la branche. Ils dépendent de POSIX (droits de fichiers, `SIGKILL`, chemins `/`, registres anti-rejeu, volumes runner, budget) et passent en CI Linux. Les 37 tests ajoutés passent tous, ainsi que `english.test.ts` (7/7). |
+| Tests de la slice seuls (`node --import tsx --test src/lib/marketplace/*.test.ts src/lib/i18n/english.test.ts`) | `# tests 44`, `# pass 44`, `# fail 0` |
+| `pnpm audit:deps` | `2 vulnerabilities found`, `Severity: 1 low \| 1 high (1 ignored)`, code 0 ; aucune dépendance ajoutée, état identique à `staging` |
+| E2E (`playwright test e2e/marketplace.spec.ts e2e/billing-v7.spec.ts e2e/sirius.spec.ts e2e/responsive.spec.ts`, chromium, `next dev` Turbopack, port 3197 via une configuration locale hors dépôt car le 3100 était occupé par une autre session) | `52 passed` ; dernier passage de `marketplace.spec.ts` seul : `5 passed` |
+| Mutations (§5) | projection étalée : 6 tests rouges ; règle « en ligne » neutralisée : 6 rouges ; import serveur depuis la fiche : graphe rouge |
+| `git diff --name-only staging...HEAD` | 26 fichiers + cette section : `e2e/billing-v7.spec.ts`, `e2e/marketplace.spec.ts`, `e2e/responsive.spec.ts`, `e2e/sirius.spec.ts`, `package.json`, `src/app/(app)/marketplace/[id]/BorrowPanel.tsx`, `src/app/(app)/marketplace/[id]/page.tsx`, `src/app/(app)/marketplace/_components/MarketplaceCatalogue.tsx`, `src/app/(app)/marketplace/page.tsx`, `src/app/api/marketplace/[id]/route.ts`, `src/app/api/marketplace/route.ts`, `src/lib/i18n/english.ts`, `src/lib/i18n/marketplace-en.ts`, `src/lib/marketplace/{catalogue,categories,kyb,listing,query,server,token,test-fixtures}.ts`, `src/lib/marketplace/{catalogue,client-graph,kyb,listing,query}.test.ts`. Aucun fichier interdit. |
+| `git log staging..HEAD --format=%B` passé au crible (co-signature, nom de l'assistant, lien de session, mention de génération, `[skip ci]`) | aucune occurrence ; auteur et committeur de chaque commit : `alibenyezza` |
+
+Non exécuté : `pnpm build` (pas demandé ; la compilation Turbopack des pages a été exercée par `next dev` pendant les e2e), `test:postgres`, contrats, e2e hors des quatre fichiers marketplace.
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Méthode : trois passages de relecture adversariale par des agents indépendants, avec accès au dépôt et droit d'écrire des scripts d'essai hors du dépôt, sans droit de modifier le code. Passage 1 : deux relecteurs en parallèle (fuite de données sans connexion, injection et bornes des filtres ; non-régression du flux d'emprunt et exactitude des textes). Passage 2 : un relecteur sur le code corrigé, avec la liste des défauts déjà traités, chargé de vérifier les corrections et de chercher du neuf. Passage 3 : un relecteur sur les seules corrections du passage 2. Arrêt quand le passage ne remonte plus que des points faibles acceptés ou corrigés.
+
+**Passage 1, défauts remontés et suite**
+
+| Défaut | Gravité | Suite |
+|---|---|---|
+| Fiche remontée à chaque révision du wallet (`key={revision}`) : la connexion lancée par « Borrow » perdait son état et ses erreurs | moyenne | corrigé (`164e0df`) : plus de remontage, lectures rangées par compte |
+| Champ de recherche vidé à l'envoi, frappes perdues | moyenne | corrigé, e2e de frappe pendant l'envoi |
+| Dataset d'un fournisseur sans KYB présenté empruntable (le serveur refuse) | moyenne | corrigé : bouton désactivé avec explication |
+| Lectures KYB démultipliées par requêtes simultanées, appel RPC partagé avec l'escrow | moyenne | corrigé : lectures en cours partagées, dernière valeur connue ; annulation RPC impossible, documentée (§7.3) |
+| Coût par requête élevé, limiteur global | moyenne/basse | coût corrigé (lecture partagée 10 s) ; limiteur global documenté (§7.2, §8) |
+| Page hors bornes affichant un catalogue vide | basse | corrigé : ramenée à la dernière page |
+| « Taux de réussite » comptant les emprunts jamais entraînés | basse | corrigé : libellé « Loans settled to the provider » + explication |
+| Texte d'échec v7 affiché en v6 | basse | corrigé : `billingMode` dans la fiche |
+| Secours KYB affiché juste après la signature (attestation en cours) | basse | corrigé : une relecture après le cache de 30 s |
+| Frais lus sur des devis abandonnés (révélait une activité) | basse | corrigé : prêts verrouillés, même profil et version |
+| « Clé active » vérifiée à moitié | basse | corrigé : `wrappedKey` et `evmDatasetId` non nuls dans le filtre |
+| Routes `/api/datasets*` hors slice exposant pause et expiration | basse | hors périmètre, documenté (§3, §7.5, §8) |
+| Réputation retirée, favoris limités au tri par défaut, jeton USDC dans le devis | basse | assumés, documentés (§2.12, §2.13) |
+
+Tenté sans défaut au passage 1 : champs privés (select, omit, projection), session non lue, 404 uniforme sans écart de temps exploitable, paramètres (doublons y compris clé encodée, contrôles, unicode, pleine largeur, chiffres arabes, `__proto__`), recherche sans regex, `bigint`, journaux opaques, XSS, prix envoyé à l'emprunt identique à l'ancienne grille, changement de wallet pendant le devis, double emprunt, `challengeDays`, frais = `max(computeAmount, minimum)`.
+
+**Passage 2** : corrections du passage 1 vérifiées justes (dont le filtre sur une colonne omise, accepté par Prisma 7.8 et déjà utilisé par `borrower.ts`). Nouveaux défauts, tous faibles : lock annulé (CANCELLED sans remboursement) encore lu pour les frais ; recherche bloquée si un autre filtre supplante l'envoi, et délai relancé à chaque rendu ; erreur et succès d'un compte affichés après changement de wallet ; relecture KYB absente après un 503/429 ; texte v7 quand la facturation est illisible. **Tous corrigés** (`5005a5f`). Documenté sans correction : retrait visible ~13 s dans la grille (§7.10) ; provenance du runner non filtrée, préexistant (§7.13).
+
+**Passage 3** : aucun défaut moyen ou bloquant. Un point faible en partie dû au passage 2 (la réinitialisation pouvait renvoyer la recherche effacée) : **corrigé** (`4399603`, e2e). Un point faible préexistant (frappe perdue si deux navigations sont rendues successivement) : une correction par `window.location.search` a été essayée puis retirée, l'URL n'étant mise à jour qu'à la fin de la navigation ; documenté (§7.11). Un point cosmétique (erreur réaffichée si le même compte se reconnecte) : accepté (§7.12).
+
+Écarté : aucun défaut remonté n'a été jugé faux ; ceux non corrigés sont hors périmètre ou acceptés, et listés en §7.
 
 ---
 
