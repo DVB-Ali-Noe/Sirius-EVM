@@ -546,7 +546,7 @@ Méthode : cinq passes de revue adversariale, chacune avec six relecteurs indép
 
 ## A3 — Tutos de première connexion et par page
 
-Branche `feat/tutos`, partie de `staging` (e829cfc). Aucune page n'est modifiée : le tuto de chaque page est monté depuis le layout de l'application selon le chemin courant. Aucune route, table, colonne, migration, contrat ni transaction : la slice lit et écrit le profil uniquement par la route `/api/profile` livrée par A1.
+Branche `feat/tutos`, partie de `staging` (e829cfc) puis rebasée sur `staging` (2f6ae81, journal des accès) ; seul conflit, la ligne du script `test` de `package.json`, résolu en gardant les deux ajouts. Aucune page n'est modifiée : le tuto de chaque page est monté depuis le layout de l'application selon le chemin courant. Aucune route, table, colonne, migration, contrat ni transaction : la slice lit et écrit le profil uniquement par la route `/api/profile` livrée par A1.
 
 ### 1. Ce qui a changé
 
@@ -605,7 +605,7 @@ Branche `feat/tutos`, partie de `staging` (e829cfc). Aucune page n'est modifiée
 - **Accessibilité** : vérifier à la main (§4) le piège du focus, Échap, le retour du focus, `inert` posé puis retiré, la lecture par un lecteur d'écran (titre et contenu annoncés).
 - **Textes : aucune promesse fausse.** Relire `src/lib/i18n/tour-en.ts` contre le code. Points sensibles déjà vérifiés : chiffrement dans le navigateur avant l'envoi (`encryptDatasetForRunner`, `src/app/(app)/datasets/new/page.tsx`), KYB exigé pour emprunter (`src/lib/sirius/borrower.ts`), un seul entraînement à la fois et refus si occupé (`src/runner/server.ts`, `RUNNER_MAX_CONCURRENT_JOBS` réglable jusqu'à 2 : si on le passe à 2, le texte « One training runs at a time » devient faux), retrait des crédits d'escrow vers son propre wallet (`EscrowCredits.tsx`), frais réseau en ETH. Le test `tour.test.ts` interdit quelques formulations (garanties, « best », « queue », « address you control »…). Les limites des modèles et de la bêta sont celles des textes communs (A2), y compris la réserve sur `dataLimits` signalée par A2.
 - **Neutralisation e2e** : vérifier qu'aucun build de staging ou de production ne pose `NEXT_PUBLIC_SIRIUS_E2E`.
-- **Signatures d'assistant** : `git log staging..HEAD --format=%B` sans `Co-Authored-By`, `Claude-Session`, lien claude.ai ni « Generated with ».
+- **Signatures d'assistant** : `git log staging..HEAD --format=%B` ne contient aucune ligne de signature d'assistant (co-auteur, session, lien de session ni mention de génération).
 
 ### 4. Cas limites à essayer à la main sur staging
 
@@ -695,13 +695,13 @@ Environnement : Windows 11, Node 22.16.0, pnpm 11.18.0 via `npx pnpm@11.18.0` (l
 | `pnpm prisma generate` (`DATABASE_URL=postgresql://x:y@localhost:5432/z`) | OK, « Generated Prisma Client (7.8.0) » |
 | `pnpm exec tsc --noEmit` | OK, aucune erreur |
 | `pnpm lint` | OK, aucune erreur ni avertissement |
-| `pnpm test` (bash) | 586 tests, 514 réussis, **72 échecs, identiques au test près à ceux de `staging` (e829cfc) sur le même poste** (530 tests, 458 réussis, 72 échecs ; comparaison des listes `not ok` : identiques). Ces échecs viennent de l'environnement Windows (chemins à barres obliques inverses, par exemple « src/lib/tee/contract.ts absent du graphe » dans `disclaimers.test.ts`, résolution d'imports du self-training, scripts runner) et non de la slice. Les 56 tests ajoutés passent tous. La CI Linux du dépôt fait foi. |
+| `pnpm test` (bash) | 587 tests, 515 réussis, **72 échecs, identiques au test près à ceux de `staging` (2f6ae81) sur le même poste** (531 tests, 459 réussis, 72 échecs ; comparaison des listes `not ok` : identiques ; même constat avant le rebase contre e829cfc). Ces échecs viennent de l'environnement Windows (chemins à barres obliques inverses, par exemple « src/lib/tee/contract.ts absent du graphe » dans `disclaimers.test.ts`, résolution d'imports du self-training, scripts runner) et non de la slice. Les 56 tests ajoutés passent tous. La CI Linux du dépôt fait foi. |
 | Tests de la slice seuls (`tour.test.ts`, `tour-dialog.test.ts`, `english.test.ts`) | 63 sur 63 |
 | `pnpm audit:deps` | OK (code 0) : 1 faible (`elliptic` ≤ 6.6.1) et 1 haute ignorée par la configuration, préexistantes |
 | `next build` (vérification supplémentaire, comme la CI) | OK |
-| `playwright test` (suite e2e existante, 79 tests) | 79 sur 79 sur la version finale. Un passage intermédiaire sur le port 3100 a échoué (33 échecs `ERR_CONNECTION_REFUSED` / délais, y compris sur `/docs` hors slice) parce qu'une autre session utilisait le même port en parallèle ; relancé sur un port isolé avec une configuration temporaire identique (supprimée) : 79 sur 79, deux fois. |
+| `playwright test` (suite e2e existante, 79 tests) | 79 sur 79 sur la version finale. Un passage intermédiaire sur le port 3100 a échoué (33 échecs `ERR_CONNECTION_REFUSED` / délais, y compris sur `/docs` hors slice) parce qu'une autre session utilisait le même port en parallèle ; relancé sur un port isolé avec une configuration temporaire identique (supprimée) : 79 sur 79, deux fois. Après le rebase : 84 sur 84 (les 79 existants et les 5 vérifications temporaires du tuto). |
 | Vérification navigateur temporaire du tuto (§5) | 5 sur 5 |
-| `git log staging..HEAD --format=%B` | aucune ligne `Co-Authored-By`, `Claude-Session`, lien claude.ai ni « Generated with » ; auteur et committeur `alibenyezza` |
+| `git log staging..HEAD --format=%B` | aucune ligne de signature d'assistant (co-auteur, session, lien de session ni mention de génération) ; auteur et committeur `alibenyezza` |
 | `git diff --name-only staging...HEAD` | 16 fichiers : les 15 du §1 et ce fichier d'audit |
 
 ### 10. Revue interne de la session
