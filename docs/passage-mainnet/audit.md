@@ -546,42 +546,193 @@ Méthode : cinq passes de revue adversariale, chacune avec six relecteurs indép
 
 ## A3 — Tutos de première connexion et par page
 
+Branche `feat/tutos`, partie de `staging` (e829cfc) puis rebasée sur `staging` (2f6ae81, journal des accès) ; seul conflit, la ligne du script `test` de `package.json`, résolu en gardant les deux ajouts. Aucune page n'est modifiée : le tuto de chaque page est monté depuis le layout de l'application selon le chemin courant. Aucune route, table, colonne, migration, contrat ni transaction : la slice lit et écrit le profil uniquement par la route `/api/profile` livrée par A1.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+`git diff --name-only staging...HEAD` : 16 fichiers, tous listés ici (dont ce fichier d'audit, section A3 seulement).
+
+**Logique, sans React (`src/lib/tour/`)**
+- `keys.ts` : `TOUR_PAGE_KEYS` (copie de `FEATURE_TOUR_KEYS` de `src/lib/users/profile.ts`, non importable côté navigateur à cause de `server-only` ; un test vérifie l'égalité), `isTourPageKey`, `tourKeyForPath(chemin)`. Correspondance exacte : `/dashboard` → `dashboard`, `/datasets` → `datasets`, `/datasets/new` → `upload`, `/marketplace`, `/train`, `/explorer`, `/wallet`. Une barre finale est tolérée ; tout autre chemin (fiches `/datasets/abc`, `/borrow`, `/phala`, `/provider`, chemins de plus de 256 caractères) n'a pas de tuto.
+- `progress.ts` : lecture et écriture de la progression. `parseTourProgress(corps, adresse)` exige la forme exacte de la réponse de `GET /api/profile` (adresse égale au wallet affiché, `tourCompletedAt` présent, `featureTours` objet) ; toute autre réponse vaut « inconnue ». `fetchTourProgress` (GET), `saveTourProgress(patch, adresse)` (PATCH, confirmé seulement si la réponse est 2xx **et** porte le profil du wallet attendu), `tourPatchBody` (n'envoie que des `true`, jamais de modification vide), note locale de repli `readPending` / `writePending` / `reconcilePending`, décisions `isWelcomeDone` / `isPageSeen`, neutralisation e2e `toursSuppressedForE2e`. Aucune fonction ne lève.
+- `controller.ts` : `TourController`, orchestrateur unique sans React (abonnement compatible `useSyncExternalStore`). Il tient le wallet suivi, la progression lue, le chemin courant et l'unique tuto ouvert (`active`). Méthodes : `start`, `setIdentity(adresse, authentifié)`, `setPath`, `leavePages`, `restartWelcome`, `openPage`, `close`.
+- `content.ts` : textes des six étapes d'accueil (`WELCOME_STEPS`), des sept tutos de page (`PAGE_TOURS`) et libellés (`TOUR_UI`). Clés françaises traduites par `t()`. Les limites des modèles, de la bêta et des données ne sont jamais réécrites : ce sont des identifiants de `src/lib/copy/disclaimers.ts` (A2), affichés par `DisclaimerNote`.
+- `tour.test.ts` : tests unitaires, voir §5.
+
+**Interface (`src/components/tour/`, `src/components/layout/ProductTour.tsx`)**
+- `TourDialog.tsx` : fenêtre modale commune (`role="dialog"`, `aria-modal`, `aria-labelledby` sur le titre, `aria-describedby` sur tout le contenu de l'étape), étapes, Précédent / Suivant / Passer / Compris, piège du focus, Échap, retour du focus, reste de l'application rendu `inert` pendant l'ouverture, `z-[60]`, défilement interne (`max-h-[calc(100dvh-2rem)]`, `overscroll-contain`).
+- `PageTour.tsx` : monté une fois dans le layout ; transmet le chemin (`usePathname`) au contrôleur, affiche le tuto de la page et le bouton « ? » discret (fixe, en bas à droite, `z-20`, `aria-label` « Show this page's guide »). `leavePages()` au démontage.
+- `tour-store.ts` : instance unique du contrôleur pour l'onglet, `useTourSnapshot()`, et les deux fonctions exportées `restartWelcomeTour()` (à brancher sur « Visite guidée » du menu profil, slice A5) et `openPageTour(clé)`.
+- `ProductTour.tsx` (réécrit) : transmet au contrôleur l'adresse et l'état `connected && authenticated` du store wallet, affiche le tuto d'accueil. Réexporte `restartWelcomeTour`. L'ancien appel à `/api/account/status` et le marqueur `localStorage` `sirius-tour-seen` ne sont plus utilisés en production.
+- `tour-dialog.render.tsx` + `tour-dialog.test.ts` : rendu HTML statique dans un processus sans la condition `react-server`, comme `shared-components.test.ts` (A2).
+
+**Montage** : `src/app/(app)/layout.tsx`, +2 lignes (un import, `<PageTour />` juste après `<ProductTour />`).
+
+**Traductions** : `src/lib/i18n/tour-en.ts` (nouveau, 29 clés), fusionné dans `EN_MESSAGES` par `src/lib/i18n/english.ts` (+2 lignes : import et `...TOUR_MESSAGES_EN`). Clés existantes réutilisées sans redéfinition : « Bienvenue sur Sirius », « Tableau de bord », « Mes datasets », « Publier un dataset », « Entraîner un modèle », « Explorer », « Étape {current} / {total} », « Passer », « Précédent », « Suivant », « Commencer ».
+
+**Script** : `package.json`, deux fichiers ajoutés à la fin du script `test` (`src/lib/tour/tour.test.ts`, `src/components/tour/tour-dialog.test.ts`). Aucune autre ligne touchée.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Un seul orchestrateur pour les deux sortes de tutos.** Le tuto d'accueil et le tuto de page partagent la même lecture du profil et le même état « tuto ouvert » : deux fenêtres ne peuvent pas s'empiler. Le tuto d'accueil passe d'abord ; la page sur laquelle il s'ouvre garde son propre tuto pour la visite suivante (pas deux fenêtres enchaînées). Dès la page suivante, son tuto s'ouvre.
+2. **Quand le tuto d'accueil s'ouvre.** À la première page de l'application visitée avec un wallet connecté **et** une session signée (`authenticated` du store), si `tourCompletedAt` est nul en base. Écart avec l'ancien comportement : l'ancien tuto ne s'ouvrait que pour un compte sans activité (`/api/account/status` → `known: false`) et respectait `sirius-tour-seen` dans le navigateur. Le nouveau s'ouvre une fois pour **tout** wallet dont le profil n'a pas `tourCompletedAt`, y compris les comptes existants de staging, puis les tutos de page à leur première visite. Choix assumé : le contenu est nouveau (limites de la bêta, contact) et le cahier demande une progression par wallet ; à confirmer par Ali et Noé.
+3. **Toute fermeture compte comme « vu ».** Terminer, Passer, Échap ou quitter la page par le bouton retour pendant un tuto de page : tout enregistre la clé. Sinon un utilisateur qui ferme sans finir reverrait le tuto à chaque visite. Le clic sur le fond ne ferme pas, pour qu'une fermeture accidentelle ne vaille pas « vu ».
+4. **Progression en base, repli minimal dans le navigateur.** La base est la source de vérité. Le navigateur ne garde qu'une note « fermé, pas encore confirmé » par wallet (`localStorage`, clé `sirius-tour-pending:<adresse>`), posée avant chaque PATCH et retirée dès que le serveur confirme pour ce wallet. Elle empêche la réouverture en boucle si l'écriture échoue durablement (origine mal configurée, débit dépassé, base en panne) et elle est renvoyée en un seul PATCH au chargement suivant. Ce n'est pas un retour au stockage navigateur : elle disparaît dès que la base a l'information.
+5. **Lecture en échec : rien ne s'ouvre tout seul.** Sur 401, 403, 429, 5xx, erreur réseau, JSON invalide ou réponse d'une autre forme, le contrôleur passe en « unavailable » : aucune fenêtre automatique, aucune nouvelle lecture à chaque navigation (une seule lecture par changement de wallet ou de session). Le bouton « ? » reste disponible. On préfère ne pas montrer un tuto plutôt que le montrer à tort en boucle.
+6. **Validation stricte de la réponse, y compris l'adresse.** Une réponse `{}` (bouchon de test, proxy) ou le profil d'un autre wallet resté en session ne déclenche rien. Même règle pour le PATCH : sa réponse doit porter l'adresse attendue pour effacer la note locale (le cookie de session est partagé entre onglets ; voir §7).
+7. **Fermetures pendant une lecture en vol.** Une fermeture faite pendant le GET l'emporte sur sa réponse (`closedHere`) : une lecture lente ne rouvre pas un tuto qu'on vient de fermer.
+8. **Un tuto relancé à la main reste ouvert si la session change**, mais sa fermeture n'est enregistrée que pour le wallet sous lequel il a été ouvert (ou pour le premier wallet authentifié s'il a été ouvert sans session). Un tuto ouvert automatiquement est fermé sans écriture quand le wallet change ou se déconnecte.
+9. **Relance du tuto d'accueil** : `restartWelcomeTour()` exporté depuis `src/components/tour/tour-store.ts` (et réexporté par `ProductTour.tsx`). Il ne remet pas `tourCompletedAt` à `false` : il ouvre la fenêtre directement, et sa fermeture n'écrit rien si la date est déjà posée (la date d'origine n'est pas déplacée). Le bouton « Visite guidée » du menu profil n'existe pas encore (A5) : à brancher par cette slice.
+10. **Bouton « ? »** : un seul, monté depuis le layout, fixe en bas à droite, visible seulement sur les sept pages dotées d'un tuto, connecté ou non. Il n'est rendu qu'après le montage côté client (pas d'écart d'hydratation).
+11. **Neutralisation pour l'e2e** : les tutos (lecture du profil, ouverture automatique et bouton « ? ») sont neutralisés uniquement si le build est celui des tests (`NEXT_PUBLIC_SIRIUS_E2E=1`) **et** que le test a posé le marqueur historique `localStorage` `sirius-tour-seen=1`, ce que toutes les specs existantes font déjà pour l'ancien tuto. Aucune spec n'a eu à changer. En production, `NEXT_PUBLIC_SIRIUS_E2E` n'est jamais posé, et `instrumentation-node.ts` refuse de démarrer avec cette variable quand `NODE_ENV=production` ; même si elle fuyait, un utilisateur ne pourrait que masquer ses propres tutos.
+12. **Étapes 5 et 6 du tuto d'accueil, écart de rédaction.** L'étape 5 (« Beta limits ») affiche `modelQuality` puis `betaLimits` ; l'étape 6 (« Need more? ») affiche `contactUs` avec le lien `mailto:`. La phrase « De nouveaux modèles sont en développement » du cahier n'est pas répétée à l'étape 6 : elle termine déjà `modelQuality`, affichée juste avant. Aucun texte de limite n'est réécrit, tout vient des textes communs.
+13. **Tutos de page.** Contact (`contactUs`) et limites des modèles (`modelQuality`) sur upload, marketplace et train, comme demandé ; `dataLimits` sur upload ; `retrainDeterministic` sur train ; `betaLimits` sur le tableau de bord. Mes datasets, Explorer et Wallet ont des limites propres, sans texte commun.
+14. **Textes vérifiés contre le code, et corrigés après revue** (voir §10) : pas de « retrait vers une adresse tierce » (la page Wallet ne propose que l'ajout de fonds et le retrait des crédits d'escrow vers son propre wallet), pas de « file d'attente » (le moteur refuse un second entraînement en 503 « Runner saturé »), pas d'« inscription on-chain dès l'import » (l'import laisse un brouillon, la publication est une action séparée), pas de self-training (réservé à l'équipe depuis #37).
+15. **Reste de l'application rendu `inert`, pas tout le `body`.** Pendant l'ouverture, les autres enfants du conteneur du layout (menu, page, bouton « ? ») reçoivent `inert` : ni la souris, ni Tab depuis la barre d'adresse, ni un lecteur d'écran n'y accèdent. Le reste du `body` n'est pas touché pour ne pas bloquer une fenêtre tierce (confirmation de signature du wallet embarqué) ; la fenêtre ne lui prend pas le focus et n'intercepte ni Tab ni Échap quand le focus y est.
+16. **Pas de verrouillage du défilement de la page** : inutile, le fond couvre l'écran et la fenêtre a son propre défilement contenu.
+17. **Fichier de traduction séparé** (`tour-en.ts`), comme `shared-en.ts` (A2), pour éviter les conflits sur `english.ts`. Un test vérifie qu'aucune clé n'écrase une traduction différente.
+18. **Identité des commits** : auteur et committeur `alibenyezza` (configuration git du dépôt), aucune ligne de signature d'assistant (vérifié par `git log staging..HEAD --format=%B`).
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+- **Contrôle d'accès côté serveur.** La slice n'ajoute ni ne modifie aucune route. Elle appelle uniquement `GET /api/profile` et `PATCH /api/profile` (A1), qui tirent l'adresse de la session signée (`requireAuth`), jamais du corps, et refusent toute clé autre que `tourCompletedAt`, `featureTours`, `settings` (400). Le client n'envoie que `{"tourCompletedAt":true}` et/ou `{"featureTours":{"<clé>":true}}` (test : chaque corps passe `validateProfilePatch`). Rien dans la slice ne fait office de garde : masquer un tuto ou le bouton « ? » n'ouvre ni ne ferme aucun accès.
+- **Validation et bornes des entrées côté client.** `parseTourProgress` (forme exacte, adresse canonique égale à celle du wallet, `tourCompletedAt` chaîne non vide ou `null`, `featureTours` objet simple ; clés inconnues, `__proto__` et valeurs non booléennes ignorées). `readPending` (note bornée à 1 024 caractères, JSON invalide ignoré, clés filtrées par `isTourPageKey`). `tourKeyForPath` (chemin borné à 256 caractères, correspondance exacte via `Object.hasOwn`, `/constructor` et `/__proto__` sans tuto). `canonicalTourAddress` (regex ancrée `^0x[0-9a-f]{40}$`).
+- **Fuites possibles.** Aucune donnée d'un autre wallet n'est lue : le GET ne renvoie que le profil de la session ; une réponse portant une autre adresse est ignorée. Aucun journal ni message d'erreur ajouté (les échecs sont silencieux par conception). La note locale contient l'adresse du wallet en clair dans la clé `localStorage` (`sirius-tour-pending:0x…`) tant qu'une écriture n'est pas confirmée ; elle n'est pas effacée à la déconnexion (voir §7, appareil partagé).
+- **Impact sur l'argent, l'escrow, les contrats, Phala** : aucun. Pas de transaction, de signature, de lecture de contrat ni d'appel au moteur.
+- **Base de données** : aucune migration, aucune nouvelle écriture hors des deux champs prévus. `tourCompletedAt=true` ne déplace pas une date déjà posée (comportement de la route A1). La slice n'envoie jamais `false`.
+- **Débit** : un GET par changement d'identité (chargement de page, connexion, changement de réseau ou de compte), aucun par navigation ; au plus un PATCH par tuto fermé jamais vu, plus un renvoi groupé par chargement si une note locale existe. Bien en dessous des plafonds par wallet de la route (60 lectures, 20 écritures par minute). Le plafond global de 1 000 lectures par minute de l'instance (A1) compte toutefois une lecture de profil par chargement de page de chaque utilisateur connecté.
+- **Interface : injection HTML, liens.** Aucun `dangerouslySetInnerHTML`, `innerHTML` ni `target="_blank"` (test de rendu). Tous les textes sont des constantes passées à `t()` et rendues par React. Le seul lien est le `mailto:` de `DisclaimerNote` vers la constante `CONTACT_EMAIL`. Aucun contenu fourni par l'utilisateur n'est affiché. Tous les boutons sont `type="button"`.
+- **Accessibilité** : vérifier à la main (§4) le piège du focus, Échap, le retour du focus, `inert` posé puis retiré, la lecture par un lecteur d'écran (titre et contenu annoncés).
+- **Textes : aucune promesse fausse.** Relire `src/lib/i18n/tour-en.ts` contre le code. Points sensibles déjà vérifiés : chiffrement dans le navigateur avant l'envoi (`encryptDatasetForRunner`, `src/app/(app)/datasets/new/page.tsx`), KYB exigé pour emprunter (`src/lib/sirius/borrower.ts`), un seul entraînement à la fois et refus si occupé (`src/runner/server.ts`, `RUNNER_MAX_CONCURRENT_JOBS` réglable jusqu'à 2 : si on le passe à 2, le texte « One training runs at a time » devient faux), retrait des crédits d'escrow vers son propre wallet (`EscrowCredits.tsx`), frais réseau en ETH. Le test `tour.test.ts` interdit quelques formulations (garanties, « best », « queue », « address you control »…). Les limites des modèles et de la bêta sont celles des textes communs (A2), y compris la réserve sur `dataLimits` signalée par A2.
+- **Neutralisation e2e** : vérifier qu'aucun build de staging ou de production ne pose `NEXT_PUBLIC_SIRIUS_E2E`.
+- **Signatures d'assistant** : `git log staging..HEAD --format=%B` ne contient aucune ligne de signature d'assistant (co-auteur, session, lien de session ni mention de génération).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Préparer un wallet neuf (ou remettre `tourCompletedAt` à `NULL` et `featureTours` à `{}` dans `UserProfile` pour un wallet de test).
+
+1. **Première connexion.** Se connecter et signer depuis `/dashboard`. Attendu : la fenêtre « Welcome to Sirius · Step 1 / 6 » s'ouvre, le focus est sur « Next ». Parcourir les six étapes ; l'étape 6 montre l'adresse de contact cliquable (`mailto:`). « Get started » ferme. En base : `tourCompletedAt` posé.
+2. **Pas d'enchaînement.** Juste après, rester sur `/dashboard` : aucun tuto de page. Aller sur `/marketplace` : le tuto « Marketplace » s'ouvre (un seul bouton « Got it »). Revenir sur `/dashboard` : son tuto s'ouvre cette fois.
+3. **Rien ne se rouvre.** Recharger chaque page déjà vue : aucune fenêtre. `featureTours` contient les clés vues.
+4. **Autre navigateur, même wallet.** Se connecter ailleurs (navigation privée) : aucun tuto déjà vu ne se rouvre.
+5. **Clavier.** Fenêtre ouverte : Tab et Maj+Tab restent dans la fenêtre ; Échap ferme et compte comme vu ; le focus revient à l'élément d'origine. Cliquer dans la barre d'adresse puis Tab : le focus ne va pas sur le menu derrière (inerte) et revient dans la fenêtre.
+6. **Bouton « ? ».** Sur chaque page à tuto, cliquer « ? » : le tuto de la page s'ouvre, même déjà vu ; Échap le ferme et rend le focus au bouton. Aucune nouvelle écriture en base si la page était déjà vue.
+7. **Sans connexion.** Ouvrir `/marketplace` sans wallet : aucune fenêtre ; « ? » fonctionne ; la page reste utilisable.
+8. **API en panne.** Dans les outils du navigateur, bloquer `/api/profile` (ou couper la base de staging) puis se connecter : aucune fenêtre automatique, navigation normale.
+9. **Écriture en panne.** Bloquer seulement le PATCH (`/api/profile`, méthode PATCH), fermer le tuto d'accueil, recharger : il ne se rouvre pas ; `localStorage` contient `sirius-tour-pending:<adresse>`. Débloquer et recharger : la note disparaît, `tourCompletedAt` est posé.
+10. **Changement de compte.** Tuto d'accueil ouvert, changer de compte dans l'extension : la fenêtre se ferme sans rien écrire ; le nouveau compte voit son propre tuto selon sa progression.
+11. **Mobile 320 px et texte agrandi (200 %).** La fenêtre tient dans l'écran, défile à l'intérieur, les boutons restent atteignables ; pas de défilement horizontal. Le bouton « ? » ne masque pas d'action indispensable en bas de page (le faire défiler jusqu'en bas de chaque page).
+12. **Wallet embarqué (Google).** Compte neuf : pendant l'attestation KYB qui suit la connexion, si la confirmation Web3Auth s'affiche, elle reste utilisable (saisie, Tab, Échap) même si le tuto d'accueil s'ouvre en même temps.
+13. **Lecteur d'écran (NVDA ou VoiceOver).** À l'ouverture : annonce d'une boîte de dialogue avec son titre et son contenu ; le reste de la page n'est pas parcouru.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**`src/lib/tour/tour.test.ts`** (ajouté au script `test`), avec un faux serveur `/api/profile` qui applique la vraie validation `validateProfilePatch` (A1) à chaque PATCH :
+- clés client identiques à `FEATURE_TOUR_KEYS` du serveur ; correspondance chemin → clé (pages, barre finale, fiches, `/constructor`, `/__proto__`, chemin trop long) ;
+- lecture : réponse conforme, et « inconnue » pour `null`, `{}`, `{ known: true }`, profil d'un autre wallet, `tourCompletedAt` absent, vide, numérique ou booléen, `featureTours` nul ou tableau, adresse invalide ; clés inconnues, `__proto__` et valeurs non booléennes ignorées ; échecs réseau, HTTP et JSON sans exception ;
+- écriture : corps du PATCH (seulement des `true`, jamais vide, accepté par la validation serveur), confirmation seulement sur 2xx avec le profil du wallet attendu (refus pour un autre wallet, `{}`, JSON invalide, HTTP en échec, exception) ;
+- note locale : aller-retour, filtrage, suppression quand vide, note illisible ou trop longue, stockage interdit ; réconciliation ;
+- neutralisation e2e : seulement build de test **et** marqueur, jamais en production ;
+- contrôleur, quand ouvrir : rien sans session signée ; accueil une seule fois puis tuto de la page suivante, pas d'enchaînement sur la même page ; progression relue du serveur au rechargement ; autre navigateur ; pas de réouverture en repassant ; navigation pendant un tuto = vu ; neutralisé en e2e ;
+- contrôleur, repli : lecture en échec (500, exception, `{}`, JSON invalide) → rien ne s'ouvre, une seule lecture ; bouton « ? » utilisable ; écriture en échec (500, 401, 403, 409, 429, exception) → pas de réouverture, renvoi groupé au chargement suivant, puis effacement de la note ; note déjà connue de la base effacée sans écriture ; stockage interdit ;
+- courses et sorties : fermeture pendant une lecture lente (la réponse tardive ne rouvre rien) ; PATCH confirmé pour un autre wallet (note gardée puis renvoyée) ; sortie des pages pendant la lecture ; double montage StrictMode ; tuto relancé sous un wallet puis fermé sous un autre ;
+- changements de wallet et relances : réponse tardive d'un wallet précédent ignorée ; déconnexion ferme sans écrire ; relance sans session sans écriture ; relance d'un tuto déjà fait sans écriture ni déplacement de date ; tuto manuel conservé à la connexion ; abonnement ;
+- textes : six étapes du cahier, un tuto par page, contact et qualité des modèles sur upload / marketplace / train, toutes les clés traduites, aucune collision de traduction, liste de formulations interdites (garanties, « best », « queue », « address you control », « destination address »…).
+
+**`src/components/tour/tour-dialog.test.ts`** (ajouté au script `test`), rendu HTML statique de `tour-dialog.render.tsx` dans un processus sans `react-server` : `role="dialog"`, `aria-modal`, `aria-labelledby` et `aria-describedby` reliés (la description contient aussi les textes communs), boutons `type="button"`, pas de HTML injecté ni `target="_blank"`, première et dernière étape (Passer / Suivant / Précédent / Got it), lien `mailto:` unique, un seul bouton par tuto de page, limites en liste, `dataLimits` lu dans le code, rien rendu côté serveur par `ProductTour` et `PageTour`.
+
+**Vérifié dans un vrai navigateur, sans test versionné** (script Playwright temporaire, supprimé avant la PR, sur un port isolé) : ouverture à la connexion, focus sur « Next », Tab et Maj+Tab piégés, Tab depuis le corps ramené dans la fenêtre, menu et page `inert` puis plus aucun `inert` après fermeture, Précédent qui disparaît sans perdre le focus, lien `mailto:`, Échap, PATCH envoyés, tuto de page après navigation client, « ? » + Échap rend le focus au bouton, rien ne se rouvre après rechargement, écriture en échec sans réouverture puis renvoi, lecture en échec sans fenêtre, 320 px avec texte agrandi sans défilement horizontal, fenêtre tierce hors de l'application gardant le focus et la saisie, Échap qui ne remonte pas à un écouteur de `document`. 5 scénarios, 5 réussis.
+
+**Ce qui n'est pas couvert**
+- Aucun test e2e versionné du tuto : les fichiers `e2e/` ne font pas partie du périmètre de la slice. À ajouter (P1) en reprenant les scénarios ci-dessus.
+- Lecteurs d'écran réels (NVDA, VoiceOver) et navigateurs autres que Chromium (Safari : `inert` et focus au clic).
+- Le wallet embarqué Web3Auth réel (simulé par un champ hors de l'application).
+- Plusieurs onglets ouverts en même temps (pas d'écoute de l'événement `storage` ; double écriture sans conséquence).
+- La route `/api/profile` elle-même, déjà testée par A1 (`src/lib/users/profile.test.ts`).
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+1. La route `/api/profile` se comporte comme décrit dans `16-socle-technique.md` et testé par A1 : réponse avec `address` canonique, `tourCompletedAt` (ISO ou `null`) et `featureTours`, `tourCompletedAt: true` qui ne déplace pas une date posée, fusion clé par clé de `featureTours`.
+2. `authenticated` du store wallet (`src/stores/wallet.ts`) n'est vrai que lorsqu'une session serveur existe pour l'adresse affichée (posé par `signInWithWallet` ou `synchroniserSession` de `WalletConnector.tsx`). Sinon la lecture échoue en 401 et rien ne s'ouvre.
+3. Le layout `src/app/(app)/layout.tsx` reste le seul point de montage, et ses enfants directs sont bien le menu, les tutos et le contenu : c'est ce conteneur que la fenêtre rend `inert`. Si une autre slice y ajoute un portail ou déplace le contenu, il faut revérifier.
+4. Les fenêtres tierces qui doivent rester utilisables pendant un tuto (Web3Auth) sont rendues hors de ce conteneur (dans `body`).
+5. `NEXT_PUBLIC_SIRIUS_E2E` n'est jamais posé hors de la suite e2e (`instrumentation-node.ts` refuse de démarrer avec en production).
+6. Le moteur exécute un seul entraînement à la fois (`RUNNER_MAX_CONCURRENT_JOBS=1`, valeur par défaut et valeur des compose) ; le texte du tuto Train le dit.
+7. Le self-training reste réservé à l'équipe (#37) : le tuto Train n'en parle pas.
+8. Les pages gardent leurs chemins actuels (`/dashboard`, `/datasets`, `/datasets/new`, `/marketplace`, `/train`, `/explorer`, `/wallet`). Une page renommée perd son tuto sans erreur.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Écriture possible sur le profil d'un autre wallet (deux onglets).** Le cookie de session est partagé entre onglets. Si l'onglet 1 affiche le wallet A et qu'un onglet 2 a ouvert une session pour B, fermer un tuto dans l'onglet 1 pose la clé sur le profil de **B** (le serveur écrit pour la session). Le client le détecte (adresse de la réponse) et garde la note de A, mais ne peut pas empêcher l'écriture : la route refuse toute clé `address`. Conséquence limitée à un tuto non vu par B. Correction possible côté route (A1) : un en-tête d'adresse attendue et un 409 en cas d'écart.
+2. **Comptes existants.** Tout wallet dont `tourCompletedAt` est nul voit le tuto d'accueil, puis chaque tuto de page à sa première visite, y compris les comptes de staging qui avaient vu l'ancien tuto (voir §2.2).
+3. **Fermeture puis réouverture après une nouvelle signature.** `authenticated` repasse à `false` lors d'un changement de réseau, d'une délégation runner absente ou expirée, ou pendant une nouvelle signature : un tuto ouvert automatiquement se ferme alors sans rien écrire et se rouvre après la nouvelle authentification. Pas de boucle (une lecture par changement d'identité). Un wallet dont la session existe sans délégation runner (IndexedDB vidé) ne voit pas de tuto automatique tant qu'il n'a pas re-signé.
+4. **Bouton « ? » fixe en bas à droite** (`z-20`, 36 px) : il peut recouvrir le coin droit du dernier élément d'une page en fin de défilement, surtout sur mobile, puisque aucune page ne réserve de marge pour lui. Le Toast (`z-50`) s'affiche au même endroit, par-dessus.
+5. **Fenêtre tierce ouverte au moment exact de l'ouverture du tuto** (cas jugé peu probable par la revue, la signature précédant la vérification serveur) : le tuto ne lui prend pas le focus ; si elle le rend ensuite à son déclencheur devenu inerte, le focus tombe sur le corps de la page, Tab le ramène dans le tuto mais un lecteur d'écran n'annonce pas la fenêtre ; Échap avec le focus sur le corps fermerait alors le tuto plutôt que la fenêtre tierce.
+6. **Élément ajouté au layout pendant l'ouverture** (par exemple le bouton « ? » réapparu après un retour arrière) : pas rendu `inert`, mais caché sous le fond et non atteint par Tab.
+7. **Note locale** (`sirius-tour-pending:<adresse>`) : contient l'adresse du wallet tant qu'une écriture n'est pas confirmée, et n'est pas effacée à la déconnexion (appareil partagé). Elle ne contient aucune donnée privée de plus.
+8. **Plusieurs onglets** : chacun peut ouvrir le même tuto avant que l'autre l'ait fermé (pas de synchronisation entre onglets) ; écriture en double sans conséquence.
+9. **Charge de lecture** : une lecture de profil par chargement de page de chaque utilisateur connecté, comptée dans le plafond global de l'instance (1 000 lectures par minute, A1) ; à relever avec le trafic.
+10. **Texte « One training runs at a time »** : devient faux si `RUNNER_MAX_CONCURRENT_JOBS` passe à 2.
+11. **`dataLimits`** : réserve de A2 (texte du cahier jugé optimiste) reprise telle quelle dans le tuto Upload.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0, slice A5 (menu profil)** : brancher `restartWelcomeTour()` (`src/components/tour/tour-store.ts`, réexporté par `src/components/layout/ProductTour.tsx`) sur le bouton « Visite guidée ». Tant que ce n'est pas fait, le critère « peut le relancer » de `04-dashboard.md` n'est pas atteint (les tutos de page, eux, sont relançables par « ? »).
+- **P0, Ali et Noé** : relire et valider les textes anglais de `src/lib/i18n/tour-en.ts` (exigé par `02-general.md`), et confirmer que les comptes existants doivent voir le nouveau tuto (§2.2).
+- **P1** : test e2e versionné des tutos (reprendre les scénarios du §5), hors périmètre de cette slice.
+- **P1** : essais manuels du §4 sur staging, en particulier lecteur d'écran, Safari et wallet embarqué réel.
+- **P1, slices pages** : quand une page change de rôle ou de contenu (dashboard v2, Mes datasets, Upload en deux étapes, Explorer, Wallet), relire son texte dans `src/lib/tour/content.ts`.
+- **P2, route `/api/profile` (A1)** : en-tête d'adresse attendue avec 409 en cas d'écart, pour fermer le risque §7.1.
+- **P2** : effacer la note locale à la déconnexion, et synchroniser les onglets par l'événement `storage`.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node 22.16.0, pnpm 11.18.0 via `npx pnpm@11.18.0` (l'installation locale de pnpm 11.18.0 du poste est incomplète : `pnpm` échoue avec « Failed to switch pnpm to v11.18.0 », échec d'environnement sans lien avec la slice). Sous Windows, pnpm lance les scripts avec `cmd.exe`, qui ne comprend pas la syntaxe `NODE_OPTIONS=… node …` du script `test` (« 'NODE_OPTIONS' n'est pas reconnu… ») : `pnpm test` a donc été lancé avec `--config.script-shell=bash`, sans changer le script.
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | OK (« Already up to date » au dernier passage ; première installation complète en 8 min 56 s, `prisma generate` en postinstall) |
+| `pnpm prisma generate` (`DATABASE_URL=postgresql://x:y@localhost:5432/z`) | OK, « Generated Prisma Client (7.8.0) » |
+| `pnpm exec tsc --noEmit` | OK, aucune erreur |
+| `pnpm lint` | OK, aucune erreur ni avertissement |
+| `pnpm test` (bash) | 587 tests, 515 réussis, **72 échecs, identiques au test près à ceux de `staging` (2f6ae81) sur le même poste** (531 tests, 459 réussis, 72 échecs ; comparaison des listes `not ok` : identiques ; même constat avant le rebase contre e829cfc). Ces échecs viennent de l'environnement Windows (chemins à barres obliques inverses, par exemple « src/lib/tee/contract.ts absent du graphe » dans `disclaimers.test.ts`, résolution d'imports du self-training, scripts runner) et non de la slice. Les 56 tests ajoutés passent tous. La CI Linux du dépôt fait foi. |
+| Tests de la slice seuls (`tour.test.ts`, `tour-dialog.test.ts`, `english.test.ts`) | 63 sur 63 |
+| `pnpm audit:deps` | OK (code 0) : 1 faible (`elliptic` ≤ 6.6.1) et 1 haute ignorée par la configuration, préexistantes |
+| `next build` (vérification supplémentaire, comme la CI) | OK |
+| `playwright test` (suite e2e existante, 79 tests) | 79 sur 79 sur la version finale. Un passage intermédiaire sur le port 3100 a échoué (33 échecs `ERR_CONNECTION_REFUSED` / délais, y compris sur `/docs` hors slice) parce qu'une autre session utilisait le même port en parallèle ; relancé sur un port isolé avec une configuration temporaire identique (supprimée) : 79 sur 79, deux fois. Après le rebase : 84 sur 84 (les 79 existants et les 5 vérifications temporaires du tuto). |
+| Vérification navigateur temporaire du tuto (§5) | 5 sur 5 |
+| `git log staging..HEAD --format=%B` | aucune ligne de signature d'assistant (co-auteur, session, lien de session ni mention de génération) ; auteur et committeur `alibenyezza` |
+| `git diff --name-only staging...HEAD` | 16 fichiers : les 15 du §1 et ce fichier d'audit |
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Trois passes de revue adversariale par des agents en lecture seule, plus la vérification navigateur.
+
+**Première passe, accessibilité et non-blocage** — trouvé et corrigé :
+- Textes faux : « withdraw to an address you control » et « A withdrawal is final: check the destination address » (la page Wallet ne retire que les crédits d'escrow vers son propre wallet) ; « others wait their turn » (aucune file : 503 « Runner saturé ») ; « then registered on-chain » à l'import (l'import laisse un brouillon, la publication est séparée) ; « recent activity » sur le tableau de bord ; tuto Train incomplet. Textes réécrits, formulations ajoutées à la liste interdite du test.
+- Piège du focus contournable (barre d'adresse puis Tab vers le menu derrière, lecteur d'écran) : le reste de l'application est désormais `inert` pendant l'ouverture.
+- `aria-describedby` vide sur les étapes sans paragraphe : la description couvre tout le contenu de l'étape.
+- Focus pris à une fenêtre tierce à l'ouverture : n'est plus pris si le focus est hors de l'application.
+- `Modal` du site pouvant passer au-dessus du tuto : tuto en `z-[60]`, `Modal` inerte dessous.
+- Défilement propagé à la page : `overscroll-contain`.
+- Écartés : verrouillage du défilement de `body` (inutile, fond couvrant) ; bouton « ? » pouvant recouvrir un coin de contenu (documenté §7.4, pages hors périmètre) ; nouveaux tutos pour les comptes existants (choix documenté §2.2).
+
+**Première passe, persistance et e2e** — trouvé et corrigé :
+- Une lecture lente rouvrait un tuto fermé pendant qu'elle était en vol (reproduit par script) : les fermetures de l'onglet l'emportent sur la réponse (`closedHere`), test ajouté.
+- La note locale était effacée par un PATCH confirmé pour un autre wallet : confirmation exigeant l'adresse attendue, test ajouté ; l'écriture côté serveur reste possible (documenté §7.1).
+- Chemin périmé après sortie des pages de l'application : `leavePages()` au démontage, sans écriture (sûr en StrictMode), tests ajoutés.
+- Tuto relancé sous un wallet puis enregistré pour un autre : écriture limitée au wallet d'ouverture, test ajouté.
+- Couverture : codes 401, 403, 409, 429 ajoutés aux tests d'écriture.
+- Vérifié sans problème : compatibilité des corps PATCH avec la route, fréquence des appels, StrictMode, toutes les specs e2e qui visitent une page de l'application posent le marqueur, neutralisation impossible en production.
+- Écarté : fichier e2e temporaire signalé comme risque de commit, supprimé avant la PR.
+
+**Deuxième passe** — trouvé et corrigé :
+- L'effet de changement d'étape, exécuté aussi au montage, reprenait le focus à une fenêtre tierce : il ne recentre plus que depuis le corps de la page.
+- Échap fermait aussi le devis (`Modal`) resté sous le tuto : écoute en capture sur `window` et `stopImmediatePropagation()`. Vérifié en navigateur.
+- Signalés et documentés, non corrigés dans la slice : `restartWelcomeTour()` à brancher par A5 (§8) ; écriture possible pour un autre wallet côté serveur (§7.1).
+- Vérifié sans problème : restauration exacte de `inert` (StrictMode, remplacement d'une fenêtre par une autre), absence de boucle, textes conformes au code.
+
+**Troisième passe** — rien de nouveau. Une limite notée (§7.5 : fenêtre tierce ouverte à l'instant exact de l'ouverture du tuto), jugée peu probable et laissée aux essais manuels (§4.12).
 
 ---
 
@@ -628,42 +779,215 @@ _À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, c
 
 ## A5 — Bouton profil et page Wallet
 
+Branche `feat/profil-wallet`, PR vers `staging`. Spécification : [05-wallet.md](05-wallet.md) (P1 « avant le 6 »), [02-general.md](02-general.md) section 5, [13-reglages.md](13-reglages.md), [14-kyb.md](14-kyb.md). Tout ce qui suit est vérifiable depuis `git diff staging...HEAD`.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+**Aucune route serveur, aucune table, aucune colonne, aucun contrat, aucune variable d'environnement nouvelle.** Tout est côté navigateur.
+
+| Fichier | Changement |
+|---|---|
+| `src/components/profile/ProfileMenu.tsx` (nouveau) | Bouton profil, monté dans le layout de l'application. Visible seulement connecté avec une adresse EVM valide. Fenêtre volante (`role="dialog"`, pas `role="menu"`) : badge réseau, avertissement « mauvais réseau », adresse raccourcie avec copie et lien explorateur, solde, liens Wallet, Settings, KYB, « Guided tour », « Log out ». Le solde n'est lu qu'à l'ouverture. |
+| `src/components/profile/address.ts` (nouveau) | `normalizeAddress` (valide et met en casse EIP-55, `null` sinon) et `shortAddress` (`0x2f9B…D13D`). Toute adresse affichée, copiée, encodée en QR ou liée à l'explorateur passe par `normalizeAddress`. |
+| `src/components/profile/network.ts` (nouveau) | `networkBadge` (libellé et couleur : mainnet vert, testnet ambre), `stablecoinSymbol` (« USDG » sur mainnet, « test USDC » sur testnet), `isWrongNetwork`, `formatTokenAmount` (séparateurs, troncature sans arrondi, « <0.0001 » pour un solde non nul trop petit). |
+| `src/components/profile/guided-tour.ts` (nouveau) | Point d'accroche de la visite guidée : événement DOM annulable `sirius:guided-tour:start`, voir section 2. |
+| `src/components/profile/useCopy.ts` (nouveau) | Copie dans le presse-papiers, ne lève jamais, annonce l'échec. |
+| `src/components/wallet/add-funds.ts` (nouveau) | `addFundsOptions(network)` : choix du parcours (faucet, pont, transfert). |
+| `src/components/wallet/qr.ts`, `QrCode.tsx` (nouveaux) | QR code local : matrice calculée par `qrcode-generator`, dessinée en SVG React (un seul `<path>`), noir sur blanc, zone de silence de 4 modules. |
+| `src/components/wallet/ReceiveFunds.tsx` (nouveau) | Section « Add funds » par transfert : adresse complète, QR code, copie, lien explorateur, cinq mises en garde. Affichée seulement sur mainnet. |
+| `src/components/wallet/logout.ts` (nouveau) | Déconnexion complète (`markWalletDisconnected`, `signOut`, `disconnectWallet`, puis `setDisconnected` dans un `finally`), extraite de `ConnectButton` pour être partagée avec le bouton profil. |
+| `src/components/wallet/ConnectButton.tsx` | `handleDisconnect` appelle `logoutCurrentWallet()`. Comportement identique, trois imports devenus inutiles retirés. Rien d'autre. |
+| `src/components/layout/Sidebar.tsx` | Une ligne retirée : le lien Wallet du menu latéral. |
+| `src/app/(app)/layout.tsx` | Deux lignes ajoutées : l'import et `<ProfileMenu />` en tête du conteneur de contenu. |
+| `src/app/(app)/wallet/page.tsx` | Lien « View on explorer » sous l'adresse ; `ReceiveFunds` sous la carte de solde sur mainnet ; le bouton historique s'appelle « Use the bridge » sur mainnet (« Add funds » sur testnet) et le message « Fonds de démarrage non reçus » (faucet) n'est affiché que sur testnet. La ligne du libellé du jeton (`"USDC"` / `t("test USDC")`) est intacte, une autre tranche la modifie. Cartes `EscrowCredits` (retraits) et `SecureAccountCard` inchangées. |
+| `src/lib/i18n/profile-en.ts` (nouveau), `english.ts` | Traductions anglaises de la tranche, fusionnées dans `EN_MESSAGES` (deux lignes ajoutées à `english.ts`). |
+| `package.json`, `pnpm-lock.yaml` | Dépendance `qrcode-generator` 2.0.4 ; trois fichiers de test ajoutés au script `test`. |
+| `e2e/profile.spec.ts` (nouveau) | Dix tests e2e (voir section 5). |
+| Tests | `src/components/profile/profile.test.ts`, `src/components/wallet/add-funds.test.ts`, `src/components/wallet/receive-funds.test.ts` (+ `receive-funds.render.tsx`, script de rendu). |
+
+**Composants non touchés** : `EscrowCredits.tsx`, `src/lib/wallet/transaction-guard.ts`, `src/lib/wallet/**` (dont `onramp.ts`), `src/app/api/**`, `src/lib/evm/**`, composants partagés `src/components/ui/**` et `src/components/datasets/**`.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Position du bouton : en flux, pas fixe.** La spécification dit « en haut à droite ». Une position `fixed` a été essayée puis écartée après revue : entre 768 et 1500 px de large elle recouvrait les actions à droite de l'en-tête de Marketplace et de Mes datasets (bouton « Configurer le KYB »). Le bouton est donc une ligne alignée à droite en tête du contenu, sur ordinateur et sur mobile. Conséquence : il défile avec la page et décale le contenu d'environ 48 px vers le bas sur toutes les pages de l'application. Il n'est donc pas visible en permanence après défilement. Un e2e vérifie l'absence de chevauchement à 1100 px et 390 px.
+2. **Le bouton de connexion de la barre latérale reste.** Le cahier ne demande que de retirer le lien Wallet. Le bouton profil n'existe que connecté (la connexion et « Se connecter » par signature restent dans la barre latérale et l'en-tête mobile). Conséquence : le bouton affiche la même adresse que celui de la barre latérale. Pour que les tests e2e existants (qui cherchent un bouton nommé comme l'adresse, sans `exact` ambigu) ne trouvent pas deux boutons, le bouton profil a pour nom accessible « Profile menu ».
+3. **Plus aucun lien vers `/wallet` quand on n'est pas connecté.** Conséquence directe du retrait du lien et du choix précédent. La page reste joignable par son URL et affiche alors le bouton de connexion. Voulu par la spécification, à confirmer.
+4. **Fenêtre volante, pas `role="menu"`.** Le contenu mêle informations et actions, que le motif ARIA « menu » ne prévoit pas ; cela évite aussi toute collision avec les `getByRole("menu")` des e2e existants. Fermeture par Échap (le focus revient au bouton), clic à l'extérieur et choix d'un lien.
+5. **Réseau affiché = réseau du site**, pas celui du wallet (`NEXT_PUBLIC_EVM_NETWORK`, via `resolveClientNetwork()`). Un écart avec le réseau du wallet est signalé par un message rouge, un point rouge sur le bouton, et le **solde n'est pas lu** dans ce cas (`eth_call` part sur la chaîne du wallet et rendrait le solde d'un autre jeton sous l'étiquette du jeton du site). Ajout par rapport au cahier, trouvé en revue.
+6. **Libellé du jeton : « USDG » sur mainnet** via `stablecoinSymbol`, conformément à [01-decisions-avant-samedi.md](01-decisions-avant-samedi.md). Le décompte du solde passe toujours par `fetchUsdcBalance` et `formatUsdcAtomic` : le nom des fonctions dit USDC, mais l'adresse du jeton vient de `SIRIUS_USDC_ADDRESS` (qui désignera l'USDG au déploiement, tranche A8) et les décimales de la table `USDC_DECIMALS_BY_NETWORK` (6 sur mainnet, valeur annoncée pour l'USDG et à confirmer on-chain, voir [01](01-decisions-avant-samedi.md)).
+7. **Solde tronqué, jamais arrondi**, à quatre décimales, sans passage par un flottant (BigInt). Un solde non nul inférieur à 0,0001 s'affiche « <0.0001 » (pas « 0 »).
+8. **Parcours d'ajout de fonds.**
+   - testnet : inchangé (faucet ; le bouton garde son libellé « Add funds » et ses messages).
+   - mainnet : le bouton historique appelle toujours `addFunds()` (`POST /api/faucet`, puis `GET /api/onramp` si le serveur répond 503, ce qui ouvre le pont Across). Il est renommé « Use the bridge ». En plus, la section « Add funds » affiche l'adresse, un QR code et l'explication du transfert d'USDG.
+   - **Across n'a pas été vérifié** pour l'USDG (la spécification demandait de le vérifier). Le texte le dit : « le bouton de pont ouvre un service tiers, vérifie qu'il supporte USDG avant de l'utiliser ».
+9. **QR code.**
+   - Bibliothèque : `qrcode-generator` **2.0.4**, licence MIT, sans dépendance, publiée le 7 août 2025 (largement plus d'une semaine), déjà présente dans `pnpm-lock.yaml` comme dépendance indirecte de `qr-code-styling` : aucun paquet nouveau dans l'arbre de dépendances, seulement une arête directe. Version épinglée exactement (pas de `^`).
+   - Rendu : la bibliothèque ne sert qu'à calculer la matrice (`isDark`). Ses méthodes qui produisent du HTML (`createSvgTag`, `createImgTag`, `createDataURL`) ne sont pas utilisées (un test le vérifie) ; le dessin est du SVG React, sans `dangerouslySetInnerHTML`.
+   - Contenu encodé : l'adresse seule, en casse EIP-55. Pas d'URI `ethereum:` (certains wallets y voient une demande de paiement en ETH), pas de montant, pas de numéro de chaîne.
+   - Niveau de correction d'erreur M, version choisie automatiquement (42 octets, version 3, 29 modules).
+10. **Visite guidée : point d'accroche, pas de lancement.** `ProductTour.tsx` n'est pas dans le périmètre (une autre tranche y travaille) et n'expose aucune fonction de relance. Le bouton émet l'événement `sirius:guided-tour:start` (annulable). Le composant de visite doit s'y abonner et appeler `event.preventDefault()` pour dire qu'il prend la demande en charge ; l'exemple complet est dans le commentaire de `src/components/profile/guided-tour.ts`. Sans abonné, le menu affiche « The guided tour will be available soon. » au lieu d'un clic sans effet. **Tant que `ProductTour` ne s'abonne pas, le bouton ne lance rien** (voir section 8).
+11. **Réglages et KYB : liens seulement** (`/settings`, `/kyb`). Les pages n'existent pas dans cette branche (tranche A6) : les liens mènent à une page 404 jusqu'à sa fusion. La spécification donne « Réglages » en français ; l'interface est en anglais (« Settings »).
+12. **Libellé du jeton de la page Wallet non modifié** (consigne : une autre tranche change cette ligne). Tant qu'elle n'est pas fusionnée, la carte de solde affiche « USDC » sur mainnet alors que le reste de la page dit « USDG ». À vérifier à la fusion des deux tranches (section 8).
+13. **Historique des transactions, retrait général, revenus par dataset, « tout retirer » et achat par carte** : non faits, ce sont des éléments « après le 6 — V1.1 » de la spécification.
+14. **Déconnexion factorisée** dans `logout.ts` plutôt que dupliquée : une modification de la déconnexion (révocation de session, intention de l'utilisateur) vaut ainsi pour les deux boutons.
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+**Contrôle d'accès côté serveur, route par route.** Cette tranche n'ajoute, ne modifie ni ne supprime aucune route, aucun contrôle d'authentification, aucun cookie. Les seules routes appelées sont existantes et inchangées : `POST /api/faucet` et `GET /api/onramp` (bouton « Add funds » / « Use the bridge », comme avant), `GET /api/wallet/credits` (retraits, inchangé), `signOut` (déconnexion, inchangé). Le bouton profil lui-même n'appelle aucune route : le solde est lu par `eth_call` via le wallet de l'utilisateur. **Rappel transverse : le masquage du bouton profil et le retrait du lien Wallet ne sont pas un contrôle d'accès** ; `/wallet`, `/settings` et `/kyb` restent accessibles par URL et ne s'appuient que sur la session côté serveur pour les données.
+
+**Validation et bornes de chaque entrée.**
+- L'adresse (venue du store du wallet, rempli par le navigateur) est validée par `viem.isAddress` en mode strict avant tout affichage : mauvaise longueur, somme de contrôle fausse en casse mixte, espaces, préfixe étranger, URI, HTML et valeurs non textuelles sont refusés (liste testée). Une adresse refusée ne produit ni bouton profil, ni QR code, ni lien ; elle n'est jamais « corrigée ».
+- L'adresse affichée, celle copiée, celle encodée dans le QR code et celle du lien explorateur sont la même chaîne `checksummed` (un test lit le HTML rendu).
+- Le montant du solde est une chaîne décimale validée par expression régulière (40 chiffres au plus pour chaque partie) avant mise en forme ; tout le reste renvoie `null` (« Balance unavailable. »).
+- Le réseau vient de `NEXT_PUBLIC_EVM_NETWORK` (`mainnet` ou `testnet`, sinon exception au chargement, comportement existant).
+
+**Fuites possibles.**
+- Le QR code est généré dans le navigateur : aucune requête réseau, aucun service tiers, l'adresse ne part nulle part (un test vérifie l'absence de `fetch`, `XMLHttpRequest`, `sendBeacon` et d'URL dans `qr.ts`, `QrCode.tsx`, `ReceiveFunds.tsx`).
+- L'adresse est publique par nature. Aucun journal ajouté. Les erreurs de lecture du solde sont avalées (« Balance unavailable. »), sans message technique affiché.
+- Seule l'adresse du compte connecté est affichée ; aucune donnée d'un autre wallet.
+- Les liens vers l'explorateur sont construits par `addressExplorerUrl` (hôte issu de `EVM_CHAINS`, adresse passée par `encodeURIComponent`), ouverts avec `target="_blank" rel="noopener noreferrer"`. Un test impose `rel` sur chaque `target="_blank"` du bouton profil. Le pont Across est ouvert par `onramp.ts` (inchangé) avec `noopener,noreferrer`.
+
+**Impact sur l'argent, l'escrow, les contrats, le moteur Phala.**
+- Aucun contrat, aucune ABI, aucun moteur Phala touchés. `transaction-guard.ts`, `transaction-client.ts` et `EscrowCredits.tsx` sont intacts (aucun diff) : les retraits passent par la même garde. Le bouton profil n'envoie aucune transaction.
+- **Risque nouveau principal, côté utilisateur : l'envoi d'un mauvais jeton ou sur un mauvais réseau vers l'adresse affichée.** Le texte le dit en toutes lettres (« Only send USDG, on Robinhood Chain… may be lost permanently »), recommande un premier petit transfert, la comparaison du début et de la fin de l'adresse, et rappelle que le gas se paie en ETH. L'auditeur doit juger si ces mises en garde suffisent pour la bêta.
+- Le QR code encode l'adresse du compte (celui du wallet connecté, qu'il soit externe ou le compte Google intégré). Vérifier que, pour un compte intégré, c'est bien l'adresse qui reçoit les fonds et peut les retirer.
+- Le solde affiché dans le menu est lu par `eth_call` sur la chaîne du wallet ; il est masqué (« — ») quand le wallet n'est pas sur le réseau du site. La page Wallet garde sa lecture existante, qui n'a pas ce garde-fou (inchangée).
+
+**Base de données.** Aucune migration, aucune table, aucune colonne.
+
+**Interface : injection HTML, liens, contenus fournis par les utilisateurs.**
+- Aucun `dangerouslySetInnerHTML` ni `innerHTML` dans les fichiers de la tranche (tests de présence). Le chemin SVG du QR code ne contient que des commandes numériques (`M x y h n v1 h-n z`), vérifiées par expression régulière dans un test.
+- Les trois liens internes (`/wallet`, `/settings`, `/kyb`) sont des constantes.
+- Aucun contenu fourni par un utilisateur n'est affiché (seulement l'adresse validée et les libellés fixes).
+
+**Textes : aucune promesse fausse.**
+- Aucune affirmation de sécurité sur les modèles ou les fonds. Le texte du pont dit qu'il s'agit d'un service tiers et qu'il faut vérifier qu'il supporte l'USDG. « Les fonds arrivent dès que le transfert est confirmé » est une affirmation sur le fonctionnement normal de la chaîne.
+- **Écart à signaler : `src/lib/wallet/onramp.ts` (hors périmètre) affiche encore, après ouverture du pont sur mainnet, « Pont ouvert : envoie de l’USDC vers Robinhood Chain depuis un autre réseau »**, ce qui contredit « USDG » sur la même page. À corriger avec la tranche A8 (USDG).
+
+**Autres points à vérifier.**
+- Dépendance `qrcode-generator` 2.0.4 : épinglée, présente dans le fichier de verrouillage avec empreinte, MIT, sans dépendance. Une version 1.5.2 du même paquet reste dans l'arbre via `qr-code-styling` (inchangée).
+- `pnpm audit` : exit 0 ; l'avis `GHSA-vfj7-8cjw-p6xm` est ignoré par la configuration existante.
+- La déconnexion a été extraite sans changement d'ordre : `markWalletDisconnected()`, puis `signOut()`, puis `disconnectWallet()`, puis `setDisconnected()` dans le `finally`. Le bouton profil ferme son panneau avant d'appeler la déconnexion et avale une éventuelle erreur (le store est de toute façon vidé).
+- Le panneau change de contenu si le compte change panneau ouvert (remontage par clé) ; la réponse tardive du solde d'un ancien compte est ignorée (`cancelled`).
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Staging est sur testnet : la vue mainnet (QR code, badge vert, « USDG ») ne s'y voit pas. Pour la voir, lancer un build local avec `NEXT_PUBLIC_EVM_NETWORK=mainnet` et `EVM_NETWORK=mainnet`, ou attendre la production.
+
+1. **Connecté, testnet.** Ouvrir une page de l'application : le bouton profil (point ambre, adresse courte `0x1234…abcd`) apparaît en haut à droite du contenu. Clic : badge « Robinhood Chain testnet » ambre, adresse, boutons « Copy address » et « Explorer », solde « N test USDC », liens Wallet, Settings, KYB, « Guided tour », « Log out ». Résultat attendu : tout s'affiche, aucun lien Wallet dans le menu latéral.
+2. **Copie.** « Copy address » : le bouton passe à « Address copied » pendant environ 2 s ; coller dans un champ : l'adresse complète en casse mixte (EIP-55).
+3. **Explorateur.** « Explorer » ouvre un nouvel onglet sur `explorer.testnet.chain.robinhood.com/address/<adresse>` (production : `robinhoodchain.blockscout.com`).
+4. **Échap et clic à l'extérieur** ferment le menu ; avec Échap le focus revient au bouton profil.
+5. **Mauvais réseau.** Basculer le wallet sur un autre réseau : message rouge « Wrong network — switch your wallet to testnet. », point rouge sur le bouton, solde remplacé par « — ».
+6. **Changement de compte menu ouvert.** Choisir un autre compte dans le wallet : le menu affiche la nouvelle adresse et un solde rechargé, jamais celui de l'ancien compte.
+7. **Déconnexion externe menu ouvert.** Déconnecter depuis le wallet : le bouton disparaît ; reconnecter : le menu est fermé.
+8. **« Log out »** : session fermée, retour à l'état déconnecté, le bouton profil disparaît ; la barre latérale propose « Connect ».
+9. **« Guided tour »** : message « The guided tour will be available soon. » tant que `ProductTour` ne s'abonne pas ; une fois abonné, le menu se ferme et la visite démarre.
+10. **Settings, KYB** : 404 tant que la tranche A6 n'est pas fusionnée ; pages réelles ensuite.
+11. **Page Wallet, testnet.** Adresse avec lien « View on explorer » ; bouton « Add funds » : comportement du faucet inchangé (`1000 USDC et … ETH envoyés` selon l'instance), message « Starter funds not received » si le faucet a échoué ; pas de section QR code.
+12. **Page Wallet, mainnet (build local).** Carte « Add funds » : explication, QR code, adresse complète, copie, lien explorateur. Scanner le QR code avec un téléphone : le texte lu est exactement l'adresse affichée, en casse mixte, sans préfixe. Bouton « Use the bridge » : ouvre le pont (si connecté et authentifié) ; non authentifié, une erreur s'affiche.
+13. **Retraits.** Avec un crédit dans l'escrow : le panneau « USDC available to withdraw » et le bouton « Withdraw » fonctionnent comme avant, le solde se rafraîchit après le retrait.
+14. **Largeurs.** 390 px, 768 px, 1100 px, 1440 px : le bouton profil ne recouvre aucun titre ni bouton de page ; le panneau tient dans l'écran à 320 px.
+15. **Texte agrandi / zoom 200 %** : le panneau reste lisible, l'adresse coupée proprement.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**Tests unitaires** (ajoutés au script `test`, lancés avec `node --test`) :
+- `src/components/profile/profile.test.ts` (13 tests) : badge réseau (libellés, couleurs distinctes, présence dans le dictionnaire anglais), jeton affiché, « mauvais réseau » (sept cas), raccourci d'adresse et refus de seize entrées invalides (null, nombres, espaces, `javascript:`, somme de contrôle fausse…), normalisation EIP-55, formatage des montants (troncature, grands nombres, « <0.0001 », entrées refusées), point d'accroche de la visite guidée (sans abonné, abonné qui accuse réception, abonné qui n'accuse pas), absence du lien Wallet dans `Sidebar.tsx`, présence de `<ProfileMenu />` dans le layout, liens du bouton profil, `rel="noopener noreferrer"` sur tout `target="_blank"`, absence d'`innerHTML`.
+- `src/components/wallet/add-funds.test.ts` (7 tests) : choix du parcours mainnet et testnet, QR code (contenu = adresse EIP-55, matrice reconstruite depuis le chemin SVG identique à celle de la bibliothèque, motifs de repérage, zone de silence, refus de valeurs invalides, chemin purement numérique, aucun accès réseau ni HTML injecté dans le code).
+- `src/components/wallet/receive-funds.test.ts` (3 tests, rendu serveur dans un processus à part) : sur mainnet, adresse affichée en EIP-55, QR code, textes, lien Blockscout mainnet, aucune trace de l'explorateur testnet ; sur testnet, jeton et explorateur de test ; adresse invalide : rien n'est rendu.
+- `english.test.ts` passe (toute clé `t()` de la tranche a sa traduction).
+
+**e2e** (`e2e/profile.spec.ts`, 10 tests Playwright, dont deux largeurs pour le non-chevauchement) : plus de lien Wallet dans le menu latéral ; contenu complet du bouton profil, lien de l'explorateur de test, navigation vers Wallet ; Échap, focus et message de visite guidée sans abonné ; abonné à l'événement de visite guidée ; page Wallet testnet (faucet conservé, pas de QR code, lien explorateur) ; pas de bouton profil déconnecté ; non-chevauchement à 1100 px et 390 px ; wallet sur un autre réseau (avertissement, solde « — », zéro appel `eth_call`) ; déconnexion externe menu ouvert (le menu ne se rouvre pas à la reconnexion). Les e2e existants `wallet.spec.ts`, `account-switch.spec.ts`, `audit-regressions.spec.ts` (dont le retrait d'un ancien escrow) et `responsive.spec.ts` passent avec ceux de la tranche : 70 tests réussis, 0 échec sur ces cinq fichiers. Aucun e2e existant ne cliquait sur le lien Wallet du menu latéral, il n'y a donc rien eu à adapter.
+
+**Ce que les tests ne couvrent pas.**
+- **Aucun test e2e du parcours mainnet** : la configuration Playwright fixe `NEXT_PUBLIC_EVM_NETWORK=testnet`. Le rendu mainnet n'est couvert que par le test de rendu serveur de `ReceiveFunds` (réseau passé en propriété) et par les tests unitaires.
+- **Le QR code n'est pas décodé** par un lecteur : on vérifie qu'il reproduit la matrice de la bibliothèque et qu'il encode la bonne chaîne, pas qu'un téléphone le lit. À essayer à la main (cas 12).
+- Le menu n'est pas testé avec un vrai wallet (extension, compte Google intégré) ni avec un wallet sur un autre réseau.
+- La lecture du solde du menu n'est testée qu'avec un wallet simulé ; la gestion de la réponse tardive d'un ancien compte repose sur la relecture du code (drapeau `cancelled`), pas sur un test.
+- Le bouton « Use the bridge » est piloté par `addFundsOptions(...).bridge` : le test unitaire fige les valeurs par réseau, aucun test ne vérifie son masquage quand `bridge` vaudrait faux.
+- Un compte intégré (connexion sociale) : `fetchUsdcBalance` passe par `getExternalWallet()` ; pour un tel compte le menu affichera « Balance unavailable. », comme la page Wallet (préexistant, non testé).
+- Pas de test de lecteur d'écran ni de navigation au clavier complète (le piège de focus du panneau n'existe pas : le focus n'est pas déplacé dans le panneau à l'ouverture).
+- L'ordre exact des appels de déconnexion n'a pas de test automatisé propre (l'extraction repose sur la relecture et sur les e2e de connexion existants).
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+- `NEXT_PUBLIC_EVM_NETWORK` est correctement défini au build de chaque environnement (`mainnet` en production, `testnet` sur staging). Si la production était construite avec `testnet`, le badge, les liens d'explorateur et la section d'ajout de fonds seraient ceux du testnet.
+- L'USDG a 6 décimales sur Robinhood Chain mainnet et `SIRIUS_USDC_ADDRESS` y désignera l'USDG ([01](01-decisions-avant-samedi.md)) ; la table `USDC_DECIMALS_BY_NETWORK` (6) et le contrôle du script de déploiement font autorité.
+- L'adresse du store du wallet est celle qui reçoit et peut retirer les fonds de l'utilisateur (vrai pour un wallet externe ; non vérifié pour le compte Google intégré).
+- Un transfert d'USDG standard vers cette adresse suffit à créditer le solde : l'adresse est un compte utilisateur normal, aucune étape côté Sirius.
+- Les plateformes d'échange et wallets des utilisateurs supportent Robinhood Chain et l'USDG ; non vérifié. Le texte parle d'« une plateforme d'échange qui supporte ce réseau ».
+- Le pont Across supporte l'USDG sur Robinhood Chain : **non vérifié** (le texte invite l'utilisateur à vérifier).
+- Les pages `/settings` et `/kyb` seront créées par la tranche A6 avec ces chemins.
+- `ProductTour` s'abonnera à `sirius:guided-tour:start` et appellera `preventDefault()`.
+- Le navigateur de l'utilisateur fournit `navigator.clipboard` (contexte sécurisé) ; sinon « Copy failed » s'affiche.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+- **Envoi d'un mauvais jeton ou sur un mauvais réseau** par un utilisateur pressé : mitigé par le texte, pas par le code (aucun moyen de l'empêcher côté Sirius). Fonds potentiellement perdus pour l'utilisateur.
+- **Contradiction de jeton affiché sur mainnet** tant que les tranches A8 et la ligne du libellé de la page Wallet ne sont pas fusionnées : « USDC » (page Wallet, message du pont de `onramp.ts`) contre « USDG » (le reste). Source de confusion, voir sections 2 et 3.
+- **Le bouton « Use the bridge » appelle d'abord `/api/faucet`** : sur mainnet le serveur répond 503, puis le pont s'ouvre. Tout autre statut (non authentifié, limitation de débit) affiche une erreur au lieu d'ouvrir le pont. `window.open` est appelé après deux appels réseau : Safari peut bloquer la fenêtre. Comportement hérité de `onramp.ts`, non modifié.
+- **Le solde de la page Wallet n'est pas protégé contre une réponse tardive d'un appel plus ancien** (deux rafraîchissements qui se chevauchent : le dernier terminé gagne). Préexistant, non corrigé ici ; le changement de compte est couvert par le remontage de la page.
+- **Le solde de la page Wallet est lu sur la chaîne du wallet** même en cas de mauvais réseau (préexistant).
+- **Le bouton profil défile avec la page** (voir section 2, point 1).
+- **Deux boutons affichant la même adresse** (profil et barre latérale) : redondant visuellement.
+- **Liens Settings et KYB morts** jusqu'à la fusion de A6.
+- **Visite guidée inopérante** jusqu'à ce que `ProductTour` s'abonne.
+- La permission de copie du presse-papiers peut être refusée par le navigateur (« Copy failed »).
+- Aucune règle de Content-Security-Policy n'a été ajoutée ; le QR code est du SVG intégré, donc sans impact sur une CSP stricte (pas d'image `data:`).
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+Priorité haute (avant le lancement) :
+1. **Fusionner la ligne du libellé du jeton** de `wallet/page.tsx` (autre tranche) : `t(stablecoinSymbol(NETWORK))` de `src/components/profile/network.ts` peut être réutilisé. Vérifier que la carte de solde dit « USDG » sur mainnet.
+2. **Corriger le message du pont dans `src/lib/wallet/onramp.ts`** (« envoie de l’USDC… » → USDG) avec la tranche A8.
+3. **Abonner `ProductTour`** à `GUIDED_TOUR_EVENT` (exemple dans `guided-tour.ts`), puis retirer le message « bientôt disponible » devenu inutile.
+4. **Vérifier que le pont Across supporte l'USDG** ; sinon masquer le bouton « Use the bridge » sur mainnet via `addFundsOptions` (champ `bridge`) et ne garder que le transfert.
+5. **Essayer le QR code à la main** avec au moins deux applications de wallet (cas 12).
+
+Priorité moyenne :
+6. Faire apparaître le lien Wallet pour un visiteur non connecté si le produit le souhaite (aujourd'hui l'URL seule).
+7. Rendre le bouton profil visible en permanence (barre fixe qui réserve sa place) si un besoin produit le justifie ; voir section 2, point 1.
+8. Protéger le solde de la page Wallet contre la réponse tardive d'un appel plus ancien, et le masquer en cas de mauvais réseau.
+9. Test e2e du parcours mainnet (nécessite une seconde configuration Playwright avec `NEXT_PUBLIC_EVM_NETWORK=mainnet`).
+
+V1.1 (spécification 05) : historique des transactions, retrait général avec vérification d'adresse, revenus par dataset, « tout retirer », achat par carte.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node, pnpm 11.18.0 lancé par `npx pnpm@11.18.0` (le lanceur local `pnpm` échoue avec « Failed to switch pnpm to v11.18.0 », problème d'installation locale, sans rapport avec le code). `DATABASE_URL=postgresql://x:y@localhost:5432/z`.
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | OK après ajout de la dépendance ; le premier essai sans `DATABASE_URL` échoue dans le `postinstall` (`prisma generate` exige la variable) : échec d'environnement, résolu en la fournissant. |
+| `pnpm prisma generate` | OK (« Generated Prisma Client (7.8.0) »), exécuté par le `postinstall`. |
+| `pnpm exec tsc --noEmit` | OK, aucune erreur (avec `--incremental false` : un fichier `tsconfig.tsbuildinfo` périmé produisait des erreurs fantômes, supprimé). |
+| `pnpm lint` | OK, 0 erreur, 0 avertissement. |
+| `pnpm test` | **Échec d'environnement Windows.** Le script `NODE_OPTIONS="…" node …` n'est pas exécutable par `cmd.exe` (« 'NODE_OPTIONS' n'est pas reconnu »). Même commande lancée à la main avec `NODE_OPTIONS` : 553 tests, 478 réussis, 75 échecs. **Les 75 mêmes échecs existent sur `origin/staging` seul** (530 tests, 455 réussis, 75 échecs ; comparaison des noms de tests : aucune différence). Causes : séparateurs de chemin Windows (`src\app\…` contre `src/app/…`), scripts bash et volumes du runner. Les 23 tests de la tranche passent. À rejouer sous Linux (CI). |
+| `pnpm audit:deps` | OK, code de sortie 0 : « 2 vulnerabilities found, 1 low, 1 high (1 ignored) », sans lien avec la tranche (avis existant ignoré par la configuration). |
+| `node --test` des trois fichiers de la tranche + `english.test.ts` | OK : 13 + 7 + 3 + 7 = 30 tests réussis, 0 échec. |
+| Playwright : `profile.spec.ts`, `wallet.spec.ts`, `account-switch.spec.ts`, `audit-regressions.spec.ts`, `responsive.spec.ts` | 70 tests réussis, 0 échec (délai de test relevé à 120 s en local pour absorber la compilation à froid du serveur de développement ; `profile.spec.ts` fixe 90 s). |
+| `git diff --name-only staging...HEAD` | Uniquement des fichiers autorisés (liste dans la PR). |
+| `git log staging..HEAD --format=%B` | Aucune signature d'assistant, aucun `Co-Authored-By`, aucun lien de session. |
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Trois passes de revue adversariale (agents en lecture seule, angles distincts), plus mes propres relectures.
+
+**Passe 1 — sécurité de l'adresse et du QR code.** Rien de bloquant. Confirmé : l'adresse affichée, copiée et encodée est une seule chaîne validée ; pas d'injection HTML ; liens protégés ; QR local ; dépendance correcte et présente dans le verrou ; capacité du QR suffisante.
+- Corrigé : **solde lu sur la chaîne du wallet** même en cas de mauvais réseau → le menu ne lit plus rien dans ce cas et affiche « — » ; **solde non nul affiché « 0 »** par la troncature → « <0.0001 » ; test ajouté.
+- Écarté, hors périmètre ou préexistant : libellé « USDC » de la carte de solde de la page Wallet (ligne réservée à une autre tranche : consigné en sections 2, 7 et 8) ; réponse tardive d'un ancien appel sur la page Wallet (préexistant, non régressif).
+- Remarque prise en compte : `ReceiveFunds` ne rend rien si l'adresse est invalide (voulu).
+
+**Passe 2 — non-régression et e2e.** Confirmé sans diff : `EscrowCredits.tsx`, `src/lib/wallet/**` ; `ConnectButton` équivalent (ordre, `finally`, imports) ; les sélecteurs des e2e existants ne rencontrent pas le bouton profil (nom accessible « Profile menu », `role="dialog"`) ; parcours testnet du faucet identique ; hooks dans l'ordre.
+- Corrigé : **bouton fixe recouvrant les actions à droite des en-têtes** (Marketplace, Mes datasets, de 768 à 1500 px) → bouton en flux, deux e2e de non-chevauchement ajoutés ; **menu rouvert tout seul après une déconnexion externe** → fermeture quand l'adresse disparaît ; **libellé « Envoi en cours… » faux pour le pont** → « Opening the bridge… ».
+- Écarté : le bouton « Use the bridge » appelle d'abord le faucet (comportement de `onramp.ts`, hors périmètre ; consigné en section 7) ; Échap qui ferme aussi un autre dialogue (le fond du panneau bloque l'interaction, cas improbable) ; absence de lien Wallet hors connexion (voulu par la spécification, consigné) ; « Guided tour » sans abonné (limite connue, documentée).
+
+**Passe 3 — contrôle des correctifs des passes 1 et 2.** Aucune régression trouvée, aucun fichier hors périmètre (23 fichiers modifiés, tous autorisés) ; `setOpen` pendant le rendu validé (motif React autorisé, hooks dans l'ordre) ; toutes les clés `t()` des trois composants ont une traduction.
+- Corrigé : focus perdu après « Guided tour » (retour au bouton profil quand la visite démarre) ; deux régions nommées « Profile menu » dans le dialogue (la navigation interne s'appelle « Navigation ») ; correctifs de la passe 1 sans test → deux e2e ajoutés (wallet sur un autre réseau : solde « — » et zéro `eth_call` ; déconnexion externe : menu non rouvert) ; champ `bridge` de `addFundsOptions` jamais lu → il pilote désormais l'affichage du bouton « Use the bridge » (le mettre à faux le masque si Across ne supporte pas l'USDG).
+- Écarté : focus après un clic sur un lien du menu (le focus suit la navigation) ; solde périmé affiché un instant au retour sur le bon réseau (jusqu'à la fin de la nouvelle lecture).
+
+**Corrections de mon fait, hors revue.** Erreur de TypeScript fantôme due à un fichier d'index incrémental périmé (supprimé) ; déclaration globale `window.__SIRIUS_E2E__` dupliquée dans mon e2e, qui entrait en conflit avec celle du pont de test (retirée, le type du pont est réutilisé) ; imports inutilisés dans un test.
 
 ---
 
