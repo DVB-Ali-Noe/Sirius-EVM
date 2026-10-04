@@ -31,6 +31,12 @@ test("les attentes viennent des fichiers SQL des migrations en attente, pas d'un
   const profiles = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
   assert.deepEqual(profiles.tablesAdded, ["DatasetAccessLog", "UserProfile"]);
   assert.deepEqual(profiles.columnsAdded.Dataset, ["category", "listingExpiresAt", "trainingConsentAt", "trainingConsentVersion", "trainingConsentRevokedAt"]);
+  assert.deepEqual(profiles.columnsAdded.UserProfile, ["address", "tourCompletedAt", "featureTours", "settings", "kybStatus", "kybCheckedAt", "blockedAt", "blockedReason", "blockedBy", "createdAt", "lastSeenAt"]);
+  assert.deepEqual(profiles.columnsAdded.DatasetAccessLog, ["id", "datasetId", "loanId", "address", "modelCid", "modelFingerprint", "createdAt"]);
+  // Les tables historiques sont lues de la même façon, sans confondre une contrainte avec une colonne.
+  const init = expectedChanges(migrationDirectories(MIGRATIONS, ["20260825000000_init_postgres"]));
+  assert.ok(init.tablesAdded.includes("Loan") && init.tablesAdded.includes("KeyGrant"));
+  assert.deepEqual(init.columnsAdded.KeyGrant, ["id", "datasetId", "loanId", "grantee", "keyRef", "status", "createdAt", "revokedAt"]);
   assert.deepEqual(profiles.indexesAdded, ["DatasetAccessLog_pkey", "DatasetAccessLog_datasetId_idx", "DatasetAccessLog_address_idx", "UserProfile_pkey"]);
   assert.deepEqual(profiles.columnsRemoved, {});
 });
@@ -97,7 +103,8 @@ test("une table créée par une migration annoncée n'est pas un écart ; absent
   const expected = expectedChanges(migrationDirectories(MIGRATIONS, ["20261003000000_add_user_profiles"]));
   const after = clone(before) as ReturnType<typeof photo> & { columns: Record<string, unknown[]>; counts: Record<string, number> };
   after.tables = ["Loan", "UserProfile", "DatasetAccessLog"];
-  after.columns = { ...after.columns, UserProfile: [{ name: "address", type: "text", nullable: false, default: null }], DatasetAccessLog: [{ name: "id", type: "text", nullable: false, default: null }] };
+  const columnsOf = (table: string) => expected.columnsAdded[table].map((name) => ({ name, type: "text", nullable: true, default: null }));
+  after.columns = { ...after.columns, UserProfile: columnsOf("UserProfile"), DatasetAccessLog: columnsOf("DatasetAccessLog") };
   after.counts = { ...after.counts, UserProfile: 0, DatasetAccessLog: 0 };
   after.indexes = [...after.indexes,
     { name: "UserProfile_pkey", definition: "CREATE UNIQUE INDEX \"UserProfile_pkey\" ON \"UserProfile\" USING btree (address)" },
@@ -115,6 +122,14 @@ test("une table créée par une migration annoncée n'est pas un écart ; absent
   assert.equal(missing.ok, false);
   assert.ok(codes(missing).includes("table-not-added:UserProfile"));
   assert.ok(codes(missing).includes("table-not-added:DatasetAccessLog"));
+  // Une table créée sans l'une de ses colonnes, ou sans un index annoncé, est un écart critique.
+  const incomplete = clone(after);
+  incomplete.columns.UserProfile = columnsOf("UserProfile").filter((c) => c.name !== "blockedBy");
+  incomplete.indexes = incomplete.indexes.filter((index: { name: string }) => index.name !== "DatasetAccessLog_address_idx");
+  const partial = compareInventories(before, incomplete, expected);
+  assert.equal(partial.ok, false);
+  assert.ok(codes(partial).includes("column-not-added:UserProfile.blockedBy"));
+  assert.ok(codes(partial).includes("index-not-added:DatasetAccessLog_address_idx"));
 });
 
 const url = process.env.SIRIUS_TEST_DATABASE_URL ?? (process.env.CI ? process.env.DATABASE_URL : undefined);

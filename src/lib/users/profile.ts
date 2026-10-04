@@ -260,28 +260,65 @@ export async function updateUserProfile(
 export const LOGIN_PROFILE_TIMEOUT_MS = 2_000;
 
 /**
+ * Mises à jour de profil encore en vol depuis la route de connexion, au-delà desquelles on
+ * n'en lance plus : une base qui ne répond pas ne doit jamais monopoliser le pool (cinq
+ * connexions par instance) depuis cette seule route. Compteur par instance.
+ */
+export const MAX_IN_FLIGHT_LOGIN_TOUCHES = 2;
+let inFlightLoginTouches = 0;
+
+/** Client capable d'ouvrir une transaction interactive ; les stubs de test peuvent s'en passer. */
+type LoginDb = Db & Partial<Pick<typeof prisma, "$transaction">>;
+
+/**
  * Après une connexion réussie : crée ou date le profil sans jamais faire échouer ni
- * suspendre la connexion. Une base qui répond par une erreur est rattrapée ; une base qui
- * ne répond pas du tout (pool saturé, bascule) est abandonnée après `timeoutMs`, la requête
- * en cours étant laissée à son sort. Seule la classe de l'erreur est journalisée, jamais
- * l'adresse ni la cause, qui peut contenir une chaîne de connexion.
+ * suspendre la connexion.
+ *
+ *   - une base qui répond par une erreur est rattrapée ;
+ *   - une base qui ne répond pas (verrou, bascule) est abandonnée après `timeoutMs`, et la
+ *     requête elle-même porte `lock_timeout` et `statement_timeout` du même ordre, posés dans
+ *     une transaction courte, pour que PostgreSQL l'annule et rende la connexion au pool ;
+ *   - au-delà de `MAX_IN_FLIGHT_LOGIN_TOUCHES` mises à jour encore en vol, on n'en lance
+ *     pas de nouvelle.
+ *
+ * Seule la classe de l'erreur est journalisée, jamais l'adresse ni la cause, qui peut
+ * contenir une chaîne de connexion.
  */
 export async function touchUserProfileAfterLogin(
   address: unknown,
-  db: Db = prisma,
+  db: LoginDb = prisma,
   timeoutMs = LOGIN_PROFILE_TIMEOUT_MS,
 ): Promise<void> {
+  if (inFlightLoginTouches >= MAX_IN_FLIGHT_LOGIN_TOUCHES) {
+    console.warn("[auth] profil utilisateur non mis à jour (ProfileSkipped)");
+    return;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ProfileTimeoutError()), timeoutMs);
   });
+  inFlightLoginTouches += 1;
+  const touch = ensureUserProfileWithin(address, db, timeoutMs).finally(() => { inFlightLoginTouches -= 1; });
   try {
-    await Promise.race([ensureUserProfile(address, db), expired]);
+    await Promise.race([touch, expired]);
   } catch (error) {
     console.warn(`[auth] profil utilisateur non mis à jour (${error instanceof Error ? error.name : typeof error})`);
   } finally {
     clearTimeout(timer);
+    // La promesse abandonnée est tenue : son rejet éventuel ne doit pas rester sans gestionnaire.
+    touch.catch(() => {});
   }
+}
+
+/** Upsert sous délais PostgreSQL : un verrou ou un serveur lent rend la connexion au lieu de la garder. */
+async function ensureUserProfileWithin(address: unknown, db: LoginDb, timeoutMs: number): Promise<UserProfileView> {
+  if (!db.$transaction) return ensureUserProfile(address, db);
+  const budget = Math.max(1, Math.floor(timeoutMs));
+  return db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = ${budget}`);
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${budget}`);
+    return ensureUserProfile(address, tx);
+  });
 }
 
 class ProfileTimeoutError extends Error {
@@ -324,7 +361,8 @@ function optionalToken(value: unknown, maxChars: number, message: string): strin
 /**
  * Journal des accès : qui a reçu quel modèle pour quel dataset et quel prêt. À appeler
  * au moment de la livraison du modèle, dans la même transaction que la livraison quand
- * c'est possible (`db` accepte une transaction). Pas encore branché sur la livraison.
+ * c'est possible (`db` accepte une transaction). Un dataset inconnu est refusé en 404 par
+ * la clé étrangère. Pas encore branché sur la livraison.
  */
 export async function recordDatasetAccess(entry: DatasetAccessEntry, db: Db = prisma): Promise<DatasetAccessRecord> {
   if (!isPlainObject(entry)) throw new AppError("Entrée du journal des accès invalide", 400);
@@ -335,7 +373,16 @@ export async function recordDatasetAccess(entry: DatasetAccessEntry, db: Db = pr
     modelCid: optionalToken(entry.modelCid, MAX_CID_CHARS, "Entrée du journal des accès invalide"),
     modelFingerprint: optionalToken(entry.modelFingerprint, MAX_FINGERPRINT_CHARS, "Entrée du journal des accès invalide"),
   };
-  const row = await db.datasetAccessLog.create({ data });
+  let row: Awaited<ReturnType<typeof db.datasetAccessLog.create>>;
+  try {
+    row = await db.datasetAccessLog.create({ data });
+  } catch (error) {
+    // Clé étrangère : le dataset n'existe pas (ou plus). Message métier plutôt qu'un 500 opaque.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      throw new AppError("Dataset introuvable", 404);
+    }
+    throw error;
+  }
   return {
     id: row.id,
     datasetId: row.datasetId,

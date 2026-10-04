@@ -21,7 +21,10 @@ CREATE TABLE "DatasetAccessLog" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "DatasetAccessLog_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "DatasetAccessLog_datasetId_fkey" FOREIGN KEY ("datasetId") REFERENCES "Dataset"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "DatasetAccessLog_datasetId_fkey" FOREIGN KEY ("datasetId") REFERENCES "Dataset"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    -- Règle du projet : une adresse persistée est en minuscules. Prisma ignore les CHECK ;
+    -- la base tient l'invariant pour les scripts et les chemins admin qui l'écriraient à la main.
+    CONSTRAINT "DatasetAccessLog_address_lowercase" CHECK ("address" ~ '^0x[0-9a-f]{40}$')
 );
 
 CREATE INDEX "DatasetAccessLog_datasetId_idx" ON "DatasetAccessLog"("datasetId");
@@ -41,5 +44,8 @@ CREATE TABLE "UserProfile" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "UserProfile_pkey" PRIMARY KEY ("address")
+    CONSTRAINT "UserProfile_pkey" PRIMARY KEY ("address"),
+    -- Une seule ligne par wallet : la clé est l'adresse en minuscules, et la base le vérifie
+    -- pour qu'une écriture manuelle en casse EIP-55 ne crée pas de doublon invisible.
+    CONSTRAINT "UserProfile_address_lowercase" CHECK ("address" ~ '^0x[0-9a-f]{40}$')
 );

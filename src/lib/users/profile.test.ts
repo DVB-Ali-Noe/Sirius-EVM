@@ -109,8 +109,9 @@ test("l'adresse du profil est normalisée en minuscules et refusée si invalide"
   assert.deepEqual([...rows.keys()], [SUBJECT]);
   assert.deepEqual(calls, [`upsert:${SUBJECT}`]);
   assert.equal(view.createdAt, view.lastSeenAt, "une ligne créée est datée d'une seule horloge : jamais vue avant d'exister");
-  for (const message of ["adresse du profil EVM invalide", "adresse du journal des accès EVM invalide"]) {
-    assert.doesNotMatch(translateEnglish(message), /adresse/, `« ${message} » doit avoir une traduction explicite`);
+  for (const message of ["adresse du profil EVM invalide", "adresse du journal des accès EVM invalide", "Entrée du journal des accès invalide"]) {
+    const english = translateEnglish(message);
+    assert.ok(english !== message && !/adresse|journal/.test(english), `« ${message} » doit avoir une traduction explicite`);
   }
   await assert.rejects(profile.ensureUserProfile("not-an-address", db), /adresse du profil EVM invalide/);
   await assert.rejects(profile.readUserProfile("0x1234", db), /adresse du profil EVM invalide/);
@@ -300,9 +301,17 @@ test("recordDatasetAccess normalise l'adresse, borne chaque champ et refuse les 
     { datasetId: "clz0dataset", address: SUBJECT, modelFingerprint: "g".repeat(129) }, { datasetId: "clz0dataset", address: SUBJECT, modelFingerprint: { sha256: "a" } },
   ];
   for (const entry of invalid) {
-    await assert.rejects(profile.recordDatasetAccess(entry as never, db), (error: unknown) => error instanceof AppError && error.status === 400, `${JSON.stringify(entry)} devrait être refusé`);
+    await assert.rejects(profile.recordDatasetAccess(entry as never, db), (error: unknown) =>
+      error instanceof AppError && error.status === 400 && translateEnglish(error.message) !== error.message, `${JSON.stringify(entry)} devrait être refusé avec un message traduit`);
   }
   assert.equal(accessLogs.length, 2, "aucune entrée invalide n'est écrite");
+
+  const orphan = new Prisma.PrismaClientKnownRequestError("fk", { code: "P2003", clientVersion: "test" });
+  const strict = { datasetAccessLog: { create: async () => { throw orphan; } } };
+  await assert.rejects(profile.recordDatasetAccess({ datasetId: "clz0missing", address: SUBJECT }, strict as never),
+    (error: unknown) => error instanceof AppError && error.status === 404 && error.message === "Dataset introuvable");
+  const outage = new Error("connection lost");
+  await assert.rejects(profile.recordDatasetAccess({ datasetId: "clz0dataset", address: SUBJECT }, { datasetAccessLog: { create: async () => { throw outage; } } } as never), (error) => error === outage);
 });
 
 const warnings: string[] = [];
@@ -332,15 +341,54 @@ test("après connexion, une panne de base ne fait pas échouer la connexion et n
   assert.equal(warnings.length, 3, "aucun avertissement quand tout va bien");
 });
 
+/** Base gelée : l'upsert ne répond qu'une fois `release()` appelé, pour libérer le compteur en vol. */
+function frozenDb() {
+  let release = () => {};
+  const pending = new Promise<never>((_, reject) => { release = () => reject(new Error("abandonnée")); });
+  return { db: { userProfile: { upsert: () => pending } }, release };
+}
+
 test("après connexion, une base qui ne répond pas est abandonnée après le délai de garde", async () => {
-  const frozen = { userProfile: { upsert: () => new Promise<never>(() => {}) } };
+  const frozen = frozenDb();
   const started = Date.now();
-  await profile.touchUserProfileAfterLogin(SUBJECT, frozen as never, 50);
+  await profile.touchUserProfileAfterLogin(SUBJECT, frozen.db as never, 50);
   assert.ok(Date.now() - started < 1_000, "la connexion n'attend pas la base gelée");
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /\(ProfileTimeout\)/);
   assert.ok(!warnings[0].includes(SUBJECT));
   assert.ok(profile.LOGIN_PROFILE_TIMEOUT_MS >= 1_000 && profile.LOGIN_PROFILE_TIMEOUT_MS <= 5_000, "délai court mais réaliste pour une base distante");
+  frozen.release();
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("après connexion, les mises à jour en vol sont plafonnées et la requête porte ses propres délais PostgreSQL", async () => {
+  const frozen = frozenDb();
+  const first = profile.touchUserProfileAfterLogin(SUBJECT, frozen.db as never, 50);
+  const second = profile.touchUserProfileAfterLogin(OTHER, frozen.db as never, 50);
+  const third = profile.touchUserProfileAfterLogin(SUBJECT, frozen.db as never, 50);
+  await Promise.all([first, second, third]);
+  assert.equal(warnings.filter((w) => w.includes("(ProfileSkipped)")).length, 1, "la troisième touche n'est pas lancée");
+  assert.equal(warnings.filter((w) => w.includes("(ProfileTimeout)")).length, 2);
+  // Tant que les deux premières n'ont pas rendu la main, toute nouvelle touche est sautée.
+  await profile.touchUserProfileAfterLogin(SUBJECT, fakeDb().db, 50);
+  assert.equal(warnings.filter((w) => w.includes("(ProfileSkipped)")).length, 2);
+  frozen.release();
+  await new Promise((resolve) => setImmediate(resolve));
+  const { db, rows } = fakeDb();
+  await profile.touchUserProfileAfterLogin(SUBJECT, db, 50);
+  assert.ok(rows.has(SUBJECT), "une fois les touches en vol terminées, le profil est de nouveau mis à jour");
+  assert.equal(warnings.length, 4);
+  assert.equal(profile.MAX_IN_FLIGHT_LOGIN_TOUCHES, 2, "en dessous des cinq connexions du pool par instance");
+
+  // Avec un vrai client, l'upsert tourne dans une transaction sous lock_timeout et statement_timeout.
+  const statements: string[] = [];
+  const store = fakeDb();
+  const transactional = { ...(store.db as object), $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn({ ...(store.db as object), $executeRawUnsafe: async (sql: string) => { statements.push(sql); return 0; } }) };
+  await profile.touchUserProfileAfterLogin(MIXED_CASE, transactional as never, 1_234);
+  assert.deepEqual(statements, ["SET LOCAL lock_timeout = 1234", "SET LOCAL statement_timeout = 1234"]);
+  assert.ok(store.rows.has(SUBJECT));
+  assert.equal(warnings.length, 4, "aucun avertissement sur le chemin transactionnel");
 });
 
 // Chargement d'une route avec ses dépendances simulées, comme audit-regressions.test.ts.
@@ -430,14 +478,22 @@ test("PATCH /api/profile ne touche que le profil de la session et refuse toute a
   assert.equal(store.rows.get(SUBJECT)!.tourCompletedAt, null);
 });
 
-test("PATCH /api/profile est limité en débit par wallet", async () => {
+test("GET et PATCH /api/profile sont limités en débit par wallet, avant toute validation", async () => {
   const store = fakeDb();
   const route = profileRoute(store);
   const statuses: number[] = [];
   for (let i = 0; i < 21; i++) statuses.push((await patch(route, { featureTours: { dashboard: i % 2 === 0 } })).status);
   assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
   assert.equal(statuses[20], 429);
-  assert.equal((await patch(route, { tourCompletedAt: true })).status, 429, "une requête invalide compte aussi une fois le quota atteint");
+  const refused = await patch(route, { kybStatus: "ACCEPTED" });
+  assert.equal(refused.status, 429, "le limiteur précède la validation : un corps invalide reçoit 429, pas 400");
+  assert.equal((await route.GET(new Request("https://test.invalid/api/profile"))).status, 200, "la limite de lecture est distincte");
+  const reads: number[] = [];
+  for (let i = 0; i < 60; i++) reads.push((await route.GET(new Request("https://test.invalid/api/profile"))).status);
+  assert.deepEqual(reads.slice(0, 59), Array(59).fill(200));
+  assert.equal(reads[59], 429, "61e lecture refusée");
+  const other = profileRoute(store, { address: OTHER });
+  assert.equal((await other.GET(new Request("https://test.invalid/api/profile"))).status, 200, "la limite est par wallet");
 });
 
 test("la connexion crée le profil du wallet vérifié et réussit même si la base est en panne", async () => {
@@ -445,10 +501,14 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   const sessions: unknown[] = [];
   let verified = 0;
   let failProfile: false | "down" | "frozen" = false;
+  const frozen = frozenDb();
   const route = load<typeof import("../../app/api/auth/verify/route")>("src/app/api/auth/verify/route.ts", {
     "next/server": { NextResponse }, "@/lib/errors": errors, "@/lib/http/body": body, "@/lib/http/rate-limit": rate, "@/lib/evm/address": addresses,
     "@/lib/auth/origin": { authenticationOrigin: () => "https://test.invalid" },
-    "@/lib/auth/challenge": { verifyChallenge: async () => { verified++; } },
+    "@/lib/auth/challenge": { verifyChallenge: async (message: string) => {
+      if (message === "expired") throw new AppError("Challenge refusé", 401);
+      verified++;
+    } },
     "@/lib/evm/signature": { verifyLoginSignature: async ({ address, signature }: { address: string; signature: string }) => {
       if (signature !== "0xvalid") throw new AppError("Signature invalide", 401);
       return address;
@@ -457,14 +517,13 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
     "@/lib/users/profile": { touchUserProfileAfterLogin: async (address: unknown) => {
       touched.push(address);
       const down = { userProfile: { upsert: async () => { throw new Error("database unavailable"); } } };
-      const frozen = { userProfile: { upsert: () => new Promise<never>(() => {}) } };
-      const target = failProfile === "down" ? down : failProfile === "frozen" ? frozen : fakeDb().db;
+      const target = failProfile === "down" ? down : failProfile === "frozen" ? frozen.db : fakeDb().db;
       await profile.touchUserProfileAfterLogin(address, target as never, 50);
     } },
   });
-  const login = (signature: string) => route.POST(new Request("https://test.invalid/api/auth/verify", {
+  const login = (signature: string, message = "challenge") => route.POST(new Request("https://test.invalid/api/auth/verify", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address: MIXED_CASE, signature, message: "challenge", source: "external" }),
+    body: JSON.stringify({ address: MIXED_CASE, signature, message, source: "external" }),
   }));
 
   let response = await login("0xvalid");
@@ -493,4 +552,11 @@ test("la connexion crée le profil du wallet vérifié et réussit même si la b
   assert.equal(touched.length, 3, "aucun profil n'est touché sans preuve de possession");
   assert.equal(verified, 3);
   assert.equal(sessions.length, 3);
+
+  response = await login("0xvalid", "expired");
+  assert.equal(response.status, 401);
+  assert.equal(touched.length, 3, "aucun profil n'est touché quand le challenge est refusé, même avec une signature valide");
+  assert.equal(sessions.length, 3);
+  frozen.release();
+  await new Promise((resolve) => setImmediate(resolve));
 });
