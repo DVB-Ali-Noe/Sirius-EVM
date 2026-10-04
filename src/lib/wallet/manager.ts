@@ -98,10 +98,13 @@ async function demanderChoixDuCompte(wallet: Eip1193Provider): Promise<void> {
 }
 
 export async function connectExternalWallet(wallet = provider()): Promise<{ address: string; chainId: string }> {
-  await ensureExpectedChain(wallet);
+  // Le compte d'abord, le réseau ensuite : MetaMask refuse `wallet_switchEthereumChain` (4100)
+  // à un site qu'il n'a pas encore autorisé, sans même ouvrir de fenêtre. Un nouveau visiteur
+  // ne passait donc jamais l'étape du réseau.
   await demanderChoixDuCompte(wallet);
   const accounts = await wallet.request({ method: "eth_requestAccounts" });
   if (!Array.isArray(accounts) || typeof accounts[0] !== "string") throw new Error("Le wallet n'a renvoyé aucun compte.");
+  await ensureExpectedChain(wallet);
   const chainId = await wallet.request({ method: "eth_chainId" });
   if (typeof chainId !== "string") throw new Error("Réseau EVM indisponible.");
   return { address: accounts[0], chainId };

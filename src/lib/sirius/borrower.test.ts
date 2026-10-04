@@ -64,3 +64,12 @@ test("le TEE confirme le scope du self-train avant le déchiffrement", () => {
   assert.ok(training >= 0, "le runner doit entraîner le dataset");
   assert.ok(scope < training, "le dataset ne doit pas être déchiffré avant sa vérification on-chain");
 });
+
+test("une annonce expirée n'est plus empruntable, même par son lien direct", () => {
+  const prepare = SOURCE.slice(SOURCE.indexOf("export async function prepareLoan"), SOURCE.indexOf("export async function finalizeLoan"));
+
+  assert.match(prepare, /if \(isListingExpired\(dataset\.listingExpiresAt\)\) throw new AppError\("Annonce expirée", 409\)/);
+  // La réservation atomique refuse aussi une annonce expirée entre la lecture et la création du prêt.
+  assert.match(prepare, /OR: \[\{ listingExpiresAt: null \}, \{ listingExpiresAt: \{ gt: new Date\(\) \} \}\]/);
+  assert.equal(prepare.match(/isListingExpired\(dataset\.listingExpiresAt\)/g)?.length, 2, "prepareLoan et renewLoanLock vérifient l'expiration");
+});

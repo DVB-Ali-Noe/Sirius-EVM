@@ -17,6 +17,6 @@ async function main() {
 }
 
 main().catch(() => {
-  console.error("Préflight Phala/v7 refusé : vérifier le réseau demandé, la configuration explicite, le RPC archive et son état finalisé, les adresses, le code USDC et les contrats. Aucune transaction envoyée.");
+  console.error("Préflight Phala/v7 refusé : vérifier le réseau demandé, la configuration explicite, le RPC archive et son état finalisé, les adresses, le code et les décimales du jeton de règlement (USDG de Paxos sur mainnet) et les contrats. Aucune transaction envoyée.");
   process.exitCode = 1;
 });

@@ -43,7 +43,7 @@ const SECTIONS: [string, string[]][] = [
   ]],
   ["Dataset access records", [
     "Sirius records dataset accesses and the fingerprint of each delivered model in order to detect and investigate leaks.",
-    "For each access this means the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself). The records are used for that purpose only and are visible only to Sirius administrators. Wallet addresses and loans are also visible on-chain.",
+    "For each access this means the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself). The records are used for that purpose only, are visible only to Sirius administrators, and are kept for 24 months after the access, then deleted. Wallet addresses and loans are also visible on-chain.",
   ]],
   ["Model improvement, only with your consent", [
     "When you publish a dataset, you can choose to allow Sirius to use it, inside the secure enclave only, to evaluate and develop new models. This choice is optional and off by default, and publishing does not depend on it.",

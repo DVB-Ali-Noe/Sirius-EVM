@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { SignInCta } from "@/components/wallet/SignInCta";
+import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
@@ -34,6 +35,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   const { file, example, columns, rows, target, model } = draft;
   const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
+  const connected = useWalletStore((state) => state.connected);
   // null : première lecture en cours ; phase null : état illisible.
   const [session, setSession] = useState<{ available: boolean; phase: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -158,7 +160,9 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
           {columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label></div>
       <p className="mt-4 text-sm text-muted">{t("Au moins 100 lignes ; colonnes prédictives numériques. La classification attend une cible 0/1. Les limites du profil sont vérifiées avant calcul.")}</p>
       <div className="mt-6">{authenticated ? <button className={button} disabled={!available || busy || !file || !target} onClick={() => void train()}>{t("Entraîner avec Phala")}</button>
-        : <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta>}</div>
+        // Sans wallet connecté : le menu de choix (Google, MetaMask, Phantom…) plutôt que
+        // `window.ethereum`, que la dernière extension installée s'approprie.
+        : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
     </Card>

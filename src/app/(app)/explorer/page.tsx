@@ -11,6 +11,7 @@ import { addressExplorerUrl, transactionExplorerUrl } from "@/lib/evm/explorer";
 import type { EvmNetwork } from "@/lib/evm/networks";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { stablecoinTicker } from "@/lib/evm/stablecoin";
 import type { ModelId } from "@/lib/models/registry";
 
 interface ExplorerLoan {
@@ -194,11 +195,11 @@ function ExplorerPageContent() {
 
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
               <Evidence label={t("Titre du dataset")} value={loan.dataset.evmDatasetId} txHash={loan.dataset.evmMintTxHash} network={network} />
-              <Evidence label="Lock USDC" value={loan.evmLockTxHash} txHash={loan.evmLockTxHash} network={network} />
+              <Evidence label={`Lock ${stablecoinTicker(network)}`} value={loan.evmLockTxHash} txHash={loan.evmLockTxHash} network={network} />
               <Evidence label={t("Attestation TEE")} value={loan.attestationHash} />
               <Evidence label={t("Reçu d’audit")} value={loan.auditReceipt} />
               <Evidence
-                label={loan.cancelTxHash ? t("Remboursement USDC") : "Release USDC"}
+                label={loan.cancelTxHash ? t("Remboursement {token}", { token: stablecoinTicker(network) }) : `Release ${stablecoinTicker(network)}`}
                 value={loan.cancelTxHash ?? loan.settleTxHash}
                 txHash={loan.cancelTxHash ?? loan.settleTxHash}
                 network={network}

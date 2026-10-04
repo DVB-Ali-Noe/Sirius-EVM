@@ -76,3 +76,7 @@ test("landing : pied de page avec les liens conditions et état, et le réseau",
   assert.match(footer, /networkLine/);
   assert.match(landing, /Robinhood Chain/);
 });
+
+test("conditions : journal des accès conservé 24 mois puis supprimé", () => {
+  assert.match(terms, /kept for 24 months after the access, then deleted/);
+});

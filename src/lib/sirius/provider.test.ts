@@ -99,6 +99,7 @@ function deletionFixture(options: {
     "@/lib/ipfs/pinata": { unpinFromIpfs: async (cid: string) => { unpins.push(cid); } },
     "@/lib/models/registry": {},
     "@/lib/runner/provenance": {},
+    "@/lib/datasets/publication": {},
     "./access": {},
   };
   const exports = {};

@@ -112,7 +112,7 @@ Le code refuse une politique mainnet qui ne respecte pas ces règles :
 | Champ | Règle imposée |
 |---|---|
 | `chainId` (budget et tarif) | 4663 |
-| `usdc` | USDC natif `0x80e0…6ca8` |
+| `usdc` | USDG de Paxos `0x5fc5360d0400a0fd4f2af552add042d716f1d168`, en minuscules ; l'ancien USDC natif `0x80e0…6ca8` est refusé |
 | `usdcDecimals` | 6 |
 | `computeRecipient` | adresse non nulle, distincte du wallet runner ; le Safe en production |
 | `earnedMarginUsdMicros`, `cashUsdMicros` | strictement positifs : ni crédits d'essai ni sponsor |
@@ -122,16 +122,25 @@ Restent à décider par Ali et Noé, avant samedi : la marge acquise, les liquid
 
 ### Contrats mainnet
 
-Toujours commencer par une exécution à blanc. Elle vérifie sur le RPC mainnet le code et les décimales de l'USDC, que l'admin KYB est bien un contrat, et n'envoie rien :
+Le jeton de règlement mainnet est **USDG** (« Global Dollar », Paxos), `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`. Les variables gardent leur nom historique `SIRIUS_USDC_ADDRESS` et `SIRIUS_USDC_CODE_HASH` : elles désignent l'USDG.
+
+Toujours commencer par une exécution à blanc. Elle vérifie sur le RPC mainnet le code et les décimales de l'USDG, que l'admin KYB est bien un contrat, et n'envoie rien :
 
 ```bash
 SIRIUS_DEPLOY_NETWORK=mainnet SIRIUS_ALLOW_MAINNET=true SIRIUS_BILLING_VERSION=7 SIRIUS_DEPLOY_DRY_RUN=true \
-SIRIUS_USDC_ADDRESS=0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8 \
-SIRIUS_USDC_CODE_HASH=0x487e3e7ba0f6ef76ccd39c373954f0edcdfe15c8817bdca4ef73f6df3963e694 \
+SIRIUS_USDC_ADDRESS=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 \
+SIRIUS_USDC_CODE_HASH=0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6 \
 SIRIUS_KYB_ADMIN=<Safe> SIRIUS_KYB_VERIFIER=<vérificateur 1> SIRIUS_LOCK_AUTHORIZER=<adresse attestée de la CVM> \
 pnpm contracts:deploy:testnet
 ```
 
 La clé de déploiement se charge sans passer par l'historique du shell, avant la commande : `read -rs ROBINHOOD_DEPLOYER_KEY && export ROBINHOOD_DEPLOYER_KEY`. Le nom du script contient « testnet » pour des raisons historiques : c'est `SIRIUS_DEPLOY_NETWORK` qui choisit le réseau.
 
-Sur mainnet, le script refuse : la v6, le KYB ouvert, les rôles partagés, un autre USDC, un admin KYB sans code, et toute adresse commune entre déployeur, admin KYB, vérificateur et signataire de lock. Le second vérificateur s'ajoute ensuite par le Safe.
+Sur mainnet, le script refuse : la v6, le KYB ouvert, les rôles partagés, tout jeton autre que l'USDG (l'ancien USDC natif `0x80e0…6cA8` compris), un admin KYB sans code, et toute adresse commune entre déployeur, admin KYB, vérificateur et signataire de lock. Le second vérificateur s'ajoute ensuite par le Safe.
+
+**Ce que prouve le code hash de l'USDG, et ce qu'il ne prouve pas.** Le contrat USDG est un **proxy ERC-1967** de 170 octets. Le hash ci-dessus est celui du proxy, relevé sur le RPC public `https://rpc.mainnet.chain.robinhood.com` le 4 octobre 2026 (`eth_getCode` puis keccak256), avec `name()` = « Global Dollar », `symbol()` = « USDG », `decimals()` = 6, `paused()` = false ; l'implémentation pointée ce jour-là était `0x68184c449e1a8f34fa18d289737129fd27b66f8f` (code hash `0x3a551ac5c744af57e68a1d1431ac403c0f516ffd7d224a75746aee11fc4f3baf`). Conséquences :
+
+- Le contrôle du code hash garantit qu'on déploie contre **le même proxy**, pas que la logique du jeton est inchangée : Paxos peut remplacer l'implémentation (nouvelle version, correctif, gel d'adresses) sans que ce hash bouge. C'est l'adresse épinglée dans `deploy-policy.ts` qui identifie le jeton ; le hash ne fait que détecter une adresse vide ou un contrat d'une autre forme.
+- Les décimales sont lues à travers le proxy, donc sur l'implémentation courante : ce contrôle-là reste significatif à chaque exécution (déploiement, préflight, initialisation du runner).
+- Si l'exécution à blanc refuse le code hash alors que l'adresse est la bonne, relever le nouveau hash on-chain (`eth_getCode` sur `0x5fc5…d168`, keccak256), vérifier sur `robinhoodchain.blockscout.com` que le proxy est toujours celui de Paxos, puis mettre à jour cette commande. Ne jamais contourner le contrôle.
+- Paxos conserve, par l'implémentation, le pouvoir de geler des adresses et de mettre le jeton en pause : un gel du Safe, de l'escrow ou d'un utilisateur bloquerait les règlements et les remboursements. L'escrow ne peut rien contre cela ; c'est un risque accepté de tout stablecoin réglementé, à surveiller (`paused()`, et les événements de gel de l'implémentation).

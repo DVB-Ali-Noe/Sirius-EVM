@@ -2,12 +2,26 @@ import { ERROR_MESSAGES_EN } from "./errors-en";
 import { PHALA_MESSAGES_EN } from "./phala-en";
 import { LEGAL_MESSAGES_EN } from "./legal-en";
 import { SHARED_MESSAGES_EN } from "./shared-en";
+import { DATASETS_MESSAGES_EN } from "./datasets-en";
+import { UPLOAD_MESSAGES_EN } from "./upload-en";
+import { PROFILE_MESSAGES_EN } from "./profile-en";
+import { TOUR_MESSAGES_EN } from "./tour-en";
+import { MARKETPLACE_MESSAGES_EN } from "./marketplace-en";
+import { TRAIN_MESSAGES_EN } from "./train-en";
+import { SETTINGS_MESSAGES_EN } from "./settings-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
   ...PHALA_MESSAGES_EN,
   ...SHARED_MESSAGES_EN,
   ...LEGAL_MESSAGES_EN,
+  ...DATASETS_MESSAGES_EN,
+  ...UPLOAD_MESSAGES_EN,
+  ...PROFILE_MESSAGES_EN,
+  ...TOUR_MESSAGES_EN,
+  ...MARKETPLACE_MESSAGES_EN,
+  ...TRAIN_MESSAGES_EN,
+  ...SETTINGS_MESSAGES_EN,
   "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",
@@ -34,7 +48,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Version d’escrow non prise en charge": "Unsupported escrow version",
   "Crédits escrow indisponibles": "Escrow credits unavailable",
   "La session ne correspond pas au wallet connecté": "The session does not match the connected wallet",
-  "USDC à retirer": "USDC available to withdraw",
+  "{token} à retirer": "{token} available to withdraw",
   "Les règlements et remboursements sont crédités ici. Retire-les pour les recevoir dans ton wallet ; le gas est à ta charge.": "Settlements and refunds are credited here. Withdraw them to your wallet; you pay the gas fee.",
   "Ancien escrow": "Previous escrow",
   "Escrow courant": "Current escrow",
@@ -362,8 +376,8 @@ export const EN_MESSAGES: Record<string, string> = {
   "borrower": "borrower",
   "échéance": "deadline",
   "ledger evidence": "ledger evidence",
-  "Lock USDC": "Lock USDC",
-  "Remboursement USDC": "Refund USDC",
+  "Lock {token}": "Lock {token}",
+  "Remboursement {token}": "Refund {token}",
   "REFUNDED": "REFUNDED",
   "Reçu d’audit": "Audit receipt",
   "Visibilité invalide": "Invalid visibility",

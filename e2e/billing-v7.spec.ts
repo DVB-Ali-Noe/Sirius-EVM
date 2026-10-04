@@ -38,6 +38,20 @@ const listed = {
   metrics: { rowCount: 48_000, columnCount: 24 },
 };
 
+/** Réponse de `GET /api/marketplace/[id]` pour `listed` : frais de calcul du dernier devis connus. */
+const listingDetail = {
+  dataset: {
+    id: listed.id, name: listed.name, description: listed.description, category: "mobility", modelId: listed.modelId,
+    modelVersion: listed.modelVersion, rowCount: 48_000, columnCount: 24, sizeBytes: listed.sizeBytes, providerPriceAtomic: PRICE,
+    priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 0, verified: true,
+    listedAt: "2026-10-01T00:00:00.000Z", provider: PROVIDER, challengeDays: 3, settledCount: 0, refundedCount: 0, successRate: null,
+    computeFee: { kind: "quoted", atomic: COMPUTE },
+  },
+  token: { symbol: "USDC", decimals: DECIMALS },
+  kybAvailable: true,
+  billingMode: "v7",
+};
+
 function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
   return {
     version: 7, chainId: 46630, escrow: ESCROW, usdc: USDC, usdcDecimals: DECIMALS, runner: runner.address.toLowerCase() as Hex,
@@ -102,6 +116,8 @@ async function installApi(page: Page, api: Api) {
     const method = route.request().method();
     const path = url.pathname;
     if (path === "/api/datasets" && url.searchParams.get("status") === "LISTED") return json(route, [listed]);
+    // Fiche publique : l'emprunt part de `/marketplace/[id]`, avec le prix du dataset de la fiche.
+    if (path === `/api/marketplace/${listed.id}`) return json(route, listingDetail);
     if (path === "/api/datasets" || path === "/api/train") return json(route, []);
     if (path === "/api/loans" && method === "GET") return json(route, api.loans ?? []);
     if (path === "/api/loans" && method === "POST") { calls.prepare++; return json(route, api.prepare); }
@@ -142,7 +158,7 @@ test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; acc
     prepare: { loanId: LOAN_ID, approveTransaction: { to: USDC, data: "0x" }, lockTransaction: { to: ESCROW, data: "0x" }, billingQuote: signed },
     authorize: { lockTransaction: { to: ESCROW, data: "0x" }, authorizationDeadline: Math.floor(Date.now() / 1000) + 240, billingQuote: signed },
   });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -173,7 +189,7 @@ test("I4 : annuler le devis n'envoie aucune transaction et ne demande aucune aut
   const signed = await sign(quote());
   await installWallet(page);
   const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -189,7 +205,7 @@ test("I3 : un changement de compte pendant le devis ferme le devis sans rien sig
   const signed = await sign(quote());
   await installWallet(page);
   const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
@@ -210,7 +226,7 @@ for (const [title, prepare, message] of [
     const signed = await prepare();
     await installWallet(page);
     const calls = await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, ...(signed ? { billingQuote: signed } : {}) } });
-    await page.goto("/marketplace");
+    await page.goto(`/marketplace/${listed.id}`);
     await connect(page);
     await (await borrowButton(page)).click();
     await expect(page.getByText(message)).toBeVisible();
@@ -224,7 +240,7 @@ test("un devis présenté sur un escrow v6 est refusé : le parcours historique 
   const signed = await sign(quote());
   await installWallet(page, "sirius-escrow-usdc-v6");
   await installApi(page, { prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed } });
-  await page.goto("/marketplace");
+  await page.goto(`/marketplace/${listed.id}`);
   await connect(page);
   await (await borrowButton(page)).click();
   await expect(page.getByText("Compute quote is missing or incompatible with the escrow")).toBeVisible();
@@ -232,7 +248,7 @@ test("un devis présenté sur un escrow v6 est refusé : le parcours historique 
 });
 
 const loanBase = {
-  id: "loan-failed", datasetId: listed.id, amountUsdcAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), usdcDecimals: DECIMALS,
+  id: "loan-failed", datasetId: listed.id, borrower: BORROWER, amountUsdcAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), usdcDecimals: DECIMALS,
   datasetAmountUsdcAtomic: PRICE, computeAmountUsdcAtomic: COMPUTE, modelId: "linear_regression", modelVersion: "1.0.0",
   evmLockTxHash: hash(9), evmLoanKey: hash(8), settleTxHash: null, cancelTxHash: null, modelCid: null, runnerReceipt: null,
   evmDeadline: "2026-10-01T10:13:06.000Z", createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: listed.name, runnerReceipt: null }, refundable: false,
@@ -257,8 +273,8 @@ test("I8 : après l'échéance, récupérer l'escrow envoie refund(loanKey) au b
   const calls = await installApi(page, { prepare: {}, loans: [{ ...loanBase, id: "loan-refundable", status: "ESCROWED", refundable: true }], cancel: [{ transaction: refundTx }, {}] });
   await page.goto("/train");
   await connect(page);
-  await expect(page.getByRole("button", { name: "Recover escrow" })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Recover escrow" }).click();
+  await expect(page.getByRole("button", { name: "Refund", exact: true })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Refund", exact: true }).click();
   await expect.poll(() => calls.cancel).toBe(2);
   const sent = await transactions(page);
   expect(sent).toHaveLength(1);
@@ -266,4 +282,37 @@ test("I8 : après l'échéance, récupérer l'escrow envoie refund(loanKey) au b
   const decoded = decodeFunctionData({ abi: siriusescrowAbi, data: sent[0].data });
   expect(decoded.functionName).toBe("refund");
   expect(decoded.args?.[0]).toBe(hash(8));
+});
+
+test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant tout paiement", async ({ page }) => {
+  const signed = await sign(quote());
+  await installWallet(page);
+  const calls = await installApi(page, {
+    prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed },
+    loans: [{ ...loanBase, id: "loan-done", status: "SETTLED", settleTxHash: hash(6), modelCid: "bafy-model" }],
+  });
+  // Enregistrée après installApi : Playwright essaie les routes de la plus récente à la plus ancienne.
+  const bodies: unknown[] = [];
+  await page.route("**/api/loans", (route) => {
+    if (route.request().method() === "POST") bodies.push(route.request().postDataJSON());
+    return route.fallback();
+  });
+  await page.goto("/train");
+  await connect(page);
+  const retrain = page.getByRole("button", { name: "Retrain", exact: true });
+  await expect(retrain).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("retrain-panel")).toContainText("Linear and logistic regression are deterministic");
+  await retrain.click();
+  // Prix de la fiche avant même le devis : donnée + calcul = total.
+  await expect(page.getByTestId("retrain-panel").getByText("8.75 USDC", { exact: true })).toBeVisible();
+  expect(calls.prepare).toBe(0);
+  await page.getByRole("button", { name: "View the quote and retrain" }).click();
+  const dialog = page.getByRole("dialog", { name: "Training quote" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("8.75 USDC", { exact: true })).toBeVisible();
+  expect(bodies).toEqual([{ datasetId: listed.id }]);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await transactions(page)).toHaveLength(0);
+  expect(calls.authorize).toBe(0);
 });

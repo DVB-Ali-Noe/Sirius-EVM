@@ -12,6 +12,7 @@ import { readJson } from "@/lib/http/body";
 import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { requireMutationGrant } from "@/lib/auth/mutation-grant";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { assertVisibilityChange, loadOwnedDataset } from "@/lib/datasets/manage";
 
 export const runtime = "nodejs";
 
@@ -48,9 +49,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }>(req);
     if (typeof visibility !== "string") return NextResponse.json({ error: "Visibilité invalide" }, { status: 400 });
     if (!authorization) return NextResponse.json({ error: "Confirmation wallet requise" }, { status: 400 });
-    const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
-    if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
-    assertOwner(session, owned.provider);
+    // Propriété vérifiée dans la requête : absent et autre wallet répondent le même 404.
+    const owned = await loadOwnedDataset(prisma, id, session.address);
+    // Même règles que la remise en ligne de la fiche (`/settings/listing`) : pas de passage à
+    // « Public » pour une annonce expirée ni en démo Phala, et pas de détour par
+    // « Semi-privé » depuis un dataset privé en démo.
+    // `setDatasetVisibility` ne rejoue pas ces conditions en base (fenêtre de course minime,
+    // documentée dans audit.md N1).
+    assertVisibilityChange(visibility, owned, Date.now(), { demoMode: process.env.SIRIUS_PHALA_DEMO === "true" });
     await requireMutationGrant(session, authorization, {
       operation: "set-dataset-visibility",
       datasetId: id,

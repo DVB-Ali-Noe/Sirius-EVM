@@ -1,6 +1,6 @@
-# Décisions à prendre avant samedi matin
+# Décisions à prendre avant le déploiement mainnet
 
-Les contrats mainnet sont déployés **samedi 4 octobre**. Ils sont immuables : toute décision qui touche ce qu'ils enregistrent doit être prise avant. Ce fichier liste les quatre décisions, l'option retenue et ce qu'elle implique dans le code.
+Les contrats mainnet sont déployés **lundi 5 octobre**. Ils sont immuables : toute décision qui touche ce qu'ils enregistrent doit être prise avant. Ce fichier liste les quatre décisions, l'option retenue et ce qu'elle implique dans le code.
 
 Priorité : **P0**. Responsables : Ali et Noé.
 
@@ -10,30 +10,44 @@ Priorité : **P0**. Responsables : Ali et Noé.
 
 **Décision** : l'escrow mainnet est déployé avec **USDG** (Paxos) au lieu de l'USDC natif.
 
-**Ce que ça implique.** L'escrow n'accepte qu'un seul jeton, fixé dans son constructeur. Le code a été préparé pour l'USDC natif `0x80e0…6ca8` : il faut le généraliser au jeton retenu.
+**Ce que ça implique.** L'escrow n'accepte qu'un seul jeton, fixé dans son constructeur. Le code avait été préparé pour l'USDC natif `0x80e0…6ca8` : il impose maintenant l'USDG (slice A8, branche `feat/usdg`).
 
-**Trouver et vérifier l'adresse officielle d'USDG**, au moment de commencer à coder :
+**Adresse confirmée le 4 octobre 2026** : `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (en minuscules dans le code : `0x5fc5360d0400a0fd4f2af552add042d716f1d168`).
+
+| Point | Résultat |
+|---|---|
+| Source officielle | Documentation Paxos, « USDG on Main Networks », ligne Robinhood (même adresse que dans « Robinhood Chain Token Contracts » de docs.robinhood.com) |
+| Lecture on-chain (RPC public `rpc.mainnet.chain.robinhood.com`, chaîne `0x1237` = 4663) | `name()` = « Global Dollar », `symbol()` = « USDG », `decimals()` = **6**, `paused()` = false, `totalSupply()` ≈ 700 M USDG |
+| Forme du contrat | **Proxy ERC-1967** (170 octets, slot d'implémentation renseigné, slot d'admin vide : évolutif par l'implémentation, c'est-à-dire par Paxos) ; implémentation `0x68184c449e1a8f34fa18d289737129fd27b66f8f` ce jour-là |
+| Code hash du proxy (`SIRIUS_USDC_CODE_HASH`) | `0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6` ; code hash de l'implémentation `0x3a551ac5c744af57e68a1d1431ac403c0f516ffd7d224a75746aee11fc4f3baf` |
+| Décimales dans le code | `USDC_DECIMALS_BY_NETWORK.mainnet` reste à 6 : rien à changer, et `deploy.ts` revérifie on-chain avant d'envoyer |
+| Frais de transfert, rebasage | Non observés dans les lectures (supply fixe entre deux appels, jeton réglementé à parité) ; **à confirmer à la main** sur l'explorateur (contrat vérifié, source Paxos, absence de `fee`/`rebase`) avant le déploiement, l'API de Blockscout étant derrière un défi anti-robot depuis la ligne de commande |
+| Pouvoirs de Paxos | Pause globale et gel d'adresses par l'implémentation : un gel du Safe ou de l'escrow bloquerait règlements et remboursements. Risque accepté, documenté dans les runbooks |
+
+**Vérifications d'origine, pour mémoire** :
 
 1. Prendre l'adresse sur une source officielle : la page « contract addresses » de la documentation Paxos pour USDG, ou la documentation de Robinhood Chain. Jamais une adresse trouvée sur un DEX ou un agrégateur : plusieurs jetons portent le même nom.
 2. Vérifier sur l'explorateur `robinhoodchain.blockscout.com` que le contrat est vérifié, nommé « Global Dollar », symbole USDG, émis par Paxos.
 3. Lire `decimals()` et le code hash avec l'exécution à blanc du script de déploiement (voir [17](17-audit-et-lancement-restants.md)). L'USDG est annoncé à 6 décimales : à confirmer on-chain.
 4. Vérifier qu'il n'a ni frais de transfert ni rebasage : l'escrow suppose qu'un `transferFrom` de N crédite exactement N.
 
-**Fichiers à adapter** une fois l'adresse confirmée :
+**Fichiers adaptés** (slice A8) :
 
 | Fichier | Changement |
 |---|---|
-| `scripts/deploy-policy.ts` | `MAINNET_USDC` devient le jeton retenu, avec son code hash |
+| `src/lib/evm/stablecoin.ts` (nouveau) | Source unique : adresse USDG, symbole, nom, décimales, `stablecoinSymbol(network)` |
+| `scripts/deploy-policy.ts` | `MAINNET_STABLECOIN` = USDG (alias `MAINNET_USDC` conservé) ; le code hash reste fourni par `SIRIUS_USDC_CODE_HASH` et contrôlé on-chain par `deploy.ts` |
 | `scripts/initialize-runner-volume.ts` | Même constante pour la politique de facturation |
-| `scripts/phala-v7-preflight.ts`, `scripts/operations/release-check.mjs` | Contrôle du jeton et de ses décimales |
-| `src/lib/evm/networks.ts` | `USDC_DECIMALS_BY_NETWORK.mainnet` si les décimales diffèrent de 6 |
-| Interface (`wallet`, `dashboard`, `marketplace`, upload) | Libellé « USDG » sur mainnet au lieu de « USDC » |
-| `src/app/api/onramp/route.ts` | Le pont Across supporte-t-il USDG ? Sinon, autre moyen d'ajout de fonds ([05](05-wallet.md)) |
-| `docs/MAINNET-RUNBOOKS.md` | Commandes de déploiement avec la nouvelle adresse |
+| `scripts/phala-v7-preflight.ts`, `scripts/operations/release-check.mjs` | Contrôle du jeton (USDG uniquement) et de ses décimales |
+| `src/lib/evm/networks.ts` | `USDC_DECIMALS_BY_NETWORK.mainnet` reste 6 (confirmé on-chain), commentaire mis à jour |
+| Interface (`wallet`, `dashboard`, `/status`) | Libellé « USDG » sur mainnet au lieu de « USDC » via `stablecoinSymbol` |
+| `marketplace`, upload, train, explorer | **Non faits** : textes « USDC » dans les fichiers d'autres slices (N2, N3, N4, A7), à reprendre avec `stablecoinSymbol` |
+| `src/app/api/onramp/route.ts` | Inchangé : Across livre bien de l'USDG sur Robinhood Chain (l'USDC envoyé depuis 13 chaînes arrive en USDG ; l'USDG d'Ethereum passe directement). Le pont correspond donc enfin au jeton de l'escrow |
+| `docs/MAINNET-RUNBOOKS.md` | Commande d'exécution à blanc avec l'adresse et le code hash USDG, note sur le proxy évolutif |
 
 Les variables d'environnement gardent leur nom historique `SIRIUS_USDC_ADDRESS` : renommer partout pour le lancement ajouterait du risque pour rien.
 
-**Terminé quand** : l'exécution à blanc du déploiement passe avec l'adresse USDG, et les tests de `deploy-policy` couvrent le refus d'un autre jeton.
+**Terminé quand** : l'exécution à blanc du déploiement passe avec l'adresse USDG (à lancer par Ali ou Noé avec la clé de déploiement : voir la commande des [runbooks](../MAINNET-RUNBOOKS.md)), et les tests de `deploy-policy` couvrent le refus d'un autre jeton (fait : l'ancien USDC natif et tout autre jeton sont refusés sur mainnet, dans les quatre scripts).
 
 ---
 
@@ -41,7 +55,7 @@ Les variables d'environnement gardent leur nom historique `SIRIUS_USDC_ADDRESS` 
 
 **Décision** : chaque ré-entraînement est **un nouvel emprunt complet**. La donnée est payée à nouveau, plus le calcul.
 
-**Pourquoi.** Le contrat v7 refuse un prêt dont le montant de la donnée vaut zéro (`ZeroAmount`). Faire payer seulement le calcul demanderait de modifier le contrat avant samedi, sans audit de cette modification : un risque disproportionné à deux jours du lancement.
+**Pourquoi.** Le contrat v7 refuse un prêt dont le montant de la donnée vaut zéro (`ZeroAmount`). Faire payer seulement le calcul demanderait de modifier le contrat avant le déploiement, sans audit de cette modification : un risque disproportionné à deux jours du lancement.
 
 **Ce que ça implique** :
 

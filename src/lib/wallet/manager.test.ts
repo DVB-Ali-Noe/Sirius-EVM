@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { displayAddress } from "@/lib/evm/address";
 import {
+  connectExternalWallet,
   disconnectWallet,
   ensureExpectedChain,
   expectedChainId,
@@ -177,4 +178,35 @@ test("un retrait invalidé pendant la vérification du réseau n'est pas envoyé
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
   }
+});
+
+test("un site pas encore autorisé obtient le compte avant de demander le réseau", async () => {
+  const requests: string[] = [];
+  let authorized = false;
+  let chain = "0x1";
+  const wallet: Eip1193Provider = {
+    request: async ({ method, params }) => {
+      requests.push(method);
+      if (method === "wallet_requestPermissions") { authorized = true; return [{ parentCapability: "eth_accounts" }]; }
+      if (method === "eth_requestAccounts") { authorized = true; return ["0x2f9b9a9eb5fef4f4a2218984a6f27d9f4174d13d"]; }
+      if (method === "eth_chainId") return chain;
+      if (method === "wallet_switchEthereumChain") {
+        // Comportement de MetaMask : refus immédiat (4100) tant que le site n'est pas autorisé.
+        if (!authorized) throw Object.assign(new Error("Unauthorized"), { code: 4100 });
+        chain = (params as Array<{ chainId: string }>)[0].chainId;
+        return null;
+      }
+      throw new Error(`Méthode inattendue : ${method}`);
+    },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: wallet, localStorage: { getItem: () => null } } });
+  try {
+    const connected = await connectExternalWallet(wallet);
+    assert.equal(connected.chainId, expectedChainId());
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+  assert.ok(requests.indexOf("eth_requestAccounts") < requests.indexOf("wallet_switchEthereumChain"));
 });
