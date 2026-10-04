@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { NextResponse } from "next/server";
@@ -47,8 +47,8 @@ function sourceFiles(directory: string, keep: (name: string) => boolean): string
   });
 }
 
-const SELF_TRAINING_ROUTES = sourceFiles(join(ROOT, "src", "app", "api", "train"), (name) => name === "route.ts").sort();
-const SOURCES = sourceFiles(join(ROOT, "src"), (name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name));
+const SELF_TRAINING_ROUTES = sourceFiles(join(ROOT, "src", "app", "api", "train"), (name) => /^route\.(ts|tsx|js|mjs|cjs)$/.test(name)).sort();
+const SOURCES = sourceFiles(join(ROOT, "src"), (name) => /\.(ts|tsx|js|mjs|cjs)$/.test(name) && !/\.test\.(ts|tsx|js|mjs|cjs)$/.test(name));
 
 function isExported(node: ts.Node): boolean {
   return (ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Export) !== 0;
@@ -62,9 +62,10 @@ function handlers(source: ts.SourceFile): { method: string; node: ts.Node }[] {
       if (HTTP_METHODS.has(statement.name.text)) found.push({ method: statement.name.text, node: statement });
     } else if (ts.isVariableStatement(statement) && isExported(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && HTTP_METHODS.has(declaration.name.text)) {
-          found.push({ method: declaration.name.text, node: declaration.initializer ?? declaration });
+        if (!ts.isIdentifier(declaration.name)) {
+          assert.fail(`${source.fileName} : export par déstructuration non inspecté (${declaration.getText(source).slice(0, 60)})`);
         }
+        if (HTTP_METHODS.has(declaration.name.text)) found.push({ method: declaration.name.text, node: declaration.initializer ?? declaration });
       }
     } else if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
       assert.fail(`${source.fileName} : réexportation non inspectée (${statement.getText(source).slice(0, 60)})`);
@@ -108,6 +109,19 @@ function importedModules(source: ts.SourceFile): string[] {
   };
   visit(source);
   return out;
+}
+
+/** Vrai si `specifier`, importé depuis `file`, désigne le module `target` (chemin sans extension depuis la racine). */
+function resolvesTo(file: string, specifier: string, target: string): boolean {
+  let path: string;
+  if (specifier.startsWith("@/")) path = join("src", specifier.slice(2));
+  else if (specifier.startsWith(".")) path = relative(ROOT, resolve(ROOT, dirname(file), specifier));
+  else return false;
+  return path.replace(/\.(ts|tsx|js|mjs|cjs)$/, "").replace(/\/index$/, "") === target;
+}
+
+function importersOf(target: string, files = SOURCES): string[] {
+  return files.filter((file) => importedModules(parse(file)).some((specifier) => resolvesTo(file, specifier, target))).sort();
 }
 
 function identifiers(source: ts.SourceFile, name: string): number {
@@ -168,12 +182,33 @@ test("la liste des jobs et le lancement tolèrent la démo Phala, la livraison d
     .map((call) => key.text.slice(call.pos, key.text.indexOf(");", call.pos))), ["assertSelfTrainingAccess(session"]);
 });
 
+test("la résolution des imports reconnaît l'alias, les chemins relatifs, frères et avec extension", () => {
+  const target = "src/lib/sirius/self-train";
+  for (const [file, specifier] of [
+    ["src/lib/sirius/trainer.ts", "./self-train"], ["src/lib/sirius/trainer.ts", "./self-train.ts"],
+    ["src/lib/auth/x.ts", "../sirius/self-train.js"], ["src/app/api/x/route.ts", "@/lib/sirius/self-train"],
+    ["src/app/api/x/route.ts", "@/lib/sirius/self-train.ts"], ["src/app/api/x/route.ts", "../../../lib/sirius/self-train"],
+  ]) assert.equal(resolvesTo(file, specifier, target), true, `${file} → ${specifier}`);
+  for (const [file, specifier] of [
+    ["src/lib/sirius/trainer.ts", "./self-training-access"], ["src/lib/sirius/trainer.ts", "self-train"],
+    ["src/lib/sirius/trainer.ts", "@/lib/sirius/self-train-report"], ["src/lib/sirius/trainer.ts", "viem"],
+  ]) assert.equal(resolvesTo(file, specifier, target), false, `${file} → ${specifier}`);
+  const synthetic = ts.createSourceFile("src/lib/sirius/trainer.ts",
+    'import { runSelfTrain } from "./self-train";\nexport { x } from "../sirius/self-train.ts";\nconst m = await import("@/lib/sirius/self-train");\nconst r = require("./self-train.js");',
+    ts.ScriptTarget.Latest, true);
+  assert.equal(importedModules(synthetic).filter((specifier) => resolvesTo("src/lib/sirius/trainer.ts", specifier, target)).length, 4);
+});
+
 test("aucun autre fichier n'atteint le self training, sous aucune forme d'import", () => {
-  const importers = (suffix: string) => SOURCES.filter((file) => importedModules(parse(file)).some((module) => module.endsWith(suffix))).sort();
-  assert.deepEqual(importers("/sirius/self-train"), ["src/app/api/train/route.ts"]);
+  assert.deepEqual(importersOf("src/lib/sirius/self-train"), ["src/app/api/train/route.ts"]);
   const outsideTee = SOURCES.filter((file) => !file.startsWith("src/lib/tee/"));
   assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "selfTrainModelKeyInRunner") > 0).sort(), ["src/app/api/train/[id]/key/route.ts"]);
   assert.deepEqual(outsideTee.filter((file) => identifiers(parse(file), "runSelfTrainingInRunner") > 0).sort(), ["src/lib/sirius/self-train.ts"]);
+  // `runSelfTrain` est aussi le nom de la fonction navigateur de src/lib/train/client.ts ; tout nouvel usage doit être relu.
+  assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "runSelfTrain") > 0).sort(),
+    ["src/app/(app)/train/page.tsx", "src/app/api/train/route.ts", "src/lib/sirius/self-train.ts", "src/lib/train/client.ts"]);
+  // Le chemin runner en processus n'est joignable que par le client runner, jamais par une route.
+  assert.deepEqual(importersOf("src/runner/handler", SOURCES.filter((file) => !file.startsWith("src/runner/"))), ["src/lib/tee/runner-client.ts"]);
   const guardCallers = SOURCES.filter((file) => file !== "src/lib/sirius/self-training-access.ts" && identifiers(parse(file), "assertSelfTrainingAccess") > 0).sort();
   assert.deepEqual(guardCallers, SELF_TRAINING_ROUTES, "la garde n'est appelée que par les routes de self training");
 });
@@ -236,6 +271,15 @@ async function withEnv<T>(overrides: Partial<Record<(typeof ENV_KEYS)[number], s
     for (const key of ENV_KEYS) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
   }
 }
+
+test("les handlers inspectés sont exactement ceux que chaque module de route exporte", () => {
+  const { train, key, me } = routes({ address: VISITOR, source: "external" });
+  for (const [file, module] of [["src/app/api/train/route.ts", train], ["src/app/api/train/[id]/key/route.ts", key], ["src/app/api/admin/me/route.ts", me]] as const) {
+    const exported = Object.keys(module).filter((name) => HTTP_METHODS.has(name)).sort();
+    assert.deepEqual(exported, handlers(parse(file)).map(({ method }) => method).sort(), file);
+    assert.ok(exported.length > 0, file);
+  }
+});
 
 function routes(session: { address: string; source: "external" }) {
   const calls: string[] = [];

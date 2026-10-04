@@ -81,9 +81,18 @@ test("au-delà du plafond d'adresses, la liste est refusée", () => {
   assert.equal(adminAddresses(atLimit).length, MAX_ADMIN_ADDRESSES);
   assert.equal(adminAllowed(ALI, atLimit), true);
   const overLimit = `${atLimit},${NOE}`;
-  assert.deepEqual(adminAddresses(overLimit), []);
-  assert.equal(adminAllowed(NOE, overLimit), false);
-  assert.equal(adminAllowed(ALI, overLimit), false);
+  const duplicates = Array(MAX_ADMIN_ADDRESSES + 1).fill(ALI).join(",");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.deepEqual(adminAddresses(overLimit), []);
+    assert.equal(adminAllowed(NOE, overLimit), false);
+    assert.equal(adminAllowed(ALI, overLimit), false);
+    assert.deepEqual(adminAddresses(duplicates), [], "le plafond compte les entrées, doublons compris");
+    assert.equal(adminAllowed(ALI, duplicates), false);
+  } finally {
+    console.warn = warn;
+  }
 });
 
 test("une adresse comparée invalide n'est jamais administratrice", () => {
