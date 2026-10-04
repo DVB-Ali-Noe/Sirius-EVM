@@ -11,7 +11,7 @@ const CHECKSUM = "0x2f9B9A9Eb5fEf4F4a2218984a6F27d9f4174D13D";
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("ajout de fonds sur mainnet : transfert et pont, pas de faucet", () => {
-  assert.deepEqual(addFundsOptions("mainnet"), { faucet: false, bridge: true, transfer: true });
+  assert.deepEqual(addFundsOptions("mainnet"), { faucet: false, bridge: false, transfer: true });
 });
 
 test("ajout de fonds sur testnet : le faucet actuel, sans transfert ni pont", () => {

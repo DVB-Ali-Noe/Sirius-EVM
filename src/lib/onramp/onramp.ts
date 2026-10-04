@@ -69,7 +69,8 @@ export function onrampOptions(network: EvmNetwork, env: Env = process.env): Onra
   if (network !== "mainnet") {
     return { network, faucet: true, card: false, transfer: false, bridge: false, minCardUsd: CARD_MIN_USD };
   }
-  return { network, faucet: false, card: cardAvailable(network, env), transfer: true, bridge: true, minCardUsd: CARD_MIN_USD };
+  // Pont retiré de la fenêtre le 4 octobre : deux choix seulement, carte et autre wallet.
+  return { network, faucet: false, card: cardAvailable(network, env), transfer: true, bridge: false, minCardUsd: CARD_MIN_USD };
 }
 
 export interface OnrampRequest {

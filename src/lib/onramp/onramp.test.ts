@@ -54,7 +54,7 @@ test("options testnet : faucet seul", () => {
 });
 
 test("options mainnet : transfert et pont, carte selon les clés", () => {
-  assert.deepEqual(onrampOptions("mainnet", LIVE), { network: "mainnet", faucet: false, card: true, transfer: true, bridge: true, minCardUsd: 5 });
+  assert.deepEqual(onrampOptions("mainnet", LIVE), { network: "mainnet", faucet: false, card: true, transfer: true, bridge: false, minCardUsd: 5 });
   assert.equal(onrampOptions("mainnet", {}).card, false);
 });
 
@@ -71,7 +71,7 @@ test("GET /api/onramp/options est public et suit l'environnement", async () => {
   setEnv({ EVM_NETWORK: "mainnet", ...LIVE });
   let res = await getOptions();
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { network: "mainnet", faucet: false, card: true, transfer: true, bridge: true, minCardUsd: 5 });
+  assert.deepEqual(await res.json(), { network: "mainnet", faucet: false, card: true, transfer: true, bridge: false, minCardUsd: 5 });
 
   setEnv({ EVM_NETWORK: "mainnet", NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY: "pk_test_abc", MOONPAY_SECRET_KEY: "sk_test" });
   res = await getOptions();
