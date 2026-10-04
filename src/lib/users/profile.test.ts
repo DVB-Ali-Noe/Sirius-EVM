@@ -264,12 +264,30 @@ test("updateUserProfile fusionne tutos et réglages clé par clé, pose la date 
   const empty = fakeDb();
   view = await profile.updateUserProfile(SUBJECT, { settings: { sidebarCollapsed: true } }, empty.transaction);
   assert.deepEqual(view.settings, { sidebarCollapsed: true });
-  assert.deepEqual(empty.calls, [`findUnique:${SUBJECT}`, `create:${SUBJECT}`], "un profil absent est créé plutôt que refusé");
+  assert.deepEqual(empty.calls, [`findUnique:${SUBJECT}`, `upsert:${SUBJECT}`], "un profil absent est créé plutôt que refusé, par un upsert");
   assert.equal(empty.rows.get(SUBJECT)!.address, SUBJECT);
   assert.equal(view.createdAt, view.lastSeenAt, "le profil créé par un PATCH est daté d'une seule horloge");
   const firstTour = fakeDb();
   view = await profile.updateUserProfile(SUBJECT, { tourCompletedAt: true }, firstTour.transaction);
   assert.equal(view.tourCompletedAt, view.createdAt, "un tuto terminé dans le PATCH créateur ne précède pas la création");
+
+  // Course : la ligne apparaît (connexion dans un autre onglet) entre la lecture et l'écriture.
+  const raced = fakeDb();
+  const racedTransaction = async <T,>(action: (tx: never) => Promise<T>) => {
+    const tx = raced.db as never as { userProfile: { findUnique: (a: never) => Promise<unknown> } };
+    const original = tx.userProfile.findUnique;
+    tx.userProfile.findUnique = async (args: never) => {
+      const result = await original(args);
+      raced.rows.set(SUBJECT, { address: SUBJECT, tourCompletedAt: null, featureTours: { dashboard: true }, settings: {}, kybStatus: null, kybCheckedAt: null, blockedAt: null, blockedReason: null, blockedBy: null, createdAt: new Date(), lastSeenAt: new Date() });
+      tx.userProfile.findUnique = original;
+      return result;
+    };
+    return action(raced.db as never);
+  };
+  view = await profile.updateUserProfile(SUBJECT, { settings: { sidebarCollapsed: true } }, racedTransaction);
+  assert.deepEqual(view.settings, { sidebarCollapsed: true }, "l'écriture aboutit malgré la création concurrente");
+  assert.deepEqual(raced.calls, [`findUnique:${SUBJECT}`, `upsert:${SUBJECT}`]);
+  assert.equal(raced.rows.size, 1);
 
   const untouched = fakeDb();
   await assert.rejects(profile.updateUserProfile(SUBJECT, { kybStatus: "ACCEPTED" }, untouched.transaction), /non modifiable/);

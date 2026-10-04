@@ -226,7 +226,8 @@ export async function readUserProfile(address: unknown, db: Db = prisma): Promis
  * Applique une modification validée. `featureTours` et `settings` sont fusionnés clé par
  * clé avec l'existant, dans une transaction sérialisable : deux pages qui marquent leur
  * tuto en même temps ne s'effacent pas l'une l'autre. Le profil est créé s'il manque
- * (session ouverte avant la migration).
+ * (session ouverte avant la migration) par un upsert : une création concurrente entre la
+ * lecture et l'écriture (connexion dans un autre onglet) ne lève pas de violation d'unicité.
  */
 export async function updateUserProfile(
   address: unknown,
@@ -249,8 +250,10 @@ export async function updateUserProfile(
       data.settings = { ...sanitizeSettings(existing?.settings), ...patch.settings };
     }
     if (existing) return tx.userProfile.update({ where: { address: canonical }, data });
-    return tx.userProfile.create({
-      data: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical, createdAt: now },
+    return tx.userProfile.upsert({
+      where: { address: canonical },
+      create: { ...(data as Omit<Prisma.UserProfileUncheckedCreateInput, "address">), address: canonical, createdAt: now },
+      update: data,
     });
   });
   return toUserProfileView(row);
