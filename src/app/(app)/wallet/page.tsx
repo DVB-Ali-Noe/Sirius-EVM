@@ -143,7 +143,7 @@ function WalletPageContent() {
             disabled={fundsPending}
             className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
-            {fundsPending ? t("Envoi en cours…") : fundsOptions.faucet ? t("Ajouter des fonds") : t("Utiliser le pont")}
+            {fundsPending ? (fundsOptions.faucet ? t("Envoi en cours…") : t("Ouverture du pont…")) : fundsOptions.faucet ? t("Ajouter des fonds") : t("Utiliser le pont")}
           </button>
           {fundsMessage && <p className="max-w-[16rem] text-right text-xs text-muted">{fundsMessage}</p>}
           {!fundsMessage && fundsOptions.faucet && typeof starterFunds === "object" && (

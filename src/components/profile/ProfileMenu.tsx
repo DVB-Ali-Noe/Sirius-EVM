@@ -23,8 +23,10 @@ const ITEM_CLASS =
  * Bouton profil, en haut à droite de l'application (docs/passage-mainnet/05-wallet.md).
  *
  * Il n'existe que connecté : la connexion reste portée par le bouton de la barre latérale.
- * Sur ordinateur il est fixé en haut à droite et reste donc visible quel que soit le menu
- * latéral ; sur mobile, où la barre du haut est déjà occupée, il s'insère en tête du contenu.
+ * Il occupe une ligne alignée à droite en tête du contenu, sur ordinateur comme sur mobile.
+ * Une position fixe a été écartée : elle aurait recouvert les actions placées à droite de
+ * l'en-tête de plusieurs pages (Marketplace, Mes datasets) entre 768 et 1500 px de large,
+ * et la barre du haut du mobile est déjà occupée.
  *
  * Le menu est une fenêtre volante, pas un `role="menu"` : il mêle informations (réseau,
  * solde) et actions, ce que le motif ARIA « menu » ne prévoit pas.
@@ -54,13 +56,18 @@ export function ProfileMenu() {
   const checksummed = connected ? normalizeAddress(address) : null;
   const short = shortAddress(checksummed);
   // Rien à montrer sans adresse valide : la barre latérale garde la connexion et la déconnexion.
-  if (!checksummed || !short) return null;
+  if (!checksummed || !short) {
+    // Une déconnexion venue du wallet pendant que le menu est ouvert ne doit pas le rouvrir
+    // tout seul à la reconnexion. Ajustement d'état pendant le rendu, motif prévu par React.
+    if (open) setOpen(false);
+    return null;
+  }
 
   const badge = networkBadge(NETWORK);
   const wrongNetwork = isWrongNetwork(NETWORK, walletNetwork);
 
   return (
-    <div className="flex justify-end px-4 pb-2 md:fixed md:right-6 md:top-4 md:z-30 md:p-0">
+    <div className="flex justify-end px-4 md:px-6">
       <div className="relative">
         <button
           ref={trigger}
@@ -117,6 +124,9 @@ function ProfilePanel({
   // Lu à l'ouverture seulement : pas d'appel RPC tant que le menu reste fermé. Le panneau est
   // remonté (`key`) si l'adresse change, et `cancelled` écarte la réponse d'un compte remplacé.
   useEffect(() => {
+    // `eth_call` part sur la chaîne du wallet : sur un autre réseau, il rendrait le solde d'un
+    // autre jeton (ou rien) sous l'étiquette du jeton du site. On ne lit donc rien.
+    if (wrongNetwork) return;
     let cancelled = false;
     void fetchUsdcBalance(address)
       .then(({ atomic }) => {
@@ -130,7 +140,7 @@ function ProfilePanel({
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, wrongNetwork]);
 
   const handleTour = () => {
     if (requestGuidedTour()) onClose();
@@ -186,7 +196,9 @@ function ProfilePanel({
       <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
         <span className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</span>
         <span className="text-sm font-medium" data-testid="profile-balance">
-          {balance.status === "loading" ? "…" : balance.status === "error" ? t("Solde indisponible.") : `${balance.text} ${token}`}
+          {wrongNetwork
+            ? "—"
+            : balance.status === "loading" ? "…" : balance.status === "error" ? t("Solde indisponible.") : `${balance.text} ${token}`}
         </span>
       </div>
 

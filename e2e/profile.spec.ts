@@ -5,12 +5,6 @@ const SHORT = "0x2f9B…D13D";
 
 test.describe.configure({ timeout: 90_000 });
 
-declare global {
-  interface Window {
-    __SIRIUS_E2E__?: { connect: (address: string, role?: string | null) => void };
-  }
-}
-
 async function openApp(page: Page, path: string) {
   await page.route("**/api/**", (route) => route.fulfill({ json: { authenticated: false, known: true } }));
   await page.addInitScript(() => {
@@ -105,3 +99,13 @@ test("sans connexion, aucun bouton profil", async ({ page }) => {
   await page.goto("/explorer");
   await expect(page.getByTestId("profile-button")).toHaveCount(0);
 });
+
+for (const viewport of [{ width: 1100, height: 800 }, { width: 390, height: 800 }]) {
+  test(`le bouton profil ne recouvre pas le contenu de la page à ${viewport.width} px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await openApp(page, "/explorer");
+    const button = await page.getByTestId("profile-button").boundingBox();
+    const main = await page.locator("main").boundingBox();
+    expect(button && main && button.y + button.height <= main.y + 1).toBe(true);
+  });
+}

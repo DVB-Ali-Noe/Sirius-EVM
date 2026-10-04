@@ -20,6 +20,7 @@ export const PROFILE_MESSAGES_EN: Record<string, string> = {
 
   // Page Wallet : ajout de fonds
   "Utiliser le pont": "Use the bridge",
+  "Ouverture du pont…": "Opening the bridge…",
   "Voir sur l’explorateur": "View on explorer",
   "Recevoir des {token} par transfert": "Receive {token} by transfer",
   "Envoie des {token} sur Robinhood Chain à l’adresse ci-dessous, depuis un autre wallet ou une plateforme d’échange qui supporte ce réseau. Les fonds arrivent dès que le transfert est confirmé.":

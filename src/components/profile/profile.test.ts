@@ -72,6 +72,12 @@ test("montant : séparateurs de milliers, troncature et jamais d'arrondi à la h
   assert.equal(formatTokenAmount("5.10"), "5.1");
   assert.equal(formatTokenAmount("123456789012345678901234567890.1234567"), "123,456,789,012,345,678,901,234,567,890.1234");
   assert.equal(formatTokenAmount("1.23456", 2), "1.23");
+  // Non nul mais sous la précision affichée : jamais « 0 », qui ferait croire à un compte vide.
+  assert.equal(formatTokenAmount("0.00005"), "<0.0001");
+  assert.equal(formatTokenAmount("0.000000000000000001"), "<0.0001");
+  assert.equal(formatTokenAmount("0.001", 2), "<0.01");
+  assert.equal(formatTokenAmount("0.0000"), "0");
+  assert.equal(formatTokenAmount("1.00001"), "1");
 });
 
 test("montant : une entrée qui n'est pas un décimal positif est refusée", () => {

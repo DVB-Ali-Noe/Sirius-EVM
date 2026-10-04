@@ -68,5 +68,10 @@ export function formatTokenAmount(plain: string, maxFractionDigits = 4): string 
   if (!match) return null;
   const whole = new Intl.NumberFormat("en-US").format(BigInt(match[1]));
   const fraction = match[2]?.slice(0, maxFractionDigits).replace(/0+$/, "") ?? "";
+  // Non nul mais sous la précision affichée : « <0.0001 » plutôt que « 0 », qui ferait croire
+  // à un compte vide.
+  if (!fraction && BigInt(match[1]) === BigInt(0) && /[1-9]/.test(match[2] ?? "")) {
+    return `<0.${"0".repeat(Math.max(maxFractionDigits - 1, 0))}1`;
+  }
   return fraction ? `${whole}.${fraction}` : whole;
 }
