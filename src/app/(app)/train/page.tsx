@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
-import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
+import Link from "next/link";
+import { RetrainPanel } from "@/components/train/RetrainPanel";
 import { Card } from "@/components/ui/Card";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
 import { ConnectCta } from "@/components/wallet/ConnectCta";
@@ -12,8 +14,17 @@ import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { useUiStore } from "@/stores/ui";
+import { CONTACT_EMAIL, contactMailtoHref } from "@/lib/copy/disclaimers";
 import {
-  borrowDataset,
+  LOAN_STATE_LABEL_KEY,
+  LOAN_STATE_VARIANT,
+  canRefund,
+  canRetrain,
+  hasOtherActiveLoan,
+  loanDisplayState,
+  parseAdminResponse,
+} from "@/lib/train/loan-display";
+import {
   cancelExpiredLoan,
   resumeLoanSubmission,
   resumeLoanSettlement,
@@ -55,6 +66,7 @@ interface Dataset {
 interface Loan {
   id: string;
   datasetId: string;
+  borrower: string;
   amountUsdcAtomic: string;
   usdcDecimals?: number;
   datasetAmountUsdcAtomic?: string | null;
@@ -93,16 +105,6 @@ interface Delivery {
   modelKey: string;
 }
 
-const LOAN_VARIANT: Record<Loan["status"], BadgeVariant> = {
-  PENDING: "warning",
-  SUBMITTING: "warning",
-  ESCROWED: "accent",
-  TRAINING: "accent",
-  SETTLING: "accent",
-  SETTLED: "positive",
-  CANCELLED: "negative",
-};
-
 const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
   PENDING: "warning",
   RUNNING: "accent",
@@ -123,10 +125,13 @@ function TrainPageContent() {
   const { locale, t } = useLocale();
 
   const [mine, setMine] = useState<Dataset[]>([]);
-  const [catalogue, setCatalogue] = useState<Dataset[]>([]);
-  const [cursors, setCursors] = useState<{ mine: string | null; catalogue: string | null }>({ mine: null, catalogue: null });
-  const [paging, setPaging] = useState<Set<string>>(new Set());
-  const pageRequests = useRef(new Set<string>());
+  // Self training : réservé à l'équipe (`GET /api/admin/me`). `null` tant que la réponse n'est pas
+  // arrivée, et en cas d'erreur : jamais affiché par défaut. Indicatif seulement, le serveur refuse
+  // de toute façon les routes de self training aux autres wallets.
+  const [admin, setAdmin] = useState<boolean | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [paging, setPaging] = useState(false);
+  const pageRequest = useRef(false);
   const refreshGeneration = useRef(0);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -166,8 +171,9 @@ function TrainPageContent() {
     if (!mounted.current) return;
     const generation = ++refreshGeneration.current;
     if (!address || !authenticated) {
+      setAdmin(null);
       setMine([]);
-      setCatalogue([]);
+      setCursor(null);
       setLoans([]);
       setJobs([]);
       setDelivered({});
@@ -175,20 +181,29 @@ function TrainPageContent() {
       haveKey.current.clear();
       return;
     }
-    const [mineRes, catRes, loansRes, jobsRes] = await Promise.all([
-      fetch("/api/datasets"),
-      fetch("/api/datasets?status=LISTED"),
+    const [adminRes, loansRes] = await Promise.all([
+      fetch("/api/admin/me").catch(() => null),
       fetch("/api/loans"),
-      fetch("/api/train"),
     ]);
-    const mineData: Dataset[] = mineRes.ok ? await mineRes.json() : [];
-    const catData: Dataset[] = catRes.ok ? await catRes.json() : [];
+    // Réponse en erreur (réseau, 401, 500) : `null`, ni self training ni encart, plutôt que de
+    // présenter l'encart de contact à un administrateur sur une panne passagère.
+    const adminKnown = Boolean(adminRes?.ok);
+    const isAdmin = adminKnown ? parseAdminResponse(await adminRes!.json().catch(() => null)) : false;
     const loanData: Loan[] = loansRes.ok ? await loansRes.json() : [];
-    const jobData: Job[] = jobsRes.ok ? await jobsRes.json() : [];
+    // Un non-admin n'appelle ni `/api/datasets` ni `/api/train` : le self training lui est fermé.
+    let mineData: Dataset[] = [];
+    let jobData: Job[] = [];
+    let nextCursor: string | null = null;
+    if (isAdmin) {
+      const [mineRes, jobsRes] = await Promise.all([fetch("/api/datasets"), fetch("/api/train")]);
+      mineData = mineRes.ok ? await mineRes.json() : [];
+      jobData = jobsRes.ok ? await jobsRes.json() : [];
+      nextCursor = mineRes.headers.get("x-sirius-next-cursor");
+    }
     if (!mounted.current || generation !== refreshGeneration.current) return;
-    setCursors({ mine: mineRes.headers.get("x-sirius-next-cursor"), catalogue: catRes.headers.get("x-sirius-next-cursor") });
+    setAdmin(adminKnown ? isAdmin : null);
+    setCursor(nextCursor);
     setMine(mineData);
-    setCatalogue(catData);
     setLoans(loanData);
     setJobs(jobData);
 
@@ -224,27 +239,23 @@ function TrainPageContent() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  async function loadMore(kind: "mine" | "catalogue") {
-    const cursor = cursors[kind];
-    if (!cursor || pageRequests.current.has(kind)) return;
+  async function loadMore() {
+    if (!admin || !cursor || pageRequest.current) return;
     const generation = refreshGeneration.current;
-    pageRequests.current.add(kind);
-    setPaging(new Set(pageRequests.current));
+    pageRequest.current = true;
+    setPaging(true);
     try {
-      const query = new URLSearchParams({ cursor });
-      if (kind === "catalogue") query.set("status", "LISTED");
-      const response = await fetch(`/api/datasets?${query}`);
+      const response = await fetch(`/api/datasets?${new URLSearchParams({ cursor })}`);
       if (!response.ok) throw new Error("Chargement des datasets impossible");
       const page = await response.json() as Dataset[];
       if (!mounted.current || generation !== refreshGeneration.current) return;
-      const setter = kind === "mine" ? setMine : setCatalogue;
-      setter((current) => [...current, ...page.filter((item) => !current.some((existing) => existing.id === item.id))]);
-      setCursors((current) => ({ ...current, [kind]: response.headers.get("x-sirius-next-cursor") }));
+      setMine((current) => [...current, ...page.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setCursor(response.headers.get("x-sirius-next-cursor"));
     } catch (error) {
       if (mounted.current && generation === refreshGeneration.current) setError(messageOf(error));
     } finally {
-      pageRequests.current.delete(kind);
-      if (mounted.current) setPaging(new Set(pageRequests.current));
+      pageRequest.current = false;
+      if (mounted.current) setPaging(false);
     }
   }
 
@@ -347,6 +358,9 @@ function TrainPageContent() {
 
   async function refundLoan(loan: Loan) {
     const key = `refund:${loan.id}`;
+    // Mêmes garde-fous que l'affichage du bouton, relus au clic : jamais de remboursement hors échec sans modèle.
+    if (activeLoanJobs.current.has(key) || activeLoanJobs.current.has(`job:${loan.id}`) || !canRefund(loan, address)) return;
+    activeLoanJobs.current.add(key);
     setError(null);
     setBusyKey(key, true);
     try {
@@ -355,6 +369,7 @@ function TrainPageContent() {
     } catch (err) {
       setError(messageOf(err));
     } finally {
+      activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
     }
   }
@@ -376,7 +391,6 @@ function TrainPageContent() {
   const trainable = mine.filter(
     (d) => d.ipfsCid && d.runnerReceipt && d.evmDatasetId && ["LISTED", "UNLISTED", "PRIVATE"].includes(d.status),
   );
-  const external = catalogue.filter((d) => d.provider !== address);
   const hasHistory = loans.length > 0 || jobs.length > 0;
 
   return (
@@ -396,59 +410,60 @@ function TrainPageContent() {
         </div>
       )}
 
-      {/* Mes données — self-train, gratuit, sans escrow */}
-      <section className="mb-10">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
-          <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
-        </div>
-        {trainable.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {trainable.map((d) => (
-              <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
-            ))}
+      {/* Mes données — self-train, gratuit, sans escrow : réservé à l'équipe (admin) */}
+      {admin === true && (
+        <section className="mb-10" data-testid="self-training">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
+            <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
           </div>
-        )}
-        {cursors.mine && (
-          <button onClick={() => void loadMore("mine")} disabled={paging.has("mine")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
-            {paging.has("mine") ? t("Chargement…") : t("Afficher plus")}
-          </button>
-        )}
-      </section>
+          {trainable.length === 0 ? (
+            <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
+              {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {trainable.map((d) => (
+                <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
+              ))}
+            </div>
+          )}
+          {cursor && (
+            <button onClick={() => void loadMore()} disabled={paging} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
+              {paging ? t("Chargement…") : t("Afficher plus")}
+            </button>
+          )}
+        </section>
+      )}
 
-      {/* Catalogue — emprunt via escrow */}
-      <section className="mb-10">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Catalogue")}</h2>
-          <span className="text-xs text-muted">{t("Emprunt · escrow USDC")}</span>
-        </div>
-        {external.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Aucun dataset tiers disponible pour l’instant.")}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {external.map((d) => (
-              <CatalogueCard key={d.id} dataset={d} advanced={advanced} onBorrowed={refresh} onError={setError} />
-            ))}
-          </div>
-        )}
-        {cursors.catalogue && (
-          <button onClick={() => void loadMore("catalogue")} disabled={paging.has("catalogue")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
-            {paging.has("catalogue") ? t("Chargement…") : t("Afficher plus")}
-          </button>
-        )}
-      </section>
+      {/* Entraînement sur ses propres données : contact, tant que le self training n'est pas public */}
+      {admin === false && (
+        <DisclaimerNote messages={[]} className="mb-10">
+          <span data-testid="own-data-contact">
+            {t("Envie d’entraîner sur vos propres données ? Contactez-nous à")}{" "}
+            <a
+              href={contactMailtoHref()}
+              className="font-medium text-foreground underline underline-offset-2 hover:text-accent focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {CONTACT_EMAIL}
+            </a>
+            .
+          </span>
+        </DisclaimerNote>
+      )}
 
       {/* Suivi unifié */}
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes entraînements")}</h2>
         {!hasHistory && (
-          <p className="py-8 text-center text-sm text-muted">{t("Aucun entraînement pour l’instant.")}</p>
+          <div className="py-8 text-center text-sm text-muted">
+            <p>{t("Aucun entraînement pour l’instant.")}</p>
+            <p className="mt-2">
+              <Link href="/marketplace" className="font-medium text-foreground underline underline-offset-2">
+                {t("Parcourir la marketplace")}
+              </Link>
+            </p>
+          </div>
         )}
         <div className="flex flex-col gap-3">
           {jobs.map((j) => (
@@ -484,13 +499,16 @@ function TrainPageContent() {
             </Card>
           ))}
 
-          {loans.map((l) => (
+          {loans.map((l) => {
+            const state = loanDisplayState(l);
+            const refundAllowed = canRefund(l, address);
+            return (
             <Card key={l.id}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1 basis-80">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
-                    <Badge variant={LOAN_VARIANT[l.status]}>{t(l.status)}</Badge>
+                    <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
                     <Badge variant="default">{t("Emprunt")}</Badge>
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
@@ -513,13 +531,13 @@ function TrainPageContent() {
                     )}
                   </dl>
                 </div>
-                {l.refundable && (
+                {refundAllowed && (
                   <button
                     onClick={() => refundLoan(l)}
-                    disabled={busy.has(`refund:${l.id}`)}
+                    disabled={busy.has(`refund:${l.id}`) || busy.has(`job:${l.id}`)}
                     className="max-w-full shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                   >
-                    {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Récupérer l’escrow")}
+                    {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Rembourser")}
                   </button>
                 )}
                 {!l.refundable && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
@@ -563,7 +581,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {!l.refundable && (l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
+                {(l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -577,6 +595,23 @@ function TrainPageContent() {
                   </button>
                 )}
               </div>
+
+              {refundAllowed && (
+                <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
+                  <p className="font-medium text-negative">{t("Entraînement échoué : aucun modèle n’a été livré.")}</p>
+                  <p className="mt-1 text-muted">
+                    {t("Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.")}
+                  </p>
+                </div>
+              )}
+              {canRetrain(l, address) && (
+                <RetrainPanel
+                  datasetId={l.datasetId}
+                  hasOtherActiveLoan={hasOtherActiveLoan(loans, l, address)}
+                  onBorrowed={refresh}
+                  onError={setError}
+                />
+              )}
 
               {l.status === "SETTLED" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
@@ -612,7 +647,8 @@ function TrainPageContent() {
                 </div>
               )}
             </Card>
-          ))}
+            );
+          })}
         </div>
       </section>
     </main>
@@ -809,102 +845,5 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
       </details>
       {error && <p className="mt-3 text-xs text-negative">{t(error)}</p>}
     </div>
-  );
-}
-
-function CatalogueCard({
-  dataset,
-  advanced,
-  onBorrowed,
-  onError,
-}: {
-  dataset: Dataset;
-  advanced: boolean;
-  onBorrowed: () => Promise<void>;
-  onError: (msg: string) => void;
-}) {
-  const { t } = useLocale();
-  const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
-  const [openForm, setOpenForm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const model = modelSelection(dataset.modelId, dataset.modelVersion);
-
-  function reset() {
-    setOpenForm(false);
-  }
-
-  async function confirm() {
-    onError("");
-    if (!model || !dataset.priceUsdcAtomic) {
-      onError(t("Profil d’entraînement du dataset absent ou invalide"));
-      return;
-    }
-    setBusy(true);
-    try {
-      if (!await borrowDataset({ datasetId: dataset.id, priceUsdcAtomic: dataset.priceUsdcAtomic!, confirmQuote })) return;
-      reset();
-      await onBorrowed();
-    } catch (err) {
-      onError(messageOf(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      {quoteDialog}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0 flex-1 basis-80">
-          <h3 className="font-medium">{dataset.name}</h3>
-          <Badge variant={model ? "default" : "negative"}>
-            {model ? modelDisplayName(model) : t("Profil absent")}
-          </Badge>
-          <p className="mt-1 text-xs text-muted">
-            {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
-            {formatBytes(dataset.sizeBytes)}
-          </p>
-          <p className="mt-1 text-xs font-medium text-foreground">
-            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("Prix du dataset")}
-          </p>
-        </div>
-        {!openForm && (
-          <button
-            onClick={() => setOpenForm(true)}
-            disabled={!model || !dataset.priceUsdcAtomic}
-            title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
-            className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
-          >
-            {t("Emprunter")}
-          </button>
-        )}
-      </div>
-
-      {openForm && (
-        <div className="mt-4 border-t border-border pt-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <p className="text-xs text-muted">
-              {model ? t("Profil du dataset verrouillé : {model}", { model: modelDisplayName(model) }) : t("Profil d’entraînement manquant")}
-            </p>
-            {advanced && (
-              <p className="text-xs text-muted">{t("Termes provider verrouillés dans le reçu runner")}</p>
-            )}
-            <button
-              onClick={confirm}
-              disabled={busy}
-              className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-            >
-              {busy ? t("Escrow…") : t("Confirmer l'escrow")}
-            </button>
-            <button
-              onClick={reset}
-              className="rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
-            >
-              {t("Annuler")}
-            </button>
-          </div>
-        </div>
-      )}
-    </Card>
   );
 }
