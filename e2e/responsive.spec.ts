@@ -224,7 +224,7 @@ for (const screen of SCREENS) {
       await expect(page.getByLabel("Training profile").locator("option:checked")).toHaveText("Binary logistic regression · v1.0.0");
       await expect(page.getByText("— 480 training rows, separate test set.")).toBeVisible();
       // Le contrôle du navigateur refuse le fichier avec sa raison, sans sortir de la carte.
-      await expect(page.getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
+      await expect(page.locator("main").getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
       await expect(page.getByText(`${LONG_NAME}.csv`)).toBeVisible();
       await expectContainedLayout(page);
     });

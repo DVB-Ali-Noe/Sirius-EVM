@@ -115,16 +115,16 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
 
   const file = page.locator('input[type="file"]');
   await file.setInputFiles({ name: "tiny.csv", mimeType: "text/csv", buffer: Buffer.from(csv(2, () => "1")) });
-  await expect(page.getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
 
   await file.setInputFiles({ name: "dup.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row)).replace("x1,x2,y", "x1,x1,y")) });
-  await expect(page.getByRole("alert")).toHaveText("Invalid header: every column needs a name, with no duplicates.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a name, with no duplicates.");
 
   await file.setInputFiles({ name: "continuous.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row * 3))) });
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();
   await page.getByLabel("Training profile").selectOption("logistic_regression");
-  await expect(page.getByRole("alert")).toHaveText("For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
   await page.getByLabel("Training profile").selectOption("linear_regression");
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
@@ -134,7 +134,7 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeEnabled();
   const before = apiCalls;
   await file.setInputFiles({ name: "empty.csv", mimeType: "text/csv", buffer: Buffer.alloc(0) });
-  await expect(page.getByRole("alert")).toHaveText("The file is empty.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("The file is empty.");
   expect(apiCalls).toBe(before);
 });
 
@@ -205,7 +205,7 @@ test("un délai de sécurité renvoyé différent de 3 jours arrête la publicat
   await expect(priceField).toBeVisible({ timeout: 10_000 });
   await priceField.fill("12.5");
   await page.getByRole("button", { name: "Publish the dataset" }).click();
-  await expect(page.getByRole("alert")).toContainText("Inconsistent escrow safety delay");
+  await expect(page.locator("main").getByRole("alert")).toContainText("Inconsistent escrow safety delay");
   await expect(page.getByRole("list", { name: "Publication progress" }).locator("li").first()).toHaveAttribute("data-state", "failed");
   expect(captured.draft).not.toBeNull();
   expect(captured.upload).toBeNull();
