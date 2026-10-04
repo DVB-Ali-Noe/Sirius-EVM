@@ -85,7 +85,7 @@ Après les deux migrations, sur une base historique :
 
 La répétition de cette séquence sur PostgreSQL est le test `db-inventory.test.ts` : base historique synthétique, deux migrations, comparaison sans écart, puis détection d'une valeur retouchée.
 
-Pour une migration qui crée des tables (comme `20261003000000_add_user_profiles` : `UserProfile`, `DatasetAccessLog`), `expect` les annonce avec leur clé primaire ; une table annoncée n'est plus un `table-unexpected`, et une table annoncée mais absente est l'écart critique `table-not-added`. Limite connue : l'outil vérifie l'existence d'une table créée et sa clé primaire, pas ses colonnes une à une ; `prisma migrate deploy` applique chaque fichier en une transaction, tout ou rien, ce qui couvre ce cas tant que la migration passe par la pipeline.
+Pour une migration qui crée des tables (comme `20261003000000_add_user_profiles` : `UserProfile`, `DatasetAccessLog`), `expect` les annonce avec leur clé primaire ; une table annoncée n'est plus un `table-unexpected`, et une table annoncée mais absente est l'écart critique `table-not-added`. Pour une table créée, l'outil vérifie son existence, sa clé primaire (`<table>_pkey`), la présence de chacune de ses colonnes (`column-not-added`) et de chacun de ses index annoncés (`index-not-added`). Limite connue : il ne compare ni le type, la nullabilité et le défaut des colonnes d'une table neuve, ni ses contraintes `CHECK` ; `prisma migrate deploy` applique chaque fichier en une transaction, tout ou rien, ce qui couvre ce cas tant que la migration passe par la pipeline.
 
 ## Escrows à déclarer
 
