@@ -546,42 +546,193 @@ Méthode : cinq passes de revue adversariale, chacune avec six relecteurs indép
 
 ## A3 — Tutos de première connexion et par page
 
+Branche `feat/tutos`, partie de `staging` (e829cfc). Aucune page n'est modifiée : le tuto de chaque page est monté depuis le layout de l'application selon le chemin courant. Aucune route, table, colonne, migration, contrat ni transaction : la slice lit et écrit le profil uniquement par la route `/api/profile` livrée par A1.
+
 ### 1. Ce qui a changé
-_À remplir par la slice : fichiers, routes, tables, colonnes, composants._
+
+`git diff --name-only staging...HEAD` : 16 fichiers, tous listés ici (dont ce fichier d'audit, section A3 seulement).
+
+**Logique, sans React (`src/lib/tour/`)**
+- `keys.ts` : `TOUR_PAGE_KEYS` (copie de `FEATURE_TOUR_KEYS` de `src/lib/users/profile.ts`, non importable côté navigateur à cause de `server-only` ; un test vérifie l'égalité), `isTourPageKey`, `tourKeyForPath(chemin)`. Correspondance exacte : `/dashboard` → `dashboard`, `/datasets` → `datasets`, `/datasets/new` → `upload`, `/marketplace`, `/train`, `/explorer`, `/wallet`. Une barre finale est tolérée ; tout autre chemin (fiches `/datasets/abc`, `/borrow`, `/phala`, `/provider`, chemins de plus de 256 caractères) n'a pas de tuto.
+- `progress.ts` : lecture et écriture de la progression. `parseTourProgress(corps, adresse)` exige la forme exacte de la réponse de `GET /api/profile` (adresse égale au wallet affiché, `tourCompletedAt` présent, `featureTours` objet) ; toute autre réponse vaut « inconnue ». `fetchTourProgress` (GET), `saveTourProgress(patch, adresse)` (PATCH, confirmé seulement si la réponse est 2xx **et** porte le profil du wallet attendu), `tourPatchBody` (n'envoie que des `true`, jamais de modification vide), note locale de repli `readPending` / `writePending` / `reconcilePending`, décisions `isWelcomeDone` / `isPageSeen`, neutralisation e2e `toursSuppressedForE2e`. Aucune fonction ne lève.
+- `controller.ts` : `TourController`, orchestrateur unique sans React (abonnement compatible `useSyncExternalStore`). Il tient le wallet suivi, la progression lue, le chemin courant et l'unique tuto ouvert (`active`). Méthodes : `start`, `setIdentity(adresse, authentifié)`, `setPath`, `leavePages`, `restartWelcome`, `openPage`, `close`.
+- `content.ts` : textes des six étapes d'accueil (`WELCOME_STEPS`), des sept tutos de page (`PAGE_TOURS`) et libellés (`TOUR_UI`). Clés françaises traduites par `t()`. Les limites des modèles, de la bêta et des données ne sont jamais réécrites : ce sont des identifiants de `src/lib/copy/disclaimers.ts` (A2), affichés par `DisclaimerNote`.
+- `tour.test.ts` : tests unitaires, voir §5.
+
+**Interface (`src/components/tour/`, `src/components/layout/ProductTour.tsx`)**
+- `TourDialog.tsx` : fenêtre modale commune (`role="dialog"`, `aria-modal`, `aria-labelledby` sur le titre, `aria-describedby` sur tout le contenu de l'étape), étapes, Précédent / Suivant / Passer / Compris, piège du focus, Échap, retour du focus, reste de l'application rendu `inert` pendant l'ouverture, `z-[60]`, défilement interne (`max-h-[calc(100dvh-2rem)]`, `overscroll-contain`).
+- `PageTour.tsx` : monté une fois dans le layout ; transmet le chemin (`usePathname`) au contrôleur, affiche le tuto de la page et le bouton « ? » discret (fixe, en bas à droite, `z-20`, `aria-label` « Show this page's guide »). `leavePages()` au démontage.
+- `tour-store.ts` : instance unique du contrôleur pour l'onglet, `useTourSnapshot()`, et les deux fonctions exportées `restartWelcomeTour()` (à brancher sur « Visite guidée » du menu profil, slice A5) et `openPageTour(clé)`.
+- `ProductTour.tsx` (réécrit) : transmet au contrôleur l'adresse et l'état `connected && authenticated` du store wallet, affiche le tuto d'accueil. Réexporte `restartWelcomeTour`. L'ancien appel à `/api/account/status` et le marqueur `localStorage` `sirius-tour-seen` ne sont plus utilisés en production.
+- `tour-dialog.render.tsx` + `tour-dialog.test.ts` : rendu HTML statique dans un processus sans la condition `react-server`, comme `shared-components.test.ts` (A2).
+
+**Montage** : `src/app/(app)/layout.tsx`, +2 lignes (un import, `<PageTour />` juste après `<ProductTour />`).
+
+**Traductions** : `src/lib/i18n/tour-en.ts` (nouveau, 29 clés), fusionné dans `EN_MESSAGES` par `src/lib/i18n/english.ts` (+2 lignes : import et `...TOUR_MESSAGES_EN`). Clés existantes réutilisées sans redéfinition : « Bienvenue sur Sirius », « Tableau de bord », « Mes datasets », « Publier un dataset », « Entraîner un modèle », « Explorer », « Étape {current} / {total} », « Passer », « Précédent », « Suivant », « Commencer ».
+
+**Script** : `package.json`, deux fichiers ajoutés à la fin du script `test` (`src/lib/tour/tour.test.ts`, `src/components/tour/tour-dialog.test.ts`). Aucune autre ligne touchée.
 
 ### 2. Décisions et écarts par rapport au cahier des charges
-_À remplir : chaque choix fait en cours de route, chaque écart avec le fichier de feature, et pourquoi._
+
+1. **Un seul orchestrateur pour les deux sortes de tutos.** Le tuto d'accueil et le tuto de page partagent la même lecture du profil et le même état « tuto ouvert » : deux fenêtres ne peuvent pas s'empiler. Le tuto d'accueil passe d'abord ; la page sur laquelle il s'ouvre garde son propre tuto pour la visite suivante (pas deux fenêtres enchaînées). Dès la page suivante, son tuto s'ouvre.
+2. **Quand le tuto d'accueil s'ouvre.** À la première page de l'application visitée avec un wallet connecté **et** une session signée (`authenticated` du store), si `tourCompletedAt` est nul en base. Écart avec l'ancien comportement : l'ancien tuto ne s'ouvrait que pour un compte sans activité (`/api/account/status` → `known: false`) et respectait `sirius-tour-seen` dans le navigateur. Le nouveau s'ouvre une fois pour **tout** wallet dont le profil n'a pas `tourCompletedAt`, y compris les comptes existants de staging, puis les tutos de page à leur première visite. Choix assumé : le contenu est nouveau (limites de la bêta, contact) et le cahier demande une progression par wallet ; à confirmer par Ali et Noé.
+3. **Toute fermeture compte comme « vu ».** Terminer, Passer, Échap ou quitter la page par le bouton retour pendant un tuto de page : tout enregistre la clé. Sinon un utilisateur qui ferme sans finir reverrait le tuto à chaque visite. Le clic sur le fond ne ferme pas, pour qu'une fermeture accidentelle ne vaille pas « vu ».
+4. **Progression en base, repli minimal dans le navigateur.** La base est la source de vérité. Le navigateur ne garde qu'une note « fermé, pas encore confirmé » par wallet (`localStorage`, clé `sirius-tour-pending:<adresse>`), posée avant chaque PATCH et retirée dès que le serveur confirme pour ce wallet. Elle empêche la réouverture en boucle si l'écriture échoue durablement (origine mal configurée, débit dépassé, base en panne) et elle est renvoyée en un seul PATCH au chargement suivant. Ce n'est pas un retour au stockage navigateur : elle disparaît dès que la base a l'information.
+5. **Lecture en échec : rien ne s'ouvre tout seul.** Sur 401, 403, 429, 5xx, erreur réseau, JSON invalide ou réponse d'une autre forme, le contrôleur passe en « unavailable » : aucune fenêtre automatique, aucune nouvelle lecture à chaque navigation (une seule lecture par changement de wallet ou de session). Le bouton « ? » reste disponible. On préfère ne pas montrer un tuto plutôt que le montrer à tort en boucle.
+6. **Validation stricte de la réponse, y compris l'adresse.** Une réponse `{}` (bouchon de test, proxy) ou le profil d'un autre wallet resté en session ne déclenche rien. Même règle pour le PATCH : sa réponse doit porter l'adresse attendue pour effacer la note locale (le cookie de session est partagé entre onglets ; voir §7).
+7. **Fermetures pendant une lecture en vol.** Une fermeture faite pendant le GET l'emporte sur sa réponse (`closedHere`) : une lecture lente ne rouvre pas un tuto qu'on vient de fermer.
+8. **Un tuto relancé à la main reste ouvert si la session change**, mais sa fermeture n'est enregistrée que pour le wallet sous lequel il a été ouvert (ou pour le premier wallet authentifié s'il a été ouvert sans session). Un tuto ouvert automatiquement est fermé sans écriture quand le wallet change ou se déconnecte.
+9. **Relance du tuto d'accueil** : `restartWelcomeTour()` exporté depuis `src/components/tour/tour-store.ts` (et réexporté par `ProductTour.tsx`). Il ne remet pas `tourCompletedAt` à `false` : il ouvre la fenêtre directement, et sa fermeture n'écrit rien si la date est déjà posée (la date d'origine n'est pas déplacée). Le bouton « Visite guidée » du menu profil n'existe pas encore (A5) : à brancher par cette slice.
+10. **Bouton « ? »** : un seul, monté depuis le layout, fixe en bas à droite, visible seulement sur les sept pages dotées d'un tuto, connecté ou non. Il n'est rendu qu'après le montage côté client (pas d'écart d'hydratation).
+11. **Neutralisation pour l'e2e** : les tutos (lecture du profil, ouverture automatique et bouton « ? ») sont neutralisés uniquement si le build est celui des tests (`NEXT_PUBLIC_SIRIUS_E2E=1`) **et** que le test a posé le marqueur historique `localStorage` `sirius-tour-seen=1`, ce que toutes les specs existantes font déjà pour l'ancien tuto. Aucune spec n'a eu à changer. En production, `NEXT_PUBLIC_SIRIUS_E2E` n'est jamais posé, et `instrumentation-node.ts` refuse de démarrer avec cette variable quand `NODE_ENV=production` ; même si elle fuyait, un utilisateur ne pourrait que masquer ses propres tutos.
+12. **Étapes 5 et 6 du tuto d'accueil, écart de rédaction.** L'étape 5 (« Beta limits ») affiche `modelQuality` puis `betaLimits` ; l'étape 6 (« Need more? ») affiche `contactUs` avec le lien `mailto:`. La phrase « De nouveaux modèles sont en développement » du cahier n'est pas répétée à l'étape 6 : elle termine déjà `modelQuality`, affichée juste avant. Aucun texte de limite n'est réécrit, tout vient des textes communs.
+13. **Tutos de page.** Contact (`contactUs`) et limites des modèles (`modelQuality`) sur upload, marketplace et train, comme demandé ; `dataLimits` sur upload ; `retrainDeterministic` sur train ; `betaLimits` sur le tableau de bord. Mes datasets, Explorer et Wallet ont des limites propres, sans texte commun.
+14. **Textes vérifiés contre le code, et corrigés après revue** (voir §10) : pas de « retrait vers une adresse tierce » (la page Wallet ne propose que l'ajout de fonds et le retrait des crédits d'escrow vers son propre wallet), pas de « file d'attente » (le moteur refuse un second entraînement en 503 « Runner saturé »), pas d'« inscription on-chain dès l'import » (l'import laisse un brouillon, la publication est une action séparée), pas de self-training (réservé à l'équipe depuis #37).
+15. **Reste de l'application rendu `inert`, pas tout le `body`.** Pendant l'ouverture, les autres enfants du conteneur du layout (menu, page, bouton « ? ») reçoivent `inert` : ni la souris, ni Tab depuis la barre d'adresse, ni un lecteur d'écran n'y accèdent. Le reste du `body` n'est pas touché pour ne pas bloquer une fenêtre tierce (confirmation de signature du wallet embarqué) ; la fenêtre ne lui prend pas le focus et n'intercepte ni Tab ni Échap quand le focus y est.
+16. **Pas de verrouillage du défilement de la page** : inutile, le fond couvre l'écran et la fenêtre a son propre défilement contenu.
+17. **Fichier de traduction séparé** (`tour-en.ts`), comme `shared-en.ts` (A2), pour éviter les conflits sur `english.ts`. Un test vérifie qu'aucune clé n'écrase une traduction différente.
+18. **Identité des commits** : auteur et committeur `alibenyezza` (configuration git du dépôt), aucune ligne de signature d'assistant (vérifié par `git log staging..HEAD --format=%B`).
 
 ### 3. Ce que l'audit doit vérifier
-_À remplir, avec tous les détails utiles à un auditeur qui découvre le code :_
-- contrôle d'accès côté serveur, route par route ;
-- validation et bornes de chaque entrée ;
-- fuites possibles : données d'un autre wallet, messages d'erreur, journaux ;
-- impact sur l'argent, l'escrow, les contrats, le moteur Phala ;
-- base de données : migration, contraintes, cohérence ;
-- interface : injection HTML, liens, contenus fournis par les utilisateurs ;
-- textes : aucune promesse fausse sur les modèles ou la sécurité.
+
+- **Contrôle d'accès côté serveur.** La slice n'ajoute ni ne modifie aucune route. Elle appelle uniquement `GET /api/profile` et `PATCH /api/profile` (A1), qui tirent l'adresse de la session signée (`requireAuth`), jamais du corps, et refusent toute clé autre que `tourCompletedAt`, `featureTours`, `settings` (400). Le client n'envoie que `{"tourCompletedAt":true}` et/ou `{"featureTours":{"<clé>":true}}` (test : chaque corps passe `validateProfilePatch`). Rien dans la slice ne fait office de garde : masquer un tuto ou le bouton « ? » n'ouvre ni ne ferme aucun accès.
+- **Validation et bornes des entrées côté client.** `parseTourProgress` (forme exacte, adresse canonique égale à celle du wallet, `tourCompletedAt` chaîne non vide ou `null`, `featureTours` objet simple ; clés inconnues, `__proto__` et valeurs non booléennes ignorées). `readPending` (note bornée à 1 024 caractères, JSON invalide ignoré, clés filtrées par `isTourPageKey`). `tourKeyForPath` (chemin borné à 256 caractères, correspondance exacte via `Object.hasOwn`, `/constructor` et `/__proto__` sans tuto). `canonicalTourAddress` (regex ancrée `^0x[0-9a-f]{40}$`).
+- **Fuites possibles.** Aucune donnée d'un autre wallet n'est lue : le GET ne renvoie que le profil de la session ; une réponse portant une autre adresse est ignorée. Aucun journal ni message d'erreur ajouté (les échecs sont silencieux par conception). La note locale contient l'adresse du wallet en clair dans la clé `localStorage` (`sirius-tour-pending:0x…`) tant qu'une écriture n'est pas confirmée ; elle n'est pas effacée à la déconnexion (voir §7, appareil partagé).
+- **Impact sur l'argent, l'escrow, les contrats, Phala** : aucun. Pas de transaction, de signature, de lecture de contrat ni d'appel au moteur.
+- **Base de données** : aucune migration, aucune nouvelle écriture hors des deux champs prévus. `tourCompletedAt=true` ne déplace pas une date déjà posée (comportement de la route A1). La slice n'envoie jamais `false`.
+- **Débit** : un GET par changement d'identité (chargement de page, connexion, changement de réseau ou de compte), aucun par navigation ; au plus un PATCH par tuto fermé jamais vu, plus un renvoi groupé par chargement si une note locale existe. Bien en dessous des plafonds par wallet de la route (60 lectures, 20 écritures par minute). Le plafond global de 1 000 lectures par minute de l'instance (A1) compte toutefois une lecture de profil par chargement de page de chaque utilisateur connecté.
+- **Interface : injection HTML, liens.** Aucun `dangerouslySetInnerHTML`, `innerHTML` ni `target="_blank"` (test de rendu). Tous les textes sont des constantes passées à `t()` et rendues par React. Le seul lien est le `mailto:` de `DisclaimerNote` vers la constante `CONTACT_EMAIL`. Aucun contenu fourni par l'utilisateur n'est affiché. Tous les boutons sont `type="button"`.
+- **Accessibilité** : vérifier à la main (§4) le piège du focus, Échap, le retour du focus, `inert` posé puis retiré, la lecture par un lecteur d'écran (titre et contenu annoncés).
+- **Textes : aucune promesse fausse.** Relire `src/lib/i18n/tour-en.ts` contre le code. Points sensibles déjà vérifiés : chiffrement dans le navigateur avant l'envoi (`encryptDatasetForRunner`, `src/app/(app)/datasets/new/page.tsx`), KYB exigé pour emprunter (`src/lib/sirius/borrower.ts`), un seul entraînement à la fois et refus si occupé (`src/runner/server.ts`, `RUNNER_MAX_CONCURRENT_JOBS` réglable jusqu'à 2 : si on le passe à 2, le texte « One training runs at a time » devient faux), retrait des crédits d'escrow vers son propre wallet (`EscrowCredits.tsx`), frais réseau en ETH. Le test `tour.test.ts` interdit quelques formulations (garanties, « best », « queue », « address you control »…). Les limites des modèles et de la bêta sont celles des textes communs (A2), y compris la réserve sur `dataLimits` signalée par A2.
+- **Neutralisation e2e** : vérifier qu'aucun build de staging ou de production ne pose `NEXT_PUBLIC_SIRIUS_E2E`.
+- **Signatures d'assistant** : `git log staging..HEAD --format=%B` sans `Co-Authored-By`, `Claude-Session`, lien claude.ai ni « Generated with ».
 
 ### 4. Cas limites à essayer à la main sur staging
-_À remplir : pas à pas, avec le résultat attendu._
+
+Préparer un wallet neuf (ou remettre `tourCompletedAt` à `NULL` et `featureTours` à `{}` dans `UserProfile` pour un wallet de test).
+
+1. **Première connexion.** Se connecter et signer depuis `/dashboard`. Attendu : la fenêtre « Welcome to Sirius · Step 1 / 6 » s'ouvre, le focus est sur « Next ». Parcourir les six étapes ; l'étape 6 montre l'adresse de contact cliquable (`mailto:`). « Get started » ferme. En base : `tourCompletedAt` posé.
+2. **Pas d'enchaînement.** Juste après, rester sur `/dashboard` : aucun tuto de page. Aller sur `/marketplace` : le tuto « Marketplace » s'ouvre (un seul bouton « Got it »). Revenir sur `/dashboard` : son tuto s'ouvre cette fois.
+3. **Rien ne se rouvre.** Recharger chaque page déjà vue : aucune fenêtre. `featureTours` contient les clés vues.
+4. **Autre navigateur, même wallet.** Se connecter ailleurs (navigation privée) : aucun tuto déjà vu ne se rouvre.
+5. **Clavier.** Fenêtre ouverte : Tab et Maj+Tab restent dans la fenêtre ; Échap ferme et compte comme vu ; le focus revient à l'élément d'origine. Cliquer dans la barre d'adresse puis Tab : le focus ne va pas sur le menu derrière (inerte) et revient dans la fenêtre.
+6. **Bouton « ? ».** Sur chaque page à tuto, cliquer « ? » : le tuto de la page s'ouvre, même déjà vu ; Échap le ferme et rend le focus au bouton. Aucune nouvelle écriture en base si la page était déjà vue.
+7. **Sans connexion.** Ouvrir `/marketplace` sans wallet : aucune fenêtre ; « ? » fonctionne ; la page reste utilisable.
+8. **API en panne.** Dans les outils du navigateur, bloquer `/api/profile` (ou couper la base de staging) puis se connecter : aucune fenêtre automatique, navigation normale.
+9. **Écriture en panne.** Bloquer seulement le PATCH (`/api/profile`, méthode PATCH), fermer le tuto d'accueil, recharger : il ne se rouvre pas ; `localStorage` contient `sirius-tour-pending:<adresse>`. Débloquer et recharger : la note disparaît, `tourCompletedAt` est posé.
+10. **Changement de compte.** Tuto d'accueil ouvert, changer de compte dans l'extension : la fenêtre se ferme sans rien écrire ; le nouveau compte voit son propre tuto selon sa progression.
+11. **Mobile 320 px et texte agrandi (200 %).** La fenêtre tient dans l'écran, défile à l'intérieur, les boutons restent atteignables ; pas de défilement horizontal. Le bouton « ? » ne masque pas d'action indispensable en bas de page (le faire défiler jusqu'en bas de chaque page).
+12. **Wallet embarqué (Google).** Compte neuf : pendant l'attestation KYB qui suit la connexion, si la confirmation Web3Auth s'affiche, elle reste utilisable (saisie, Tab, Échap) même si le tuto d'accueil s'ouvre en même temps.
+13. **Lecteur d'écran (NVDA ou VoiceOver).** À l'ouverture : annonce d'une boîte de dialogue avec son titre et son contenu ; le reste de la page n'est pas parcouru.
 
 ### 5. Tests ajoutés et ce qu'ils ne couvrent pas
-_À remplir._
+
+**`src/lib/tour/tour.test.ts`** (ajouté au script `test`), avec un faux serveur `/api/profile` qui applique la vraie validation `validateProfilePatch` (A1) à chaque PATCH :
+- clés client identiques à `FEATURE_TOUR_KEYS` du serveur ; correspondance chemin → clé (pages, barre finale, fiches, `/constructor`, `/__proto__`, chemin trop long) ;
+- lecture : réponse conforme, et « inconnue » pour `null`, `{}`, `{ known: true }`, profil d'un autre wallet, `tourCompletedAt` absent, vide, numérique ou booléen, `featureTours` nul ou tableau, adresse invalide ; clés inconnues, `__proto__` et valeurs non booléennes ignorées ; échecs réseau, HTTP et JSON sans exception ;
+- écriture : corps du PATCH (seulement des `true`, jamais vide, accepté par la validation serveur), confirmation seulement sur 2xx avec le profil du wallet attendu (refus pour un autre wallet, `{}`, JSON invalide, HTTP en échec, exception) ;
+- note locale : aller-retour, filtrage, suppression quand vide, note illisible ou trop longue, stockage interdit ; réconciliation ;
+- neutralisation e2e : seulement build de test **et** marqueur, jamais en production ;
+- contrôleur, quand ouvrir : rien sans session signée ; accueil une seule fois puis tuto de la page suivante, pas d'enchaînement sur la même page ; progression relue du serveur au rechargement ; autre navigateur ; pas de réouverture en repassant ; navigation pendant un tuto = vu ; neutralisé en e2e ;
+- contrôleur, repli : lecture en échec (500, exception, `{}`, JSON invalide) → rien ne s'ouvre, une seule lecture ; bouton « ? » utilisable ; écriture en échec (500, 401, 403, 409, 429, exception) → pas de réouverture, renvoi groupé au chargement suivant, puis effacement de la note ; note déjà connue de la base effacée sans écriture ; stockage interdit ;
+- courses et sorties : fermeture pendant une lecture lente (la réponse tardive ne rouvre rien) ; PATCH confirmé pour un autre wallet (note gardée puis renvoyée) ; sortie des pages pendant la lecture ; double montage StrictMode ; tuto relancé sous un wallet puis fermé sous un autre ;
+- changements de wallet et relances : réponse tardive d'un wallet précédent ignorée ; déconnexion ferme sans écrire ; relance sans session sans écriture ; relance d'un tuto déjà fait sans écriture ni déplacement de date ; tuto manuel conservé à la connexion ; abonnement ;
+- textes : six étapes du cahier, un tuto par page, contact et qualité des modèles sur upload / marketplace / train, toutes les clés traduites, aucune collision de traduction, liste de formulations interdites (garanties, « best », « queue », « address you control », « destination address »…).
+
+**`src/components/tour/tour-dialog.test.ts`** (ajouté au script `test`), rendu HTML statique de `tour-dialog.render.tsx` dans un processus sans `react-server` : `role="dialog"`, `aria-modal`, `aria-labelledby` et `aria-describedby` reliés (la description contient aussi les textes communs), boutons `type="button"`, pas de HTML injecté ni `target="_blank"`, première et dernière étape (Passer / Suivant / Précédent / Got it), lien `mailto:` unique, un seul bouton par tuto de page, limites en liste, `dataLimits` lu dans le code, rien rendu côté serveur par `ProductTour` et `PageTour`.
+
+**Vérifié dans un vrai navigateur, sans test versionné** (script Playwright temporaire, supprimé avant la PR, sur un port isolé) : ouverture à la connexion, focus sur « Next », Tab et Maj+Tab piégés, Tab depuis le corps ramené dans la fenêtre, menu et page `inert` puis plus aucun `inert` après fermeture, Précédent qui disparaît sans perdre le focus, lien `mailto:`, Échap, PATCH envoyés, tuto de page après navigation client, « ? » + Échap rend le focus au bouton, rien ne se rouvre après rechargement, écriture en échec sans réouverture puis renvoi, lecture en échec sans fenêtre, 320 px avec texte agrandi sans défilement horizontal, fenêtre tierce hors de l'application gardant le focus et la saisie, Échap qui ne remonte pas à un écouteur de `document`. 5 scénarios, 5 réussis.
+
+**Ce qui n'est pas couvert**
+- Aucun test e2e versionné du tuto : les fichiers `e2e/` ne font pas partie du périmètre de la slice. À ajouter (P1) en reprenant les scénarios ci-dessus.
+- Lecteurs d'écran réels (NVDA, VoiceOver) et navigateurs autres que Chromium (Safari : `inert` et focus au clic).
+- Le wallet embarqué Web3Auth réel (simulé par un champ hors de l'application).
+- Plusieurs onglets ouverts en même temps (pas d'écoute de l'événement `storage` ; double écriture sans conséquence).
+- La route `/api/profile` elle-même, déjà testée par A1 (`src/lib/users/profile.test.ts`).
 
 ### 6. Hypothèses
-_À remplir : tout ce que la slice suppose vrai sans l'avoir vérifié._
+
+1. La route `/api/profile` se comporte comme décrit dans `16-socle-technique.md` et testé par A1 : réponse avec `address` canonique, `tourCompletedAt` (ISO ou `null`) et `featureTours`, `tourCompletedAt: true` qui ne déplace pas une date posée, fusion clé par clé de `featureTours`.
+2. `authenticated` du store wallet (`src/stores/wallet.ts`) n'est vrai que lorsqu'une session serveur existe pour l'adresse affichée (posé par `signInWithWallet` ou `synchroniserSession` de `WalletConnector.tsx`). Sinon la lecture échoue en 401 et rien ne s'ouvre.
+3. Le layout `src/app/(app)/layout.tsx` reste le seul point de montage, et ses enfants directs sont bien le menu, les tutos et le contenu : c'est ce conteneur que la fenêtre rend `inert`. Si une autre slice y ajoute un portail ou déplace le contenu, il faut revérifier.
+4. Les fenêtres tierces qui doivent rester utilisables pendant un tuto (Web3Auth) sont rendues hors de ce conteneur (dans `body`).
+5. `NEXT_PUBLIC_SIRIUS_E2E` n'est jamais posé hors de la suite e2e (`instrumentation-node.ts` refuse de démarrer avec en production).
+6. Le moteur exécute un seul entraînement à la fois (`RUNNER_MAX_CONCURRENT_JOBS=1`, valeur par défaut et valeur des compose) ; le texte du tuto Train le dit.
+7. Le self-training reste réservé à l'équipe (#37) : le tuto Train n'en parle pas.
+8. Les pages gardent leurs chemins actuels (`/dashboard`, `/datasets`, `/datasets/new`, `/marketplace`, `/train`, `/explorer`, `/wallet`). Une page renommée perd son tuto sans erreur.
 
 ### 7. Risques résiduels et limites connues
-_À remplir._
+
+1. **Écriture possible sur le profil d'un autre wallet (deux onglets).** Le cookie de session est partagé entre onglets. Si l'onglet 1 affiche le wallet A et qu'un onglet 2 a ouvert une session pour B, fermer un tuto dans l'onglet 1 pose la clé sur le profil de **B** (le serveur écrit pour la session). Le client le détecte (adresse de la réponse) et garde la note de A, mais ne peut pas empêcher l'écriture : la route refuse toute clé `address`. Conséquence limitée à un tuto non vu par B. Correction possible côté route (A1) : un en-tête d'adresse attendue et un 409 en cas d'écart.
+2. **Comptes existants.** Tout wallet dont `tourCompletedAt` est nul voit le tuto d'accueil, puis chaque tuto de page à sa première visite, y compris les comptes de staging qui avaient vu l'ancien tuto (voir §2.2).
+3. **Fermeture puis réouverture après une nouvelle signature.** `authenticated` repasse à `false` lors d'un changement de réseau, d'une délégation runner absente ou expirée, ou pendant une nouvelle signature : un tuto ouvert automatiquement se ferme alors sans rien écrire et se rouvre après la nouvelle authentification. Pas de boucle (une lecture par changement d'identité). Un wallet dont la session existe sans délégation runner (IndexedDB vidé) ne voit pas de tuto automatique tant qu'il n'a pas re-signé.
+4. **Bouton « ? » fixe en bas à droite** (`z-20`, 36 px) : il peut recouvrir le coin droit du dernier élément d'une page en fin de défilement, surtout sur mobile, puisque aucune page ne réserve de marge pour lui. Le Toast (`z-50`) s'affiche au même endroit, par-dessus.
+5. **Fenêtre tierce ouverte au moment exact de l'ouverture du tuto** (cas jugé peu probable par la revue, la signature précédant la vérification serveur) : le tuto ne lui prend pas le focus ; si elle le rend ensuite à son déclencheur devenu inerte, le focus tombe sur le corps de la page, Tab le ramène dans le tuto mais un lecteur d'écran n'annonce pas la fenêtre ; Échap avec le focus sur le corps fermerait alors le tuto plutôt que la fenêtre tierce.
+6. **Élément ajouté au layout pendant l'ouverture** (par exemple le bouton « ? » réapparu après un retour arrière) : pas rendu `inert`, mais caché sous le fond et non atteint par Tab.
+7. **Note locale** (`sirius-tour-pending:<adresse>`) : contient l'adresse du wallet tant qu'une écriture n'est pas confirmée, et n'est pas effacée à la déconnexion (appareil partagé). Elle ne contient aucune donnée privée de plus.
+8. **Plusieurs onglets** : chacun peut ouvrir le même tuto avant que l'autre l'ait fermé (pas de synchronisation entre onglets) ; écriture en double sans conséquence.
+9. **Charge de lecture** : une lecture de profil par chargement de page de chaque utilisateur connecté, comptée dans le plafond global de l'instance (1 000 lectures par minute, A1) ; à relever avec le trafic.
+10. **Texte « One training runs at a time »** : devient faux si `RUNNER_MAX_CONCURRENT_JOBS` passe à 2.
+11. **`dataLimits`** : réserve de A2 (texte du cahier jugé optimiste) reprise telle quelle dans le tuto Upload.
 
 ### 8. Reste à faire
-_À remplir : ce qui n'a pas été fait et devrait l'être, avec la priorité._
+
+- **P0, slice A5 (menu profil)** : brancher `restartWelcomeTour()` (`src/components/tour/tour-store.ts`, réexporté par `src/components/layout/ProductTour.tsx`) sur le bouton « Visite guidée ». Tant que ce n'est pas fait, le critère « peut le relancer » de `04-dashboard.md` n'est pas atteint (les tutos de page, eux, sont relançables par « ? »).
+- **P0, Ali et Noé** : relire et valider les textes anglais de `src/lib/i18n/tour-en.ts` (exigé par `02-general.md`), et confirmer que les comptes existants doivent voir le nouveau tuto (§2.2).
+- **P1** : test e2e versionné des tutos (reprendre les scénarios du §5), hors périmètre de cette slice.
+- **P1** : essais manuels du §4 sur staging, en particulier lecteur d'écran, Safari et wallet embarqué réel.
+- **P1, slices pages** : quand une page change de rôle ou de contenu (dashboard v2, Mes datasets, Upload en deux étapes, Explorer, Wallet), relire son texte dans `src/lib/tour/content.ts`.
+- **P2, route `/api/profile` (A1)** : en-tête d'adresse attendue avec 409 en cas d'écart, pour fermer le risque §7.1.
+- **P2** : effacer la note locale à la déconnexion, et synchroniser les onglets par l'événement `storage`.
 
 ### 9. Résultats des vérifications
-_À remplir : chaque commande lancée et son résultat exact._
+
+Environnement : Windows 11, Node 22.16.0, pnpm 11.18.0 via `npx pnpm@11.18.0` (l'installation locale de pnpm 11.18.0 du poste est incomplète : `pnpm` échoue avec « Failed to switch pnpm to v11.18.0 », échec d'environnement sans lien avec la slice). Sous Windows, pnpm lance les scripts avec `cmd.exe`, qui ne comprend pas la syntaxe `NODE_OPTIONS=… node …` du script `test` (« 'NODE_OPTIONS' n'est pas reconnu… ») : `pnpm test` a donc été lancé avec `--config.script-shell=bash`, sans changer le script.
+
+| Commande | Résultat |
+|---|---|
+| `pnpm install --frozen-lockfile` | OK (« Already up to date » au dernier passage ; première installation complète en 8 min 56 s, `prisma generate` en postinstall) |
+| `pnpm prisma generate` (`DATABASE_URL=postgresql://x:y@localhost:5432/z`) | OK, « Generated Prisma Client (7.8.0) » |
+| `pnpm exec tsc --noEmit` | OK, aucune erreur |
+| `pnpm lint` | OK, aucune erreur ni avertissement |
+| `pnpm test` (bash) | 586 tests, 514 réussis, **72 échecs, identiques au test près à ceux de `staging` (e829cfc) sur le même poste** (530 tests, 458 réussis, 72 échecs ; comparaison des listes `not ok` : identiques). Ces échecs viennent de l'environnement Windows (chemins à barres obliques inverses, par exemple « src/lib/tee/contract.ts absent du graphe » dans `disclaimers.test.ts`, résolution d'imports du self-training, scripts runner) et non de la slice. Les 56 tests ajoutés passent tous. La CI Linux du dépôt fait foi. |
+| Tests de la slice seuls (`tour.test.ts`, `tour-dialog.test.ts`, `english.test.ts`) | 63 sur 63 |
+| `pnpm audit:deps` | OK (code 0) : 1 faible (`elliptic` ≤ 6.6.1) et 1 haute ignorée par la configuration, préexistantes |
+| `next build` (vérification supplémentaire, comme la CI) | OK |
+| `playwright test` (suite e2e existante, 79 tests) | 79 sur 79 sur la version finale. Un passage intermédiaire sur le port 3100 a échoué (33 échecs `ERR_CONNECTION_REFUSED` / délais, y compris sur `/docs` hors slice) parce qu'une autre session utilisait le même port en parallèle ; relancé sur un port isolé avec une configuration temporaire identique (supprimée) : 79 sur 79, deux fois. |
+| Vérification navigateur temporaire du tuto (§5) | 5 sur 5 |
+| `git log staging..HEAD --format=%B` | aucune ligne `Co-Authored-By`, `Claude-Session`, lien claude.ai ni « Generated with » ; auteur et committeur `alibenyezza` |
+| `git diff --name-only staging...HEAD` | 16 fichiers : les 15 du §1 et ce fichier d'audit |
 
 ### 10. Revue interne de la session
-_À remplir : ce que les agents de revue ont trouvé, ce qui a été corrigé, ce qui a été écarté et pourquoi._
+
+Trois passes de revue adversariale par des agents en lecture seule, plus la vérification navigateur.
+
+**Première passe, accessibilité et non-blocage** — trouvé et corrigé :
+- Textes faux : « withdraw to an address you control » et « A withdrawal is final: check the destination address » (la page Wallet ne retire que les crédits d'escrow vers son propre wallet) ; « others wait their turn » (aucune file : 503 « Runner saturé ») ; « then registered on-chain » à l'import (l'import laisse un brouillon, la publication est séparée) ; « recent activity » sur le tableau de bord ; tuto Train incomplet. Textes réécrits, formulations ajoutées à la liste interdite du test.
+- Piège du focus contournable (barre d'adresse puis Tab vers le menu derrière, lecteur d'écran) : le reste de l'application est désormais `inert` pendant l'ouverture.
+- `aria-describedby` vide sur les étapes sans paragraphe : la description couvre tout le contenu de l'étape.
+- Focus pris à une fenêtre tierce à l'ouverture : n'est plus pris si le focus est hors de l'application.
+- `Modal` du site pouvant passer au-dessus du tuto : tuto en `z-[60]`, `Modal` inerte dessous.
+- Défilement propagé à la page : `overscroll-contain`.
+- Écartés : verrouillage du défilement de `body` (inutile, fond couvrant) ; bouton « ? » pouvant recouvrir un coin de contenu (documenté §7.4, pages hors périmètre) ; nouveaux tutos pour les comptes existants (choix documenté §2.2).
+
+**Première passe, persistance et e2e** — trouvé et corrigé :
+- Une lecture lente rouvrait un tuto fermé pendant qu'elle était en vol (reproduit par script) : les fermetures de l'onglet l'emportent sur la réponse (`closedHere`), test ajouté.
+- La note locale était effacée par un PATCH confirmé pour un autre wallet : confirmation exigeant l'adresse attendue, test ajouté ; l'écriture côté serveur reste possible (documenté §7.1).
+- Chemin périmé après sortie des pages de l'application : `leavePages()` au démontage, sans écriture (sûr en StrictMode), tests ajoutés.
+- Tuto relancé sous un wallet puis enregistré pour un autre : écriture limitée au wallet d'ouverture, test ajouté.
+- Couverture : codes 401, 403, 409, 429 ajoutés aux tests d'écriture.
+- Vérifié sans problème : compatibilité des corps PATCH avec la route, fréquence des appels, StrictMode, toutes les specs e2e qui visitent une page de l'application posent le marqueur, neutralisation impossible en production.
+- Écarté : fichier e2e temporaire signalé comme risque de commit, supprimé avant la PR.
+
+**Deuxième passe** — trouvé et corrigé :
+- L'effet de changement d'étape, exécuté aussi au montage, reprenait le focus à une fenêtre tierce : il ne recentre plus que depuis le corps de la page.
+- Échap fermait aussi le devis (`Modal`) resté sous le tuto : écoute en capture sur `window` et `stopImmediatePropagation()`. Vérifié en navigateur.
+- Signalés et documentés, non corrigés dans la slice : `restartWelcomeTour()` à brancher par A5 (§8) ; écriture possible pour un autre wallet côté serveur (§7.1).
+- Vérifié sans problème : restauration exacte de `inert` (StrictMode, remplacement d'une fenêtre par une autre), absence de boucle, textes conformes au code.
+
+**Troisième passe** — rien de nouveau. Une limite notée (§7.5 : fenêtre tierce ouverte à l'instant exact de l'ouverture du tuto), jugée peu probable et laissée aux essais manuels (§4.12).
 
 ---
 
