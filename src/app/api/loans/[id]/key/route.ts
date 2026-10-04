@@ -11,6 +11,7 @@ import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { recordDatasetAccess } from "@/lib/users/profile";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,20 @@ const keyDeliveryLimiter = new FixedWindowRateLimiter({
   maxPerKey: 20,
   maxGlobal: 200,
 });
+
+/**
+ * Journal des accès, déclaré dans les conditions d'utilisation : chaque livraison d'un modèle
+ * est rattachée au wallet, au prêt et au dataset, pour pouvoir remonter à l'origine d'un modèle
+ * qui circulerait. L'enregistrement ne bloque jamais la livraison : une panne de base est
+ * journalisée par sa seule classe d'erreur, sans adresse ni identifiant.
+ */
+async function logModelDelivery(loan: { id: string; datasetId: string }, address: string, modelCid: string): Promise<void> {
+  try {
+    await recordDatasetAccess({ datasetId: loan.datasetId, loanId: loan.id, address, modelCid });
+  } catch (error) {
+    console.error(`[accès] livraison non journalisée (${error instanceof Error ? error.name : typeof error})`);
+  }
+}
 
 /** Retourne le préimage EVM devenu public pour ouvrir la capsule locale. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -42,6 +57,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!onChain || onChain.status !== 2 || !addressesEqual(onChain.borrower, loan.borrower)) {
       return NextResponse.json({ error: "Préimage EVM indisponible" }, { status: 409 });
     }
+    await logModelDelivery(loan, session.address, loan.modelCid);
     return NextResponse.json({
       modelCid: loan.modelCid,
       settleTxHash: loan.settleTxHash,
@@ -80,6 +96,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       authorization,
       loan.settleTxHash,
     );
+    await logModelDelivery(loan, session.address, delivery.modelCid);
     return NextResponse.json({ modelCid: delivery.modelCid, modelKeyEnvelope: delivery.modelKeyEnvelope });
   } catch (err) {
     return errorResponse(err);
