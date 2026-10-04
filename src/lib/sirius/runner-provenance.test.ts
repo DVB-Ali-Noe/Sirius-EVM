@@ -132,6 +132,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     "./lock-policy": { lockAuthorizationDeadline: () => 1 },
     "./access": { requireAcceptedKyb: async () => {}, requireCounterpartyKyb: async () => {} },
     "./provider": { BORROWABLE_STATUSES: ["LISTED", "UNLISTED"], isBorrowableDatasetStatus: () => true },
+    "@/lib/datasets/manage": { isListingExpired: () => false },
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: provider }) },
     "./recover-loan": {}, "@/lib/evm/history": {},
     // Testnet sans plafonds configurés : les gardes de la bêta mainnet ne s'appliquent pas.
