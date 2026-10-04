@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { resolveServerNetwork } from "@/lib/evm/networks";
+import { MAINNET_STABLECOIN_NAME, stablecoinSymbol } from "@/lib/evm/stablecoin";
 import { addressExplorerUrl } from "@/lib/evm/explorer";
 
 /**
@@ -34,12 +35,14 @@ function Row({ label, value, href, mono = false }: { label: string; value: strin
 export default function StatusPage() {
   const { network, chain } = resolveServerNetwork();
   const mainnet = network === "mainnet";
+  // « USDG » sur mainnet, « test USDC » sur testnet : la page est en anglais, sans t().
+  const symbol = stablecoinSymbol(network);
   const enclave = process.env.TEE_MODE === "phala" && process.env.SIRIUS_REQUIRE_PHALA === "true" && Boolean(process.env.SIRIUS_EXPECTED_MRTD);
   const contracts = [
     ["Escrow", process.env.SIRIUS_ESCROW_ADDRESS],
     ["Dataset registry", process.env.SIRIUS_DATASET_ADDRESS],
     ["KYB registry", process.env.SIRIUS_KYB_ADDRESS],
-    ["USDC", process.env.SIRIUS_USDC_ADDRESS],
+    [symbol, process.env.SIRIUS_USDC_ADDRESS],
   ] as const;
   const maxLoan = process.env.SIRIUS_MAX_LOAN_USDC?.trim();
   const maxExposure = process.env.SIRIUS_MAX_EXPOSURE_USDC?.trim();
@@ -50,7 +53,7 @@ export default function StatusPage() {
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{mainnet ? "Mainnet beta" : "Testnet"}</h1>
       <p className="mt-3 max-w-prose text-sm text-muted">
         {mainnet
-          ? "Sirius runs on Robinhood Chain mainnet with real USDC, in a limited beta: loans are capped, access is by invitation, and the contracts have not been externally audited yet."
+          ? `Sirius runs on Robinhood Chain mainnet with real ${symbol} (${MAINNET_STABLECOIN_NAME}, issued by Paxos), in a limited beta: loans are capped, access is by invitation, and the contracts have not been externally audited yet.`
           : "This instance runs on Robinhood Chain testnet. Tokens have no value; use it to try the full flow."}
       </p>
 
@@ -61,8 +64,8 @@ export default function StatusPage() {
           : "Demonstration mode: training is not yet isolated in an enclave on this instance"} />
         <Row label="Settlement" value="On-chain escrow: the provider is paid when training completes; the borrower is refunded after the deadline otherwise" />
         <Row label="External audit" value="Not yet audited. Internal review completed on 1 October 2026." />
-        {mainnet && <Row label="Per-loan limit" value={maxLoan ? `${maxLoan} USDC` : "Not configured"} />}
-        {mainnet && <Row label="Total exposure limit" value={maxExposure ? `${maxExposure} USDC locked across all loans` : "Not configured"} />}
+        {mainnet && <Row label="Per-loan limit" value={maxLoan ? `${maxLoan} ${symbol}` : "Not configured"} />}
+        {mainnet && <Row label="Total exposure limit" value={maxExposure ? `${maxExposure} ${symbol} locked across all loans` : "Not configured"} />}
         {mainnet && <Row label="Access" value="By invitation during the beta" />}
       </dl>
 

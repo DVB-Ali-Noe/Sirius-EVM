@@ -3,9 +3,15 @@ import { isAbsolute, join } from "node:path";
 import { validateBillingPolicy } from "../src/lib/billing/config";
 import { fundedBudgetUsd, initializeBudgetLedger, validateBudgetPolicy } from "../src/lib/runner/budget-ledger";
 import { initializeRunnerReplay } from "../src/lib/runner/replay";
+import { MAINNET_STABLECOIN_ADDRESS } from "../src/lib/evm/stablecoin";
 
-/** USDC natif de Robinhood Chain mainnet : seul jeton accepté pour une politique mainnet. */
-export const MAINNET_USDC = "0x80e0e24718dbfcad49ecaa6f1e6c89a190586ca8";
+/**
+ * USDG (Paxos) sur Robinhood Chain mainnet : seul jeton accepté pour une politique
+ * mainnet, en minuscules comme `billing.usdc` après validation.
+ */
+export const MAINNET_STABLECOIN = MAINNET_STABLECOIN_ADDRESS;
+/** @deprecated Nom historique gardé par compatibilité (cahier des charges A8) : vaut l'USDG, pas l'USDC. Aucun importateur hors tests. */
+export const MAINNET_USDC = MAINNET_STABLECOIN;
 
 export interface RunnerVolumeNetwork {
   network: "mainnet" | "testnet";
@@ -38,10 +44,10 @@ export function initializeRunnerVolume(
   const budget = validateBudgetPolicy(budgetValue);
   const billing = validateBillingPolicy(billingValue);
   const mainnet = target.network === "mainnet";
-  if (mainnet && (billing.usdc !== MAINNET_USDC || budget.trial || budget.sponsored
+  if (mainnet && (billing.usdc !== MAINNET_STABLECOIN || budget.trial || budget.sponsored
     || BigInt(budget.earnedMarginUsdMicros) === BigInt(0) || BigInt(budget.cashUsdMicros) === BigInt(0)
     || budget.gas.confirmations < 1)) {
-    throw new Error("Politiques mainnet invalides : USDC natif, financement réel, ni essai ni sponsor");
+    throw new Error("Politiques mainnet invalides : USDG de Paxos uniquement, financement réel, ni essai ni sponsor");
   }
   if (!isAbsolute(root) || budget.chainId !== target.chainId || billing.chainId !== target.chainId
     || billing.usdcDecimals !== target.usdcDecimals

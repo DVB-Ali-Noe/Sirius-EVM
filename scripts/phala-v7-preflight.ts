@@ -3,9 +3,16 @@ import { checkRpcFinality, finalityPolicy } from "../src/lib/evm/finality";
 import { siriusescrowv7Abi } from "../src/lib/evm/abi/siriusescrowv7";
 import { siriusdatasetregistryAbi } from "../src/lib/evm/abi/siriusdatasetregistry";
 import { siriuskybregistryAbi } from "../src/lib/evm/abi/siriuskybregistry";
+import { MAINNET_STABLECOIN_ADDRESS } from "../src/lib/evm/stablecoin";
 
-/** USDC ponté officiel de Robinhood Chain mainnet (pont canonique Arbitrum), 6 décimales. */
-export const MAINNET_USDC = "0x80e0e24718dbfcad49ecaa6f1e6c89a190586ca8";
+/**
+ * USDG (Paxos) sur Robinhood Chain mainnet, 6 décimales, en minuscules pour les
+ * comparaisons. C'est un proxy ERC-1967 : son code hash reste stable même si Paxos
+ * remplace l'implémentation, voir src/lib/evm/stablecoin.ts.
+ */
+export const MAINNET_STABLECOIN = MAINNET_STABLECOIN_ADDRESS;
+/** @deprecated Nom historique gardé par compatibilité (cahier des charges A8) : vaut l'USDG, pas l'USDC. Aucun importateur hors tests. */
+export const MAINNET_USDC = MAINNET_STABLECOIN;
 
 const NETWORKS = {
   testnet: { chainId: 46630, decimals: 18 },
@@ -18,7 +25,7 @@ export function testnetV7Configuration(env: Record<string, string | undefined>) 
 }
 
 /**
- * Mainnet : KYB strict (jamais ouvert), USDC ponté épinglé, et trésorerie et administration
+ * Mainnet : KYB strict (jamais ouvert), USDG de Paxos épinglé, et trésorerie et administration
  * KYB sur le même compte de gouvernance (le Safe), déclaré dans SIRIUS_KYB_ADMIN.
  */
 export function mainnetV7Configuration(env: Record<string, string | undefined>) {
@@ -44,7 +51,7 @@ function v7Configuration(env: Record<string, string | undefined>, network: Netwo
   const computeRecipient = address("SIRIUS_COMPUTE_RECIPIENT");
   if (runner === deployer || runner === computeRecipient) throw new Error("Le compte Phala doit rester distinct de la trésorerie et du déployeur");
   const usdcCodeHash = env.SIRIUS_USDC_CODE_HASH;
-  if (!usdcCodeHash || !/^0x[a-f0-9]{64}$/i.test(usdcCodeHash)) throw new Error("Empreinte USDC requise");
+  if (!usdcCodeHash || !/^0x[a-f0-9]{64}$/i.test(usdcCodeHash)) throw new Error("Empreinte du jeton de règlement requise : SIRIUS_USDC_CODE_HASH");
   const names = ["SIRIUS_ESCROW_ADDRESS", "SIRIUS_DATASET_ADDRESS", "SIRIUS_KYB_ADDRESS"];
   const configured = names.filter((name) => env[name]?.trim()).length;
   if (configured && configured !== names.length) throw new Error("Configuration partielle des nouveaux contrats");
@@ -55,7 +62,7 @@ function v7Configuration(env: Record<string, string | undefined>, network: Netwo
   }
   let kybAdmin: Address | null = null;
   if (network === "mainnet") {
-    if (usdc !== MAINNET_USDC) throw new Error("USDC mainnet attendu : pont canonique 0x80e0…6cA8");
+    if (usdc !== MAINNET_STABLECOIN) throw new Error(`Jeton mainnet attendu : USDG de Paxos ${MAINNET_STABLECOIN}, aucun autre jeton (USDC compris)`);
     kybAdmin = address("SIRIUS_KYB_ADMIN");
     if (kybAdmin !== computeRecipient) throw new Error("La trésorerie et l’administration KYB doivent être le même compte de gouvernance");
     if ([runner, deployer].includes(kybAdmin)) throw new Error("Le compte de gouvernance doit rester distinct du runner et du déployeur");
@@ -77,7 +84,10 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
     client.getBalance({ address: config.deployer, blockNumber }), client.getBalance({ address: config.runner, blockNumber }),
     client.readContract({ address: config.usdc, abi: erc20Abi, functionName: "balanceOf", args: [config.computeRecipient], blockNumber }),
   ]);
-  if (!tokenCode || keccak256(tokenCode) !== config.usdcCodeHash || decimals !== config.decimals) throw new Error("Code ou précision USDC inattendu pour ce réseau");
+  // Sur mainnet, `tokenCode` est celui du proxy ERC-1967 d'USDG : l'empreinte prouve qu'on
+  // parle au même proxy, pas que la logique de Paxos est inchangée. Les décimales, elles,
+  // sont lues à travers le proxy, donc sur l'implémentation courante.
+  if (!tokenCode || keccak256(tokenCode) !== config.usdcCodeHash || decimals !== config.decimals) throw new Error("Code ou précision du jeton de règlement inattendu pour ce réseau");
   if (stable.hash !== finality.confirmedHash || tip.timestamp < stable.timestamp) throw new Error("Vue RPC incohérente pendant le préflight");
   const issues: string[] = [];
   if (deployerWei === BigInt(0)) issues.push("deployer.native_balance_zero");

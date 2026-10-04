@@ -8,6 +8,8 @@ import { SecureAccountCard } from "@/components/wallet/SecureAccount";
 import { useWalletStore } from "@/stores/wallet";
 import { fetchGasBalance, fetchUsdcBalance, type GasBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
+import { resolveClientNetwork } from "@/lib/evm/networks";
+import { stablecoinSymbol } from "@/lib/evm/stablecoin";
 import { addFunds } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -23,6 +25,8 @@ function WalletPageContent() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const starterFunds = useWalletStore((s) => s.starterFunds);
   const { locale, t } = useLocale();
+  // Réseau inliné au build : « USDG » sur mainnet, jeton d'essai partout ailleurs.
+  const network = resolveClientNetwork();
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
   const [gas, setGas] = useState<GasBalance | null>(null);
@@ -106,7 +110,7 @@ function WalletPageContent() {
             <span className="text-3xl font-semibold tracking-tight">
               {balError ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "…"}
             </span>
-            <span className="text-sm text-muted">{process.env.NEXT_PUBLIC_EVM_NETWORK === "mainnet" ? "USDC" : t("test USDC")}</span>
+            <span className="text-sm text-muted">{network === "mainnet" ? stablecoinSymbol(network) : t("test USDC")}</span>
           </div>
           {gas && (
             <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>
