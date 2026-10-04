@@ -530,4 +530,12 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Langue non prise en charge": "Unsupported language",
   "Entrée du journal des accès invalide": "Invalid dataset access log entry",
   "Profil modifié en même temps, réessaie": "Profile changed concurrently, try again",
+  // Ajout de fonds (POST /api/onramp)
+  "Achat par carte indisponible": "Card purchase unavailable",
+  "Pont indisponible sur ce réseau": "Bridge unavailable on this network",
+  "Méthode d'ajout de fonds invalide": "Invalid funding method",
+  "Jeton d'ajout de fonds invalide": "Invalid funding asset",
+  "Montant invalide": "Invalid amount",
+  "Montant par carte invalide : entre 5 et 10 000 USD": "Invalid card amount: between 5 and 10,000 USD",
+  "Montant du pont invalide : entre 1 et 100 000 USDC": "Invalid bridge amount: between 1 and 100,000 USDC",
 };

@@ -2976,3 +2976,64 @@ Tenté sans défaut au passage 1 : projection Prisma, champs de la vue et du JSO
 **Vérification de cette dernière correction** : le passage de la suite complète a montré que détacher aussi l'attente du rendu (et pas seulement l'échéance dure) laissait la boucle d'événements se vider pendant un test qui l'attendait (11 tests « cancelled »). **Corrigé** (`bc25afe`) : seul le minuteur de l'échéance dure est détaché. Suite complète ensuite : `# cancelled 0`, tests de la slice 8 fois verts d'affilée. Pas de passage de revue supplémentaire : la correction tient en une condition sur un minuteur, couverte par la suite.
 
 Écarté : aucun défaut remonté n'a été jugé faux. Ceux non corrigés sont hors périmètre (`src/lib/tee/**`, proxy) ou acceptés, et listés en §7 et §8.
+
+## F1 — Ajout de fonds, serveur
+
+Branche `feat/onramp-serveur`, depuis `origin/staging`. Côté serveur seulement ; l'interface est la slice F2, codée en parallèle sur le même contrat d'API.
+
+### 1. Périmètre
+
+- `src/lib/onramp/onramp.ts` (nouveau) : décision des options, validation du corps, construction des liens MoonPay et Relay.
+- `src/app/api/onramp/options/route.ts` (nouveau) : `GET /api/onramp/options`, public.
+- `src/app/api/onramp/route.ts` : ajout du `POST` ; `GET` historique inchangé, commentaire faux corrigé.
+- `src/lib/i18n/errors-en.ts` : traduction des sept nouveaux messages d'erreur.
+- `src/lib/onramp/onramp.test.ts` (nouveau), ajouté au script `test` de `package.json`.
+
+Non touchés : `src/components/**`, `src/app/(app)/**` (F2), `src/lib/moonpay/url.ts` (réutilisé tel quel), `src/lib/wallet/onramp.ts`.
+
+### 2. Contrat d'API livré
+
+- `GET /api/onramp/options` → 200 `{ network, faucet, card, transfer, bridge, minCardUsd: 5 }`. Testnet : `faucet` seul. Mainnet : `transfer` et `bridge` vrais, `card` vrai seulement si `NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY` commence par `pk_live_` et que `MOONPAY_SECRET_KEY` est non vide. `Cache-Control: no-store`.
+- `POST /api/onramp` : `requireAuth` (origine vérifiée puis session, 403 ou 401), corps JSON de 1 Kio au plus, `{ method, asset, amount }` → 200 `{ url }`.
+  - `card` : URL MoonPay signée, `currencyCode` `usdg_robinhood` ou `eth_robinhood`, `baseCurrencyAmount` = montant en USD, entre 5 et 10 000.
+  - `bridge` : `https://relay.link/bridge/robinhood?fromChainId=8453&fromCurrency=<USDC Base>&toCurrency=<USDG ou 0x0…0>&amount=<montant>&tradeType=EXACT_INPUT&toAddress=<session>`, montant entre 1 et 100 000.
+  - Erreurs : 400 (méthode, jeton, montant non numérique ou hors bornes), 503 `Achat par carte indisponible` (carte sans clé live, ou testnet), 503 `Pont indisponible sur ce réseau` (pont sur testnet).
+- `GET /api/onramp` : comportement identique (Across sur mainnet, MoonPay `usdc` ailleurs), couvert par un test de non-régression.
+
+### 3. Décisions
+
+1. **Adresse imposée par la session.** `parseOnrampRequest` ne lit que `method`, `asset` et `amount` ; `onrampUrl` reçoit `session.address` en argument séparé. Un `walletAddress` ou `toAddress` dans le corps est ignoré (testé sur les deux méthodes).
+2. **Carte seulement avec une clé live sur mainnet.** MoonPay n'a pas de mode test pour `usdg_robinhood` ni `eth_robinhood` : une clé sandbox ouvrirait un widget qui ne livre rien. La décision `cardAvailable` sert à la fois aux options et au `POST`, pour que l'écran ne propose jamais un chemin que le serveur refuse.
+3. **Montant strictement numérique.** `"10"` est refusé (400) : pas de conversion implicite. Bornes incluses (5 et 10 000, 1 et 100 000). Aucune limite sur le nombre de décimales : MoonPay et Relay arrondissent eux-mêmes.
+4. **Adresse USDG du lien Relay dérivée de `stablecoin.ts`** (`getAddress(MAINNET_STABLECOIN_ADDRESS)`), pas recopiée : une seule source.
+5. **Ordre des contrôles** : origine et session d'abord (403/401), puis corps (400), puis réseau et clés (503). Un visiteur non connecté n'apprend rien de la configuration par le `POST` ; les options publiques ne révèlent que des booléens.
+6. **Commentaire corrigé** dans `route.ts` : MoonPay vend bien `usdg_robinhood` et `eth_robinhood` sur 4663 (vérifié le 4 octobre). Le `GET` historique garde quand même le pont Across sur mainnet : il demande `currencyCode=usdc` par défaut, qui, lui, ne serait pas livré sur Robinhood Chain.
+
+### 4. Risques
+
+- **URL signée.** La signature HMAC-SHA256 couvre toute la query (`apiKey`, `currencyCode`, `walletAddress`, `baseCurrencyAmount`) : modifier l'adresse dans l'URL renvoyée invalide la signature côté MoonPay. Le secret ne quitte jamais le serveur (`server-only`) et n'apparaît dans aucune réponse ni aucun message d'erreur. L'URL elle-même n'est pas secrète (elle contient la clé publique et l'adresse de l'utilisateur) ; réponse en `no-store`.
+- **Adresse imposée par la session.** Seule protection contre un lien d'achat qui enverrait les fonds ailleurs : couverte par deux tests. Le lien Relay, lui, n'est pas signé : l'utilisateur peut changer `toAddress` dans son navigateur avant de payer. Ce n'est pas une faille (il dépense son propre argent depuis son propre wallet Base), mais Sirius ne peut pas garantir l'arrivée sur l'adresse du compte par ce chemin.
+- **Clés MoonPay.** Une clé publique live avec un secret sandbox (ou l'inverse) donne `card: true` mais des URL rejetées par MoonPay : la cohérence des deux clés n'est pas vérifiable sans appel réseau. À contrôler à la configuration de la prod. Une clé `pk_live_` sur testnet ne rend pas la carte disponible.
+- **Pas de limitation de débit** sur le `POST` : il ne fait qu'un HMAC local, sans appel réseau ni écriture, et exige une session.
+- **CSP** : l'ouverture des liens se fait par navigation (`window.open`), hors `connect-src`. Si F2 appelait Relay ou MoonPay en `fetch`, il faudrait élargir la politique de `src/proxy.ts`.
+
+### 5. Tests
+
+`src/lib/onramp/onramp.test.ts`, 17 tests : options par réseau et par clés (live, sandbox, secret absent ou vide, testnet) ; route des options ; bornes des montants (incluses, dépassées, `NaN`, `Infinity`, chaîne, `null`) ; méthode et jeton inconnus ; traduction anglaise des messages ; lien Relay (USDG et ETH natif) ; URL MoonPay (actif, montant, adresse, signature recalculée) ; 503 carte et testnet ; `POST` sans session (401), d'une origine étrangère ou sans origine (403), adresse du corps ignorée, montants hors bornes, 503 avec le message exact ; `GET` historique inchangé et 401 sans session.
+
+Non couvert : l'acceptation réelle des liens par MoonPay et Relay (pas de mode test MoonPay pour ces actifs).
+
+### 6. Points à relire
+
+- Le message 503 du pont sur testnet (`Pont indisponible sur ce réseau`) n'est pas fixé par le contrat : F2 doit se fier au statut, pas au texte.
+- `minCardUsd` vaut 5 en dur (minimum MoonPay du 4 octobre) : si MoonPay le relève, changer `CARD_MIN_USD`.
+- Le lien Relay part toujours de l'USDC de Base : un utilisateur qui a ses fonds ailleurs change la chaîne de départ dans Relay.
+- Le `GET` historique pourra être retiré quand F2 ne l'appellera plus (`src/lib/wallet/onramp.ts`).
+
+### 7. Résultats des vérifications (Windows)
+
+- `npx pnpm@11.18.0 install --frozen-lockfile` : OK (avec un `DATABASE_URL` synthétique pour le `postinstall`).
+- `npx pnpm@11.18.0 prisma generate` : OK.
+- `npx pnpm@11.18.0 exec tsc --noEmit` : OK.
+- `npx pnpm@11.18.0 lint` : OK.
+- `NODE_OPTIONS=--conditions=react-server npx tsx --test src/lib/onramp/onramp.test.ts` : 17/17. Avec `english.test.ts`, `tour.test.ts`, `demo-host.test.ts`, `wallet/onramp.test.ts` et `stablecoin.test.ts` : 84/84.
