@@ -6,12 +6,10 @@ import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import { csvRejectionText, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
-import { DATASET_CATEGORIES, DATASET_CATEGORY_LABEL_KEYS } from "@/lib/datasets/publication";
+import { DATASET_CATEGORIES, DATASET_CATEGORY_LABEL_KEYS, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from "@/lib/datasets/publication";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, type DataValues, type LoadedFile } from "./wizard-types";
 
-export const MAX_NAME_LENGTH = 120;
-export const MAX_DESCRIPTION_LENGTH = 2_000;
 
 interface DataStepProps {
   values: DataValues;

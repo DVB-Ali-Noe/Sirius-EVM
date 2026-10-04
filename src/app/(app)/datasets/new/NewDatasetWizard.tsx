@@ -65,11 +65,23 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const [sealedDatasetId, setSealedDatasetId] = useState<string | null>(null);
   const readToken = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
     const pending = timers.current;
     return () => pending.forEach(clearTimeout);
   }, []);
+
+  // Le bouton qui a déclenché le changement d'étape est démonté : le focus clavier repart
+  // du panneau de la nouvelle étape plutôt que du corps de la page. Pas au premier rendu.
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (phase !== "securing") panelRef.current?.focus();
+  }, [phase]);
 
   const inspection: CsvInspection | null = useMemo(
     () => (file ? inspectCsv(file.text, values.modelId) : null),
@@ -81,7 +93,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const providerAtomic = useMemo(() => parseProviderPrice(price, token.decimals), [price, token.decimals]);
   const breakdown = tariff && providerAtomic !== null ? providerPriceBreakdown(tariff, values.modelId, providerAtomic.toString()) : null;
   const belowMinimum = breakdown !== null && breakdown.ok && breakdown.belowMinimum;
-  const canPublish = providerAtomic !== null && !belowMinimum && (tariff === null || breakdown?.ok === true);
+  // Sans tarif, pas de décomposition du prix : la publication attend (07, « Terminé quand »).
+  const canPublish = providerAtomic !== null && !belowMinimum && breakdown !== null && breakdown.ok;
 
   async function readFile(selected: File | null) {
     // Une lecture plus récente rend la précédente caduque : seule la dernière écrit l'état.
@@ -91,11 +104,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     setFingerprint(null);
     if (!selected) {
       setFileRejection(null);
+      setReadingFile(false);
       return;
     }
     const rejection = checkFileSize(selected.size);
     if (rejection) {
       setFileRejection(rejection);
+      setReadingFile(false);
       return;
     }
     setReadingFile(true);
@@ -245,7 +260,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
                 }`}
               >
                 <span aria-hidden="true" className="font-mono">{done ? "✓" : index + 1}</span>
-                <span className="truncate">{label}</span>
+                <span className="min-w-0 wrap-anywhere">{label}</span>
               </li>
             );
           })}
@@ -256,12 +271,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
       </div>
 
       {error && phase !== "pricing" && (
-        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="mb-6 min-w-0 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative wrap-anywhere">
           {t(error)}
         </div>
       )}
 
       <Card>
+        <div ref={panelRef} tabIndex={-1} className="outline-hidden">
         {phase === "data" && (
           <DataStep
             values={values}
@@ -279,7 +295,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
         )}
 
         {phase === "securing" && file && (
-          <section aria-live="polite" aria-busy="true" className="flex flex-col gap-4 py-4">
+          <section aria-live="polite" className="flex flex-col gap-4 py-4">
             <h2 className="text-lg font-medium">{t("Sécurisation sur ton appareil")}</h2>
             <ol className="flex flex-col gap-2 text-sm">
               {[
@@ -342,6 +358,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             onPublish={publish}
           />
         )}
+        </div>
       </Card>
     </main>
   );

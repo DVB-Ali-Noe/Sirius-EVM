@@ -80,9 +80,11 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Montant invalide : vérifie les bornes et le nombre de décimales.": "Invalid amount: check the bounds and the number of decimals.",
   "Frais de calcul du tarif en vigueur ({version}) pour le profil {model}. L’emprunteur paie ta part plus ces frais ; tu reçois ta part à chaque emprunt réglé.":
     "Compute fee of the tariff in force ({version}) for the {model} profile. The borrower pays your share plus this fee; you receive your share for each settled loan.",
-  "Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. L’emprunteur paiera ta part plus les frais de calcul que l’enclave indiquera dans son devis au moment de l’emprunt.":
-    "The tariff in force could not be loaded, so the compute fee cannot be shown. The borrower will pay your share plus the compute fee the enclave states in its quote at borrow time.",
-  "Tu recevras {amount} par emprunt réglé.": "You will receive {amount} per settled loan.",
+  "Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. La publication est suspendue tant que la décomposition du prix ne peut pas être montrée. Réessaie dans quelques instants ou contacte-nous.":
+    "The tariff in force could not be loaded, so the compute fee cannot be shown. Publication is paused until the price breakdown can be displayed. Try again shortly or contact us.",
+  "Tu recevrais {amount} par emprunt réglé.": "You would receive {amount} per settled loan.",
+  "Indique ton gain pour voir ce que paiera l’emprunteur. Minimum imposé par le tarif : {minimum}.": "Enter your share to see what the borrower will pay. Minimum set by the tariff: {minimum}.",
+  "Publication suspendue : tarif indisponible.": "Publication paused: tariff unavailable.",
   "Aucun frais de calcul avec l’escrow actuel : l’emprunteur bloque exactement ta part, que tu reçois à chaque emprunt réglé.":
     "No compute fee with the current escrow: the borrower locks exactly your share, which you receive for each settled loan.",
   "Reprendre l’inscription on-chain": "Resume the on-chain registration",
@@ -99,10 +101,10 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Taille chiffrée (environ)": "Encrypted size (approx.)",
 
   // Étape 2 — consentement et publication
-  "Facultatif. Ton choix est enregistré avec sa date et la version du texte ({version}). La donnée n’est jamais déchiffrée hors de l’enclave, y compris pour cet usage. Tu peux retirer ce consentement depuis la fiche du dataset.":
-    "Optional. Your choice is recorded with its date and the text version ({version}). Data is never decrypted outside the enclave, including for this use. You can withdraw this consent from the dataset page.",
-  "Le dataset est scellé par l’enclave. Tu peux terminer l’inscription on-chain depuis":
-    "The dataset is sealed by the enclave. You can finish the on-chain registration from",
+  "Facultatif. Ton choix est enregistré avec sa date et la version du texte ({version}). La donnée n’est jamais déchiffrée hors de l’enclave, y compris pour cet usage. Tu pourras le retirer depuis la fiche du dataset.":
+    "Optional. Your choice is recorded with its date and the text version ({version}). Data is never decrypted outside the enclave, including for this use. You will be able to withdraw it from the dataset page.",
+  "Le dataset est scellé par l’enclave.": "The dataset is sealed by the enclave.",
+  "Terminer l’inscription on-chain depuis Mes actifs data": "Finish the on-chain registration from My data assets",
   "Progression de la publication": "Publication progress",
   "Création du brouillon": "Creating the draft",
   "Chiffrement sur ton appareil": "Encrypting on your device",

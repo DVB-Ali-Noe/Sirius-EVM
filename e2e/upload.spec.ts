@@ -151,7 +151,7 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(page.getByText(/Local fingerprint: [0-9a-f]{64}/)).toBeVisible();
   const priceField = page.getByLabel("What I want to earn per loan (USDC)");
   await expect(priceField).toBeVisible({ timeout: 10_000 });
-  expect(Date.now() - started).toBeGreaterThanOrEqual(1_500);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
   await expect(page.getByText("Step 2 of 2")).toBeVisible();
 
   // Décomposition en direct, minimum affiché, saisie sous le plancher refusée.

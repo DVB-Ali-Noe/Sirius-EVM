@@ -20,7 +20,7 @@ export interface DataValues {
 export type StepState = "pending" | "active" | "done" | "failed";
 
 export const INPUT_CLASS =
-  "w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-white/30";
+  "w-full min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-hidden transition-colors focus:border-white/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 export const PRIMARY_BUTTON_CLASS =
   "rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50";
 export const SECONDARY_BUTTON_CLASS =

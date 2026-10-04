@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useMemo } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
@@ -94,7 +94,8 @@ export function PricingStep({
   const ids = { price: useId(), priceHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
   // Sans tarif chargé, le plancher reste celui que la route impose (0,001 jeton) : il est connu localement.
   const minimum = formatTokenWithSymbol(tariff ? tariff.minimumProviderAtomic : minimumProviderPriceAtomic(token.decimals) ?? "", token) ?? "—";
-  const expiry = listingExpiryFrom(new Date(), listingDays).toISOString().slice(0, 10);
+  // Date indicative : la vraie échéance part de l’inscription on-chain (rebase côté serveur).
+  const expiry = useMemo(() => listingExpiryFrom(new Date(), listingDays).toISOString().slice(0, 10), [listingDays]);
   const priceInvalid = price.trim() !== "" && providerAtomic === null;
   // Dataset déjà scellé par l'enclave : les termes sont enregistrés, seule l'inscription
   // on-chain reste à reprendre. Les champs sont gelés pour ne pas laisser croire qu'un
@@ -144,13 +145,20 @@ export function PricingStep({
 
       {tariff ? (
         <div className="flex flex-col gap-2">
-          <PriceBreakdown
-            providerAtomic={providerAtomic ?? ""}
-            computeAtomic={tariff.computeFeeAtomic[modelId]}
-            token={token}
-            minimumAtomic={tariff.minimumProviderAtomic}
-            perspective="provider"
-          />
+          {providerAtomic !== null ? (
+            <PriceBreakdown
+              providerAtomic={providerAtomic}
+              computeAtomic={tariff.computeFeeAtomic[modelId]}
+              token={token}
+              minimumAtomic={tariff.minimumProviderAtomic}
+              perspective="provider"
+            />
+          ) : (
+            // En attente d'une saisie valide : pas de montant partiel ni de seconde alerte.
+            <section aria-label={t("Décomposition du prix")} className="rounded-xl border border-border bg-surface/50 p-5 text-sm text-muted">
+              {t("Indique ton gain pour voir ce que paiera l’emprunteur. Minimum imposé par le tarif : {minimum}.", { minimum })}
+            </section>
+          )}
           <p className="text-xs text-muted">
             {tariff.version === "legacy-v6"
               ? t("Aucun frais de calcul avec l’escrow actuel : l’emprunteur bloque exactement ta part, que tu reçois à chaque emprunt réglé.")
@@ -162,9 +170,9 @@ export function PricingStep({
         </div>
       ) : (
         <div role="note" className="rounded-xl border border-yellow-400/40 bg-yellow-400/5 p-4 text-xs text-foreground/90">
-          <p>{t("Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. L’emprunteur paiera ta part plus les frais de calcul que l’enclave indiquera dans son devis au moment de l’emprunt.")}</p>
+          <p>{t("Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. La publication est suspendue tant que la décomposition du prix ne peut pas être montrée. Réessaie dans quelques instants ou contacte-nous.")}</p>
           <p className="mt-2">
-            {t("Tu recevras {amount} par emprunt réglé.", {
+            {t("Tu recevrais {amount} par emprunt réglé.", {
               amount: providerAtomic === null ? "—" : formatTokenWithSymbol(providerAtomic, token) ?? "—",
             })}
           </p>
@@ -247,7 +255,7 @@ export function PricingStep({
           <span>{t(TRAINING_CONSENT_TEXT_KEY)}</span>
         </label>
         <p id={ids.consentHint} className="pl-7 text-xs text-muted">
-          {t("Facultatif. Ton choix est enregistré avec sa date et la version du texte ({version}). La donnée n’est jamais déchiffrée hors de l’enclave, y compris pour cet usage. Tu peux retirer ce consentement depuis la fiche du dataset.", {
+          {t("Facultatif. Ton choix est enregistré avec sa date et la version du texte ({version}). La donnée n’est jamais déchiffrée hors de l’enclave, y compris pour cet usage. Tu pourras le retirer depuis la fiche du dataset.", {
             version: TRAINING_CONSENT_VERSION,
           })}
         </p>
@@ -258,8 +266,8 @@ export function PricingStep({
           <p>{t(error)}</p>
           {sealedDatasetId && (
             <p className="mt-1 text-foreground/80">
-              {t("Le dataset est scellé par l’enclave. Tu peux terminer l’inscription on-chain depuis")}{" "}
-              <Link href="/datasets" className="underline underline-offset-4">{t("Mes actifs data")}</Link>.
+              {t("Le dataset est scellé par l’enclave.")}{" "}
+              <Link href="/datasets" className="underline underline-offset-4">{t("Terminer l’inscription on-chain depuis Mes actifs data")}</Link>
             </p>
           )}
         </div>
@@ -298,7 +306,11 @@ export function PricingStep({
         </button>
         {!canPublish && !publishing && (
           <p className="text-xs text-muted">
-            {belowMinimum ? t("Le gain doit atteindre le minimum imposé par le tarif.") : t("Indique un gain valide pour publier.")}
+            {tariff === null
+              ? t("Publication suspendue : tarif indisponible.")
+              : belowMinimum
+                ? t("Le gain doit atteindre le minimum imposé par le tarif.")
+                : t("Indique un gain valide pour publier.")}
           </p>
         )}
       </div>

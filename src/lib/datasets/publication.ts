@@ -6,6 +6,10 @@
  * au navigateur : chaque valeur reçue repasse par les fonctions `parse*` ci-dessous.
  */
 
+/** Bornes du nom et de la description, appliquées par le formulaire et par la route. */
+export const MAX_NAME_LENGTH = 120;
+export const MAX_DESCRIPTION_LENGTH = 2_000;
+
 /** Catégories de la liste fixe, telles qu'elles sont stockées en base (identifiants stables). */
 export const DATASET_CATEGORIES = [
   "Finance",

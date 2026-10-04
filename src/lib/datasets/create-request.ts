@@ -3,6 +3,8 @@ import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
 import {
   ESCROW_CHALLENGE_DAYS,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_NAME_LENGTH,
   parseDatasetCategory,
   parseListingDurationDays,
   parseTrainingConsent,
@@ -10,8 +12,6 @@ import {
   type ListingDurationDays,
 } from "./publication";
 
-export const MAX_NAME_LENGTH = 120;
-export const MAX_DESCRIPTION_LENGTH = 2_000;
 
 export interface CreateDatasetRequest {
   name: string;

@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { EN_MESSAGES } from "@/lib/i18n/english";
-import { MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, parseCreateDatasetRequest } from "./create-request";
-import { ESCROW_CHALLENGE_DAYS } from "./publication";
+import { parseCreateDatasetRequest } from "./create-request";
+import { ESCROW_CHALLENGE_DAYS, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from "./publication";
 
 const valid = {
   name: " Mobilité urbaine ",
