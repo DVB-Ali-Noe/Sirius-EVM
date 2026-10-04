@@ -45,9 +45,9 @@ export async function createDatasetDraft(request: CreateDatasetRequest, provider
   };
   try {
     if (upload.challengeDays !== ESCROW_CHALLENGE_DAYS) throw new AppError("Délai de sécurité incohérent", 500);
-    // L'échéance part de `createdAt` (horloge de la base), pas de l'horloge du serveur après
-    // l'appel à l'enclave : `rebasedListingExpiry` retrouve ainsi la durée choisie à la
-    // milliseconde près à la mise en ligne, quelle que soit la lenteur du runner.
+    // L'échéance part de `createdAt` de la ligne (posé par Prisma à l'insertion), pas d'une
+    // horloge relevée après l'appel à l'enclave : `rebasedListingExpiry` retrouve ainsi la
+    // durée choisie à la milliseconde près à la mise en ligne, quelle que soit la lenteur du runner.
     const created = await prisma.dataset.findUniqueOrThrow({ where: { id: upload.datasetId }, select: { createdAt: true } });
     const now = new Date();
     terms = {

@@ -47,7 +47,7 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
 
   // Refus du CSV (raison exacte)
   "Fichier vide.": "The file is empty.",
-  "Fichier trop volumineux : {size}, maximum {max}.": "File too large: {size}, maximum {max}.",
+  "Fichier trop volumineux : {size} ({bytes} octets), maximum {max}.": "File too large: {size} ({bytes} bytes), maximum {max}.",
   "Fichier illisible : ce n’est pas un CSV valide.": "Unreadable file: this is not a valid CSV.",
   "Trop de lignes : au plus {max} lignes, en-tête compris.": "Too many rows: at most {max} rows, header included.",
   "Trop de colonnes : au plus {max}.": "Too many columns: at most {max}.",

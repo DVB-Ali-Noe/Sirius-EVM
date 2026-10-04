@@ -9,6 +9,7 @@ import {
 import type { ModelId } from "@/lib/models/registry";
 import type { Translate } from "@/lib/copy/disclaimers";
 import { formatCount, formatLimitBytes } from "@/lib/copy/numbers";
+import { formatBytes } from "@/lib/format";
 
 /**
  * Contrôle du CSV dans le navigateur, avant tout envoi (07-upload.md, étape 1).
@@ -140,8 +141,11 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
     case "empty-file":
       return t("Fichier vide.");
     case "file-too-large":
-      return t("Fichier trop volumineux : {size}, maximum {max}.", {
-        size: formatLimitBytes(reason.sizeBytes),
+      // Taille réelle arrondie (`formatBytes`), limite tronquée (`formatLimitBytes`) : « 3.0 MB, maximum 3 MB »
+      // ne se lit jamais comme deux nombres égaux, la taille en octets lève tout doute.
+      return t("Fichier trop volumineux : {size} ({bytes} octets), maximum {max}.", {
+        size: formatBytes(reason.sizeBytes),
+        bytes: formatCount(reason.sizeBytes),
         max: formatLimitBytes(reason.maxBytes),
       });
     case "unreadable":

@@ -66,7 +66,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const readToken = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
-  const mounted = useRef(false);
+  const previousPhase = useRef<Phase>("data");
 
   useEffect(() => {
     const pending = timers.current;
@@ -74,12 +74,11 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   }, []);
 
   // Le bouton qui a déclenché le changement d'étape est démonté : le focus clavier repart
-  // du panneau de la nouvelle étape plutôt que du corps de la page. Pas au premier rendu.
+  // du panneau de la nouvelle étape plutôt que du corps de la page. Comparer à la phase
+  // précédente (et non « premier rendu ») résiste au double passage des effets en StrictMode.
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
+    if (previousPhase.current === phase) return;
+    previousPhase.current = phase;
     if (phase !== "securing") panelRef.current?.focus();
   }, [phase]);
 
@@ -312,7 +311,10 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
                     className={`flex items-start gap-2 transition-opacity duration-500 ${shown ? "text-positive opacity-100" : active ? "text-foreground opacity-100" : "text-muted opacity-40"}`}
                   >
                     <span aria-hidden="true" className="w-5 shrink-0 text-center font-mono text-xs leading-5">{shown ? "✓" : active ? "…" : index + 1}</span>
-                    <span>{line}</span>
+                    <span>
+                      {line}
+                      <span className="sr-only"> {shown ? t("terminé") : active ? t("en cours") : t("en attente")}</span>
+                    </span>
                   </li>
                 );
               })}

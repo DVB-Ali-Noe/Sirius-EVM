@@ -165,7 +165,7 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
   }
   assert.equal(csvRejectionText({ kind: "too-many-rows", maxRows: MAX_CSV_ROWS }, t), "Too many rows: at most 20,000 rows, header included.");
   assert.equal(csvRejectionText({ kind: "too-many-features", found: 32, maxFeatures: MAX_TRAINING_FEATURES }, t), "Too many numeric features: 32, maximum 31 in addition to the target.");
-  assert.equal(csvRejectionText({ kind: "file-too-large", sizeBytes: MAX_DATASET_BYTES + 1, maxBytes: MAX_DATASET_BYTES }, t), "File too large: 3 MB, maximum 3 MB.");
+  assert.equal(csvRejectionText({ kind: "file-too-large", sizeBytes: MAX_DATASET_BYTES + 1, maxBytes: MAX_DATASET_BYTES }, t), "File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB.");
   assert.equal(csvRejectionText({ kind: "logistic-target", target: "y" }, t), "For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
   // Les clés françaises des raisons sont toutes traduites (le test d'anglais vérifie les appels `t()`).
   assert.ok(Object.hasOwn(EN_MESSAGES, "Budget de calcul dépassé : réduis le nombre de lignes ou de variables."));

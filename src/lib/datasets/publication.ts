@@ -106,8 +106,9 @@ export function rebasedListingExpiry(
   const elapsed = dataset.listingExpiresAt.getTime() - dataset.createdAt.getTime();
   const days = Math.round(elapsed / DAY_MS);
   if (!(LISTING_DURATIONS_DAYS as readonly number[]).includes(days)) return null;
-  // Tolérance d'une minute entre `createdAt` (horloge de la base) et l'expiration
-  // (horloge du serveur) : au-delà, la ligne n'a pas été écrite par cette route.
+  // `createDatasetDraft` calcule l'échéance à partir de `createdAt` : l'écart est nul pour
+  // une ligne écrite par cette route. La tolérance d'une minute est purement défensive ;
+  // au-delà, la ligne a été écrite autrement et on ne la touche pas.
   if (Math.abs(elapsed - days * DAY_MS) > 60_000) return null;
   return listingExpiryFrom(listedAt, days as ListingDurationDays);
 }
