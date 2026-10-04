@@ -6,6 +6,7 @@
 export const PROFILE_MESSAGES_EN: Record<string, string> = {
   // Bouton profil
   "Menu du profil": "Profile menu",
+  "Navigation": "Navigation",
   "Robinhood Chain mainnet": "Robinhood Chain mainnet",
   "Robinhood Chain testnet": "Robinhood Chain testnet",
   "Explorateur": "Explorer",

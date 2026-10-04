@@ -109,3 +109,46 @@ for (const viewport of [{ width: 1100, height: 800 }, { width: 390, height: 800 
     expect(button && main && button.y + button.height <= main.y + 1).toBe(true);
   });
 }
+
+test("wallet sur un autre réseau : avertissement, solde masqué et aucune lecture du solde", async ({ page }) => {
+  await page.route("**/api/**", (route) => route.fulfill({ json: { authenticated: false, known: true } }));
+  await page.addInitScript((address) => {
+    localStorage.setItem("sirius-tour-seen", "1");
+    const calls = { eth_call: 0 };
+    (window as unknown as { walletCalls: typeof calls }).walletCalls = calls;
+    Object.defineProperty(window, "ethereum", {
+      configurable: true,
+      value: {
+        async request({ method }: { method: string }) {
+          // 0x1237 = 4663, le mainnet, alors que le site est sur testnet.
+          if (method === "eth_chainId") return "0x1237";
+          if (method === "eth_accounts" || method === "eth_requestAccounts") return [address];
+          if (method === "eth_call") { calls.eth_call += 1; return `0x${"0".repeat(64)}`; }
+          if (method === "eth_getBalance") return "0x0";
+          return [];
+        },
+        on() {},
+        removeListener() {},
+      },
+    });
+  }, ADDRESS.toLowerCase());
+  await page.goto("/explorer");
+  await page.getByTestId("profile-button").click();
+  const panel = page.getByRole("dialog", { name: "Profile menu" });
+  await expect(panel.getByRole("alert")).toHaveText("Wrong network — switch your wallet to testnet.");
+  await expect(panel.getByTestId("profile-balance")).toHaveText("—");
+  // Le badge reste celui du site, pas celui du wallet.
+  await expect(panel.getByTestId("network-badge")).toHaveAttribute("data-network", "testnet");
+  expect(await page.evaluate(() => (window as unknown as { walletCalls: { eth_call: number } }).walletCalls.eth_call)).toBe(0);
+});
+
+test("une déconnexion externe ferme le menu : la reconnexion ne le rouvre pas tout seul", async ({ page }) => {
+  await openApp(page, "/explorer");
+  await page.getByTestId("profile-button").click();
+  await expect(page.getByRole("dialog", { name: "Profile menu" })).toBeVisible();
+  await page.evaluate(() => window.__SIRIUS_E2E__?.disconnect());
+  await expect(page.getByTestId("profile-button")).toHaveCount(0);
+  await page.evaluate((address) => window.__SIRIUS_E2E__?.connect(address, "provider"), ADDRESS);
+  await expect(page.getByTestId("profile-button")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Profile menu" })).toHaveCount(0);
+});

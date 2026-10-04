@@ -143,7 +143,8 @@ function ProfilePanel({
   }, [address, wrongNetwork]);
 
   const handleTour = () => {
-    if (requestGuidedTour()) onClose();
+    // Même page : le focus revient au bouton profil plutôt que de tomber sur `body`.
+    if (requestGuidedTour()) onClose(true);
     else setTourUnavailable(true);
   };
 
@@ -202,7 +203,7 @@ function ProfilePanel({
         </span>
       </div>
 
-      <nav className="py-1" aria-label={t("Menu du profil")}>
+      <nav className="py-1" aria-label={t("Navigation")}>
         <Link href="/wallet" onClick={() => onClose()} className={ITEM_CLASS}>{t("Wallet")}</Link>
         <Link href="/settings" onClick={() => onClose()} className={ITEM_CLASS}>{t("Réglages")}</Link>
         <Link href="/kyb" onClick={() => onClose()} className={ITEM_CLASS}>{t("KYB")}</Link>
