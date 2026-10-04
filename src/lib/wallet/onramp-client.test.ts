@@ -49,8 +49,8 @@ test("options : champs en trop ignorés, seuls les champs du contrat sont gardé
 test("options : route absente (404) → repli du réseau, sans carte", async () => {
   const { impl } = fakeFetch(() => json({ error: "Not found" }, 404));
   const options = await fetchOnrampOptions("mainnet", impl);
-  assert.deepEqual(options, { network: "mainnet", faucet: false, bridge: true, transfer: true, card: false, minCardUsd: DEFAULT_MIN_CARD_USD });
-  assert.deepEqual(fundingChoices(options), ["transfer", "bridge"]);
+  assert.deepEqual(options, { network: "mainnet", faucet: false, bridge: false, transfer: true, card: false, minCardUsd: DEFAULT_MIN_CARD_USD });
+  assert.deepEqual(fundingChoices(options), ["transfer"]);
 });
 
 test("options : panne réseau, 401, 500, HTML ou forme inattendue → repli", async () => {
@@ -95,8 +95,8 @@ test("choix : seuls ceux à true, dans l'ordre carte, wallet, chaîne ; jamais l
   assert.deepEqual(fundingChoices({ ...MAINNET_OPTIONS, faucet: true, card: false, transfer: false, bridge: false }), []);
 });
 
-test("choix : sur mainnet sans la route, transfert et pont ; sur testnet, aucun (le faucet garde son bouton)", () => {
-  assert.deepEqual(fundingChoices(fallbackOnrampOptions("mainnet")), ["transfer", "bridge"]);
+test("choix : sur mainnet sans la route, transfert seul ; sur testnet, aucun (le faucet garde son bouton)", () => {
+  assert.deepEqual(fundingChoices(fallbackOnrampOptions("mainnet")), ["transfer"]);
   assert.deepEqual(fundingChoices(fallbackOnrampOptions("testnet")), []);
   assert.equal(fallbackOnrampOptions("testnet").faucet, true);
 });

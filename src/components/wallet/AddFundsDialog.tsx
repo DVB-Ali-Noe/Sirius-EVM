@@ -326,10 +326,7 @@ function PurchasePanel({ method, minCardUsd }: { method: OnrampMethod; minCardUs
 
       {openedUrl && (
         <p role="status" className="text-sm text-muted">
-          {card ? t("La page MoonPay s’est ouverte dans un nouvel onglet.") : t("Le pont s’est ouvert dans un nouvel onglet.")}{" "}
-          <a href={openedUrl} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-2 hover:text-accent">
-            {t("Rien ne s’est ouvert ? Ouvre la page ici.")}
-          </a>
+          {card ? t("La page MoonPay s’est ouverte dans un nouvel onglet.") : t("Le pont s’est ouvert dans un nouvel onglet.")}
         </p>
       )}
 
