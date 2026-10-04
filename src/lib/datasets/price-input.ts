@@ -13,6 +13,12 @@ import { isValidDecimals } from "@/components/datasets/price";
 export const MIN_PROVIDER_PRICE_UNITS = 1_000; // millièmes : 0,001 jeton
 export const MAX_PROVIDER_PRICE_WHOLE = 1_000_000;
 
+/** Plancher de la part du fournisseur (0,001 jeton) pour une précision donnée, ou `null` si invalide. */
+export function minimumProviderPriceAtomic(decimals: unknown): bigint | null {
+  if (!isValidDecimals(decimals) || decimals < 3) return null;
+  return (BigInt(10) ** BigInt(decimals)) / BigInt(MIN_PROVIDER_PRICE_UNITS);
+}
+
 export function parseProviderPrice(value: unknown, decimals: unknown): bigint | null {
   if (typeof value !== "string" || !isValidDecimals(decimals) || decimals < 3) return null;
   const match = new RegExp(`^(0|[1-9][0-9]{0,6})(?:\\.([0-9]{1,${decimals}}))?$`).exec(value.trim());

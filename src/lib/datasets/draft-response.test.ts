@@ -69,7 +69,7 @@ test("les termes signés doivent être ceux du formulaire", () => {
 });
 
 test("une réponse malformée est refusée avant tout chiffrement", () => {
-  for (const body of [undefined, null, "x", [], {}, { ...response, datasetId: "" }, { ...response, datasetId: "../x" }, { ...response, datasetId: "a".repeat(65) }]) {
+  for (const body of [undefined, null, "x", [], {}, { ...response, datasetId: "" }, { ...response, datasetId: "../x" }, { ...response, datasetId: "a".repeat(9) }, { ...response, datasetId: "a".repeat(65) }]) {
     rejected(body, "Échec de la préparation du dépôt");
   }
   for (const ingressKey of [undefined, null, {}, { version: 2, publicKey: "BAAA", origin: "o" }, { version: 1, publicKey: 1, origin: "o" }, { version: 1, publicKey: "BAAA" }]) {

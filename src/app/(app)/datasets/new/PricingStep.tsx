@@ -9,7 +9,7 @@ import { formatTokenWithSymbol, type TokenInfo } from "@/components/datasets/pri
 import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import type { CsvSummary } from "@/lib/datasets/csv-check";
-import { MAX_PROVIDER_PRICE_WHOLE } from "@/lib/datasets/price-input";
+import { MAX_PROVIDER_PRICE_WHOLE, minimumProviderPriceAtomic } from "@/lib/datasets/price-input";
 import {
   DEFAULT_LISTING_DURATION_DAYS,
   ESCROW_CHALLENGE_DAYS,
@@ -92,7 +92,8 @@ export function PricingStep({
 }: PricingStepProps) {
   const { t } = useLocale();
   const ids = { price: useId(), priceHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
-  const minimum = tariff ? formatTokenWithSymbol(tariff.minimumProviderAtomic, token) ?? "—" : "—";
+  // Sans tarif chargé, le plancher reste celui que la route impose (0,001 jeton) : il est connu localement.
+  const minimum = formatTokenWithSymbol(tariff ? tariff.minimumProviderAtomic : minimumProviderPriceAtomic(token.decimals) ?? "", token) ?? "—";
   const expiry = listingExpiryFrom(new Date(), listingDays).toISOString().slice(0, 10);
   const priceInvalid = price.trim() !== "" && providerAtomic === null;
   // Dataset déjà scellé par l'enclave : les termes sont enregistrés, seule l'inscription
@@ -195,7 +196,8 @@ export function PricingStep({
           ))}
         </div>
         <p className="text-xs text-muted">
-          {t("Mise en ligne jusqu’au {date}, renouvelable depuis la fiche du dataset. Le délai de sécurité de l’escrow est fixé par Sirius à {days} jours pour tous les datasets : si un emprunt n’est pas réglé dans ce délai, l’emprunteur récupère ses fonds.", {
+          {t("Mise en ligne pendant {listingDays} jours à compter de l’inscription on-chain (vers le {date}), renouvelable depuis la fiche du dataset. Le délai de sécurité de l’escrow est fixé par Sirius à {days} jours pour tous les datasets : si un emprunt n’est pas réglé dans ce délai, l’emprunteur récupère ses fonds.", {
+            listingDays,
             date: expiry,
             days: ESCROW_CHALLENGE_DAYS,
           })}

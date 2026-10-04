@@ -93,8 +93,8 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Durée de publication": "Listing duration",
   "{days} jours": "{days} days",
   "{days} jours (par défaut)": "{days} days (default)",
-  "Mise en ligne jusqu’au {date}, renouvelable depuis la fiche du dataset. Le délai de sécurité de l’escrow est fixé par Sirius à {days} jours pour tous les datasets : si un emprunt n’est pas réglé dans ce délai, l’emprunteur récupère ses fonds.":
-    "Listed until {date}, renewable from the dataset page. The escrow safety delay is set by Sirius to {days} days for every dataset: if a loan is not settled within that time, the borrower gets their funds back.",
+  "Mise en ligne pendant {listingDays} jours à compter de l’inscription on-chain (vers le {date}), renouvelable depuis la fiche du dataset. Le délai de sécurité de l’escrow est fixé par Sirius à {days} jours pour tous les datasets : si un emprunt n’est pas réglé dans ce délai, l’emprunteur récupère ses fonds.":
+    "Listed for {listingDays} days from the on-chain registration (around {date}), renewable from the dataset page. The escrow safety delay is set by Sirius to {days} days for every dataset: if a loan is not settled within that time, the borrower gets their funds back.",
   "Estimations": "Estimates",
   "Taille chiffrée (environ)": "Encrypted size (approx.)",
 

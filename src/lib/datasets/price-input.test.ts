@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { priceUsdcToAtomic, USDC_DECIMALS } from "@/lib/evm/usdc";
-import { parseProviderPrice } from "./price-input";
+import { MIN_PRICE_USDC_ATOMIC } from "@/lib/evm/usdc";
+import { minimumProviderPriceAtomic, parseProviderPrice } from "./price-input";
+
+test("le plancher connu localement est celui de la route, pour la précision du réseau", () => {
+  assert.equal(minimumProviderPriceAtomic(USDC_DECIMALS), MIN_PRICE_USDC_ATOMIC);
+  assert.equal(minimumProviderPriceAtomic(6), BigInt(1000));
+  assert.equal(minimumProviderPriceAtomic(18), BigInt("1000000000000000"));
+  assert.equal(minimumProviderPriceAtomic(2), null);
+  assert.equal(minimumProviderPriceAtomic("6"), null);
+  assert.equal(parseProviderPrice("0.001", 6), minimumProviderPriceAtomic(6));
+});
 
 test("la saisie du formulaire se convertit exactement comme la route serveur", () => {
   const samples = [
