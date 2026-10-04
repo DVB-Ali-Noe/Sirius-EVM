@@ -46,10 +46,20 @@ export function validateBillingPolicy(value: unknown): BillingPolicy {
   } catch { throw new AppError("Tarif compute absent, invalide ou périmé", 503); }
 }
 
-export function billingPolicy(): BillingPolicy {
+/**
+ * Le runner lit le tarif dans son volume (`RUNNER_BILLING_POLICY_FILE`) : c'est lui qui signe
+ * les devis. L'instance Next, hébergée sans système de fichiers persistant, n'en a besoin que
+ * pour AFFICHER les frais avant publication : elle peut recevoir le même contenu en JSON dans
+ * `SIRIUS_BILLING_POLICY_JSON`. Le fichier garde la priorité ; les deux passent la même
+ * validation, et un tarif affiché différent de celui du runner reste sans effet sur l'argent,
+ * le devis réellement payé étant toujours celui signé par l'enclave.
+ */
+export function billingPolicy(env: Record<string, string | undefined> = process.env): BillingPolicy {
   try {
-    const path = process.env.RUNNER_BILLING_POLICY_FILE;
-    if (!path) throw new Error();
-    return validateBillingPolicy(JSON.parse(readFileSync(path, "utf8")));
+    const path = env.RUNNER_BILLING_POLICY_FILE;
+    const inline = env.SIRIUS_BILLING_POLICY_JSON;
+    if (path) return validateBillingPolicy(JSON.parse(readFileSync(path, "utf8")));
+    if (inline && inline.length <= 16_384) return validateBillingPolicy(JSON.parse(inline));
+    throw new Error();
   } catch { throw new AppError("Tarif compute absent, invalide ou périmé", 503); }
 }

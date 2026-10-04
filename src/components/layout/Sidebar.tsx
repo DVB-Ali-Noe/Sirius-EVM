@@ -12,7 +12,6 @@ const NAV = [
   { href: "/marketplace", label: "Marketplace" },
   { href: "/datasets", label: "Mes datasets" },
   { href: "/explorer", label: "Explorer" },
-  { href: "/wallet", label: "Wallet" },
 ];
 
 function LogoSlot() {

@@ -102,14 +102,20 @@ for (const pagination of [false, true]) {
     await page.goto("/datasets");
     await page.waitForFunction(() => Boolean(window.__SIRIUS_E2E__));
     await page.evaluate(address => window.__SIRIUS_E2E__?.connect(address, "provider"), A);
-    if (pagination) await page.getByRole("button", { name: "Show more", exact: true }).click();
+    // La mosaïque suit elle-même les curseurs (tri sur l'ensemble des datasets) : avec
+    // pagination, c'est la requête de la seconde page du compte A qui reste en suspens.
     await requested;
+    if (pagination) {
+      expect(delayed.map(route => new URL(route.request().url()).searchParams.get("cursor"))).toEqual(["page-2"]);
+    }
     ownerB = true;
     await page.evaluate(address => window.__SIRIUS_E2E__?.connect(address, "provider"), B);
     await expect(page.getByRole("heading", { name: "Dataset B", exact: true })).toBeVisible();
     await Promise.all(delayed.map(route => route.fulfill({ json: [fixture("A-late")] }).catch(() => {})));
     await expect(page.getByRole("heading", { name: /^Dataset A/ })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Dataset B", exact: true })).toBeVisible();
+    // Aucun état de pagination du compte A ne survit au changement (ancien bouton « Show more »).
+    await expect(page.getByText(/most recent datasets are shown/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0);
   });
 }
