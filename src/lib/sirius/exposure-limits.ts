@@ -17,7 +17,7 @@ export interface ExposureLimits {
  * Statuts dont les fonds sont verrouillés ou en passe de l'être. PENDING reste compté même sans
  * hash de lock : son autorisation de lock peut être renouvelée jusqu'à neuf minutes après la
  * création (`lockAuthorizationDeadline`), le prêt peut donc encore être verrouillé on-chain tant
- * que le reaper ne l'a pas annulé. La part non payée est bornée par emprunteur dans `prepareLoan`.
+ * que le reaper ne l'a pas annulé. `prepareLoan` remplace les PENDING non payés du même emprunteur.
  */
 export const EXPOSED_LOAN_STATUSES = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] as const;
 

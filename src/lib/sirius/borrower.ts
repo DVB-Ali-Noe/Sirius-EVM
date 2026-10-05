@@ -26,14 +26,6 @@ import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
 
 const MAX_PENDING_LOANS = 5;
-/**
- * Un prêt PENDING sans hash de lock n'a rien coûté à l'emprunteur, mais il compte dans le plafond
- * d'exposition de la bêta tant que le reaper ne l'a pas annulé : son autorisation de lock reste
- * renouvelable jusqu'à neuf minutes après sa création, il peut donc encore être verrouillé. Pour
- * qu'un compte ne puisse pas réserver gratuitement plus d'un plafond par prêt, un seul PENDING non
- * payé est admis par emprunteur (audit du 5 octobre, A-06 et A-18).
- */
-const MAX_UNPAID_PENDING_LOANS = 1;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
 
@@ -78,9 +70,8 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
 
   const loan = await serializableTransaction(async (tx) => {
-    const [pending, unpaidPending, recentRuns] = await Promise.all([
+    const [pending, recentRuns] = await Promise.all([
       tx.loan.count({ where: { borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] } } }),
-      tx.loan.count({ where: { borrower: borrowerAddress, status: "PENDING", evmLockTxHash: null } }),
       tx.loan.count({
         where: {
           borrower: borrowerAddress,
@@ -91,10 +82,19 @@ export async function prepareLoan(datasetId: string, borrower: string) {
       }),
     ]);
     if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
-    if (unpaidPending >= MAX_UNPAID_PENDING_LOANS) {
-      throw new AppError("Un emprunt est déjà en attente de paiement sur ce compte : termine-le ou réessaie dans quelques minutes", 429);
-    }
     if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
+    // Un prêt PENDING sans hash de lock n'a rien coûté à l'emprunteur mais compte dans le plafond
+    // d'exposition de la bêta tant que le reaper ne l'a pas annulé (son autorisation de lock reste
+    // renouvelable jusqu'à neuf minutes après sa création, il peut donc encore être verrouillé).
+    // Une nouvelle préparation remplace donc les PENDING non payés du même emprunteur, comme le
+    // reaper les annule après leur TTL : un compte ne réserve jamais gratuitement plus d'un plafond
+    // par prêt, et refuser un devis ou fermer la fenêtre ne bloque pas la préparation suivante
+    // (audit du 5 octobre, A-06 et A-18). Un lock tardif sur un prêt ainsi annulé reste récupérable
+    // par `finalizeLoan` et le reaper (CANCELLED sans `cancelTxHash`).
+    await tx.loan.updateMany({
+      where: { borrower: borrowerAddress, status: "PENDING", evmLockTxHash: null },
+      data: { status: "CANCELLED" },
+    });
     if (limits) {
       const exposed = await tx.loan.findMany({ where: { status: { in: [...EXPOSED_LOAN_STATUSES] } }, select: { amountUsdcAtomic: true } });
       assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), amountUsdcAtomic, limits);
@@ -198,6 +198,9 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   const dataset = loan.dataset;
   const signedQuote = loanBillingQuote(loan);
   const binding = evmEscrowBinding();
+  if (loan.status === "CANCELLED" && !loan.evmLockTxHash) {
+    throw new AppError("Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation USDC reste acquise", 409);
+  }
   if (loan.status !== "PENDING" || loan.evmLockTxHash || !loan.evmLoanKey ||
     loan.evmChainId !== binding.chainId || loan.evmEscrowAddress !== binding.escrow) {
     throw new AppError("Emprunt déjà soumis ou déploiement modifié", 409);

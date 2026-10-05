@@ -8,8 +8,9 @@ import * as addresses from "@/lib/evm/address";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import * as exposureLimits from "./exposure-limits";
 
-// Audit du 5 octobre, A-06 / A-18 : un prêt PENDING jamais payé réserve de l'exposition gratuitement ;
-// A-33 : le second contrôle d'exposition (total du devis) s'exécutait hors transaction.
+// Audit du 5 octobre, A-06 / A-18 : un prêt PENDING jamais payé réserve de l'exposition gratuitement,
+// et refuser le devis laissait ce PENDING bloquer le compte ; A-33 : le second contrôle d'exposition
+// (total du devis) s'exécutait hors transaction.
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
@@ -72,6 +73,7 @@ function pendingLoan(owner: string, datasetId: string, overrides: Partial<LoanRo
 function fixture(rows: LoanRow[]) {
   const loans = [...rows];
   const calls = { signatures: 0, txFindMany: 0, outsideFindMany: 0, txUpdates: 0, outsideUpdates: 0 };
+  const hooks: { afterSignature?: () => void } = {};
   const loanStore = (scope: "tx" | "outside") => ({
     count: async ({ where }: { where: Where }) => loans.filter((row) => matches(row, where)).length,
     findMany: async ({ where }: { where: Where }) => {
@@ -79,7 +81,8 @@ function fixture(rows: LoanRow[]) {
       return loans.filter((row) => matches(row, where)).map((row) => ({ amountUsdcAtomic: row.amountUsdcAtomic }));
     },
     create: async ({ data }: { data: Partial<LoanRow> }) => {
-      const row = { id: `loan-${loans.length + 1}`, evmLockTxHash: null, createdAt: new Date(), updatedAt: new Date(), ...data } as LoanRow;
+      // Comme le défaut Prisma de la colonne : un prêt créé est PENDING.
+      const row = { id: `loan-${loans.length + 1}`, status: "PENDING", evmLockTxHash: null, createdAt: new Date(), updatedAt: new Date(), ...data } as LoanRow;
       loans.push(row);
       return row;
     },
@@ -89,6 +92,12 @@ function fixture(rows: LoanRow[]) {
       assert.ok(row, "le prêt mis à jour doit exister");
       Object.assign(row, data);
       return row;
+    },
+    updateMany: async ({ where, data }: { where: Where; data: Partial<LoanRow> }) => {
+      assert.equal(scope, "tx", "le remplacement des PENDING non payés se fait dans la transaction des quotas");
+      const rows = loans.filter((row) => matches(row, where));
+      for (const row of rows) Object.assign(row, data);
+      return { count: rows.length };
     },
     deleteMany: async ({ where }: { where: Where }) => {
       const before = loans.length;
@@ -115,6 +124,7 @@ function fixture(rows: LoanRow[]) {
     "@/lib/billing/quote": {}, "@/lib/billing/loan": {},
     "@/lib/tee/runner-client": { prepareEscrowLockInRunner: async () => {
       calls.signatures++;
+      hooks.afterSignature?.();
       return { hashlock: `0x${"99".repeat(32)}`, authorization: {} };
     } },
     "./lock-policy": { lockAuthorizationDeadline: () => 1 },
@@ -128,7 +138,7 @@ function fixture(rows: LoanRow[]) {
     // Module réel : les plafonds viennent de l'environnement posé par chaque test.
     "./exposure-limits": exposureLimits,
   });
-  return { api, loans, calls };
+  return { api, loans, calls, hooks };
 }
 
 const saved = { ...process.env };
@@ -140,11 +150,27 @@ afterEach(() => {
   Object.assign(process.env, saved);
 });
 
-test("un seul prêt PENDING non payé est admis par emprunteur, avant tout appel au runner", async () => {
-  const { api, loans, calls } = fixture([pendingLoan(borrower, "other-dataset")]);
+test("une nouvelle préparation remplace les PENDING non payés du même emprunteur, devis refusé compris", async () => {
+  // Devis refusé puis emprunt relancé sur un autre dataset : l'ancien PENDING ne bloque ni le compte, ni l'exposition.
+  const abandoned = pendingLoan(borrower, "other-dataset");
+  const { api, loans, calls } = fixture([abandoned, pendingLoan(otherBorrower, "third-dataset")]);
+  const { loan } = await api.prepareLoan(dataset.id, borrower);
+  assert.equal(abandoned.status, "CANCELLED", "le PENDING non payé est annulé comme le ferait le reaper");
+  assert.equal(abandoned.evmLockTxHash, null);
+  assert.equal(loans.filter((row) => row.borrower === borrower && row.status === "PENDING").length, 1, "un seul PENDING non payé par emprunteur");
+  assert.equal(loans[2].id, loan.id);
+  assert.equal(calls.signatures, 1);
+});
+
+test("le quota de prêts en cours est vérifié avant le remplacement, et un PENDING payé n'est jamais remplacé", async () => {
+  const paid = Array.from({ length: 4 }, (_, index) =>
+    pendingLoan(borrower, `paid-${index}`, { evmLockTxHash: `0x${String(index).repeat(64)}` }));
+  const unpaid = pendingLoan(borrower, "other-dataset");
+  const { api, loans, calls } = fixture([...paid, unpaid]);
   await assert.rejects(api.prepareLoan(dataset.id, borrower), (error: unknown) =>
-    error instanceof AppError && error.status === 429 && /déjà en attente de paiement/.test(error.message));
-  assert.equal(loans.length, 1, "aucun second prêt non payé ne doit être créé");
+    error instanceof AppError && error.status === 429 && /Trop d’emprunts en attente/.test(error.message));
+  assert.equal(unpaid.status, "PENDING", "un refus de quota ne remplace rien");
+  assert.equal(loans.length, 5);
   assert.equal(calls.signatures, 0, "le runner ne doit pas signer de devis pour un prêt refusé");
 });
 
@@ -176,4 +202,17 @@ test("le contrôle sur le total du devis et son enregistrement partagent une tra
   assert.equal(calls.txUpdates, 1, "le total du devis est enregistré dans la même transaction que son contrôle");
   assert.equal(calls.outsideFindMany, 0);
   assert.equal(calls.outsideUpdates, 0);
+});
+
+test("l'échec du second contrôle d'exposition supprime le PENDING créé, sans toucher aux autres prêts", async () => {
+  // Entre les deux contrôles, un autre emprunteur verrouille 60 USDG : 60 + 50 dépasse le plafond de 100.
+  const { api, loans, calls, hooks } = fixture([]);
+  hooks.afterSignature = () => {
+    loans.push(pendingLoan(otherBorrower, "other-dataset", { status: "ESCROWED", evmLockTxHash: `0x${"cc".repeat(32)}`, amountUsdcAtomic: usdc("60") }));
+  };
+  await assert.rejects(api.prepareLoan(dataset.id, borrower), (error: unknown) =>
+    error instanceof AppError && error.status === 409 && /exposition totale/.test(error.message));
+  assert.equal(calls.signatures, 1, "le second contrôle suit la signature du devis");
+  assert.equal(calls.txUpdates, 0, "le total du devis n'est pas enregistré quand son contrôle échoue");
+  assert.deepEqual(loans.map((row) => [row.borrower, row.status]), [[otherBorrower, "ESCROWED"]], "le PENDING refusé est supprimé");
 });

@@ -53,7 +53,7 @@ function fixture() {
   const update = async ({ data }: { data: Record<string, unknown> }) => ({ ...records[0], ...data });
   const tx = {
     dataset: { updateMany: async () => ({ count: 1 }) },
-    loan: { count: async () => 0, create, update },
+    loan: { count: async () => 0, create, update, updateMany: async () => ({ count: 0 }) },
     trainingJob: { count: async () => 0, create, updateMany: async () => ({ count: 0 }) },
   };
   const common = {
