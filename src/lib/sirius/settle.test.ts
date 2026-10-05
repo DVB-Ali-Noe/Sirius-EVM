@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "@/lib/app-error";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
+import { isRecordedQuoteHardwareValid } from "@/lib/tee/quote";
 
 const SOURCE = readFileSync(join(process.cwd(), "src", "lib", "sirius", "settle.ts"), "utf8");
 
@@ -95,13 +96,19 @@ afterEach(() => {
 
 type Resolution = { state: "active" } | { state: "settled"; txHash: string };
 
-function settlementFixture(evmDeadline: Date | undefined, runner: () => Promise<never>, resolution: Resolution = { state: "active" }) {
+function settlementFixture(
+  evmDeadline: Date | undefined,
+  runner: () => Promise<never>,
+  resolution: Resolution = { state: "active" },
+  quote: Record<string, unknown> = {},
+) {
   const loan = {
     id: "loan", datasetId: "dataset", borrower: `0x${"44".repeat(20)}`, provider: `0x${"55".repeat(20)}`,
     status: "TRAINING", amountUsdcAtomic: "100", modelId: "linear_regression", modelVersion: "1.0.0",
     modelCid: "bafyModel", runnerReceipt: "receipt", evmLoanKey: KEY, evmLockBlock: "10", evmDeadline,
     settleTxHash: TX, billingQuoteHash: `0x${"66".repeat(32)}`, attestationHash: "attestation-hash",
     attestationPayload: "attestation-payload", updatedAt: new Date(0), runnerKind: "PHALA", runnerDeploymentId: "phala:runner",
+    attestationQuote: "aa", attestationEventLog: "[]", attestationComposeHash: "88".repeat(32),
     dataset: { ipfsCid: "bafyDataset", merkleRoot: "77".repeat(32), challengeDays: 7 },
   };
   const payload = {
@@ -128,7 +135,7 @@ function settlementFixture(evmDeadline: Date | undefined, runner: () => Promise<
       parseLoanAttestationPayload: () => payload,
       serializeLoanAttestationPayload: () => "",
     },
-    "@/lib/tee/quote": {},
+    "@/lib/tee/quote": quote,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
   });
@@ -175,4 +182,32 @@ test("échu mais réglé on-chain : le prêt est clôturé SETTLED avec le hash 
   await assert.rejects(api.settlePreparedLoan("loan"), /Tentative de règlement épuisée/);
   assert.equal(updates[1].data.status, "SETTLED");
   assert.equal(updates[1].data.settleTxHash, OTHER_TX);
+});
+
+// --- Quote enregistrée à l'entraînement, revérifiée au règlement (audit A-01) : le TCB d'Intel
+// peut avoir été déclassé entre-temps ; seule une révocation ou une signature refusée bloque.
+
+const recordedQuote = (verification: Record<string, unknown>) => ({
+  isRecordedQuoteHardwareValid,
+  verifyTdxQuote: async () => ({ reportDataMatches: true, codeIdentityMatches: true, ...verification }),
+});
+
+test("A-01 : une quote enregistrée dont le TCB est passé OutOfDate depuis l'entraînement se règle encore", async () => {
+  process.env.TEE_MODE = "phala";
+  const { api, updates } = settlementFixture(inTime(), rejected("Tentative de règlement épuisée", 503), { state: "active" },
+    recordedQuote({ hardwareVerified: false, tcbStatus: "OutOfDate" }));
+  // Le runner est atteint : la vérification de la quote a laissé passer le règlement.
+  await assert.rejects(api.settlePreparedLoan("loan"), /Tentative de règlement épuisée/);
+  assert.equal(updates[0].data.status, "SETTLING");
+});
+
+test("A-01 : une quote enregistrée révoquée par Intel, ou dont la signature échoue, ne se règle pas", async () => {
+  process.env.TEE_MODE = "phala";
+  for (const verification of [{ hardwareVerified: false, tcbStatus: "Revoked" }, { hardwareVerified: false }]) {
+    const { api, updates } = settlementFixture(inTime(), rejected("Tentative de règlement épuisée", 503), { state: "active" },
+      recordedQuote(verification));
+    await assert.rejects(api.settlePreparedLoan("loan"), (error: unknown) =>
+      error instanceof AppError && error.message === "Quote TDX runner non authentifiée" && error.status === 502);
+    assert.equal(updates.length, 0, JSON.stringify(verification));
+  }
 });

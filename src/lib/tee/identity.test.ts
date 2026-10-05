@@ -94,3 +94,40 @@ test("refuse tout statut TCB dégradé", () => {
   assert.equal(isAcceptedTcbStatus("ConfigurationNeeded"), false);
   assert.equal(isAcceptedTcbStatus("SWHardeningNeeded"), false);
 });
+
+// --- RTMR3 n'est plus épinglé brut (audit A-01) : le compose-hash doit être l'unique événement
+// de ce nom dans RTMR3 et avoir été mesuré par dstack avant la fin du démarrage. Une CVM qui
+// émettrait elle-même un « compose-hash » (emitEvent) après system-ready ne peut pas s'en servir.
+
+function dstackBootLog() {
+  const fixture = JSON.parse(readFileSync(join(__dirname, "fixtures/dstack-0.5.9-rtmr3.json"), "utf8")) as {
+    events: Array<{ imr: number; event_type: number; digest: string; event: string; event_payload: string }>;
+    rtMr3: string; composeHash: string;
+  };
+  return fixture;
+}
+
+test("un faux compose-hash émis après system-ready n'authentifie ni le compose forgé ni le vrai", () => {
+  const { events, composeHash } = dstackBootLog();
+  const forged = "ab".repeat(32);
+  const log = JSON.stringify([...events, { imr: 3, event_type: 0x08000001, digest: "", event: "compose-hash", event_payload: forged }]);
+  // La CVM qui a émis l'événement porte bien ce RTMR3 : seul le contrôle du compose la refuse.
+  const rtMr3 = replayRtMr3(log);
+  assert.equal(verifyEventLogIdentity(log, rtMr3, forged).eventLogMatches, true);
+  assert.equal(verifyEventLogIdentity(log, rtMr3, forged).composeEventMatches, false);
+  assert.equal(verifyEventLogIdentity(log, rtMr3, composeHash).composeEventMatches, false);
+});
+
+test("un compose-hash unique mais mesuré après system-ready est refusé", () => {
+  const { events, composeHash } = dstackBootLog();
+  const compose = events.find((event) => event.event === "compose-hash");
+  assert.ok(compose);
+  const log = JSON.stringify([...events.filter((event) => event !== compose), compose]);
+  assert.equal(verifyEventLogIdentity(log, replayRtMr3(log), composeHash).composeEventMatches, false);
+});
+
+test("un journal de démarrage dstack sans événement de fin reste accepté", () => {
+  const { events, composeHash } = dstackBootLog();
+  const log = JSON.stringify(events.filter((event) => event.event !== "boot-mr-done" && event.event !== "system-ready"));
+  assert.equal(verifyEventLogIdentity(log, replayRtMr3(log), composeHash).composeEventMatches, true);
+});

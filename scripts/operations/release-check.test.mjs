@@ -14,7 +14,7 @@ function environments() {
   for (const [index, suffix] of ["ESCROW", "DATASET", "KYB", "USDC"].entries()) common[`SIRIUS_${suffix}_ADDRESS`] = `0x${String(index + 2).repeat(40)}`;
   const client = { ...common, SIRIUS_REQUIRE_PHALA: "true", RUNNER_URL: "https://runner.example",
     DATABASE_URL: "postgresql://test:synthetic@db.example/test", SIRIUS_EXPECTED_MRTD: "11".repeat(48),
-    SIRIUS_EXPECTED_RTMR3: "22".repeat(48), SIRIUS_EXPECTED_COMPOSE_HASH: "33".repeat(32),
+    SIRIUS_EXPECTED_COMPOSE_HASH: "33".repeat(32),
     SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: "44".repeat(32), NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: "55".repeat(32) };
   const next = { ...client, NEXT_PUBLIC_EVM_NETWORK: "testnet" };
   for (const suffix of ["ESCROW", "DATASET", "KYB", "USDC"]) next[`NEXT_PUBLIC_SIRIUS_${suffix}_ADDRESS`] = common[`SIRIUS_${suffix}_ADDRESS`];
@@ -31,6 +31,16 @@ test("le préflight refuse les divergences de contrat, de finalité et de secret
   assert.ok(result.issues.includes("divergence.SIRIUS_ESCROW_ADDRESS"));
   assert.ok(result.issues.includes("divergence.SIRIUS_EVM_FINALITY"));
   assert.ok(!JSON.stringify(result).includes(env[1].RUNNER_TRANSPORT_SECRET));
+});
+test("A-02 : SIRIUS_EXPECTED_RTMR3 n'est ni exigé ni comparé entre Next et le reaper (RTMR3 n'est plus épinglé)", () => {
+  const env = environments();
+  assert.ok(env.every((role) => !("SIRIUS_EXPECTED_RTMR3" in role)));
+  assert.equal(checkReleaseEnvironments(...env).configurationReady, true);
+  env[0].SIRIUS_EXPECTED_RTMR3 = "22".repeat(48);
+  env[1].SIRIUS_EXPECTED_RTMR3 = "23".repeat(48);
+  const result = checkReleaseEnvironments(...env);
+  assert.equal(result.configurationReady, true);
+  assert.ok(!result.issues.some((issue) => issue.includes("RTMR3")));
 });
 test("les clés de déploiement et les master keys n’entrent dans aucun service actif", () => {
   const env = environments();
