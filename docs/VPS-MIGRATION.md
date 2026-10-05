@@ -97,7 +97,7 @@ cd /opt/sirius-staging
 docker compose -p sirius-staging --env-file .env.vps up --detach --pull always
 ```
 
-Exécuter `deploy/vps/check-reaper.sh /opt/sirius-staging sirius-staging`. Ce script prouve que le conteneur tourne ; il ne prouve pas qu’une passe de réconciliation a réussi. Vérifier aussi le démarrage applicatif, l’accès Neon, le RPC et la cohérence runner/contrats, puis une réconciliation réelle lors du parcours de test.
+Exécuter `deploy/vps/check-reaper.sh /opt/sirius-staging sirius-staging`. Ce script prouve que le conteneur tourne et qu’une passe a abouti (`[reaper] passe ok`) dans les deux dernières minutes ; une passe qui lève ou dont tous les prêts restent en erreur écrit `passe échouée` et le fait échouer. Il ne prouve pas que chaque prêt a été réconcilié. Vérifier aussi le démarrage applicatif, l’accès Neon, le RPC et la cohérence runner/contrats, puis une réconciliation réelle lors du parcours de test.
 
 Le code comporte des mises à jour conditionnelles contre les courses, mais le verrou `running` du reaper est propre à chaque processus. La coexistence retenue par Noé conserve **la même image et la même configuration historique** ; elle ne prouve pas l’absence de courses entre processus. Elle ne valide pas une coexistence avec v7 : lors de la remise à zéro et de la bascule v7, tous les anciens accès en écriture doivent être neutralisés.
 

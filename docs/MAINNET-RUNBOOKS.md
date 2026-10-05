@@ -69,7 +69,7 @@ pnpm runner:transactions abandon <id-operation> --actor=<prénom> --reason="<dia
 
 ## 5. Reaper silencieux
 
-**Signes** : `check-reaper.sh` en erreur, aucune ligne `[reaper] passe` depuis plusieurs minutes, prêts échus non remboursés.
+**Signes** : `check-reaper.sh` en erreur, aucune ligne `[reaper] passe ok` depuis plusieurs minutes, lignes `[reaper] passe échouée` répétées, prêts échus non remboursés.
 
 1. `docker compose -p sirius --env-file .env.vps logs --tail 100 reaper` dans `/opt/sirius`.
 2. Erreur de configuration au démarrage : corriger `.env.vps` (le reaper mainnet refuse une configuration incomplète).
@@ -88,7 +88,7 @@ pnpm runner:transactions abandon <id-operation> --actor=<prénom> --reason="<dia
 À 12h et 20h, par la personne d'astreinte :
 
 - rapport de budget attesté : échecs à 0, aucune opération bloquée, solde ETH au-dessus du seuil ;
-- reaper : dernière ligne `[reaper] passe` de moins de deux minutes ;
+- reaper : dernière ligne `[reaper] passe ok` de moins de deux minutes, sans `[reaper] passe échouée` plus récente ;
 - exposition verrouillée totale comparée au plafond ;
 - page d'état à jour.
 
