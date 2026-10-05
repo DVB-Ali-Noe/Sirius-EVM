@@ -450,3 +450,43 @@ test("un règlement v7 avec modèle passe encore par la validation de sa preuve"
   assert.equal(reads(), 1);
   assert.equal(updates.length, 0);
 });
+
+// Évalue le sous-ensemble du filtre Prisma utilisé par le reaper sur une ligne en mémoire.
+function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    if (key === "OR") return (condition as Record<string, unknown>[]).some((part) => matchesWhere(row, part));
+    if (key === "AND") return (condition as Record<string, unknown>[]).every((part) => matchesWhere(row, part));
+    const value = row[key];
+    if (condition === null || typeof condition !== "object" || condition instanceof Date) return value === condition;
+    return Object.entries(condition).every(([op, expected]) => {
+      if (op === "not") return value !== expected;
+      if (op === "in") return (expected as unknown[]).includes(value);
+      const a = value instanceof Date ? value.getTime() : Number(value);
+      const b = expected instanceof Date ? expected.getTime() : Number(expected);
+      if (op === "gt") return a > b;
+      if (op === "gte") return a >= b;
+      if (op === "lt") return a < b;
+      if (op === "lte") return a <= b;
+      throw new Error(`opérateur non géré : ${op}`);
+    });
+  });
+}
+
+test("A-19 : une préparation jamais signée sort de la liste du reaper, un lock soumis y reste", async () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const hours = (n: number) => new Date(now.getTime() - n * 3_600_000);
+  const rows = [
+    loan({ id: "abandoned-old", status: "CANCELLED", evmLockTxHash: null, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "abandoned-recent", status: "CANCELLED", evmLockTxHash: null, createdAt: hours(1), updatedAt: hours(1) }),
+    loan({ id: "submitted-old", status: "CANCELLED", evmLockTxHash: HASH, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "refunded-old", status: "CANCELLED", cancelTxHash: HASH, evmLockTxHash: null, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "settling-old", status: "SETTLING", createdAt: hours(48), updatedAt: hours(48) }),
+  ];
+  const seen: string[] = [];
+  stubDb(prisma.loan, "findMany", async ({ where }: { where: Record<string, unknown> }) => {
+    seen.push(...rows.filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where)).map((row) => row.id));
+    return [];
+  });
+  await reap(now);
+  assert.deepEqual(seen.sort(), ["abandoned-recent", "settling-old", "submitted-old"]);
+});

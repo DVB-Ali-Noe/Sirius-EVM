@@ -137,7 +137,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: provider }) },
     "./recover-loan": {}, "@/lib/evm/history": {},
     // Testnet sans plafonds configurés : les gardes de la bêta mainnet ne s'appliquent pas.
-    "./exposure-limits": { exposureLimits: () => null, assertLoanWithinCap: () => {}, assertExposureWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [] },
+    "./exposure-limits": { assertAdmissionsOpen: () => {}, exposureLimits: () => null, assertLoanWithinCap: () => {}, assertExposureWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [] },
   });
   await api.prepareLoan(dataset.id, borrower);
   assert.equal(records[0].runnerKind, runner.runnerKind);
