@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import SharedBlob from "@/components/layout/SharedBlob";
 import { WalletConnector } from "@/components/wallet/WalletConnector";
 import { StoreHydrator } from "@/components/layout/StoreHydrator";
 import { E2eWalletBridge } from "@/components/testing/E2eWalletBridge";
 import { LocaleProvider } from "@/components/i18n/LocaleProvider";
+import { PREVIEW_GATE_HEADER, PREVIEW_GATE_HEADER_CLOSED } from "@/lib/preview-gate/gate";
 
 /**
  * Rendu dynamique imposé à toute l'application.
@@ -81,11 +83,24 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Page d'attente du passage mainnet (src/lib/preview-gate/gate.ts) : le proxy pose cet
+  // en-tête — et l'efface s'il vient du client — quand il sert /coming-soon. La page est alors
+  // rendue nue : ni connecteur de portefeuille, ni blob WebGL, ni réhydratation de store, ni
+  // titre réécrit côté client. Le public n'a rien à charger de plus qu'une phrase et un lien.
+  const gateClosed = (await headers()).get(PREVIEW_GATE_HEADER) === PREVIEW_GATE_HEADER_CLOSED;
+  if (gateClosed) {
+    return (
+      <html lang="en" className="h-full antialiased">
+        <body className="min-h-full flex flex-col">{children}</body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">

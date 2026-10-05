@@ -1,0 +1,182 @@
+/**
+ * Porte d'aperçu du passage mainnet.
+ *
+ * Pendant la mise en production, le public voit une page d'attente sur sirius-data.tech
+ * pendant que l'équipe teste le vrai mainnet derrière. La porte est un interrupteur
+ * d'environnement (`SIRIUS_PREVIEW_GATE=true`) posé sur le seul projet Vercel de
+ * production : absent ou autre valeur, rien ne change. Une clé (`SIRIUS_PREVIEW_KEY`,
+ * 32 caractères minimum) ouvre la porte à qui la présente une fois sur `/preview` ; le
+ * navigateur reçoit alors un cookie dont la valeur est un HMAC dérivé de la clé, jamais la
+ * clé elle-même.
+ *
+ * Fermée par défaut : interrupteur actif sans clé valide = site fermé à tous, y compris
+ * l'équipe. Mieux vaut un site fermé qu'un site ouvert par une faute de frappe.
+ *
+ * Ce module ne dépend ni de Next ni de `node:crypto` : il s'exécute dans le proxy (runtime
+ * Node ou Edge) comme sous `node --test`, avec la seule API Web Crypto.
+ */
+
+export const PREVIEW_GATE_FLAG = "SIRIUS_PREVIEW_GATE";
+export const PREVIEW_KEY_VARIABLE = "SIRIUS_PREVIEW_KEY";
+export const PREVIEW_KEY_MIN_LENGTH = 32;
+
+export const PREVIEW_COOKIE = "sirius_preview";
+export const PREVIEW_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+/** Route qui pose le cookie : `GET /preview?key=…`. */
+export const PREVIEW_PATH = "/preview";
+/** Page d'attente vers laquelle toute page est réécrite tant que la porte est fermée. */
+export const WAITING_PAGE = "/coming-soon";
+/**
+ * En-tête de requête posé par le proxy quand il sert la page d'attente : la mise en page
+ * racine l'utilise pour ne monter ni portefeuille, ni blob WebGL, ni réhydratation de store.
+ * Toujours réécrit par le proxy, jamais lu tel que le client l'a envoyé.
+ */
+export const PREVIEW_GATE_HEADER = "x-sirius-preview-gate";
+export const PREVIEW_GATE_HEADER_CLOSED = "closed";
+
+/** Réponse des routes API fermées : 503 avec ce corps, et rien d'autre. */
+export const CLOSED_API_STATUS = 503;
+export const CLOSED_API_BODY = { error: "Sirius ouvre bientôt" } as const;
+
+/** Séparation de domaine du HMAC : changer ce contexte invalide tous les cookies posés. */
+const COOKIE_CONTEXT = "sirius/preview-gate/cookie/v1";
+
+/** Les deux variables lues, dans `process.env` ou un objet de test. */
+export type PreviewGateEnvironment = { readonly [variable: string]: string | undefined };
+
+export interface PreviewGateConfig {
+  /** `SIRIUS_PREVIEW_GATE` vaut exactement `true`. */
+  active: boolean;
+  /** Clé configurée et assez longue, sinon `null` : la porte reste fermée à tous. */
+  key: string | null;
+}
+
+export function readPreviewGateConfig(env: PreviewGateEnvironment = process.env): PreviewGateConfig {
+  const active = env.SIRIUS_PREVIEW_GATE?.trim() === "true";
+  const candidate = env.SIRIUS_PREVIEW_KEY?.trim() ?? "";
+  const key = candidate.length >= PREVIEW_KEY_MIN_LENGTH ? candidate : null;
+  return { active, key };
+}
+
+/**
+ * Avertissement de démarrage, sans la clé : une porte active sans clé valide ferme le site
+ * à tout le monde, ce que l'opérateur doit voir dans les logs plutôt que deviner.
+ */
+export function previewGateStartupNotice(env: PreviewGateEnvironment = process.env): string | null {
+  const { active, key } = readPreviewGateConfig(env);
+  if (!active) return null;
+  if (!key) {
+    return `[sirius] ${PREVIEW_GATE_FLAG}=true sans ${PREVIEW_KEY_VARIABLE} valide (${PREVIEW_KEY_MIN_LENGTH} caractères minimum) : le site est fermé à tous, /preview répond 404.`;
+  }
+  return `[sirius] ${PREVIEW_GATE_FLAG}=true : page d'attente servie au public, API fermées (sauf liste blanche), cookie ${PREVIEW_COOKIE} requis.`;
+}
+
+/**
+ * Décision du proxy pour une requête :
+ * - `open`   : porte inactive, ou cookie valide → comportement habituel ;
+ * - `allow`  : porte active, chemin en liste blanche → comportement habituel, sans cookie ;
+ * - `wait`   : porte active, page → réécriture vers la page d'attente ;
+ * - `closed` : porte active, route API → 503 JSON.
+ */
+export type PreviewGateDecision = "open" | "allow" | "wait" | "closed";
+
+function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+/**
+ * Liste blanche minimale. Chaque entrée répond à un appel extérieur inventorié ; tout ce qui
+ * n'y figure pas est fermé.
+ *
+ * - `/api/auth/challenge` : le job « Fumée » du pipeline (`scripts/smoke-auth.mjs`) le
+ *   POSTe sur la production après chaque déploiement et exige un 200 depuis les origines
+ *   de la cible et un 403 depuis l'autre. La route ne fait qu'émettre un défi à signer :
+ *   sans `/api/auth/verify`, fermé, il ne sert à rien. Le test de fumée reste donc vert avec
+ *   la porte active, et personne ne se connecte pour autant.
+ * - `/terms` : conditions de la bêta, publiques par engagement ; la page d'attente peut y
+ *   renvoyer.
+ * - `/coming-soon` et `/preview` : la page d'attente elle-même et la route qui pose le
+ *   cookie. Sans elles, la porte ne s'ouvre à personne.
+ * - `/_next/*` : chunks, CSS, polices et optimiseur d'images de la page d'attente. Les
+ *   payloads RSC des autres pages passent par les mêmes chemins de page, pas par `/_next/`,
+ *   et sont réécrits comme elles.
+ * - Fichiers de `public/` et icônes de métadonnées (dernier segment avec extension, hors
+ *   `/api`) : favicon, images d'aperçu de lien, exemples CSV déjà publics.
+ *
+ * N'y figurent pas, délibérément : le contrôleur et le moteur (`src/runner`, `src/worker`,
+ * `scripts/operations`) n'appellent jamais l'application Next — ils lisent la base et la
+ * chaîne, et c'est l'application qui appelle le runner. La surveillance du VPS
+ * (`deploy/vps/check-reaper.sh`) inspecte Docker sur place, sans HTTP vers le site. Le
+ * contrôleur de démo (`/api/phala-demo/drain`) vise l'adresse de démo, rattachée au projet
+ * staging où la porte n'est pas posée. Le script de reprise `ops:verify-model-delivery`
+ * passe par les routes de session : il attend la fin de la porte.
+ */
+export function isPreviewGateExempt(pathname: string): boolean {
+  if (isApiPath(pathname)) return pathname === "/api/auth/challenge";
+  if (pathname === WAITING_PAGE || pathname === `${WAITING_PAGE}/`) return true;
+  if (pathname === PREVIEW_PATH) return true;
+  if (pathname === "/terms" || pathname === "/terms/") return true;
+  if (pathname.startsWith("/_next/")) return true;
+  if (pathname.includes("..")) return false;
+  const last = pathname.slice(pathname.lastIndexOf("/") + 1);
+  return /^[^.]+\.[a-z0-9]+$/i.test(last);
+}
+
+const encoder = new TextEncoder();
+
+function toHex(bytes: ArrayBuffer): string {
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Égalité à temps constant sur des tampons de même longueur ; longueurs différentes = faux. */
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+async function hmacSha256(key: string, message: string): Promise<ArrayBuffer> {
+  const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message));
+}
+
+/** Valeur du cookie : HMAC-SHA256 de la clé sur un contexte fixe, en hexadécimal. */
+export async function previewCookieValue(key: string): Promise<string> {
+  return toHex(await hmacSha256(key, COOKIE_CONTEXT));
+}
+
+/**
+ * Comparaison à temps constant de deux chaînes, par leurs empreintes SHA-256 : la durée ne
+ * dépend ni de la longueur du candidat ni du premier octet qui diffère.
+ */
+async function constantTimeStringEqual(expected: string, candidate: string): Promise<boolean> {
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+    crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
+  ]);
+  return constantTimeEqual(new Uint8Array(a), new Uint8Array(b));
+}
+
+/** Le cookie présenté est celui dérivé de la clé configurée. */
+export async function previewCookieValid(key: string | null, candidate: string | null | undefined): Promise<boolean> {
+  if (!key || typeof candidate !== "string" || candidate.length === 0) return false;
+  return constantTimeStringEqual(await previewCookieValue(key), candidate);
+}
+
+/** La clé présentée sur `/preview` est la clé configurée. */
+export async function previewKeyMatches(key: string | null, candidate: string | null | undefined): Promise<boolean> {
+  if (!key || typeof candidate !== "string" || candidate.length === 0) return false;
+  return constantTimeStringEqual(key, candidate);
+}
+
+export async function decidePreviewGate(
+  config: PreviewGateConfig,
+  pathname: string,
+  cookie: string | null | undefined,
+): Promise<PreviewGateDecision> {
+  if (!config.active) return "open";
+  if (isPreviewGateExempt(pathname)) return "allow";
+  if (await previewCookieValid(config.key, cookie)) return "open";
+  return isApiPath(pathname) ? "closed" : "wait";
+}

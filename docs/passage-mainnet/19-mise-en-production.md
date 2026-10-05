@@ -237,9 +237,10 @@ pnpm dlx phala@1.1.22 deploy --profile sirius --cvm-id <cvm-id> \
 
 1. Retirer d'abord ce qui est interdit sur mainnet : `SIRIUS_MASTER_KEY`, `SIRIUS_FAUCET_KEY`, `SIRIUS_KYB_VERIFIER_KEY`, `DSTACK_SIMULATOR_ENDPOINT`, `SIRIUS_DEPLOYMENT_MODE`, `NEXT_PUBLIC_SIRIUS_DEPLOYMENT_MODE`, `SIRIUS_PHALA_DEMO`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`, `SIRIUS_EXPECTED_RTMR3`, `NEXT_PUBLIC_SIRIUS_E2E`.
 2. Poser toutes les variables de la section 3.1.
-3. `vercel env ls production` : relire les **noms** (les valeurs ne s'affichent pas).
+3. Activer la **porte d'aperçu** (section 3.1 et `.env.example`) : `SIRIUS_PREVIEW_GATE=true` et `SIRIUS_PREVIEW_KEY` (`openssl rand -hex 32`, marquée Sensitive), **avant** la fusion de l'étape 12. Tant qu'elle est active, le public voit la page d'attente « Something's cooking » sur toutes les pages, les API répondent 503 (sauf `/api/auth/challenge`, `/terms`, `/preview` et les fichiers statiques : `src/lib/preview-gate/gate.ts`), et l'équipe teste le vrai mainnet derrière. Fermée par défaut : `true` sans clé d'au moins 32 caractères ferme le site à **tous**, équipe comprise, et les logs Vercel le disent au démarrage (`SIRIUS_PREVIEW_GATE=true sans SIRIUS_PREVIEW_KEY valide`).
+4. `vercel env ls production` : relire les **noms** (les valeurs ne s'affichent pas).
 
-**Vérifier** : chaque variable privée a sa jumelle `NEXT_PUBLIC_*` identique (quatre contrats, réseau, origine). `NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet`. Les trois origines et `SIRIUS_REQUIRE_PHALA` seront réécrites par la pipeline : les poser quand même.
+**Vérifier** : chaque variable privée a sa jumelle `NEXT_PUBLIC_*` identique (quatre contrats, réseau, origine). `NEXT_PUBLIC_WEB3AUTH_NETWORK=sapphire_mainnet`. Les trois origines et `SIRIUS_REQUIRE_PHALA` seront réécrites par la pipeline : les poser quand même. `SIRIUS_PREVIEW_GATE` et `SIRIUS_PREVIEW_KEY` présentes toutes les deux, sur ce projet seulement (jamais sur staging).
 
 **Si ça échoue** : une variable manquante arrête l'instance au démarrage avec `… obligatoire en production` dans les logs Vercel ; le site ne répond pas 200 et le job Fumée échoue. Corriger, puis redéployer (relancer le job Vercel ou pousser un commit vide sur main).
 
@@ -300,9 +301,20 @@ gh run watch
 
 Après la fusion, la pipeline s'arrête sur les jobs liés à l'environnement `production` : onglet Actions → run → « Review deployments » → `production` → Approve. Les jobs Migrations (préflight EVM sur la base mainnet, puis `prisma migrate deploy`), Front Vercel (origines, `SIRIUS_REQUIRE_PHALA=true`, build, déploiement), Reaper VPS et Fumée s'enchaînent.
 
-**Vérifier** : `gh run watch` vert ; `https://sirius-data.tech` répond 200 ; `/status` affiche mainnet, USDG, plafonds 50 / 500 ; `node scripts/smoke-auth.mjs main` passe ; sur le VPS `bash deploy/vps/check-reaper.sh /opt/sirius sirius` trouve `[reaper] passe ok` ; logs Vercel sans `obligatoire en production`.
+**Vérifier** : `gh run watch` vert, **porte d'aperçu active** (le job Fumée passe avec elle : la racine répond 200 avec la page d'attente, et `/api/auth/challenge` est en liste blanche) ; `https://sirius-data.tech` affiche « Something's cooking » sans cookie et `curl -s https://sirius-data.tech/api/train` répond `503 {"error":"Sirius ouvre bientôt"}` ; chaque membre de l'équipe ouvre une fois `https://sirius-data.tech/preview?key=<SIRIUS_PREVIEW_KEY>` (clé collée dans la barre d'adresse, jamais dans le chat), est redirigé vers la racine et voit le site complet pendant 7 jours ; `/status` affiche mainnet, USDG, plafonds 50 / 500 ; `node scripts/smoke-auth.mjs main` passe ; sur le VPS `bash deploy/vps/check-reaper.sh /opt/sirius sirius` trouve `[reaper] passe ok` ; logs Vercel sans `obligatoire en production`.
 
-**Si ça échoue** : Migrations rouge → lire la dernière étape affichée du préflight (base d'une autre chaîne, pooler, quota Neon : [DEPLOYMENT.md](../DEPLOYMENT.md)) ; rien n'est déployé tant que ce job est rouge. Vercel rouge → variable manquante (étape 9). Reaper rouge → `.env.vps` (étape 10) ; relancer uniquement le job VPS après correction. Fumée rouge → origine ou DNS. Une fusion ne se défait pas, mais un déploiement non approuvé ne se produit pas : on peut corriger sur staging, refusionner, puis approuver.
+**Si ça échoue** : Migrations rouge → lire la dernière étape affichée du préflight (base d'une autre chaîne, pooler, quota Neon : [DEPLOYMENT.md](../DEPLOYMENT.md)) ; rien n'est déployé tant que ce job est rouge. Vercel rouge → variable manquante (étape 9). Reaper rouge → `.env.vps` (étape 10) ; relancer uniquement le job VPS après correction. Fumée rouge → origine ou DNS. `/preview?key=…` répond 404 à l'équipe → clé absente, trop courte ou différente de celle posée (étape 9) ; corriger la variable puis « Redeploy ». Une fusion ne se défait pas, mais un déploiement non approuvé ne se produit pas : on peut corriger sur staging, refusionner, puis approuver.
+
+### Étape 12 bis — Ouverture au public (fin de la porte d'aperçu)
+
+**Qui** : Ali, après les étapes 13 et 14 et la décision de l'étape 16.
+
+1. Sur Vercel, projet `sirius-evm`, Production : supprimer `SIRIUS_PREVIEW_GATE` et `SIRIUS_PREVIEW_KEY` (ou poser `SIRIUS_PREVIEW_GATE=false` ; la clé se retire de toute façon, elle a transité dans des URL).
+2. Redéployer : « Redeploy » du déploiement courant dans le tableau de bord, ou relancer le job Front Vercel. Les variables sont lues à chaque requête par le proxy, mais une instance ne voit un changement de variable qu'après redéploiement.
+
+**Vérifier** : en navigation privée (sans cookie), `https://sirius-data.tech` affiche la page d'accueil et `curl -s -o /dev/null -w '%{http_code}' https://sirius-data.tech/api/auth/session` ne répond plus 503 ; `/coming-soon` reste accessible mais n'est plus liée nulle part (noindex) ; `node scripts/smoke-auth.mjs main` passe toujours.
+
+**Si ça échoue** : la page d'attente persiste → variable encore présente ou redéploiement non fait ; un cookie `sirius_preview` restant chez l'équipe est sans effet une fois la porte retirée.
 
 ### Étape 13 — Invitations KYB des deux wallets d'équipe
 
@@ -385,6 +397,8 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `SIRIUS_PHALA_DEMO_ORIGIN` | `https://phala.sirius-data.tech` | fixe | non (lien de `/phala`) | **non** |
 | `SIRIUS_ADMISSIONS_CLOSED` | **absente** (coupe-circuit, runbook 1) | — | non | **non** |
 | `SIRIUS_MAX_CONCURRENT_UPLOADS` | `2` | défaut | non | oui |
+| `SIRIUS_PREVIEW_GATE` | `true` du déploiement (étape 12) à l'ouverture (étape 12 bis), puis **absente** | décision | non (page d'attente ; `true` sans clé valide = site fermé à tous) | oui (commentée) |
+| `SIRIUS_PREVIEW_KEY` | 64 hex (`openssl rand -hex 32`), Sensitive, retirée avec l'interrupteur | `openssl` | avec `SIRIUS_PREVIEW_GATE=true` seulement | oui (commentée) |
 
 ### 3.2 Reaper sur le VPS (`/opt/sirius/.env.vps`)
 
@@ -476,6 +490,7 @@ Facultatives mais absentes aussi : `SIRIUS_ADMISSIONS_CLOSED`, `SIRIUS_PHALA_DEM
 | 10 GitHub, VPS | Secrets, `.env.vps` | `cp -p .env.vps.avant-mainnet .env.vps` ; remettre `EVM_NETWORK=testnet` dans l'environnement GitHub | Aucun déploiement n'a eu lieu tant que l'étape 12 n'est pas approuvée |
 | 11 release-check | Rien | — | — |
 | 12 Fusion et déploiement | Le déploiement | Avant approbation : ne pas approuver, corriger sur staging, refusionner. Après : `SIRIUS_ADMISSIONS_CLOSED=true` sur Vercel et redéployer (plus aucun nouveau prêt, site en ligne), `docker compose -p sirius --env-file .env.vps stop reaper` sur le VPS, puis correction | Une fusion sur main ne se défait pas ; `git revert` puis nouvelle PR si le code est en cause |
+| 12 bis Ouverture au public | La porte d'aperçu | Reposer `SIRIUS_PREVIEW_GATE=true` avec une **nouvelle** `SIRIUS_PREVIEW_KEY`, redéployer : le public revoit la page d'attente, l'équipe repasse par `/preview?key=…` | Les cookies posés avec l'ancienne clé ne valent plus rien ; les sessions wallet déjà ouvertes restent fermées derrière la porte tant qu'un cookie n'est pas reposé |
 | 13 Invitations | Une attestation | `kyb-invite.ts revoke <wallet> --key-file=… --confirm` (une transaction du vérificateur) | — |
 | 14 Premier prêt | Un prêt verrouillé | Laisser le délai de 3 jours puis `refund()` ; ou [runbooks 2-3](../MAINNET-RUNBOOKS.md) | L'escrow n'a ni pause ni rotation |
 | 15 Clé retirée | Rien | — | Une clé effacée ne gouverne rien |

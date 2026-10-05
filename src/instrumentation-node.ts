@@ -1,11 +1,16 @@
 import { isDemoDeployment } from "@/lib/deployment-mode";
 import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
 import { exposureLimits } from "@/lib/sirius/exposure-limits";
+import { previewGateStartupNotice } from "@/lib/preview-gate/gate";
 
 const DEMO = isDemoDeployment();
 
 export async function registerNode() {
   assertApplicationRunnerConfiguration();
+  // Porte d'aperçu du passage mainnet : dire au démarrage ce qu'elle ferme, sans jamais
+  // écrire la clé (le message ne contient que des noms de variables).
+  const previewGate = previewGateStartupNotice();
+  if (previewGate) console.warn(previewGate);
   if (process.env.NODE_ENV === "production") {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");
