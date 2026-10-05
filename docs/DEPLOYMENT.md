@@ -161,7 +161,7 @@ Une incompatibilité de démarrage a été reproduite avec la configuration **di
 
 Le worker utilise désormais un contrôle de lecture dédié qui accepte l'escrow v5 ou v6 avec le registre v4 correctement lié. Ce contrôle n'alimente pas le cache d'autorisation des nouveaux prêts : ceux-ci exigent toujours v6. Les erreurs métier de démarrage sont affichées sans exposer les erreurs RPC brutes.
 
-`deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle vérifie le processus en cours d'exécution, pas la réussite de toutes les réconciliations futures.
+`deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle exige aussi une ligne `[reaper] passe ok` récente : il vérifie que le processus tourne et qu'une passe vient d'aboutir, pas la réussite de toutes les réconciliations futures.
 
 Le fichier `/opt/sirius-staging/.env.vps` doit rester cohérent avec la configuration de l'application ; il n'a pas été consulté ni modifié pendant cette correction. Le correctif doit être publié pour reconstruire l'image worker et déployer son nouveau digest. Relancer uniquement l'ancien job VPS réutiliserait l'ancienne image.
 

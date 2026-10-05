@@ -18,7 +18,10 @@ import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
 let afterId: string | null = null;
-let running: Promise<void> | null = null;
+let running: Promise<ReaperPassResult> | null = null;
+
+/** Bilan d'une passe : prêts examinés et prêts restés en erreur (hors attente de finalité). */
+export type ReaperPassResult = { examined: number; failed: number };
 
 export function startLoanReaper(): void {
   if (timer) return;
@@ -32,12 +35,12 @@ export function startLoanReaper(): void {
   run();
 }
 
-export function runLoanReaper(now = new Date()): Promise<void> {
+export function runLoanReaper(now = new Date()): Promise<ReaperPassResult> {
   if (!running) running = reapBatch(now).finally(() => { running = null; });
   return running;
 }
 
-async function reapBatch(now: Date): Promise<void> {
+async function reapBatch(now: Date): Promise<ReaperPassResult> {
   const loans = await prisma.loan.findMany({
     where: {
       ...(afterId ? { id: { gt: afterId } } : {}),
@@ -63,6 +66,7 @@ async function reapBatch(now: Date): Promise<void> {
   });
   // Le curseur avance aussi quand un prêt est actif ou son RPC échoue.
   afterId = loans.length === BATCH_SIZE ? loans.at(-1)!.id : null;
+  let failed = 0;
   for (const loan of loans) {
     try {
       if (loan.status === "PENDING" || loan.status === "SUBMITTING" || loan.status === "CANCELLED") {
@@ -86,9 +90,13 @@ async function reapBatch(now: Date): Promise<void> {
       if (!loan.billingQuoteHash) await reconcileClosedLoan(loan);
     } catch (error) {
       if (error instanceof RunnerFinalityPending) console.log(`[reaper] prêt EVM ${loan.id} : règlement en attente de finalité`);
-      else console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
+      else {
+        failed += 1;
+        console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
+      }
     }
   }
+  return { examined: loans.length, failed };
 }
 
 async function reconcileClosedLoan(loan: Loan): Promise<boolean> {
