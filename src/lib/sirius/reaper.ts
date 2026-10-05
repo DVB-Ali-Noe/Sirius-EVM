@@ -3,6 +3,7 @@ import type { Loan } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
 import {
+  CANCELLED_LOCK_SEARCH_WINDOW_MS,
   CHAIN_REAPER_LEASE_MS,
   PENDING_REAPER_TTL_MS,
   SETTLEMENT_REAPER_LEASE_MS,
@@ -43,7 +44,15 @@ async function reapBatch(now: Date): Promise<void> {
       OR: [
         { status: "PENDING", createdAt: { lte: new Date(now.getTime() - PENDING_REAPER_TTL_MS) } },
         { status: "SUBMITTING", updatedAt: { lte: new Date(now.getTime() - SUBMISSION_REAPER_LEASE_MS) } },
-        { status: "CANCELLED", cancelTxHash: null, evmLoanKey: { not: null } },
+        // Un lock soumis (hash connu) reste toujours suivi ; une préparation jamais signée sort
+        // de la liste une fois son autorisation expirée et la finalité largement dépassée.
+        {
+          status: "CANCELLED", cancelTxHash: null, evmLoanKey: { not: null },
+          OR: [
+            { evmLockTxHash: { not: null } },
+            { createdAt: { gt: new Date(now.getTime() - CANCELLED_LOCK_SEARCH_WINDOW_MS) } },
+          ],
+        },
         { status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_REAPER_LEASE_MS) } },
         { status: "SETTLING", updatedAt: { lte: new Date(now.getTime() - SETTLEMENT_REAPER_LEASE_MS) } },
         { status: { in: ["ESCROWED", "TRAINING", "SETTLING"] }, updatedAt: { lte: new Date(now.getTime() - CHAIN_REAPER_LEASE_MS) } },
