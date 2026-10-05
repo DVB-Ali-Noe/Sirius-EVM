@@ -95,7 +95,7 @@ afterEach(() => {
 
 type Resolution = { state: "active" } | { state: "settled"; txHash: string };
 
-function settlementFixture(evmDeadline: Date, runner: () => Promise<never>, resolution: Resolution = { state: "active" }) {
+function settlementFixture(evmDeadline: Date | undefined, runner: () => Promise<never>, resolution: Resolution = { state: "active" }) {
   const loan = {
     id: "loan", datasetId: "dataset", borrower: `0x${"44".repeat(20)}`, provider: `0x${"55".repeat(20)}`,
     status: "TRAINING", amountUsdcAtomic: "100", modelId: "linear_regression", modelVersion: "1.0.0",
@@ -154,10 +154,12 @@ test("A-05 : release rejetée après l'échéance, escrow encore verrouillé : l
   }
 });
 
-test("avant l'échéance, un release rejeté garde son hash : aucun remboursement n'est encore possible", async () => {
-  const { api, updates } = settlementFixture(inTime(), rejected("Tentative de règlement épuisée", 503));
-  await assert.rejects(api.settlePreparedLoan("loan"), /Tentative de règlement épuisée/);
-  assert.deepEqual({ ...updates[1].data }, { status: "TRAINING" });
+test("avant l'échéance, ou sans échéance connue, un release rejeté garde son hash : aucun remboursement n'est encore possible", async () => {
+  for (const evmDeadline of [inTime(), undefined]) {
+    const { api, updates } = settlementFixture(evmDeadline, rejected("Tentative de règlement épuisée", 503));
+    await assert.rejects(api.settlePreparedLoan("loan"), /Tentative de règlement épuisée/);
+    assert.deepEqual({ ...updates[1].data }, { status: "TRAINING" }, String(evmDeadline));
+  }
 });
 
 test("échu mais en attente de finalité : le hash du release diffusé est conservé, jamais de remboursement", async () => {

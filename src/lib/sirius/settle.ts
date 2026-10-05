@@ -370,7 +370,8 @@ export async function settlePreparedLoan(
     // qui ne peut plus aboutir : il est effacé pour que le prêt retombe sous la règle commune,
     // remboursement par l'emprunteur et aucune relance du reaper (audit A-05). L'attente de
     // finalité (`RunnerFinalityPending`) ne passe jamais ici et garde son hash.
-    const unsettleable = resolution?.state === "active" && loan.evmDeadline !== null && loan.evmDeadline.getTime() <= Date.now();
+    const deadline = loan.evmDeadline?.getTime();
+    const unsettleable = resolution?.state === "active" && deadline !== undefined && deadline <= Date.now();
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
       data:
