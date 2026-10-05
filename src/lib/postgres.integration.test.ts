@@ -89,8 +89,10 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
     "runnerReceipt" = 'synthetic', "merkleRoot" = $1, "evmDatasetId" = $2,
     "modelId" = 'linear_regression', "modelVersion" = '1.0.0' WHERE id = 'history'`, ["ab".repeat(32), `0x${"67".repeat(32)}`]);
   const borrower = `0x${"78".repeat(20)}`;
-  await client.query(`INSERT INTO "Loan" (id, "datasetId", borrower, provider, "amountUsdcAtomic", "updatedAt")
-    SELECT 'pending-' || n, 'history', $1, $2, '1000', now() FROM generate_series(1, 4) n`, [borrower, provider]);
+  // Quatre prêts déjà payés (hash de lock) : un PENDING sans hash serait remplacé par la préparation
+  // suivante du même emprunteur au lieu d'être compté (audit du 5 octobre, A-06).
+  await client.query(`INSERT INTO "Loan" (id, "datasetId", borrower, provider, "amountUsdcAtomic", "evmLockTxHash", "updatedAt")
+    SELECT 'pending-' || n, 'history', $1, $2, '1000', '0x' || lpad(n::text, 64, '0'), now() FROM generate_series(1, 4) n`, [borrower, provider]);
   await race(Array(8).fill(borrower), "loan");
   assert.equal(Number((await client.query('SELECT count(*) FROM "Loan" WHERE borrower = $1 AND status = \'PENDING\'', [borrower])).rows[0].count), 5);
   await race(Array(8).fill(provider), "training");

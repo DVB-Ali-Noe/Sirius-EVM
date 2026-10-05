@@ -109,6 +109,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Migration escrow bloquée : fonds encore verrouillés dans un ancien escrow": "Escrow migration blocked: funds still locked in a previous escrow",
   "Préparation du prêt expirée. Relance l’emprunt ; l’approbation USDC reste acquise.": "Loan preparation expired. Restart the loan; the USDC approval remains valid.",
   "Emprunt déjà soumis ou déploiement modifié": "Loan already submitted or deployment changed",
+  "Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation USDC reste acquise": "Loan preparation cancelled (expired or replaced by a more recent preparation): restart the loan, the USDC approval remains valid",
   "Emprunt déjà verrouillé": "Loan already locked",
   "Hashlock du runner modifié": "Runner hashlock changed",
   "Hash de règlement invalide": "Invalid settlement transaction hash",

@@ -50,9 +50,10 @@ function fixture() {
     records.push(record);
     return record;
   };
+  const update = async ({ data }: { data: Record<string, unknown> }) => ({ ...records[0], ...data });
   const tx = {
     dataset: { updateMany: async () => ({ count: 1 }) },
-    loan: { count: async () => 0, create },
+    loan: { count: async () => 0, create, update, updateMany: async () => ({ count: 0 }) },
     trainingJob: { count: async () => 0, create, updateMany: async () => ({ count: 0 }) },
   };
   const common = {
@@ -63,7 +64,7 @@ function fixture() {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
       trainingJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 }; } },
-      loan: { update: async ({ data }: { data: Record<string, unknown> }) => ({ ...records[0], ...data }) },
+      loan: { update },
     } },
   };
   return { dataset, records, updates, common };
