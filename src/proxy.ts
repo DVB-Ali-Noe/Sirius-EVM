@@ -93,8 +93,11 @@ export async function proxy(request: NextRequest) {
   // 2. Porte d'aperçu du passage mainnet (src/lib/preview-gate/gate.ts). Inactive, elle ne
   //    change rien ; active, elle ferme tout sauf la liste blanche à qui n'a pas le cookie.
   const gate = readPreviewGateConfig();
-  // La page d'attente est toujours rendue nue (sans portefeuille), porte active ou non.
+  // `gateClosed` : la page est rendue nue (sans portefeuille) ; `rewriteToWaiting` : elle est
+  // en plus remplacée par la page d'attente. La page d'attente est toujours nue, porte active
+  // ou non ; `/terms` l'est seulement pour qui n'a pas le cookie (décision `public`).
   let gateClosed = pathname === WAITING_PAGE || pathname === `${WAITING_PAGE}/`;
+  let rewriteToWaiting = false;
   if (gate.active) {
     const decision = await decidePreviewGate(gate, pathname, request.cookies.get(PREVIEW_COOKIE)?.value);
     if (decision === "closed") {
@@ -103,7 +106,11 @@ export async function proxy(request: NextRequest) {
         headers: { "cache-control": "no-store", "retry-after": "3600" },
       });
     }
-    if (decision === "wait") gateClosed = true;
+    if (decision === "wait") {
+      gateClosed = true;
+      rewriteToWaiting = true;
+    }
+    if (decision === "public") gateClosed = true;
   }
 
   // 3. Préchargements hors porte : inchangés, sans nonce (voir isPrefetch).
@@ -121,7 +128,7 @@ export async function proxy(request: NextRequest) {
   headers.set("x-nonce", nonce);
 
   let response: NextResponse;
-  if (gateClosed && pathname !== WAITING_PAGE && pathname !== `${WAITING_PAGE}/`) {
+  if (rewriteToWaiting) {
     // Réécriture, pas redirection : l'adresse demandée reste dans la barre du navigateur et
     // le test de fumée du pipeline, qui attend un 200 sur la racine, le reçoit.
     const url = request.nextUrl.clone();

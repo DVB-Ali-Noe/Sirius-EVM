@@ -7,9 +7,11 @@ import {
   PREVIEW_COOKIE_MAX_AGE_SECONDS,
   PREVIEW_KEY_MIN_LENGTH,
   PUBLIC_DIRECTORIES,
+  PUBLIC_PAGES,
   ROOT_FILES,
   decidePreviewGate,
   isPreviewGateExempt,
+  isPublicPage,
   isStaticFilePath,
   previewCookieValid,
   previewCookieValue,
@@ -90,13 +92,34 @@ test("clé trop courte : porte active mais fermée à tous, même avec le cookie
 
 test("liste blanche : test de fumée, conditions, page d'attente et route de la clé", async () => {
   const config = readPreviewGateConfig(ACTIVE);
-  for (const path of ["/api/auth/challenge", "/terms", "/terms/", "/coming-soon", "/coming-soon/", "/preview"]) {
+  for (const path of ["/api/auth/challenge", "/preview"]) {
     assert.equal(isPreviewGateExempt(path), true, path);
+    assert.equal(isPublicPage(path), false, path);
     assert.equal(await decidePreviewGate(config, path, null), "allow", path);
   }
+  // Pages publiques : servies à leur adresse, mais rendues nues (sans portefeuille) sans cookie.
+  for (const path of ["/terms", "/terms/", "/coming-soon", "/coming-soon/"]) {
+    assert.equal(isPreviewGateExempt(path), true, path);
+    assert.equal(isPublicPage(path), true, path);
+    assert.equal(await decidePreviewGate(config, path, null), "public", path);
+    assert.equal(await decidePreviewGate(config, path, "forgé"), "public", path);
+  }
+  assert.deepEqual([...PUBLIC_PAGES].sort(), ["/coming-soon", "/coming-soon/", "/terms", "/terms/"]);
   // Rien d'autre sous /api, même à un caractère près.
   for (const path of APIS) assert.equal(isPreviewGateExempt(path), false, path);
-  for (const path of ["/preview/", "/preview/x", "/termsx", "/terms/x", "/coming-soon/x"]) assert.equal(isPreviewGateExempt(path), false, path);
+  for (const path of ["/preview/", "/preview/x", "/termsx", "/terms/x", "/coming-soon/x", "/Terms", "/terms.html"]) {
+    assert.equal(isPreviewGateExempt(path), false, path);
+    assert.equal(isPublicPage(path), false, path);
+    assert.equal(await decidePreviewGate(config, path, null), "wait", path);
+  }
+});
+
+test("liste blanche avec cookie valide : « open », l'équipe voit /terms avec le site complet", async () => {
+  const config = readPreviewGateConfig(ACTIVE);
+  const cookie = await previewCookieValue(KEY);
+  for (const path of ["/terms", "/coming-soon", "/preview", "/api/auth/challenge", "/_next/static/chunks/app.js", "/images/avatar-noe.png"]) {
+    assert.equal(await decidePreviewGate(config, path, cookie), "open", path);
+  }
 });
 
 test("fichiers statiques : chunks Next, favicon, images et exemples de public/ restent servis", async () => {
@@ -114,7 +137,7 @@ test("fichiers statiques : chunks Next, favicon, images et exemples de public/ r
 test("une extension n'exempte pas une route dynamique ni la page 404 : liste fermée, pas d'heuristique", async () => {
   const config = readPreviewGateConfig(ACTIVE);
   // Chemins vérifiés par les relecteurs sur la branche : ils rendaient la coquille du site.
-  const contournements = ["/marketplace/x.png", "/datasets/abc.csv", "/proof/x.y", "/certificate/abc.pdf", "/dashboard.html", "/x.png", "/index.html", "/robots.txt", "/sitemap.xml", "/train/model.json", "/wallet/receive.svg", "/favicon.ico/x.png", "/icon.png/", "/images", "/images/", "/examples", "/examples/", "/images/.hidden.png", "/images/x", "/images/x.", "/images/x/", "/images//x.png", "/images/./x.png", "/examples/regression/", "/imagesx/x.png", "/Images/x.png", "/examples/x.PNG/y"];
+  const contournements = ["/marketplace/x.png", "/datasets/abc.csv", "/proof/x.y", "/x.png", "/certificate/abc.pdf", "/dashboard.html", "/index.html", "/robots.txt", "/sitemap.xml", "/train/model.json", "/wallet/receive.svg", "/favicon.ico/x.png", "/icon.png/", "/images", "/images/", "/examples", "/examples/", "/images/.hidden.png", "/images/x", "/images/x.", "/images/x/", "/images//x.png", "/images/./x.png", "/examples/regression/", "/imagesx/x.png", "/Images/x.png", "/examples/x.PNG/y"];
   for (const path of contournements) {
     assert.equal(isPreviewGateExempt(path), false, path);
     assert.equal(isStaticFilePath(path), false, path);

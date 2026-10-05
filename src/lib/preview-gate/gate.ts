@@ -74,11 +74,14 @@ export function previewGateStartupNotice(env: PreviewGateEnvironment = process.e
 /**
  * Décision du proxy pour une requête :
  * - `open`   : porte inactive, ou cookie valide → comportement habituel ;
- * - `allow`  : porte active, chemin en liste blanche → comportement habituel, sans cookie ;
+ * - `allow`  : porte active, sans cookie, ressource en liste blanche (route de la clé, test
+ *              de fumée, chunks, fichiers statiques) → comportement habituel ;
+ * - `public` : porte active, sans cookie, page en liste blanche (`/terms`, `/coming-soon`) →
+ *              servie à son adresse mais rendue nue, sans portefeuille (voir `PUBLIC_PAGES`) ;
  * - `wait`   : porte active, page → réécriture vers la page d'attente ;
  * - `closed` : porte active, route API → 503 JSON.
  */
-export type PreviewGateDecision = "open" | "allow" | "wait" | "closed";
+export type PreviewGateDecision = "open" | "allow" | "public" | "wait" | "closed";
 
 function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
@@ -94,7 +97,8 @@ function isApiPath(pathname: string): boolean {
  *   sans `/api/auth/verify`, fermé, il ne sert à rien. Le test de fumée reste donc vert avec
  *   la porte active, et personne ne se connecte pour autant.
  * - `/terms` : conditions de la bêta, publiques par engagement ; la page d'attente peut y
- *   renvoyer.
+ *   renvoyer. Servie nue à qui n'a pas le cookie (`PUBLIC_PAGES`) : le public lit le texte,
+ *   sans charger le connecteur de portefeuille ni le store du site.
  * - `/coming-soon` et `/preview` : la page d'attente elle-même et la route qui pose le
  *   cookie. Sans elles, la porte ne s'ouvre à personne.
  * - `/_next/*` : chunks, CSS, polices et optimiseur d'images de la page d'attente. Les
@@ -119,11 +123,22 @@ function isApiPath(pathname: string): boolean {
  */
 export function isPreviewGateExempt(pathname: string): boolean {
   if (isApiPath(pathname)) return pathname === "/api/auth/challenge";
-  if (pathname === WAITING_PAGE || pathname === `${WAITING_PAGE}/`) return true;
+  if (isPublicPage(pathname)) return true;
   if (pathname === PREVIEW_PATH) return true;
-  if (pathname === "/terms" || pathname === "/terms/") return true;
   if (pathname.startsWith("/_next/")) return true;
   return isStaticFilePath(pathname);
+}
+
+/**
+ * Pages en liste blanche servies à leur adresse, mais rendues nues (sans portefeuille, sans
+ * store) à qui n'a pas le cookie : la page d'attente et les conditions. Le proxy pose alors
+ * l'en-tête `PREVIEW_GATE_HEADER` comme pour une page réécrite. Avec le cookie, `/terms`
+ * redevient une page ordinaire du site ; `/coming-soon` reste nue dans tous les cas.
+ */
+export const PUBLIC_PAGES: ReadonlySet<string> = new Set([WAITING_PAGE, `${WAITING_PAGE}/`, "/terms", "/terms/"]);
+
+export function isPublicPage(pathname: string): boolean {
+  return PUBLIC_PAGES.has(pathname);
 }
 
 /**
@@ -216,7 +231,9 @@ export async function decidePreviewGate(
   cookie: string | null | undefined,
 ): Promise<PreviewGateDecision> {
   if (!config.active) return "open";
-  if (isPreviewGateExempt(pathname)) return "allow";
+  // Le cookie d'abord : l'équipe voit aussi les pages publiques (`/terms`) avec le site complet.
   if (await previewCookieValid(config.key, cookie)) return "open";
+  if (isPublicPage(pathname)) return "public";
+  if (isPreviewGateExempt(pathname)) return "allow";
   return isApiPath(pathname) ? "closed" : "wait";
 }

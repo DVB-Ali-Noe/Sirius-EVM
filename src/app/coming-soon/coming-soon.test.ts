@@ -45,8 +45,19 @@ test("proxy : l'adresse démo est tranchée avant la porte, la porte avant le pa
   assert.doesNotMatch(proxy, /next-router-prefetch"\s*\}/);
   assert.match(proxy, /matcher: \["\/api\/:path\*", "\/\(\(\?!api\|_next\/static\|_next\/image\|favicon\.ico\)\.\*\)"\]/);
   // Réécriture (pas redirection) vers la page d'attente, 503 JSON pour les API.
-  assert.match(proxy, /NextResponse\.rewrite\(url/);
+  assert.match(proxy, /if \(rewriteToWaiting\) \{[\s\S]{0,400}NextResponse\.rewrite\(url/);
   assert.match(proxy, /status: CLOSED_API_STATUS/);
+  // Pages publiques (/terms sans cookie) : rendues nues, mais jamais réécrites.
+  assert.match(proxy, /if \(decision === "wait"\) \{\s*gateClosed = true;\s*rewriteToWaiting = true;/);
+  assert.match(proxy, /if \(decision === "public"\) gateClosed = true;/);
+  assert.doesNotMatch(proxy, /decision === "public".*rewriteToWaiting/);
+});
+
+test("conditions : page serveur sans composant client, lisible sans les fournisseurs du site", () => {
+  const terms = read("../terms/page.tsx");
+  assert.doesNotMatch(terms, /"use client"/);
+  // Le texte parle de portefeuille ; ce sont les imports et les hooks qui ne doivent pas y être.
+  assert.doesNotMatch(terms, /from "@\/components\/wallet|web3auth|viem|useLocale|LocaleProvider|ConnectButton|useStore|useEffect|useState/);
 });
 
 test("route /preview : déléguée au module testé, jamais de journalisation", () => {

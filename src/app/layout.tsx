@@ -89,9 +89,10 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   // Page d'attente du passage mainnet (src/lib/preview-gate/gate.ts) : le proxy pose cet
-  // en-tête — et l'efface s'il vient du client — quand il sert /coming-soon. La page est alors
-  // rendue nue : ni connecteur de portefeuille, ni blob WebGL, ni réhydratation de store, ni
-  // titre réécrit côté client. Le public n'a rien à charger de plus qu'une phrase et un lien.
+  // en-tête — et l'efface s'il vient du client — quand il sert /coming-soon, ou /terms à qui
+  // n'a pas le cookie d'aperçu. La page est alors rendue nue : ni connecteur de portefeuille,
+  // ni blob WebGL, ni réhydratation de store, ni titre réécrit côté client. Le public n'a rien
+  // à charger de plus qu'une phrase et un lien.
   const gateClosed = (await headers()).get(PREVIEW_GATE_HEADER) === PREVIEW_GATE_HEADER_CLOSED;
   if (gateClosed) {
     return (
