@@ -36,6 +36,14 @@ D'où trois règles :
 
 Le calendrier reste serré : la partie datasets et les tutos occupent samedi et dimanche. Si le temps manque, ce qui glisse en premier vers la V1.1, dans cet ordre : les filtres avancés de la marketplace (fourchettes et tri), les statistiques détaillées par dataset, le certificat d'exécution.
 
+## État au 5 octobre, 3h
+
+- **Code** : toutes les slices des trois vagues sont fusionnées dans staging, plus les finitions, la mention des conditions sous la connexion et l'ajout de fonds mainnet (carte et autre wallet). Branches nettoyées : seules `main` et `staging` restent.
+- **Staging** : variables en place (tarif, admins, en-têtes proxy), vérifiées.
+- **Démo** : session publique tenue le 4 octobre, fermée à minuit. Sessions du 5 octobre à 10h–13h et 18h–22h ([12](12-test-phala.md)).
+- **Audit** : revue de code complète lancée dans la nuit du 4 au 5 ; rapport dans `AUDIT-2026-10-05.md`, corrections critiques et élevées en PR non fusionnées. La répétition sur testnet suit, avec Ali.
+- **À tester au passage** : [18](18-a-tester-au-passage-mainnet.md).
+
 ## Décisions du 4 octobre
 
 | Sujet | Décision |
@@ -141,3 +149,4 @@ Un seul des quatre premiers points non coché suffit à reporter.
 | [15-dashboard-admin.md](15-dashboard-admin.md) | Dashboard admin | Non |
 | [16-socle-technique.md](16-socle-technique.md) | Briques partagées | Oui, en premier |
 | [17-audit-et-lancement-restants.md](17-audit-et-lancement-restants.md) | Audit et lancement technique | Oui |
+| [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md) | Ce qui ne se teste que sur mainnet | Oui, au passage |

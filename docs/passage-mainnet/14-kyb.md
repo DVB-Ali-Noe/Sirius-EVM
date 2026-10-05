@@ -14,6 +14,13 @@ Fichiers : `src/components/kyb/KybInviteForm.tsx`, `src/lib/kyb/invitation.ts`, 
 - Sur mainnet, le registre KYB est **strict** : seules les adresses vérifiées peuvent prêter et emprunter.
 - Pour la bêta, la vérification passe par une **invitation signée** par un vérificateur Sirius. L'entreprise colle son invitation et devient vérifiée on-chain. Le formulaire apparaît sur la marketplace et Mes datasets quand le KYB manque.
 
+### Décision du 4 octobre : strict, utilisé comme invitation
+
+- Le registre **ouvert** a été envisagé puis écarté : il est refusé sur mainnet par trois garde-fous volontaires (`scripts/deploy-policy.ts`, `scripts/phala-v7-preflight.ts`, `scripts/operations/release-check.mjs`), et le registre est figé dans l'escrow (`immutable kyb`) : passer plus tard d'ouvert à strict obligerait à redéployer l'escrow.
+- **Invitation** : un code signé hors ligne (EIP-712) pour une adresse précise, généré avec `scripts/operations/kyb-invite.ts`. La personne le colle une fois sur `/kyb` et l'accepte on-chain. Valable jusqu'à 365 jours, usage unique (nonce). Aucun justificatif exigé pendant la bêta : Sirius choisit qui reçoit un code.
+- **Vérificateur** : `0xDf432930e4999eD8aeF94Ab72F6bE3D60F6e7455` (compte dédié, sans fonds, distinct de l'admin).
+- **Admin du registre** : le Safe 2/3. Safe de test créé sur Robinhood Testnet : `0x9Db6D525773630c97deaF07b03cae29818E043f5` (Ali, Noé, clé de secours). Le Safe mainnet est à créer avec une vraie clé de secours hors ligne. Safe gère bien Robinhood Chain (4663) et son testnet (46630).
+
 ## Avis sur les questions
 
 - **Pour qui** : sur mainnet, tout utilisateur qui veut emprunter ou publier doit être vérifié, puisque le contrat l'exige. Pendant la bêta, cela revient aux entreprises invitées. Les particuliers peuvent consulter la marketplace sans KYB ([02](02-general.md)).
