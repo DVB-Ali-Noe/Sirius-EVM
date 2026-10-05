@@ -154,7 +154,7 @@ function WalletPageContent() {
           </div>
         </Card>
 
-        <AccountCard address={checksummed ?? address} authenticated={authenticated} />
+        {checksummed && <AccountCard address={checksummed} authenticated={authenticated} />}
       </div>
 
       {fundsDialog && <AddFundsDialog network={NETWORK} address={address} onClose={() => setFundsDialog(false)} />}
@@ -204,7 +204,7 @@ function AccountCard({ address, authenticated }: { address: string; authenticate
             rel="noopener noreferrer"
             className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:border-white/20"
           >
-            {t("Explorateur")}
+            {t("Voir sur l’explorateur")}
           </a>
         </div>
       </div>

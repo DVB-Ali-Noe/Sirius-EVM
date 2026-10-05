@@ -12,7 +12,9 @@ import { useUiStore, useUiTransitionsReady } from "@/stores/ui";
 /** Cadre des pages de l'application. `demoOnly` : adresse démo, sans menu ni visites guidées. */
 export function AppShell({ children, demoOnly = false }: { children: React.ReactNode; demoOnly?: boolean }) {
   const setTargetZ = useBlobStore((s) => s.setTargetZ);
-  const collapsed = useUiStore((s) => s.sidebarCollapsed && !s.sidebarPeek);
+  // Le survol d'une barre repliée la déplie par-dessus la page, sans la décaler : seul l'épinglage
+  // change la marge, sinon le contenu sauterait à chaque passage de la souris.
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const hydrated = useUiTransitionsReady();
 
   useEffect(() => {

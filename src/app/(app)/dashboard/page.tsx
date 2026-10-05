@@ -134,7 +134,7 @@ function DashboardPageContent() {
   if (!connected || !address) {
     return (
       <Page>
-        <PageHeader title={t("Tableau de bord")} />
+        <PageHeader title={t("Bienvenue sur Sirius")} />
         <ConnectPrompt message={t("Connecte un wallet pour accéder à ton tableau de bord.")} />
       </Page>
     );

@@ -268,7 +268,7 @@ function NavLinks({ vertical, expanded = true }: { vertical?: boolean; expanded?
 
 /**
  * Barre latérale desktop. Repliée, elle garde un rail de glyphes ; le survol (ou le focus clavier)
- * la déplie en poussant la page, et le bouton d'en-tête l'épingle ouverte.
+ * la déplie par-dessus la page, sans la décaler, et le bouton d'en-tête l'épingle ouverte.
  */
 export function Sidebar() {
   const { t } = useLocale();
@@ -282,6 +282,9 @@ export function Sidebar() {
   const hovering = useRef(false);
   const aside = useRef<HTMLElement>(null);
   const edge = useRef<HTMLDivElement>(null);
+  // Menu wallet ouvert, connexion ou signature en cours : la barre ne se replie pas entre-temps,
+  // sinon la fenêtre du wallet (qui prend le pointeur et le focus) refermerait ce qu'elle sert.
+  const [walletActive, setWalletActive] = useState(false);
   const expanded = !collapsed || peek;
   const hydrated = useUiTransitionsReady();
 
@@ -290,6 +293,12 @@ export function Sidebar() {
     setPeek(false);
   }, [setPeek]);
 
+  // Fin de l'activité du wallet : repli si ni le pointeur ni le focus ne sont restés sur la barre.
+  useEffect(() => {
+    if (walletActive || hovering.current || aside.current?.contains(document.activeElement)) return;
+    setPeek(false);
+  }, [walletActive, setPeek]);
+
   const openPeek = () => {
     if (!collapsed) return;
     clearTimeout(timer.current);
@@ -297,6 +306,7 @@ export function Sidebar() {
   };
   const closePeek = () => {
     clearTimeout(timer.current);
+    if (walletActive) return;
     setPeek(false);
   };
   const toggle = () => {
@@ -352,14 +362,14 @@ export function Sidebar() {
         <div className="flex-1 overflow-x-hidden overflow-y-auto py-5">
           <NavLinks vertical expanded={expanded} />
         </div>
-        {/* Sortie en premier : elle garde la même place, barre repliée ou dépliée. */}
-        <div className="flex items-center gap-2 rounded-[2rem] bg-background/40 p-2 backdrop-blur-xl">
+        {/* Sortie en premier : elle garde la même place, barre repliée ou dépliée. Le bouton wallet
+            reste monté (un menu ouvert ou une connexion en cours survit au repli) ; replié, il
+            passe en icône et se range sous la sortie, toujours visible pour un visiteur non connecté. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-[2rem] bg-background/40 p-2 backdrop-blur-xl">
           <ExitButton />
-          {expanded && (
-            <div className="min-w-0 flex-1">
-              <ConnectButton dropUp />
-            </div>
-          )}
+          <div className={expanded ? "min-w-0 flex-1" : "shrink-0"}>
+            <ConnectButton dropUp compact={!expanded} onActivity={setWalletActive} />
+          </div>
         </div>
       </aside>
 

@@ -199,7 +199,7 @@ test("le menu propose Explorer, pas Audit, et le marque actif sur /explorer", as
   await page.goto("/explorer");
   const link = page.locator("aside").getByRole("link", { name: "Explorer", exact: true });
   await expect(link).toHaveAttribute("href", "/explorer");
-  await expect(link).toHaveClass(/bg-accent/);
+  await expect(link).toHaveAttribute("aria-current", "page");
   await expect(page.locator("aside").getByRole("link", { name: "Audit", exact: true })).toHaveCount(0);
 });
 

@@ -68,6 +68,7 @@ export function ProfileMenu() {
   }
 
   const wrongNetwork = isWrongNetwork(NETWORK, walletNetwork);
+  const badge = networkBadge(NETWORK);
 
   return (
     <div className="flex flex-col items-end gap-1.5 px-4 md:px-6">
@@ -83,8 +84,8 @@ export function ProfileMenu() {
           data-testid="profile-button"
           className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20"
         >
-          {/* Même code couleur que le bouton wallet de la barre latérale. */}
-          <span className={`h-2 w-2 rounded-full ${wrongNetwork ? "bg-negative" : "bg-positive"}`} aria-hidden />
+          {/* Couleur du réseau du site (ambre sur testnet) ; rouge si le wallet est ailleurs. */}
+          <span className={`h-2 w-2 rounded-full ${wrongNetwork ? "bg-negative" : badge.dotClassName}`} aria-hidden />
           <span className="font-mono">{short}</span>
         </button>
 
@@ -189,6 +190,8 @@ function SignInButton({ authenticated }: { authenticated: boolean }) {
       onClick={() => void connectAndSignIn()}
       disabled={pending || phase !== "idle"}
       data-testid="profile-sign-in"
+      // Le libellé est éclaté en lettres pour l'animation : le nom accessible est porté ici.
+      aria-label={signed ? t("Authentifié") : label}
       aria-live="polite"
       className="group relative flex h-9 items-center justify-center gap-2 overflow-hidden rounded-xl bg-accent px-4 text-sm font-medium text-background shadow-[0_0_28px_rgba(255,255,255,0.16)] hover:shadow-[0_0_36px_rgba(255,255,255,0.28)] active:scale-[0.97] disabled:cursor-default motion-reduce:transition-none"
       style={{
@@ -219,7 +222,7 @@ function SignInButton({ authenticated }: { authenticated: boolean }) {
           <path d="M15 12H3" />
         </svg>
       )}
-      <span className="relative flex whitespace-nowrap" aria-hidden={signed}>
+      <span className="relative flex whitespace-nowrap" aria-hidden>
         {[...label].map((letter, i) => (
           <span
             key={i}

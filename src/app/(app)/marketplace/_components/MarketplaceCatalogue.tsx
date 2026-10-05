@@ -330,7 +330,7 @@ function SearchBox({ value, urlKey, onCommit }: { value: string; urlKey: string;
   );
 }
 
-const CHIP = "inline-flex min-h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface px-3 transition-colors hover:border-white/20 sm:w-auto";
+const CHIP = "inline-flex min-h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface px-3 transition-colors hover:border-white/20 focus-within:ring-2 focus-within:ring-accent/60 sm:w-auto";
 const CHIP_ACTIVE = "border-accent/60 text-foreground";
 
 function SelectFilter({

@@ -19,7 +19,19 @@ const EXPECTED_NETWORK = resolveClientNetwork();
 
 /** dropUp : ouvre le menu vers le haut (footer de sidebar, sinon clippé en bas de viewport). */
 /** `menuAlign` : bord du bouton sur lequel le menu s'aligne (gauche quand le bouton est en début de ligne). */
-export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?: boolean; menuAlign?: "left" | "right" }) {
+/** `compact` : déclencheur rond en icône seule (rail replié de la barre latérale), même nom accessible. */
+/** `onActivity` : vrai tant que le menu est ouvert ou qu'une connexion ou une signature est en cours. */
+export function ConnectButton({
+  dropUp = false,
+  menuAlign = "right",
+  compact = false,
+  onActivity,
+}: {
+  dropUp?: boolean;
+  menuAlign?: "left" | "right";
+  compact?: boolean;
+  onActivity?: (active: boolean) => void;
+}) {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const network = useWalletStore((s) => s.network);
@@ -47,6 +59,13 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  const active = open || connectPending || authPending;
+  useEffect(() => {
+    if (!onActivity) return;
+    onActivity(active);
+    return () => onActivity(false);
+  }, [active, onActivity]);
 
   const handleSignIn = async () => {
     setAuthPending(true);
@@ -125,9 +144,23 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
           onClick={toggleMenu}
           aria-haspopup="menu"
           aria-expanded={open}
-          className={`${dropUp ? "rounded-[2rem]" : "rounded-xl"} bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 ${triggerFull}`}
+          aria-label={compact ? t("Connexion") : undefined}
+          title={compact ? t("Connexion") : undefined}
+          className={
+            compact
+              ? "flex h-10 w-10 items-center justify-center rounded-full bg-accent text-background transition-colors hover:bg-accent/90"
+              : `${dropUp ? "rounded-[2rem]" : "rounded-xl"} bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 ${triggerFull}`
+          }
         >
-          {t("Connexion")}
+          {compact ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <path d="M10 17l5-5-5-5" />
+              <path d="M15 12H3" />
+            </svg>
+          ) : (
+            t("Connexion")
+          )}
         </button>
 
         {open && (
@@ -194,10 +227,16 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex items-center gap-2 ${dropUp ? "rounded-[2rem]" : "rounded-xl"} border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 ${triggerFull}`}
+        aria-label={compact ? truncate(address) : undefined}
+        title={compact ? address : undefined}
+        className={
+          compact
+            ? "flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface transition-colors hover:border-white/20"
+            : `flex items-center gap-2 ${dropUp ? "rounded-[2rem]" : "rounded-xl"} border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 ${triggerFull}`
+        }
       >
-        <span className={`h-2 w-2 rounded-full ${wrongNetwork ? "bg-negative" : "bg-positive"}`} />
-        <span className="font-mono">{truncate(address)}</span>
+        <span className={`rounded-full ${compact ? "h-2.5 w-2.5" : "h-2 w-2"} ${wrongNetwork ? "bg-negative" : "bg-positive"}`} />
+        {!compact && <span className="font-mono">{truncate(address)}</span>}
       </button>
 
       {open && (
