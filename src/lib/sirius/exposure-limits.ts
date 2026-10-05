@@ -13,7 +13,12 @@ export interface ExposureLimits {
   maxExposureAtomic: bigint;
 }
 
-/** Statuts dont les fonds sont verrouillés ou en passe de l'être. */
+/**
+ * Statuts dont les fonds sont verrouillés ou en passe de l'être. PENDING reste compté même sans
+ * hash de lock : son autorisation de lock peut être renouvelée jusqu'à neuf minutes après la
+ * création (`lockAuthorizationDeadline`), le prêt peut donc encore être verrouillé on-chain tant
+ * que le reaper ne l'a pas annulé. `prepareLoan` remplace les PENDING non payés du même emprunteur.
+ */
 export const EXPOSED_LOAN_STATUSES = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] as const;
 
 type Env = Record<string, string | undefined>;
@@ -24,6 +29,21 @@ function parseLimit(env: Env, name: string): bigint | null {
   const atomic = priceUsdcToAtomic(raw);
   if (!atomic) throw new AppError(`${name} invalide : montant USDC positif attendu`, 503);
   return BigInt(atomic);
+}
+
+/**
+ * Coupe-circuit des admissions (runbook 1) : `SIRIUS_ADMISSIONS_CLOSED=true` refuse toute
+ * nouvelle préparation ou autorisation de lock, sans toucher au démarrage ni aux routes de
+ * confirmation, remboursement, retrait et statut. Toute valeur renseignée autre que `false`
+ * ferme les admissions : une faute de frappe pendant un incident ne doit pas les rouvrir.
+ */
+export function admissionsClosed(env: Env = process.env): boolean {
+  const raw = env.SIRIUS_ADMISSIONS_CLOSED?.trim().toLowerCase();
+  return Boolean(raw) && raw !== "false";
+}
+
+export function assertAdmissionsOpen(env: Env = process.env): void {
+  if (admissionsClosed(env)) throw new AppError("Admissions de prêts fermées, réessaie plus tard", 503);
 }
 
 export function exposureLimits(env: Env = process.env): ExposureLimits | null {

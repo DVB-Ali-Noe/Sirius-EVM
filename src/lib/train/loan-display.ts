@@ -62,38 +62,35 @@ function isBorrower(loan: LoanDisplayInput, viewer: string | null | undefined): 
 }
 
 /**
- * Échec sans modèle livré : escrow verrouillé, échéance dépassée selon le serveur, et aucune trace
- * de modèle ni de règlement (`modelCid` : capsule préparée que le règlement peut encore livrer ;
- * `settleTxHash` : release soumis, la clé peut déjà être livrable ; `cancelTxHash` : déjà remboursé).
+ * Échu sans règlement soumis : escrow verrouillé, échéance dépassée selon le serveur, aucun
+ * `release` envoyé (`settleTxHash` vide) et pas déjà remboursé (`cancelTxHash` vide). Après
+ * l'échéance, le contrat refuse tout `release` (`ChallengePeriodElapsed`, audit A-05 et A-10) :
+ * le règlement est devenu impossible, quels que soient `modelCid` et `runnerReceipt`, et seul
+ * `refund()` libère les fonds. Un `settleTxHash` présent signifie un release déjà diffusé avant
+ * l'échéance, qui peut être miné : on ne propose alors que la réconciliation, jamais le remboursement.
  */
-export function isFailedWithoutModel(loan: LoanDisplayInput): boolean {
+export function isOverdueUnsettled(loan: LoanDisplayInput): boolean {
   return (
     ESCROWED_STATUSES.has(loan.status) &&
     loan.refundable === true &&
-    !loan.modelCid &&
     !loan.settleTxHash &&
     !loan.cancelTxHash &&
     Boolean(loan.evmLoanKey)
   );
 }
 
+/** Échec sans modèle livré : échu, sans capsule préparée (`modelCid` vide). */
+export function isFailedWithoutModel(loan: LoanDisplayInput): boolean {
+  return isOverdueUnsettled(loan) && !loan.modelCid;
+}
+
 /**
- * Échu avec une capsule de modèle mais sans reçu enclave : « Finaliser le règlement » exige le
- * reçu, aucune action de règlement n'est possible et le réaper ne fait que resynchroniser la base
- * avec la chaîne (jamais de remboursement ni de règlement). Sans secours, les fonds resteraient
- * bloqués : le remboursement est donc proposé, même si `modelCid` est posé. Aucun modèle n'a été
- * livré (`settleTxHash` vide, clé jamais libérée).
+ * Échu avec une capsule de modèle (avec ou sans reçu enclave) dont le règlement ne peut plus être
+ * finalisé. Aucun modèle n'a été livré (`settleTxHash` vide, clé jamais libérée) : sans secours, les
+ * fonds resteraient bloqués, le remboursement est donc proposé.
  */
-export function isOverdueWithoutReceipt(loan: LoanDisplayInput): boolean {
-  return (
-    ESCROWED_STATUSES.has(loan.status) &&
-    loan.refundable === true &&
-    Boolean(loan.modelCid) &&
-    !loan.runnerReceipt &&
-    !loan.settleTxHash &&
-    !loan.cancelTxHash &&
-    Boolean(loan.evmLoanKey)
-  );
+export function isOverdueWithCapsule(loan: LoanDisplayInput): boolean {
+  return isOverdueUnsettled(loan) && Boolean(loan.modelCid);
 }
 
 /**
@@ -121,7 +118,7 @@ export function loanDisplayState(loan: LoanDisplayInput): LoanDisplayState {
     case "ESCROWED":
     case "TRAINING":
     case "SETTLING":
-      if (isFailedWithoutModel(loan) || isOverdueWithoutReceipt(loan)) return "failed";
+      if (isOverdueUnsettled(loan)) return "failed";
       return loan.status === "SETTLING" ? "awaiting-finality" : "in-progress";
     default:
       return "unknown";
@@ -143,17 +140,49 @@ export function canRetrain(loan: LoanDisplayInput, viewer: string | null | undef
 }
 
 /**
- * « Rembourser » : échec sans modèle livré, ou prêt échu dont la capsule ne peut plus être réglée
- * (sans reçu), par son emprunteur. Jamais sur un emprunt réglé, déjà remboursé, avec un règlement
- * encore possible (capsule et reçu) ou encore dans son délai.
+ * « Rembourser » : prêt échu dont aucun release n'a été diffusé (échec sans modèle, ou capsule
+ * préparée que le contrat ne laisse plus régler), par son emprunteur. Jamais sur un emprunt réglé,
+ * déjà remboursé, avec un release diffusé (`settleTxHash`) ou encore dans son délai.
  */
 export function canRefund(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
-  return (isFailedWithoutModel(loan) || isOverdueWithoutReceipt(loan)) && isBorrower(loan, viewer);
+  return isOverdueUnsettled(loan) && isBorrower(loan, viewer);
 }
 
-/** Remboursement de secours (échu, capsule sans reçu) : sert à choisir l'explication affichée. */
+/** Remboursement de secours (échu, capsule préparée mais non réglable) : sert à choisir l'explication affichée. */
 export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
-  return isOverdueWithoutReceipt(loan) && isBorrower(loan, viewer);
+  return isOverdueWithCapsule(loan) && isBorrower(loan, viewer);
+}
+
+/**
+ * « Finaliser » ou « Réconcilier le règlement » : capsule et reçu présents, et règlement encore
+ * possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le release
+ * et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde la
+ * réconciliation, même après l'échéance.
+ */
+export function canResumeSettlement(loan: LoanDisplayInput): boolean {
+  return (
+    (loan.status === "TRAINING" || loan.status === "SETTLING") &&
+    Boolean(loan.modelCid) &&
+    Boolean(loan.runnerReceipt) &&
+    !isOverdueUnsettled(loan)
+  );
+}
+
+/**
+ * « Vérifier et télécharger » : la clé du modèle n'est demandée qu'au clic, sur un emprunt réglé
+ * (release miné, reçu enclave présent), par son emprunteur. Jamais au chargement de la page ni pour
+ * un prêt où l'on est fournisseur : chaque appel à `/api/loans/[id]/key` consomme le quota de
+ * livraison (20 par minute) et, pour un prêt v7, le budget runner prépayé (audit du 5 octobre,
+ * A-04 et A-12). Le serveur reste l'autorité (`assertOwner`).
+ */
+export function canRetrieveModelKey(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+  return (
+    loan.status === "SETTLED" &&
+    Boolean(loan.settleTxHash) &&
+    Boolean(loan.runnerReceipt) &&
+    !loan.cancelTxHash &&
+    isBorrower(loan, viewer)
+  );
 }
 
 /** Un autre emprunt actif du même emprunteur sur ce dataset (confirmation avant d'en ouvrir un nouveau). */

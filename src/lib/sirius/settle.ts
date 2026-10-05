@@ -366,6 +366,14 @@ export async function settlePreparedLoan(
       throw error;
     }
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
+    // Échu et toujours verrouillé on-chain : le contrat refuse désormais tout `release`
+    // (`ChallengePeriodElapsed`). Un hash de release encore en base désigne alors une transaction
+    // rejetée ou jamais minée (« Règlement on-chain rejeté », « Tentative de règlement épuisée »)
+    // qui ne peut plus aboutir : il est effacé pour que le prêt retombe sous la règle commune,
+    // remboursement par l'emprunteur et aucune relance du reaper (audit A-05). L'attente de
+    // finalité (`RunnerFinalityPending`) ne passe jamais ici et garde son hash.
+    const deadline = loan.evmDeadline?.getTime();
+    const unsettleable = resolution?.state === "active" && deadline !== undefined && deadline <= Date.now();
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
       data:
@@ -374,7 +382,9 @@ export async function settlePreparedLoan(
           : resolution?.state === "cancelled"
             ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
               ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
-            : { status: "TRAINING" },
+            : unsettleable
+              ? { status: "TRAINING", settleTxHash: null }
+              : { status: "TRAINING" },
     });
     throw error;
   }

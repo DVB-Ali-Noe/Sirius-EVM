@@ -23,7 +23,7 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
-import { assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
+import { assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -31,6 +31,7 @@ const MAX_RUNS_PER_WINDOW = 3;
 
 export async function prepareLoan(datasetId: string, borrower: string) {
   const borrowerAddress = normalizeAddress(borrower);
+  assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
   // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
   // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
@@ -83,6 +84,18 @@ export async function prepareLoan(datasetId: string, borrower: string) {
     ]);
     if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
     if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
+    // Un prêt PENDING sans hash de lock n'a rien coûté à l'emprunteur mais compte dans le plafond
+    // d'exposition de la bêta tant que le reaper ne l'a pas annulé (son autorisation de lock reste
+    // renouvelable jusqu'à neuf minutes après sa création, il peut donc encore être verrouillé).
+    // Une nouvelle préparation remplace donc les PENDING non payés du même emprunteur, comme le
+    // reaper les annule après leur TTL : un compte ne réserve jamais gratuitement plus d'un plafond
+    // par prêt, et refuser un devis ou fermer la fenêtre ne bloque pas la préparation suivante
+    // (audit du 5 octobre, A-06 et A-18). Un lock tardif sur un prêt ainsi annulé reste récupérable
+    // par `finalizeLoan` et le reaper (CANCELLED sans `cancelTxHash`).
+    await tx.loan.updateMany({
+      where: { borrower: borrowerAddress, status: "PENDING", evmLockTxHash: null },
+      data: { status: "CANCELLED" },
+    });
     if (limits) {
       const exposed = await tx.loan.findMany({ where: { status: { in: [...EXPOSED_LOAN_STATUSES] } }, select: { amountUsdcAtomic: true } });
       assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), amountUsdcAtomic, limits);
@@ -126,29 +139,34 @@ export async function prepareLoan(datasetId: string, borrower: string) {
       || signedQuote.quote.hashlock !== hashlock)) throw new AppError("Devis compute hors scope", 409);
     const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
     assertLoanWithinCap(total, limits);
-    if (limits) {
-      const exposed = await prisma.loan.findMany({
-        where: { id: { not: loan.id }, status: { in: [...EXPOSED_LOAN_STATUSES] } },
-        select: { amountUsdcAtomic: true },
-      });
-      assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), total, limits);
-    }
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
-    const prepared = await prisma.loan.update({
-      where: { id: loan.id },
-      data: {
-        ...(signedQuote ? {
-          amountUsdcAtomic: total, billingQuote: JSON.stringify(signedQuote), billingQuoteHash: computeQuoteHash(signedQuote.quote),
-          datasetAmountUsdcAtomic: signedQuote.quote.datasetAmount, computeAmountUsdcAtomic: signedQuote.quote.computeAmount,
-          maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee,
-        } : {}),
-        evmLoanKey: loanKey,
-        evmHashlock: hashlock,
-        evmChainId: binding.chainId,
-        evmEscrowAddress: binding.escrow,
-        evmPreparedBlock: preparedBlock.toString(),
-        evmDeadline: new Date(Date.now() + dataset.challengeDays * 86_400_000),
-      },
+    // Le contrôle sur le total du devis et l'enregistrement de ce total partagent une transaction
+    // sérialisable : deux préparations simultanées ne peuvent pas se voir mutuellement au seul prix
+    // du dataset et dépasser le plafond à elles deux (audit du 5 octobre, A-33).
+    const prepared = await serializableTransaction(async (tx) => {
+      if (limits) {
+        const exposed = await tx.loan.findMany({
+          where: { id: { not: loan.id }, status: { in: [...EXPOSED_LOAN_STATUSES] } },
+          select: { amountUsdcAtomic: true },
+        });
+        assertExposureWithinCap(exposed.map((row) => row.amountUsdcAtomic), total, limits);
+      }
+      return tx.loan.update({
+        where: { id: loan.id },
+        data: {
+          ...(signedQuote ? {
+            amountUsdcAtomic: total, billingQuote: JSON.stringify(signedQuote), billingQuoteHash: computeQuoteHash(signedQuote.quote),
+            datasetAmountUsdcAtomic: signedQuote.quote.datasetAmount, computeAmountUsdcAtomic: signedQuote.quote.computeAmount,
+            maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee,
+          } : {}),
+          evmLoanKey: loanKey,
+          evmHashlock: hashlock,
+          evmChainId: binding.chainId,
+          evmEscrowAddress: binding.escrow,
+          evmPreparedBlock: preparedBlock.toString(),
+          evmDeadline: new Date(Date.now() + dataset.challengeDays * 86_400_000),
+        },
+      });
     });
     if (signedQuote) loanBillingQuote(prepared);
     return {
@@ -174,6 +192,8 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
 export async function renewLoanLock(loanId: string, borrower: string) {
   const address = normalizeAddress(borrower);
+  // Une nouvelle autorisation de lock ferait entrer des fonds : fermée elle aussi par le coupe-circuit.
+  assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
@@ -181,6 +201,9 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   const dataset = loan.dataset;
   const signedQuote = loanBillingQuote(loan);
   const binding = evmEscrowBinding();
+  if (loan.status === "CANCELLED" && !loan.evmLockTxHash) {
+    throw new AppError("Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation USDC reste acquise", 409);
+  }
   if (loan.status !== "PENDING" || loan.evmLockTxHash || !loan.evmLoanKey ||
     loan.evmChainId !== binding.chainId || loan.evmEscrowAddress !== binding.escrow) {
     throw new AppError("Emprunt déjà soumis ou déploiement modifié", 409);

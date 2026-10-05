@@ -20,7 +20,9 @@ import {
   LOAN_STATE_VARIANT,
   canRefund,
   canRescueRefund,
+  canResumeSettlement,
   canRetrain,
+  canRetrieveModelKey,
   hasOtherActiveLoan,
   loanDisplayState,
   parseAdminResponse,
@@ -219,22 +221,10 @@ function TrainPageContent() {
         // Une délégation expirée sera redemandée lors de la prochaine connexion.
       }
     }
-    for (const loan of loanData) {
-      if (
-        loan.status !== "SETTLED" ||
-        !loan.runnerReceipt ||
-        !loan.settleTxHash ||
-        haveKey.current.has(loan.id)
-      ) {
-        continue;
-      }
-      try {
-        const delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
-        if (mounted.current) deliver(loan.id, delivery);
-      } catch {
-        // Une délégation expirée sera redemandée lors de la prochaine connexion.
-      }
-    }
+    // La clé d'un emprunt réglé n'est jamais demandée au chargement (audit du 5 octobre, A-04 et
+    // A-12) : chaque appel à `/api/loans/[id]/key` consomme le quota de 20 par minute et, pour un
+    // prêt v7, le budget runner prépayé. Elle est demandée au clic sur « Vérifier et télécharger »,
+    // par l'emprunteur seulement, puis gardée en mémoire (`delivered`) pour la session.
   }, [address, authenticated]);
 
   useEffect(() => {
@@ -343,6 +333,32 @@ function TrainPageContent() {
     } finally {
       setBusyKey(key, false);
     }
+  }
+
+  /**
+   * « Vérifier et télécharger » sur un emprunt réglé : la clé est demandée au clic, une seule fois
+   * par session (puis `delivered`), et seulement par l'emprunteur. Une erreur (429, budget v7
+   * épuisé, délégation expirée) est affichée au lieu d'être avalée.
+   */
+  async function inspectLoanModel(loan: Loan) {
+    const cached = delivered[loan.id];
+    if (cached) return inspectModel(loan.id, cached);
+    const key = `model:${loan.id}`;
+    if (busy.has(key) || !canRetrieveModelKey(loan, address) || !loan.runnerReceipt) return;
+    setError(null);
+    setBusyKey(key, true);
+    let delivery: Delivery;
+    try {
+      delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
+      if (!mounted.current) return;
+      deliver(loan.id, delivery);
+    } catch (err) {
+      setError(messageOf(err));
+      return;
+    } finally {
+      setBusyKey(key, false);
+    }
+    await inspectModel(loan.id, delivery);
   }
 
   async function resumeSubmission(loan: Loan, lockTxHash?: string) {
@@ -587,7 +603,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {(l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
+                {canResumeSettlement(l) && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -638,9 +654,9 @@ function TrainPageContent() {
                   >
                     {t("Certificat d’exécution")}
                   </Link>
-                  {delivered[l.id] && (
+                  {canRetrieveModelKey(l, address) && (
                     <button
-                      onClick={() => void inspectModel(l.id, delivered[l.id])}
+                      onClick={() => void inspectLoanModel(l)}
                       disabled={busy.has(`model:${l.id}`)}
                       className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
                     >

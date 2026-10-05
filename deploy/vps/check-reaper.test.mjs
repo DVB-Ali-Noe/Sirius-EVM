@@ -8,18 +8,22 @@ import { test } from "node:test";
 
 const script = fileURLToPath(new URL("./check-reaper.sh", import.meta.url));
 
-function check(state, missing = false, heartbeat = true) {
+const OK = "[reaper] passe ok 2026-10-01T10:00:00.000Z prêts=2 erreurs=0";
+
+function check(state, missing = false, heartbeat = OK) {
   const directory = mkdtempSync(join(tmpdir(), "sirius-reaper-check-"));
   try {
     const bin = join(directory, "bin");
     mkdirSync(bin);
+    // Les douze attentes de dix secondes deviennent instantanées.
+    writeFileSync(join(bin, "sleep"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o700 });
     writeFileSync(join(directory, ".env.vps"), "DATABASE_URL=SECRET_SYNTHETIQUE\n");
     writeFileSync(join(bin, "docker"), `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.REAPER_TEST_CALLS, JSON.stringify(args) + '\\n');
 if (args[0] === 'inspect') console.log(process.env.REAPER_TEST_STATE);
-else if (args.includes('logs') && args.includes('--since')) console.log(process.env.REAPER_TEST_HEARTBEAT === 'true' ? '[reaper] passe 2026-10-01T10:00:00.000Z' : '');
+else if (args.includes('logs') && args.includes('--since')) console.log(process.env.REAPER_TEST_HEARTBEAT);
 else if (args.includes('logs')) console.log('[reaper] arrêt : contrats incompatibles');
 else if (args.includes('--quiet')) {
   if (process.env.REAPER_TEST_MISSING !== 'true') console.log('container-staging');
@@ -60,6 +64,20 @@ test("le contrôle VPS explique un redémarrage et affiche les logs du seul reap
   assert.match(result.stdout, /arrêt : contrats incompatibles/);
   assert.match(result.stdout, /::error::Le reaper ne tourne pas/);
 });
+
+for (const [name, heartbeat] of [
+  ["une passe échouée", "[reaper] passe échouée 2026-10-01T10:00:00.000Z : passe interrompue"],
+  ["des prêts tous en erreur", "[reaper] passe échouée 2026-10-01T10:00:00.000Z prêts=3 erreurs=3"],
+  ["le seul démarrage", "[reaper] démarré, une passe toutes les 30000 ms"],
+  ["l'ancien battement inconditionnel", "[reaper] passe 2026-10-01T10:00:00.000Z"],
+]) {
+  test(`le contrôle VPS refuse un reaper running sans passe réussie : ${name}`, () => {
+    const result = check("running 0 false 0", false, heartbeat);
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stdout, /Ligne de vie récente trouvée/);
+    assert.match(result.stdout, /::error::Le reaper tourne mais ne journalise aucune passe réussie/);
+  });
+}
 
 test("le contrôle VPS refuse un conteneur absent", () => {
   const result = check("", true);

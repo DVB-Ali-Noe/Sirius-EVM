@@ -151,14 +151,20 @@ test("Refund n'apparaît que pour un échec sans modèle livré, avec l'explicat
   await expect(failed.getByRole("button", { name: "Refund", exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(failed.getByTestId("refund-explanation")).toContainText("no model was delivered");
   await expect(failed.getByTestId("refund-explanation")).toContainText("everything you paid except, where applicable, the compute actually consumed, as measured by the enclave");
-  // Échu avec capsule mais sans reçu : plus aucun règlement possible, remboursement de secours.
-  const rescue = card(page, "Dataset rescue");
-  await expect(rescue.getByRole("button", { name: "Refund", exact: true })).toBeVisible();
-  await expect(rescue.getByTestId("refund-explanation")).toContainText("settlement can no longer be completed");
-  await expect(rescue).toContainText("Failed");
-  for (const name of ["in-time", "settled", "prepared", "settling", "refunded", "provider-view"]) {
+  // Échu avec capsule (avec ou sans reçu) et sans release diffusé : le contrat refuse désormais le
+  // règlement, remboursement de secours et plus de bouton « Finalize settlement » (audit A-05, A-10).
+  for (const name of ["rescue", "prepared"]) {
+    const stuck = card(page, `Dataset ${name}`);
+    await expect(stuck.getByRole("button", { name: "Refund", exact: true })).toBeVisible();
+    await expect(stuck.getByTestId("refund-explanation")).toContainText("settlement can no longer be completed");
+    await expect(stuck).toContainText("Failed");
+    await expect(stuck.getByRole("button", { name: "Finalize settlement", exact: true })).toHaveCount(0);
+  }
+  // Release déjà diffusé : réconciliation seulement, jamais de remboursement.
+  await expect(card(page, "Dataset settling").getByRole("button", { name: "Reconcile settlement", exact: true })).toBeVisible();
+  for (const name of ["in-time", "settled", "settling", "refunded", "provider-view"]) {
     await expect(card(page, `Dataset ${name}`).getByRole("button", { name: "Refund", exact: true })).toHaveCount(0);
   }
-  await expect(page.getByRole("button", { name: "Refund", exact: true })).toHaveCount(2);
-  await expect(page.getByTestId("refund-explanation")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Refund", exact: true })).toHaveCount(3);
+  await expect(page.getByTestId("refund-explanation")).toHaveCount(3);
 });
