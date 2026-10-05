@@ -156,6 +156,23 @@ export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | 
   return isOverdueWithoutReceipt(loan) && isBorrower(loan, viewer);
 }
 
+/**
+ * « Vérifier et télécharger » : la clé du modèle n'est demandée qu'au clic, sur un emprunt réglé
+ * (release miné, reçu enclave présent), par son emprunteur. Jamais au chargement de la page ni pour
+ * un prêt où l'on est fournisseur : chaque appel à `/api/loans/[id]/key` consomme le quota de
+ * livraison (20 par minute) et, pour un prêt v7, le budget runner prépayé (audit du 5 octobre,
+ * A-04 et A-12). Le serveur reste l'autorité (`assertOwner`).
+ */
+export function canRetrieveModelKey(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+  return (
+    loan.status === "SETTLED" &&
+    Boolean(loan.settleTxHash) &&
+    Boolean(loan.runnerReceipt) &&
+    !loan.cancelTxHash &&
+    isBorrower(loan, viewer)
+  );
+}
+
 /** Un autre emprunt actif du même emprunteur sur ce dataset (confirmation avant d'en ouvrir un nouveau). */
 export function hasOtherActiveLoan(
   loans: readonly LoanDisplayInput[],
