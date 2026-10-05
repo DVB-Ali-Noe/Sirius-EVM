@@ -20,6 +20,7 @@ import {
   LOAN_STATE_VARIANT,
   canRefund,
   canRescueRefund,
+  canResumeSettlement,
   canRetrain,
   canRetrieveModelKey,
   hasOtherActiveLoan,
@@ -602,7 +603,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {(l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
+                {canResumeSettlement(l) && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
