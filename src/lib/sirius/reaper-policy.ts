@@ -3,6 +3,12 @@ export const SUBMISSION_REAPER_LEASE_MS = 30_000;
 export const TRAINING_REAPER_LEASE_MS = 90_000;
 export const SETTLEMENT_REAPER_LEASE_MS = 90_000;
 export const CHAIN_REAPER_LEASE_MS = 90_000;
+/**
+ * Durée pendant laquelle un prêt annulé sans hash de lock est encore recherché on-chain.
+ * L'autorisation de lock expire avant createdAt + PENDING_REAPER_TTL_MS (lock-policy.ts) et le
+ * contrat refuse tout lock après cette échéance : 24 h couvrent largement la finalité mainnet.
+ */
+export const CANCELLED_LOCK_SEARCH_WINDOW_MS = 24 * 60 * 60_000;
 
 export type LoanReaperAction =
   | "cancel-pending"

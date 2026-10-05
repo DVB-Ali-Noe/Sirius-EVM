@@ -1,7 +1,7 @@
 "use client";
 
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { embeddedSelected, embeddedWallet, selectedProvider, selectedWalletRdns } from "@/lib/wallet/discovery";
+import { clearSelectedWallet, embeddedSelected, embeddedWallet, selectedProvider, selectedWalletRdns } from "@/lib/wallet/discovery";
 import { displayAddress } from "@/lib/evm/address";
 
 export interface Eip1193Provider {
@@ -134,6 +134,9 @@ export async function disconnectWallet(): Promise<void> {
   // l'utilisateur a pourtant demandée.
   if (embeddedSelected()) {
     await embeddedWallet()?.logout().catch(() => {});
+    // La session sociale est fermée : garder ce choix ferait refuser ensuite toute
+    // extension qui ne s'annonce pas en EIP-6963 (« Aucun wallet détecté »).
+    clearSelectedWallet();
     return;
   }
   await provider().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => {});

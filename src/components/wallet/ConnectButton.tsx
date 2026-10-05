@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
-import { embeddedConfigured, selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
+import { chooseExternalWallet, embeddedConfigured, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
@@ -99,8 +99,9 @@ export function ConnectButton({ dropUp = false, menuAlign = "right" }: { dropUp?
   const handleExternal = (rdns?: string) => {
     // Le choix est enregistré avant d'ouvrir la connexion : c'est lui qui décide
     // quel portefeuille recevra la demande, au lieu de laisser `window.ethereum`
-    // désigner le gagnant de la course d'injection.
-    if (rdns) selectWallet(rdns);
+    // désigner le gagnant de la course d'injection. Sans extension désignée, l'ancien
+    // choix est effacé : il bloquerait le repli sur `window.ethereum`.
+    chooseExternalWallet(rdns);
     setOpen(false);
     openWalletModal();
   };

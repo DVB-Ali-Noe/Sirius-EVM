@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { EN_MESSAGES } from "@/lib/i18n/english";
 import {
@@ -8,6 +10,7 @@ import {
   canRefund,
   canResumeSettlement,
   canRetrain,
+  canRetrieveModelKey,
   hasOtherActiveLoan,
   isFailedWithoutModel,
   isOverdueUnsettled,
@@ -270,4 +273,35 @@ test("le self training n'est montré que si le serveur répond exactement admin:
   for (const body of [{ admin: false }, {}, null, undefined, "true", 1, [], { admin: "true" }, { admin: 1 }, { error: "x" }]) {
     assert.equal(parseAdminResponse(body), false);
   }
+});
+
+test("Vérifier et télécharger : la clé n'est proposée que sur un emprunt réglé, à son emprunteur", () => {
+  const settled = () => loan({ status: "SETTLED", settleTxHash: TX, modelCid: "bafy", runnerReceipt: "receipt" });
+  assert.equal(canRetrieveModelKey(settled(), ME), true);
+  assert.equal(canRetrieveModelKey(settled(), ME.toUpperCase().replace("0X", "0x")), true);
+  // Fournisseur, tiers ou sans wallet : aucun appel à /api/loans/[id]/key (A-12).
+  assert.equal(canRetrieveModelKey(settled(), OTHER), false);
+  assert.equal(canRetrieveModelKey(settled(), null), false);
+  assert.equal(canRetrieveModelKey(settled(), ""), false);
+  assert.equal(canRetrieveModelKey({ ...settled(), borrower: undefined }, ME), false);
+  assert.equal(canRetrieveModelKey({ ...settled(), borrower: "pas-une-adresse" }, ME), false);
+  for (const status of ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "CANCELLED", "X"]) {
+    assert.equal(canRetrieveModelKey({ ...settled(), status }, ME), false, status);
+  }
+  assert.equal(canRetrieveModelKey({ ...settled(), settleTxHash: null }, ME), false);
+  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: null }, ME), false);
+  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: undefined }, ME), false);
+  assert.equal(canRetrieveModelKey({ ...settled(), cancelTxHash: TX }, ME), false);
+});
+
+test("page Train : la clé d'un emprunt est demandée au clic, jamais au chargement (A-04, A-12)", () => {
+  const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
+  const refresh = page.match(/const refresh = useCallback\(async \(\) => \{([\s\S]*?)\}, \[address, authenticated\]\);/);
+  assert.ok(refresh, "refresh() introuvable");
+  assert.doesNotMatch(refresh![1], /retrieveLoanKey/, "refresh() ne doit pas demander la clé des emprunts");
+  assert.doesNotMatch(refresh![1], /fetch\([^)]*\/key\b/, "refresh() ne doit pas appeler la route de livraison de clé");
+  // Le bouton est conditionné par l'emprunteur, et le seul appel part du gestionnaire de clic.
+  assert.match(page, /\{canRetrieveModelKey\(l, address\) && \(\s*<button\s*onClick=\{\(\) => void inspectLoanModel\(l\)\}/);
+  assert.equal(page.match(/retrieveLoanKey\(/g)?.length, 1);
+  assert.match(page, /async function inspectLoanModel\(loan: Loan\) \{[\s\S]*?canRetrieveModelKey\(loan, address\)[\s\S]*?retrieveLoanKey\(loan\.id, loan\.runnerReceipt\)/);
 });

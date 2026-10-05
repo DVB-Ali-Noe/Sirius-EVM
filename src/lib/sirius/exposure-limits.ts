@@ -26,6 +26,21 @@ function parseLimit(env: Env, name: string): bigint | null {
   return BigInt(atomic);
 }
 
+/**
+ * Coupe-circuit des admissions (runbook 1) : `SIRIUS_ADMISSIONS_CLOSED=true` refuse toute
+ * nouvelle préparation ou autorisation de lock, sans toucher au démarrage ni aux routes de
+ * confirmation, remboursement, retrait et statut. Toute valeur renseignée autre que `false`
+ * ferme les admissions : une faute de frappe pendant un incident ne doit pas les rouvrir.
+ */
+export function admissionsClosed(env: Env = process.env): boolean {
+  const raw = env.SIRIUS_ADMISSIONS_CLOSED?.trim().toLowerCase();
+  return Boolean(raw) && raw !== "false";
+}
+
+export function assertAdmissionsOpen(env: Env = process.env): void {
+  if (admissionsClosed(env)) throw new AppError("Admissions de prêts fermées, réessaie plus tard", 503);
+}
+
 export function exposureLimits(env: Env = process.env): ExposureLimits | null {
   const mainnet = (env.EVM_NETWORK?.trim() || "testnet") === "mainnet";
   const maxLoanAtomic = parseLimit(env, "SIRIUS_MAX_LOAN_USDC");

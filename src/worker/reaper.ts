@@ -5,6 +5,7 @@ import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
 import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
 import { assertReaperMainnetConfiguration } from "./mainnet-guard";
+import { reaperHeartbeat } from "./heartbeat";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -81,8 +82,9 @@ async function main(): Promise<void> {
 
   while (!arret) {
     const debut = Date.now();
+    let bilan: Awaited<ReturnType<typeof runLoanReaper>> | null = null;
     try {
-      await runLoanReaper();
+      bilan = await runLoanReaper();
     } catch {
       // Une passe qui échoue ne doit pas tuer le worker : la cause est presque
       // toujours transitoire — base indisponible, RPC qui refuse. La passe suivante
@@ -98,8 +100,11 @@ async function main(): Promise<void> {
         console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
       }
     }
-    // Battement lu par check-reaper.sh : un reaper vivant mais bloqué ne produit plus cette ligne.
-    console.log(`[reaper] passe ${new Date().toISOString()}`);
+    // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;
+    // un reaper bloqué n'écrit rien, un reaper inopérant écrit « passe échouée ».
+    const battement = reaperHeartbeat(bilan, new Date());
+    if (battement.ok) console.log(battement.line);
+    else console.error(battement.line);
     if (arret) break;
     const reste = interval - (Date.now() - debut);
     if (reste > 0) await pause(reste);

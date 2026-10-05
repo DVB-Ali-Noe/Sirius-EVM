@@ -3,6 +3,7 @@ import type { Loan } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
 import {
+  CANCELLED_LOCK_SEARCH_WINDOW_MS,
   CHAIN_REAPER_LEASE_MS,
   PENDING_REAPER_TTL_MS,
   SETTLEMENT_REAPER_LEASE_MS,
@@ -17,7 +18,10 @@ import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
 let afterId: string | null = null;
-let running: Promise<void> | null = null;
+let running: Promise<ReaperPassResult> | null = null;
+
+/** Bilan d'une passe : prêts examinés et prêts restés en erreur (hors attente de finalité). */
+export type ReaperPassResult = { examined: number; failed: number };
 
 export function startLoanReaper(): void {
   if (timer) return;
@@ -31,19 +35,27 @@ export function startLoanReaper(): void {
   run();
 }
 
-export function runLoanReaper(now = new Date()): Promise<void> {
+export function runLoanReaper(now = new Date()): Promise<ReaperPassResult> {
   if (!running) running = reapBatch(now).finally(() => { running = null; });
   return running;
 }
 
-async function reapBatch(now: Date): Promise<void> {
+async function reapBatch(now: Date): Promise<ReaperPassResult> {
   const loans = await prisma.loan.findMany({
     where: {
       ...(afterId ? { id: { gt: afterId } } : {}),
       OR: [
         { status: "PENDING", createdAt: { lte: new Date(now.getTime() - PENDING_REAPER_TTL_MS) } },
         { status: "SUBMITTING", updatedAt: { lte: new Date(now.getTime() - SUBMISSION_REAPER_LEASE_MS) } },
-        { status: "CANCELLED", cancelTxHash: null, evmLoanKey: { not: null } },
+        // Un lock soumis (hash connu) reste toujours suivi ; une préparation jamais signée sort
+        // de la liste une fois son autorisation expirée et la finalité largement dépassée.
+        {
+          status: "CANCELLED", cancelTxHash: null, evmLoanKey: { not: null },
+          OR: [
+            { evmLockTxHash: { not: null } },
+            { createdAt: { gt: new Date(now.getTime() - CANCELLED_LOCK_SEARCH_WINDOW_MS) } },
+          ],
+        },
         { status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_REAPER_LEASE_MS) } },
         { status: "SETTLING", updatedAt: { lte: new Date(now.getTime() - SETTLEMENT_REAPER_LEASE_MS) } },
         { status: { in: ["ESCROWED", "TRAINING", "SETTLING"] }, updatedAt: { lte: new Date(now.getTime() - CHAIN_REAPER_LEASE_MS) } },
@@ -54,6 +66,7 @@ async function reapBatch(now: Date): Promise<void> {
   });
   // Le curseur avance aussi quand un prêt est actif ou son RPC échoue.
   afterId = loans.length === BATCH_SIZE ? loans.at(-1)!.id : null;
+  let failed = 0;
   for (const loan of loans) {
     try {
       if (loan.status === "PENDING" || loan.status === "SUBMITTING" || loan.status === "CANCELLED") {
@@ -87,9 +100,13 @@ async function reapBatch(now: Date): Promise<void> {
       if (!loan.billingQuoteHash) await reconcileClosedLoan(loan);
     } catch (error) {
       if (error instanceof RunnerFinalityPending) console.log(`[reaper] prêt EVM ${loan.id} : règlement en attente de finalité`);
-      else console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
+      else {
+        failed += 1;
+        console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
+      }
     }
   }
+  return { examined: loans.length, failed };
 }
 
 /**
