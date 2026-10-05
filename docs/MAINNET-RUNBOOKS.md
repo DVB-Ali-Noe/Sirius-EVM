@@ -12,7 +12,7 @@ Rappels qui valent pour tous les runbooks :
 
 **Signes** : release ou reçus d'exécution non initiés par le service, attestation qui ne correspond plus aux mesures épinglées, alerte du collecteur.
 
-1. Couper les admissions : passer `SIRIUS_MAX_EXPOSURE_USDC` à une valeur inférieure à l'exposition courante sur Vercel production et redéployer. Plus aucun nouveau prêt n'est accepté.
+1. Couper les admissions : ajouter `SIRIUS_ADMISSIONS_CLOSED=true` sur Vercel production et redéployer. Plus aucun nouveau prêt n'est préparé ni autorisé ; le site, la confirmation des locks déjà signés, Rembourser, Retirer et `/status` restent en ligne. **Ne pas toucher aux plafonds** `SIRIUS_MAX_LOAN_USDC` / `SIRIUS_MAX_EXPOSURE_USDC` : une valeur nulle, invalide ou un plafond par prêt supérieur à l'exposition totale empêche l'application de démarrer. Réouverture : retirer la variable (ou la passer à `false`) et redéployer, après la décision écrite de l'étape 5.
 2. Arrêter la CVM de production depuis le VPS (`sirius-phala cvms stop <cvm> --profile sirius`). Plus aucune release ni reçu ne peut être signé.
 3. Publier un message sur la page d'état et sur X : admissions fermées, fonds verrouillés remboursables à l'échéance.
 4. Lister les prêts verrouillés (registre d'audit, `ops:escrow-events`). À l'échéance de chacun, déclencher `refund()` (bouton Refund ou n'importe quel wallet) : les emprunteurs récupèrent leurs fonds.

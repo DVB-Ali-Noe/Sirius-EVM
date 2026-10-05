@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertExposureWithinCap, assertLoanWithinCap, exposureLimits } from "./exposure-limits";
+import { admissionsClosed, assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, exposureLimits } from "./exposure-limits";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 
 const usdc = (value: string) => priceUsdcToAtomic(value) as string;
@@ -34,4 +34,18 @@ test("l'exposition totale compte les prêts en cours plus le nouveau", () => {
   assertExposureWithinCap([usdc("40"), usdc("10")], usdc("50"), limits);
   assert.throws(() => assertExposureWithinCap([usdc("40"), usdc("20")], usdc("50"), limits), /exposition totale/);
   assertExposureWithinCap([usdc("999")], usdc("50"), null);
+});
+
+test("le coupe-circuit des admissions ferme les prêts sans dépendre des plafonds (A-17)", () => {
+  assert.equal(admissionsClosed({}), false);
+  assert.equal(admissionsClosed({ SIRIUS_ADMISSIONS_CLOSED: "false" }), false);
+  assert.equal(admissionsClosed({ SIRIUS_ADMISSIONS_CLOSED: " " }), false);
+  assertAdmissionsOpen({});
+  for (const value of ["true", "TRUE", "1", "yes", "ture"]) {
+    assert.equal(admissionsClosed({ SIRIUS_ADMISSIONS_CLOSED: value }), true, value);
+    assert.throws(() => assertAdmissionsOpen({ SIRIUS_ADMISSIONS_CLOSED: value }), /Admissions de prêts fermées/);
+  }
+  // Fermer les admissions ne touche pas aux plafonds : la configuration reste valide au démarrage.
+  const env = { EVM_NETWORK: "mainnet", SIRIUS_MAX_LOAN_USDC: "50", SIRIUS_MAX_EXPOSURE_USDC: "500", SIRIUS_ADMISSIONS_CLOSED: "true" };
+  assert.deepEqual(exposureLimits(env), { maxLoanAtomic: BigInt(usdc("50")), maxExposureAtomic: BigInt(usdc("500")) });
 });
