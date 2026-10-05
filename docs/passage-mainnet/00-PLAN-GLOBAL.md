@@ -150,3 +150,4 @@ Un seul des quatre premiers points non coché suffit à reporter.
 | [16-socle-technique.md](16-socle-technique.md) | Briques partagées | Oui, en premier |
 | [17-audit-et-lancement-restants.md](17-audit-et-lancement-restants.md) | Audit et lancement technique | Oui |
 | [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md) | Ce qui ne se teste que sur mainnet | Oui, au passage |
+| [19-mise-en-production.md](19-mise-en-production.md) | Checklist exécutable de la mise en production, variables, retour arrière, RPC d'archive | Oui, le jour J |
