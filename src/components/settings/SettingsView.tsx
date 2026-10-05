@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { restartWelcomeTour } from "@/components/tour/tour-store";
 import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { SectionTitle } from "@/components/ui/Heading";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { useWalletStore } from "@/stores/wallet";
 import { SoonItem } from "./SoonItem";
@@ -23,59 +25,58 @@ export function SettingsView() {
   const network = networkInfo(NETWORK);
 
   return (
-    <main className="mx-auto w-full max-w-xl px-6 py-8">
-      <h1 className="text-2xl font-semibold tracking-tight">{t("Réglages")}</h1>
+    <Page width="wide">
+      <PageHeader title={t("Réglages")} />
 
       {!connected && (
-        <Card className="mt-6 flex flex-col items-start gap-3" data-testid="settings-signed-out">
-          <p className="text-sm text-muted">{t("Connecte un wallet pour enregistrer tes réglages.")}</p>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
+        <ConnectPrompt message={t("Connecte un wallet pour enregistrer tes réglages.")} data-testid="settings-signed-out" />
       )}
 
-      <section className="mt-6" aria-labelledby="settings-network">
-        <Card>
-          <h2 id="settings-network" className="text-xs uppercase tracking-wider text-muted">{t("Network")}</h2>
-          <p className="mt-2 text-sm font-medium" data-testid="settings-network">{t(network.label)}</p>
-          <p className="mt-1 text-xs text-muted">{t("Each Sirius site is tied to a single network. It cannot be changed here.")}</p>
-          {network.testnetUrl && (
-            <a
-              href={network.testnetUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-block text-sm font-medium text-accent underline-offset-2 hover:underline"
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section aria-labelledby="settings-network" className="flex">
+          <Card className="flex-1">
+            <SectionTitle id="settings-network">{t("Network")}</SectionTitle>
+            <p className="mt-2 text-sm font-medium" data-testid="settings-network">{t(network.label)}</p>
+            <p className="mt-1 text-xs text-muted">{t("Each Sirius site is tied to a single network. It cannot be changed here.")}</p>
+            {network.testnetUrl && (
+              <a
+                href={network.testnetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block text-sm font-medium text-accent underline-offset-2 hover:underline"
+              >
+                {t("Try it on testnet")}
+              </a>
+            )}
+          </Card>
+        </section>
+
+        {connected && address && (
+          <LanguageCard key={address} authenticated={authenticated} />
+        )}
+
+        <section aria-labelledby="settings-tour" className="flex">
+          <Card className="flex-1">
+            <SectionTitle id="settings-tour">{t("Visite guidée")}</SectionTitle>
+            <p className="mt-2 text-xs text-muted">{t("Replay the welcome tour of the application.")}</p>
+            <button
+              type="button"
+              onClick={() => restartWelcomeTour()}
+              className="mt-3 rounded-lg border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:border-white/20"
             >
-              {t("Try it on testnet")}
-            </a>
-          )}
-        </Card>
-      </section>
+              {t("Restart guided tour")}
+            </button>
+          </Card>
+        </section>
+      </div>
 
-      {connected && address && (
-        <LanguageCard key={address} authenticated={authenticated} />
-      )}
-
-      <section className="mt-6" aria-labelledby="settings-tour">
-        <Card>
-          <h2 id="settings-tour" className="text-xs uppercase tracking-wider text-muted">{t("Visite guidée")}</h2>
-          <p className="mt-2 text-xs text-muted">{t("Replay the welcome tour of the application.")}</p>
-          <button
-            type="button"
-            onClick={() => restartWelcomeTour()}
-            className="mt-3 rounded-lg border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:border-white/20"
-          >
-            {t("Restart guided tour")}
-          </button>
-        </Card>
-      </section>
-
-      <section className="mt-6" aria-labelledby="settings-soon">
-        <h2 id="settings-soon" className="mb-3 text-xs uppercase tracking-wider text-muted">{t("Coming soon")}</h2>
-        <ul className="flex flex-col gap-2">
+      <section aria-labelledby="settings-soon">
+        <SectionTitle id="settings-soon" className="mb-3">{t("Coming soon")}</SectionTitle>
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {SETTINGS_SOON.map((item) => <SoonItem key={item.title} {...item} />)}
         </ul>
       </section>
-    </main>
+    </Page>
   );
 }
 
@@ -130,9 +131,9 @@ function LanguageCard({ authenticated }: { authenticated: boolean }) {
   }
 
   return (
-    <section className="mt-6" aria-labelledby="settings-language">
-      <Card>
-        <h2 id="settings-language" className="text-xs uppercase tracking-wider text-muted">{t("Language")}</h2>
+    <section aria-labelledby="settings-language" className="flex">
+      <Card className="flex-1">
+        <SectionTitle id="settings-language">{t("Language")}</SectionTitle>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <select
             aria-labelledby="settings-language"

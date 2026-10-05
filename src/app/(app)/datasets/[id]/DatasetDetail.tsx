@@ -7,7 +7,9 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatTokenWithSymbol } from "@/components/datasets/price";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { BackLink, Page, PageHeader } from "@/components/layout/Page";
+import { CardTitle } from "@/components/ui/Heading";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { formatCount } from "@/lib/copy/numbers";
 import { messageOf } from "@/lib/errors-client";
@@ -67,6 +69,7 @@ type Busy = null | "details" | "pause" | "resume" | "private" | "extend" | "cons
 
 function DetailContent({ id }: { id: string }) {
   const { t } = useLocale();
+  const back = { href: "/datasets", label: t("Mes datasets") };
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
@@ -132,37 +135,35 @@ function DetailContent({ id }: { id: string }) {
 
   if (!connected || !address || !authenticated) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <p className="text-sm text-muted">{t("Connecte un wallet pour gérer tes datasets.")}</p>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Mes datasets")} />
+        <ConnectPrompt message={t("Connecte un wallet pour gérer tes datasets.")} />
+      </Page>
     );
   }
 
   if (notFound) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-6 py-8">
-        <BackLink />
-        <Card>
-          <h1 className="text-lg font-semibold">{t("Dataset introuvable")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("Ce dataset n’existe pas ou n’appartient pas au wallet connecté.")}</p>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader
+          back={back}
+          title={t("Dataset introuvable")}
+          description={t("Ce dataset n’existe pas ou n’appartient pas au wallet connecté.")}
+        />
+      </Page>
     );
   }
 
   if (!view) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-6 py-8">
-        <BackLink />
+      <Page>
+        <BackLink {...back} />
         {error ? (
           <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</div>
         ) : (
           <p className="text-sm text-muted">{t("Chargement…")}</p>
         )}
-      </main>
+      </Page>
     );
   }
 
@@ -173,20 +174,14 @@ function DetailContent({ id }: { id: string }) {
   const price = formatTokenWithSymbol(view.priceUsdcAtomic, token) ?? "—";
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
-      <BackLink />
-
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="min-w-0 flex-1 text-2xl font-semibold tracking-tight wrap-anywhere">{view.name}</h1>
-          <StatusPill status={view.displayStatus} className="shrink-0" />
-        </div>
+    <Page>
+      <PageHeader back={back} title={view.name} actions={<StatusPill status={view.displayStatus} className="shrink-0" />}>
         <div className="flex flex-wrap gap-2">
           {categoryLabel(view.category, t) && <Badge variant="muted">{categoryLabel(view.category, t)}</Badge>}
           <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
         </div>
         <StatusExplanation view={view} />
-      </header>
+      </PageHeader>
 
       {error && (
         <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</div>
@@ -196,7 +191,7 @@ function DetailContent({ id }: { id: string }) {
       )}
 
       <Card>
-        <h2 className="text-base font-semibold">{t("Description")}</h2>
+        <CardTitle>{t("Description")}</CardTitle>
         <p className="mt-2 whitespace-pre-line text-sm text-muted">{view.description || t("Pas de description.")}</p>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
           <Field label={t("Modèle")} value={model ? modelDisplayName(model) : t("Profil absent")} />
@@ -233,7 +228,7 @@ function DetailContent({ id }: { id: string }) {
       </Card>
 
       <Card>
-        <h2 className="text-base font-semibold">{t("Prix")}</h2>
+        <CardTitle>{t("Prix")}</CardTitle>
         <p className="mt-2 text-lg font-medium tabular-nums">{price}</p>
         <p className="mt-1 text-xs text-muted">{t("Ce que tu reçois par emprunt réglé. Les frais de calcul de l’enclave s’ajoutent pour l’emprunteur.")}</p>
         <p className="mt-3 text-xs text-muted">
@@ -245,7 +240,7 @@ function DetailContent({ id }: { id: string }) {
 
       {(view.status === "DRAFT" || view.status === "LISTING") && (
         <Card>
-          <h2 className="text-base font-semibold">{t("Publication du titre EVM")}</h2>
+          <CardTitle>{t("Publication du titre EVM")}</CardTitle>
           <p className="mt-1 text-sm text-muted">{t("Le titre EVM de ce dataset n’est pas encore publié.")}</p>
           <PublishDraftButton
             status={view.status}
@@ -270,7 +265,7 @@ function DetailContent({ id }: { id: string }) {
       {canDestroy(view) && (
         <DestroyCard view={view} busy={busy} onDestroy={() => run("destroy", () => destroyDataset(view.id), "Suppression enregistrée.")} />
       )}
-    </main>
+    </Page>
   );
 }
 
@@ -278,15 +273,6 @@ function DetailContent({ id }: { id: string }) {
 function categoryLabel(value: string | null, t: (key: string) => string): string | null {
   const category = parseDatasetCategory(value);
   return category ? t(DATASET_CATEGORY_LABEL_KEYS[category]) : null;
-}
-
-function BackLink() {
-  const { t } = useLocale();
-  return (
-    <Link href="/datasets" className="w-fit text-sm text-muted transition-colors hover:text-foreground">
-      ← {t("Mes datasets")}
-    </Link>
-  );
 }
 
 function StatusExplanation({ view }: { view: OwnerDatasetView }) {
@@ -329,7 +315,7 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
   const peak = stats ? Math.max(1, ...stats.weekly.map((week) => week.count)) : 1;
   return (
     <Card>
-      <h2 className="text-base font-semibold">{t("Statistiques")}</h2>
+      <CardTitle>{t("Statistiques")}</CardTitle>
       {error && <p role="status" className="mt-2 text-sm text-muted">{t("Statistiques indisponibles pour le moment : {reason}", { reason: t(error) })}</p>}
       {!stats && !error && <p className="mt-2 text-sm text-muted">{t("Chargement…")}</p>}
       {stats && (
@@ -386,7 +372,7 @@ function DetailsForm({ view, busy, onSave }: {
   const valid = trimmedName.length > 0 && trimmedName.length <= MAX_DATASET_NAME_LENGTH && description.trim().length <= MAX_DATASET_DESCRIPTION_LENGTH;
   return (
     <Card>
-      <h2 className="text-base font-semibold">{t("Nom et description")}</h2>
+      <CardTitle>{t("Nom et description")}</CardTitle>
       <form
         className="mt-3 flex flex-col gap-3"
         onSubmit={(event) => {
@@ -452,7 +438,7 @@ function ListingCard({ view, busy, run }: {
 
   return (
     <Card>
-      <h2 className="text-base font-semibold">{t("Publication sur la marketplace")}</h2>
+      <CardTitle>{t("Publication sur la marketplace")}</CardTitle>
       <p className="mt-1 text-sm text-muted">
         {view.listingExpiresAt
           ? t("Fin de l’annonce : {date}", { date: formatUtcDateTime(view.listingExpiresAt) })
@@ -553,7 +539,7 @@ function ConsentCard({ view, busy, onRevoke }: { view: OwnerDatasetView; busy: B
   const { consent } = view;
   return (
     <Card>
-      <h2 className="text-base font-semibold">{t("Amélioration des modèles")}</h2>
+      <CardTitle>{t("Amélioration des modèles")}</CardTitle>
       {consent.active ? (
         <>
           <p className="mt-1 text-sm text-muted">
@@ -613,7 +599,7 @@ function DestroyCard({ view, busy, onDestroy }: { view: OwnerDatasetView; busy: 
   const matches = typed.trim() === view.name.trim();
   return (
     <Card className="border-negative/40">
-      <h2 className="text-base font-semibold text-negative">{finalize ? t("Finaliser la suppression") : t("Destruction définitive")}</h2>
+      <CardTitle className="text-negative">{finalize ? t("Finaliser la suppression") : t("Destruction définitive")}</CardTitle>
       <p className="mt-1 text-sm text-muted">
         {finalize
           ? t("Vérifie le titre dans le registre EVM courant et finalise la suppression. Les éventuels anciens registres ne seront pas modifiés.")

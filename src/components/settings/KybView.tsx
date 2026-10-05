@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { SectionTitle } from "@/components/ui/Heading";
 import { useWalletStore } from "@/stores/wallet";
 import { SoonItem } from "./SoonItem";
 import {
@@ -24,27 +26,28 @@ export function KybView() {
   const authenticated = useWalletStore((s) => s.authenticated);
 
   return (
-    <main className="mx-auto w-full max-w-xl px-6 py-8">
-      <h1 className="text-2xl font-semibold tracking-tight">{t("KYB")}</h1>
-      <p className="mt-1 text-sm text-muted">{t("Business verification, recorded on-chain. It is required to lend and to borrow datasets on mainnet.")}</p>
+    <Page width="wide">
+      <PageHeader
+        title={t("KYB")}
+        description={t("Business verification, recorded on-chain. It is required to lend and to borrow datasets on mainnet.")}
+      />
 
       {connected && address ? (
         // `key` : un autre wallet ou une session ouverte repart d'un état vierge, sans reste de l'ancien.
-        <KybStatusCard key={`${address}:${authenticated}`} address={address} authenticated={authenticated} />
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <KybStatusCard key={`${address}:${authenticated}`} address={address} authenticated={authenticated} />
+        </div>
       ) : (
-        <Card className="mt-6 flex flex-col items-start gap-3" data-testid="kyb-signed-out">
-          <p className="text-sm text-muted">{t("Connecte un wallet pour voir ton statut KYB.")}</p>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
+        <ConnectPrompt message={t("Connecte un wallet pour voir ton statut KYB.")} data-testid="kyb-signed-out" />
       )}
 
-      <section className="mt-6" aria-labelledby="kyb-soon">
-        <h2 id="kyb-soon" className="mb-3 text-xs uppercase tracking-wider text-muted">{t("Coming soon")}</h2>
-        <ul className="flex flex-col gap-2">
+      <section aria-labelledby="kyb-soon">
+        <SectionTitle id="kyb-soon" className="mb-3">{t("Coming soon")}</SectionTitle>
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {KYB_SOON.map((item) => <SoonItem key={item.title} {...item} />)}
         </ul>
       </section>
-    </main>
+    </Page>
   );
 }
 
@@ -84,7 +87,7 @@ function KybStatusCard({ address, authenticated }: { address: string; authentica
 
   if (!view) {
     return (
-      <Card className="mt-6" data-testid="kyb-loading">
+      <Card data-testid="kyb-loading">
         <p className="text-sm text-muted">{t("Checking your KYB status…")}</p>
       </Card>
     );
@@ -94,8 +97,8 @@ function KybStatusCard({ address, authenticated }: { address: string; authentica
 
   return (
     <>
-      <Card className="mt-6" data-testid="kyb-status" data-state={view.state}>
-        <h2 className="text-xs uppercase tracking-wider text-muted">{t("Status")}</h2>
+      <Card data-testid="kyb-status" data-state={view.state}>
+        <SectionTitle>{t("Status")}</SectionTitle>
         {view.state === "verified" && (
           <>
             <p className="mt-2 text-sm font-medium text-positive">{t("Verified")}</p>
@@ -140,18 +143,18 @@ function KybStatusCard({ address, authenticated }: { address: string; authentica
       </Card>
 
       {showsInvitationForm(view) && (
-        <section className="mt-6" aria-labelledby="kyb-invite">
-          <h2 id="kyb-invite" className="mb-3 text-xs uppercase tracking-wider text-muted">{t("Invitation")}</h2>
+        <Card className="flex flex-col gap-3" aria-labelledby="kyb-invite" role="region">
+          <SectionTitle id="kyb-invite">{t("Invitation")}</SectionTitle>
           {authenticated ? (
             <KybInviteForm role="provider" onAccepted={refresh} />
           ) : (
-            <p className="mb-6 text-sm text-muted">{t("Sign in with your wallet to accept an invitation.")}</p>
+            <p className="text-sm text-muted">{t("Sign in with your wallet to accept an invitation.")}</p>
           )}
           <p className="text-sm text-muted" data-testid="kyb-contact">
             {t("No invitation? Write to us:")}{" "}
             <a href={`mailto:${KYB_CONTACT_EMAIL}`} className="font-medium text-accent underline-offset-2 hover:underline">{KYB_CONTACT_EMAIL}</a>
           </p>
-        </section>
+        </Card>
       )}
     </>
   );

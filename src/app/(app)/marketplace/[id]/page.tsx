@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { BackLink, Page, PageHeader } from "@/components/layout/Page";
+import { CardTitle } from "@/components/ui/Heading";
 import { useParams } from "next/navigation";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { PriceBreakdown } from "@/components/datasets/PriceBreakdown";
@@ -59,34 +61,32 @@ export default function MarketplaceListingPage() {
     return () => controller.abort();
   }, [id]);
 
-  const back = (
-    <Link href="/marketplace" className="text-sm text-muted transition-colors hover:text-foreground">
-      ← {t("Retour à la marketplace")}
-    </Link>
-  );
+  const back = { href: "/marketplace", label: t("Retour à la marketplace") };
 
   if (!result || result.id !== id) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-        {back}
-        <p className="mt-6 text-sm text-muted" aria-live="polite">{t("Chargement…")}</p>
-      </main>
+      <Page>
+        <BackLink {...back} />
+        <p className="text-sm text-muted" aria-live="polite">{t("Chargement…")}</p>
+      </Page>
     );
   }
 
   if (result.status !== "ready") {
     return (
-      <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-        {back}
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">
-          {result.status === "missing" ? t("Dataset indisponible") : t("Fiche indisponible")}
-        </h1>
-        <p className="mt-2 text-sm text-muted" role={result.status === "error" ? "alert" : undefined}>
-          {result.status === "missing"
-            ? t("Ce dataset n’est pas en ligne sur la marketplace : il a pu être mis en pause, expirer ou être retiré.")
-            : t(result.message)}
-        </p>
-      </main>
+      <Page>
+        <PageHeader
+          back={back}
+          title={result.status === "missing" ? t("Dataset indisponible") : t("Fiche indisponible")}
+          description={
+            <p role={result.status === "error" ? "alert" : undefined}>
+              {result.status === "missing"
+                ? t("Ce dataset n’est pas en ligne sur la marketplace : il a pu être mis en pause, expirer ou être retiré.")
+                : t(result.message)}
+            </p>
+          }
+        />
+      </Page>
     );
   }
 
@@ -98,32 +98,26 @@ export default function MarketplaceListingPage() {
   const days = dataset.challengeDays;
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-      {back}
-
-      <header className="mt-4 mb-6 min-w-0">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="min-w-0 flex-1 text-2xl font-semibold tracking-tight wrap-anywhere">{name}</h1>
-          <StatusPill status="online" className="shrink-0" />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+    <Page>
+      <PageHeader back={back} title={name} actions={<StatusPill status="online" className="shrink-0" />}>
+        <div className="flex flex-wrap gap-2">
           {dataset.category && <Badge variant="muted">{t(categoryLabelKey(dataset.category))}</Badge>}
           <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
           {dataset.verified === true && <Badge variant="positive">{t("Fournisseur vérifié KYB")}</Badge>}
           {dataset.verified === false && <Badge variant="muted">{t("Fournisseur non vérifié KYB")}</Badge>}
         </div>
-      </header>
+      </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="md:col-span-2">
-          <h2 className="text-sm font-medium">{t("Description")}</h2>
+          <CardTitle>{t("Description")}</CardTitle>
           <p className="mt-2 whitespace-pre-line text-sm text-muted">
             {dataset.description?.trim() ? dataset.description : t("Aucune description fournie.")}
           </p>
         </Card>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("Données")}</h2>
+          <CardTitle>{t("Données")}</CardTitle>
           <dl className="mt-3 space-y-2 text-sm">
             <Fact label={t("Catégorie")} value={dataset.category ? t(categoryLabelKey(dataset.category)) : "—"} />
             <Fact label={t("Lignes")} value={formatCount(dataset.rowCount)} />
@@ -136,7 +130,7 @@ export default function MarketplaceListingPage() {
         </Card>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("Modèle d’entraînement")}</h2>
+          <CardTitle>{t("Modèle d’entraînement")}</CardTitle>
           {model ? (
             <dl className="mt-3 space-y-2 text-sm">
               <Fact label={t("Modèle")} value={modelDisplayName(model)} />
@@ -149,7 +143,7 @@ export default function MarketplaceListingPage() {
         </Card>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("Statistiques publiques")}</h2>
+          <CardTitle>{t("Statistiques publiques")}</CardTitle>
           <dl className="mt-3 space-y-2 text-sm">
             <Fact label={t("Emprunts")} value={formatCount(dataset.borrowCount)} />
             <Fact label={t("Publication")} value={formatDate(dataset.listedAt)} />
@@ -170,7 +164,7 @@ export default function MarketplaceListingPage() {
         </Card>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("Fournisseur")}</h2>
+          <CardTitle>{t("Fournisseur")}</CardTitle>
           <dl className="mt-3 space-y-2 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
               <dt className="text-muted">{t("Adresse")}</dt>
@@ -192,7 +186,7 @@ export default function MarketplaceListingPage() {
         </Card>
 
         <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2">
-          <h2 id="price-heading" className="mb-2 text-sm font-medium">{t("Ce que vous payez")}</h2>
+          <CardTitle id="price-heading" className="mb-2">{t("Ce que vous payez")}</CardTitle>
           {fee.kind !== "unknown" && dataset.providerPriceAtomic ? (
             <>
               <PriceBreakdown
@@ -224,14 +218,14 @@ export default function MarketplaceListingPage() {
         </section>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("Ce que vous obtenez")}</h2>
+          <CardTitle>{t("Ce que vous obtenez")}</CardTitle>
           <p className="mt-2 text-sm text-muted">
             {t("Un accès à cette donnée et un entraînement dans l’enclave. Vous recevez le modèle entraîné, jamais la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}
           </p>
         </Card>
 
         <Card>
-          <h2 className="text-sm font-medium">{t("En cas d’échec")}</h2>
+          <CardTitle>{t("En cas d’échec")}</CardTitle>
           <p className="mt-2 text-sm text-muted">
             {result.data.billingMode === "v6"
               ? t("Aucun frais de calcul n’est prélevé : le montant verrouillé est rendu en entier.")
@@ -258,7 +252,7 @@ export default function MarketplaceListingPage() {
           />
         </Card>
       </div>
-    </main>
+    </Page>
   );
 }
 

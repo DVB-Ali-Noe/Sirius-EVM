@@ -115,13 +115,13 @@ test("filtres : catégorie, modèle, recherche, vérifiés, fourchettes et tri p
   await expect(page.getByRole("listitem")).toHaveCount(2);
   const lastQuery = () => new URL(requests.filter((r) => new URL(r.url()).pathname === "/api/marketplace").at(-1)!.url()).searchParams;
 
-  await page.getByRole("radio", { name: "Finance" }).click();
-  await expect(page.getByRole("radio", { name: "Finance" })).toBeChecked();
+  await page.getByRole("combobox", { name: "Category" }).selectOption("finance");
+  await expect(page.getByRole("combobox", { name: "Category" })).toHaveValue("finance");
   await expect(page).toHaveURL(/category=finance/);
   await expect(page.getByRole("listitem")).toHaveCount(1);
   expect(lastQuery().get("category")).toBe("finance");
 
-  await page.getByRole("radio", { name: "Binary logistic regression" }).click();
+  await page.getByRole("combobox", { name: "Model" }).selectOption("logistic_regression");
   await expect(page).toHaveURL(/model=logistic_regression/);
 
   // Frappe interrompue par l'envoi de la recherche : aucun caractère perdu, le champ ne se vide pas.
@@ -139,6 +139,7 @@ test("filtres : catégorie, modèle, recherche, vérifiés, fourchettes et tri p
   await expect(page.getByRole("checkbox", { name: "KYB-verified providers only" })).toBeChecked();
   await expect(page).toHaveURL(/verified=1/);
 
+  await page.getByRole("button", { name: "Total price (USDC)" }).click();
   const priceRange = page.getByRole("group", { name: "Total price (USDC)" });
   await priceRange.getByPlaceholder("Min").fill("1.5");
   await priceRange.getByPlaceholder("Max").fill("20");

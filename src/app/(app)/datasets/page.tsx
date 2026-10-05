@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
 import { DatasetAddTile, DatasetCard } from "@/components/datasets/DatasetCard";
 import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -246,75 +246,66 @@ function DatasetsContent() {
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-6xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Mes datasets")}</h1>
-            <p className="mt-1 text-sm text-muted">{t("Connecte un wallet pour gérer tes datasets.")}</p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page width="wide">
+        <PageHeader title={t("Mes datasets")} />
+        <ConnectPrompt message={t("Connecte un wallet pour gérer tes datasets.")} />
+      </Page>
     );
   }
 
   const online = cards.filter((card) => card.status === "online" || card.status === "borrowed").length;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 py-8">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1 basis-64">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Mes datasets")}</h1>
-          {datasets && (
-            <p className="mt-1 text-sm text-muted">
-              {t("{count} dataset(s), dont {online} en ligne ou emprunté(s).", { count: datasets.length, online })}
-            </p>
-          )}
-        </div>
-        <div className="flex max-w-full flex-wrap items-center gap-3">
-          {kybManquant === true && (
-            <button
-              onClick={handleOnboard}
-              className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
-            >
-              {t("Configurer le KYB")}
-            </button>
-          )}
-          <div role="group" aria-label={t("Trier par")} className="flex items-center gap-2">
-            <span className="text-xs text-muted">{t("Trier par")}</span>
-            <div className="grid grid-cols-3 rounded-lg border border-border p-0.5">
-              {DATASET_SORTS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => chooseSort(option)}
-                  aria-pressed={sort === option}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                    sort === option ? "bg-accent text-background" : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  {t(SORT_LABELS[option])}
-                </button>
-              ))}
+    <Page width="wide">
+      <PageHeader
+        title={t("Mes datasets")}
+        description={datasets && t("{count} dataset(s), dont {online} en ligne ou emprunté(s).", { count: datasets.length, online })}
+        actions={
+          <>
+            {kybManquant === true && (
+              <button
+                onClick={handleOnboard}
+                className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
+              >
+                {t("Configurer le KYB")}
+              </button>
+            )}
+            <div role="group" aria-label={t("Trier par")} className="flex items-center gap-2">
+              <span className="text-xs text-muted">{t("Trier par")}</span>
+              <div className="grid grid-cols-3 rounded-lg border border-border p-0.5">
+                {DATASET_SORTS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => chooseSort(option)}
+                    aria-pressed={sort === option}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      sort === option ? "bg-accent text-background" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {t(SORT_LABELS[option])}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {kybManquant === true && <KybInviteForm role="provider" onAccepted={() => setKybManquant(false)} />}
 
       {error && (
-        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
         </div>
       )}
       {statsError && (
-        <div role="status" className="mb-6 rounded-lg border border-border bg-surface/50 px-4 py-3 text-sm text-muted">
+        <div role="status" className="rounded-lg border border-border bg-surface/50 px-4 py-3 text-sm text-muted">
           {t("Emprunts et revenus indisponibles pour le moment : {reason}", { reason: t(statsError) })}
         </div>
       )}
       {truncated && (
-        <p className="mb-4 text-xs text-muted">
+        <p className="text-xs text-muted">
           {t("Seuls les {count} datasets les plus récents sont affichés et triés.", { count: datasets?.length ?? 0 })}
         </p>
       )}
@@ -360,7 +351,7 @@ function DatasetsContent() {
       {datasets !== null && datasets.length === 0 && !error && (
         <p className="py-8 text-center text-sm text-muted">{t("Aucun dataset pour l’instant : publie le premier avec la tuile ci-dessus.")}</p>
       )}
-    </main>
+    </Page>
   );
 }
 

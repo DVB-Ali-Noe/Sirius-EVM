@@ -11,6 +11,7 @@ import { truncate } from "@/lib/format";
 import { messageOf } from "@/lib/errors-client";
 import { stablecoinTicker } from "@/lib/evm/stablecoin";
 import { resolveClientNetwork } from "@/lib/evm/networks";
+import { CardTitle } from "@/components/ui/Heading";
 
 const TOKEN = stablecoinTicker(resolveClientNetwork());
 
@@ -89,9 +90,9 @@ export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> 
   const visible = credits.filter((credit) => !credit.available || BigInt(credit.atomic ?? 0) > BigInt(0));
   if (!authenticated || (!error && visible.length === 0)) return null;
   return (
-    <Card className="mb-6">
+    <Card>
       <div className="flex items-center justify-between gap-4">
-        <h2 className="font-semibold">{t("{token} à retirer", { token: TOKEN })}</h2>
+        <CardTitle>{t("{token} à retirer", { token: TOKEN })}</CardTitle>
         <button onClick={() => void refresh()} disabled={loading || Boolean(withdrawing)} className="text-xs text-accent disabled:opacity-50">{t("Actualiser")}</button>
       </div>
       <p className="mt-2 text-xs text-muted">{t("Les règlements et remboursements sont crédités ici. Retire-les pour les recevoir dans ton wallet ; le gas est à ta charge.")}</p>
