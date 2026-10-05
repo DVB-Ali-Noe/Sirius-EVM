@@ -41,20 +41,22 @@ C'est aussi la répétition de la mise en production.
 
 Session cloud sur Fable, environ 100 euros de crédits, plafond de 120 agents. Douze zones, vérification par trois sceptiques, critique de couverture, rapport. Tout problème critique ou élevé est corrigé avant la décision de lundi 20h, ou reporte le lancement.
 
-### 4. Éléments externes — avant lundi matin
+### 4. Éléments externes — état au 5 octobre
 
-| Élément | Qui le fournit |
-|---|---|
-| Adresse officielle USDG vérifiée ([01](01-decisions-avant-samedi.md)) | Ali |
-| Safe 2-of-2 sur mainnet | Ali et Noé |
-| Clé de déploiement avec de l'ETH mainnet | Ali ou Noé |
-| Deux comptes vérificateurs KYB | Ali et Noé |
-| Carte de paiement Phala pour la machine de production | Ali |
-| Base Neon neuve pour la production | Ali |
-| Accès RPC mainnet d'archive | Ali |
-| Montants comptables du moteur : marge, trésorerie, réserve, plafonds de gas | Ali et Noé |
-| `EVM_NETWORK=mainnet` dans l'environnement GitHub production | Ali |
-| Configuration du nettoyeur de staging à compléter | Ali |
+| Élément | Qui le fournit | État |
+|---|---|---|
+| Adresse officielle USDG vérifiée ([01](01-decisions-avant-samedi.md)) | Ali | ✅ vérifiée on-chain, empreinte du proxy relevée |
+| Safe **2/3** sur mainnet (décidé le 4 octobre) | Ali et Noé | ⏳ Safe de test créé (`0x9Db6…43f5`) ; mainnet à créer avec une clé de secours hors ligne |
+| Clé de déploiement avec de l'ETH mainnet | Ali ou Noé | ⏳ nouveau compte avec ~0,05 ETH |
+| Compte vérificateur KYB (registre strict par invitation) | Ali | ✅ `0xDf43…7455` |
+| Carte de paiement Phala pour la machine de production | Ali | ⏳ ~45 $/mois |
+| Base Neon neuve pour la production | Ali | ⏳ `neonctl` connecté, création possible par Claude sur go |
+| Accès RPC mainnet d'archive | Ali | ⏳ |
+| Montants comptables du moteur : prix du calcul, frais d'échec, trésorerie, plafond par prêt, plafond total, budget gas | Ali et Noé | ⏳ à décider le 5 au matin |
+| `EVM_NETWORK=mainnet` dans l'environnement GitHub production | Ali | ⏳ |
+| Configuration du nettoyeur de staging à compléter | Ali | ⏳ |
+| Clés MoonPay live (achat par carte) | Ali | ⏳ sinon le choix carte reste masqué |
+| Décision RTMR3 pour la machine de production | Ali et Noé | ⏳ |
 
 ### 5. Mise en production — dimanche 4 et lundi 5 matin
 

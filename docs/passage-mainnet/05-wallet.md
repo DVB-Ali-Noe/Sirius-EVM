@@ -31,7 +31,12 @@ Fichiers : `src/app/(app)/wallet/page.tsx`, `src/components/wallet/*`, `src/comp
 ### Page Wallet, version de lancement
 
 - Solde, adresse, lien explorateur, montants à retirer avec le bouton existant.
-- **Ajout de fonds** : sur mainnet, l'ajout passe aujourd'hui par le pont Across. Avec USDG ([01](01-decisions-avant-samedi.md)), vérifier qu'Across le supporte. Sinon, pour le lancement : afficher l'adresse et un QR code pour recevoir des USDG par transfert, avec une explication claire.
+- **Ajout de fonds — livré le 4 octobre (PR #58, #59, #61).** Sur mainnet, « Add funds » ouvre une fenêtre à **deux choix** :
+  - **Par carte** : MoonPay vend `usdg_robinhood` (et `eth_robinhood` pour le gas) directement sur Robinhood Chain, minimum 5 USD, adresse du compte pré-remplie par le serveur (jamais par le navigateur). Le choix est **masqué** tant que les clés MoonPay live (`NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY` en `pk_live_`, `MOONPAY_SECRET_KEY`) ne sont pas dans Vercel production.
+  - **Depuis un autre wallet** : QR code, adresse, bouton copier, avertissement « uniquement USDG ou ETH, réseau Robinhood Chain ». Sorties confirmées : app Robinhood (États-Unis hors New York) et Kraken.
+  - Le pont (Relay) a été retiré de la fenêtre à la demande d'Ali ; le code serveur reste, désactivé (`bridge: false`).
+- **Testnet** : le faucet de test est inchangé. Ni MoonPay ni l'USDG n'existent sur le testnet Robinhood : tout se vérifie au passage mainnet ([18](18-a-tester-au-passage-mainnet.md)).
+- Recherche du 4 octobre : Transak, Ramp et Squid ne gèrent pas Robinhood Chain ; Across et Relay livrent de l'USDG mais Across ne pré-remplit pas l'adresse ; un faux « USDG » circule (`0x0A3B…954F`) : seule l'adresse `0x5fc5…d168` est valide.
 
 ---
 
@@ -50,7 +55,8 @@ Fichiers : `src/app/(app)/wallet/page.tsx`, `src/components/wallet/*`, `src/comp
 
 ### Ajout de fonds par carte
 
-- MoonPay ou un autre prestataire selon le support d'USDG sur Robinhood Chain. À vérifier avec le prestataire, aucune intégration avant confirmation.
+- Intégré (voir plus haut). Reste à obtenir un compte MoonPay entreprise et ses clés live ; MoonPay n'a pas de mode test pour l'USDG, le premier achat sera réel.
+- V1.1 : adresse de dépôt Relay côté serveur (retrait depuis un exchange sans connecter de wallet), utile aux comptes Google.
 
 ## Terminé quand
 

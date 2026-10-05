@@ -21,6 +21,21 @@ Rien d'obligatoire. La démo n'est pas sur le chemin du mainnet.
 
 - Si un créneau de démo est ouvert pour l'annonce, redéployer d'abord l'image de démo à jour, pour embarquer la correction M7.
 
+### Ce qui a été fait le 4 octobre
+
+- **Session publique** de 16h à minuit sur `demo.sirius-data.tech`, annoncée sur X. Fermeture automatique par une minuterie systemd sur le VPS, machine arrêtée ensuite.
+- **Adresse démo isolée** (PR #51) : `demo.sirius-data.tech` est attachée à **un déploiement figé** du projet Vercel staging (`vercel alias set`, pas un domaine du projet), donc les fusions dans staging ne la déplacent pas. Sur cette adresse, seules `/phala`, `/terms` et les routes API de la session sont servies ; le reste renvoie vers `/phala` ou répond 404.
+- **Connexion** : MetaMask demande désormais le compte avant le réseau (PR #52) ; la page démo propose le menu de choix du wallet (PR #54, #55).
+- **RTMR3 change à chaque redémarrage de la machine** (3 octobre `cb0402c9…`, 4 octobre `7388e541…`) alors que MRTD, compose hash, journal d'événements et TCB restent identiques. Chaque ouverture après un arrêt demande de ré-épingler `SIRIUS_EXPECTED_RTMR3` dans `phala-demo-controller.env`, `runner-monitor.env` et Vercel staging, puis de redéployer et de replacer l'adresse démo. L'outil d'Ali bloque Claude sur ce ré-épinglage : Ali le fait.
+
+### Machine de démo séparée — reportée après le passage mainnet
+
+Staging et la démo partagent la même machine (`app_8e14…`) et la même base. Une machine dédiée à la démo est une **nouvelle identité d'enclave** : nouvelle clé maîtresse, clé d'ingestion et clé de règlement à épingler, contrats testnet liés à la clé de règlement de la machine actuelle, fichiers privés du runner et accès au registre d'images à refaire, nouveau projet Vercel. Chiffrage : 4 à 6 heures avec des risques de blocage. **Décision du 5 octobre : après le lancement**, en réutilisant la procédure de création de la machine de production. La branche Neon `demo` (`br-silent-mountain-ayiozi18`, copie de Staging) est déjà créée.
+
+### Sessions du 5 octobre
+
+10h–13h et 18h–22h (heure de Paris). Fermetures automatiques à 13h et 22h. Avant chaque ouverture : démarrage de la machine, ré-épinglage de RTMR3 par Ali, redéploiement et ouverture.
+
 ## Après le 6 — V1.2
 
 ### Statistiques
