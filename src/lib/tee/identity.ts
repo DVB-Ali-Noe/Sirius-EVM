@@ -7,6 +7,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const MAX_EVENT_LOG_BYTES = 2 * 1024 * 1024;
 const MAX_EVENT_COUNT = 10_000;
 const DSTACK_RUNTIME_EVENT_TYPE = 0x08000001;
+const BOOT_DONE_EVENTS = new Set(["boot-mr-done", "system-ready"]);
 
 interface DstackEvent {
   imr: number;
@@ -99,11 +100,25 @@ export function verifyEventLogIdentity(
   return {
     replayedRtMr3,
     eventLogMatches: equalHex(replayedRtMr3, measuredRtMr3.toLowerCase()),
-    composeEventMatches: events.some(
-      (event) => event.imr === 3 && event.event_type === DSTACK_RUNTIME_EVENT_TYPE &&
-        event.event === "compose-hash" && equalHex(event.event_payload, composeHash),
-    ),
+    composeEventMatches: composeEventMatches(events, composeHash),
   };
+}
+
+// Une CVM peut émettre ses propres événements runtime après le démarrage (emitEvent de
+// dstack). RTMR3 brut n'étant plus épinglé (il change à chaque redémarrage), un
+// « compose-hash » ajouté par l'application pourrait sinon authentifier un autre compose :
+// on exige un seul événement compose-hash dans RTMR3, de type runtime, mesuré avant la fin
+// du démarrage (boot-mr-done ou system-ready).
+function composeEventMatches(events: DstackEvent[], composeHash: string): boolean {
+  const rtMr3Events = events.filter((event) => event.imr === 3);
+  const composeEvents = rtMr3Events.filter((event) => event.event === "compose-hash");
+  if (composeEvents.length !== 1) return false;
+  const [composeEvent] = composeEvents;
+  if (composeEvent.event_type !== DSTACK_RUNTIME_EVENT_TYPE || !equalHex(composeEvent.event_payload, composeHash)) {
+    return false;
+  }
+  const bootDone = rtMr3Events.findIndex((event) => BOOT_DONE_EVENTS.has(event.event));
+  return bootDone === -1 || rtMr3Events.indexOf(composeEvent) < bootDone;
 }
 
 export function hashSignatureChain(chain: Uint8Array[]): string {

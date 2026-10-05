@@ -38,7 +38,6 @@ export function assertApplicationRunnerConfiguration(): void {
   if (process.env.SIRIUS_MASTER_KEY) throw new Error("Retirer SIRIUS_MASTER_KEY de Next avant la bascule Phala");
   for (const [name, value, length] of [
     ["SIRIUS_EXPECTED_MRTD", process.env.SIRIUS_EXPECTED_MRTD, 96],
-    ["SIRIUS_EXPECTED_RTMR3", process.env.SIRIUS_EXPECTED_RTMR3, 96],
     ["SIRIUS_EXPECTED_COMPOSE_HASH", process.env.SIRIUS_EXPECTED_COMPOSE_HASH, 64],
     ["SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256, 64],
     ["NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256", process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256, 64],

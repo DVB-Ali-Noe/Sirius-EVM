@@ -161,7 +161,6 @@ test("clé de cache : change avec chaque pièce et chaque valeur épinglée", ()
     verificationCacheKey({ ...record, evidence: { ...record.evidence, eventLog: "[ ]" } } as CertificateRecord, {}),
     verificationCacheKey({ ...record, evidence: { ...record.evidence, composeHash: null } } as CertificateRecord, {}),
     verificationCacheKey(record, { SIRIUS_EXPECTED_MRTD: "1" }),
-    verificationCacheKey(record, { SIRIUS_EXPECTED_RTMR3: "1" }),
     verificationCacheKey(record, { SIRIUS_EXPECTED_COMPOSE_HASH: "1" }),
     verificationCacheKey(record, { DSTACK_SIMULATOR_ENDPOINT: "http://x" }),
   ];

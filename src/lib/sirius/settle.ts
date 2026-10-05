@@ -18,7 +18,7 @@ import {
   parseLoanAttestationPayload,
   serializeLoanAttestationPayload,
 } from "@/lib/tee/attestation";
-import { verifyTdxQuote } from "@/lib/tee/quote";
+import { isRecordedQuoteHardwareValid, verifyTdxQuote } from "@/lib/tee/quote";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { LoanAttestationPayload } from "@/lib/tee/types";
 import { loanBillingQuote } from "@/lib/billing/loan";
@@ -324,9 +324,11 @@ export async function settlePreparedLoan(
       eventLog: loan.attestationEventLog,
       composeHash: loan.attestationComposeHash,
     });
+    // Quote déjà acceptée (TCB UpToDate) au stockage : un TCB déclassé depuis ne bloque
+    // pas le règlement, seule une signature refusée ou révoquée le fait (audit A-01).
     if (
       verification.reportDataMatches !== true ||
-      verification.hardwareVerified !== true ||
+      !isRecordedQuoteHardwareValid(verification) ||
       verification.codeIdentityMatches !== true
     ) {
       throw new AppError("Quote TDX runner non authentifiée", 502);

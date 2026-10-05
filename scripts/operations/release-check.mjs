@@ -3,7 +3,8 @@ import { readPrivateFile } from "./archive.mjs";
 
 const ADDRESS = /^0x(?!0{40}$)[a-fA-F0-9]{40}$/;
 const CONTRACTS = ["ESCROW", "DATASET", "KYB", "USDC"];
-const MEASURES = { SIRIUS_EXPECTED_MRTD: 96, SIRIUS_EXPECTED_RTMR3: 96,
+// RTMR3 n'est plus épinglé brut : il change à chaque redémarrage de la CVM (audit A-01).
+const MEASURES = { SIRIUS_EXPECTED_MRTD: 96,
   SIRIUS_EXPECTED_COMPOSE_HASH: 64, SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: 64, NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: 64 };
 
 /**
