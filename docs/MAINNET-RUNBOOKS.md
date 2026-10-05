@@ -64,7 +64,7 @@ pnpm runner:transactions abandon <id-operation> --actor=<prénom> --reason="<dia
 
 1. État de la CVM : `sirius-phala cvms get <cvm> --profile sirius`.
 2. Redémarrer **la même** CVM (`cvms start`). Ne jamais en créer une nouvelle.
-3. Recapturer l'attestation et vérifier : même adresse de règlement, mesures identiques aux valeurs épinglées. Si une mesure change, ne pas rouvrir : runbook 1.
+3. Recapturer l'attestation et vérifier : même adresse de règlement, MRTD, compose hash, empreinte de la chaîne KMS et clé d'ingestion identiques aux valeurs épinglées, journal d'événements qui rejoue vers le RTMR3 de la quote. **RTMR3 seul change à chaque redémarrage de la CVM : ce n'est pas une compromission et il n'est plus épinglé** (décision du 5 octobre, audit A-01, A-02) ; rien à ré-épingler. Si MRTD, le compose hash, la chaîne KMS, la clé d'ingestion ou l'adresse de règlement change, ne pas rouvrir : runbook 1.
 4. Contrôler le rapport de budget attesté avant de considérer le service rétabli.
 
 ## 5. Reaper silencieux

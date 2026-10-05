@@ -101,7 +101,8 @@ async function main() {
   console.log(`[runner:capture-ra-tls] Quote matérielle vérifiée — mode ${evidence.bootstrapOnly ? "amorçage" : "actif"}`);
   console.log("Vérifier le compose et l’image attendus avant d’épingler ces mesures dans Next.");
   console.log(`SIRIUS_EXPECTED_MRTD=${verification.measurements.mrTd}`);
-  console.log(`SIRIUS_EXPECTED_RTMR3=${verification.measurements.rtMr3}`);
+  // RTMR3 n'est plus épinglé (il change à chaque redémarrage, audit A-01) : affiché pour information.
+  console.log(`# RTMR3 (non épinglé) ${verification.measurements.rtMr3}`);
   console.log(`SIRIUS_EXPECTED_COMPOSE_HASH=${evidence.composeHash.toLowerCase()}`);
   console.log(`SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256=${evidence.masterKeyChainSha256.toLowerCase()}`);
   console.log(`NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256=${evidence.ingressKeySha256.toLowerCase()}`);

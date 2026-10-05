@@ -6,9 +6,15 @@ const complete = {
   EVM_NETWORK: "mainnet", TEE_MODE: "phala", SIRIUS_REQUIRE_PHALA: "true", SIRIUS_BILLING_VERSION: "7",
   SIRIUS_EVM_FINALITY: "finalized", EVM_RPC_URL: "https://rpc", RUNNER_URL: "https://runner", RUNNER_TRANSPORT_SECRET: "s",
   SIRIUS_LOCK_AUTHORIZER: "0x1", SIRIUS_USDC_ADDRESS: "0x2", SIRIUS_KYB_ADDRESS: "0x3", SIRIUS_EXPECTED_MRTD: "a",
-  SIRIUS_EXPECTED_RTMR3: "b", SIRIUS_EXPECTED_COMPOSE_HASH: "c", SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: "d",
+  SIRIUS_EXPECTED_COMPOSE_HASH: "c", SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: "d",
   NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: "e",
 };
+
+test("A-02 : le reaper mainnet démarre sans SIRIUS_EXPECTED_RTMR3, qui n'est plus épinglé, et tolère sa présence", () => {
+  assert.ok(!("SIRIUS_EXPECTED_RTMR3" in complete));
+  assert.deepEqual(reaperMainnetIssues(complete), []);
+  assert.deepEqual(reaperMainnetIssues({ ...complete, SIRIUS_EXPECTED_RTMR3: "b" }), []);
+});
 
 test("le testnet garde ses valeurs historiques", () => {
   assert.deepEqual(reaperMainnetIssues({ EVM_NETWORK: "testnet", TEE_MODE: "stub" }), []);

@@ -224,7 +224,7 @@ export function certificateExport(record: CertificateRecord) {
       "The TDX quote report_data must start with payloadSha256, followed by zero bytes.",
       "Verify the quote signature and TCB status with Intel DCAP collateral (for example with dcap-qvl).",
       "Replay attestation.eventLog: it must reproduce the quote's RTMR3 and contain the compose-hash event equal to attestation.composeHash.",
-      "Compare MRTD, RTMR3 and composeHash with the values published for the Sirius enclave.",
+      "Compare MRTD and composeHash with the values published for the Sirius enclave. RTMR3 changes at every CVM restart and is only authenticated through the replayed event log.",
       "Check that settlementTxHash released the escrow for this loan on the chain identified by chainId.",
     ],
   };

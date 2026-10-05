@@ -32,7 +32,8 @@ Chaque ligne se coche avec la date, la personne et la preuve (hash de transactio
 ## 5. Machine Phala de production
 
 - [ ] Machine neuve, initialisée avec les politiques mainnet, mesures épinglées.
-- [ ] Décision RTMR3 appliquée (ne plus l'épingler, ou ré-épingler après chaque redémarrage), puis redémarrage de vérification : même adresse de règlement.
+- [x] Décision RTMR3 prise le 5 octobre (Ali) : ne plus l'épingler ; appliquée par la PR #72 (`fix/audit-a-01`) (`SIRIUS_EXPECTED_RTMR3` facultatif et ignoré, identité par MRTD, compose hash et journal rejoué).
+- [ ] Redémarrage de vérification de la machine de production : même adresse de règlement, même MRTD et compose hash, runner, reaper et règlement opérationnels sans ré-épinglage.
 - [ ] `release-check --network=mainnet` vert.
 
 ## 6. Bout en bout

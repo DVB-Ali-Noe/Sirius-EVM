@@ -127,7 +127,7 @@ function codeCheck(verification: QuoteVerificationView): CertificateCheck {
     return {
       label,
       state: "pass",
-      detail: "MRTD, RTMR3 and compose hash match the values pinned by Sirius today, and the event log replays to RTMR3.",
+      detail: "MRTD and compose hash match the values pinned by Sirius today, and the event log replays to RTMR3 with a single boot-time compose hash.",
     };
   }
   if (verification.codeIdentityMatches === false) {

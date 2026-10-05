@@ -55,7 +55,7 @@ Le calendrier reste serré : la partie datasets et les tutos occupent samedi et 
 | Safe | 2/3 plutôt que 2/2 : Ali, Noé et une clé matérielle de secours rangée hors ligne. Vérifier que app.safe.global gère Robinhood Chain 4663 |
 | KYB | **Strict, utilisé comme invitation** (décidé le 4 octobre). Le registre ouvert reste refusé sur mainnet par les trois garde-fous. Chaque testeur reçoit un code signé pour son adresse (`scripts/operations/kyb-invite.ts`). Admin du registre : le Safe ; vérificateur : une adresse dédiée, distincte de l'admin |
 | Ajouter des fonds sur mainnet | Fenêtre à trois choix (F1 et F2, fusionnées) : carte via MoonPay (`usdg_robinhood`, masquée sans clés live), depuis un autre wallet (QR et adresse, avertissement réseau et jeton), depuis une autre chaîne via Relay (USDC sur Base vers USDG ou ETH). Testnet : faucet inchangé. Test réel lundi sur mainnet |
-| Démo | `demo.sirius-data.tech` : déploiement staging figé, seule `/phala` est servie. RTMR3 change à chaque redémarrage de la machine Phala : à trancher au second audit pour la production |
+| Démo | `demo.sirius-data.tech` : déploiement staging figé, seule `/phala` est servie. RTMR3 change à chaque redémarrage de la machine Phala : tranché le 5 octobre, il n'est plus épinglé (PR #72 (`fix/audit-a-01`)) |
 
 ## Répartition avant le 6
 
