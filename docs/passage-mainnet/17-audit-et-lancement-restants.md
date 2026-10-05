@@ -56,7 +56,7 @@ Session cloud sur Fable, environ 100 euros de crédits, plafond de 120 agents. D
 | `EVM_NETWORK=mainnet` dans l'environnement GitHub production | Ali | ⏳ |
 | Configuration du nettoyeur de staging à compléter | Ali | ⏳ |
 | Clés MoonPay live (achat par carte) | Ali | ⏳ sinon le choix carte reste masqué |
-| Décision RTMR3 pour la machine de production | Ali et Noé | ✅ 5 octobre : ne plus l'épingler (PR `fix/audit-a-01`) |
+| Décision RTMR3 pour la machine de production | Ali et Noé | ✅ 5 octobre : ne plus l'épingler (PR #72 (`fix/audit-a-01`)) |
 
 ### 5. Mise en production — dimanche 4 et lundi 5 matin
 
