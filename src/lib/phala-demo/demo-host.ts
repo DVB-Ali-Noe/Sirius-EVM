@@ -13,6 +13,13 @@ export const DEMO_PAGE = "/phala";
 /** Routes API utilisées par la page de démo : session, connexion, entraînement, livraison du modèle. */
 const DEMO_API_PREFIXES = ["/api/phala-demo", "/api/auth", "/api/train", "/api/datasets", "/api/models"] as const;
 
+/**
+ * Routes exactes du parcours d'un wallet neuf (audit A-14) : attestation KYB de démo, statut du
+ * compte et jetons de test pour le gas du mint. Chemins exacts, pas les préfixes `/api/kyb` ou
+ * `/api/account`, pour ne rien ouvrir d'autre.
+ */
+const DEMO_API_EXACT = ["/api/kyb/demo", "/api/account/status", "/api/faucet"] as const;
+
 export type DemoRouteDecision = "allow" | "redirect" | "block";
 
 export function isDemoOnlyHost(host: string | null | undefined): boolean {
@@ -27,6 +34,7 @@ function underPrefix(pathname: string, prefix: string): boolean {
 
 export function demoOnlyRoute(pathname: string): DemoRouteDecision {
   if (pathname.startsWith("/api/") || pathname === "/api") {
+    if ((DEMO_API_EXACT as readonly string[]).includes(pathname)) return "allow";
     return DEMO_API_PREFIXES.some((prefix) => underPrefix(pathname, prefix)) ? "allow" : "block";
   }
   if (pathname === DEMO_PAGE || pathname === `${DEMO_PAGE}/`) return "allow";
