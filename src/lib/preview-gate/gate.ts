@@ -100,8 +100,14 @@ function isApiPath(pathname: string): boolean {
  * - `/_next/*` : chunks, CSS, polices et optimiseur d'images de la page d'attente. Les
  *   payloads RSC des autres pages passent par les mêmes chemins de page, pas par `/_next/`,
  *   et sont réécrits comme elles.
- * - Fichiers de `public/` et icônes de métadonnées (dernier segment avec extension, hors
- *   `/api`) : favicon, images d'aperçu de lien, exemples CSV déjà publics.
+ * - Fichiers statiques nommés un par un : les fichiers racine de `public/` et les icônes de
+ *   métadonnées de `src/app` (`ROOT_FILES`), et les deux dossiers de `public/` réellement
+ *   servis (`PUBLIC_DIRECTORIES` : avatars, exemples CSV déjà publics), à condition que le
+ *   dernier segment porte une extension. Pas d'heuristique « dernier segment avec
+ *   extension » : elle exemptait toute route dynamique et la page 404 pour peu qu'on
+ *   ajoute `.png` à l'adresse (`/marketplace/x.png`, `/proof/x.y`, `/dashboard.html`), et le
+ *   public voyait alors la coquille entière du site en cuisine. Ajouter un fichier à
+ *   `public/` hors de ces dossiers = l'ajouter ici, sinon la porte le réécrit.
  *
  * N'y figurent pas, délibérément : le contrôleur et le moteur (`src/runner`, `src/worker`,
  * `scripts/operations`) n'appellent jamais l'application Next — ils lisent la base et la
@@ -117,9 +123,43 @@ export function isPreviewGateExempt(pathname: string): boolean {
   if (pathname === PREVIEW_PATH) return true;
   if (pathname === "/terms" || pathname === "/terms/") return true;
   if (pathname.startsWith("/_next/")) return true;
-  if (pathname.includes("..")) return false;
-  const last = pathname.slice(pathname.lastIndexOf("/") + 1);
-  return /^[^.]+\.[a-z0-9]+$/i.test(last);
+  return isStaticFilePath(pathname);
+}
+
+/**
+ * Fichiers racine servis tels quels : `public/*.svg` et les icônes de métadonnées de
+ * `src/app` (favicon, icône, image d'aperçu de lien). Liste fermée, à tenir à jour avec
+ * `public/` et `src/app`.
+ */
+export const ROOT_FILES: ReadonlySet<string> = new Set([
+  "/favicon.ico",
+  "/icon.png",
+  "/apple-icon.png",
+  "/opengraph-image.png",
+  "/twitter-image.png",
+  "/file.svg",
+  "/globe.svg",
+  "/next.svg",
+  "/vercel.svg",
+  "/window.svg",
+]);
+
+/** Dossiers de `public/` servis sous la porte, avec la barre finale. */
+export const PUBLIC_DIRECTORIES: readonly string[] = ["/images/", "/examples/"];
+
+/**
+ * Un fichier sous un dossier de `public/` : chaque segment non vide et sans point initial,
+ * le dernier avec une extension. Exclut `..`, `.`, les segments vides et les dossiers.
+ */
+const PUBLIC_FILE = /^(?:[^/.][^/]*\/)*[^/.]+\.[a-z0-9]+$/i;
+
+/** Fichier statique nommé : fichier racine listé, ou fichier sous un dossier de `public/` servi. */
+export function isStaticFilePath(pathname: string): boolean {
+  if (ROOT_FILES.has(pathname)) return true;
+  for (const directory of PUBLIC_DIRECTORIES) {
+    if (pathname.startsWith(directory)) return PUBLIC_FILE.test(pathname.slice(directory.length));
+  }
+  return false;
 }
 
 const encoder = new TextEncoder();

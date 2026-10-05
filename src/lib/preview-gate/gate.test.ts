@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import {
   CLOSED_API_BODY,
   PREVIEW_COOKIE_MAX_AGE_SECONDS,
   PREVIEW_KEY_MIN_LENGTH,
+  PUBLIC_DIRECTORIES,
+  ROOT_FILES,
   decidePreviewGate,
   isPreviewGateExempt,
+  isStaticFilePath,
   previewCookieValid,
   previewCookieValue,
   previewGateStartupNotice,
@@ -96,14 +101,51 @@ test("liste blanche : test de fumée, conditions, page d'attente et route de la 
 
 test("fichiers statiques : chunks Next, favicon, images et exemples de public/ restent servis", async () => {
   const config = readPreviewGateConfig(ACTIVE);
-  for (const path of ["/_next/static/chunks/app.js", "/_next/static/css/app.css", "/_next/image", "/favicon.ico", "/icon.png", "/apple-icon.png", "/opengraph-image.png", "/twitter-image.png", "/images/avatar-noe.png", "/examples/regression/housing-prices-train.csv", "/file.svg"]) {
+  for (const path of ["/_next/static/chunks/app.js", "/_next/static/css/app.css", "/_next/image", "/favicon.ico", "/icon.png", "/apple-icon.png", "/opengraph-image.png", "/twitter-image.png", "/file.svg", "/globe.svg", "/next.svg", "/vercel.svg", "/window.svg", "/images/avatar-noe.png", "/images/devinci-blockchain.png", "/examples/README.md", "/examples/regression/housing-prices-train.csv", "/examples/benchmarks/industrial-yield-test.csv"]) {
     assert.equal(isPreviewGateExempt(path), true, path);
     assert.equal(await decidePreviewGate(config, path, null), "allow", path);
   }
   // Une extension ne suffit pas sous /api ni avec une remontée de chemin.
-  for (const path of ["/api/models/x.json", "/../x.png", "/images/../secret.png", "/dashboard", "/certificate/abc"]) {
+  for (const path of ["/api/models/x.json", "/../x.png", "/images/../secret.png", "/examples/../../etc/passwd.txt", "/dashboard", "/certificate/abc"]) {
     assert.equal(isPreviewGateExempt(path), false, path);
   }
+});
+
+test("une extension n'exempte pas une route dynamique ni la page 404 : liste fermée, pas d'heuristique", async () => {
+  const config = readPreviewGateConfig(ACTIVE);
+  // Chemins vérifiés par les relecteurs sur la branche : ils rendaient la coquille du site.
+  const contournements = ["/marketplace/x.png", "/datasets/abc.csv", "/proof/x.y", "/certificate/abc.pdf", "/dashboard.html", "/x.png", "/index.html", "/robots.txt", "/sitemap.xml", "/train/model.json", "/wallet/receive.svg", "/favicon.ico/x.png", "/icon.png/", "/images", "/images/", "/examples", "/examples/", "/images/.hidden.png", "/images/x", "/images/x.", "/images/x/", "/images//x.png", "/images/./x.png", "/examples/regression/", "/imagesx/x.png", "/Images/x.png", "/examples/x.PNG/y"];
+  for (const path of contournements) {
+    assert.equal(isPreviewGateExempt(path), false, path);
+    assert.equal(isStaticFilePath(path), false, path);
+    assert.equal(await decidePreviewGate(config, path, null), "wait", path);
+  }
+  // Avec le cookie, ces mêmes adresses sont ouvertes comme n'importe quelle page.
+  const cookie = await previewCookieValue(KEY);
+  for (const path of contournements) assert.equal(await decidePreviewGate(config, path, cookie), "open", path);
+});
+
+test("liste des fichiers racine et dossiers de public/ : exactement ceux du dépôt", () => {
+  // Lue sur disque : un fichier ajouté à `public/` ou une icône ajoutée à `src/app` sans
+  // mise à jour de la liste fait échouer ce test, plutôt que d'être réécrit vers la page
+  // d'attente en production.
+  const root = resolve(import.meta.dirname, "../../..");
+  const publicEntries = readdirSync(resolve(root, "public"), { withFileTypes: true });
+  const publicFiles = publicEntries.filter((entry) => entry.isFile()).map((entry) => `/${entry.name}`);
+  const publicDirectories = publicEntries.filter((entry) => entry.isDirectory()).map((entry) => `/${entry.name}/`);
+  const metadataIcons = readdirSync(resolve(root, "src/app"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^(favicon\.ico|(apple-)?icon\.[a-z]+|(opengraph|twitter)-image\.[a-z]+)$/.test(entry.name))
+    .map((entry) => `/${entry.name}`);
+  assert.deepEqual([...ROOT_FILES].sort(), [...publicFiles, ...metadataIcons].sort());
+  assert.deepEqual([...PUBLIC_DIRECTORIES].sort(), publicDirectories.sort());
+  assert.deepEqual([...ROOT_FILES].sort(), ["/apple-icon.png", "/favicon.ico", "/file.svg", "/globe.svg", "/icon.png", "/next.svg", "/opengraph-image.png", "/twitter-image.png", "/vercel.svg", "/window.svg"]);
+  assert.deepEqual([...PUBLIC_DIRECTORIES], ["/images/", "/examples/"]);
+  for (const directory of PUBLIC_DIRECTORIES) assert.match(directory, /^\/[a-z]+\/$/);
+  for (const file of ROOT_FILES) assert.match(file, /^\/[a-z-]+\.[a-z]+$/);
+  // Une extension en majuscules reste un fichier ; un segment ne commence jamais par un point.
+  assert.equal(isStaticFilePath("/examples/regression/HOUSING.CSV"), true);
+  assert.equal(isStaticFilePath("/examples/.env"), false);
+  assert.equal(isStaticFilePath("/FAVICON.ICO"), false);
 });
 
 test("comparaison de la clé : exacte, sans tolérance", async () => {
