@@ -450,3 +450,33 @@ test("un règlement v7 avec modèle passe encore par la validation de sa preuve"
   assert.equal(reads(), 1);
   assert.equal(updates.length, 0);
 });
+
+test("A-05 : une capsule v7 échue, toujours verrouillée on-chain et sans release diffusé, n'est plus réglée par le reaper", async () => {
+  const reads = billedReaperFixture(1);
+  const logs: unknown[][] = [];
+  mock.method(console, "log", (...args: unknown[]) => { logs.push(args); });
+  const overdue = new Date(Date.now() - 60_000);
+  for (const status of ["TRAINING", "SETTLING"] as const) {
+    stubDb(prisma.loan, "findMany", async () => [loan({ status, modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue })]);
+    await reap();
+  }
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+  assert.deepEqual(logs, [
+    ["[reaper] prêt EVM loan-1 échu : règlement impossible, remboursement à l'initiative de l'emprunteur"],
+    ["[reaper] prêt EVM loan-1 échu : règlement impossible, remboursement à l'initiative de l'emprunteur"],
+  ]);
+});
+
+test("avant l'échéance, ou avec un release déjà diffusé, le reaper reprend encore le règlement v7", async () => {
+  const reads = billedReaperFixture(1);
+  const inTime = new Date(Date.now() + 60_000);
+  const overdue = new Date(Date.now() - 60_000);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: inTime })]);
+  await reap();
+  assert.equal(reads(), 1);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "SETTLING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue, settleTxHash: HASH })]);
+  await reap();
+  assert.equal(reads(), 2);
+  assert.equal(updates.length, 0);
+});

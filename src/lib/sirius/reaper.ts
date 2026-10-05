@@ -60,7 +60,8 @@ async function reapBatch(now: Date): Promise<void> {
         await recoverUnsubmittedLoan(loan);
         continue;
       }
-      if (loan.billingQuoteHash && await reconcileClosedLoan(loan)) continue;
+      const chain = loan.billingQuoteHash ? await reconcileClosedLoan(loan) : null;
+      if (chain === "closed") continue;
       if (!loan.modelCid && loan.billingQuoteHash) {
         if (await recoverLoanResult(loan.id)) {
           await settlePreparedLoan(loan.id);
@@ -71,6 +72,15 @@ async function reapBatch(now: Date): Promise<void> {
         continue;
       }
       if ((loan.status === "TRAINING" || loan.status === "SETTLING") && loan.modelCid && loan.billingQuoteHash) {
+        // Échu et toujours verrouillé on-chain, sans release diffusé : le contrat refuse désormais
+        // tout release (`ChallengePeriodElapsed`), seul `refund()` par l'emprunteur libère les fonds
+        // (audit A-05, A-10). Retenter le règlement toutes les 90 s ne ferait qu'osciller
+        // SETTLING/TRAINING. Un release déjà diffusé (`settleTxHash`) ou un prêt réglé on-chain
+        // passent encore par `settlePreparedLoan`, qui reconcilie le hash existant.
+        if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
+          console.log(`[reaper] prêt EVM ${loan.id} échu : règlement impossible, remboursement à l'initiative de l'emprunteur`);
+          continue;
+        }
         await settlePreparedLoan(loan.id);
         continue;
       }
@@ -82,12 +92,17 @@ async function reapBatch(now: Date): Promise<void> {
   }
 }
 
-async function reconcileClosedLoan(loan: Loan): Promise<boolean> {
-  if (!loan.evmLoanKey || !loan.evmLockBlock) return false;
+/**
+ * Clôture le prêt en base si la chaîne l'a déjà réglé ou remboursé (`closed`). Sinon, renvoie l'état
+ * on-chain (`active`, ou `settled` pour un prêt v7 dont la preuve reste à valider) ou `unbound`
+ * (lock absent) : le reaper choisit alors la suite sans relire la chaîne.
+ */
+async function reconcileClosedLoan(loan: Loan): Promise<"closed" | "active" | "settled" | "unbound"> {
+  if (!loan.evmLoanKey || !loan.evmLockBlock) return "unbound";
   const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
-  if (state.state === "active") return false;
+  if (state.state === "active") return "active";
   // La reprise du résultat et la validation de sa preuve précèdent toujours le règlement v7.
-  if (state.state === "settled" && loan.billingQuoteHash) return false;
+  if (state.state === "settled" && loan.billingQuoteHash) return "settled";
   await prisma.loan.updateMany({
     where: { id: loan.id, status: loan.status, updatedAt: loan.updatedAt },
     data: state.state === "settled"
@@ -95,5 +110,5 @@ async function reconcileClosedLoan(loan: Loan): Promise<boolean> {
       : { status: "CANCELLED", cancelTxHash: state.txHash,
         ...(state.retainedFee !== undefined ? { retainedFeeUsdcAtomic: state.retainedFee, refundAmountUsdcAtomic: state.refundAmount } : {}) },
   });
-  return true;
+  return "closed";
 }

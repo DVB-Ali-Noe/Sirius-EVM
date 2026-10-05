@@ -6,10 +6,12 @@ import {
   LOAN_STATE_LABEL_KEY,
   LOAN_STATE_VARIANT,
   canRefund,
+  canResumeSettlement,
   canRetrain,
   hasOtherActiveLoan,
   isFailedWithoutModel,
-  isOverdueWithoutReceipt,
+  isOverdueUnsettled,
+  isOverdueWithCapsule,
   canRescueRefund,
   loanDisplayState,
   parseAdminResponse,
@@ -98,11 +100,13 @@ test("Rembourser : jamais avant l'échéance, jamais si le serveur ne le dit pas
   assert.equal(canRefund({ ...failed(), refundable: 1 as unknown as boolean }, ME), false);
 });
 
-test("Rembourser : jamais si un modèle est livrable ou livré", () => {
-  // Capsule prête avec reçu : le règlement reste possible, pas de remboursement.
-  assert.equal(canRefund(loan({ refundable: true, modelCid: "bafy", runnerReceipt: "receipt" }), ME), false);
-  assert.equal(canRefund(loan({ status: "TRAINING", refundable: true, modelCid: "bafy", runnerReceipt: "receipt" }), ME), false);
+test("Rembourser : jamais si un release est diffusé ou le prêt réglé", () => {
+  // Capsule prête avec reçu, dans les délais : le règlement reste possible, pas de remboursement.
+  assert.equal(canRefund(loan({ refundable: false, modelCid: "bafy", runnerReceipt: "receipt" }), ME), false);
+  assert.equal(canRefund(loan({ status: "TRAINING", refundable: false, modelCid: "bafy", runnerReceipt: "receipt" }), ME), false);
+  // Release diffusé avant l'échéance : il peut être miné, réconciliation seulement.
   assert.equal(canRefund(loan({ status: "SETTLING", refundable: true, settleTxHash: TX }), ME), false);
+  assert.equal(canRefund(loan({ status: "SETTLING", refundable: true, modelCid: "bafy", runnerReceipt: "receipt", settleTxHash: TX }), ME), false);
   assert.equal(canRefund({ ...completed(), refundable: true }, ME), false);
   assert.equal(canRefund(completed(), ME), false);
 });
@@ -132,25 +136,83 @@ test("échu + capsule sans reçu : remboursement de secours, jamais de fonds blo
   assert.equal(canRefund(stuck({ settleTxHash: TX }), ME), false);
   assert.equal(canRefund(stuck({ cancelTxHash: TX }), ME), false);
   assert.equal(canRefund(stuck({ evmLoanKey: null }), ME), false);
-  assert.equal(canRefund(stuck({ runnerReceipt: "receipt" }), ME), false);
   assert.equal(canRefund(stuck({ status: "SETTLED", settleTxHash: TX }), ME), false);
+});
+
+test("A-05, A-10 : échu avec capsule et reçu, sans release diffusé : Rembourser visible, Finaliser masqué", () => {
+  // Le contrat refuse tout `release` après l'échéance (`ChallengePeriodElapsed`) : le règlement est
+  // devenu impossible, que le runner ait répondu (A-05) ou que sa quote ne soit plus acceptée (A-10).
+  const prepared = (overrides: Partial<LoanDisplayInput> = {}) =>
+    loan({ refundable: true, modelCid: "bafy", runnerReceipt: "receipt", ...overrides });
+  for (const status of ["ESCROWED", "TRAINING", "SETTLING"]) {
+    assert.equal(canRefund(prepared({ status }), ME), true, status);
+    assert.equal(canRescueRefund(prepared({ status }), ME), true, status);
+    assert.equal(isOverdueUnsettled(prepared({ status })), true, status);
+    assert.equal(isOverdueWithCapsule(prepared({ status })), true, status);
+    assert.equal(isFailedWithoutModel(prepared({ status })), false, status);
+    assert.equal(loanDisplayState(prepared({ status })), "failed", status);
+    assert.equal(canResumeSettlement(prepared({ status })), false, status);
+  }
+  // Garde-fous inchangés : tiers, fournisseur, délai, release diffusé, déjà remboursé, réglé, sans clé.
+  assert.equal(canRefund(prepared(), OTHER), false);
+  assert.equal(canRefund(prepared({ borrower: null }), ME), false);
+  assert.equal(canRefund(prepared({ refundable: false }), ME), false);
+  assert.equal(canRefund(prepared({ refundable: undefined }), ME), false);
+  assert.equal(canRefund(prepared({ settleTxHash: TX }), ME), false);
+  assert.equal(canRefund(prepared({ cancelTxHash: TX }), ME), false);
+  assert.equal(canRefund(prepared({ evmLoanKey: null }), ME), false);
+  assert.equal(canRefund(prepared({ status: "SETTLED", settleTxHash: TX }), ME), false);
+  assert.equal(canRefund(prepared({ status: "SETTLED", settleTxHash: null }), ME), false);
+  assert.equal(canRefund(prepared({ status: "CANCELLED" }), ME), false);
+});
+
+test("Finaliser ou réconcilier le règlement : capsule et reçu, et règlement encore possible", () => {
+  const ready = (overrides: Partial<LoanDisplayInput> = {}) =>
+    loan({ status: "TRAINING", modelCid: "bafy", runnerReceipt: "receipt", ...overrides });
+  assert.equal(canResumeSettlement(ready()), true);
+  assert.equal(canResumeSettlement(ready({ status: "SETTLING" })), true);
+  // Release diffusé avant l'échéance : la réconciliation reste proposée, même échu.
+  assert.equal(canResumeSettlement(ready({ status: "SETTLING", settleTxHash: TX, refundable: true })), true);
+  // Échu sans release : le contrat refuserait, seul le remboursement reste.
+  assert.equal(canResumeSettlement(ready({ refundable: true })), false);
+  assert.equal(canResumeSettlement(ready({ status: "SETTLING", refundable: true })), false);
+  // Jamais sans capsule, sans reçu, ni hors TRAINING/SETTLING.
+  assert.equal(canResumeSettlement(ready({ runnerReceipt: null })), false);
+  assert.equal(canResumeSettlement(ready({ modelCid: null })), false);
+  for (const status of ["PENDING", "SUBMITTING", "ESCROWED", "SETTLED", "CANCELLED", "X"]) {
+    assert.equal(canResumeSettlement(ready({ status })), false, status);
+  }
+  // Un prêt n'est jamais à la fois remboursable et réglable.
+  for (const status of ["ESCROWED", "TRAINING", "SETTLING"]) {
+    for (const refundable of [true, false]) {
+      for (const settleTxHash of [null, TX]) {
+        const candidate = ready({ status, refundable, settleTxHash });
+        assert.ok(!(canRefund(candidate, ME) && canResumeSettlement(candidate)), `${status} ${refundable} ${settleTxHash}`);
+      }
+    }
+  }
 });
 
 test("Rembourser et état échoué restent cohérents", () => {
   for (const status of ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED", "X"]) {
     for (const refundable of [true, false]) {
       for (const modelCid of [null, "bafy"]) {
-        for (const settleTxHash of [null, TX]) {
-          for (const cancelTxHash of [null, TX]) {
-            const candidate = loan({ status, refundable, modelCid, settleTxHash, cancelTxHash });
-            if (canRefund(candidate, ME)) {
-              assert.equal(loanDisplayState(candidate), "failed");
-              assert.equal(isFailedWithoutModel(candidate) || isOverdueWithoutReceipt(candidate), true);
-              assert.ok(candidate.modelCid === null || !candidate.runnerReceipt);
-              assert.equal(candidate.settleTxHash, null);
-              assert.equal(candidate.cancelTxHash, null);
-              assert.ok(["ESCROWED", "TRAINING", "SETTLING"].includes(status));
-              assert.equal(refundable, true);
+        for (const runnerReceipt of [null, "receipt"]) {
+          for (const settleTxHash of [null, TX]) {
+            for (const cancelTxHash of [null, TX]) {
+              const candidate = loan({ status, refundable, modelCid, runnerReceipt, settleTxHash, cancelTxHash });
+              if (canRefund(candidate, ME)) {
+                assert.equal(loanDisplayState(candidate), "failed");
+                assert.equal(isOverdueUnsettled(candidate), true);
+                assert.equal(isFailedWithoutModel(candidate) || isOverdueWithCapsule(candidate), true);
+                assert.equal(isFailedWithoutModel(candidate) && isOverdueWithCapsule(candidate), false);
+                assert.equal(candidate.settleTxHash, null);
+                assert.equal(candidate.cancelTxHash, null);
+                assert.ok(["ESCROWED", "TRAINING", "SETTLING"].includes(status));
+                assert.equal(refundable, true);
+              } else if (["ESCROWED", "TRAINING", "SETTLING"].includes(status) && refundable && !settleTxHash && !cancelTxHash) {
+                assert.fail(`remboursement attendu : ${status} ${modelCid} ${runnerReceipt}`);
+              }
             }
           }
         }
