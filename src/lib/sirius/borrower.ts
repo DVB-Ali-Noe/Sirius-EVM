@@ -23,7 +23,7 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
-import { assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
+import { assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -31,6 +31,7 @@ const MAX_RUNS_PER_WINDOW = 3;
 
 export async function prepareLoan(datasetId: string, borrower: string) {
   const borrowerAddress = normalizeAddress(borrower);
+  assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
   // `wrappedKey` est retirée de toute lecture par le `omit` global de `db.ts`, pour
   // qu'elle ne puisse jamais partir dans une réponse d'API. Les contrôles ci-dessous
@@ -174,6 +175,8 @@ export async function prepareLoan(datasetId: string, borrower: string) {
 
 export async function renewLoanLock(loanId: string, borrower: string) {
   const address = normalizeAddress(borrower);
+  // Une nouvelle autorisation de lock ferait entrer des fonds : fermée elle aussi par le coupe-circuit.
+  assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan) throw new AppError("Loan introuvable", 404);
