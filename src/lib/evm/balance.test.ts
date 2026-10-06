@@ -51,3 +51,12 @@ test("le solde USDC est présenté comme un jeton de test", () => {
     );
   }
 });
+
+test("les fonds reçus sont libellés avec le jeton du réseau, jamais « USDC » en dur", () => {
+  for (const page of PAGES) {
+    assert.match(page, /t\("\{usdc\} \{token\} envoyés\.", \{ usdc: recu\.usdc, token \}\)/);
+    assert.match(page, /t\("\{usdc\} \{token\} et \{eth\} ETH envoyés\."/);
+    // Sur mainnet, « USDC » à côté d'un montant désignerait un autre jeton que celui du solde (USDG).
+    assert.doesNotMatch(page, /\} USDC/);
+  }
+});

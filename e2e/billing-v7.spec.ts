@@ -164,10 +164,10 @@ test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; acc
   const dialog = page.getByRole("dialog", { name: "Training quote" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("Dataset price")).toBeVisible();
-  await expect(dialog.getByText("1.75 USDC", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("7 USDC", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("8.75 USDC", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Maximum retained fee : 0.001 USDC")).toBeVisible();
+  await expect(dialog.getByText("1.75 test USDC", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("7 test USDC", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("8.75 test USDC", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Maximum retained fee : 0.001 test USDC")).toBeVisible();
   await dialog.getByRole("button", { name: "Accept and prepay" }).click();
   await expect.poll(() => calls.submit).toBe(1);
   const sent = await transactions(page);
@@ -262,9 +262,9 @@ test("I5 : un échec mesuré affiche le remboursement crédité et les frais ret
   await page.goto("/train");
   await connect(page);
   await expect(page.getByText("Refund credited")).toBeVisible();
-  await expect(page.getByText("8.725 USDC", { exact: true })).toBeVisible();
+  await expect(page.getByText("8.725 test USDC", { exact: true })).toBeVisible();
   await expect(page.getByText("Execution fees retained")).toBeVisible();
-  await expect(page.getByText("0.025 USDC", { exact: true })).toBeVisible();
+  await expect(page.getByText("0.025 test USDC", { exact: true })).toBeVisible();
 });
 
 test("I8 : après l'échéance, récupérer l'escrow envoie refund(loanKey) au bon contrat puis réconcilie", async ({ page }) => {
@@ -309,7 +309,7 @@ test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant
   await page.getByRole("button", { name: "View the quote and retrain" }).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("8.75 USDC", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("8.75 test USDC", { exact: true })).toBeVisible();
   expect(bodies).toEqual([{ datasetId: listed.id }]);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();

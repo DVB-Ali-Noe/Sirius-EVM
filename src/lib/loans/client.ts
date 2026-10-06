@@ -38,7 +38,7 @@ async function submitLoanLock(loanId: string, lockTxHash?: string): Promise<void
     body: JSON.stringify(hash ? { lockTxHash: hash } : {}),
   });
   const submitted = await submit.json() as { error?: string };
-  if (!submit.ok) throw new Error(submitted.error ?? "Lock USDC non confirmé");
+  if (!submit.ok) throw new Error(submitted.error ?? "Lock de paiement non confirmé");
   window.sessionStorage.removeItem(lockSubmissionStorageKey(loanId));
 }
 
@@ -63,7 +63,7 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
     error?: string;
   };
   if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
-    throw new Error(body.error ?? "Préparation du lock USDC échouée");
+    throw new Error(body.error ?? "Préparation du lock de paiement échouée");
   }
   assertCurrent();
   const billingVersion = await escrowBillingVersion();
@@ -86,7 +86,7 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; billingQuote?: SignedComputeQuote; error?: string };
   if (!renewal.ok || !authorized.lockTransaction) throw new Error(authorized.error ?? "Autorisation du lock refusée");
   if (!authorized.authorizationDeadline || authorized.authorizationDeadline * 1_000 <= Date.now()) {
-    throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation USDC reste acquise.");
+    throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation du stablecoin reste acquise.");
   }
   if (Boolean(signedQuote) !== Boolean(authorized.billingQuote)) throw new Error("Devis compute hors scope");
   if (signedQuote && computeQuoteHash(signedQuote.quote) !== computeQuoteHash(authorized.billingQuote!.quote)) throw new Error("Devis compute hors scope");
@@ -104,7 +104,7 @@ export async function resumeLoanSubmission(loanId: string, lockTxHash?: string):
 export async function cancelExpiredLoan(loanId: string): Promise<void> {
   const response = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
   const body = await response.json() as { error?: string; transaction?: Record<string, unknown> };
-  if (!response.ok) throw new Error(body.error ?? "Remboursement USDC échoué");
+  if (!response.ok) throw new Error(body.error ?? "Remboursement de l’escrow échoué");
   if (body.transaction) {
     await sendActiveTransaction(guardRefundTransaction(body.transaction), { waitForConfirmation: true });
     const confirmed = await fetch(`/api/loans/${loanId}/cancel`, { method: "POST" });
@@ -164,7 +164,7 @@ async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> 
   });
   const body = await response.json() as { error?: string; pending?: boolean };
   if (response.status === 202 && body.pending) throw new Error(SETTLEMENT_FINALITY_PENDING);
-  if (!response.ok) throw new Error(body.error ?? "Règlement USDC échoué");
+  if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");
 }
 
 export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {

@@ -11,7 +11,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "propriétaire du dataset": "dataset owner",
   "entraîne un modèle": "trains a model",
   "publie le titre": "publishes the title",
-  "verrouille des USDC": "locks USDC",
+  "verrouille le stablecoin": "locks the stablecoin",
   "modèle chiffré": "encrypted model",
   "release + préimage": "release + preimage",
   "modèle prêt ?": "model ready?",
@@ -23,7 +23,9 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "data lending confidentiel sur une chaîne EVM": "confidential data lending on an EVM chain",
   "Le provider propose son dataset pour entraîner un modèle ; le borrower reçoit le modèle, pas le CSV source.": "The provider offers a dataset for model training; the borrower receives the model, not the source CSV.",
   "Le règlement est libellé en": "Settlement is denominated in",
-  "et vérifiable on-chain.": "and verifiable on-chain.",
+  "stablecoin": "a stablecoin",
+  "(USDG de Paxos sur mainnet) et vérifiable on-chain.": "(Paxos USDG on mainnet) and verifiable on-chain.",
+  "Escrow en stablecoin": "Stablecoin escrow",
   "Les données les plus précieuses sont aussi les plus verrouillées : santé, finance, données personnelles ou secrets métier. Elles ne peuvent pas être partagées en clair sans perdre le contrôle.": "The most valuable data is often the most restricted: health, finance, personal data, or trade secrets. It cannot be shared in plaintext without losing control.",
   "Sirius inverse le flux :": "Sirius reverses the flow:",
   "le modèle vient à la donnée": "the model comes to the data",
@@ -48,12 +50,12 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Publier": "Publish",
   "Le provider inscrit le titre et l’empreinte du profil dans le registre EVM, sous contrôle KYB. Le CSV chiffré reste hors chaîne ; le titre publié fixe le profil utilisable.": "The provider registers the title and profile hash in the EVM registry, subject to KYB. The encrypted CSV stays off-chain; the published title fixes the allowed profile.",
   "Verrouiller": "Lock",
-  "Le borrower utilise le profil fixé par le dataset, approuve les USDC puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.": "The borrower uses the dataset’s fixed profile, approves USDC, and signs lock. Escrow checks the title, profile, and KYB, then fixes the amount, hashlock, and expiry.",
+  "Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.": "The borrower uses the dataset’s fixed profile, approves the stablecoin, and signs lock. Escrow checks the title, profile, and KYB, then fixes the amount, hashlock, and expiry.",
   "Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.": "The runner cross-checks KYB, title, profile, and escrow terms before decrypting and training. Hardware isolation requires attested Phala mode.",
   "Régler": "Settle",
-  "Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit USDC se retire séparément.": "Once the capsule is ready, the runner calls release: the provider is credited and the preimage is published. The browser can then open the model. USDC credit is withdrawn separately.",
+  "Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit en stablecoin se retire séparément.": "Once the capsule is ready, the runner calls release: the provider is credited and the preimage is published. The browser can then open the model. Stablecoin credit is withdrawn separately.",
   "Implémenté": "Implemented",
-  "Hashlock SHA-256, transferts USDC exacts, KYB des deux parties, remboursement et retraits pull-only.": "SHA-256 hashlock, exact USDC transfers, KYB for both parties, refunds, and pull-only withdrawals.",
+  "Hashlock SHA-256, transferts exacts en stablecoin, KYB des deux parties, remboursement et retraits pull-only.": "SHA-256 hashlock, exact stablecoin transfers, KYB for both parties, refunds, and pull-only withdrawals.",
   "Attestations EIP-712, expiration, révocation durable et consentement du wallet ; l’émetteur est externe.": "EIP-712 attestations, expiry, durable revocation, and wallet consent; the issuer is external.",
   "Contrôles croisés": "Cross-checks",
   "L’escrow lie le prêt au titre et au profil ; le runner les recoupe avec les KYB et les termes du prêt avant déchiffrement.": "Escrow binds the loan to the title and profile; the runner cross-checks these with KYB and loan terms before decryption.",
@@ -85,7 +87,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Qui peut l’appeler": "Who can call it",
   "Effet vérifiable": "Verifiable effect",
   "Le borrower": "The borrower",
-  "Crée un prêt USDC lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.": "Creates a USDC loan bound to the title and training profile, fixing the provider, amount, hashlock, and 1-to-30-day expiry; both KYB attestations must be valid.",
+  "Crée un prêt en stablecoin lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.": "Creates a stablecoin loan bound to the title and training profile, fixing the provider, amount, hashlock, and 1-to-30-day expiry; both KYB attestations must be valid.",
   "Toute adresse qui connaît le préimage, avant l’échéance": "Any address knowing the preimage, before expiry",
   "Révèle le préimage et crédite le provider, sans transfert externe dans cette transaction.": "Reveals the preimage and credits the provider, without an external transfer in this transaction.",
   "Toute adresse, après échéance": "Any address, after expiry",
@@ -111,7 +113,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "La suppression": "Deletion",
   "détruit la clé de dataset et laisse un tombstone vérifiable, sans rendre le contenu récupérable.": "destroys the dataset key and leaves a verifiable tombstone without making the content recoverable.",
   "Règlement": "Settlement",
-  "Pas d’admin, pas d’upgrade ni de frais. USDC exact, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.": "No admin, upgrade, or fees. Exact USDC, SHA-256 hashlock, KYB for both parties, strict expiry, and pull-only credits.",
+  "Pas d’admin, pas d’upgrade ni de frais. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.": "No admin, upgrade, or fees. Exact stablecoin amounts, SHA-256 hashlock, KYB for both parties, strict expiry, and pull-only credits.",
   "Attestations EIP-712 avec consentement, nonce anti-rejeu, expiration, révocation et époque de vérificateur. L’admin pilote les vérificateurs.": "EIP-712 attestations with consent, anti-replay nonce, expiry, revocation, and verifier epoch. The admin manages verifiers.",
   "Provenance": "Provenance",
   "Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.": "Deterministic title, KYB checks, CID hash, Merkle root, size, immutable training profile, and tombstone after deletion.",
@@ -141,16 +143,16 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "Delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
   "Exemple d’entraînement linéaire": "Linear training example",
   "Exemple d’entraînement logistique": "Logistic training example",
-  "Un profil incompatible est refusé avant le verrouillage des USDC. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt USDC.": "An incompatible profile is rejected before USDC is locked. To change the profile, upload the dataset again. Self-training on your own data also respects this profile, without a USDC loan.",
+  "Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.": "An incompatible profile is rejected before the stablecoin is locked. To change the profile, upload the dataset again. Self-training on your own data also respects this profile, without a loan.",
   "Préimage avant release": "Preimage before release",
   "Préimage publié au release": "Preimage published on release",
   "Ce tableau décrit le mode Phala distant attesté, sans partage volontaire des artefacts par les participants. Il ne s’applique pas au mode stub local, où le serveur a accès à la donnée brute et aux clés. Le préimage public ne suffit pas à ouvrir la capsule sans la clé du navigateur destinataire.": "This table describes remote attested Phala mode, without participants voluntarily sharing artifacts. It does not apply to local stub mode, where the server has access to raw data and keys. The public preimage alone cannot open the capsule without the recipient browser’s key.",
   "Sur petit écran, faites défiler le schéma horizontalement.": "On smaller screens, scroll the diagram horizontally.",
   "Flux du dataset et du règlement": "Dataset and settlement flow",
-  "Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille les USDC ; le runner publie le préimage au règlement.": "The provider sends the encrypted CSV to the runner and publishes the title. The runner uses IPFS for encrypted storage and delivers the encrypted model to the borrower. The borrower locks USDC; the runner publishes the preimage at settlement.",
+  "Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.": "The provider sends the encrypted CSV to the runner and publishes the title. The runner uses IPFS for encrypted storage and delivers the encrypted model to the borrower. The borrower locks the stablecoin; the runner publishes the preimage at settlement.",
   "stub ou TEE attesté": "stub or attested TEE",
   "stockage chiffré": "encrypted storage",
-  "DatasetRegistry · KYB · Escrow\nCrédits USDC · retraits séparés": "DatasetRegistry · KYB · Escrow\nUSDC credits · separate withdrawals",
+  "DatasetRegistry · KYB · Escrow\nCrédits en stablecoin · retraits séparés": "DatasetRegistry · KYB · Escrow\nStablecoin credits · separate withdrawals",
   "CSV chiffré": "encrypted CSV",
   "lecture": "read",
   "Livraison du modèle et paiement": "Model delivery and payment",
@@ -162,9 +164,9 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Pas de release": "No release",
   "échec ou délai dépassé": "failure or missed deadline",
   "après échéance\nborrower crédité": "after expiry\nborrower credited",
-  "Les crédits USDC se retirent séparément.": "USDC credits are withdrawn separately.",
+  "Les crédits en stablecoin se retirent séparément.": "Stablecoin credits are withdrawn separately.",
   "lock crée un prêt Locked. Avant échéance, release le passe à Released ; après échéance, refund le passe à Refunded. Ces deux issues sont exclusives. Le retrait du crédit est séparé.": "lock creates a Locked loan. Before expiry, release moves it to Released; after expiry, refund moves it to Refunded. These outcomes are mutually exclusive. Credit withdrawal is separate.",
-  "USDC verrouillés\nprofil + hashlock + délai": "USDC locked\nprofile + hashlock + expiry",
+  "Stablecoin verrouillé\nprofil + hashlock + délai": "Stablecoin locked\nprofile + hashlock + expiry",
   "release avant échéance\npréimage public\nprovider crédité": "release before expiry\npublic preimage\nprovider credited",
   "refund après échéance\nborrower crédité": "refund after expiry\nborrower credited"
 };
@@ -244,7 +246,7 @@ export default function DocsPage() {
             <p className="mt-4 text-lg leading-relaxed text-muted">
               {d("Sirius est un protocole de")} <span className={strong}>{d("data lending confidentiel sur une chaîne EVM")}</span>.{" "}
               {d("Le provider propose son dataset pour entraîner un modèle ; le borrower reçoit le modèle, pas le CSV source.")}{" "}
-              {d("Le règlement est libellé en")} <span className={strong}>USDC</span> {d("et vérifiable on-chain.")}
+              {d("Le règlement est libellé en")} <span className={strong}>{d("stablecoin")}</span> {d("(USDG de Paxos sur mainnet) et vérifiable on-chain.")}
             </p>
 
             <div className="mt-6 space-y-3 rounded-xl border border-border bg-surface/60 p-5" role="note">
@@ -295,7 +297,7 @@ export default function DocsPage() {
                   ))}
                 </div>
                 <p>{d("Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.")}</p>
-                <p>{d("Un profil incompatible est refusé avant le verrouillage des USDC. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt USDC.")}</p>
+                <p>{d("Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.")}</p>
                 <p>{d("Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
                 <ul className="ml-5 list-disc space-y-2">
                   <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>
@@ -308,9 +310,9 @@ export default function DocsPage() {
                   {[
                     ["01", d("Déposer"), d("Le provider choisit le profil d’entraînement, puis le navigateur chiffre le CSV pour le runner. Le runner valide sa compatibilité, calcule le Merkle root et stocke le blob chiffré sur IPFS.")],
                     ["02", d("Publier"), d("Le provider inscrit le titre et l’empreinte du profil dans le registre EVM, sous contrôle KYB. Le CSV chiffré reste hors chaîne ; le titre publié fixe le profil utilisable.")],
-                    ["03", d("Verrouiller"), d("Le borrower utilise le profil fixé par le dataset, approuve les USDC puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.")],
+                    ["03", d("Verrouiller"), d("Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.")],
                     ["04", d("Entraîner"), d("Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.")],
-                    ["05", d("Régler"), d("Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit USDC se retire séparément.")],
+                    ["05", d("Régler"), d("Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit en stablecoin se retire séparément.")],
                   ].map(([n, title, description]) => (
                     <li key={n} className="flex gap-4">
                       <span className="shrink-0 text-2xl font-semibold tracking-tight text-muted">{n}</span>
@@ -323,7 +325,7 @@ export default function DocsPage() {
               <Section id="etat" title={d("État de l’implémentation")}>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
-                    ["Escrow USDC", d("Implémenté"), d("Hashlock SHA-256, transferts USDC exacts, KYB des deux parties, remboursement et retraits pull-only.")],
+                    [d("Escrow en stablecoin"), d("Implémenté"), d("Hashlock SHA-256, transferts exacts en stablecoin, KYB des deux parties, remboursement et retraits pull-only.")],
                     ["KYB", d("Implémenté"), d("Attestations EIP-712, expiration, révocation durable et consentement du wallet ; l’émetteur est externe.")],
                     [d("Contrôles croisés"), d("Implémenté"), d("L’escrow lie le prêt au titre et au profil ; le runner les recoupe avec les KYB et les termes du prêt avant déchiffrement.")],
                   ].map(([name, state, description]) => <div key={name} className="min-w-0 rounded-xl border border-border bg-surface/40 p-4 [overflow-wrap:anywhere]"><div className="text-xs font-medium tracking-widest text-muted">{state}</div><div className="mt-1 font-semibold text-foreground">{name}</div><p className="mt-1 text-sm text-muted">{description}</p></div>)}
@@ -359,7 +361,7 @@ export default function DocsPage() {
                     <thead><tr className="border-b border-border text-left text-muted"><th className="py-2 pr-4 font-medium">{d("Appel")}</th><th className="py-2 pr-4 font-medium">{d("Qui peut l’appeler")}</th><th className="py-2 font-medium">{d("Effet vérifiable")}</th></tr></thead>
                     <tbody className="align-top">
                       {[
-                        ["lock", d("Le borrower"), d("Crée un prêt USDC lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.")],
+                        ["lock", d("Le borrower"), d("Crée un prêt en stablecoin lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.")],
                         ["release", d("Toute adresse qui connaît le préimage, avant l’échéance"), d("Révèle le préimage et crédite le provider, sans transfert externe dans cette transaction.")],
                         ["refund", d("Toute adresse, après échéance"), d("Crédite uniquement le borrower ; cet appel ferme définitivement la fenêtre de release.")],
                         ["withdrawFor", d("Toute adresse"), d("Transfère le crédit uniquement au compte désigné, avec protection anti-réentrance.")],
@@ -401,7 +403,7 @@ export default function DocsPage() {
               <Section id="evm" title={d("Les contrats EVM")}>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
-                    ["SiriusEscrow", d("Règlement"), d("Pas d’admin, pas d’upgrade ni de frais. USDC exact, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.")],
+                    ["SiriusEscrow", d("Règlement"), d("Pas d’admin, pas d’upgrade ni de frais. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.")],
                     ["SiriusKybRegistry", "KYB", d("Attestations EIP-712 avec consentement, nonce anti-rejeu, expiration, révocation et époque de vérificateur. L’admin pilote les vérificateurs.")],
                     ["SiriusDatasetRegistry", d("Provenance"), d("Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.")],
                   ].map(([name, role, description]) => <div key={name} className="min-w-0 rounded-xl border border-border bg-surface/40 p-4 [overflow-wrap:anywhere]"><div className="text-xs font-medium tracking-widest text-muted">{role}</div><div className="mt-1 font-semibold text-foreground">{name}</div><p className="mt-1 text-sm text-muted">{description}</p></div>)}

@@ -147,7 +147,7 @@ test("présente des preuves vérifiables sur EVM", async ({ page }) => {
   await connect(page, BORROWER, "borrower");
 
   await expect(page.getByRole("heading", { name: "Explorer" })).toBeVisible();
-  await expect(page.getByText(PRIX_AFFICHE)).toBeVisible();
+  await expect(page.getByText(`${formatUsdcAtomic(PRIX_ATOMIQUE)} test USDC`)).toBeVisible();
   await expect(page.getByRole("link", { name: "Verify Lock USDC on EVM" }))
     .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/${lockTxHash}`);
   await expect(page.getByRole("link", { name: "Verify Release USDC on EVM" }))

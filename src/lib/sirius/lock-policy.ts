@@ -9,7 +9,7 @@ export function lockAuthorizationDeadline(createdAt: Date, now = Date.now()): nu
     Math.floor((createdAt.getTime() + PENDING_REAPER_TTL_MS - 60_000) / 1_000),
   );
   if (deadline < Math.floor(now / 1_000) + 60) {
-    throw new AppError("Préparation du prêt expirée. Relance l’emprunt ; l’approbation USDC reste acquise.", 409);
+    throw new AppError("Préparation du prêt expirée. Relance l’emprunt ; l’approbation du stablecoin reste acquise.", 409);
   }
   return deadline;
 }
