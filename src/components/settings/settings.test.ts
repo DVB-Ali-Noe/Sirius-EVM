@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { requestGuidedTour } from "../profile/guided-tour";
 import { subscribeGuidedTourRequests } from "../tour/tour-store";
 import { formatKybDate, offersRenewal, parseInstantAccess, parseKybStatus, parsePublicKybStatus, showsInvitationForm } from "./kyb-state";
-import { KYB_CONTACT_EMAIL, networkInfo, savedLanguage, TESTNET_SITE_URL } from "./settings-logic";
+import { KYB_CONTACT_EMAIL, KYB_SOON, kybSoonItems, networkInfo, savedLanguage, TESTNET_SITE_URL } from "./settings-logic";
 
 test("mainnet : libellé et lien vers le testnet ; testnet : pas de lien", () => {
   assert.deepEqual(networkInfo("mainnet"), { label: "Robinhood Chain mainnet", testnetUrl: TESTNET_SITE_URL });
@@ -58,6 +58,12 @@ test("l'accès instantané n'est proposé que sur un « true » explicite du ser
   for (const view of [{ state: "none" }, { state: "expired", expiresAt: now - 1 }, { state: "revoked" }, { state: "inactive" }, { state: "unknown" }] as const) {
     assert.equal(offersRenewal(view, now), false, view.state);
   }
+});
+
+test("avec l'accès instantané, « vérification sans invitation » n'est plus annoncée « bientôt » ; sans lui, la liste est entière", () => {
+  assert.deepEqual(kybSoonItems(false), KYB_SOON);
+  assert.deepEqual(kybSoonItems(true).map((item) => item.title), ["Benefits of verification"]);
+  assert.ok(KYB_SOON.some((item) => item.title === "Online verification without an invitation"));
 });
 
 test("le formulaire d'invitation n'apparaît que si le wallet n'est pas valide, jamais en cas d'erreur de lecture", () => {

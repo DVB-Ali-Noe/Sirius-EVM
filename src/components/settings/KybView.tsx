@@ -19,7 +19,7 @@ import {
   showsInvitationForm,
   type KybView as KybState,
 } from "./kyb-state";
-import { KYB_CONTACT_EMAIL, KYB_SOON } from "./settings-logic";
+import { KYB_CONTACT_EMAIL, kybSoonItems } from "./settings-logic";
 
 /** Page /kyb : état KYB du wallet (lu sur le contrat), invitation et fonctions à venir. */
 export function KybView() {
@@ -27,6 +27,9 @@ export function KybView() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
+  // Proposé par le serveur avec le statut (drapeau d'exécution), jamais déduit côté client.
+  // Porté ici plutôt que dans la carte : la liste « bientôt » en dépend aussi.
+  const [instantAccess, setInstantAccess] = useState(false);
 
   return (
     <Page width="wide">
@@ -38,7 +41,13 @@ export function KybView() {
       {connected && address ? (
         // `key` : un autre wallet ou une session ouverte repart d'un état vierge, sans reste de l'ancien.
         <div className="grid items-start gap-4 lg:grid-cols-2">
-          <KybStatusCard key={`${address}:${authenticated}`} address={address} authenticated={authenticated} />
+          <KybStatusCard
+            key={`${address}:${authenticated}`}
+            address={address}
+            authenticated={authenticated}
+            instantAccess={instantAccess}
+            onInstantAccess={setInstantAccess}
+          />
         </div>
       ) : (
         <ConnectPrompt message={t("Connecte un wallet pour voir ton statut KYB.")} data-testid="kyb-signed-out" />
@@ -47,18 +56,21 @@ export function KybView() {
       <section aria-labelledby="kyb-soon">
         <SectionTitle id="kyb-soon" className="mb-3">{t("Coming soon")}</SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {KYB_SOON.map((item) => <SoonItem key={item.title} {...item} />)}
+          {kybSoonItems(instantAccess).map((item) => <SoonItem key={item.title} {...item} />)}
         </ul>
       </section>
     </Page>
   );
 }
 
-function KybStatusCard({ address, authenticated }: { address: string; authenticated: boolean }) {
+function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess }: {
+  address: string;
+  authenticated: boolean;
+  instantAccess: boolean;
+  onInstantAccess: (enabled: boolean) => void;
+}) {
   const { t, locale } = useLocale();
   const [view, setView] = useState<KybState | null>(null);
-  // Proposé par le serveur avec le statut (drapeau d'exécution), jamais déduit côté client.
-  const [instantAccess, setInstantAccess] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   const load = useCallback(async (): Promise<{ view: KybState; instantAccess: boolean }> => {
@@ -81,13 +93,17 @@ function KybStatusCard({ address, authenticated }: { address: string; authentica
     let cancelled = false;
     void load().then((next) => {
       if (cancelled) return;
-      setInstantAccess(next.instantAccess);
+      onInstantAccess(next.instantAccess);
       setView(next.view);
     });
     return () => {
       cancelled = true;
     };
-  }, [load, attempt]);
+  }, [load, attempt, onInstantAccess]);
+
+  // Un autre wallet ou une déconnexion remonte la carte : rien n'est proposé tant que le
+  // nouveau statut n'est pas lu.
+  useEffect(() => () => onInstantAccess(false), [onInstantAccess]);
 
   const refresh = () => {
     setView(null);

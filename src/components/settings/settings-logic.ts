@@ -44,3 +44,11 @@ export const KYB_SOON = [
   { title: "Online verification without an invitation", hint: "Submit your company details and be verified by a Sirius verifier." },
   { title: "Benefits of verification", hint: "Verified provider badge, higher lending limits and early access to new models." },
 ] as const;
+
+/** Ce que l'accès instantané livre déjà : annoncé « bientôt » à côté du bouton, il contredirait la page. */
+const KYB_SOON_REPLACED_BY_INSTANT_ACCESS: ReadonlySet<string> = new Set(["Online verification without an invitation"]);
+
+/** Cartes « bientôt » de /kyb, sans celles que l'accès instantané rend caduques quand il est proposé. */
+export function kybSoonItems(instantAccess: boolean): readonly (typeof KYB_SOON)[number][] {
+  return instantAccess ? KYB_SOON.filter((item) => !KYB_SOON_REPLACED_BY_INSTANT_ACCESS.has(item.title)) : KYB_SOON;
+}
