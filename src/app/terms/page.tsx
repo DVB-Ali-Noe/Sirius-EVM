@@ -72,7 +72,7 @@ const SECTIONS: [string, string[]][] = [
   ["If you publish data", [
     "You warrant that you hold all the rights needed to publish the data and license it for training.",
     "You warrant that the data contains no personal data unless you have a lawful basis to share it for this purpose.",
-    "You indemnify Sirius against any claim arising from the data you publish.",
+    "To the extent permitted by law, you indemnify Sirius against any claim arising from the data you publish; this does not apply where you act as a consumer and the law prohibits it.",
   ]],
   ["Prohibited uses", [
     "Publishing illegal data, or personal data without a lawful basis.",
@@ -87,8 +87,9 @@ const SECTIONS: [string, string[]][] = [
     "Personal data is handled as described in the privacy policy.",
   ]],
   ["Liability", [
-    "To the maximum extent permitted by law, Sirius is not liable for indirect losses, and its total liability for a loan is capped at the fees paid to Sirius for that loan.",
-    "Nothing in these terms limits liability that cannot be limited by law, and nothing affects your mandatory rights as a consumer.",
+    "To the maximum extent permitted by law, Sirius is not liable for indirect losses, and its total liability for a loan is capped at the total amount you paid for the loan concerned.",
+    "This cap does not apply to gross negligence, wilful misconduct, death or personal injury, or anything else that cannot be limited by law.",
+    "If you act as a consumer, this clause applies only to the extent permitted by mandatory consumer law, and nothing affects your mandatory rights as a consumer.",
   ]],
   ["Consumers and governing law", [
     "If you use the service as a consumer, the mandatory consumer protections of your country of residence apply.",

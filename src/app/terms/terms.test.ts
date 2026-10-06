@@ -103,7 +103,7 @@ test("conditions : âge minimum, pas de conseil financier, non-custodial", () =>
 test("conditions : garanties du fournisseur de données et usages interdits", () => {
   assert.match(terms, /You warrant that you hold all the rights needed to publish the data/);
   assert.match(terms, /no personal data unless you have a lawful basis/);
-  assert.match(terms, /You indemnify Sirius against any claim arising from the data you publish/);
+  assert.match(terms, /To the extent permitted by law, you indemnify Sirius against any claim arising from the data you publish; this does not apply where you act as a consumer and the law prohibits it/);
   for (const clause of [/Publishing illegal data, or personal data without a lawful basis/, /malware/, /evade sanctions/, /extract or leak a dataset/]) {
     assert.match(terms, clause);
   }
@@ -111,8 +111,10 @@ test("conditions : garanties du fournisseur de données et usages interdits", ()
 
 test("conditions : responsabilité plafonnée, droits des consommateurs, droit français sans tribunal désigné", () => {
   assert.match(terms, /To the maximum extent permitted by law/);
-  assert.match(terms, /capped at the fees paid to Sirius for that loan/);
-  assert.match(terms, /Nothing in these terms limits liability that cannot be limited by law/);
+  assert.match(terms, /capped at the total amount you paid for the loan concerned/);
+  assert.doesNotMatch(terms, /fees paid to Sirius/, "plafond sur le montant payé pour le prêt, pas sur les seuls frais");
+  assert.match(terms, /does not apply to gross negligence, wilful misconduct, death or personal injury, or anything else that cannot be limited by law/);
+  assert.match(terms, /If you act as a consumer, this clause applies only to the extent permitted by mandatory consumer law/);
   assert.match(terms, /nothing affects your mandatory rights as a consumer/);
   assert.match(terms, /mandatory consumer protections of your country of residence apply/);
   assert.match(terms, /governed by French law/);
