@@ -29,7 +29,7 @@ test("les cinq textes anglais sont ceux de 16-socle-technique.md, section 4", ()
     disclaimerText("contactUs", t),
     "Need a stronger model or specific data? Contact us at sirius.data.contact@gmail.com.",
   );
-  assert.equal(disclaimerText("betaLimits", t), "Beta: invitation-only access, capped amounts per loan and in total.");
+  assert.equal(disclaimerText("betaLimits", t), "Beta: instant on-chain wallet verification, capped amounts per loan and in total.");
   assert.equal(
     disclaimerText("retrainDeterministic", t),
     "Linear and logistic regression are deterministic: retraining on the same data gives the same model.",

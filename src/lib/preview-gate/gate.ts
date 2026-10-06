@@ -76,7 +76,8 @@ export function previewGateStartupNotice(env: PreviewGateEnvironment = process.e
  * - `open`   : porte inactive, ou cookie valide → comportement habituel ;
  * - `allow`  : porte active, sans cookie, ressource en liste blanche (route de la clé, test
  *              de fumée, chunks, fichiers statiques) → comportement habituel ;
- * - `public` : porte active, sans cookie, page en liste blanche (`/terms`, `/coming-soon`) →
+ * - `public` : porte active, sans cookie, page en liste blanche (`/terms`, `/privacy`, `/legal`,
+ *              `/coming-soon`) →
  *              servie à son adresse mais rendue nue, sans portefeuille (voir `PUBLIC_PAGES`) ;
  * - `wait`   : porte active, page → réécriture vers la page d'attente ;
  * - `closed` : porte active, route API → 503 JSON.
@@ -99,6 +100,9 @@ function isApiPath(pathname: string): boolean {
  * - `/terms` : conditions de la bêta, publiques par engagement ; la page d'attente peut y
  *   renvoyer. Servie nue à qui n'a pas le cookie (`PUBLIC_PAGES`) : le public lit le texte,
  *   sans charger le connecteur de portefeuille ni le store du site.
+ * - `/privacy` et `/legal` : politique de confidentialité et mentions légales, publiques au
+ *   même titre que les conditions et liées depuis la page d'attente. Servies nues de la même
+ *   façon (`PUBLIC_PAGES`).
  * - `/coming-soon` et `/preview` : la page d'attente elle-même et la route qui pose le
  *   cookie. Sans elles, la porte ne s'ouvre à personne.
  * - `/_next/*` : chunks, CSS, polices et optimiseur d'images de la page d'attente. Les
@@ -131,11 +135,21 @@ export function isPreviewGateExempt(pathname: string): boolean {
 
 /**
  * Pages en liste blanche servies à leur adresse, mais rendues nues (sans portefeuille, sans
- * store) à qui n'a pas le cookie : la page d'attente et les conditions. Le proxy pose alors
- * l'en-tête `PREVIEW_GATE_HEADER` comme pour une page réécrite. Avec le cookie, `/terms`
- * redevient une page ordinaire du site ; `/coming-soon` reste nue dans tous les cas.
+ * store) à qui n'a pas le cookie : la page d'attente et les pages légales (conditions,
+ * confidentialité, mentions légales). Le proxy pose alors l'en-tête `PREVIEW_GATE_HEADER`
+ * comme pour une page réécrite. Avec le cookie, les pages légales redeviennent des pages
+ * ordinaires du site ; `/coming-soon` reste nue dans tous les cas.
  */
-export const PUBLIC_PAGES: ReadonlySet<string> = new Set([WAITING_PAGE, `${WAITING_PAGE}/`, "/terms", "/terms/"]);
+export const PUBLIC_PAGES: ReadonlySet<string> = new Set([
+  WAITING_PAGE,
+  `${WAITING_PAGE}/`,
+  "/terms",
+  "/terms/",
+  "/privacy",
+  "/privacy/",
+  "/legal",
+  "/legal/",
+]);
 
 export function isPublicPage(pathname: string): boolean {
   return PUBLIC_PAGES.has(pathname);

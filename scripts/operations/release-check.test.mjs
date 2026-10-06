@@ -108,3 +108,38 @@ test("le mode mainnet refuse l'ancien USDC, la démo, le faucet, le KYB ouvert e
     assert.ok(checkReleaseEnvironments(...env, "mainnet").issues.includes(issue), issue);
   }
 });
+
+test("accès instantané KYB : la clé automatique n'est admise que sur Next, avec le drapeau, et le vérificateur humain reste interdit", () => {
+  const key = `0x${"ab".repeat(32)}`;
+  // Sans la fonction, rien ne change : une configuration mainnet complète passe toujours.
+  assert.equal(checkReleaseEnvironments(...mainnetEnvironments(), "mainnet").configurationReady, true);
+  const enabled = mainnetEnvironments();
+  Object.assign(enabled[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: key });
+  const ok = checkReleaseEnvironments(...enabled, "mainnet");
+  assert.equal(ok.configurationReady, true, JSON.stringify(ok.issues));
+  assert.ok(!JSON.stringify(ok).includes(key));
+  // Espaces autour des valeurs : lus comme à l'exécution, ils ne changent rien.
+  const padded = mainnetEnvironments();
+  Object.assign(padded[0], { SIRIUS_KYB_AUTO_INVITE: " true ", SIRIUS_KYB_AUTO_INVITE_KEY: ` ${key} ` });
+  assert.equal(checkReleaseEnvironments(...padded, "mainnet").configurationReady, true);
+  const blank = mainnetEnvironments();
+  Object.assign(blank[0], { SIRIUS_KYB_AUTO_INVITE: " ", SIRIUS_KYB_AUTO_INVITE_KEY: "  " });
+  assert.equal(checkReleaseEnvironments(...blank, "mainnet").configurationReady, true);
+  const cases = [
+    [(env) => { env[0].SIRIUS_KYB_AUTO_INVITE = "true"; }, "next.SIRIUS_KYB_AUTO_INVITE_KEY"],
+    [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: "0xabc" }); }, "next.SIRIUS_KYB_AUTO_INVITE_KEY"],
+    [(env) => { env[0].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag"],
+    [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "false", SIRIUS_KYB_AUTO_INVITE_KEY: key }); }, "next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag"],
+    [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "1", SIRIUS_KYB_AUTO_INVITE_KEY: key }); }, "next.SIRIUS_KYB_AUTO_INVITE"],
+    [(env) => { env[1].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "reaper.forbidden-secret-or-simulator"],
+    [(env) => { env[2].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "runner.forbidden-secret-or-simulator"],
+    [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: key, SIRIUS_KYB_VERIFIER_KEY: key }); }, "next.forbidden-secret-or-simulator"],
+  ];
+  for (const [change, issue] of cases) {
+    const env = mainnetEnvironments();
+    change(env);
+    const result = checkReleaseEnvironments(...env, "mainnet");
+    assert.ok(result.issues.includes(issue), issue);
+    assert.ok(!JSON.stringify(result).includes(key), issue);
+  }
+});

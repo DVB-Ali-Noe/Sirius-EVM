@@ -68,7 +68,7 @@ export const DISCLAIMERS: Readonly<Record<DisclaimerId, DisclaimerCopy>> = {
     variables: { email: CONTACT_EMAIL },
   },
   betaLimits: {
-    key: "Bêta : accès sur invitation, montants plafonnés par prêt et au total.",
+    key: "Bêta : vérification on-chain instantanée du wallet, montants plafonnés par prêt et au total.",
     variables: {},
   },
   retrainDeterministic: {

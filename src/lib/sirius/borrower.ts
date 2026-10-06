@@ -202,7 +202,7 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   const signedQuote = loanBillingQuote(loan);
   const binding = evmEscrowBinding();
   if (loan.status === "CANCELLED" && !loan.evmLockTxHash) {
-    throw new AppError("Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation USDC reste acquise", 409);
+    throw new AppError("Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation du stablecoin reste acquise", 409);
   }
   if (loan.status !== "PENDING" || loan.evmLockTxHash || !loan.evmLoanKey ||
     loan.evmChainId !== binding.chainId || loan.evmEscrowAddress !== binding.escrow) {
@@ -252,7 +252,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   if (!loan.evmLoanKey || !loan.evmHashlock || !loan.amountUsdcAtomic) throw new AppError("Emprunt EVM non préparé", 409);
   const submittedLockTxHash = lockTxHash ?? loan.evmLockTxHash;
   if (!submittedLockTxHash || !/^0x[0-9a-fA-F]{64}$/.test(submittedLockTxHash)) {
-    throw new AppError("Hash de lock USDC manquant", 400);
+    throw new AppError("Hash de lock de paiement manquant", 400);
   }
   const replacingHash = loan.evmLockTxHash && loan.evmLockTxHash.toLowerCase() !== submittedLockTxHash.toLowerCase();
   if (!loan.evmEscrowAddress || loan.evmEscrowAddress !== evmEscrowBinding().escrow || replacingHash) {
@@ -264,7 +264,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
       || (recovered.status === "CANCELLED" && Boolean(recovered.cancelTxHash));
     if (!confirmed
       || recovered.evmLockTxHash?.toLowerCase() !== submittedLockTxHash.toLowerCase()) {
-      throw new AppError("Lock USDC non confirmé : actualise son état", 409);
+      throw new AppError("Lock de paiement non confirmé : actualise son état", 409);
     }
     return recovered;
   }
@@ -282,7 +282,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
   if (submission.count !== 1) {
     const current = await prisma.loan.findUnique({ where: { id: loan.id } });
     if (current?.status === "ESCROWED" && current.evmLockTxHash?.toLowerCase() === submittedLockTxHash.toLowerCase()) return current;
-    throw new AppError("Soumission de lock USDC concurrente", 409);
+    throw new AppError("Soumission de lock de paiement concurrente", 409);
   }
   if (!loan.dataset.evmDatasetId || !loan.dataset.wrappedKey || !loan.dataset.runnerReceipt) {
     throw new AppError("Dataset indisponible", 409);
@@ -297,7 +297,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     readLoan(loan.evmLoanKey as Hex),
   ]);
   try {
-    if (receipt.status !== "success") throw new AppError("Transaction de lock USDC rejetée", 409);
+    if (receipt.status !== "success") throw new AppError("Transaction de lock de paiement rejetée", 409);
     assertLoanLockTransaction(transaction, { loanId, borrower: borrowerAddress, escrow: escrowAddress() });
   } catch (error) {
     // Un hash prouvé invalide ne doit pas empêcher la saisie du vrai lock.
@@ -318,7 +318,7 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
     onChain.amountUsdcAtomic !== loan.amountUsdcAtomic ||
     onChain.hashlock.toLowerCase() !== loan.evmHashlock.toLowerCase()
   ) {
-    throw new AppError("Lock USDC hors scope de l’emprunt", 409);
+    throw new AppError("Lock de paiement hors scope de l’emprunt", 409);
   }
   assertBilledLock(loan, onChain);
   const updated = await prisma.loan.updateMany({
@@ -329,6 +329,6 @@ export async function finalizeLoan(loanId: string, borrower: string, lockTxHash?
       evmDeadline: new Date(onChain.deadline * 1000),
     },
   });
-  if (updated.count !== 1) throw new AppError("Lock USDC concurrent ou état local incohérent", 409);
+  if (updated.count !== 1) throw new AppError("Lock de paiement concurrent ou état local incohérent", 409);
   return prisma.loan.findUniqueOrThrow({ where: { id: loan.id } });
 }

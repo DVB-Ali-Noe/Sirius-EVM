@@ -39,7 +39,7 @@ export async function recoverUnsubmittedLoan(loan: Loan, options: { requireConfi
   if (matches.length > 1) throw new AppError("Plusieurs locks pour ce prêt : réconciliation manuelle requise", 409);
   const { binding, onChain } = matches[0] ?? states[0];
   if (!onChain) {
-    if (options.requireConfirmedLock) throw new AppError("Lock USDC non confirmé", 409);
+    if (options.requireConfirmedLock) throw new AppError("Lock de paiement non confirmé", 409);
     // Une transaction encore dans le mempool reste SUBMITTING, jamais annulée.
     if (transaction) {
       const receipt = await client.getTransactionReceipt({ hash: transaction.hash });

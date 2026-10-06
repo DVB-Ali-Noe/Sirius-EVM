@@ -137,7 +137,7 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
   return persisted.count === 1;
 }
 
-export const LOCK_FINALITY_PENDING = "Paiement USDC en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes";
+export const LOCK_FINALITY_PENDING = "Paiement en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes";
 
 export async function prepareLoanResult(
   loanId: string,
@@ -178,7 +178,7 @@ export async function prepareLoanResult(
   // quitte pas le serveur.
   const loan = await prisma.loan.findUnique({ where: { id: loanId }, include: { dataset: { omit: { wrappedKey: false } } } });
   if (!loan || !loan.evmLoanKey || !loan.evmLockTxHash || !loan.evmLockBlock || !loan.amountUsdcAtomic) {
-    throw new AppError("Lock USDC absent", 409);
+    throw new AppError("Lock de paiement absent", 409);
   }
   const { dataset } = loan;
   if (!dataset.ipfsCid || !dataset.merkleRoot || !dataset.wrappedKey || !dataset.runnerReceipt || !dataset.priceUsdcAtomic) {
@@ -353,7 +353,7 @@ export async function settlePreparedLoan(
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
       data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date() },
     });
-    if (updated.count !== 1) throw new AppError("Règlement USDC confirmé mais état local incohérent", 409);
+    if (updated.count !== 1) throw new AppError("Règlement de l’escrow confirmé mais état local incohérent", 409);
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: settlement.settleTxHash };
   } catch (error) {
     if (error instanceof RunnerFinalityPending) {

@@ -61,12 +61,12 @@ test("dernière étape : contact cliquable, bouton de fin, pas de Passer", () =>
 test("étape des limites de la bêta : textes communs, sans paragraphe vide", () => {
   const out = page("welcome-beta");
   assert.match(out, /Sirius currently trains baseline models: linear and logistic regression on tabular data\./);
-  assert.match(out, /Beta: invitation-only access, capped amounts per loan and in total\./);
+  assert.match(out, /Beta: instant on-chain wallet verification, capped amounts per loan and in total\./);
   assert.doesNotMatch(out, /<p><\/p>/);
   // La description reliée contient les textes communs, pas un bloc vide.
   const describedBy = out.match(/aria-describedby="([^"]+)"/)?.[1];
   const description = out.slice(out.indexOf(`id="${describedBy}"`));
-  assert.match(description.slice(0, description.indexOf("<button")), /Beta: invitation-only/);
+  assert.match(description.slice(0, description.indexOf("<button")), /Beta: instant on-chain wallet verification/);
 });
 
 test("tutos de page : un par page, accessibles, un seul bouton de fermeture", () => {

@@ -2,6 +2,7 @@ import { isDemoDeployment } from "@/lib/deployment-mode";
 import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
 import { exposureLimits } from "@/lib/sirius/exposure-limits";
 import { previewGateStartupNotice } from "@/lib/preview-gate/gate";
+import { autoInviteStartupNotice } from "@/lib/kyb/auto-invite";
 
 const DEMO = isDemoDeployment();
 
@@ -11,6 +12,11 @@ export async function registerNode() {
   // écrire la clé (le message ne contient que des noms de variables).
   const previewGate = previewGateStartupNotice();
   if (previewGate) console.warn(previewGate);
+  // Accès instantané KYB : refuse de démarrer si le drapeau est posé sans clé valide, ou
+  // avec la clé du vérificateur de démonstration. Drapeau absent = fermé, sans rien casser.
+  // Le message ne contient que l'adresse publique du vérificateur automatique, jamais la clé.
+  const autoInvite = autoInviteStartupNotice();
+  if (autoInvite) console.warn(autoInvite);
   if (process.env.NODE_ENV === "production") {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");
