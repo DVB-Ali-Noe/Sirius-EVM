@@ -6,6 +6,8 @@ import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
 import { assertReaperMainnetConfiguration } from "./mainnet-guard";
 import { reaperHeartbeat } from "./heartbeat";
+import { purgeExpiredAccessLogs } from "@/lib/users/access-log-retention";
+import { databaseAccessLogRetention } from "@/lib/users/access-log-store";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -98,6 +100,16 @@ async function main(): Promise<void> {
       } catch {
         // La passe suivante relit les crédits sur la chaîne : un retrait déjà passé n'est pas refait.
         console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
+      }
+    }
+    // Journal des accès : conservation annoncée de 24 mois (/terms, /privacy). Un lot borné par
+    // passe ; un échec ne touche ni la passe des prêts ni son battement, la suivante reprend.
+    if (!arret) {
+      try {
+        const purges = await purgeExpiredAccessLogs(databaseAccessLogRetention, new Date());
+        if (purges > 0) console.log(`[reaper] journal des accès purgé : lignes=${purges}`);
+      } catch {
+        console.error("[reaper] purge du journal des accès échouée, reprise à la suivante");
       }
     }
     // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;

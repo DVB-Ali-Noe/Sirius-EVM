@@ -68,10 +68,11 @@ model DatasetAccessLog {
   address          String // wallet destinataire, en minuscules
   modelCid         String? // CID du modèle livré
   modelFingerprint String? // empreinte du modèle livré, pour relier un modèle qui circulerait
-  createdAt        DateTime @default(now())
+  createdAt        DateTime @default(now()) // purgée après 24 mois par le reaper (access-log-retention.ts)
 
   @@index([datasetId])
   @@index([address])
+  @@index([createdAt])
 }
 
 /// Profil d'un wallet : tutos, réglages, cache d'affichage du KYB et blocage côté site.
