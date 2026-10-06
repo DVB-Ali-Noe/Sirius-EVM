@@ -118,6 +118,13 @@ test("accès instantané KYB : la clé automatique n'est admise que sur Next, av
   const ok = checkReleaseEnvironments(...enabled, "mainnet");
   assert.equal(ok.configurationReady, true, JSON.stringify(ok.issues));
   assert.ok(!JSON.stringify(ok).includes(key));
+  // Espaces autour des valeurs : lus comme à l'exécution, ils ne changent rien.
+  const padded = mainnetEnvironments();
+  Object.assign(padded[0], { SIRIUS_KYB_AUTO_INVITE: " true ", SIRIUS_KYB_AUTO_INVITE_KEY: ` ${key} ` });
+  assert.equal(checkReleaseEnvironments(...padded, "mainnet").configurationReady, true);
+  const blank = mainnetEnvironments();
+  Object.assign(blank[0], { SIRIUS_KYB_AUTO_INVITE: " ", SIRIUS_KYB_AUTO_INVITE_KEY: "  " });
+  assert.equal(checkReleaseEnvironments(...blank, "mainnet").configurationReady, true);
   const cases = [
     [(env) => { env[0].SIRIUS_KYB_AUTO_INVITE = "true"; }, "next.SIRIUS_KYB_AUTO_INVITE_KEY"],
     [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: "0xabc" }); }, "next.SIRIUS_KYB_AUTO_INVITE_KEY"],

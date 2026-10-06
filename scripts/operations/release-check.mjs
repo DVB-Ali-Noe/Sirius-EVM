@@ -60,12 +60,13 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   // avec le drapeau (sans lui, c'est un secret exposé pour rien). Le vérificateur humain reste
   // interdit partout, ci-dessus. Drapeau et clé absents = configuration sans la fonction, valide.
   for (const role of ["reaper", "runner"]) if (roles[role].SIRIUS_KYB_AUTO_INVITE_KEY) issues.push(`${role}.forbidden-secret-or-simulator`);
-  if (next.SIRIUS_KYB_AUTO_INVITE && next.SIRIUS_KYB_AUTO_INVITE !== "true" && next.SIRIUS_KYB_AUTO_INVITE !== "false") {
-    issues.push("next.SIRIUS_KYB_AUTO_INVITE");
-  }
-  if (next.SIRIUS_KYB_AUTO_INVITE === "true") {
-    if (!/^0x[a-fA-F0-9]{64}$/.test(next.SIRIUS_KYB_AUTO_INVITE_KEY || "")) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
-  } else if (next.SIRIUS_KYB_AUTO_INVITE_KEY) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
+  // Même lecture qu'à l'exécution (`auto-invite.ts`) : valeurs débarrassées de leurs espaces.
+  const autoInviteFlag = next.SIRIUS_KYB_AUTO_INVITE?.trim() ?? "";
+  const autoInviteKey = next.SIRIUS_KYB_AUTO_INVITE_KEY?.trim() ?? "";
+  if (autoInviteFlag && autoInviteFlag !== "true" && autoInviteFlag !== "false") issues.push("next.SIRIUS_KYB_AUTO_INVITE");
+  if (autoInviteFlag === "true") {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(autoInviteKey)) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
+  } else if (autoInviteKey) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
   if (network === "mainnet") {
     for (const role of Object.keys(roles)) {
       if (roles[role].SIRIUS_USDC_ADDRESS?.trim().toLowerCase() !== MAINNET_STABLECOIN) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);
