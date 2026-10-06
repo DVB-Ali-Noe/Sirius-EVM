@@ -6,6 +6,8 @@ import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
 import { assertReaperMainnetConfiguration } from "./mainnet-guard";
 import { reaperHeartbeat } from "./heartbeat";
+import { purgeExpiredAutoInvites } from "@/lib/kyb/auto-invite-retention";
+import { databaseAutoInviteRetention } from "@/lib/sirius/kyb-auto-invite";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -98,6 +100,16 @@ async function main(): Promise<void> {
       } catch {
         // La passe suivante relit les crédits sur la chaîne : un retrait déjà passé n'est pas refait.
         console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
+      }
+    }
+    // Traces d'accès instantané KYB (wallet, code, IP) : 48 h de conservation, un lot borné par
+    // passe ; un échec ne touche ni la passe des prêts ni son battement, la suivante reprend.
+    if (!arret) {
+      try {
+        const purges = await purgeExpiredAutoInvites(databaseAutoInviteRetention, new Date());
+        if (purges > 0) console.log(`[reaper] traces d'accès instantané KYB purgées : lignes=${purges}`);
+      } catch {
+        console.error("[reaper] purge des traces d'accès instantané KYB échouée, reprise à la suivante");
       }
     }
     // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;

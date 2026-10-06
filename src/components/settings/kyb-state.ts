@@ -19,6 +19,21 @@ export interface KybStatusResponse {
   /** Expiration de l'attestation en secondes Unix ; `null` sans attestation. */
   expiresAt: number | null;
   revoked: boolean;
+  /** L'instance propose l'accès instantané (drapeau serveur) ; absent sur les anciennes réponses. */
+  instantAccess?: boolean;
+}
+
+/** L'accès instantané n'est proposé que si le serveur le dit explicitement. */
+export function parseInstantAccess(body: unknown): boolean {
+  return Boolean(body) && typeof body === "object" && (body as { instantAccess?: unknown }).instantAccess === true;
+}
+
+/** Jours avant l'expiration pendant lesquels l'accès instantané renouvelle une attestation valide. */
+export const INSTANT_ACCESS_RENEWAL_DAYS = 7;
+
+/** Attestation valide mais proche du terme : le renouvellement instantané a un sens. */
+export function offersRenewal(view: KybView, nowSeconds: number = Math.floor(Date.now() / 1000)): boolean {
+  return view.state === "verified" && view.expiresAt !== null && view.expiresAt - nowSeconds <= INSTANT_ACCESS_RENEWAL_DAYS * 86_400;
 }
 
 /** Lit la réponse du serveur sans lui faire confiance : tout ce qui est mal formé est « inconnu ». */
