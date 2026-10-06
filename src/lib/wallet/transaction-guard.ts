@@ -33,7 +33,7 @@ function decoded(transaction: Transaction, abi: Abi) {
 }
 
 function notToken(to: Address) {
-  if (same(to, usdcAddress())) throw new Error("Transaction refusée : opération inattendue sur le jeton USDC");
+  if (same(to, usdcAddress())) throw new Error("Transaction refusée : opération inattendue sur le jeton de règlement");
 }
 
 /** Retrait des crédits d'un escrow (actuel ou historique) au profit du compte connecté. */

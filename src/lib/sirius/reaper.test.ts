@@ -319,7 +319,7 @@ test("un remplacement rejeté ne peut pas annuler un autre lock encore en attent
   status = 0;
   mock.method(client, "getTransaction", async () => ({ ...transaction(), hash: rejectedHash }));
   mock.method(client, "getTransactionReceipt", async () => ({ status: "reverted", blockNumber: BigInt(10) }));
-  await assert.rejects(() => finalize("loan-1", BORROWER, rejectedHash), /Lock USDC non confirmé/);
+  await assert.rejects(() => finalize("loan-1", BORROWER, rejectedHash), /Lock de paiement non confirmé/);
   assert.equal(updates.length, 0);
 });
 

@@ -48,7 +48,7 @@ function origineDuSite(): string {
 const ORIGINE = origineDuSite();
 const TITRE = "Sirius — confidential data lending on EVM";
 const DESCRIPTION =
-  "Lend valuable datasets without ever exposing them. Training inside a TEE, USDC settlement, and an audit trail on EVM.";
+  "Lend valuable datasets without ever exposing them. Training inside a TEE, stablecoin settlement, and an audit trail on EVM.";
 
 export const metadata: Metadata = {
   // Sans base, Next rend les URL d'images en relatif — et un réseau social qui lit

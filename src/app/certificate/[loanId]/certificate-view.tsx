@@ -54,6 +54,7 @@ const PIN_LABEL: Record<PinState, string> = {
   match: "Matches the pinned value",
   mismatch: "Differs from the pinned value",
   unpinned: "No pinned value configured",
+  "event-log": "Not pinned: changes at every restart, authenticated by the event log replay",
 };
 
 function Check({ check }: { check: CertificateCheck }) {

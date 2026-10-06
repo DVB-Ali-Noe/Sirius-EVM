@@ -72,7 +72,7 @@ function EdgeLabel({ x, y, children }: { x: number; y: number; children: string 
 
 export function OverviewDiagram({ d }: { d: Translate }) {
   return (
-    <DiagramFrame height={460} title={d("Flux du dataset et du règlement")} description={d("Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille les USDC ; le runner publie le préimage au règlement.")} d={d}>
+    <DiagramFrame height={460} title={d("Flux du dataset et du règlement")} description={d("Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.")} d={d}>
       {(markerEnd) => <>
         <g {...edge} markerEnd={markerEnd}>
           <path d="M232 55 H276" />
@@ -87,11 +87,11 @@ export function OverviewDiagram({ d }: { d: Translate }) {
         <Box x={280} y={20} w={210} h={70} title="Runner" sub={d("stub ou TEE attesté")} strong />
         <Box x={530} y={20} w={210} h={70} title="Borrower" sub={d("entraîne un modèle")} />
         <Box x={280} y={180} w={210} h={70} title="IPFS / Pinata" sub={d("stockage chiffré")} />
-        <Box x={20} y={360} w={720} h={80} title="Robinhood Chain · EVM" sub={d("DatasetRegistry · KYB · Escrow\nCrédits USDC · retraits séparés")} />
+        <Box x={20} y={360} w={720} h={80} title="Robinhood Chain · EVM" sub={d("DatasetRegistry · KYB · Escrow\nCrédits en stablecoin · retraits séparés")} />
         <EdgeLabel x={255} y={14}>{d("CSV chiffré")}</EdgeLabel>
         <EdgeLabel x={510} y={14}>{d("modèle chiffré")}</EdgeLabel>
         <EdgeLabel x={125} y={225}>{d("publie le titre")}</EdgeLabel>
-        <EdgeLabel x={635} y={225}>{d("verrouille des USDC")}</EdgeLabel>
+        <EdgeLabel x={635} y={225}>{d("verrouille le stablecoin")}</EdgeLabel>
         <EdgeLabel x={316} y={140}>pin</EdgeLabel>
         <EdgeLabel x={450} y={140}>{d("lecture")}</EdgeLabel>
         <EdgeLabel x={385} y={332}>{d("release + préimage")}</EdgeLabel>
@@ -117,7 +117,7 @@ export function FairExchangeDiagram({ d }: { d: Translate }) {
         <Box x={520} y={160} w={220} h={70} title={d("Capsule ouverte")} sub={d("ensuite, dans le navigateur")} />
         <Box x={260} y={255} w={200} h={70} title={d("Pas de release")} sub={d("échec ou délai dépassé")} />
         <Box x={520} y={250} w={220} h={80} title="refund" sub={d("après échéance\nborrower crédité")} />
-        <EdgeLabel x={380} y={375}>{d("Les crédits USDC se retirent séparément.")}</EdgeLabel>
+        <EdgeLabel x={380} y={375}>{d("Les crédits en stablecoin se retirent séparément.")}</EdgeLabel>
       </>}
     </DiagramFrame>
   );
@@ -133,7 +133,7 @@ export function EscrowLifecycleDiagram({ d }: { d: Translate }) {
           <path d="M462 145 L516 205" />
         </g>
         <Box x={20} y={95} w={180} h={70} title="lock" sub={d("signé par le borrower")} />
-        <Box x={250} y={90} w={210} h={80} title="Locked" sub={d("USDC verrouillés\nprofil + hashlock + délai")} strong />
+        <Box x={250} y={90} w={210} h={80} title="Locked" sub={d("Stablecoin verrouillé\nprofil + hashlock + délai")} strong />
         <Box x={520} y={20} w={220} h={90} title="Released" sub={d("release avant échéance\npréimage public\nprovider crédité")} />
         <Box x={520} y={165} w={220} h={80} title="Refunded" sub={d("refund après échéance\nborrower crédité")} />
       </>}

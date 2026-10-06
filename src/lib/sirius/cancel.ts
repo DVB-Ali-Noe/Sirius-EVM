@@ -12,18 +12,18 @@ export async function cancelExpiredLoan(loanId: string, borrower: string) {
   const loan = await prisma.loan.findUnique({ where: { id: loanId } });
   if (!loan || !addressesEqual(loan.borrower, borrower)) throw new AppError("Loan introuvable", 404);
   if (loan.status === "CANCELLED" && loan.cancelTxHash) return { loanId, status: loan.status, cancelTxHash: loan.cancelTxHash };
-  if (loan.status === "SETTLED") throw new AppError("Escrow USDC déjà réglé", 409);
-  if (!(ACTIVE as readonly string[]).includes(loan.status) || !loan.evmLoanKey) throw new AppError("Escrow USDC non remboursable", 409);
+  if (loan.status === "SETTLED") throw new AppError("Escrow déjà réglé", 409);
+  if (!(ACTIVE as readonly string[]).includes(loan.status) || !loan.evmLoanKey) throw new AppError("Escrow non remboursable", 409);
 
   const binding = await resolveLoanEscrow(loan);
   const onChain = await readLoan(loan.evmLoanKey as `0x${string}`, binding);
-  if (!onChain || (onChain.status === 1 && onChain.deadline * 1000 > Date.now())) throw new AppError("Échéance USDC non atteinte", 409);
+  if (!onChain || (onChain.status === 1 && onChain.deadline * 1000 > Date.now())) throw new AppError("Échéance de l’escrow non atteinte", 409);
   if (!addressesEqual(onChain.borrower, borrower) || !addressesEqual(onChain.provider, loan.provider)
     || onChain.amountUsdcAtomic !== loan.amountUsdcAtomic) throw new AppError("Escrow hors scope", 409);
-  if (!loan.evmLockBlock) throw new AppError("Bloc de lock USDC absent", 409);
+  if (!loan.evmLockBlock) throw new AppError("Bloc de lock de paiement absent", 409);
   const lockBlock = BigInt(loan.evmLockBlock);
   const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, lockBlock, binding);
-  if (resolution.state === "settled") throw new AppError("Escrow USDC déjà réglé", 409);
+  if (resolution.state === "settled") throw new AppError("Escrow déjà réglé", 409);
   if (resolution.state === "active") {
     return { loanId, transaction: refundEscrowTransaction(loan.evmLoanKey as `0x${string}`, escrowReadAddress(binding)) };
   }

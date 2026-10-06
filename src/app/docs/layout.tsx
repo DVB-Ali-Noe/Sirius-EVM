@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Documentation — Sirius",
   description:
-    "Comment fonctionne Sirius : data lending confidentiel sur EVM, entraînement en TEE, règlement USDC et audit on-chain.",
+    "Comment fonctionne Sirius : data lending confidentiel sur EVM, entraînement en TEE, règlement en stablecoin et audit on-chain.",
 };
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {

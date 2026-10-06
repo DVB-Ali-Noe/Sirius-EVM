@@ -38,7 +38,9 @@ test("certificat vérifié : titre, mesures, règlement, lien de preuve et tél�
   assert.match(out, /href="\/api\/certificate\/cloan1\/attestation" download=""/);
   assert.match(out, /Download raw attestation \(JSON\)/);
   for (const label of ["MRTD", "RTMR3", "Compose hash"]) assert.ok(out.includes(`>${label}<`), label);
-  assert.equal(out.match(/data-pin="match"/g)?.length, 3);
+  assert.equal(out.match(/data-pin="match"/g)?.length, 2);
+  // RTMR3 n'est pas épinglé : la page ne prétend jamais qu'il correspond à une valeur attendue.
+  assert.match(out, /data-pin="event-log">Not pinned: changes at every restart, authenticated by the event log replay</);
   assert.equal(out.match(/data-check-state="pass"/g)?.length, 4);
 });
 

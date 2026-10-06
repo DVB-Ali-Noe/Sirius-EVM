@@ -61,6 +61,7 @@ function DashboardPageContent() {
   const { locale, t } = useLocale();
   // Réseau inliné au build : « USDG » sur mainnet, jeton d'essai partout ailleurs.
   const network = resolveClientNetwork();
+  const token = network === "mainnet" ? stablecoinSymbol(network) : t("test USDC");
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
   const [gas, setGas] = useState<GasBalance | null>(null);
@@ -97,8 +98,8 @@ function DashboardPageContent() {
       const recu = await addFunds();
       setFundsMessage(
         recu.eth
-          ? t("{usdc} USDC et {eth} ETH envoyés.", { usdc: recu.usdc, eth: recu.eth })
-          : t("{usdc} USDC envoyés.", { usdc: recu.usdc }),
+          ? t("{usdc} {token} et {eth} ETH envoyés.", { usdc: recu.usdc, token, eth: recu.eth })
+          : t("{usdc} {token} envoyés.", { usdc: recu.usdc, token }),
       );
       await refresh();
     } catch (err) {
@@ -153,7 +154,7 @@ function DashboardPageContent() {
             <span className="text-3xl font-semibold tracking-tight">
               {loading && !balance ? "…" : error ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "—"}
             </span>
-            <span className="text-sm text-muted">{network === "mainnet" ? stablecoinSymbol(network) : t("test USDC")}</span>
+            <span className="text-sm text-muted">{token}</span>
           </div>
           {gas && (
             <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>

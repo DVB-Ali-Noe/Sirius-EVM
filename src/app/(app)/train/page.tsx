@@ -40,7 +40,7 @@ import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { stablecoinTicker } from "@/lib/evm/stablecoin";
+import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import {
   modelSelection,
@@ -130,6 +130,8 @@ function TrainPageContent() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const advanced = useUiStore((s) => s.advanced);
   const { locale, t } = useLocale();
+  // Libellé du jeton à côté des montants : « USDG » sur mainnet, « test USDC » sur testnet.
+  const token = t(stablecoinSymbol(resolveClientNetwork()));
 
   const [mine, setMine] = useState<Dataset[]>([]);
   // Self training : réservé à l'équipe (`GET /api/admin/me`). `null` tant que la réponse n'est pas
@@ -528,12 +530,12 @@ function TrainPageContent() {
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                    <Field label={t("Montant")} value={`${l.usdcDecimals !== undefined ? formatUnits(BigInt(l.amountUsdcAtomic), l.usdcDecimals) : formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    <Field label={t("Montant")} value={`${l.usdcDecimals !== undefined ? formatUnits(BigInt(l.amountUsdcAtomic), l.usdcDecimals) : formatUsdcAtomic(l.amountUsdcAtomic)} ${token}`} />
                     {l.usdcDecimals !== undefined && l.computeAmountUsdcAtomic && <>
-                      <Field label={t("Prix du dataset")} value={`${formatUnits(BigInt(l.datasetAmountUsdcAtomic!), l.usdcDecimals)} USDC`} />
-                      <Field label={t("Prix du compute")} value={`${formatUnits(BigInt(l.computeAmountUsdcAtomic), l.usdcDecimals)} USDC`} />
-                      {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} USDC`} />}
-                      {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                      <Field label={t("Prix du dataset")} value={`${formatUnits(BigInt(l.datasetAmountUsdcAtomic!), l.usdcDecimals)} ${token}`} />
+                      <Field label={t("Prix du compute")} value={`${formatUnits(BigInt(l.computeAmountUsdcAtomic), l.usdcDecimals)} ${token}`} />
+                      {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} ${token}`} />}
+                      {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} ${token}`} />}
                     </>}
                     {advanced && (
                       <>
