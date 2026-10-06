@@ -37,6 +37,31 @@ Page `/kyb`, accessible depuis le bouton profil :
 - **Non vérifié** : le formulaire d'invitation existant, et « Pas d'invitation ? Écrivez-nous : sirius.data.contact@gmail.com ».
 - **Bientôt** : vérification en ligne sans invitation, avantages listés. Grisés, avec « Soon ».
 
+## Accès instantané (vérificateur automatique)
+
+Fichiers : `src/lib/kyb/auto-invite.ts`, `src/lib/sirius/kyb-auto-invite.ts`, `src/app/api/kyb/auto-invite/route.ts`, `src/components/kyb/KybInstantAccess.tsx`, table `KybAutoInvite`.
+
+Décision des fondateurs : ouvrir le mainnet **sans contact manuel**, en gardant des interrupteurs. Le registre reste strict ; on y ajoute un **second vérificateur, automatique**, dont la clé vit sur Vercel et ne fait que signer. Sur `/kyb`, un wallet connecté et non vérifié voit « Obtenir l'accès instantané » : le serveur signe une invitation EIP-712 **pour l'adresse de la session uniquement**, le wallet l'accepte on-chain par le même chemin qu'un code collé (une transaction, gas à sa charge). Le code collé reste proposé, en second.
+
+- **Validité** : 30 jours. Renouvelable dans les 7 derniers jours de l'attestation, ou dès qu'elle n'est plus valide.
+- **Plafonds** (en base, donc partagés entre instances) : 1 invitation par wallet et par 24 h — la même est resservie entre-temps si le wallet a refusé la transaction — et `SIRIUS_KYB_AUTO_INVITE_MAX_PER_HOUR` par heure (défaut 30). Journal : wallet, expiration ; jamais la clé.
+- **Fermé par défaut** : avant de signer, le serveur vérifie sur le registre que l'adresse de la clé est un vérificateur actif (`isVerifier`) ; sinon 503, même drapeau posé.
+
+### Mise en place
+
+1. Générer la clé sur un poste d'opérateur : `openssl rand -hex 32`, préfixer `0x`. Dériver l'adresse (`node -e "console.log(require('viem/accounts').privateKeyToAccount(process.argv[1]).address)" 0x…`). Clé **dédiée** : ni le vérificateur humain (`0xDf43…7455`), ni `SIRIUS_KYB_VERIFIER_KEY` (démo testnet, interdite sur mainnet). Aucun ETH nécessaire.
+2. Safe admin `0xb6288dA83c69B1337525ad73298A36334Aa68631` → registre `0x8bd1590e2e223605adf3ea83dfa4cd272033c24c` → `addVerifier(<adresse dérivée>)`.
+3. Vercel, projet de production : `SIRIUS_KYB_AUTO_INVITE_KEY` (Sensitive) puis `SIRIUS_KYB_AUTO_INVITE=true`, redéployer. Au démarrage, les logs annoncent l'adresse du vérificateur automatique et les plafonds. `SIRIUS_KYB_AUTO_INVITE=true` sans clé valide refuse de démarrer ; `release-check` n'admet la clé que sur Next et seulement avec le drapeau.
+
+### Interrupteurs
+
+- **Drapeau** : `SIRIUS_KYB_AUTO_INVITE` retiré ou à `false`, redéploiement → plus aucune invitation émise (route 404, bouton absent). Les attestations déjà acceptées courent jusqu'à leur terme (30 jours au plus).
+- **Safe** : `removeVerifier(<adresse>)` sur le registre → **toutes** les attestations émises par le vérificateur automatique cessent d'être valides sur-le-champ (`isKybValid` compare l'époque). C'est la réponse à une clé compromise. Pour rouvrir ensuite : nouvelle clé, `addVerifier`.
+
+### Risque résiduel
+
+La clé est sur Vercel. Volée, elle permet de faire vérifier **n'importe quelle adresse** : l'équivalent d'un registre ouvert, le temps que l'on s'en aperçoive. Atténuation : les plafonds bornent le débit (une invitation par wallet et par 24 h, N par heure — mais un voleur de clé peut signer hors de l'application, sans ces plafonds), les attestations sont courtes, et `removeVerifier` annule tout ce qu'elle a signé en une transaction du Safe. Les attestations du vérificateur humain ne sont pas touchées.
+
 ## Après le 6 — V1.2
 
 - Parcours de vérification sans invitation : formulaire entreprise, contrôle par un vérificateur, attestation signée. Le choix d'un prestataire de KYB est à faire.

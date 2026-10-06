@@ -56,6 +56,16 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
     issues.push(`next.public.${suffix}`);
   }
   if (next.NEXT_PUBLIC_EVM_NETWORK !== network) issues.push("next.NEXT_PUBLIC_EVM_NETWORK");
+  // Accès instantané KYB : la clé du vérificateur automatique ne vit que sur Next, et seulement
+  // avec le drapeau (sans lui, c'est un secret exposé pour rien). Le vérificateur humain reste
+  // interdit partout, ci-dessus. Drapeau et clé absents = configuration sans la fonction, valide.
+  for (const role of ["reaper", "runner"]) if (roles[role].SIRIUS_KYB_AUTO_INVITE_KEY) issues.push(`${role}.forbidden-secret-or-simulator`);
+  if (next.SIRIUS_KYB_AUTO_INVITE && next.SIRIUS_KYB_AUTO_INVITE !== "true" && next.SIRIUS_KYB_AUTO_INVITE !== "false") {
+    issues.push("next.SIRIUS_KYB_AUTO_INVITE");
+  }
+  if (next.SIRIUS_KYB_AUTO_INVITE === "true") {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(next.SIRIUS_KYB_AUTO_INVITE_KEY || "")) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
+  } else if (next.SIRIUS_KYB_AUTO_INVITE_KEY) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
   if (network === "mainnet") {
     for (const role of Object.keys(roles)) {
       if (roles[role].SIRIUS_USDC_ADDRESS?.trim().toLowerCase() !== MAINNET_STABLECOIN) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestGuidedTour } from "../profile/guided-tour";
 import { subscribeGuidedTourRequests } from "../tour/tour-store";
-import { formatKybDate, parseKybStatus, parsePublicKybStatus, showsInvitationForm } from "./kyb-state";
+import { formatKybDate, offersRenewal, parseInstantAccess, parseKybStatus, parsePublicKybStatus, showsInvitationForm } from "./kyb-state";
 import { KYB_CONTACT_EMAIL, networkInfo, savedLanguage, TESTNET_SITE_URL } from "./settings-logic";
 
 test("mainnet : libellé et lien vers le testnet ; testnet : pas de lien", () => {
@@ -44,6 +44,20 @@ test("repli sans session : seulement attesté ou non", () => {
   assert.deepEqual(parsePublicKybStatus({ known: true }), { state: "verified", expiresAt: null });
   assert.deepEqual(parsePublicKybStatus({ known: false }), { state: "none" });
   for (const bad of [null, {}, { known: "true" }, { error: "x" }, 3]) assert.deepEqual(parsePublicKybStatus(bad), { state: "unknown" });
+});
+
+test("l'accès instantané n'est proposé que sur un « true » explicite du serveur ; le renouvellement, dans les 7 derniers jours", () => {
+  assert.equal(parseInstantAccess({ valid: false, expiresAt: null, revoked: false, instantAccess: true }), true);
+  for (const bad of [null, {}, { instantAccess: "true" }, { instantAccess: 1 }, { valid: false, expiresAt: null, revoked: false }, 3]) {
+    assert.equal(parseInstantAccess(bad), false, JSON.stringify(bad));
+  }
+  const now = 1_750_000_000;
+  assert.equal(offersRenewal({ state: "verified", expiresAt: now + 7 * 86_400 }, now), true);
+  assert.equal(offersRenewal({ state: "verified", expiresAt: now + 7 * 86_400 + 1 }, now), false);
+  assert.equal(offersRenewal({ state: "verified", expiresAt: null }, now), false);
+  for (const view of [{ state: "none" }, { state: "expired", expiresAt: now - 1 }, { state: "revoked" }, { state: "inactive" }, { state: "unknown" }] as const) {
+    assert.equal(offersRenewal(view, now), false, view.state);
+  }
 });
 
 test("le formulaire d'invitation n'apparaît que si le wallet n'est pas valide, jamais en cas d'erreur de lecture", () => {

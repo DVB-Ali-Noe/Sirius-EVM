@@ -90,7 +90,9 @@ export async function prepareKybAcceptance(subject: string, invitation?: unknown
     functionName: "isKybValid",
     args: [address],
   });
-  if (alreadyValid) {
+  // Avec une invitation, une attestation encore valide est remplacée (renouvellement) : le
+  // registre accepte une nouvelle attestation à tout moment et `kyb-invite.ts` le prévient.
+  if (alreadyValid && invitation === undefined) {
     await persistAccepted(address);
     return { subject: address, status: "ACCEPTED" as const, transaction: null };
   }

@@ -8,7 +8,7 @@ import { acceptKybCredential } from "@/lib/kyb/client";
  * Saisie d'un code d'invitation KYB. Le code, signé hors ligne par un vérificateur Sirius,
  * ne vaut que pour l'adresse connectée ; le wallet signe ensuite l'acceptation on-chain.
  */
-export function KybInviteForm({ role, onAccepted }: { role: "provider" | "borrower"; onAccepted: () => void }) {
+export function KybInviteForm({ role, secondary = false, onAccepted }: { role: "provider" | "borrower"; secondary?: boolean; onAccepted: () => void }) {
   const { t } = useLocale();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,7 +33,12 @@ export function KybInviteForm({ role, onAccepted }: { role: "provider" | "borrow
   return (
     <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
       <label htmlFor={`kyb-invite-${role}`} className="text-sm font-medium">{t("Code d’invitation KYB")}</label>
-      <p className="text-xs text-muted">{t("Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.")}</p>
+      {/* Avec l'accès instantané, le code collé devient le chemin secondaire : la phrase ne parle plus d'invitation obligatoire. */}
+      <p className="text-xs text-muted">
+        {secondary
+          ? t("Tu as reçu un code de l’équipe Sirius ? Colle-le ici, puis confirme dans ton wallet.")
+          : t("Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.")}
+      </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           id={`kyb-invite-${role}`}

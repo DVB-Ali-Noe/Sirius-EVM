@@ -6,6 +6,7 @@ import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { errorResponse } from "@/lib/errors";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { autoInviteEnabled } from "@/lib/kyb/auto-invite";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ const limiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 30, ma
  * État KYB du wallet connecté, lu sur le registre (source de vérité) pour la page /kyb :
  * validité (`isKybValid`, qui tient compte de l'expiration et de la révocation) et date
  * d'expiration de l'attestation. Aucune écriture, aucune donnée d'un autre wallet.
+ * `instantAccess` dit si la page peut proposer l'accès instantané (drapeau serveur, lu à
+ * l'exécution : le couper ne demande aucun rebuild).
  */
 export async function GET(req: Request) {
   try {
@@ -31,7 +34,10 @@ export async function GET(req: Request) {
     ]).catch(() => { throw new AppError("Statut KYB indisponible", 503); });
     const attested = attestation.verifier !== "0x0000000000000000000000000000000000000000";
     return NextResponse.json(
-      { valid, expiresAt: attested ? Number(attestation.expiresAt) : null, revoked: attested && attestation.revoked },
+      {
+        valid, expiresAt: attested ? Number(attestation.expiresAt) : null, revoked: attested && attestation.revoked,
+        instantAccess: autoInviteEnabled(),
+      },
       { headers: NO_STORE },
     );
   } catch (err) {

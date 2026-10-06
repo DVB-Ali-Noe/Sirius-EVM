@@ -240,6 +240,20 @@ model OperatorCodeAttempt {
   @@index([address, createdAt])
 }
 
+/// Invitation KYB signée par le vérificateur automatique (accès instantané) : trace de
+/// l'émission et plafonds (1 par wallet et par 24 h, N par heure). Le code n'est pas un
+/// secret : il ne vaut que pour son adresse, une seule fois, et expire.
+model KybAutoInvite {
+  id        String   @id @default(cuid())
+  subject   String // adresse EVM canonique (minuscules)
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([subject, createdAt])
+  @@index([createdAt])
+}
+
 /// Réputation dérivée des events on-chain (calcul léger au MVP).
 model Reputation {
   id             String          @id @default(cuid())
