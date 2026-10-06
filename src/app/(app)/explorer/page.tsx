@@ -12,7 +12,7 @@ import { addressExplorerUrl, transactionExplorerUrl } from "@/lib/evm/explorer";
 import type { EvmNetwork } from "@/lib/evm/networks";
 import { useWalletStore } from "@/stores/wallet";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { stablecoinTicker } from "@/lib/evm/stablecoin";
+import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
 import type { ModelId } from "@/lib/models/registry";
 
 interface ExplorerLoan {
@@ -183,7 +183,7 @@ function ExplorerPageContent() {
                 <p className="mt-1 font-mono text-xs text-muted">{loan.id}</p>
               </div>
               <div className="text-right">
-                <div className="text-sm font-medium">{formatUsdcAtomic(loan.amountUsdcAtomic)} USDC</div>
+                <div className="text-sm font-medium">{formatUsdcAtomic(loan.amountUsdcAtomic)} {t(stablecoinSymbol(network))}</div>
                 <div className="mt-1 text-xs text-muted">{new Date(loan.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US")}</div>
               </div>
             </div>

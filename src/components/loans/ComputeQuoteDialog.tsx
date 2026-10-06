@@ -6,6 +6,8 @@ import { Modal } from "@/components/ui/Modal";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { totalQuoteAmount, type ComputeQuote } from "@/lib/billing/quote";
+import { resolveClientNetwork } from "@/lib/evm/networks";
+import { stablecoinSymbol } from "@/lib/evm/stablecoin";
 
 export function useComputeQuoteConfirmation() {
   const [quote, setQuote] = useState<ComputeQuote | null>(null);
@@ -27,7 +29,9 @@ export function useComputeQuoteConfirmation() {
     resolver.current = resolve;
     setQuote(next);
   }), []);
-  const money = (amount: string) => `${formatUnits(BigInt(amount), quote!.usdcDecimals)} USDC`;
+  // « USDG » sur mainnet, « test USDC » sur testnet : le réseau est inliné au build.
+  const token = t(stablecoinSymbol(resolveClientNetwork()));
+  const money = (amount: string) => `${formatUnits(BigInt(amount), quote!.usdcDecimals)} ${token}`;
   const dialog = (
     <Modal open={quote !== null} onClose={() => finish(false)} title={t("Devis d’entraînement")}>
       {quote && <div className="space-y-5" role="dialog" aria-modal="true" aria-label={t("Devis d’entraînement")}>

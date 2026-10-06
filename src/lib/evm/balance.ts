@@ -14,7 +14,7 @@ export async function fetchUsdcBalance(address: string): Promise<UsdcBalance> {
   if (!wallet) throw new Error("Wallet EVM indisponible");
   const data = encodeFunctionData({ abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`] });
   const result = await wallet.request({ method: "eth_call", params: [{ to: usdcAddress(), data }, "latest"] });
-  if (typeof result !== "string") throw new Error("Solde USDC indisponible");
+  if (typeof result !== "string") throw new Error("Solde en stablecoin indisponible");
   const balance = decodeFunctionResult({ abi: erc20Abi, functionName: "balanceOf", data: result as `0x${string}` });
   return { atomic: balance.toString() };
 }

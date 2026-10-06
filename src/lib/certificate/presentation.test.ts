@@ -31,7 +31,7 @@ test("tout vérifié : seul cas où la page affirme l'exécution dans l'enclave"
     view.measurements.map((m) => [m.label, m.value, m.pin]),
     [
       ["MRTD", "a1".repeat(48), "match"],
-      ["RTMR3", "b2".repeat(48), "match"],
+      ["RTMR3", "b2".repeat(48), "event-log"],
       ["Compose hash", "c3".repeat(32), "match"],
     ],
   );
@@ -96,6 +96,13 @@ test("mesures différentes des valeurs épinglées aujourd'hui : non confirmé, 
   assert.match(code.summary, /may have been upgraded/);
   assert.equal(code.checks.find((c) => c.label === "Code identity")?.state, "fail");
   assert.equal(code.measurements[0].pin, "mismatch");
+});
+
+test("RTMR3 n'est jamais présenté comme égal à une valeur épinglée : il dépend du rejeu de l'event log", () => {
+  for (const rtMr3Matches of [true, false, null]) {
+    const view = presentVerification({ status: "complete", verification: verification({ rtMr3Matches, eventLogMatches: rtMr3Matches }) });
+    assert.equal(view.measurements.find((m) => m.label === "RTMR3")?.pin, "event-log", String(rtMr3Matches));
+  }
 });
 
 test("incomplet : vérification en attente, simulateur, valeurs non épinglées", () => {

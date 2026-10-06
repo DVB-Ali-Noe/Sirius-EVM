@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { KybInstantAccess } from "@/components/kyb/KybInstantAccess";
 import { KybInviteForm } from "@/components/kyb/KybInviteForm";
 import { Card } from "@/components/ui/Card";
 import { ConnectPrompt } from "@/components/wallet/ConnectCta";
@@ -11,12 +12,14 @@ import { useWalletStore } from "@/stores/wallet";
 import { SoonItem } from "./SoonItem";
 import {
   formatKybDate,
+  offersRenewal,
+  parseInstantAccess,
   parsePublicKybStatus,
   parseKybStatus,
   showsInvitationForm,
   type KybView as KybState,
 } from "./kyb-state";
-import { KYB_CONTACT_EMAIL, KYB_SOON } from "./settings-logic";
+import { KYB_CONTACT_EMAIL, kybSoonItems } from "./settings-logic";
 
 /** Page /kyb : état KYB du wallet (lu sur le contrat), invitation et fonctions à venir. */
 export function KybView() {
@@ -24,6 +27,9 @@ export function KybView() {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
+  // Proposé par le serveur avec le statut (drapeau d'exécution), jamais déduit côté client.
+  // Porté ici plutôt que dans la carte : la liste « bientôt » en dépend aussi.
+  const [instantAccess, setInstantAccess] = useState(false);
 
   return (
     <Page width="wide">
@@ -35,7 +41,13 @@ export function KybView() {
       {connected && address ? (
         // `key` : un autre wallet ou une session ouverte repart d'un état vierge, sans reste de l'ancien.
         <div className="grid items-start gap-4 lg:grid-cols-2">
-          <KybStatusCard key={`${address}:${authenticated}`} address={address} authenticated={authenticated} />
+          <KybStatusCard
+            key={`${address}:${authenticated}`}
+            address={address}
+            authenticated={authenticated}
+            instantAccess={instantAccess}
+            onInstantAccess={setInstantAccess}
+          />
         </div>
       ) : (
         <ConnectPrompt message={t("Connecte un wallet pour voir ton statut KYB.")} data-testid="kyb-signed-out" />
@@ -44,41 +56,54 @@ export function KybView() {
       <section aria-labelledby="kyb-soon">
         <SectionTitle id="kyb-soon" className="mb-3">{t("Coming soon")}</SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {KYB_SOON.map((item) => <SoonItem key={item.title} {...item} />)}
+          {kybSoonItems(instantAccess).map((item) => <SoonItem key={item.title} {...item} />)}
         </ul>
       </section>
     </Page>
   );
 }
 
-function KybStatusCard({ address, authenticated }: { address: string; authenticated: boolean }) {
+function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess }: {
+  address: string;
+  authenticated: boolean;
+  instantAccess: boolean;
+  onInstantAccess: (enabled: boolean) => void;
+}) {
   const { t, locale } = useLocale();
   const [view, setView] = useState<KybState | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  const load = useCallback(async (): Promise<KybState> => {
+  const load = useCallback(async (): Promise<{ view: KybState; instantAccess: boolean }> => {
     try {
       // Avec une session : état complet, date d'expiration comprise. Sans : « attesté ou non » seulement.
       const response = authenticated
         ? await fetch("/api/kyb/status", { cache: "no-store" })
         : await fetch(`/api/account/status?address=${encodeURIComponent(address)}`, { cache: "no-store" });
-      if (!response.ok) return { state: "unknown" };
+      if (!response.ok) return { view: { state: "unknown" }, instantAccess: false };
       const body: unknown = await response.json();
-      return authenticated ? parseKybStatus(body) : parsePublicKybStatus(body);
+      return authenticated
+        ? { view: parseKybStatus(body), instantAccess: parseInstantAccess(body) }
+        : { view: parsePublicKybStatus(body), instantAccess: false };
     } catch {
-      return { state: "unknown" };
+      return { view: { state: "unknown" }, instantAccess: false };
     }
   }, [address, authenticated]);
 
   useEffect(() => {
     let cancelled = false;
     void load().then((next) => {
-      if (!cancelled) setView(next);
+      if (cancelled) return;
+      onInstantAccess(next.instantAccess);
+      setView(next.view);
     });
     return () => {
       cancelled = true;
     };
-  }, [load, attempt]);
+  }, [load, attempt, onInstantAccess]);
+
+  // Un autre wallet ou une déconnexion remonte la carte : rien n'est proposé tant que le
+  // nouveau statut n'est pas lu.
+  useEffect(() => () => onInstantAccess(false), [onInstantAccess]);
 
   const refresh = () => {
     setView(null);
@@ -142,11 +167,15 @@ function KybStatusCard({ address, authenticated }: { address: string; authentica
         )}
       </Card>
 
-      {showsInvitationForm(view) && (
+      {(showsInvitationForm(view) || (instantAccess && offersRenewal(view))) && (
         <Card className="flex flex-col gap-3" aria-labelledby="kyb-invite" role="region">
           <SectionTitle id="kyb-invite">{t("Invitation")}</SectionTitle>
           {authenticated ? (
-            <KybInviteForm role="provider" onAccepted={refresh} />
+            <>
+              {/* Accès instantané en premier ; le code collé reste proposé, en second. */}
+              {instantAccess && <KybInstantAccess role="provider" renewal={offersRenewal(view)} onAccepted={refresh} />}
+              <KybInviteForm role="provider" secondary={instantAccess} onAccepted={refresh} />
+            </>
           ) : (
             <p className="text-sm text-muted">{t("Sign in with your wallet to accept an invitation.")}</p>
           )}

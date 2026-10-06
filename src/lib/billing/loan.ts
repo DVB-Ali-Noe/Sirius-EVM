@@ -36,5 +36,5 @@ export function loanBillingQuote(loan: {
 export function assertBilledLock(loan: Parameters<typeof loanBillingQuote>[0], onChain: OnChainLoan): void {
   const signed = loanBillingQuote(loan);
   if (Boolean(signed) !== Boolean(onChain.billing)
-    || (signed && onChain.billing?.termsHash !== quoteTermsHash(signed.quote))) throw new AppError("Lock USDC hors scope de l’emprunt", 409);
+    || (signed && onChain.billing?.termsHash !== quoteTermsHash(signed.quote))) throw new AppError("Lock de paiement hors scope de l’emprunt", 409);
 }

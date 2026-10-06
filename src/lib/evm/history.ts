@@ -73,7 +73,7 @@ export function assertLoanLockTransaction(
   scope: { loanId: string; borrower: string; escrow: string },
 ): void {
   if (!addressesEqual(transaction.from, scope.borrower) || !addressesEqual(transaction.to ?? "", scope.escrow)) {
-    throw new AppError("Transaction de lock USDC invalide", 409);
+    throw new AppError("Transaction de lock de paiement invalide", 409);
   }
   try {
     const call = decodeFunctionData({ abi: [...siriusescrowAbi, ...legacyEscrowAbi, ...siriusescrowv7Abi], data: transaction.input });

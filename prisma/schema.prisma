@@ -241,6 +241,23 @@ model OperatorCodeAttempt {
   @@index([address, createdAt])
 }
 
+/// Invitation KYB signée par le vérificateur automatique (accès instantané) : trace de
+/// l'émission et plafonds (1 par wallet et par 24 h, N par IP et par heure, N par heure).
+/// Le code n'est pas un secret : il ne vaut que pour son adresse, une seule fois, et expire.
+/// L'IP n'est posée que si l'ingress la transmet ; le reaper supprime les lignes après 48 h.
+model KybAutoInvite {
+  id        String   @id @default(cuid())
+  subject   String // adresse EVM canonique (minuscules)
+  code      String
+  ip        String? // adresse cliente de confiance (SIRIUS_TRUST_PROXY_HEADERS), sinon null
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([subject, createdAt])
+  @@index([ip, createdAt])
+  @@index([createdAt])
+}
+
 /// Réputation dérivée des events on-chain (calcul léger au MVP).
 model Reputation {
   id             String          @id @default(cuid())

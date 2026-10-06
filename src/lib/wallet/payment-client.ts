@@ -13,7 +13,7 @@ interface SendInput {
 
 export async function sendPayment(input: SendInput): Promise<string> {
   const amount = priceUsdcToAtomic(input.amountUsdc);
-  if (!amount) throw new Error("Montant USDC invalide");
+  if (!amount) throw new Error("Montant invalide");
   return sendActiveTransaction({
     to: usdcAddress(),
     data: encodeFunctionData({

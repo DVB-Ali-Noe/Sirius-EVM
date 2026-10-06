@@ -39,7 +39,11 @@ export interface CertificateCheck {
   detail: string;
 }
 
-export type PinState = "match" | "mismatch" | "unpinned";
+/**
+ * `event-log` : mesure jamais épinglée, authentifiée seulement par le rejeu de l'event log.
+ * C'est le cas de RTMR3 depuis la PR #72 : il change à chaque redémarrage de la CVM.
+ */
+export type PinState = "match" | "mismatch" | "unpinned" | "event-log";
 
 export interface CertificateMeasurement {
   label: string;
@@ -182,7 +186,8 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
   const checks = [bindingCheck(verification), hardwareCheck(outcome), codeCheck(verification), eventLogCheck(verification)];
   const measurements: CertificateMeasurement[] = [
     { label: "MRTD", value: measurementValue(verification.measurements.mrTd), pin: pin(verification.baseImageMatches) },
-    { label: "RTMR3", value: measurementValue(verification.measurements.rtMr3), pin: pin(verification.rtMr3Matches) },
+    // RTMR3 n'est plus comparé à une valeur épinglée : son contrôle est la ligne « Event log ».
+    { label: "RTMR3", value: measurementValue(verification.measurements.rtMr3), pin: "event-log" },
     {
       label: "Compose hash",
       value: measurementValue(verification.measurements.composeHash),

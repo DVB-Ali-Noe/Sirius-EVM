@@ -36,6 +36,8 @@ function WalletPageContent() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const starterFunds = useWalletStore((s) => s.starterFunds);
   const { locale, t } = useLocale();
+  // « USDG » sur mainnet, « test USDC » traduit sur testnet.
+  const token = NETWORK === "mainnet" ? stablecoinSymbol(NETWORK) : t("test USDC");
   // Testnet : le faucet, inchangé. Mainnet : le bouton ouvre la fenêtre « Ajouter des fonds »
   // (carte, autre wallet, autre chaîne), qui lit elle-même les options du serveur.
   const fundsOptions = addFundsOptions(NETWORK);
@@ -71,8 +73,8 @@ function WalletPageContent() {
       const recu = await addFunds();
       setFundsMessage(
         recu.eth
-          ? t("{usdc} USDC et {eth} ETH envoyés.", { usdc: recu.usdc, eth: recu.eth })
-          : t("{usdc} USDC envoyés.", { usdc: recu.usdc }),
+          ? t("{usdc} {token} et {eth} ETH envoyés.", { usdc: recu.usdc, token, eth: recu.eth })
+          : t("{usdc} {token} envoyés.", { usdc: recu.usdc, token }),
       );
       await refresh();
       // Sans cet effacement, la confirmation restait à l'écran indéfiniment. Le solde
@@ -117,7 +119,7 @@ function WalletPageContent() {
               <span className="text-3xl font-semibold tracking-tight">
                 {balError ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "…"}
               </span>
-              <span className="text-sm text-muted">{NETWORK === "mainnet" ? stablecoinSymbol(NETWORK) : t("test USDC")}</span>
+              <span className="text-sm text-muted">{token}</span>
             </div>
             {gas && (
               <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>

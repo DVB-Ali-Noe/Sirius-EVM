@@ -59,6 +59,23 @@ export async function attestViaSponsor(assertCurrent: () => void = () => {}): Pr
   return true;
 }
 
+/**
+ * Accès instantané : le serveur signe une invitation pour le wallet connecté. Le code obtenu
+ * suit ensuite exactement le chemin d'un code collé (`acceptKybCredential`) : une seule
+ * transaction, envoyée par le wallet lui-même.
+ */
+export async function requestInstantAccess(): Promise<string> {
+  const response = await fetch("/api/kyb/auto-invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const body = (await response.json().catch(() => ({}))) as { code?: unknown; error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Accès instantané indisponible (${response.status})`);
+  if (typeof body.code !== "string" || !body.code.startsWith("sirius-kyb-")) throw new Error("Réponse d’accès instantané invalide");
+  return body.code;
+}
+
+export async function acceptInstantAccess(role: KybRole): Promise<void> {
+  await acceptKybCredential(role, await requestInstantAccess());
+}
+
 export async function acceptKybCredential(role: KybRole, invitation?: string): Promise<void> {
   const endpoint = `/api/${role}/onboard`;
   const preparation = await fetch(endpoint, {

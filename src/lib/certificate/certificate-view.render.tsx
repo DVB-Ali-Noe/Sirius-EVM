@@ -50,7 +50,7 @@ const cases = {
       {...base}
       presentation={presentVerification({
         status: "complete",
-        verification: { ...verification, codeIdentityMatches: false, rtMr3Matches: false },
+        verification: { ...verification, codeIdentityMatches: false, baseImageMatches: false },
       })}
     />
   ),
