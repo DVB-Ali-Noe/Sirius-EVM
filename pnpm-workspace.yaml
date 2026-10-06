@@ -49,6 +49,8 @@ overrides:
   '@nomicfoundation/hardhat-verify>undici': '6.28.1'
   # eth-gas-reporter (outillage Hardhat de développement) embarque axios sous avis high.
   'axios@>=1 <1.20.0': '1.20.0'
+  # Déni de service par offsets de sections indexées (GHSA-68fv-2mgg-jv7q), atteint via postcss.
+  'source-map-js@>=1 <1.2.2': '1.2.2'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans
@@ -56,3 +58,8 @@ auditConfig:
     # développement (hardhat-toolbox-viem, solidity-coverage) : `pnpm audit --prod` ne la voit pas.
     # À retirer dès que braces 3.0.4 est publiée et passe la politique d'âge minimal.
     - GHSA-vfj7-8cjw-p6xm
+    # sprintf-js <= 1.1.3 (déni de service par précision non bornée), avis du 6 octobre 2026 qui
+    # annonce une 1.1.4 non publiée sur npm. Atteint uniquement par l'outillage Solidity de
+    # développement (solidity-coverage > js-yaml > argparse) : `pnpm audit --prod` ne la voit pas.
+    # À retirer dès que sprintf-js 1.1.4 est publiée.
+    - GHSA-hp3w-g68c-fv3c
