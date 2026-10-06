@@ -40,7 +40,7 @@ test("certificat vérifié : titre, mesures, règlement, lien de preuve et tél�
   for (const label of ["MRTD", "RTMR3", "Compose hash"]) assert.ok(out.includes(`>${label}<`), label);
   assert.equal(out.match(/data-pin="match"/g)?.length, 2);
   // RTMR3 n'est pas épinglé : la page ne prétend jamais qu'il correspond à une valeur attendue.
-  assert.match(out, /data-pin="event-log">Not pinned: changes at every restart, authenticated by the event log replay</);
+  assert.match(out, /data-pin="event-log">Not pinned: changes at every restart, checked by the event log replay</);
   assert.equal(out.match(/data-check-state="pass"/g)?.length, 4);
 });
 
