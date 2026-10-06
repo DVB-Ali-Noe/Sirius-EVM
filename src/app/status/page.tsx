@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { resolveServerNetwork } from "@/lib/evm/networks";
 import { MAINNET_STABLECOIN_NAME, stablecoinSymbol } from "@/lib/evm/stablecoin";
 import { addressExplorerUrl } from "@/lib/evm/explorer";
+import { LegalLinks } from "@/components/layout/LegalLinks";
 
 /**
  * État du protocole, public et sans session.
@@ -53,7 +54,7 @@ export default function StatusPage() {
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{mainnet ? "Mainnet beta" : "Testnet"}</h1>
       <p className="mt-3 max-w-prose text-sm text-muted">
         {mainnet
-          ? `Sirius runs on Robinhood Chain mainnet with real ${symbol} (${MAINNET_STABLECOIN_NAME}, issued by Paxos), in a limited beta: loans are capped, access is by invitation, and the contracts have not been externally audited yet.`
+          ? `Sirius runs on Robinhood Chain mainnet with real ${symbol} (${MAINNET_STABLECOIN_NAME}, issued by Paxos), in a limited beta: loans are capped, access requires an instant on-chain verification of your wallet, and the contracts have not been externally audited yet.`
           : "This instance runs on Robinhood Chain testnet. Tokens have no value; use it to try the full flow."}
       </p>
 
@@ -66,7 +67,7 @@ export default function StatusPage() {
         <Row label="External audit" value="Not yet audited. Internal review completed on 1 October 2026." />
         {mainnet && <Row label="Per-loan limit" value={maxLoan ? `${maxLoan} ${symbol}` : "Not configured"} />}
         {mainnet && <Row label="Total exposure limit" value={maxExposure ? `${maxExposure} ${symbol} locked across all loans` : "Not configured"} />}
-        {mainnet && <Row label="Access" value="By invitation during the beta" />}
+        {mainnet && <Row label="Access" value="Open, with instant on-chain wallet verification" />}
       </dl>
 
       <h2 className="mt-10 text-lg font-semibold">Contracts</h2>
@@ -80,6 +81,10 @@ export default function StatusPage() {
         Every loan leaves a receipt in the <Link href="/audit" className="text-accent hover:text-accent/80">audit ledger</Link>.
         {mainnet && <> Using the beta means accepting its <Link href="/terms" className="text-accent hover:text-accent/80">terms</Link>.</>}
       </p>
+
+      <footer className="mt-12 border-t border-border pt-4">
+        <LegalLinks />
+      </footer>
     </main>
   );
 }

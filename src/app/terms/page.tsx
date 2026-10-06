@@ -17,13 +17,16 @@ export const metadata: Metadata = {
   description: "Terms of the Sirius mainnet beta.",
 };
 
-const LAST_UPDATED = "4 October 2026";
+const LAST_UPDATED = "6 October 2026";
 
 const SECTIONS: [string, string[]][] = [
   ["What the beta is", [
     "Sirius lets a data provider rent access to an encrypted dataset for model training, and a borrower pay to obtain only the trained model.",
-    "The mainnet beta runs on Robinhood Chain and is limited on purpose: access is by invitation, each loan is capped and total exposure is capped. The current limits are published on the status page.",
+    "The mainnet beta runs on Robinhood Chain and is limited on purpose: each loan is capped and total exposure is capped. The current limits are published on the status page.",
+    "Access requires an on-chain verification of your wallet, available instantly from the KYB page; Sirius may revoke it.",
+    "You must be at least 18 years old to use Sirius.",
     "The service is provided during the beta as is, with no guarantee that it will be available at all times.",
+    "Nothing on Sirius is investment, financial, legal or tax advice.",
   ]],
   ["Models", [
     "Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development.",
@@ -34,6 +37,7 @@ const SECTIONS: [string, string[]][] = [
     "Payments on the mainnet beta are made in USDG, a stablecoin issued by Paxos. Sirius does not issue, control or guarantee USDG or its value.",
     "Like any regulated issuer, Paxos can freeze addresses. If your address is frozen, you may be unable to move your USDG, including amounts held in or owed by the Sirius escrow, and Sirius cannot undo a freeze. A freeze of the escrow contract's own address would block every loan's funds until Paxos lifts it.",
     "You also need a small amount of ETH on Robinhood Chain to pay network fees. On testnet, tokens have no value.",
+    "Sirius is non-custodial: payments sit in the escrow smart contract, not with Sirius, and Sirius never holds your funds or your keys.",
   ]],
   ["Safety period and refunds", [
     "When a borrower starts a loan, the payment is locked in the escrow contract with a safety period of 3 days.",
@@ -65,10 +69,30 @@ const SECTIONS: [string, string[]][] = [
     "Keep control of your wallet. Sirius never asks for your private key or seed phrase.",
     "Do not use the service from a country or for a purpose where it would be unlawful.",
   ]],
+  ["If you publish data", [
+    "You warrant that you hold all the rights needed to publish the data and license it for training.",
+    "You warrant that the data contains no personal data unless you have a lawful basis to share it for this purpose.",
+    "You indemnify Sirius against any claim arising from the data you publish.",
+  ]],
+  ["Prohibited uses", [
+    "Publishing illegal data, or personal data without a lawful basis.",
+    "Uploading malware or any content designed to harm the service or its users.",
+    "Using Sirius to evade sanctions.",
+    "Attempting to extract or leak a dataset, or to bypass the training enclave.",
+  ]],
   ["What Sirius commits to", [
     "Datasets are encrypted in your browser before upload and decrypted only inside the training environment described on the status page.",
     "Every loan is recorded on-chain and listed in the audit ledger.",
     "Limits, environment and audit status are published on the status page and kept up to date.",
+    "Personal data is handled as described in the privacy policy.",
+  ]],
+  ["Liability", [
+    "To the maximum extent permitted by law, Sirius is not liable for indirect losses, and its total liability for a loan is capped at the fees paid to Sirius for that loan.",
+    "Nothing in these terms limits liability that cannot be limited by law, and nothing affects your mandatory rights as a consumer.",
+  ]],
+  ["Consumers and governing law", [
+    "If you use the service as a consumer, the mandatory consumer protections of your country of residence apply.",
+    "These terms are governed by French law.",
   ]],
 ];
 

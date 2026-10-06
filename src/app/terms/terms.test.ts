@@ -45,7 +45,9 @@ test("conditions : paiement en USDG émis par Paxos, qui peut geler des adresses
 });
 
 test("conditions : nature bêta, modèles de base, date de mise à jour et contact", () => {
-  assert.match(terms, /access is by invitation/);
+  // Accès ouvert : vérification on-chain instantanée, plus d'accès sur invitation.
+  assert.match(terms, /Access requires an on-chain verification of your wallet, available instantly from the KYB page; Sirius may revoke it/);
+  assert.doesNotMatch(terms, /by invitation|invitation-only/i);
   assert.match(terms, /baseline models: linear and logistic regression/);
   const date = /Last updated \{LAST_UPDATED\}/.test(terms) && /const LAST_UPDATED = "(\d{1,2} [A-Z][a-z]+ \d{4})"/.exec(terms);
   assert.ok(date, "une date de mise à jour est affichée");
@@ -72,6 +74,8 @@ test("landing : pied de page avec les liens conditions et état, et le réseau",
   const landing = read("../page.tsx");
   const footer = landing.slice(landing.indexOf("<footer"), landing.indexOf("</footer>"));
   assert.match(footer, /href="\/terms"/);
+  assert.match(footer, /href="\/privacy"/);
+  assert.match(footer, /href="\/legal"/);
   assert.match(footer, /href="\/status"/);
   assert.match(footer, /networkLine/);
   assert.match(landing, /Robinhood Chain/);
@@ -88,4 +92,29 @@ test("connexion : la mention des conditions accompagne chaque bouton de connexio
   for (const file of ["../../components/wallet/ConnectButton.tsx", "../../components/wallet/SignInCta.tsx"]) {
     assert.match(read(file), /<TermsNotice/, file);
   }
+});
+
+test("conditions : âge minimum, pas de conseil financier, non-custodial", () => {
+  assert.match(terms, /at least 18 years old/);
+  assert.match(terms, /Nothing on Sirius is investment, financial, legal or tax advice/);
+  assert.match(terms, /Sirius is non-custodial: payments sit in the escrow smart contract, not with Sirius/);
+});
+
+test("conditions : garanties du fournisseur de données et usages interdits", () => {
+  assert.match(terms, /You warrant that you hold all the rights needed to publish the data/);
+  assert.match(terms, /no personal data unless you have a lawful basis/);
+  assert.match(terms, /You indemnify Sirius against any claim arising from the data you publish/);
+  for (const clause of [/Publishing illegal data, or personal data without a lawful basis/, /malware/, /evade sanctions/, /extract or leak a dataset/]) {
+    assert.match(terms, clause);
+  }
+});
+
+test("conditions : responsabilité plafonnée, droits des consommateurs, droit français sans tribunal désigné", () => {
+  assert.match(terms, /To the maximum extent permitted by law/);
+  assert.match(terms, /capped at the fees paid to Sirius for that loan/);
+  assert.match(terms, /Nothing in these terms limits liability that cannot be limited by law/);
+  assert.match(terms, /nothing affects your mandatory rights as a consumer/);
+  assert.match(terms, /mandatory consumer protections of your country of residence apply/);
+  assert.match(terms, /governed by French law/);
+  assert.doesNotMatch(terms, /\bcourts? of\b|Paris|Lyon|tribunal/i, "aucune juridiction nommée");
 });

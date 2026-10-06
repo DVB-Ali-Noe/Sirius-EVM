@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LegalLinks } from "@/components/layout/LegalLinks";
 
 /**
  * Page d'attente du passage mainnet.
@@ -46,6 +47,8 @@ export default function ComingSoonPage() {
         <span>Follow @{X_HANDLE} for the launch</span>
       </a>
       <p className="mt-16 text-xs text-muted-foreground">Confidential data lending on EVM.</p>
+      {/* Pages légales : en liste blanche de la porte, lisibles avant l'ouverture. */}
+      <LegalLinks className="mt-4" />
     </main>
   );
 }

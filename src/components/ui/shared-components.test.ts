@@ -37,7 +37,7 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
   assert.match(info, /data-variant="info"/);
   assert.match(warning, /data-variant="warning"/);
   assert.notEqual(info.match(/class="[^"]*"/)?.[0], warning.match(/class="[^"]*"/)?.[0]);
-  assert.match(info, /Beta: invitation-only access, capped amounts per loan and in total\./);
+  assert.match(info, /Beta: instant on-chain wallet verification, capped amounts per loan and in total\./);
   assert.doesNotMatch(info, /mailto:/, "pas de lien quand le texte ne mentionne pas le contact");
   assert.match(warning, /CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features\. Linear and logistic regression are deterministic/);
   assert.match(page("note-children-hostile"), /&lt;b onmouseover=&quot;x&quot;&gt;/);
@@ -46,11 +46,11 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
 });
 
 test("DisclaimerNote : un identifiant répété n'est affiché qu'une fois", () => {
-  assert.equal(page("note-duplicates").match(/Beta: invitation-only/g)?.length, 1);
+  assert.equal(page("note-duplicates").match(/Beta: instant on-chain wallet verification/g)?.length, 1);
 });
 
 test("DisclaimerNote : un identifiant inconnu venu de l'extérieur est ignoré, sans exception", () => {
-  assert.match(page("note-unknown-id"), /Beta: invitation-only/);
+  assert.match(page("note-unknown-id"), /Beta: instant on-chain wallet verification/);
 });
 
 test("StatusPill : libellé visible pour chacun des huit états, point décoratif masqué", () => {
