@@ -38,8 +38,8 @@ export function demoOnlyRoute(pathname: string): DemoRouteDecision {
     return DEMO_API_PREFIXES.some((prefix) => underPrefix(pathname, prefix)) ? "allow" : "block";
   }
   if (pathname === DEMO_PAGE || pathname === `${DEMO_PAGE}/`) return "allow";
-  // Conditions d'utilisation : la connexion y renvoie.
-  if (pathname === "/terms") return "allow";
+  // Pages légales : la connexion renvoie aux conditions, le pied de page aux trois.
+  if (pathname === "/terms" || pathname === "/privacy" || pathname === "/legal") return "allow";
   if (pathname.startsWith("/_next/")) return "allow";
   // Fichiers statiques de `public/` (exemples CSV, images, polices) : dernier segment avec extension.
   const last = pathname.slice(pathname.lastIndexOf("/") + 1);

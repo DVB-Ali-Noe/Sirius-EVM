@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ProductTour } from "@/components/layout/ProductTour";
+import { LegalLinks } from "@/components/layout/LegalLinks";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { PageTour } from "@/components/tour/PageTour";
 import { SecureAccountBanner } from "@/components/wallet/SecureAccount";
@@ -28,6 +29,7 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
         <div className="pt-8">
           <ProfileMenu />
           {children}
+          <LegalFooter />
         </div>
       </div>
     );
@@ -47,7 +49,17 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
         <ProfileMenu />
         <SecureAccountBanner />
         {children}
+        <LegalFooter />
       </div>
     </div>
+  );
+}
+
+/** Pied de page des pages de l'application : conditions, confidentialité, mentions légales. */
+function LegalFooter() {
+  return (
+    <footer className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6">
+      <LegalLinks className="justify-start border-t border-border pt-4" />
+    </footer>
   );
 }

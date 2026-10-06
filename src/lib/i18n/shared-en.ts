@@ -13,8 +13,8 @@ export const SHARED_MESSAGES_EN: Record<string, string> = {
     "Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development.",
   "Besoin d’un modèle plus puissant ou de données précises ? Contactez-nous à {email}.":
     "Need a stronger model or specific data? Contact us at {email}.",
-  "Bêta : accès sur invitation, montants plafonnés par prêt et au total.":
-    "Beta: invitation-only access, capped amounts per loan and in total.",
+  "Bêta : vérification on-chain instantanée du wallet, montants plafonnés par prêt et au total.":
+    "Beta: instant on-chain wallet verification, capped amounts per loan and in total.",
   "La régression linéaire et la régression logistique sont déterministes : réentraîner sur les mêmes données donne le même modèle.":
     "Linear and logistic regression are deterministic: retraining on the same data gives the same model.",
   "CSV jusqu’à {maxSize}, de {minRows} à {maxRows} lignes, colonnes numériques, jusqu’à {maxFeatures} variables explicatives.":

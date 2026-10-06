@@ -8,6 +8,8 @@ export const LEGAL_MESSAGES_EN: Record<string, string> = {
   "En te connectant, tu acceptes les": "By signing in, you accept the",
   "conditions d’utilisation": "Terms",
   "Conditions d’utilisation": "Terms",
+  "Confidentialité": "Privacy",
+  "Mentions légales": "Legal notice",
   "Bêta mainnet sur Robinhood Chain": "Mainnet beta on Robinhood Chain",
   "Testnet sur Robinhood Chain": "Testnet on Robinhood Chain",
 };

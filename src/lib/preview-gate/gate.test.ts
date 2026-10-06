@@ -98,16 +98,16 @@ test("liste blanche : test de fumée, conditions, page d'attente et route de la 
     assert.equal(await decidePreviewGate(config, path, null), "allow", path);
   }
   // Pages publiques : servies à leur adresse, mais rendues nues (sans portefeuille) sans cookie.
-  for (const path of ["/terms", "/terms/", "/coming-soon", "/coming-soon/"]) {
+  for (const path of ["/terms", "/terms/", "/privacy", "/privacy/", "/legal", "/legal/", "/coming-soon", "/coming-soon/"]) {
     assert.equal(isPreviewGateExempt(path), true, path);
     assert.equal(isPublicPage(path), true, path);
     assert.equal(await decidePreviewGate(config, path, null), "public", path);
     assert.equal(await decidePreviewGate(config, path, "forgé"), "public", path);
   }
-  assert.deepEqual([...PUBLIC_PAGES].sort(), ["/coming-soon", "/coming-soon/", "/terms", "/terms/"]);
+  assert.deepEqual([...PUBLIC_PAGES].sort(), ["/coming-soon", "/coming-soon/", "/legal", "/legal/", "/privacy", "/privacy/", "/terms", "/terms/"]);
   // Rien d'autre sous /api, même à un caractère près.
   for (const path of APIS) assert.equal(isPreviewGateExempt(path), false, path);
-  for (const path of ["/preview/", "/preview/x", "/termsx", "/terms/x", "/coming-soon/x", "/Terms", "/terms.html"]) {
+  for (const path of ["/preview/", "/preview/x", "/termsx", "/terms/x", "/coming-soon/x", "/Terms", "/terms.html", "/privacyx", "/privacy/x", "/Privacy", "/legalx", "/legal/x", "/legal.html"]) {
     assert.equal(isPreviewGateExempt(path), false, path);
     assert.equal(isPublicPage(path), false, path);
     assert.equal(await decidePreviewGate(config, path, null), "wait", path);
@@ -117,7 +117,7 @@ test("liste blanche : test de fumée, conditions, page d'attente et route de la 
 test("liste blanche avec cookie valide : « open », l'équipe voit /terms avec le site complet", async () => {
   const config = readPreviewGateConfig(ACTIVE);
   const cookie = await previewCookieValue(KEY);
-  for (const path of ["/terms", "/coming-soon", "/preview", "/api/auth/challenge", "/_next/static/chunks/app.js", "/images/avatar-noe.png"]) {
+  for (const path of ["/terms", "/privacy", "/legal", "/coming-soon", "/preview", "/api/auth/challenge", "/_next/static/chunks/app.js", "/images/avatar-noe.png"]) {
     assert.equal(await decidePreviewGate(config, path, cookie), "open", path);
   }
 });

@@ -6,6 +6,8 @@ import { AppError } from "@/lib/app-error";
 import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
 import { assertReaperMainnetConfiguration } from "./mainnet-guard";
 import { reaperHeartbeat } from "./heartbeat";
+import { purgeExpiredAccessLogs } from "@/lib/users/access-log-retention";
+import { databaseAccessLogRetention } from "@/lib/users/access-log-store";
 import { purgeExpiredAutoInvites } from "@/lib/kyb/auto-invite-retention";
 import { databaseAutoInviteRetention } from "@/lib/sirius/kyb-auto-invite";
 
@@ -100,6 +102,16 @@ async function main(): Promise<void> {
       } catch {
         // La passe suivante relit les crédits sur la chaîne : un retrait déjà passé n'est pas refait.
         console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
+      }
+    }
+    // Journal des accès : conservation annoncée de 24 mois (/terms, /privacy). Un lot borné par
+    // passe ; un échec ne touche ni la passe des prêts ni son battement, la suivante reprend.
+    if (!arret) {
+      try {
+        const purges = await purgeExpiredAccessLogs(databaseAccessLogRetention, new Date());
+        if (purges > 0) console.log(`[reaper] journal des accès purgé : lignes=${purges}`);
+      } catch {
+        console.error("[reaper] purge du journal des accès échouée, reprise à la suivante");
       }
     }
     // Traces d'accès instantané KYB (wallet, code, IP) : 48 h de conservation, un lot borné par
