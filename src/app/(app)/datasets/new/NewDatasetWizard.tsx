@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
+import { Page, PageHeader } from "@/components/layout/Page";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import type { TokenInfo } from "@/components/datasets/price";
 import { messageOf } from "@/lib/errors-client";
@@ -237,16 +237,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const stepNumber = phase === "data" ? 1 : 2;
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-8">
-      <div className="mb-6">
-        <Link href="/datasets" className="inline-flex min-h-10 items-center text-sm text-muted transition-colors hover:text-foreground">
-          {t("← Mes actifs data")}
-        </Link>
-        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Publier un dataset")}</h1>
-          <p className="text-sm text-muted" aria-live="polite">{t("Étape {step} / 2", { step: stepNumber })}</p>
-        </div>
-        <ol className="mt-3 flex gap-2 text-xs" aria-label={t("Étapes")}>
+    <Page width="narrow">
+      <PageHeader
+        back={{ href: "/datasets", label: t("Mes datasets") }}
+        title={t("Publier un dataset")}
+        actions={<p className="text-sm text-muted" aria-live="polite">{t("Étape {step} / 2", { step: stepNumber })}</p>}
+      >
+        <ol className="flex gap-2 text-xs" aria-label={t("Étapes")}>
           {[t("La donnée"), t("Prix et publication")].map((label, index) => {
             const current = index + 1 === stepNumber;
             const done = index + 1 < stepNumber;
@@ -264,13 +261,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             );
           })}
         </ol>
-        <p className="mt-3 text-sm text-muted">
+        <p className="text-sm text-muted">
           {t("Chiffré dans ton navigateur → ouvert et rescellé dans le TEE → IPFS. Next.js ne reçoit jamais la donnée brute.")}
         </p>
-      </div>
+      </PageHeader>
 
       {error && phase !== "pricing" && (
-        <div role="alert" className="mb-6 min-w-0 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative wrap-anywhere">
+        <div role="alert" className="min-w-0 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative wrap-anywhere">
           {t(error)}
         </div>
       )}
@@ -362,6 +359,6 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
         )}
         </div>
       </Card>
-    </main>
+    </Page>
   );
 }

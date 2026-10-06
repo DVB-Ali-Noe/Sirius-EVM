@@ -8,7 +8,9 @@ import { Card } from "@/components/ui/Card";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { SectionTitle } from "@/components/ui/Heading";
 import { truncate, formatBytes } from "@/lib/format";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
@@ -395,15 +397,10 @@ function TrainPageContent() {
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Entraîner un modèle")}</h1>
-            <p className="mt-1 text-sm text-muted">{t("Connecte un wallet pour lancer un entraînement.")}</p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Entraîner un modèle")} />
+        <ConnectPrompt message={t("Connecte un wallet pour lancer un entraînement.")} />
+      </Page>
     );
   }
 
@@ -413,29 +410,25 @@ function TrainPageContent() {
   const hasHistory = loans.length > 0 || jobs.length > 0;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Entraîner un modèle")}</h1>
-          <p className="mt-1 text-sm text-muted">
-            {t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
-          </p>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title={t("Entraîner un modèle")}
+        description={t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
+      />
 
-      <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} className="mb-6" />
+      <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} />
 
       {error && (
-        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
         </div>
       )}
 
       {/* Mes données — self-train, gratuit, sans escrow : réservé à l'équipe (admin) */}
       {admin === true && (
-        <section className="mb-10" data-testid="self-training">
+        <section data-testid="self-training">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
+            <SectionTitle>{t("Mes données")}</SectionTitle>
             <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
           </div>
           {trainable.length === 0 ? (
@@ -459,7 +452,7 @@ function TrainPageContent() {
 
       {/* Entraînement sur ses propres données : contact, tant que le self training n'est pas public */}
       {admin === false && (
-        <DisclaimerNote messages={[]} className="mb-10">
+        <DisclaimerNote messages={[]}>
           <span data-testid="own-data-contact">
             {t("Envie d’entraîner sur vos propres données ? Contactez-nous à")}{" "}
             <a
@@ -475,7 +468,7 @@ function TrainPageContent() {
 
       {/* Suivi unifié */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes entraînements")}</h2>
+        <SectionTitle className="mb-3">{t("Mes entraînements")}</SectionTitle>
         {!hasHistory && (
           <div className="py-8 text-center text-sm text-muted">
             <p>{t("Aucun entraînement pour l’instant.")}</p>
@@ -683,7 +676,7 @@ function TrainPageContent() {
           })}
         </div>
       </section>
-    </main>
+    </Page>
   );
 }
 

@@ -23,8 +23,6 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Rechercher un dataset": "Search datasets",
   "Rechercher par nom ou description": "Search by name or description",
   "Filtres": "Filters",
-  "Afficher les filtres": "Show filters",
-  "Masquer les filtres": "Hide filters",
   "Catégorie": "Category",
   "Toutes": "All",
   "Tous": "All",

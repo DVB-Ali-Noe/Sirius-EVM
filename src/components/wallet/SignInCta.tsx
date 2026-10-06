@@ -10,9 +10,9 @@ import { TermsNotice } from "./TermsNotice";
 
 // État partagé : la connexion change la révision du wallet et remonte les parents indexés
 // sur elle, alors que la signature attend encore dans le wallet.
-const useSignIn = create<{ pending: boolean; error: string | null }>(() => ({ pending: false, error: null }));
+export const useSignIn = create<{ pending: boolean; error: string | null }>(() => ({ pending: false, error: null }));
 
-async function connectAndSignIn(): Promise<void> {
+export async function connectAndSignIn(): Promise<void> {
   if (useSignIn.getState().pending) return;
   useSignIn.setState({ pending: true, error: null });
   try {

@@ -2,6 +2,7 @@
 
 import { Suspense } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { Page, PageHeader } from "@/components/layout/Page";
 import { MarketplaceCatalogue } from "./_components/MarketplaceCatalogue";
 
 /**
@@ -22,8 +23,9 @@ export default function MarketplacePage() {
 function CatalogueFallback() {
   const { t } = useLocale();
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+    <Page width="wide">
+      <PageHeader title={t("Datasets disponibles")} />
       <p className="text-sm text-muted">{t("Chargement…")}</p>
-    </main>
+    </Page>
   );
 }

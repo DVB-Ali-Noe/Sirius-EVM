@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
 import { truncate } from "@/lib/format";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { addressesEqual } from "@/lib/evm/address";
@@ -119,15 +120,10 @@ function ExplorerPageContent() {
 
   if (!connected) {
     return (
-      <main className="mx-auto w-full max-w-4xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Explorer")}</h1>
-            <p className="mt-1 text-sm text-muted">{t("Connect a wallet to see your borrowings and their proofs.")}</p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Explorer")} />
+        <ConnectPrompt message={t("Connect a wallet to see your borrowings and their proofs.")} />
+      </Page>
     );
   }
 
@@ -136,12 +132,11 @@ function ExplorerPageContent() {
   const refunded = borrowings.filter(isRefunded).length;
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-8">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Explorer")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("Your borrowings, settlements and refunds, each verifiable on the chain explorer.")}</p>
-        </div>
+    <Page>
+      <PageHeader
+        title={t("Explorer")}
+        description={t("Your borrowings, settlements and refunds, each verifiable on the chain explorer.")}
+      >
         <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider text-muted">
           <span>{t("Borrowings")} {borrowings.length}</span>
           <span>{t("Datasets borrowed")} {borrowedDatasetCount(borrowings)}</span>
@@ -149,7 +144,7 @@ function ExplorerPageContent() {
           <span>{t("Refunded")} {refunded}</span>
           <span>{network}</span>
         </div>
-      </div>
+      </PageHeader>
 
       {!authenticated && (
         <p className="rounded-xl border border-border bg-surface/30 px-4 py-8 text-center text-sm text-muted">
@@ -157,13 +152,13 @@ function ExplorerPageContent() {
         </p>
       )}
       {state === "error" && (
-        <div role="alert" className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t("Explorer unavailable — try again.")}
         </div>
       )}
       {state === "loading" && borrowings.length === 0 && <p className="py-8 text-center text-sm text-muted">{t("Loading your borrowings…")}</p>}
       {state === "ready" && truncated && (
-        <p role="status" className="mb-6 rounded-lg border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-400">
+        <p role="status" className="rounded-lg border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-400">
           {t("Only your {count} most recent loans were loaded: older borrowings may be missing.", { count: API_LOAN_LIMIT })}
         </p>
       )}
@@ -226,7 +221,7 @@ function ExplorerPageContent() {
           </Card>
         ))}
       </div>
-    </main>
+    </Page>
   );
 }
 

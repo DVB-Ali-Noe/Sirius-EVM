@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { CardTitle, SectionTitle } from "@/components/ui/Heading";
+import { Page, PageHeader } from "@/components/layout/Page";
 import { SignInCta } from "@/components/wallet/SignInCta";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
@@ -123,10 +125,9 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
     } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); }
   }
 
-  return <main className="mx-auto w-full max-w-5xl space-y-7 px-5 py-8 md:px-8">
-    <div><p className="text-sm text-muted">{t("Phala · entraînement confidentiel · testnet")}</p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl">{t("Tes données. Ton modèle.")}</h1>
-      <p className="mt-4 max-w-2xl text-muted">{t("Choisis un exemple ou importe ton CSV. Ton fichier est chiffré dans ton navigateur, puis entraîné dans une enclave Phala.")}</p></div>
+  return <Page>
+    <PageHeader eyebrow={t("Phala · entraînement confidentiel · testnet")} title={t("Tes données. Ton modèle.")}
+      description={t("Choisis un exemple ou importe ton CSV. Ton fichier est chiffré dans ton navigateur, puis entraîné dans une enclave Phala.")} />
     <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border px-5 py-4">
       <span className={available ? "text-emerald-400" : "text-muted"}>{t(session === null ? "Vérification de la disponibilité…"
         : session.available ? "Démonstration ouverte · offerte par Sirius" : session.phase === null ? "Démonstration indisponible"
@@ -134,16 +135,16 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : "Démonstration fermée")}</span>
       <a href="/api/phala-demo/attestation" target="_blank" rel="noreferrer" className="text-sm underline">{t("Attestation du runner")}</a>
     </div>
-    {error && <p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-red-300">{t(error)}</p>}
+    {error && <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     <div className="grid gap-4 md:grid-cols-2">{DEMO_EXAMPLES.map((sample, index) => <Card key={sample.id} className={example === sample.id ? "ring-1 ring-positive/50" : ""}>
-      <p className="text-xs uppercase tracking-widest text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
-      <h2 className="mt-3 text-xl font-medium">{sample.name}</h2><p className="mt-2 min-h-12 text-sm text-muted">{sample.description}</p>
+      <p className="text-xs uppercase tracking-wider text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
+      <CardTitle className="mt-3">{sample.name}</CardTitle><p className="mt-2 min-h-12 text-sm text-muted">{sample.description}</p>
       <div className="mt-5 flex flex-wrap items-center gap-4">
         <button className={example === sample.id ? selectedButton : button} disabled={busy} onClick={() => void loadExample(index)}>
           {example === sample.id ? t("Exemple sélectionné ✓") : t("Utiliser cet exemple")}</button>
         <a href={sample.path} download className="text-sm underline">{t("Télécharger le CSV")}</a></div>
     </Card>)}</div>
-    <Card><h2 className="text-xl font-medium">{t("Préparer l’entraînement")}</h2>
+    <Card><CardTitle>{t("Préparer l’entraînement")}</CardTitle>
       <label className={`mt-5 flex cursor-pointer flex-col gap-1 rounded-xl border border-dashed p-4 transition-colors focus-within:ring-2 focus-within:ring-accent/50 hover:border-accent/60 ${file ? "border-positive/50 bg-positive/5" : "border-border"} ${busy ? "pointer-events-none opacity-50" : ""}`}>
         <span className="text-sm text-muted">{t("Ton CSV · 3 Mo maximum")}</span>
         <span className="truncate font-medium">{file ? `✓ ${file.name}` : t("Choisir un fichier CSV")}</span>
@@ -166,7 +167,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
     </Card>
-    {authenticated && <section className="space-y-3"><h2 className="text-xl font-medium">{t("Mes résultats")}</h2>
+    {authenticated && <section className="space-y-3"><SectionTitle>{t("Mes résultats")}</SectionTitle>
       <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>
       {jobs.length === 0 && <p className="text-sm text-muted">{t("Ton premier modèle apparaîtra ici.")}</p>}
       {jobs.map((job) => <Card key={job.id}><div className="flex flex-wrap items-center justify-between gap-4">
@@ -176,5 +177,5 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
       </Card>)}
     </section>}
-  </main>;
+  </Page>;
 }

@@ -450,3 +450,25 @@ Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes
 Dates d’entraînement et de publication (`e9dbbab`) vérifiées sur l’instance servie : l’API des datasets renvoie `listedAt` (reprise de la dernière modification pour l’existant) et la carte marketplace l’affiche ; la date de fin d’entraînement apparaît sous chaque résultat de `/phala`.
 
 Fin de nuit : session fermée, CVM arrêtée, contrôleur et Next alignés sur `c06ca9a`.
+
+### Homogénéisation des pages de l’application — après modification, 5 octobre 2026
+
+Avant : chaque page de `(app)` posait son propre conteneur (`max-w-xl` à `max-w-6xl`, centré, `px-4`/`px-6`), si bien que le titre changeait de position d’une page à l’autre ; invites de connexion, liens retour et sous-titres (`h2`) avaient des tailles et styles divergents ; `/phala` et `PhalaDemo` utilisaient un titre héros (`text-4xl`/`text-5xl`).
+
+Après : gabarit commun `components/layout/Page.tsx` (`Page`, `PageHeader`, `BackLink`), conteneur extérieur unique et largeur de contenu `wide`/`default`/`narrow` alignée à gauche ; `ConnectPrompt` pour l’état sans wallet ; `CardTitle` et `SectionTitle` (`components/ui/Heading.tsx`). Pages migrées : dashboard, wallet, train, explorer, datasets (liste, création, fiche), marketplace (catalogue, fiche), KYB, réglages, `/phala` fermé et `PhalaDemo`. Aucun changement de logique ni de texte, hors le lien retour de la création de dataset (« Mes datasets » au lieu de « Mes actifs data »). Contrôle : titres à la même position sur toutes les pages (desktop 1440 px et mobile 390 px), sans débordement horizontal ; typage, lint ciblé et 901 tests réussis.
+
+Marketplace : la colonne de filtres latérale est remplacée par une barre sous la recherche (catégorie et modèle en listes déroulantes, prix et taille en menus de fourchette, case KYB, réinitialisation) ; le tri rejoint la ligne du nombre de résultats ; grille de deux colonnes sur mobile. Test e2e des filtres adapté (listes au lieu de boutons radio, ouverture du menu de prix), non rejoué : Next refuse un second serveur dev tant que `pnpm dev` tourne.
+
+Barre latérale desktop rétractable : bouton d’en-tête pour la replier en rail d’icônes (une icône par page), état mémorisé par appareil (`sidebarCollapsed` dans `useUiStore`). Repliée, le survol (après 150 ms) ou le focus clavier la déplie par-dessus le contenu sans le décaler ; le bouton l’épingle ouverte. Les libellés glissent vers leur icône et s’effacent, « Sirius » se replie en « S » ; animations coupées avec `prefers-reduced-motion`. Barre mobile inchangée.
+
+Révision de la barre latérale : glyphes pleins dessinés pour Sirius à la place des icônes Lucide, affichés seulement quand la barre est repliée ; chaque libellé se contracte et devient son glyphe, et inversement. Le dépliage au survol pousse désormais la page (`sidebarPeek` dans `useUiStore`, non mémorisé).
+
+Barre latérale, suite : icônes Lucide rétablies pour les pages ; repliée, le mot « Sirius » devient l’emblème `components/layout/SiriusMark.tsx`, image fournie de l’anneau de particules (`public/images/sirius-mark.png`, recadrée, fond détouré par luminosité). À la fermeture, les lettres de « Sirius » convergent vers le centre de l’emblème en tournant et s’effacent pendant qu’il apparaît en pivotant ; séquence inverse à l’ouverture. Icône « My datasets » remplacée par un tableau.
+
+Animations de la barre, suite : au repli, le « s » final de « Sirius » glisse vers l’emblème en avalant chaque lettre qu’il croise, pivote d’un quart de tour et laisse place à l’emblème (inverse à l’ouverture, lettres redéposées avec un léger rebond). Navigation : la pastille de la page active est un élément unique qui glisse d’un onglet à l’autre et suit la largeur pendant le repli ; libellés en `mix-blend-difference` pour s’inverser sous la pastille ; léger enfoncement au clic.
+
+Menu profil (haut à droite) : point vert/rouge identique au bouton wallet de la barre latérale ; connexion signée possible depuis le menu (bouton, mention des conditions, erreur), et rappel « Sign in » sur le bouton tant que la session n’est pas signée. Wallet, Settings et KYB passent en pleine largeur : grille solde + carte compte (réseau, adresse copiable, statut de session avec connexion) pour Wallet, cartes en grille pour Settings, statut et invitation côte à côte pour KYB, éléments « Coming soon » en grille. États connectés non vérifiés visuellement (pas de wallet dans le navigateur de test).
+
+Bouton « Sign in » en haut à droite : à la réussite de la signature, les lettres de « Signing… » convergent vers le centre en tournant, le bouton se resserre en pastille ronde où une coche se dessine, puis la pastille s’efface (environ 2 s). Séquence vérifiée par capture continue avec le wallet simulé des tests e2e. Correctif : le bouton ne disparaît plus dès que la session est signée, avant la fin du chargement.
+
+Barre latérale : bouton de sortie placé avant le bouton wallet, à la même position repliée ou dépliée ; une marge invisible de 16 px au bord gauche de l’écran déplie aussi la barre repliée.

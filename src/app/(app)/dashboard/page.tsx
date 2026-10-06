@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { CardTitle } from "@/components/ui/Heading";
 import { useWalletStore } from "@/stores/wallet";
 import { fetchGasBalance, fetchUsdcBalance, type GasBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
@@ -131,30 +133,20 @@ function DashboardPageContent() {
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Bienvenue sur Sirius")}</h1>
-            <p className="mt-1 text-sm text-muted">
-              {t("Connecte un wallet pour accéder à ton tableau de bord.")}
-            </p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Bienvenue sur Sirius")} />
+        <ConnectPrompt message={t("Connecte un wallet pour accéder à ton tableau de bord.")} />
+      </Page>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("Tableau de bord")}</h1>
-        <p className="mt-1 font-mono text-sm text-muted">{truncate(address)}</p>
-      </div>
+    <Page>
+      <PageHeader title={t("Tableau de bord")} description={<span className="font-mono">{truncate(address)}</span>} />
 
-      <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} className="mb-8" />
+      <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} />
 
-      <Card className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <Card className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -192,10 +184,10 @@ function DashboardPageContent() {
       <EscrowCredits onWithdraw={refresh} />
 
       {reputation && (
-        <Card className="mb-8">
+        <Card>
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold">{t("Confiance EVM")}</h2>
+              <CardTitle>{t("Confiance EVM")}</CardTitle>
               <p className="mt-1 text-xs text-muted">{t("Uniquement les escrows résolus et confirmés on-chain.")}</p>
             </div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">{t("ledger evidence")}</span>
@@ -221,7 +213,7 @@ function DashboardPageContent() {
       </div>
 
       {fundsDialog && <AddFundsDialog network={network} address={address} onClose={() => setFundsDialog(false)} />}
-    </main>
+    </Page>
   );
 }
 

@@ -31,7 +31,7 @@ export function KybInviteForm({ role, onAccepted }: { role: "provider" | "borrow
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} className="mb-6 flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
+    <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
       <label htmlFor={`kyb-invite-${role}`} className="text-sm font-medium">{t("Code d’invitation KYB")}</label>
       <p className="text-xs text-muted">{t("Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.")}</p>
       <div className="flex flex-col gap-2 sm:flex-row">
