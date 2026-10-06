@@ -37,14 +37,15 @@ const linearDataset = {
 const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"].map((status) => ({
   id: `responsive-loan-${status}`,
   datasetId: dataset.id,
+  borrower: WALLET,
   dataset: { name: `${status} ${LONG_NAME}`, runnerReceipt: dataset.runnerReceipt },
   amountUsdcAtomic: dataset.priceUsdcAtomic,
   modelId: dataset.modelId,
   modelVersion: dataset.modelVersion,
   status,
   evmLockTxHash: null,
-  evmLoanKey: null,
-  settleTxHash: null,
+  evmLoanKey: status === "PENDING" || status === "SUBMITTING" ? null : `0x${"9".repeat(64)}`,
+  settleTxHash: status === "SETTLED" ? `0x${"e".repeat(64)}` : null,
   cancelTxHash: null,
   modelCid: status === "SETTLING" ? "bafy-layout-model" : null,
   runnerReceipt: status === "SETTLING" ? "layout-fixture" : null,
@@ -52,6 +53,31 @@ const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SET
   createdAt: "2026-09-05T12:00:00.000Z",
   refundable: false,
 }));
+
+/** Réponse de `GET /api/marketplace` (facturation v6 : le total affiché est le prix du dataset). */
+function catalogueBody(datasets: Array<typeof dataset>) {
+  const items = datasets.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    category: "finance",
+    modelId: entry.modelId,
+    modelVersion: entry.modelVersion,
+    rowCount: entry.metrics.rowCount,
+    columnCount: entry.metrics.columnCount,
+    sizeBytes: entry.sizeBytes,
+    providerPriceAtomic: entry.priceUsdcAtomic,
+    priceAtomic: entry.priceUsdcAtomic,
+    priceKind: "borrowerPays",
+    borrowCount: 12_345,
+    verified: true,
+    listedAt: "2026-09-05T12:00:00.000Z",
+  }));
+  return {
+    items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
+    token: { symbol: "USDC", decimals: 18 }, kybAvailable: true,
+    computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+  };
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -64,6 +90,27 @@ test.beforeEach(async ({ page }) => {
     const url = new URL(route.request().url());
     let body: unknown;
     switch (url.pathname) {
+      case "/api/marketplace":
+        body = catalogueBody([dataset, linearDataset]);
+        break;
+      case `/api/marketplace/${dataset.id}`:
+      case `/api/marketplace/${linearDataset.id}`:
+        body = {
+          dataset: {
+            ...catalogueBody([linearDataset]).items[0],
+            description: dataset.description,
+            provider: PROVIDER,
+            challengeDays: 3,
+            settledCount: 1,
+            refundedCount: 0,
+            successRate: 1,
+            computeFee: { kind: "none", atomic: "0" },
+          },
+          token: { symbol: "USDC", decimals: 18 },
+          kybAvailable: true,
+          billingMode: "v6",
+        };
+        break;
       case "/api/datasets":
         body = url.searchParams.has("status")
           ? [dataset, linearDataset]
@@ -72,6 +119,9 @@ test.beforeEach(async ({ page }) => {
             { ...linearDataset, provider: WALLET },
             { ...dataset, id: "responsive-draft", name: `Brouillon ${LONG_NAME}`, status: "DRAFT", ipfsCid: null },
           ];
+        break;
+      case "/api/admin/me":
+        body = { admin: true };
         break;
       case "/api/account/status":
         body = { known: true };
@@ -179,11 +229,15 @@ for (const screen of SCREENS) {
       await expect(page.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
       await expectContainedLayout(page);
 
-      const card = page.getByRole("heading", { name: linearDataset.name, exact: true }).locator("../..");
+      const card = page.getByRole("listitem").filter({ hasText: linearDataset.name });
       await card.getByRole("button", { name: "Add to favorites" }).click();
       await expect(card.getByRole("button", { name: "Remove from favorites" })).toHaveAttribute("aria-pressed", "true");
       await expect(page.locator("main h3").first()).toHaveText(linearDataset.name);
-      await expect(card.getByRole("button", { name: "Borrow", exact: true })).toBeEnabled();
+      // L'emprunt se fait depuis la fiche, lisible et contenue à toutes les largeurs.
+      await card.getByRole("link", { name: linearDataset.name }).click();
+      await expect(page.getByRole("heading", { name: linearDataset.name, level: 1 })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Borrow", exact: true })).toBeEnabled();
+      await expectContainedLayout(page);
     });
 
     test("titres et actions des datasets ne se chevauchent pas", async ({ page }) => {
@@ -207,12 +261,20 @@ for (const screen of SCREENS) {
       await expect(pending.getByRole("button", { name: "Recover lock" })).toBeEnabled();
       await expectContainedLayout(page);
 
-      await page.getByRole("button", { name: "Borrow", exact: true }).first().click();
-      await expect(page.getByRole("button", { name: "Confirm escrow" })).toBeVisible();
+      // Catalogue retiré de la page Train : l'emprunt part de la marketplace.
+      await expect(page.getByRole("button", { name: "Borrow", exact: true })).toHaveCount(0);
+      const refundable = page.getByRole("heading", { name: `Remboursable ${LONG_NAME}`, exact: true }).locator("../../../..");
+      await expect(refundable.getByRole("button", { name: "Refund", exact: true })).toBeVisible();
+      await expect(refundable.getByTestId("refund-explanation")).toBeVisible();
+      await expectContainedLayout(page);
+
+      const settled = page.getByRole("heading", { name: `SETTLED ${LONG_NAME}`, exact: true }).locator("../../../..");
+      await settled.getByRole("button", { name: "Retrain", exact: true }).click();
+      await expect(settled.getByRole("button", { name: "View the quote and retrain" })).toBeVisible();
       await expectContainedLayout(page);
     });
 
-    test("le sélecteur de profil et le fichier restent dans le formulaire", async ({ page }) => {
+    test("le sélecteur de profil, le fichier et son contrôle restent dans le formulaire", async ({ page }) => {
       await openLayoutPage(page, "/datasets/new", screen.fontSize);
       await page.getByLabel("Training profile").selectOption("logistic_regression");
       await page.locator('input[type="file"]').setInputFiles({
@@ -223,11 +285,14 @@ for (const screen of SCREENS) {
       await expect(page.getByLabel("Training profile")).toHaveValue("logistic_regression");
       await expect(page.getByLabel("Training profile").locator("option:checked")).toHaveText("Binary logistic regression · v1.0.0");
       await expect(page.getByText("— 480 training rows, separate test set.")).toBeVisible();
+      // Le contrôle du navigateur refuse le fichier avec sa raison, sans sortir de la carte.
+      await expect(page.locator("main").getByRole("alert")).toHaveText("Not enough rows: 2, minimum 100 for this number of features.");
+      await expect(page.getByText(`${LONG_NAME}.csv`)).toBeVisible();
       await expectContainedLayout(page);
     });
 
     test("les preuves d’audit restent dans leur carte", async ({ page }) => {
-      await openLayoutPage(page, "/audit", screen.fontSize);
+      await openLayoutPage(page, "/explorer", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
       await expectContainedLayout(page);

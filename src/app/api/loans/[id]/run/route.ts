@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { prepareLoanResult } from "@/lib/sirius/settle";
-import { assertGrantSubject, requireAuth, assertOwner } from "@/lib/auth/require-auth";
+import { assertAuthenticGrant, requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -20,7 +20,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!authorization || typeof deliveryPublicKey !== "string") {
       return NextResponse.json({ error: "Autorisation ou clé de livraison manquante" }, { status: 400 });
     }
-    assertGrantSubject(session, authorization);
+    await assertAuthenticGrant(session, authorization);
     const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true } });
     if (!loan) return NextResponse.json({ error: "Loan introuvable" }, { status: 404 });
     assertOwner(session, loan.borrower);

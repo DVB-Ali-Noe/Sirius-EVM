@@ -6,6 +6,9 @@ import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
 import { kybRegistryAddress } from "@/lib/evm/addresses";
 import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
 import { getPublicClient } from "@/lib/evm/client";
+import { resolveServerNetwork } from "@/lib/evm/networks";
+import { acceptKybTransaction } from "@/lib/evm/transaction";
+import { decodeKybInvitation, invitationSigner, MAX_INVITATION_DAYS } from "@/lib/kyb/invitation";
 
 const KYB_CREDENTIAL_TYPE = "KYB";
 
@@ -43,7 +46,41 @@ async function persistAccepted(subject: string, txHash?: string) {
   });
 }
 
-export async function prepareKybAcceptance(subject: string) {
+/**
+ * Contrôle une invitation KYB contre la chaîne et rend la transaction d'acceptation.
+ * Tout ce que le registre vérifiera est vérifié ici d'abord, pour que l'utilisateur ne signe
+ * jamais une transaction vouée à échouer : chaîne, registre, adresse, vérificateur actif,
+ * époque, nonce courant, expiration et signature.
+ */
+async function invitationTransaction(subject: string, code: unknown) {
+  let invitation;
+  try { invitation = decodeKybInvitation(code); } catch { throw new AppError("Code d’invitation KYB invalide", 400); }
+  const registry = kybRegistryAddress();
+  const { chain } = resolveServerNetwork();
+  if (invitation.chainId !== chain.id || !addressesEqual(invitation.registry, registry)) {
+    throw new AppError("Invitation KYB émise pour un autre réseau ou un autre registre", 409);
+  }
+  if (!addressesEqual(invitation.subject, subject)) throw new AppError("Invitation KYB destinée à une autre adresse", 403);
+  const now = Math.floor(Date.now() / 1000);
+  if (invitation.expiresAt <= now + 3600 || invitation.expiresAt > now + MAX_INVITATION_DAYS * 86_400) {
+    throw new AppError("Invitation KYB expirée ou hors durée autorisée", 409);
+  }
+  const signer = await invitationSigner(invitation).catch(() => null);
+  if (!signer || !addressesEqual(signer, invitation.verifier)) throw new AppError("Signature de l’invitation KYB invalide", 400);
+  const client = getPublicClient();
+  const read = (functionName: "isVerifier" | "verifierEpoch" | "nonces", account: string) =>
+    client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName, args: [account as Hex] });
+  const [active, epoch, nonce] = await Promise.all([
+    read("isVerifier", invitation.verifier), read("verifierEpoch", invitation.verifier), read("nonces", subject),
+  ]);
+  if (!active) throw new AppError("Vérificateur de l’invitation KYB non autorisé", 409);
+  if (String(epoch) !== invitation.verifierEpoch || String(nonce) !== invitation.nonce) {
+    throw new AppError("Invitation KYB périmée : demande une nouvelle invitation", 409);
+  }
+  return acceptKybTransaction({ verifier: invitation.verifier, expiresAt: invitation.expiresAt, verifierSignature: invitation.signature });
+}
+
+export async function prepareKybAcceptance(subject: string, invitation?: unknown) {
   const address = normalizeAddress(subject);
   const registry = kybRegistryAddress();
   const publicClient = getPublicClient();
@@ -56,6 +93,9 @@ export async function prepareKybAcceptance(subject: string) {
   if (alreadyValid) {
     await persistAccepted(address);
     return { subject: address, status: "ACCEPTED" as const, transaction: null };
+  }
+  if (invitation !== undefined) {
+    return { subject: address, status: "PENDING" as const, transaction: await invitationTransaction(address, invitation) };
   }
   throw new AppError("KYB externe requis avant toute attestation on-chain", 503);
 }

@@ -1,5 +1,7 @@
 # Audit de staging — 12 septembre 2026
 
+> Mise à jour de lecture — 23 septembre 2026 : ce rapport conserve ses constats, correctifs et résultats historiques. L'[audit approfondi](AUDIT-2026-09-23.md) inclut un suivi des correctifs locaux et des limites restantes du parcours v7. Les résultats ci-dessous ne constituent pas une validation de ces nouveaux scénarios ni de l’environnement distant. Phala reste arrêté.
+
 Audit du code local après les correctifs de connexion, de navigation et de configuration par branche. Le dossier est resté sur `staging`. Aucune commande Git, publication, migration distante ni transaction sur un réseau public n'a été exécutée.
 
 Les quatre constats ci-dessous ont reçu un correctif local le 13 septembre ; voir [les corrections et la migration v6](ESCROW-V6.md). Le compte rendu suivant conserve les observations du 12 septembre avant correction. Les deux bugs frontend ont été reproduits dans Chromium ; les deux constats d'autorisation reposent sur la revue du code et des tests existants. Ils sont distincts du défaut d'origine qui causait « Sign-in challenge rejected » et qui est corrigé localement.

@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    return NextResponse.json(await prepareKybAcceptance(session.address));
+    const { invitation } = await readJson<{ invitation?: unknown }>(req);
+    return NextResponse.json(await prepareKybAcceptance(session.address, invitation));
   } catch (err) {
     return errorResponse(err);
   }

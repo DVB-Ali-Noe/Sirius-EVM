@@ -6,6 +6,7 @@ import { addressesEqual, normalizeAddress } from "./address";
 import { getPublicClient } from "./client";
 import { loanIdHash } from "./loan-key";
 import { siriusescrowAbi } from "./abi/siriusescrow";
+import { siriusescrowv7Abi } from "./abi/siriusescrowv7";
 
 // La lecture historique reste limitée aux déploiements approuvés du même réseau.
 export function trustedEscrowBindings(): EvmEscrowBinding[] {
@@ -75,8 +76,12 @@ export function assertLoanLockTransaction(
     throw new AppError("Transaction de lock USDC invalide", 409);
   }
   try {
-    const call = decodeFunctionData({ abi: [...siriusescrowAbi, ...legacyEscrowAbi], data: transaction.input });
-    if (call.functionName === "lock" && call.args[4] === loanIdHash(scope.loanId)) return;
+    const call = decodeFunctionData({ abi: [...siriusescrowAbi, ...legacyEscrowAbi, ...siriusescrowv7Abi], data: transaction.input });
+    if (call.functionName === "lock") {
+      if (call.args[4] === loanIdHash(scope.loanId)) return;
+      const terms = call.args[0];
+      if (typeof terms === "object" && terms.loanIdHash === loanIdHash(scope.loanId)) return;
+    }
   } catch {
     // Ne pas relayer l'erreur de décodage : elle peut contenir le calldata complet.
   }

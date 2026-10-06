@@ -4,13 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { CardTitle } from "@/components/ui/Heading";
 import { useWalletStore } from "@/stores/wallet";
 import { fetchGasBalance, fetchUsdcBalance, type GasBalance, type UsdcBalance } from "@/lib/evm/balance";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
+import { resolveClientNetwork } from "@/lib/evm/networks";
+import { stablecoinSymbol } from "@/lib/evm/stablecoin";
 import { addFunds } from "@/lib/wallet/onramp";
 import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
+import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
 
 interface ReputationSnapshot {
   score: number;
@@ -53,6 +59,8 @@ function DashboardPageContent() {
   const authenticated = useWalletStore((s) => s.authenticated);
   const starterFunds = useWalletStore((s) => s.starterFunds);
   const { locale, t } = useLocale();
+  // Réseau inliné au build : « USDG » sur mainnet, jeton d'essai partout ailleurs.
+  const network = resolveClientNetwork();
 
   const [balance, setBalance] = useState<UsdcBalance | null>(null);
   const [gas, setGas] = useState<GasBalance | null>(null);
@@ -61,6 +69,8 @@ function DashboardPageContent() {
   const [error, setError] = useState(false);
   const [fundsPending, setFundsPending] = useState(false);
   const [fundsMessage, setFundsMessage] = useState<string | null>(null);
+  // Mainnet : « Ajouter des fonds » ouvre la fenêtre de choix. Testnet : le faucet, inchangé.
+  const [fundsDialog, setFundsDialog] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -123,35 +133,27 @@ function DashboardPageContent() {
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Bienvenue sur Sirius")}</h1>
-            <p className="mt-1 text-sm text-muted">
-              {t("Connecte un wallet pour accéder à ton tableau de bord.")}
-            </p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Bienvenue sur Sirius")} />
+        <ConnectPrompt message={t("Connecte un wallet pour accéder à ton tableau de bord.")} />
+      </Page>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("Tableau de bord")}</h1>
-        <p className="mt-1 font-mono text-sm text-muted">{truncate(address)}</p>
-      </div>
+    <Page>
+      <PageHeader title={t("Tableau de bord")} description={<span className="font-mono">{truncate(address)}</span>} />
 
-      <Card className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} />
+
+      <Card className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-3xl font-semibold tracking-tight">
               {loading && !balance ? "…" : error ? "—" : balance ? Number(formatUsdcAtomic(balance.atomic)).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 6 }) : "—"}
             </span>
-            <span className="text-sm text-muted">{t("test USDC")}</span>
+            <span className="text-sm text-muted">{network === "mainnet" ? stablecoinSymbol(network) : t("test USDC")}</span>
           </div>
           {gas && (
             <p className={`mt-1.5 text-xs ${gas.low ? "text-negative" : "text-muted"}`}>
@@ -162,7 +164,9 @@ function DashboardPageContent() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <button
-            onClick={handleAddFunds}
+            type="button"
+            onClick={network === "mainnet" ? () => setFundsDialog(true) : handleAddFunds}
+            aria-haspopup={network === "mainnet" ? "dialog" : undefined}
             disabled={fundsPending}
             className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
           >
@@ -180,10 +184,10 @@ function DashboardPageContent() {
       <EscrowCredits onWithdraw={refresh} />
 
       {reputation && (
-        <Card className="mb-8">
+        <Card>
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <div>
-              <h2 className="text-sm font-semibold">{t("Confiance EVM")}</h2>
+              <CardTitle>{t("Confiance EVM")}</CardTitle>
               <p className="mt-1 text-xs text-muted">{t("Uniquement les escrows résolus et confirmés on-chain.")}</p>
             </div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">{t("ledger evidence")}</span>
@@ -207,7 +211,9 @@ function DashboardPageContent() {
           </Link>
         ))}
       </div>
-    </main>
+
+      {fundsDialog && <AddFundsDialog network={network} address={address} onClose={() => setFundsDialog(false)} />}
+    </Page>
   );
 }
 

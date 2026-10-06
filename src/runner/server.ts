@@ -6,18 +6,24 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
-import { getEnclaveTlsIdentity, initEnclave, isSimulator } from "@/lib/tee/dstack";
+import { getEnclaveTlsIdentity, initEnclave } from "@/lib/tee/dstack";
 import { AppError } from "@/lib/app-error";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import {
   preflightRunnerCapability,
   runnerCapabilityMatchesScope,
   type RunnerOperation,
 } from "@/lib/runner/capability";
-import { consumeRunnerReplay } from "@/lib/runner/replay";
+import { checkRunnerReplay, consumeRunnerReplay } from "@/lib/runner/replay";
 import { runnerSettlementAddress } from "@/lib/evm/escrow";
 import { datasetIngressKeyFingerprint } from "@/lib/tee/ingress";
 import type { RunnerRaTlsEvidence } from "@/lib/tee/types";
 import { handleRunnerOp, scopeForRunnerOp } from "./handler";
+import { validateRunnerConfiguration } from "./config";
+import { runnerBudget } from "@/lib/runner/budget";
+import { verifyRunnerDeployment } from "@/lib/runner/deployment";
+import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
+import { demoControl, demoControlAuthorized, demoEnabled, recoverDemoAfterRestart } from "@/lib/phala-demo/runner-session";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -90,6 +96,7 @@ export async function handleRunnerRequest(
   req: IncomingMessage,
   res: ServerResponse,
   raTlsEvidence?: RunnerRaTlsEvidence,
+  bootstrapOnly = false,
 ): Promise<void> {
   const send = (status: number, obj: unknown) => {
     res.writeHead(status, {
@@ -101,11 +108,26 @@ export async function handleRunnerRequest(
   };
   try {
     const path = new URL(req.url ?? "/", "http://runner").pathname;
-    if (req.method === "GET" && path === "/health") return send(200, { status: "ok" });
+    if (req.method === "GET" && path === "/health") return send(200, { status: bootstrapOnly ? "bootstrap" : "ok" });
     if (req.method === "GET" && path === "/ra-tls") {
       return raTlsEvidence ? send(200, raTlsEvidence) : send(404, { error: "RA-TLS indisponible" });
     }
+    if (path === "/operations/demo") {
+      if (!demoControlAuthorized(req.headers.authorization)) return send(401, { error: "Commande non autorisée" });
+      if (bootstrapOnly) return send(503, { error: "Runner en amorçage" });
+      if (req.method === "GET") return send(200, demoControl());
+      if (req.method !== "POST") return send(405, { error: "GET ou POST attendu" });
+      const length = declaredBodyLength(req, 4096);
+      return send(200, demoControl(await readBody(req, length, 4096)));
+    }
+    if (path === "/operations/budget") {
+      if (!monitoringAuthorized(req.headers.authorization)) return send(401, { error: "Supervision non autorisée" });
+      if (req.method !== "GET") return send(405, { error: "GET attendu" });
+      if (bootstrapOnly) return send(503, { error: "Budget indisponible en amorçage" });
+      return send(200, runnerBudgetReport());
+    }
     if (req.method !== "POST") return send(405, { error: "POST attendu" });
+    if (bootstrapOnly) return send(503, { error: "Runner en amorçage : opérations métier désactivées" });
     const op = path.replace(/^\/+/, "");
     const capability = req.headers["x-sirius-runner-capability"];
     const token = Array.isArray(capability) ? undefined : capability;
@@ -146,6 +168,9 @@ export async function handleRunnerRequest(
       if (isJob) activeJobs -= 1;
     }
   } catch (err) {
+    if (err instanceof RunnerFinalityPending) {
+      return send(202, { state: "pending-finality", transactionHash: err.transactionHash, error: err.message });
+    }
     if (err instanceof AppError) return send(err.status, { error: err.message });
     console.error("[runner] erreur interne");
     return send(500, { error: "Erreur runner" });
@@ -155,25 +180,13 @@ export async function handleRunnerRequest(
 export async function startRunner(
   { port = PORT, log = true }: StartRunnerOptions = {},
 ): Promise<HttpServer | HttpsServer> {
-  const tlsEnabled = process.env.NODE_ENV === "production" || process.env.RUNNER_TLS_ENABLED === "true";
-  if (process.env.NODE_ENV === "production") {
-    if (process.env.TEE_MODE !== "phala") throw new Error("TEE_MODE=phala obligatoire pour le runner en production");
-    if (isSimulator()) throw new Error("Simulateur dstack interdit pour le runner en production");
-    for (const name of [
-      "RUNNER_TRANSPORT_SECRET",
-      "RUNNER_REPLAY_DIR",
-      "RUNNER_TLS_HOSTNAME",
-      "SIRIUS_APP_ORIGIN",
-      "EVM_NETWORK",
-      "EVM_RPC_URL",
-      "SIRIUS_ESCROW_ADDRESS",
-    ]) {
-      if (!process.env[name]) throw new Error(`${name} obligatoire pour le runner en production`);
-    }
-  }
+  const { bootstrapOnly, tlsEnabled } = validateRunnerConfiguration();
+  if (!bootstrapOnly && process.env.RUNNER_REPLAY_DIR?.trim()) checkRunnerReplay(process.env.RUNNER_REPLAY_DIR.trim());
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
-  if (tlsEnabled && process.env.TEE_MODE !== "phala") {
-    throw new Error("TEE_MODE=phala obligatoire quand TLS runner est activé");
+  if (!bootstrapOnly) runnerBudget();
+  if (!bootstrapOnly && demoEnabled()) recoverDemoAfterRestart();
+  if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
+    await verifyRunnerDeployment(runnerSettlementAddress());
   }
 
   const tlsIdentity = tlsEnabled ? await getEnclaveTlsIdentity() : null;
@@ -182,10 +195,12 @@ export async function startRunner(
         ...tlsIdentity.evidence,
         ingressKeySha256: datasetIngressKeyFingerprint(),
         masterKeyChainSha256: enclaveIdentity.masterKeyChainSha256,
+        settlementAddress: runnerSettlementAddress(),
+        bootstrapOnly,
       }
     : undefined;
   const requestHandler = (req: IncomingMessage, res: ServerResponse) => {
-    void handleRunnerRequest(req, res, raTlsEvidence);
+    void handleRunnerRequest(req, res, raTlsEvidence, bootstrapOnly);
   };
 
   const server = tlsIdentity

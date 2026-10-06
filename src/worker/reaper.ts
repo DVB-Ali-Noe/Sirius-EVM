@@ -1,6 +1,11 @@
+import { formatEther } from "viem";
 import { runLoanReaper } from "@/lib/sirius/reaper";
+import { createWithdrawRelayer, WITHDRAW_RELAYER_INTERVAL_MS, withdrawRelayerConfig } from "@/lib/sirius/withdraw-relayer";
 import { requireReaperEvmDeployment } from "@/lib/evm/deployment";
 import { AppError } from "@/lib/app-error";
+import { assertReaperRunnerConfiguration } from "@/lib/runner/config";
+import { assertReaperMainnetConfiguration } from "./mainnet-guard";
+import { reaperHeartbeat } from "./heartbeat";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -64,19 +69,42 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 async function main(): Promise<void> {
   const interval = resolveInterval();
+  assertReaperMainnetConfiguration();
+  assertReaperRunnerConfiguration();
   await requireReaperEvmDeployment();
+  const relayerConfig = withdrawRelayerConfig();
+  const relayer = relayerConfig && createWithdrawRelayer(relayerConfig);
   console.log(`[reaper] démarré, une passe toutes les ${interval} ms`);
+  if (relayerConfig) {
+    console.log(`[withdraw-relayer] actif avec ${relayerConfig.account.address} : seuil ${relayerConfig.minimumUsdc} USDC, plafond ${formatEther(relayerConfig.dailyGasWei)} ETH par jour`);
+  }
+  let dernierRelais = -Infinity;
 
   while (!arret) {
     const debut = Date.now();
+    let bilan: Awaited<ReturnType<typeof runLoanReaper>> | null = null;
     try {
-      await runLoanReaper();
+      bilan = await runLoanReaper();
     } catch {
       // Une passe qui échoue ne doit pas tuer le worker : la cause est presque
       // toujours transitoire — base indisponible, RPC qui refuse. La passe suivante
       // reprendra les mêmes prêts, puisque rien n'a été marqué comme traité.
       console.error("[reaper] passe échouée, reprise à la suivante");
     }
+    if (relayer && !arret && debut - dernierRelais >= WITHDRAW_RELAYER_INTERVAL_MS) {
+      dernierRelais = debut;
+      try {
+        await relayer.run(() => arret);
+      } catch {
+        // La passe suivante relit les crédits sur la chaîne : un retrait déjà passé n'est pas refait.
+        console.error("[withdraw-relayer] passe échouée, reprise à la suivante");
+      }
+    }
+    // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;
+    // un reaper bloqué n'écrit rien, un reaper inopérant écrit « passe échouée ».
+    const battement = reaperHeartbeat(bilan, new Date());
+    if (battement.ok) console.log(battement.line);
+    else console.error(battement.line);
     if (arret) break;
     const reste = interval - (Date.now() - debut);
     if (reste > 0) await pause(reste);

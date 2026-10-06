@@ -184,6 +184,20 @@ export function clearSelectedWallet(): void {
 }
 
 /**
+ * Choix fait depuis le bouton « Wallet externe » ou la liste des extensions annoncées.
+ *
+ * Sans `rdns`, l'utilisateur n'a désigné aucune extension en particulier : le choix
+ * mémorisé auparavant (une session Google fermée, une extension désinstallée) doit être
+ * oublié, sinon `getExternalWallet` s'y tiendrait, refuserait le repli sur
+ * `window.ethereum`, et le bouton ne ferait plus rien jusqu'à l'effacement des données
+ * du site.
+ */
+export function chooseExternalWallet(rdns?: string): void {
+  if (rdns) selectWallet(rdns);
+  else clearSelectedWallet();
+}
+
+/**
  * Portefeuille à utiliser : celui que l'utilisateur a choisi, sinon rien.
  *
  * On ne devine pas à sa place quand plusieurs sont installés — c'est précisément le

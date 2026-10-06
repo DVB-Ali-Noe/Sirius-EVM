@@ -1,8 +1,58 @@
 # Branches, déploiements et authentification
 
-État du code au 12 septembre 2026. La configuration est implémentée localement sur `staging` et sera utilisée sur `main` après publication, fusion et passage de la pipeline. Une modification locale ne met pas à jour une instance déjà déployée.
+Guide actualisé le 23 septembre 2026. Les règles d'origines introduites le 12 septembre restent applicables ; la dernière revue concerne le code local. Une modification locale ne met pas à jour une instance déjà déployée et ne prouve pas l'état de sa configuration distante.
 
-Les corrections F1–F4 du 13 septembre ajoutent une migration contractuelle distincte : lire [ESCROW-V6.md](ESCROW-V6.md) avant de publier la nouvelle version. Le choix automatique des origines ne déploie pas les contrats.
+**Priorité au 26 septembre :** suivre la [checklist Phala](PHALA-DEMO-RESTE-A-FAIRE.md) et le [runbook manuel](PHALA-DEMO-RUNBOOK.md). La bascule globale staging v7, le nettoyage Neon et les sessions temporisées décrits dans les notes historiques ci-dessous sont différés. Réconcilier les anciennes variables avant tout prochain déploiement staging ; préparer une cible Phala dédiée, sans fermeture programmée.
+
+**Transfert VPS vérifié le 25 septembre à 21:18 UTC :** les reapers staging et production tournent sur OVHcloud `162.19.66.80`, sous `sirius-deploy`, avec leurs images et configurations historiques v6. Les quatre secrets VPS de chaque environnement GitHub sont basculés ; les jobs VPS [staging](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36042451260/attempts/2) et [production](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/35789836029/attempts/2) ont réussi. Seuls ces jobs ont été relancés : aucun nouveau build Vercel ni migration PostgreSQL. Watchdog et collecteur sont installés sous `sirius-ops`, timers désactivés, Phala arrêtée. Noé a choisi de laisser les anciens reapers en place ; la remise à zéro et la bascule Phala/v7 attendent la neutralisation des anciens accès en écriture staging. Preuves et suite dans [VPS-MIGRATION.md](VPS-MIGRATION.md). Partnersud reste hors périmètre.
+
+Les corrections F1–F4 du 13 septembre sont documentées dans [ESCROW-V6.md](ESCROW-V6.md), désormais référence historique pour la migration. La prochaine évolution économique suit [v7](BILLING-INTEGRATION.md), après résolution des bloqueurs. Le choix automatique des origines ne déploie pas les contrats.
+
+**Activation bloquée :** valider les limites encore ouvertes du [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026), puis les tarifs, la comptabilité et les plafonds fournisseurs de la [facturation compute](COMPUTE-BILLING.md). Le [parcours v7 signé jusqu’au remboursement](BILLING-INTEGRATION.md) est intégré localement, avec budget de clôture réservé et migration Prisma additive `20260923000000_add_compute_billing` préparée. Aucun tarif réel ni migration distante n’est actif. Appliquer les migrations avant de publier le nouveau client Prisma, même en v6 ; lire les prérequis de bascule Phala. Ne pas redéployer v6 pour le seul changement de runner entre-temps.
+
+La future configuration v7 doit aligner `SIRIUS_BILLING_VERSION=7`, contrats, finalité, `RUNNER_BILLING_POLICY_FILE` et registre persistant `RUNNER_BUDGET_FILE`. Le Compose d'amorçage actuel ne réalise pas cette activation. Préserver le registre et ses intentions lors des redémarrages ; ne pas supprimer une intention incertaine pour débloquer un wallet. Une transaction confirmée est réconciliée avant le prochain envoi. Le journal chiffré autorise au plus trois envois identiques, sans nouveau nonce ni hausse des frais ; une intention toujours introuvable après ces reprises ou sans journal reste bloquée pour examen opérateur.
+
+Validations du 23 septembre : 304 tests applicatifs, 13 tests des outils d'exploitation, lint et typage applicatif lors de la dernière passe ; build validé précédemment ; 79 tests contrats, 62 tests Playwright, le parcours EVM de facturation et le typage v7 lors des passes précédentes. La CI lance aussi `test:billing`, `test:postgres`, `test:operations` et le typage dédié v7. Ces tests ne remplacent pas un parcours v7 à deux vrais wallets et sur Phala actif.
+
+**Point de reprise Phala au 23 septembre :** l'arrêt demandé par Noé est confirmé à 13:13 UTC ; le disque est conservé et reste facturé. Prévenir Noé avant toute nouvelle utilisation de Phala, avec son moment et son coût estimé. Aucune bascule Next, base, contrats ou reaper n’a été effectuée dans cette intégration. Les accès de production sont validés dans `.env.phala-production-secrets` ; Pinata est aussi configuré dans le fichier local `.env.phala`. Aucun prêt ni entraînement actif observé ; les 13 blobs de modèles historiques sont sauvegardés, leur re-livraison de clé reste à prouver. Le KYB actuel est ouvert sur testnet ; le compte local de déploiement/trésorerie est confirmé par Noé. L’export `.env.phala-production-current` contient toujours des valeurs `[SENSITIVE]` inutilisables. Lire [le point de reprise et l’ordre des opérations](PHALA.md#reprendre-ici--23-septembre-2026) avant tout déploiement main.
+
+## Préparation v7 disponible localement
+
+La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauvegarde réelle chiffrée, sa restauration/migration sur PostgreSQL 18 local et les images `linux/amd64` construites sans publication. Les identifiants PostgreSQL sont conservés à la demande de Noé. Refaire un snapshot pendant la maintenance et conserver séparément sa clé et une copie hors machine.
+
+Le Compose VPS transmet les paramètres de facturation, contrats, finalité et attestation au reaper. En v7, celui-ci refuse de démarrer sans runner distant et configuration d'attestation complète. Le délai d'arrêt de 90 secondes couvre un appel runner de 60 secondes. `pnpm ops:check-release <next.env> <reaper.env> <runner.env>` compare les trois fichiers explicites sans afficher leurs secrets ; ce contrôle ne certifie pas une attestation active ni des contrats publics.
+
+Les images doivent être publiées puis figées par digest, et leurs mesures validées avant bascule. Au 25 septembre, le superviseur d'arrêt est installé sur le nouveau VPS, avec ses timers désactivés : préparer une session bornée et vérifier son fonctionnement avant tout futur essai Phala. La politique de crédits internes et ses limites sont suivies dans [PHALA-TRIAL-CREDITS.md](PHALA-TRIAL-CREDITS.md) ; les tarifs commerciaux et les autres plafonds fournisseurs restent distincts.
+
+## Retrait automatique des crédits d’escrow (worker VPS)
+
+Préparé localement le 26 septembre ; **désactivé par défaut**, ni publié ni activé. Le bouton de retrait manuel reste le repli.
+
+**Fonctionnement.** Toutes les cinq minutes, le worker :
+- relit `creditOf` pour les providers et borrowers des prêts clos depuis 30 jours (réglés, ou annulés avec remboursement) ;
+- se limite aux escrows approuvés, `SIRIUS_ESCROW_ADDRESS` et `SIRIUS_LEGACY_ESCROW_ADDRESSES` ;
+- appelle `withdrawFor(titulaire)` au-dessus du seuil : les fonds partent au seul titulaire, et Sirius paie le gas.
+
+Les plus gros crédits passent d’abord. Chaque envoi est précédé d’une relecture et d’une estimation : un refus du contrat ne coûte donc aucun gas. Un refus ou une transaction rejetée ne sont jamais retentés. Le crédit de la trésorerie compute n’est pas concerné.
+
+**Activation, sur le VPS, pour un environnement :**
+1. Publier le code : le Compose déployé par le pipeline transmet les nouvelles variables.
+2. Générer une clé neuve, écrite directement dans `.env.vps` sans jamais s’afficher ; seule l’adresse à financer apparaît :
+   ```bash
+   cd /opt/sirius-staging   # /opt/sirius pour la production
+   IMAGE=$(sed -n 's/^SIRIUS_WORKER_IMAGE="\(.*\)"$/\1/p' .env.vps)
+   { echo; docker run --rm --entrypoint node "$IMAGE" --input-type=module -e 'import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"; const key = generatePrivateKey(); console.error(`Adresse à financer : ${privateKeyToAccount(key).address}`); console.log(`SIRIUS_WITHDRAW_RELAYER_KEY=${key}`);'; } >> .env.vps
+   ```
+3. Envoyer à cette adresse un peu d’ETH du réseau visé, rien d’autre.
+4. Ajouter dans `.env.vps` `SIRIUS_WITHDRAW_RELAYER_ENABLED=true`, `SIRIUS_WITHDRAW_RELAYER_MIN_USDC` et `SIRIUS_WITHDRAW_RELAYER_DAILY_GAS_ETH`. Seuil et plafond n’ont aucune valeur par défaut : ce sont des dépenses à décider explicitement.
+5. Relancer : `docker compose -p sirius-staging --env-file .env.vps up --detach`. Le journal doit afficher `[withdraw-relayer] actif avec 0x… : seuil …, plafond …`. Une configuration invalide arrête le worker avec un message explicite, visible par `check-reaper.sh`.
+
+**Règles de clé.** Une clé par worker : staging et production sur le même testnet se disputeraient sinon les nonces. Elle reste distincte du faucet, du vérificateur KYB, de l’enclave et de la trésorerie. Elle ne passe jamais par le chat, Git ou Vercel. Surveiller `[withdraw-relayer] réserve insuffisante` pour la recharger.
+
+**Limites.**
+- Plafond du jour et échecs connus sont tenus en mémoire : un redémarrage les remet à zéro.
+- Les crédits de prêts clos depuis plus de 30 jours, ou sans déploiement enregistré, se retirent à la main.
+- Le coût réel d’un retrait est à mesurer sur Robinhood Chain puis à reporter dans le [business plan](BUSINESS-PLAN.md).
 
 ## Une cible par branche
 
@@ -27,6 +77,8 @@ Les deux projets Vercel utilisent chacun leur environnement **Production**. Cela
 **Branche `main`, environnement Vercel Production et réseau EVM mainnet sont trois notions distinctes.** Le réseau et les contrats restent ceux de chaque environnement. Fusionner sur main ne déploie pas de contrats, ne change pas le token et n'active pas mainnet.
 
 ## Ce qui se passe après une fusion
+
+La cible fixe aussi `SIRIUS_REQUIRE_PHALA` : `true` sur main ; sur staging, la variable du dépôt `SIRIUS_STAGING_REQUIRE_PHALA` commande cette exigence. Elle est réglée à `true` depuis la validation matérielle du 25 septembre, pour la prochaine bascule décrite dans [PHALA-V7-STAGING.md](PHALA-V7-STAGING.md). La production applicative exige Phala même si le réseau reste testnet. Avant une fusion sur main, terminer le runbook [PHALA.md](PHALA.md) et configurer les mesures et le runner actif ; les secrets de démonstration ne sont pas convertis automatiquement. Aucun sélecteur de runner n’est exposé.
 
 1. Le push sur `staging` ou `main` déclenche les tests, le typage, le lint, le build et les tests navigateur. Une PR seule ne déploie rien.
 2. La référence exacte résout le projet Vercel, l'environnement GitHub, le dossier VPS et les origines. Une branche inconnue, un tag ou une référence de PR est refusé ; aucun fallback vers staging.
@@ -109,7 +161,7 @@ Une incompatibilité de démarrage a été reproduite avec la configuration **di
 
 Le worker utilise désormais un contrôle de lecture dédié qui accepte l'escrow v5 ou v6 avec le registre v4 correctement lié. Ce contrôle n'alimente pas le cache d'autorisation des nouveaux prêts : ceux-ci exigent toujours v6. Les erreurs métier de démarrage sont affichées sans exposer les erreurs RPC brutes.
 
-`deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle vérifie le processus en cours d'exécution, pas la réussite de toutes les réconciliations futures.
+`deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle exige aussi une ligne `[reaper] passe ok` récente : il vérifie que le processus tourne et qu'une passe vient d'aboutir, pas la réussite de toutes les réconciliations futures.
 
 Le fichier `/opt/sirius-staging/.env.vps` doit rester cohérent avec la configuration de l'application ; il n'a pas été consulté ni modifié pendant cette correction. Le correctif doit être publié pour reconstruire l'image worker et déployer son nouveau digest. Relancer uniquement l'ancien job VPS réutiliserait l'ancienne image.
 
@@ -128,7 +180,7 @@ pnpm test:e2e
 
 Les deux premières commandes affichent uniquement la cible versionnée, sans lire de secret, changer de branche ou appeler Git. Le smoke distant `node scripts/smoke-auth.mjs staging` vise exclusivement le déploiement staging ; son résultat dépend du code et de la configuration déjà publiés, pas des modifications locales.
 
-Les tests locaux ne prouvent pas que DNS, Vercel, la base et Phala sont correctement configurés à distance. Un domaine absent ou inaccessible fait échouer le smoke même si son alias Vercel répond. Les constats ouverts et l'état observé de staging sont dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md).
+Les tests locaux ne prouvent pas que DNS, Vercel, la base et Phala sont correctement configurés à distance. Un domaine absent ou inaccessible fait échouer le smoke même si son alias Vercel répond. Les constats historiques et l'état observé de staging sont dans [l'audit du 12 septembre](AUDIT-STAGING-2026-09-12.md) ; les limites actuelles figurent dans le [suivi du 23 septembre](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 ## Correctifs du 13 septembre
 

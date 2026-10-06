@@ -7,12 +7,15 @@ import { addressesEqual, isZeroAddress, normalizeAddress } from "@/lib/evm/addre
 import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
+import { resolveServerNetwork } from "@/lib/evm/networks";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { rebasedListingExpiry } from "@/lib/datasets/publication";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
 export type Visibility = (typeof VISIBILITY_STATES)[number];
@@ -98,11 +101,18 @@ async function markDatasetListed(
   onChainId: Hex,
   mint?: { txHash: string; blockNumber: bigint },
 ) {
+  // La durée de publication choisie à l'upload court depuis la mise en ligne, pas depuis
+  // la création du brouillon : un brouillon scellé peut attendre des jours avant la
+  // signature du titre. Même durée, nouveau point de départ (`rebasedListingExpiry`).
+  const listedAt = new Date();
+  const listingExpiresAt = rebasedListingExpiry(dataset, listedAt);
   const updated = await prisma.dataset.updateMany({
     where: { id: dataset.id, provider: normalizeAddress(dataset.provider), status: "DRAFT", evmDatasetId: null },
     data: {
-      status: "LISTED",
+      status: process.env.SIRIUS_PHALA_DEMO === "true" ? "PRIVATE" : "LISTED",
+      ...(process.env.SIRIUS_PHALA_DEMO === "true" ? {} : { listedAt, ...(listingExpiresAt ? { listingExpiresAt } : {}) }),
       evmDatasetId: onChainId,
+      evmChainId: resolveServerNetwork().chain.id,
       ...(mint ? { evmMintTxHash: mint.txHash, evmMintBlock: mint.blockNumber.toString() } : {}),
     },
   });
@@ -113,9 +123,11 @@ async function markDatasetListed(
 export async function prepareDatasetListing(datasetId: string, provider: string) {
   await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
+  if (process.env.SIRIUS_PHALA_DEMO === "true" && dataset.status === "PRIVATE" && dataset.evmDatasetId) return { reconciled: true as const };
   if (dataset.status === "LISTED" && dataset.evmDatasetId) throw new AppError("Dataset déjà publié", 409);
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   await requireAcceptedKyb(provider);
+  await assertCurrentRunner(dataset);
   const terms = listingTerms(dataset);
   const onChainId = await onChainDatasetId(terms, provider);
   if (onChainId) {
@@ -128,10 +140,11 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
 export async function finalizeDatasetListing(datasetId: string, provider: string, txHash?: string) {
   await requireCurrentEvmDeployment();
   const dataset = await ownedDataset(datasetId, provider);
-  if (dataset.status === "LISTED" && dataset.evmDatasetId) return dataset;
+  if ((dataset.status === "LISTED" || (process.env.SIRIUS_PHALA_DEMO === "true" && dataset.status === "PRIVATE")) && dataset.evmDatasetId) return dataset;
   if (dataset.status !== "DRAFT") throw new AppError("Seul un dataset DRAFT rescellé peut être publié", 409);
   if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new AppError("Hash de mint EVM manquant", 400);
   await requireAcceptedKyb(provider);
+  await assertCurrentRunner(dataset);
   const terms = listingTerms(dataset);
   const registry = datasetRegistryAddress();
   const publicClient = getPublicClient();
@@ -246,7 +259,7 @@ export async function setDatasetVisibility(datasetId: string, provider: string, 
       status: { in: [...VISIBILITY_STATES] },
       loans: { none: { status: { in: ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } } },
     },
-    data: { status: visibility },
+    data: { status: visibility, ...(visibility === "LISTED" ? { listedAt: new Date() } : {}) },
   });
   if (updated.count !== 1) throw new AppError("Visibilité impossible : dataset non publié ou emprunt actif", 409);
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });

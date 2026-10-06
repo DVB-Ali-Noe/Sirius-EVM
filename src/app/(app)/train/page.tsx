@@ -1,17 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatUnits } from "viem";
+import Link from "next/link";
+import { RetrainPanel } from "@/components/train/RetrainPanel";
 import { Card } from "@/components/ui/Card";
+import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { Field } from "@/components/ui/Field";
-import { ConnectCta } from "@/components/wallet/ConnectCta";
+import { ConnectPrompt } from "@/components/wallet/ConnectCta";
+import { Page, PageHeader } from "@/components/layout/Page";
+import { SectionTitle } from "@/components/ui/Heading";
 import { truncate, formatBytes } from "@/lib/format";
 import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { useUiStore } from "@/stores/ui";
+import { CONTACT_EMAIL, contactMailtoHref } from "@/lib/copy/disclaimers";
 import {
-  borrowDataset,
+  LOAN_STATE_LABEL_KEY,
+  LOAN_STATE_VARIANT,
+  canRefund,
+  canRescueRefund,
+  canResumeSettlement,
+  canRetrain,
+  canRetrieveModelKey,
+  hasOtherActiveLoan,
+  loanDisplayState,
+  parseAdminResponse,
+} from "@/lib/train/loan-display";
+import {
   cancelExpiredLoan,
   resumeLoanSubmission,
   resumeLoanSettlement,
@@ -19,9 +37,11 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
-import { downloadDecryptedModel, fetchDecryptedModel, type DeliveredModel } from "@/lib/train/model-client";
+import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { stablecoinTicker } from "@/lib/evm/stablecoin";
+import { resolveClientNetwork } from "@/lib/evm/networks";
 import {
   modelSelection,
   modelDisplayName,
@@ -53,7 +73,13 @@ interface Dataset {
 interface Loan {
   id: string;
   datasetId: string;
+  borrower: string;
   amountUsdcAtomic: string;
+  usdcDecimals?: number;
+  datasetAmountUsdcAtomic?: string | null;
+  computeAmountUsdcAtomic?: string | null;
+  retainedFeeUsdcAtomic?: string | null;
+  refundAmountUsdcAtomic?: string | null;
   status: "PENDING" | "SUBMITTING" | "ESCROWED" | "TRAINING" | "SETTLING" | "SETTLED" | "CANCELLED";
   evmLockTxHash: string | null;
   evmLoanKey: string | null;
@@ -86,16 +112,6 @@ interface Delivery {
   modelKey: string;
 }
 
-const LOAN_VARIANT: Record<Loan["status"], BadgeVariant> = {
-  PENDING: "warning",
-  SUBMITTING: "warning",
-  ESCROWED: "accent",
-  TRAINING: "accent",
-  SETTLING: "accent",
-  SETTLED: "positive",
-  CANCELLED: "negative",
-};
-
 const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
   PENDING: "warning",
   RUNNING: "accent",
@@ -116,15 +132,18 @@ function TrainPageContent() {
   const { locale, t } = useLocale();
 
   const [mine, setMine] = useState<Dataset[]>([]);
-  const [catalogue, setCatalogue] = useState<Dataset[]>([]);
-  const [cursors, setCursors] = useState<{ mine: string | null; catalogue: string | null }>({ mine: null, catalogue: null });
-  const [paging, setPaging] = useState<Set<string>>(new Set());
-  const pageRequests = useRef(new Set<string>());
+  // Self training : réservé à l'équipe (`GET /api/admin/me`). `null` tant que la réponse n'est pas
+  // arrivée, et en cas d'erreur : jamais affiché par défaut. Indicatif seulement, le serveur refuse
+  // de toute façon les routes de self training aux autres wallets.
+  const [admin, setAdmin] = useState<boolean | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [paging, setPaging] = useState(false);
+  const pageRequest = useRef(false);
   const refreshGeneration = useRef(0);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
-  const [inspected, setInspected] = useState<Record<string, DeliveredModel>>({});
+  const [inspected, setInspected] = useState<Record<string, DownloadedModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
@@ -159,8 +178,9 @@ function TrainPageContent() {
     if (!mounted.current) return;
     const generation = ++refreshGeneration.current;
     if (!address || !authenticated) {
+      setAdmin(null);
       setMine([]);
-      setCatalogue([]);
+      setCursor(null);
       setLoans([]);
       setJobs([]);
       setDelivered({});
@@ -168,20 +188,29 @@ function TrainPageContent() {
       haveKey.current.clear();
       return;
     }
-    const [mineRes, catRes, loansRes, jobsRes] = await Promise.all([
-      fetch("/api/datasets"),
-      fetch("/api/datasets?status=LISTED"),
+    const [adminRes, loansRes] = await Promise.all([
+      fetch("/api/admin/me").catch(() => null),
       fetch("/api/loans"),
-      fetch("/api/train"),
     ]);
-    const mineData: Dataset[] = mineRes.ok ? await mineRes.json() : [];
-    const catData: Dataset[] = catRes.ok ? await catRes.json() : [];
+    // Réponse en erreur (réseau, 401, 500) : `null`, ni self training ni encart, plutôt que de
+    // présenter l'encart de contact à un administrateur sur une panne passagère.
+    const adminKnown = Boolean(adminRes?.ok);
+    const isAdmin = adminKnown ? parseAdminResponse(await adminRes!.json().catch(() => null)) : false;
     const loanData: Loan[] = loansRes.ok ? await loansRes.json() : [];
-    const jobData: Job[] = jobsRes.ok ? await jobsRes.json() : [];
+    // Un non-admin n'appelle ni `/api/datasets` ni `/api/train` : le self training lui est fermé.
+    let mineData: Dataset[] = [];
+    let jobData: Job[] = [];
+    let nextCursor: string | null = null;
+    if (isAdmin) {
+      const [mineRes, jobsRes] = await Promise.all([fetch("/api/datasets"), fetch("/api/train")]);
+      mineData = mineRes.ok ? await mineRes.json() : [];
+      jobData = jobsRes.ok ? await jobsRes.json() : [];
+      nextCursor = mineRes.headers.get("x-sirius-next-cursor");
+    }
     if (!mounted.current || generation !== refreshGeneration.current) return;
-    setCursors({ mine: mineRes.headers.get("x-sirius-next-cursor"), catalogue: catRes.headers.get("x-sirius-next-cursor") });
+    setAdmin(adminKnown ? isAdmin : null);
+    setCursor(nextCursor);
     setMine(mineData);
-    setCatalogue(catData);
     setLoans(loanData);
     setJobs(jobData);
 
@@ -194,22 +223,10 @@ function TrainPageContent() {
         // Une délégation expirée sera redemandée lors de la prochaine connexion.
       }
     }
-    for (const loan of loanData) {
-      if (
-        loan.status !== "SETTLED" ||
-        !loan.runnerReceipt ||
-        !loan.settleTxHash ||
-        haveKey.current.has(loan.id)
-      ) {
-        continue;
-      }
-      try {
-        const delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
-        if (mounted.current) deliver(loan.id, delivery);
-      } catch {
-        // Une délégation expirée sera redemandée lors de la prochaine connexion.
-      }
-    }
+    // La clé d'un emprunt réglé n'est jamais demandée au chargement (audit du 5 octobre, A-04 et
+    // A-12) : chaque appel à `/api/loans/[id]/key` consomme le quota de 20 par minute et, pour un
+    // prêt v7, le budget runner prépayé. Elle est demandée au clic sur « Vérifier et télécharger »,
+    // par l'emprunteur seulement, puis gardée en mémoire (`delivered`) pour la session.
   }, [address, authenticated]);
 
   useEffect(() => {
@@ -217,27 +234,23 @@ function TrainPageContent() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  async function loadMore(kind: "mine" | "catalogue") {
-    const cursor = cursors[kind];
-    if (!cursor || pageRequests.current.has(kind)) return;
+  async function loadMore() {
+    if (!admin || !cursor || pageRequest.current) return;
     const generation = refreshGeneration.current;
-    pageRequests.current.add(kind);
-    setPaging(new Set(pageRequests.current));
+    pageRequest.current = true;
+    setPaging(true);
     try {
-      const query = new URLSearchParams({ cursor });
-      if (kind === "catalogue") query.set("status", "LISTED");
-      const response = await fetch(`/api/datasets?${query}`);
+      const response = await fetch(`/api/datasets?${new URLSearchParams({ cursor })}`);
       if (!response.ok) throw new Error("Chargement des datasets impossible");
       const page = await response.json() as Dataset[];
       if (!mounted.current || generation !== refreshGeneration.current) return;
-      const setter = kind === "mine" ? setMine : setCatalogue;
-      setter((current) => [...current, ...page.filter((item) => !current.some((existing) => existing.id === item.id))]);
-      setCursors((current) => ({ ...current, [kind]: response.headers.get("x-sirius-next-cursor") }));
+      setMine((current) => [...current, ...page.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setCursor(response.headers.get("x-sirius-next-cursor"));
     } catch (error) {
       if (mounted.current && generation === refreshGeneration.current) setError(messageOf(error));
     } finally {
-      pageRequests.current.delete(kind);
-      if (mounted.current) setPaging(new Set(pageRequests.current));
+      pageRequest.current = false;
+      if (mounted.current) setPaging(false);
     }
   }
 
@@ -324,6 +337,32 @@ function TrainPageContent() {
     }
   }
 
+  /**
+   * « Vérifier et télécharger » sur un emprunt réglé : la clé est demandée au clic, une seule fois
+   * par session (puis `delivered`), et seulement par l'emprunteur. Une erreur (429, budget v7
+   * épuisé, délégation expirée) est affichée au lieu d'être avalée.
+   */
+  async function inspectLoanModel(loan: Loan) {
+    const cached = delivered[loan.id];
+    if (cached) return inspectModel(loan.id, cached);
+    const key = `model:${loan.id}`;
+    if (busy.has(key) || !canRetrieveModelKey(loan, address) || !loan.runnerReceipt) return;
+    setError(null);
+    setBusyKey(key, true);
+    let delivery: Delivery;
+    try {
+      delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
+      if (!mounted.current) return;
+      deliver(loan.id, delivery);
+    } catch (err) {
+      setError(messageOf(err));
+      return;
+    } finally {
+      setBusyKey(key, false);
+    }
+    await inspectModel(loan.id, delivery);
+  }
+
   async function resumeSubmission(loan: Loan, lockTxHash?: string) {
     const key = `submit:${loan.id}`;
     setError(null);
@@ -340,6 +379,9 @@ function TrainPageContent() {
 
   async function refundLoan(loan: Loan) {
     const key = `refund:${loan.id}`;
+    // Mêmes garde-fous que l'affichage du bouton, relus au clic : jamais de remboursement hors échec sans modèle.
+    if (activeLoanJobs.current.has(key) || activeLoanJobs.current.has(`job:${loan.id}`) || !canRefund(loan, address)) return;
+    activeLoanJobs.current.add(key);
     setError(null);
     setBusyKey(key, true);
     try {
@@ -348,100 +390,94 @@ function TrainPageContent() {
     } catch (err) {
       setError(messageOf(err));
     } finally {
+      activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
     }
   }
 
   if (!connected || !address) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-6 py-8">
-        <Card className="flex flex-col items-start gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t("Entraîner un modèle")}</h1>
-            <p className="mt-1 text-sm text-muted">{t("Connecte un wallet pour lancer un entraînement.")}</p>
-          </div>
-          <ConnectCta>{t("Connecter un wallet")}</ConnectCta>
-        </Card>
-      </main>
+      <Page>
+        <PageHeader title={t("Entraîner un modèle")} />
+        <ConnectPrompt message={t("Connecte un wallet pour lancer un entraînement.")} />
+      </Page>
     );
   }
 
   const trainable = mine.filter(
     (d) => d.ipfsCid && d.runnerReceipt && d.evmDatasetId && ["LISTED", "UNLISTED", "PRIVATE"].includes(d.status),
   );
-  const external = catalogue.filter((d) => d.provider !== address);
   const hasHistory = loans.length > 0 || jobs.length > 0;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-8">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Entraîner un modèle")}</h1>
-          <p className="mt-1 text-sm text-muted">
-            {t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
-          </p>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title={t("Entraîner un modèle")}
+        description={t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
+      />
+
+      <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} />
 
       {error && (
-        <div className="mb-6 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
         </div>
       )}
 
-      {/* Mes données — self-train, gratuit, sans escrow */}
-      <section className="mb-10">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes données")}</h2>
-          <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
-        </div>
-        {trainable.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {trainable.map((d) => (
-              <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
-            ))}
+      {/* Mes données — self-train, gratuit, sans escrow : réservé à l'équipe (admin) */}
+      {admin === true && (
+        <section data-testid="self-training">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <SectionTitle>{t("Mes données")}</SectionTitle>
+            <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
           </div>
-        )}
-        {cursors.mine && (
-          <button onClick={() => void loadMore("mine")} disabled={paging.has("mine")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
-            {paging.has("mine") ? t("Chargement…") : t("Afficher plus")}
-          </button>
-        )}
-      </section>
+          {trainable.length === 0 ? (
+            <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
+              {t("Publie le titre EVM d’un dataset finalisé avant de l’entraîner.")}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {trainable.map((d) => (
+                <SelfTrainCard key={d.id} dataset={d} busy={busy.has(`train:${d.id}`)} onTrain={selfTrain} />
+              ))}
+            </div>
+          )}
+          {cursor && (
+            <button onClick={() => void loadMore()} disabled={paging} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
+              {paging ? t("Chargement…") : t("Afficher plus")}
+            </button>
+          )}
+        </section>
+      )}
 
-      {/* Catalogue — emprunt via escrow */}
-      <section className="mb-10">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{t("Catalogue")}</h2>
-          <span className="text-xs text-muted">{t("Emprunt · escrow USDC")}</span>
-        </div>
-        {external.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface/30 px-4 py-6 text-center text-sm text-muted">
-            {t("Aucun dataset tiers disponible pour l’instant.")}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {external.map((d) => (
-              <CatalogueCard key={d.id} dataset={d} advanced={advanced} onBorrowed={refresh} onError={setError} />
-            ))}
-          </div>
-        )}
-        {cursors.catalogue && (
-          <button onClick={() => void loadMore("catalogue")} disabled={paging.has("catalogue")} className="mt-4 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">
-            {paging.has("catalogue") ? t("Chargement…") : t("Afficher plus")}
-          </button>
-        )}
-      </section>
+      {/* Entraînement sur ses propres données : contact, tant que le self training n'est pas public */}
+      {admin === false && (
+        <DisclaimerNote messages={[]}>
+          <span data-testid="own-data-contact">
+            {t("Envie d’entraîner sur vos propres données ? Contactez-nous à")}{" "}
+            <a
+              href={contactMailtoHref()}
+              className="font-medium text-foreground underline underline-offset-2 hover:text-accent focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {CONTACT_EMAIL}
+            </a>
+            .
+          </span>
+        </DisclaimerNote>
+      )}
 
       {/* Suivi unifié */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">{t("Mes entraînements")}</h2>
+        <SectionTitle className="mb-3">{t("Mes entraînements")}</SectionTitle>
         {!hasHistory && (
-          <p className="py-8 text-center text-sm text-muted">{t("Aucun entraînement pour l’instant.")}</p>
+          <div className="py-8 text-center text-sm text-muted">
+            <p>{t("Aucun entraînement pour l’instant.")}</p>
+            <p className="mt-2">
+              <Link href="/marketplace" className="font-medium text-foreground underline underline-offset-2">
+                {t("Parcourir la marketplace")}
+              </Link>
+            </p>
+          </div>
         )}
         <div className="flex flex-col gap-3">
           {jobs.map((j) => (
@@ -477,21 +513,31 @@ function TrainPageContent() {
             </Card>
           ))}
 
-          {loans.map((l) => (
+          {loans.map((l) => {
+            const state = loanDisplayState(l);
+            const refundAllowed = canRefund(l, address);
+            const rescueRefund = canRescueRefund(l, address);
+            return (
             <Card key={l.id}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1 basis-80">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
-                    <Badge variant={LOAN_VARIANT[l.status]}>{t(l.status)}</Badge>
+                    <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
                     <Badge variant="default">{t("Emprunt")}</Badge>
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                    <Field label={t("Montant")} value={`${formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    <Field label={t("Montant")} value={`${l.usdcDecimals !== undefined ? formatUnits(BigInt(l.amountUsdcAtomic), l.usdcDecimals) : formatUsdcAtomic(l.amountUsdcAtomic)} USDC`} />
+                    {l.usdcDecimals !== undefined && l.computeAmountUsdcAtomic && <>
+                      <Field label={t("Prix du dataset")} value={`${formatUnits(BigInt(l.datasetAmountUsdcAtomic!), l.usdcDecimals)} USDC`} />
+                      <Field label={t("Prix du compute")} value={`${formatUnits(BigInt(l.computeAmountUsdcAtomic), l.usdcDecimals)} USDC`} />
+                      {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                      {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} USDC`} />}
+                    </>}
                     {advanced && (
                       <>
-                        <Field label={t("Lock USDC")} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
+                        <Field label={t("Lock {token}", { token: stablecoinTicker(resolveClientNetwork()) })} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
                         <Field
                           label={t("Remboursable après")}
                           value={l.evmDeadline ? new Date(l.evmDeadline).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US") : "—"}
@@ -500,13 +546,13 @@ function TrainPageContent() {
                     )}
                   </dl>
                 </div>
-                {l.refundable && (
+                {refundAllowed && (
                   <button
                     onClick={() => refundLoan(l)}
-                    disabled={busy.has(`refund:${l.id}`)}
+                    disabled={busy.has(`refund:${l.id}`) || busy.has(`job:${l.id}`)}
                     className="max-w-full shrink-0 rounded-xl border border-negative/40 px-4 py-2 text-sm font-medium text-negative transition-colors hover:border-negative disabled:opacity-50"
                   >
-                    {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Récupérer l’escrow")}
+                    {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Rembourser")}
                   </button>
                 )}
                 {!l.refundable && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
@@ -550,7 +596,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {!l.refundable && (l.status === "TRAINING" || l.status === "SETTLING") && l.modelCid && l.runnerReceipt && (
+                {canResumeSettlement(l) && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -565,6 +611,27 @@ function TrainPageContent() {
                 )}
               </div>
 
+              {refundAllowed && (
+                <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
+                  <p className="font-medium text-negative">
+                    {rescueRefund
+                      ? t("L’échéance est dépassée et le règlement ne peut plus être finalisé : aucun modèle n’a été livré.")
+                      : t("Entraînement échoué : aucun modèle n’a été livré.")}
+                  </p>
+                  <p className="mt-1 text-muted">
+                    {t("Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.")}
+                  </p>
+                </div>
+              )}
+              {canRetrain(l, address) && (
+                <RetrainPanel
+                  datasetId={l.datasetId}
+                  hasOtherActiveLoan={hasOtherActiveLoan(loans, l, address)}
+                  onBorrowed={refresh}
+                  onError={setError}
+                />
+              )}
+
               {l.status === "SETTLED" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle livré")}</div>
@@ -574,9 +641,15 @@ function TrainPageContent() {
                       <Field label={t("Règlement tx")} value={l.settleTxHash ? truncate(l.settleTxHash) : "—"} mono />
                     )}
                   </dl>
-                  {delivered[l.id] && (
+                  <Link
+                    href={`/certificate/${encodeURIComponent(l.id)}`}
+                    className="mt-3 mr-2 inline-block rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive"
+                  >
+                    {t("Certificat d’exécution")}
+                  </Link>
+                  {canRetrieveModelKey(l, address) && (
                     <button
-                      onClick={() => void inspectModel(l.id, delivered[l.id])}
+                      onClick={() => void inspectLoanModel(l)}
                       disabled={busy.has(`model:${l.id}`)}
                       className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
                     >
@@ -599,10 +672,11 @@ function TrainPageContent() {
                 </div>
               )}
             </Card>
-          ))}
+            );
+          })}
         </div>
       </section>
-    </main>
+    </Page>
   );
 }
 
@@ -649,7 +723,7 @@ function TeeSpinner() {
   return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
 }
 
-function ModelInspection({ model }: { model: DeliveredModel }) {
+function ModelInspection({ model }: { model: DownloadedModel }) {
   const { t } = useLocale();
   const [testFile, setTestFile] = useState<File | null>(null);
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
@@ -697,14 +771,14 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
         <Field label={t("Algorithme")} value={model.algo} mono />
-        <Field label={t("Version")} value={model.version} mono />
+        <Field label={t("Version")} value={model.version ?? "—"} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
         {model.algo === "linear_regression" ? (
           <>
             <Field label="R²" value={model.metrics.r2.toFixed(6)} />
             <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
-            <Field label="MAE" value={model.metrics.mae.toFixed(6)} />
+            <Field label="MAE" value={model.metrics.mae?.toFixed(6) ?? "—"} />
           </>
         ) : (
           <>
@@ -796,100 +870,5 @@ function ModelInspection({ model }: { model: DeliveredModel }) {
       </details>
       {error && <p className="mt-3 text-xs text-negative">{t(error)}</p>}
     </div>
-  );
-}
-
-function CatalogueCard({
-  dataset,
-  advanced,
-  onBorrowed,
-  onError,
-}: {
-  dataset: Dataset;
-  advanced: boolean;
-  onBorrowed: () => Promise<void>;
-  onError: (msg: string) => void;
-}) {
-  const { t } = useLocale();
-  const [openForm, setOpenForm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const model = modelSelection(dataset.modelId, dataset.modelVersion);
-
-  function reset() {
-    setOpenForm(false);
-  }
-
-  async function confirm() {
-    onError("");
-    if (!model) {
-      onError(t("Profil d’entraînement du dataset absent ou invalide"));
-      return;
-    }
-    setBusy(true);
-    try {
-      await borrowDataset({ datasetId: dataset.id });
-      reset();
-      await onBorrowed();
-    } catch (err) {
-      onError(messageOf(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0 flex-1 basis-80">
-          <h3 className="font-medium">{dataset.name}</h3>
-          <Badge variant={model ? "default" : "negative"}>
-            {model ? modelDisplayName(model) : t("Profil absent")}
-          </Badge>
-          <p className="mt-1 text-xs text-muted">
-            {dataset.metrics ? `${t("{count} lignes", { count: dataset.metrics.rowCount })} · ${t("{count} colonnes", { count: dataset.metrics.columnCount })} · ` : ""}
-            {formatBytes(dataset.sizeBytes)}
-          </p>
-          <p className="mt-1 text-xs font-medium text-foreground">
-            {dataset.priceUsdcAtomic ? formatUsdcAtomic(dataset.priceUsdcAtomic) : "—"} USDC · {t("remboursable après {days} j", { days: dataset.challengeDays })}
-          </p>
-        </div>
-        {!openForm && (
-          <button
-            onClick={() => setOpenForm(true)}
-            disabled={!model}
-            title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
-            className="max-w-full shrink-0 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 disabled:opacity-50"
-          >
-            {t("Emprunter")}
-          </button>
-        )}
-      </div>
-
-      {openForm && (
-        <div className="mt-4 border-t border-border pt-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <p className="text-xs text-muted">
-              {model ? t("Profil du dataset verrouillé : {model}", { model: modelDisplayName(model) }) : t("Profil d’entraînement manquant")}
-            </p>
-            {advanced && (
-              <p className="text-xs text-muted">{t("Termes provider verrouillés dans le reçu runner")}</p>
-            )}
-            <button
-              onClick={confirm}
-              disabled={busy}
-              className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
-            >
-              {busy ? t("Escrow…") : t("Confirmer l'escrow")}
-            </button>
-            <button
-              onClick={reset}
-              className="rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
-            >
-              {t("Annuler")}
-            </button>
-          </div>
-        </div>
-      )}
-    </Card>
   );
 }

@@ -81,15 +81,35 @@ test("affiche le tableau de bord EVM d'un wallet authentifié", async ({ page })
   await expect(page).toHaveURL(/\/marketplace$/);
 });
 
+/** Carte de la réponse publique `GET /api/marketplace` (facturation v6 : le total est le prix du dataset). */
+function catalogueItem(dataset: DatasetFixture) {
+  return {
+    id: dataset.id, name: dataset.name, category: "mobility", modelId: "linear_regression", modelVersion: "1.0.0",
+    rowCount: dataset.metrics.rowCount, columnCount: dataset.metrics.columnCount, sizeBytes: dataset.sizeBytes,
+    providerPriceAtomic: dataset.priceUsdcAtomic, priceAtomic: dataset.priceUsdcAtomic, priceKind: "borrowerPays",
+    borrowCount: 0, verified: true, listedAt: "2026-10-01T00:00:00.000Z",
+  };
+}
+
+function catalogue(items: unknown[]) {
+  return {
+    items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
+    token: { symbol: "USDC", decimals: USDC_DECIMALS }, kybAvailable: true,
+    computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+  };
+}
+
 test("priorise les favoris du catalogue USDC", async ({ page }) => {
   const another = { ...listedDataset, id: "dataset-other", name: "Crédit PME France", priceUsdcAtomic: usdc("2.5") };
-  await page.route("**/api/datasets?status=LISTED", (route) => json(route, [another, listedDataset]));
+  await page.route((url) => url.pathname === "/api/marketplace", (route) => json(route, catalogue([catalogueItem(another), catalogueItem(listedDataset)])));
 
   await page.goto("/marketplace");
   await expect(page.getByText("Crédit PME France")).toBeVisible();
-  await expect(page.getByText(PRIX_AFFICHE)).toBeVisible();
+  // Montant affiché par la carte partagée : au moins deux décimales, symbole du jeton renvoyé par l'API.
+  await expect(page.getByText("1.75 USDC", { exact: true })).toBeVisible();
+  expect(PRIX_AFFICHE).toBe("1.75 USDC");
 
-  const targetCard = page.locator("main").getByText("Mobilité urbaine Europe").locator("../..");
+  const targetCard = page.getByRole("listitem").filter({ hasText: "Mobilité urbaine Europe" });
   await targetCard.getByRole("button", { name: "Add to favorites" }).click();
   await expect(page.locator("main h3").first()).toHaveText("Mobilité urbaine Europe");
 });
@@ -123,10 +143,10 @@ test("présente des preuves vérifiables sur EVM", async ({ page }) => {
     }],
   }));
 
-  await page.goto("/audit");
+  await page.goto("/explorer");
   await connect(page, BORROWER, "borrower");
 
-  await expect(page.getByRole("heading", { name: "Audit ledger" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Explorer" })).toBeVisible();
   await expect(page.getByText(PRIX_AFFICHE)).toBeVisible();
   await expect(page.getByRole("link", { name: "Verify Lock USDC on EVM" }))
     .toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/tx/${lockTxHash}`);

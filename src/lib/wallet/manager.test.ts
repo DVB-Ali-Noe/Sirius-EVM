@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { displayAddress } from "@/lib/evm/address";
 import {
+  connectExternalWallet,
   disconnectWallet,
   ensureExpectedChain,
   expectedChainId,
+  getExternalWallet,
   sendTransactionExternal,
   waitForTransactionExternal,
   type Eip1193Provider,
 } from "./manager";
-import { EMBEDDED_RDNS, registerEmbeddedWallet } from "./discovery";
+import { chooseExternalWallet, clearSelectedWallet, EMBEDDED_RDNS, registerEmbeddedWallet, selectWallet, selectedWalletRdns } from "./discovery";
 
 test("eth_sendTransaction reçoit explicitement le compte actif", async () => {
   const requests: Array<{ method: string; params?: unknown[] | object }> = [];
@@ -96,6 +98,9 @@ function avecSessionSociale(
     configurable: true,
     value: { localStorage: { getItem: () => EMBEDDED_RDNS } },
   });
+  // Le choix est aussi gardé en mémoire de module : un test précédent qui l'a effacé
+  // ne doit pas priver celui-ci de sa session sociale.
+  selectWallet(EMBEDDED_RDNS);
   registerEmbeddedWallet({
     provider: () => provider,
     switchChain: async () => embarque.switchChain?.(),
@@ -109,6 +114,7 @@ function avecSessionSociale(
       switchChain: async () => {},
       logout: async () => {},
     });
+    clearSelectedWallet();
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
   };
@@ -176,5 +182,121 @@ test("un retrait invalidé pendant la vérification du réseau n'est pas envoyé
   } finally {
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("un site pas encore autorisé obtient le compte avant de demander le réseau", async () => {
+  const requests: string[] = [];
+  let authorized = false;
+  let chain = "0x1";
+  const wallet: Eip1193Provider = {
+    request: async ({ method, params }) => {
+      requests.push(method);
+      if (method === "wallet_requestPermissions") { authorized = true; return [{ parentCapability: "eth_accounts" }]; }
+      if (method === "eth_requestAccounts") { authorized = true; return ["0x2f9b9a9eb5fef4f4a2218984a6f27d9f4174d13d"]; }
+      if (method === "eth_chainId") return chain;
+      if (method === "wallet_switchEthereumChain") {
+        // Comportement de MetaMask : refus immédiat (4100) tant que le site n'est pas autorisé.
+        if (!authorized) throw Object.assign(new Error("Unauthorized"), { code: 4100 });
+        chain = (params as Array<{ chainId: string }>)[0].chainId;
+        return null;
+      }
+      throw new Error(`Méthode inattendue : ${method}`);
+    },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: wallet, localStorage: { getItem: () => null } } });
+  try {
+    const connected = await connectExternalWallet(wallet);
+    assert.equal(connected.chainId, expectedChainId());
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+  assert.ok(requests.indexOf("eth_requestAccounts") < requests.indexOf("wallet_switchEthereumChain"));
+});
+
+/**
+ * A-08 (audit du 5 octobre) : le choix « Google » mémorisé survivait à la déconnexion et au
+ * clic sur « Wallet externe ». `getExternalWallet` s'y tenait sans repli, la session sociale
+ * fermée rendait `null`, et un wallet qui n'expose que `window.ethereum` devenait inutilisable
+ * (« Aucun wallet détecté ») jusqu'à l'effacement des données du site.
+ */
+function avecStockage(ethereum: Eip1193Provider, choix: string | null): () => void {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const stockage = new Map<string, string>();
+  if (choix) stockage.set("sirius.wallet.rdns", choix);
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      ethereum,
+      addEventListener: () => {},
+      dispatchEvent: () => true,
+      localStorage: {
+        getItem: (cle: string) => stockage.get(cle) ?? null,
+        setItem: (cle: string, valeur: string) => { stockage.set(cle, valeur); },
+        removeItem: (cle: string) => { stockage.delete(cle); },
+      },
+    },
+  });
+  if (choix) selectWallet(choix);
+  registerEmbeddedWallet({ provider: () => null, switchChain: async () => {}, logout: async () => {} });
+  return () => {
+    clearSelectedWallet();
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  };
+}
+
+test("« Wallet externe » oublie le choix Google d'une session fermée et retombe sur window.ethereum", () => {
+  const injecte: Eip1193Provider = { request: async () => null };
+  const restaurer = avecStockage(injecte, EMBEDDED_RDNS);
+
+  try {
+    assert.equal(getExternalWallet(), null);
+    chooseExternalWallet();
+    assert.equal(selectedWalletRdns(), null);
+    assert.equal(getExternalWallet(), injecte);
+  } finally {
+    restaurer();
+  }
+});
+
+test("« Wallet externe » oublie aussi une extension désinstallée", () => {
+  const injecte: Eip1193Provider = { request: async () => null };
+  const restaurer = avecStockage(injecte, "io.metamask");
+
+  try {
+    assert.equal(getExternalWallet(), null);
+    chooseExternalWallet();
+    assert.equal(getExternalWallet(), injecte);
+  } finally {
+    restaurer();
+  }
+});
+
+test("une extension désignée remplace le choix mémorisé", () => {
+  const injecte: Eip1193Provider = { request: async () => null };
+  const restaurer = avecStockage(injecte, EMBEDDED_RDNS);
+
+  try {
+    chooseExternalWallet("io.rabby");
+    assert.equal(selectedWalletRdns(), "io.rabby");
+  } finally {
+    restaurer();
+  }
+});
+
+test("la déconnexion d'une session sociale efface le choix mémorisé", async () => {
+  const injecte: Eip1193Provider = { request: async () => null };
+  const restaurer = avecStockage(injecte, EMBEDDED_RDNS);
+
+  try {
+    await disconnectWallet();
+    assert.equal(selectedWalletRdns(), null);
+    assert.equal(window.localStorage.getItem("sirius.wallet.rdns"), null);
+    assert.equal(getExternalWallet(), injecte);
+  } finally {
+    restaurer();
   }
 });

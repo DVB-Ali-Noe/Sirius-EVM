@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveClientNetwork } from "@/lib/evm/networks";
+
 /**
  * Approvisionnement du compte connecté.
  *
@@ -21,17 +23,25 @@ export interface FondsAjoutes {
 }
 
 export async function addFunds(): Promise<FondsAjoutes> {
-  const response = await fetch("/api/faucet", { method: "POST" });
-  const body = await response.json().catch(() => ({}));
+  // Sur mainnet, le faucet n'existe pas : on va directement au pont, sans aller-retour
+  // inutile qui retarderait l'ouverture de la fenêtre après le clic.
+  const mainnet = resolveClientNetwork() === "mainnet";
+  const response = mainnet ? null : await fetch("/api/faucet", { method: "POST" });
+  const body = response ? await response.json().catch(() => ({})) : {};
 
-  if (response.ok) return body as FondsAjoutes;
+  if (response?.ok) return body as FondsAjoutes;
 
   // 503 : pas une instance de démonstration. On tente l'achat réel.
-  if (response.status === 503) {
+  if (!response || response.status === 503) {
     const onramp = await fetch("/api/onramp");
     const urlBody = await onramp.json().catch(() => ({}));
     if (onramp.ok && typeof urlBody.url === "string") {
-      window.open(urlBody.url, "moonpay", "popup,width=460,height=720");
+      // `noopener` : la page ouverte ne peut pas manipuler l'onglet Sirius en retour.
+      if (urlBody.kind === "bridge") {
+        window.open(urlBody.url, "_blank", "noopener,noreferrer");
+        throw new Error("Pont ouvert : envoie de l’USDC ou de l’USDG vers Robinhood Chain depuis un autre réseau, il arrive en USDG");
+      }
+      window.open(urlBody.url, "moonpay", "popup,width=460,height=720,noopener");
       throw new Error("Fenêtre d'achat ouverte");
     }
   }

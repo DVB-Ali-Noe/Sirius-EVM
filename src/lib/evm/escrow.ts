@@ -1,9 +1,10 @@
 import "server-only";
-import { createWalletClient, http, parseAbiItem, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createWalletClient, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbiItem, type Hex } from "viem";
 import { AppError } from "@/lib/app-error";
-import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
+import { settlementAccount } from "./runner-account";
 import { siriusescrowAbi } from "./abi/siriusescrow";
+import { siriusescrowv7Abi } from "./abi/siriusescrowv7";
+import { quoteTermsHash, type ComputeQuote } from "@/lib/billing/quote";
 import { normalizeAddress, type CanonicalAddress } from "./address";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from "./addresses";
@@ -14,6 +15,14 @@ import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry"
 import { evmEscrowBinding, type EvmEscrowBinding } from "@/lib/tee/evm-binding";
 import { escrowReadAddress, legacyEscrowAbi } from "./history";
 import { lockAuthorizationTypedData, LOCK_AUTHORIZATION_TTL_SECONDS, type LockTerms, type LockAuthorization } from "./lock-authorization";
+import { runnerBudget } from "@/lib/runner/budget";
+import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
+import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
+import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
+import type { BudgetLedger } from "@/lib/runner/budget-ledger";
+import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
+import { assertCanonicalReceipt, confirmedBlock } from "./finality";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -27,7 +36,7 @@ export const MIN_REMAINING_SECONDS = 30 * 60;
 export type EscrowResolution =
   | { state: "active" }
   | { state: "settled"; txHash: string; preimage: Hex }
-  | { state: "cancelled"; txHash: string };
+  | { state: "cancelled"; txHash: string; retainedFee?: string; refundAmount?: string };
 
 const STATUS_LOCKED = 1;
 const STATUS_RELEASED = 2;
@@ -43,6 +52,10 @@ export interface OnChainLoan {
   preimage: Hex;
   datasetId: Hex;
   trainingProfile: Hex;
+  billing?: {
+    datasetAmount: string; computeAmount: string; maxFailureFee: string; consumedCompute: string;
+    computeRecipient: string; termsHash: Hex; lockedAt: number;
+  };
 }
 
 function escrowAddress(): CanonicalAddress {
@@ -57,6 +70,20 @@ export async function readLoan(loanKey: Hex, binding = evmEscrowBinding()): Prom
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
   const version = await client.readContract({ address, abi: siriusescrowAbi, functionName: "VERSION" });
+  if (version === "sirius-escrow-usdc-v7") {
+    const loan = await client.readContract({ address, abi: siriusescrowv7Abi, functionName: "getLoan", args: [loanKey] });
+    if (loan.status === 0) return null;
+    return {
+      provider: normalizeAddress(loan.provider), borrower: normalizeAddress(loan.borrower),
+      amountUsdcAtomic: String(loan.datasetAmount + loan.computeAmount), deadline: Number(loan.deadline), status: loan.status,
+      hashlock: loan.hashlock, preimage: loan.preimage, datasetId: loan.datasetId, trainingProfile: loan.trainingProfile,
+      billing: {
+        datasetAmount: String(loan.datasetAmount), computeAmount: String(loan.computeAmount),
+        maxFailureFee: String(loan.maxFailureFee), consumedCompute: String(loan.consumedCompute),
+        computeRecipient: normalizeAddress(loan.computeRecipient), termsHash: loan.termsHash, lockedAt: Number(loan.lockedAt),
+      },
+    };
+  }
   if (!["sirius-escrow-usdc-v6", "sirius-escrow-usdc-v5", "sirius-escrow-usdc-v4"].includes(version)) {
     throw new AppError("Version du contrat historique non supportée", 409);
   }
@@ -89,9 +116,27 @@ export async function assertLoanScope(input: {
   hashlock: Hex;
   model: ModelSelection;
   minimumRemainingSeconds?: number;
+  billingQuote?: ComputeQuote;
 }): Promise<void> {
   const client = getPublicClient();
   const provider = normalizeAddress(input.provider);
+  if (input.billingQuote) {
+    const quote = input.billingQuote;
+    const block = await confirmedBlock(client, runnerBudget()?.policy.gas.confirmations);
+    const request = {
+      address: escrowAddress(), abi: siriusescrowv7Abi, functionName: "matchesScope",
+      args: [input.loanKey, quoteTermsHash(quote), BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS)],
+    } as const;
+    const [confirmed, current] = await Promise.all([
+      client.readContract({ ...request, blockNumber: block.number! }), client.readContract(request),
+    ]);
+    if (!confirmed || !current || quote.borrower !== normalizeAddress(input.borrower) || quote.provider !== provider
+      || quote.hashlock !== input.hashlock || quote.datasetId !== input.datasetId
+      || quote.modelId !== input.model.modelId || quote.modelVersion !== input.model.modelVersion) {
+      throw new AppError("Escrow on-chain inactif, hors scope ou lié à un autre dataset", 409);
+    }
+    return;
+  }
   const [ok, loan, expectedDatasetId] = await Promise.all([
     client.readContract({
     address: escrowAddress(),
@@ -131,11 +176,6 @@ export async function assertLoanScope(input: {
  * La clé est dérivée dans l'enclave depuis la master key scellée. Elle devient donc
  * attestable : seule une enclave exécutant le code mesuré peut la reconstituer.
  */
-function settlementAccount() {
-  const key = deriveKey(getMasterKey(), "settlement:evm:v1");
-  return privateKeyToAccount(`0x${key.toString("hex")}`);
-}
-
 export function runnerSettlementAddress(): CanonicalAddress {
   return normalizeAddress(settlementAccount().address);
 }
@@ -158,7 +198,60 @@ export async function authorizeEscrowLock(terms: LockTerms, deadline: number): P
 
 function walletClient() {
   const { chain, rpcUrl } = resolveServerNetwork();
-  return createWalletClient({ account: settlementAccount(), chain, transport: http(rpcUrl) });
+  return createWalletClient({ account: settlementAccount(), chain, transport: http(rpcUrl, { retryCount: 0, timeout: 20_000 }) });
+}
+
+async function settleWithBudget(ledger: BudgetLedger, loanKey: Hex, preimage: Hex, fromBlock?: bigint): Promise<string> {
+  const binding = evmEscrowBinding();
+  const account = settlementAccount();
+  if (ledger.policy.chainId !== binding.chainId || ledger.policy.wallet !== account.address.toLowerCase()) {
+    throw new AppError("Identité du compte opérationnel différente du budget", 503);
+  }
+  const send = (serializedTransaction: Hex) => walletClient().sendRawTransaction({ serializedTransaction });
+  const resign = (serialized: Hex) => resignWithFreshFees(serialized, account, getPublicClient(), ledger.policy.gas);
+  await reconcileRunnerTransactions(ledger, getPublicClient(), binding.chainId, account.address, send, resign);
+  const address = escrowAddress();
+  const data = encodeFunctionData({ abi: siriusescrowAbi, functionName: "release", args: [loanKey, preimage] });
+  const id = `release:${binding.chainId}:${address}:${loanKey.toLowerCase()}`;
+  const fingerprint = keccak256(data);
+  if (!ledger.find(id, fingerprint)) {
+    const existing = await reconcileLoanEscrow(loanKey, fromBlock);
+    if (existing.state === "settled") return existing.txHash;
+    if (existing.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
+  }
+  const publicClient = getPublicClient();
+  return sendBudgetedTransaction(ledger, id, fingerprint, {
+    seal: (serialized) => sealRunnerTransaction(id, fingerprint, serialized),
+    async prepare() {
+      if (await publicClient.getChainId() !== binding.chainId) throw new Error("RPC chain mismatch");
+      const [estimate, gasPrice, balance, nonce] = await Promise.all([
+        publicClient.estimateGas({ account, to: address, data, value: BigInt(0) }),
+        publicClient.getGasPrice(),
+        publicClient.getBalance({ address: account.address, blockTag: "pending" }),
+        publicClient.getTransactionCount({ address: account.address, blockTag: "pending" }),
+      ]);
+      lowGasBalanceAlert(ledger.policy.gas, balance, account.address);
+      const fees = boundedGas(ledger.policy.gas, estimate, gasPrice, balance);
+      const serialized = await account.signTransaction({
+        chainId: binding.chainId, to: address, data, value: BigInt(0), nonce,
+        ...fees, maxPriorityFeePerGas: BigInt(0), type: "eip1559",
+      });
+      return { serialized, nonce };
+    },
+    send,
+    resign,
+    latestNonce: () => publicClient.getTransactionCount({ address: account.address, blockTag: "latest" }),
+    async confirm(hash) {
+      if (await publicClient.getChainId() !== binding.chainId) return "pending";
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash, confirmations: ledger.policy.gas.confirmations, timeout: 15_000, retryCount: 0,
+      });
+      if (receipt.transactionHash.toLowerCase() !== hash || receipt.from.toLowerCase() !== ledger.policy.wallet
+        || receipt.to?.toLowerCase() !== address) return "pending";
+      await assertCanonicalReceipt(publicClient, receipt, ledger.policy.gas.confirmations);
+      return receipt.status;
+    },
+  });
 }
 
 /**
@@ -168,6 +261,8 @@ function walletClient() {
  * échouer bruyamment sur une reprise légitime serait un faux négatif.
  */
 export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigint): Promise<string> {
+  const ledger = runnerBudget();
+  if (ledger) return settleWithBudget(ledger, loanKey, preimage, fromBlock);
   const existing = await reconcileLoanEscrow(loanKey, fromBlock);
   if (existing.state === "settled") return existing.txHash;
   if (existing.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
@@ -213,17 +308,28 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, bind
   if (loan.status === STATUS_LOCKED) return { state: "active" };
 
   const settled = loan.status === STATUS_RELEASED;
-  if (!settled && loan.status !== STATUS_REFUNDED) {
+  if (!settled && loan.status !== STATUS_REFUNDED && !(loan.billing && loan.status === 4)) {
     throw new AppError("État de prêt on-chain inattendu", 409);
   }
 
   if (fromBlock === undefined) {
     throw new AppError("Bloc de lock requis pour retrouver la résolution on-chain", 409);
   }
-  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : "LoanRefunded", fromBlock, binding);
+  const txHash = await findLifecycleTxHash(loanKey, settled ? "LoanReleased" : loan.status === 4 ? "LoanFailed" : "LoanRefunded", fromBlock, binding, Boolean(loan.billing));
+  if (loan.billing) {
+    const client = getPublicClient();
+    if (await client.getChainId() !== binding.chainId) throw new AppError("RPC sur un autre réseau", 503);
+    const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
+    if (receipt.status !== "success" || receipt.to?.toLowerCase() !== escrowReadAddress(binding)
+      || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) throw new AppError("Résolution on-chain non confirmée", 409);
+    await assertCanonicalReceipt(client, receipt);
+  }
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
-    : { state: "cancelled", txHash };
+    : { state: "cancelled", txHash, ...(loan.billing ? {
+      retainedFee: loan.billing.consumedCompute,
+      refundAmount: String(BigInt(loan.amountUsdcAtomic) - BigInt(loan.billing.consumedCompute)),
+    } : {}) };
 }
 
 // Signatures déclarées littéralement plutôt qu'extraites de l'ABI : viem ne peut
@@ -237,12 +343,19 @@ const REFUNDED_EVENT = parseAbiItem(
 
 async function findLifecycleTxHash(
   loanKey: Hex,
-  eventName: "LoanReleased" | "LoanRefunded",
+  eventName: "LoanReleased" | "LoanRefunded" | "LoanFailed",
   fromBlock: bigint,
   binding: EvmEscrowBinding,
+  billing = false,
 ): Promise<string> {
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
+  if (billing) {
+    const logs = await client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock });
+    const txHash = logs.at(-1)?.transactionHash;
+    if (!txHash) throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
+    return txHash;
+  }
   const logs =
     eventName === "LoanReleased"
       ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })
@@ -264,5 +377,34 @@ export async function publishedPreimage(loanKey: Hex, binding = evmEscrowBinding
     args: [loanKey],
   });
   if (!revealed) throw new AppError("Préimage pas encore publié", 409);
+  return preimage;
+}
+
+export async function publishedFinalizedPreimage(
+  loanKey: Hex,
+  settleTxHash: Hex,
+  binding: EvmEscrowBinding,
+  confirmations: number,
+): Promise<Hex> {
+  const client = getPublicClient();
+  if (await client.getChainId() !== binding.chainId) throw new AppError("RPC sur un autre réseau", 503);
+  const [receipt, transaction] = await Promise.all([
+    client.getTransactionReceipt({ hash: settleTxHash }),
+    client.getTransaction({ hash: settleTxHash }),
+  ]).catch(() => { throw new AppError("Règlement on-chain non confirmé", 409); });
+  const address = escrowReadAddress(binding);
+  if (receipt.status !== "success" || receipt.transactionHash.toLowerCase() !== settleTxHash.toLowerCase()
+    || receipt.to?.toLowerCase() !== address || transaction.to?.toLowerCase() !== address) {
+    throw new AppError("Règlement on-chain non confirmé", 409);
+  }
+  await assertCanonicalReceipt(client, receipt, confirmations);
+  let call;
+  try { call = decodeFunctionData({ abi: siriusescrowv7Abi, data: transaction.input }); }
+  catch { throw new AppError("Transaction de règlement invalide", 409); }
+  if (call.functionName !== "release" || call.args[0].toLowerCase() !== loanKey.toLowerCase()) {
+    throw new AppError("Transaction de règlement invalide", 409);
+  }
+  const preimage = await publishedPreimage(loanKey, binding);
+  if (call.args[1].toLowerCase() !== preimage.toLowerCase()) throw new AppError("Transaction de règlement invalide", 409);
   return preimage;
 }

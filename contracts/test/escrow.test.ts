@@ -151,6 +151,16 @@ describe("SiriusEscrow USDC", () => {
     await ctx.registry.write.destroy([datasetIdHash(DATASET_ID)], { account: ctx.provider.account });
   });
 
+  it("refuse un permis signé dont la durée dépasse cinq minutes", async () => {
+    const ctx = await loadFixture(fixture);
+    const signed = await authorizedLockArgs(ctx.admin, ctx.escrow.address, ctx.borrower.account.address,
+      [ctx.provider.account.address, ONE_USDC, teePreimage().hashlock, 7,
+        loanIdHash("long-lived"), ctx.datasetId, TRAINING_PROFILE], { deadline: (await time.latest()) + 3600 });
+    await ctx.usdc.write.approve([ctx.escrow.address, ONE_USDC], { account: ctx.borrower.account });
+    await expect(ctx.escrow.write.lock(signed, { account: ctx.borrower.account })).to.be.rejectedWith("InvalidLockAuthorization");
+    expect(await ctx.escrow.read.lockedUsdc()).to.equal(0n);
+  });
+
   it("verrouille les USDC et publie le préimage en créditant le provider", async () => {
     const ctx = await loadFixture(fixture);
     const { loanKey, preimage, amount, provider } = await lockLoan(ctx);

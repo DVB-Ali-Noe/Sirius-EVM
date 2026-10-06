@@ -6,6 +6,7 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { DatasetRef } from "@/lib/tee/contract";
 import type { ModelId } from "@/lib/models/registry";
 import { trustedEscrowBinding } from "@/lib/evm/history";
+import type { SignedComputeQuote } from "@/lib/billing/quote";
 
 export interface DatasetReceipt {
   version: 3;
@@ -50,6 +51,7 @@ export interface LoanReceipt {
   deliveryPublicKey: string;
   releaseEnvelopeHash: string;
   attestationHash: string;
+  billingQuote?: SignedComputeQuote;
 }
 
 type Receipt = DatasetReceipt | TrainingReceipt | LoanReceipt;

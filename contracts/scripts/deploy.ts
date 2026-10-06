@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS, USDC_DECIMALS_BY_NETWORK, type EvmNetwork } from "../../src/lib/evm/networks";
+import { deploymentPlan } from "../../scripts/deploy-policy";
 
 /**
  * Déploie les contrats Sirius sur Robinhood Chain.
@@ -78,22 +79,14 @@ function targetNetwork(): { network: EvmNetwork; chain: Chain } {
 
 async function main() {
   const { network, chain } = targetNetwork();
-
-  // Garde-fou mainnet. Le projet est volontairement sur testnet : rien n'y coûte
-  // d'argent réel, on peut redéployer librement, et aucun audit externe n'est
-  // requis pour poser un contrat. Un déploiement mainnet est une décision
-  // distincte, qui suppose au minimum la séparation de domaine du préimage
-  // d'escrow (voir l'avertissement en tête de SiriusEscrow.sol).
-  if (chain.id === 4663 && process.env.SIRIUS_ALLOW_MAINNET !== "true") {
-    throw new Error(
-      "Déploiement mainnet bloqué. Le projet cible le testnet 46630. " +
-        "Pour passer outre en connaissance de cause : SIRIUS_ALLOW_MAINNET=true",
-    );
-  }
-
   const key = process.env.ROBINHOOD_DEPLOYER_KEY?.trim();
   if (!key) throw new Error("ROBINHOOD_DEPLOYER_KEY manquante");
   const account = privateKeyToAccount(key as Hex);
+
+  // Toutes les règles hors réseau d'abord : sur mainnet, v7 explicite, KYB strict, aucun
+  // rôle partagé, quatre adresses distinctes et l'USDC natif. Voir scripts/deploy-policy.ts.
+  const plan = deploymentPlan(process.env, chain.id, account.address);
+  const { billingVersion, escrowContract } = plan;
 
   const transport = http(process.env.EVM_RPC_URL || chain.rpcUrls.default.http[0]);
   const publicClient = createPublicClient({ chain, transport });
@@ -104,7 +97,9 @@ async function main() {
   console.log(`déployeur     : ${account.address}`);
   console.log(`solde         : ${formatEther(balance)} ETH`);
 
-  if (balance === 0n) {
+  if (balance === 0n && plan.dryRun) {
+    console.log("solde nul     : accepté pour une exécution à blanc, refusé pour un vrai déploiement");
+  } else if (balance === 0n) {
     throw new Error(
       "Solde nul. Alimente le compte en ETH NATIF via https://faucet.testnet.chain.robinhood.com " +
         "(attention : LINK ne paie pas le gas)",
@@ -122,13 +117,7 @@ async function main() {
   // valide tout le monde, au lieu du registre gouverné. Leur source ne change pas —
   // seul l'argument de construction diffère — et revenir au KYB réel consistera à
   // les redéployer sans cette variable.
-  const kybOuvert = process.env.SIRIUS_KYB_MODE === "open";
-  if (kybOuvert && chain.id !== 46630) {
-    throw new Error(
-      "SIRIUS_KYB_MODE=open est réservé au testnet 46630. Ailleurs, il supprimerait " +
-        "le seul contrôle on-chain de qui peut prêter et emprunter.",
-    );
-  }
+  const kybOuvert = plan.kybOpen;
 
   const admin = kybOuvert ? account.address : requireRole("SIRIUS_KYB_ADMIN", account.address);
   const verifier = kybOuvert ? account.address : requireRole("SIRIUS_KYB_VERIFIER", account.address);
@@ -183,6 +172,21 @@ async function main() {
   }
   console.log(`USDC          : ${usdc} (${expectedDecimals} décimales)`);
 
+  // Sur mainnet, l'admin KYB est le Safe : une adresse sans code serait une clé seule.
+  for (const governed of plan.mustBeContracts) {
+    const code = await publicClient.getBytecode({ address: governed as Hex });
+    if (!code || code === "0x") throw new Error(`L'admin KYB ${governed} doit être un contrat (Safe), pas une clé`);
+  }
+
+  if (plan.dryRun) {
+    console.log("");
+    console.log("Exécution à blanc : toutes les vérifications sont passées, aucune transaction envoyée.");
+    console.log(`contrats      : ${kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry"}, SiriusDatasetRegistry, ${escrowContract}`);
+    console.log(`signataire    : ${lockAuthorizer}`);
+    if (!kybOuvert) console.log(`admin KYB     : ${admin}\nvérificateur  : ${verifier}`);
+    return;
+  }
+
   const deployed: Record<string, Hex> = {};
   let totalGas = 0n;
 
@@ -217,7 +221,7 @@ async function main() {
     : await deploy("SiriusKybRegistry", [admin, verifier]);
   // Ce rôle ne sert qu'à la liaison unique ; le déployeur effectue la transaction.
   const datasets = await deploy("SiriusDatasetRegistry", [kyb, account.address]);
-  const escrow = await deploy("SiriusEscrow", [usdc, kyb, datasets, lockAuthorizer]);
+  const escrow = await deploy(escrowContract, [usdc, kyb, datasets, lockAuthorizer]);
   const bindEscrowHash = await walletClient.writeContract({
     address: datasets,
     abi: artifact("SiriusDatasetRegistry").abi,
@@ -239,7 +243,7 @@ async function main() {
   }
 
   // Contrôle de bon sens : chaque contrat répond et part d'un état vierge.
-  const escrowAbi = artifact("SiriusEscrow").abi;
+  const escrowAbi = artifact(escrowContract).abi;
   const deployedAuthorizer = await publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "lockAuthorizer" }) as Hex;
   if (deployedAuthorizer.toLowerCase() !== lockAuthorizer.toLowerCase()) throw new Error("Signataire de lock incorrect");
   const kybAbi = artifact(kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry").abi;
@@ -319,6 +323,7 @@ async function main() {
   const explorer = chain.blockExplorers?.default.url;
   console.log("");
   console.log("À reporter dans .env.local :");
+  console.log(`SIRIUS_BILLING_VERSION="${billingVersion}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="${escrow}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_USDC_ADDRESS="${usdc}"`);
   console.log(`NEXT_PUBLIC_SIRIUS_KYB_ADDRESS="${kyb}"`);
@@ -331,7 +336,7 @@ async function main() {
     console.log("");
     console.log("Explorateur :");
     for (const [name, address] of [
-      ["SiriusEscrow", escrow],
+      [escrowContract, escrow],
       [kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry", kyb],
       ["SiriusDatasetRegistry", datasets],
     ] as const) {

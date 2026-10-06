@@ -1,8 +1,16 @@
 import { isDemoDeployment } from "@/lib/deployment-mode";
+import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
+import { exposureLimits } from "@/lib/sirius/exposure-limits";
+import { previewGateStartupNotice } from "@/lib/preview-gate/gate";
 
 const DEMO = isDemoDeployment();
 
 export async function registerNode() {
+  assertApplicationRunnerConfiguration();
+  // Porte d'aperçu du passage mainnet : dire au démarrage ce qu'elle ferme, sans jamais
+  // écrire la clé (le message ne contient que des noms de variables).
+  const previewGate = previewGateStartupNotice();
+  if (previewGate) console.warn(previewGate);
   if (process.env.NODE_ENV === "production") {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");
@@ -55,10 +63,12 @@ export async function registerNode() {
         "RUNNER_URL",
         "RUNNER_TRANSPORT_SECRET",
         "SIRIUS_EXPECTED_MRTD",
-        "SIRIUS_EXPECTED_RTMR3",
         "SIRIUS_EXPECTED_COMPOSE_HASH",
         "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256",
         "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256",
+        // Bêta mainnet sans audit externe : l'application borne seule l'argent exposé.
+        "SIRIUS_MAX_LOAN_USDC",
+        "SIRIUS_MAX_EXPOSURE_USDC",
       );
     }
 
@@ -118,6 +128,8 @@ export async function registerNode() {
         throw new Error(`${privateName} et ${publicName} doivent désigner le même contrat`);
       }
     }
+    // Valeurs lisibles et cohérentes (par prêt ≤ exposition), refusées au démarrage plutôt qu’au premier emprunt.
+    exposureLimits();
   }
 
   if (

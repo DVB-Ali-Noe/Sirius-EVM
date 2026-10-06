@@ -6,7 +6,7 @@ import { primeMasterKey } from "@/lib/crypto/encryption";
 import { hashSignatureChain, matchesPinnedHash, SHA256_MEASUREMENT } from "./identity";
 import type { RunnerRaTlsEvidence, TdxEvidence } from "./types";
 
-// Chemin de dérivation de la master key, scellé à l'identité de l'app (compose_hash).
+// Chemin de dérivation stable sous l'app ID dstack ; le KMS contrôle les mises à jour autorisées.
 // Versionné (rotation) : ne JAMAIS le changer sur une app en prod sans plan de rotation,
 // sinon la clé change → données chiffrées irrécupérables (cf D-17, reco Phala).
 const MASTER_KEY_PATH = "sirius/master/v1";

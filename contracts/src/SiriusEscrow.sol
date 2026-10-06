@@ -199,6 +199,7 @@ contract SiriusEscrow {
 
     function _requireLockAuthorization(bytes32 termsHash, LockAuthorization calldata authorization) private view {
         if (block.timestamp >= authorization.deadline) revert LockAuthorizationExpired();
+        if (authorization.deadline > block.timestamp + 5 minutes) revert InvalidLockAuthorization();
         bytes calldata signature = authorization.signature;
         if (signature.length != 65) revert InvalidLockAuthorization();
         bytes32 r;

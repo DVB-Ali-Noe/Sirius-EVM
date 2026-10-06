@@ -27,7 +27,7 @@ export async function GET(req: Request) {
           client.readContract({ address, abi: siriusescrowAbi, functionName: "usdc" }),
           client.readContract({ address, abi: siriusescrowAbi, functionName: "creditOf", args: [subject] }),
         ]);
-        if (!["sirius-escrow-usdc-v4", "sirius-escrow-usdc-v5", "sirius-escrow-usdc-v6"].includes(version)) {
+        if (!["sirius-escrow-usdc-v4", "sirius-escrow-usdc-v5", "sirius-escrow-usdc-v6", "sirius-escrow-usdc-v7"].includes(version)) {
           throw new AppError("Version d’escrow non prise en charge", 409);
         }
         const decimals = await client.readContract({ address: token, abi: erc20Abi, functionName: "decimals" });

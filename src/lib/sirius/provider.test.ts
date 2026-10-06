@@ -77,6 +77,7 @@ function deletionFixture(options: {
     "@/lib/errors": { AppError },
     "@/lib/evm/address": { addressesEqual, normalizeAddress },
     "@/lib/evm/addresses": { datasetRegistryAddress: () => REGISTRY },
+    "@/lib/evm/networks": { resolveServerNetwork: () => ({ network: "testnet", chain: { id: 46630 }, rpcUrl: "" }) },
     "@/lib/evm/abi/siriusdatasetregistry": { siriusdatasetregistryAbi: [] },
     "@/lib/evm/client": { getPublicClient: () => ({
       readContract: async ({ functionName, args }: { functionName: string; args: unknown[] }) => {
@@ -97,6 +98,8 @@ function deletionFixture(options: {
     "@/lib/evm/transaction": { destroyDatasetTransaction: () => ({ to: REGISTRY, data: "0xdeadbeef" }) },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async (cid: string) => { unpins.push(cid); } },
     "@/lib/models/registry": {},
+    "@/lib/runner/provenance": {},
+    "@/lib/datasets/publication": {},
     "./access": {},
   };
   const exports = {};

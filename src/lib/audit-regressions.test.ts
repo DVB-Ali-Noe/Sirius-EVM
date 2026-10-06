@@ -11,6 +11,7 @@ import * as body from "./http/body";
 import * as attestation from "./tee/attestation";
 import * as addresses from "./evm/address";
 import { siriusescrowAbi } from "./evm/abi/siriusescrow";
+import { siriusescrowv7Abi } from "./evm/abi/siriusescrowv7";
 
 const SUBJECT = `0x${"11".repeat(20)}`;
 const OLD = `0x${"22".repeat(20)}`;
@@ -65,6 +66,8 @@ test("KYB : le parrainage vérifie l'émetteur serveur sans relâcher le parcour
     "@/lib/evm/addresses": { kybRegistryAddress: () => CURRENT },
     "@/lib/evm/abi/siriuskybregistry": { siriuskybregistryAbi: [] },
     "@/lib/db": { prisma: { credential: { upsert: async () => { persisted++; } } } },
+    // Invitations KYB : non utilisées par ce scénario, simulées pour isoler le module.
+    "@/lib/evm/networks": {}, "@/lib/evm/transaction": {}, "@/lib/kyb/invitation": {},
     "@/lib/evm/client": { getPublicClient: () => ({
       waitForTransactionReceipt: async () => ({ status: "success" }),
       getTransaction: async () => ({ from: VERIFIER, to: CURRENT }),
@@ -85,6 +88,7 @@ test("l'attestation historique reste accessible seulement pour les escrows autor
     "server-only": {}, viem, "@/lib/app-error": errors,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: CURRENT }) },
     "./address": addresses, "./client": {}, "./loan-key": {}, "./abi/siriusescrow": { siriusescrowAbi },
+    "./abi/siriusescrowv7": { siriusescrowv7Abi },
   }, { process: { env } });
   const route = load<typeof import("../app/api/loans/[id]/attestation/route")>("src/app/api/loans/[id]/attestation/route.ts", {
     ...base(), "@/lib/db": { prisma: { loan: { findUnique: async () => loan } } },

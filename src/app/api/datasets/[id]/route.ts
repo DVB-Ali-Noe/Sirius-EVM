@@ -9,20 +9,12 @@ import { requireAuth, assertOwner } from "@/lib/auth/require-auth";
 import { readSession } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
-import { publicDatasetMetrics } from "@/lib/sirius/metrics";
+import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { requireMutationGrant } from "@/lib/auth/mutation-grant";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { assertVisibilityChange, loadOwnedDataset } from "@/lib/datasets/manage";
 
 export const runtime = "nodejs";
-
-function withoutWrappedKey<T extends { wrappedKey: unknown; metrics: unknown }>(dataset: T) {
-  const publicDataset = { ...dataset };
-  Reflect.deleteProperty(publicDataset, "wrappedKey");
-  return {
-    ...publicDataset,
-    metrics: publicDatasetMetrics(dataset.metrics),
-  } as Omit<T, "wrappedKey">;
-}
 
 /**
  * Détail d'un dataset. Public/Semi-privé accessibles à tous (le Semi-privé = par lien
@@ -43,8 +35,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
     }
   }
-  const session = readSession(req);
-  return NextResponse.json(publiclyVisible && session?.address !== dataset.provider ? withoutWrappedKey(dataset) : dataset);
+  return NextResponse.json(datasetResponse(dataset));
 }
 
 /** Change la visibilité (Public / Semi-privé / Privé) — provider uniquement. */
@@ -58,22 +49,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }>(req);
     if (typeof visibility !== "string") return NextResponse.json({ error: "Visibilité invalide" }, { status: 400 });
     if (!authorization) return NextResponse.json({ error: "Confirmation wallet requise" }, { status: 400 });
-    const owned = await prisma.dataset.findUnique({ where: { id }, select: { provider: true } });
-    if (!owned) return NextResponse.json({ error: "Dataset introuvable" }, { status: 404 });
-    assertOwner(session, owned.provider);
+    // Propriété vérifiée dans la requête : absent et autre wallet répondent le même 404.
+    const owned = await loadOwnedDataset(prisma, id, session.address);
+    // Même règles que la remise en ligne de la fiche (`/settings/listing`) : pas de passage à
+    // « Public » pour une annonce expirée ni en démo Phala, et pas de détour par
+    // « Semi-privé » depuis un dataset privé en démo.
+    // `setDatasetVisibility` ne rejoue pas ces conditions en base (fenêtre de course minime,
+    // documentée dans audit.md N1).
+    assertVisibilityChange(visibility, owned, Date.now(), { demoMode: process.env.SIRIUS_PHALA_DEMO === "true" });
     await requireMutationGrant(session, authorization, {
       operation: "set-dataset-visibility",
       datasetId: id,
       intentParts: [id, visibility],
     });
     const dataset = await setDatasetVisibility(id, session.address, visibility as "LISTED" | "UNLISTED" | "PRIVATE");
-    return NextResponse.json(dataset);
+    return NextResponse.json(datasetResponse(dataset));
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-/** Prépare le tombstone EVM à signer par le provider avant le crypto-shredding. */
+/** Prépare le tombstone EVM à signer par le provider avant suppression de la clé active. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -88,7 +84,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 }
 
-/** Suppression par crypto-shredding : détruit la clé, dépine puis ancre le tombstone EVM. */
+/** Vérifie le tombstone EVM, retire la clé active et dépine le dataset. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);
@@ -110,7 +106,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       intentParts: [id, txHash ?? ""],
     });
     const dataset = await deleteDataset(id, session.address, txHash);
-    return NextResponse.json(dataset);
+    return NextResponse.json(datasetResponse(dataset));
   } catch (err) {
     return errorResponse(err);
   }

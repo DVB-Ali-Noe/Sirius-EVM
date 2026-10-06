@@ -245,7 +245,8 @@ test("le préflight situe une panne SQL avant tout appel au RPC", async () => {
   });
   mock.method(client, "getChainId", async () => assert.fail("Le RPC ne doit pas être appelé après une panne SQL"));
   await assert.rejects(() => checkMigration((step) => steps.push(step)), (error) => error === failure);
-  assert.equal(steps.at(-1), "PostgreSQL : lecture de l'historique des migrations Prisma");
+  // La garde de chaîne est la première lecture après la détection de la table Loan.
+  assert.equal(steps.at(-1), "PostgreSQL : contrôle de la chaîne des données (testnet, 46630)");
   assert.ok(!steps.join(" ").includes("SECRET_SYNTHETIQUE"));
   assert.equal(updates.length, 0);
 });
@@ -389,4 +390,133 @@ test("une panne de base du reaper planifié est capturée et la passe suivante r
   callbacks[0]();
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(calls, 2);
+});
+
+function billedReaperFixture(terminalStatus: number) {
+  process.env.SIRIUS_EVM_FINALITY = "confirmations";
+  process.env.SIRIUS_EVM_CONFIRMATIONS = "1";
+  const current = loan({ status: "TRAINING", modelCid: null, billingQuoteHash: HASH });
+  stubDb(prisma.loan, "findMany", async () => [current]);
+  let recoveryReads = 0;
+  stubDb(prisma.loan, "findUnique", async () => { recoveryReads++; throw new Error("runner indisponible"); });
+  mock.method(client, "readContract", async ({ functionName }: { functionName: string }) => functionName === "VERSION"
+    ? "sirius-escrow-usdc-v7"
+    : { ...onChain(), status: terminalStatus, datasetAmount: BigInt(100), computeAmount: BigInt(40),
+      maxFailureFee: BigInt(20), consumedCompute: BigInt(10), computeRecipient: PROVIDER, termsHash: HASH, lockedAt: BigInt(1) });
+  mock.method(client, "getContractEvents", async () => [{ transactionHash: HASH }]);
+  mock.method(client, "getTransactionReceipt", async () => ({ status: "success", transactionHash: HASH, to: ESCROW, blockNumber: BigInt(10), blockHash: HASH }));
+  mock.method(client, "getBlockNumber", async () => BigInt(10));
+  mock.method(client, "getBlock", async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: HASH }));
+  mock.method(console, "error", () => {});
+  return () => recoveryReads;
+}
+
+test("le reaper clôture un remboursement v7 canonique sans appeler la reprise en panne", async () => {
+  const reads = billedReaperFixture(4);
+  await reap();
+  assert.equal(reads(), 0);
+  assert.deepEqual(updates[0]?.data, { status: "CANCELLED", cancelTxHash: HASH, retainedFeeUsdcAtomic: "10", refundAmountUsdcAtomic: "130" });
+  assert.equal(updates[0]?.where.status, "TRAINING");
+});
+
+test("un remboursement v7 non finalisé ou réorganisé ne clôture rien", async () => {
+  const reads = billedReaperFixture(3);
+  mock.method(client, "getBlock", async () => ({ number: BigInt(10), hash: DATASET }));
+  await reap();
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+});
+
+test("un règlement v7 sans modèle conserve la récupération du résultat", async () => {
+  const reads = billedReaperFixture(2);
+  await reap();
+  assert.equal(reads(), 1);
+  assert.equal(updates.length, 0);
+});
+
+test("une panne RPC avant réconciliation v7 ne fabrique aucun remboursement", async () => {
+  const reads = billedReaperFixture(3);
+  mock.method(client, "readContract", async () => { throw new Error("RPC indisponible"); });
+  await reap();
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+});
+
+
+test("un règlement v7 avec modèle passe encore par la validation de sa preuve", async () => {
+  const reads = billedReaperFixture(2);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", billingQuoteHash: HASH })]);
+  await reap();
+  assert.equal(reads(), 1);
+  assert.equal(updates.length, 0);
+});
+
+test("A-05 : une capsule v7 échue, toujours verrouillée on-chain et sans release diffusé, n'est plus réglée par le reaper", async () => {
+  const reads = billedReaperFixture(1);
+  const logs: unknown[][] = [];
+  mock.method(console, "log", (...args: unknown[]) => { logs.push(args); });
+  const overdue = new Date(Date.now() - 60_000);
+  for (const status of ["TRAINING", "SETTLING"] as const) {
+    stubDb(prisma.loan, "findMany", async () => [loan({ status, modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue })]);
+    await reap();
+  }
+  assert.equal(reads(), 0);
+  assert.equal(updates.length, 0);
+  assert.deepEqual(logs, [
+    ["[reaper] prêt EVM loan-1 échu : règlement impossible, remboursement à l'initiative de l'emprunteur"],
+    ["[reaper] prêt EVM loan-1 échu : règlement impossible, remboursement à l'initiative de l'emprunteur"],
+  ]);
+});
+
+test("avant l'échéance, ou avec un release déjà diffusé, le reaper reprend encore le règlement v7", async () => {
+  const reads = billedReaperFixture(1);
+  const inTime = new Date(Date.now() + 60_000);
+  const overdue = new Date(Date.now() - 60_000);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: inTime })]);
+  await reap();
+  assert.equal(reads(), 1);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "SETTLING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue, settleTxHash: HASH })]);
+  await reap();
+  assert.equal(reads(), 2);
+  assert.equal(updates.length, 0);
+});
+
+// Évalue le sous-ensemble du filtre Prisma utilisé par le reaper sur une ligne en mémoire.
+function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    if (key === "OR") return (condition as Record<string, unknown>[]).some((part) => matchesWhere(row, part));
+    if (key === "AND") return (condition as Record<string, unknown>[]).every((part) => matchesWhere(row, part));
+    const value = row[key];
+    if (condition === null || typeof condition !== "object" || condition instanceof Date) return value === condition;
+    return Object.entries(condition).every(([op, expected]) => {
+      if (op === "not") return value !== expected;
+      if (op === "in") return (expected as unknown[]).includes(value);
+      const a = value instanceof Date ? value.getTime() : Number(value);
+      const b = expected instanceof Date ? expected.getTime() : Number(expected);
+      if (op === "gt") return a > b;
+      if (op === "gte") return a >= b;
+      if (op === "lt") return a < b;
+      if (op === "lte") return a <= b;
+      throw new Error(`opérateur non géré : ${op}`);
+    });
+  });
+}
+
+test("A-19 : une préparation jamais signée sort de la liste du reaper, un lock soumis y reste", async () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const hours = (n: number) => new Date(now.getTime() - n * 3_600_000);
+  const rows = [
+    loan({ id: "abandoned-old", status: "CANCELLED", evmLockTxHash: null, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "abandoned-recent", status: "CANCELLED", evmLockTxHash: null, createdAt: hours(1), updatedAt: hours(1) }),
+    loan({ id: "submitted-old", status: "CANCELLED", evmLockTxHash: HASH, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "refunded-old", status: "CANCELLED", cancelTxHash: HASH, evmLockTxHash: null, createdAt: hours(48), updatedAt: hours(48) }),
+    loan({ id: "settling-old", status: "SETTLING", createdAt: hours(48), updatedAt: hours(48) }),
+  ];
+  const seen: string[] = [];
+  stubDb(prisma.loan, "findMany", async ({ where }: { where: Record<string, unknown> }) => {
+    seen.push(...rows.filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where)).map((row) => row.id));
+    return [];
+  });
+  await reap(now);
+  assert.deepEqual(seen.sort(), ["abandoned-recent", "settling-old", "submitted-old"]);
 });

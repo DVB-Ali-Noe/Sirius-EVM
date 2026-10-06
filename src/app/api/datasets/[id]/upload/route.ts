@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { assertGrantSubject, requireAuth } from "@/lib/auth/require-auth";
+import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { withUploadAdmission } from "@/lib/http/upload-admission";
@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!authorization) {
       return NextResponse.json({ error: "Autorisation runner manquante" }, { status: 400 });
     }
-    assertGrantSubject(session, authorization);
+    await assertAuthenticGrant(session, authorization);
     return await withUploadAdmission(session.address, async () => {
       const dataset = await authorizeDatasetUpload(id, session.address);
       const { envelope } = await readJson<{

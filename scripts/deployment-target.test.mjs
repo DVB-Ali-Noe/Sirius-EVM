@@ -7,8 +7,11 @@ import { smokeAuthentication } from "./smoke-auth.mjs";
 test("la branche cible choisit ses ressources sans dépendre du projet lié localement", () => {
   const staging = deploymentTarget("refs/heads/staging");
   const main = deploymentTarget("refs/heads/main");
-  assert.equal(staging.url_publique, "https://sirius-evm-staging.vercel.app");
+  assert.equal(staging.url_publique, "https://phala.sirius-data.tech");
+  assert.ok(staging.origines_alias.split(",").includes("https://sirius-evm-staging.vercel.app"));
   assert.equal(main.url_publique, "https://sirius-data.tech");
+  assert.equal(main.phala_requis, "true");
+  assert.equal(staging.phala_requis, "false");
   assert.ok(main.origines_alias.split(",").includes("https://sirius-evm.vercel.app"));
   for (const field of ["projet_vercel", "environnement", "projet_compose", "dossier_vps"]) {
     assert.notEqual(staging[field], main[field]);
@@ -27,6 +30,17 @@ test("une référence inconnue, une PR ou un tag ne retombe jamais sur staging",
   const result = spawnSync(process.execPath, ["scripts/deployment-target.mjs", "refs/pull/1/merge"], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
+});
+
+test("staging impose Phala après activation explicite, sans modifier les autres ressources", () => {
+  assert.deepEqual(deploymentTarget("staging", "true"), { ...deploymentTarget("staging"), phala_requis: "true" });
+  assert.equal(deploymentTarget("main", "false").phala_requis, "true");
+  assert.throws(() => deploymentTarget("staging", "yes"), /SIRIUS_STAGING_REQUIRE_PHALA/);
+  const result = spawnSync(process.execPath, ["scripts/deployment-target.mjs", "staging"], {
+    encoding: "utf8", env: { ...process.env, SIRIUS_STAGING_REQUIRE_PHALA: "true" },
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^phala_requis=true$/m);
 });
 
 test("la CLI produit les outputs de la branche passée, même avec un environnement local opposé", () => {

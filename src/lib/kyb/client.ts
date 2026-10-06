@@ -1,6 +1,7 @@
 "use client";
 
 import { sendActiveTransaction, signTypedDataWithActiveWallet } from "@/lib/wallet/transaction-client";
+import { guardKybTransaction } from "@/lib/wallet/transaction-guard";
 
 export type KybRole = "provider" | "borrower";
 
@@ -58,18 +59,20 @@ export async function attestViaSponsor(assertCurrent: () => void = () => {}): Pr
   return true;
 }
 
-export async function acceptKybCredential(role: KybRole): Promise<void> {
+export async function acceptKybCredential(role: KybRole, invitation?: string): Promise<void> {
   const endpoint = `/api/${role}/onboard`;
   const preparation = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(invitation ? { invitation: invitation.trim() } : {}),
   });
   const prepared = (await preparation.json()) as {
     transaction?: Record<string, unknown> | null;
     error?: string;
   };
 
+  // Avec une invitation, un refus est définitif : on ne bascule pas sur l'attestation de démo.
+  if (!preparation.ok && invitation) throw new Error(prepared.error ?? "Code d’invitation KYB invalide");
   if (!preparation.ok) {
     // Le parcours normal suppose une attestation déjà posée hors de l'application.
     // Sur une instance de démonstration, on la pose ici plutôt que de renvoyer le
@@ -80,7 +83,7 @@ export async function acceptKybCredential(role: KybRole): Promise<void> {
 
   if (!prepared.transaction) return;
 
-  const txHash = await sendActiveTransaction(prepared.transaction);
+  const txHash = await sendActiveTransaction(guardKybTransaction(prepared.transaction));
   const submission = await fetch(endpoint, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

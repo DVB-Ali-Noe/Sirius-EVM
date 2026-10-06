@@ -46,6 +46,20 @@ jobs:
   verify:
     name: Vérification
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -80,8 +94,25 @@ jobs:
       - name: Tests applicatifs
         run: pnpm test
 
+      - name: Sessions manuelles et livraison Phala
+        run: pnpm test:phala-demo
+
+      - name: Outils de préparation et de sauvegarde
+        run: pnpm test:operations
+
+      - name: Migrations et concurrence PostgreSQL
+        env:
+          SIRIUS_TEST_DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+        run: pnpm test:postgres
+
       - name: Tests des contrats
         run: pnpm contracts:test
+
+      - name: Tests de facturation v7
+        run: pnpm test:billing
+
+      - name: Typage des tests v7
+        run: pnpm exec tsc --noEmit -p contracts/tsconfig.v7.json
 
       # Le build est la dernière barrière : il attrape ce qu'aucun test unitaire ne
       # voit, par exemple un module serveur importé par un composant client.
@@ -107,6 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environnement: ${{ steps.calcul.outputs.environnement }}
+      phala_requis: ${{ steps.calcul.outputs.phala_requis }}
       projet_compose: ${{ steps.calcul.outputs.projet_compose }}
       projet_vercel: ${{ steps.calcul.outputs.projet_vercel }}
       dossier_vps: ${{ steps.calcul.outputs.dossier_vps }}
@@ -126,6 +158,8 @@ jobs:
       # le code d'une cible avec les ressources de l'autre.
       - name: Résoudre la cible
         id: calcul
+        env:
+          SIRIUS_STAGING_REQUIRE_PHALA: ${{ vars.SIRIUS_STAGING_REQUIRE_PHALA || 'false' }}
         run: node scripts/deployment-target.mjs "$GITHUB_REF" >> "$GITHUB_OUTPUT"
 
       - name: Annoncer la cible
@@ -262,6 +296,7 @@ jobs:
         env:
           APP_ORIGIN: ${{ needs.cible.outputs.url_publique }}
           APP_ORIGIN_ALIASES: ${{ needs.cible.outputs.origines_alias }}
+          PHALA_REQUIRED: ${{ needs.cible.outputs.phala_requis }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           # La version est épinglée plutôt que résolue par `@latest`. Deux raisons, et
           # la première s'est produite : `@latest` a désigné une version que le registre
@@ -287,9 +322,10 @@ jobs:
           npx --yes "$CLI" env add SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
           npx --yes "$CLI" env add SIRIUS_APP_ORIGIN_ALIASES production --force --yes --no-sensitive --value="$APP_ORIGIN_ALIASES" --token="$TOKEN"
           npx --yes "$CLI" env add NEXT_PUBLIC_SIRIUS_APP_ORIGIN production --force --yes --no-sensitive --value="$APP_ORIGIN" --token="$TOKEN"
+          npx --yes "$CLI" env add SIRIUS_REQUIRE_PHALA production --force --yes --no-sensitive --value="$PHALA_REQUIRED" --token="$TOKEN"
 
           # Chaque cible a son propre projet, donc son propre environnement de
-          # production : les trois mêmes commandes servent aux deux, et il n'y a
+          # production : les mêmes commandes servent aux deux, et il n'y a
           # aucune branche à déclarer ni métadonnée Git à joindre.
           npx --yes "$CLI" pull --yes --environment=production --token="$TOKEN"
           npx --yes "$CLI" build --prod --token="$TOKEN"

@@ -1,5 +1,6 @@
 import type { DatasetMetrics } from "@/lib/sirius/metrics";
 import type { ModelSelection } from "@/lib/models/registry";
+import type { LoanExecutionAttestation } from "./types";
 
 // Le JSON chiffré en base64 doit rester sous les 4,5 Mo admis par Vercel.
 export const MAX_DATASET_BYTES = 3 * 1024 * 1024;
@@ -103,7 +104,21 @@ export interface AuthorizedTrainingResult {
   modelCid: string;
   metrics: Record<string, number>;
   runnerReceipt: string;
+  modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
+
+export interface LoanJobResult {
+  modelCid: string;
+  metrics: Record<string, number>;
+  attestation: LoanExecutionAttestation;
+  releaseEnvelope?: RunnerReleaseEnvelope;
+  releaseEnvelopeHash: string;
+  runnerReceipt: string;
+}
+
+export type RecoveredLoanResult =
+  | { state: "missing" | "pending" | "failed" }
+  | { state: "ready"; deliveryPublicKey: string; result: LoanJobResult };
 
 export type RunnerEscrowReconciliation =
   | { state: "active" }

@@ -1,4 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { DEMO_PAGE, demoOnlyRoute, isDemoOnlyHost } from "@/lib/phala-demo/demo-host";
+import {
+  CLOSED_API_BODY,
+  CLOSED_API_STATUS,
+  PREVIEW_COOKIE,
+  PREVIEW_GATE_HEADER,
+  PREVIEW_GATE_HEADER_CLOSED,
+  WAITING_PAGE,
+  decidePreviewGate,
+  readPreviewGateConfig,
+} from "@/lib/preview-gate/gate";
 
 /**
  * Origines du portefeuille embarqué, ajoutées seulement là où il est proposé.
@@ -48,26 +59,93 @@ function contentSecurityPolicy(nonce: string): string {
   ].join("; ");
 }
 
-export function proxy(request: NextRequest) {
+/**
+ * Préchargements de `next/link` : ils n'ont pas besoin du nonce, et le matcher les écartait
+ * autrefois. Il ne le fait plus, parce que la porte d'aperçu doit les voir : un préchargement
+ * est une requête de page comme une autre, et l'écarter aurait servi le payload RSC d'une page
+ * fermée à qui ajoute l'en-tête à la main. Hors porte, ils passent inchangés, comme avant.
+ */
+function isPrefetch(request: NextRequest): boolean {
+  return request.headers.has("next-router-prefetch") || request.headers.get("purpose") === "prefetch";
+}
+
+/** En-têtes transmis à l'application, avec l'en-tête de la porte toujours réécrit par nous. */
+function forwardedHeaders(request: NextRequest, gateClosed: boolean): Headers {
+  const headers = new Headers(request.headers);
+  headers.delete(PREVIEW_GATE_HEADER);
+  if (gateClosed) headers.set(PREVIEW_GATE_HEADER, PREVIEW_GATE_HEADER_CLOSED);
+  return headers;
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // 1. Adresse démo : seule la session de training Phala est servie (src/lib/phala-demo/demo-host.ts).
+  //    Avant la porte d'aperçu, et indépendamment d'elle : l'adresse démo est rattachée au
+  //    projet staging, où l'interrupteur n'est pas posé ; si les deux s'appliquaient au même
+  //    projet, la restriction de l'adresse l'emporterait, puis la porte filtrerait ce qui reste.
+  if (isDemoOnlyHost(request.headers.get("host"))) {
+    const decision = demoOnlyRoute(pathname);
+    if (decision === "block") return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (decision === "redirect") return NextResponse.redirect(new URL(DEMO_PAGE, request.url));
+  }
+
+  // 2. Porte d'aperçu du passage mainnet (src/lib/preview-gate/gate.ts). Inactive, elle ne
+  //    change rien ; active, elle ferme tout sauf la liste blanche à qui n'a pas le cookie.
+  const gate = readPreviewGateConfig();
+  // `gateClosed` : la page est rendue nue (sans portefeuille) ; `rewriteToWaiting` : elle est
+  // en plus remplacée par la page d'attente. La page d'attente est toujours nue, porte active
+  // ou non ; `/terms` l'est seulement pour qui n'a pas le cookie (décision `public`).
+  let gateClosed = pathname === WAITING_PAGE || pathname === `${WAITING_PAGE}/`;
+  let rewriteToWaiting = false;
+  if (gate.active) {
+    const decision = await decidePreviewGate(gate, pathname, request.cookies.get(PREVIEW_COOKIE)?.value);
+    if (decision === "closed") {
+      return NextResponse.json(CLOSED_API_BODY, {
+        status: CLOSED_API_STATUS,
+        headers: { "cache-control": "no-store", "retry-after": "3600" },
+      });
+    }
+    if (decision === "wait") {
+      gateClosed = true;
+      rewriteToWaiting = true;
+    }
+    if (decision === "public") gateClosed = true;
+  }
+
+  // 3. Préchargements hors porte : inchangés, sans nonce (voir isPrefetch).
+  if (!gateClosed && isPrefetch(request)) {
+    return NextResponse.next({ request: { headers: forwardedHeaders(request, false) } });
+  }
+
+  // 4. Les routes API ne passent ici que pour les restrictions ci-dessus : ailleurs, inchangées.
+  if (pathname.startsWith("/api/")) return NextResponse.next();
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const policy = contentSecurityPolicy(nonce);
-  const headers = new Headers(request.headers);
+  const headers = forwardedHeaders(request, gateClosed);
   headers.set("Content-Security-Policy", policy);
   headers.set("x-nonce", nonce);
 
-  const response = NextResponse.next({ request: { headers } });
+  let response: NextResponse;
+  if (rewriteToWaiting) {
+    // Réécriture, pas redirection : l'adresse demandée reste dans la barre du navigateur et
+    // le test de fumée du pipeline, qui attend un 200 sur la racine, le reçoit.
+    const url = request.nextUrl.clone();
+    url.pathname = WAITING_PAGE;
+    url.search = "";
+    response = NextResponse.rewrite(url, { request: { headers } });
+  } else {
+    response = NextResponse.next({ request: { headers } });
+  }
   response.headers.set("Content-Security-Policy", policy);
+  if (gateClosed) {
+    response.headers.set("cache-control", "no-store");
+    response.headers.set("x-robots-tag", "noindex, nofollow");
+  }
   return response;
 }
 
 export const config = {
-  matcher: [
-    {
-      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
-      missing: [
-        { type: "header", key: "next-router-prefetch" },
-        { type: "header", key: "purpose", value: "prefetch" },
-      ],
-    },
-  ],
+  matcher: ["/api/:path*", "/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };

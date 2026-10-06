@@ -1,6 +1,6 @@
 # Sirius
 
-**Louer des datasets de valeur sans jamais les exposer.**
+**Entraîner sur des datasets confidentiels et livrer le modèle.**
 
 Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE** et ne récupère que le modèle produit. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
 
@@ -15,11 +15,11 @@ Provider                 Robinhood Chain                     Borrower
   │                             │                               │
   │           Phala TEE : déchiffre, entraîne, atteste          │
   │                             │                               │
-  │◄── SiriusEscrow.release ────┼── préimage public ───────────►│ capsule ouverte
+  │◄── SiriusEscrow.release ────┼── règlement confirmé ─────────►│ clé livrée en v7
   │    crédit provider          │                               │
 ```
 
-Le runner ne révèle le préimage qu'après avoir produit le modèle et une capsule persistable par le borrower. `release` crédite alors le provider dans la même transaction ; `refund` crédite le borrower après l'échéance si aucun préimage n'a été publié. Wallet et Dashboard affichent ces crédits et proposent leur retrait vers le compte connecté, séparément du solde wallet.
+En v6, le runner produit une capsule que le préimage publié permet d'ouvrir. En v7, il ne transmet pas cette capsule à Next : la clé du modèle est livrée après vérification du règlement canonique et des confirmations configurées. `release` crédite le provider et, en v7, la trésorerie compute. `refund` reste possible après l'échéance si le prêt est encore verrouillé, en déduisant les frais déjà attestés on-chain en v7. Wallet et Dashboard permettent le retrait séparé des crédits. Le préimage est transmis au RPC avant inclusion ; les limites de finalité sont détaillées dans le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 ## Stack
 
@@ -34,6 +34,7 @@ Le runner ne révèle le préimage qu'après avoir produit le modèle et une cap
 ## Contrats EVM
 
 - `SiriusEscrow` v6 : autorisation de lock EIP-712 du runner, USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
+- `SiriusEscrowV7` : devis signé, prépaiement dataset + compute, crédits provider/Sirius séparés, remboursement avec retenue plafonnée des frais attestés. Intégration locale, activation explicite ; aucun déploiement public v7 effectué.
 - `SiriusKybRegistry` v3 : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et liées à l’époque du vérificateur (domaine EIP-712 version `2`).
 - `SiriusDatasetRegistry` v4 : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root, à sa taille et à son profil d'entraînement.
 
@@ -43,11 +44,19 @@ Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). 
 
 Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-712, titres dataset, KYB, escrow USDC, runner et audit. Les contrats, leurs tests et leurs scripts couvrent le rail EVM.
 
-Les trois contrats sont déployés sur le testnet Robinhood et l'instance publique tourne en mode démonstration : le calcul confidentiel s'exécute dans le processus de l'application, sans enclave attestée. Le parcours réel navigateur/runner/contrats, un émetteur KYB externe et la CVM Phala restent à valider. La roadmap ne présente donc pas encore le produit comme validé sur une enclave réelle.
+Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats et le KYB externe restent à valider. Deux modèles historiques ont été récupérés et restaurés hors ligne ; les onze autres appartiennent à d'anciens wallets de test inaccessibles. Voir [l'état des sauvegardes](docs/BACKUP-RECOVERY.md).
 
 L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
 
-Les corrections F1–F4 sont locales : le login est EOA-only et les nouveaux locks exigent Escrow v6. **Un nouvel escrow et un nouveau registre dataset associé doivent être déployés** avant les nouveaux emprunts. La livraison des modèles déjà réglés conserve ses anciens escrows et sa master key. Voir la [procédure de migration v6](docs/ESCROW-V6.md).
+Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et accepté, prépaiement, calcul borné, règlement ou remboursement, budget réservé jusqu'à la clôture. Le mode par défaut reste v6 ; v7 exige `SIRIUS_BILLING_VERSION=7`, des politiques et un registre persistants. La migration Prisma est préparée, non appliquée à distance. Aucun tarif commercial n'est fixé.
+
+**Reprise et exploitation préparées :** le résultat v7 enregistré dans SQLite est récupérable après perte de la réponse Next ; les transactions signées sont journalisées sous chiffrement et rediffusées à l'identique dans une limite de trois envois. Les quotas PostgreSQL et l'anti-rejeu sont éprouvés entre huit processus. Une sauvegarde chiffrée de la base réelle a été restaurée et migrée sur PostgreSQL 18 local ; les 13 blobs de modèles historiques ont été copiés et vérifiés. Les images et le superviseur d'arrêt sont préparés localement. Voir la [reprise](docs/RECOVERY-OPERATIONS.md) et la [préparation de l'exploitation](docs/OPERATIONS-PREPARATION.md).
+
+**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, les plafonds fournisseurs, les tarifs et la validation Phala complète. La sauvegarde reste locale à ce stade ; les onze modèles sans wallet accessible restent conservés sans preuve de récupération. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
+
+La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows, crédits et clés des modèles historiques séparément de la nouvelle identité Phala.
+
+Le [récapitulatif des coûts et business plan](docs/BUSINESS-PLAN.md) centralise les coûts connus, les hypothèses d'exploitation, le budget jusqu'au mainnet et les scénarios de rentabilité. Les prix de vente proposés et les provisions ne sont pas des tarifs actifs ou des dépenses approuvées ; le total des factures historiques reste à réconcilier.
 
 ## Démarrage
 
@@ -59,18 +68,21 @@ pnpm contracts:test
 pnpm contracts:abi
 pnpm datasets:generate
 pnpm test
+pnpm test:billing
+pnpm test:operations
 pnpm lint
 pnpm build
 ```
 
-Pour déployer sur le testnet, renseigner `ROBINHOOD_DEPLOYER_KEY` et, si nécessaire, `ROBINHOOD_TESTNET_RPC`, puis :
+Validations du 23 septembre : **308 tests applicatifs, lint, typage et build local réussis** lors de la dernière passe applicative ; **18 tests d'exploitation et lint ciblé réussis** lors de la préparation du budget Phala. Les passes précédentes ont aussi validé 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM de facturation et les admissions PostgreSQL 17 entre huit processus. La restauration réelle et ses migrations ont été vérifiées sur PostgreSQL 18 local. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
+
+Après résolution des bloqueurs et validation de la migration, le guide de déploiement testnet prévoit `ROBINHOOD_DEPLOYER_KEY` et éventuellement `EVM_RPC_URL` pour le script de déploiement (`ROBINHOOD_TESTNET_RPC` concerne le réseau Hardhat), puis :
 
 ```bash
 pnpm contracts:deploy:testnet
-pnpm contracts:smoke
 ```
 
-Reporter les adresses affichées dans les variables serveur `SIRIUS_*_ADDRESS` **et** publiques `NEXT_PUBLIC_SIRIUS_*_ADDRESS`, sans changer l'USDC associé. La procédure détaillée est dans [docs/DEMO.md](docs/DEMO.md).
+Reporter les adresses affichées dans les variables serveur `SIRIUS_*_ADDRESS` **et** publiques `NEXT_PUBLIC_SIRIUS_*_ADDRESS`, sans changer l'USDC associé. Le smoke historique `contracts:smoke` refuse v7 : valider cette version par son parcours runner complet, sans exporter sa clé. La procédure détaillée est dans [docs/DEMO.md](docs/DEMO.md).
 
 ## Branches et connexion
 
@@ -83,11 +95,19 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Architecture EVM](docs/ARCHITECTURE.md)
 - [Décisions techniques](docs/DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Plan produit et passage au mainnet](docs/MAINNET-PLAN.md)
+- [Coûts totaux, business plan et rentabilité](docs/BUSINESS-PLAN.md)
+- [Audit approfondi du 23 septembre — suivi des correctifs](docs/AUDIT-2026-09-23.md)
+- [Reprise des résultats, transactions et registres](docs/RECOVERY-OPERATIONS.md)
+- [Préparation de l'exploitation, sauvegardes et coûts](docs/OPERATIONS-PREPARATION.md)
+- [Exercice de restauration et récupération des modèles historiques](docs/BACKUP-RECOVERY.md)
+- [Intégration du parcours de facturation](docs/BILLING-INTEGRATION.md)
+- [Politique de facturation et protection du PnL](docs/COMPUTE-BILLING.md)
+- [Escrow v7](docs/ESCROW-V7.md) et [budgets persistants du runner](docs/RUNNER-BUDGETS.md)
 - [Démo et déploiement testnet](docs/DEMO.md)
 - [Branches, origines et authentification](docs/DEPLOYMENT.md)
 - [Runner Phala](docs/PHALA.md)
 - [Audit des correctifs et limites de validation](docs/AUDIT-CORRECTIFS.md)
 - [Audit staging du 12 septembre et suivi](docs/AUDIT-STAGING-2026-09-12.md)
-- [Correctifs F1–F4 et migration Escrow v6](docs/ESCROW-V6.md)
-
+- [Correctifs F1–F4 et migration Escrow v6 — référence historique](docs/ESCROW-V6.md)
 - [Correctifs de l’audit du 13 septembre et validation](docs/AUDIT-CORRECTIFS-2026-09-13.md)

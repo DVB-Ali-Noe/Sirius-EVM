@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useWalletStore } from "@/stores/wallet";
-import { disconnectWallet } from "@/lib/wallet/manager";
-import { markWalletDisconnected } from "@/lib/wallet/intent";
-import { embeddedConfigured, selectWallet, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
-import { signInWithWallet, signOut } from "@/lib/auth/client";
+import { chooseExternalWallet, embeddedConfigured, waitForWallets, type WalletInfo } from "@/lib/wallet/discovery";
+import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { openEmbeddedWallet, openWalletModal } from "./WalletConnector";
+import { logoutCurrentWallet } from "./logout";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { TermsNotice } from "./TermsNotice";
 
 function truncate(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -18,7 +18,20 @@ function truncate(address: string): string {
 const EXPECTED_NETWORK = resolveClientNetwork();
 
 /** dropUp : ouvre le menu vers le haut (footer de sidebar, sinon clippé en bas de viewport). */
-export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
+/** `menuAlign` : bord du bouton sur lequel le menu s'aligne (gauche quand le bouton est en début de ligne). */
+/** `compact` : déclencheur rond en icône seule (rail replié de la barre latérale), même nom accessible. */
+/** `onActivity` : vrai tant que le menu est ouvert ou qu'une connexion ou une signature est en cours. */
+export function ConnectButton({
+  dropUp = false,
+  menuAlign = "right",
+  compact = false,
+  onActivity,
+}: {
+  dropUp?: boolean;
+  menuAlign?: "left" | "right";
+  compact?: boolean;
+  onActivity?: (active: boolean) => void;
+}) {
   const connected = useWalletStore((s) => s.connected);
   const address = useWalletStore((s) => s.address);
   const network = useWalletStore((s) => s.network);
@@ -36,7 +49,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   // En sidebar (dropUp) le conteneur est étroit : bouton pleine largeur centré + menu
   // calé sur la largeur du footer (sinon w-64/w-72 déborde de la colonne).
   const triggerFull = dropUp ? "w-full justify-center" : "";
-  const menuWidth = dropUp ? "inset-x-0" : "right-0";
+  const menuWidth = dropUp ? "inset-x-0" : menuAlign === "left" ? "left-0" : "right-0";
 
   useEffect(() => {
     if (!open) return;
@@ -46,6 +59,13 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  const active = open || connectPending || authPending;
+  useEffect(() => {
+    if (!onActivity) return;
+    onActivity(active);
+    return () => onActivity(false);
+  }, [active, onActivity]);
 
   const handleSignIn = async () => {
     setAuthPending(true);
@@ -98,23 +118,16 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
   const handleExternal = (rdns?: string) => {
     // Le choix est enregistré avant d'ouvrir la connexion : c'est lui qui décide
     // quel portefeuille recevra la demande, au lieu de laisser `window.ethereum`
-    // désigner le gagnant de la course d'injection.
-    if (rdns) selectWallet(rdns);
+    // désigner le gagnant de la course d'injection. Sans extension désignée, l'ancien
+    // choix est effacé : il bloquerait le repli sur `window.ethereum`.
+    chooseExternalWallet(rdns);
     setOpen(false);
     openWalletModal();
   };
 
   const handleDisconnect = async () => {
     setOpen(false);
-    try {
-      // Posée avant toute chose : si la révocation ou la déconnexion de session
-      // échoue, le geste de l'utilisateur doit tout de même être respecté.
-      markWalletDisconnected();
-      await signOut();
-      await disconnectWallet();
-    } finally {
-      useWalletStore.getState().setDisconnected();
-    }
+    await logoutCurrentWallet();
   };
 
   const handleCopyAddress = async () => {
@@ -131,9 +144,23 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
           onClick={toggleMenu}
           aria-haspopup="menu"
           aria-expanded={open}
-          className={`${dropUp ? "rounded-[2rem]" : "rounded-xl"} bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 ${triggerFull}`}
+          aria-label={compact ? t("Connexion") : undefined}
+          title={compact ? t("Connexion") : undefined}
+          className={
+            compact
+              ? "flex h-10 w-10 items-center justify-center rounded-full bg-accent text-background transition-colors hover:bg-accent/90"
+              : `${dropUp ? "rounded-[2rem]" : "rounded-xl"} bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 ${triggerFull}`
+          }
         >
-          {t("Connexion")}
+          {compact ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <path d="M10 17l5-5-5-5" />
+              <path d="M15 12H3" />
+            </svg>
+          ) : (
+            t("Connexion")
+          )}
         </button>
 
         {open && (
@@ -186,6 +213,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                   <span className="mt-0.5 block text-xs text-muted">Phantom, MetaMask, Rabby, Coinbase Wallet…</span>
                 </button>
               )}
+              <TermsNotice className="border-t border-border px-4 py-3" />
             </div>
           </>
         )}
@@ -199,10 +227,16 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex items-center gap-2 ${dropUp ? "rounded-[2rem]" : "rounded-xl"} border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 ${triggerFull}`}
+        aria-label={compact ? truncate(address) : undefined}
+        title={compact ? address : undefined}
+        className={
+          compact
+            ? "flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface transition-colors hover:border-white/20"
+            : `flex items-center gap-2 ${dropUp ? "rounded-[2rem]" : "rounded-xl"} border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-white/20 ${triggerFull}`
+        }
       >
-        <span className={`h-2 w-2 rounded-full ${wrongNetwork ? "bg-negative" : "bg-positive"}`} />
-        <span className="font-mono">{truncate(address)}</span>
+        <span className={`rounded-full ${compact ? "h-2.5 w-2.5" : "h-2 w-2"} ${wrongNetwork ? "bg-negative" : "bg-positive"}`} />
+        {!compact && <span className="font-mono">{truncate(address)}</span>}
       </button>
 
       {open && (
@@ -271,6 +305,7 @@ export function ConnectButton({ dropUp = false }: { dropUp?: boolean }) {
                 </span>
               </button>
             )}
+            {!authenticated && <TermsNotice className="border-b border-border px-4 py-3" />}
             {authError && <p role="alert" className="px-4 py-3 text-xs text-negative">{t(authError)}</p>}
             <button
               onClick={handleDisconnect}

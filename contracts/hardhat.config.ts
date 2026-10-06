@@ -34,6 +34,7 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
+      chainId: process.env.SIRIUS_LOCAL_BILLING_TEST === "true" ? 46630 : 31337,
       // Le réseau local doit refléter la cible, sinon un test peut passer ici et
       // échouer sur la chaîne réelle. Hardhat nomme « merge » le hardfork que solc
       // appelle « paris » — c'est le même, seule la nomenclature diffère.

@@ -1,22 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { beginDatasetIngestion } from "@/lib/sirius/pipeline";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { readSession } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
-import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
-import { publicDatasetMetrics } from "@/lib/sirius/metrics";
-import { modelSelectionForId } from "@/lib/models/registry";
+import { datasetResponse } from "@/lib/sirius/dataset-response";
+import { parseCreateDatasetRequest } from "@/lib/datasets/create-request";
+import { createDatasetDraft } from "@/lib/datasets/draft";
 
 export const runtime = "nodejs";
 
-const MAX_NAME_LENGTH = 120;
-const MAX_DESCRIPTION_LENGTH = 2_000;
-const MIN_CHALLENGE_DAYS = 1;
-const MAX_CHALLENGE_DAYS = 30;
 const PAGE_SIZE = 24;
 const CURSOR_RE = /^[A-Za-z0-9_-]{10,64}$/;
 
@@ -25,15 +19,6 @@ function pagedResponse<T>(items: T[], nextCursor: string | null) {
   response.headers.set("cache-control", "no-store");
   if (nextCursor) response.headers.set("x-sirius-next-cursor", nextCursor);
   return response;
-}
-
-function withoutWrappedKey<T extends { wrappedKey: unknown; metrics: unknown }>(dataset: T) {
-  const publicDataset = { ...dataset };
-  Reflect.deleteProperty(publicDataset, "wrappedKey");
-  return {
-    ...publicDataset,
-    metrics: publicDatasetMetrics(dataset.metrics),
-  } as Omit<T, "wrappedKey">;
 }
 
 export async function GET(req: Request) {
@@ -87,68 +72,26 @@ async function listerDatasets(req: Request) {
   if (status === "LISTED" || !session) {
     const reputations = await reputationsForAddresses(page.map((dataset) => dataset.provider), "provider");
     return pagedResponse(page.map((dataset) => ({
-      ...withoutWrappedKey(dataset),
+      ...datasetResponse(dataset),
       providerReputation: reputations.get(dataset.provider),
     })), nextCursor);
   }
-  return pagedResponse(page, nextCursor);
+  return pagedResponse(page.map(datasetResponse), nextCursor);
 }
 
+/**
+ * Création du brouillon (07-upload.md). Les validations sont toutes refaites côté serveur
+ * dans `parseCreateDatasetRequest` : catégorie de la liste fixe, durée de publication parmi
+ * 7 / 30 / 90 jours, consentement strictement booléen, prix borné, profil connu. Le délai
+ * de sécurité de l'escrow n'est pas une entrée : il vaut `ESCROW_CHALLENGE_DAYS` quoi que
+ * contienne le corps.
+ */
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    const body = await readJson<{
-      name?: unknown;
-      description?: unknown;
-      sizeBytes?: unknown;
-      priceUsdc?: unknown;
-      challengeDays?: unknown;
-      modelId?: unknown;
-    }>(req);
-    if (typeof body.name !== "string" || body.name.trim() === "" || body.name.trim().length > MAX_NAME_LENGTH) {
-      return NextResponse.json({ error: "Nom manquant" }, { status: 400 });
-    }
-    if (
-      body.description !== undefined &&
-      (typeof body.description !== "string" || body.description.length > MAX_DESCRIPTION_LENGTH)
-    ) {
-      return NextResponse.json({ error: "Description invalide" }, { status: 400 });
-    }
-    if (
-      typeof body.sizeBytes !== "number" ||
-      !Number.isSafeInteger(body.sizeBytes) ||
-      body.sizeBytes <= 0 ||
-      body.sizeBytes > MAX_DATASET_BYTES
-    ) {
-      return NextResponse.json({ error: "Fichier vide ou trop volumineux (max 3 Mo)" }, { status: 413 });
-    }
-    const priceUsdcAtomic = priceUsdcToAtomic(body.priceUsdc);
-    if (!priceUsdcAtomic) {
-      return NextResponse.json({ error: "Prix invalide (0.001 à 1 000 000 USDC)" }, { status: 400 });
-    }
-    const challengeDays = Number(body.challengeDays);
-    if (
-      !Number.isSafeInteger(challengeDays) ||
-      challengeDays < MIN_CHALLENGE_DAYS ||
-      challengeDays > MAX_CHALLENGE_DAYS
-    ) {
-      return NextResponse.json({ error: "Délai invalide (1 à 30 jours)" }, { status: 400 });
-    }
-    const model = modelSelectionForId(body.modelId);
-    if (!model) {
-      return NextResponse.json({ error: "Profil d’entraînement obligatoire" }, { status: 400 });
-    }
-
-    const upload = await beginDatasetIngestion({
-      name: body.name.trim(),
-      description: body.description?.trim() || undefined,
-      provider: session.address,
-      sizeBytes: body.sizeBytes,
-      priceUsdcAtomic,
-      challengeDays,
-      model,
-    });
-
+    const parsed = parseCreateDatasetRequest(await readJson(req));
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    const upload = await createDatasetDraft(parsed.value, session.address);
     return NextResponse.json(upload, { status: 201 });
   } catch (err) {
     return errorResponse(err);

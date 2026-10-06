@@ -17,12 +17,13 @@ model Dataset {
   description    String?
   provider       String // adresse EVM du provider, normalisée en minuscules
   evmDatasetId    String?       @unique // identifiant bytes32 du titre EVM
+  evmChainId      Int? // chaîne du titre EVM, posée à la publication ; refus d’une base d’une autre chaîne
   evmMintTxHash   String? // hash de mint confirmé
   evmMintBlock    String? // bloc de mint, borne les recherches d'événements
   evmDestroyTxHash String? // hash de tombstone confirmé
   deletionReconciledAt DateTime? // fin de suppression applicative ; distincte d'une preuve de transaction EVM
   ipfsCid        String? // CID du blob chiffré (AES-256-GCM) sur Pinata
-  wrappedKey     String? // DEK du dataset, chiffrée sous KEK master (destructible = crypto-shredding). Null tant que DRAFT ou après shredding.
+  wrappedKey     String? // DEK enveloppée ; sa suppression active ne purge pas les sauvegardes.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
   priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
@@ -31,17 +32,62 @@ model Dataset {
   modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
   runnerReceipt  String? // reçu signé par l'enclave : lie owner + CID + Merkle + wrappedKey
+  runnerKind     RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
   status         DatasetStatus @default(DRAFT)
-  keyDestroyedAt DateTime? // horodatage du crypto-shredding (DEK détruite, data irrécupérable)
+  listedAt       DateTime? // dernière mise au catalogue (statut LISTED), affichée sur la marketplace
+  keyDestroyedAt DateTime? // suppression de la copie active de DEK enveloppée
+  // Catalogue (passage au mainnet). La pause d'un dataset n'a pas de colonne dédiée :
+  // elle fait passer `status` de LISTED à UNLISTED, et la reprise l'inverse.
+  category         String? // catégorie de la liste fixe de l'upload, filtre de la marketplace
+  listingExpiresAt DateTime? // fin de la durée de publication ; absent = publié avant ce champ
+  // Consentement facultatif à l'amélioration des modèles, daté et versionné ; la révocation
+  // garde la trace du consentement initial au lieu de l'effacer.
+  trainingConsentAt        DateTime?
+  trainingConsentVersion   String?
+  trainingConsentRevokedAt DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   loans        Loan[]
   keyGrants    KeyGrant[]
   trainingJobs TrainingJob[]
+  accessLogs   DatasetAccessLog[]
 
   @@index([provider])
   @@index([status])
+}
+
+/// Journal des accès à un dataset, déclaré dans les conditions d'utilisation : qui a reçu
+/// quel modèle, pour quel prêt. Écrit à la livraison du modèle, lu par l'admin seulement.
+model DatasetAccessLog {
+  id               String   @id @default(cuid())
+  datasetId        String
+  dataset          Dataset  @relation(fields: [datasetId], references: [id])
+  loanId           String? // identifiant du prêt, sans clé étrangère : le journal survit à tout nettoyage
+  address          String // wallet destinataire, en minuscules
+  modelCid         String? // CID du modèle livré
+  modelFingerprint String? // empreinte du modèle livré, pour relier un modèle qui circulerait
+  createdAt        DateTime @default(now())
+
+  @@index([datasetId])
+  @@index([address])
+}
+
+/// Profil d'un wallet : tutos, réglages, cache d'affichage du KYB et blocage côté site.
+/// Créé à la première connexion réussie ; un wallet ne lit et ne modifie que le sien.
+model UserProfile {
+  address         String    @id // adresse EVM en minuscules, jamais en forme EIP-55
+  tourCompletedAt DateTime? // tuto de première connexion terminé
+  featureTours    Json      @default("{}") // tutos par page déjà vus : { dashboard: true, … }
+  settings        Json      @default("{}") // réglages : { language: "en", sidebarCollapsed: false }
+  kybStatus       String? // cache d'affichage ; la source de vérité reste le contrat
+  kybCheckedAt    DateTime?
+  blockedAt       DateTime? // blocage côté site, posé par l'admin uniquement
+  blockedReason   String?
+  blockedBy       String?
+  createdAt       DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
 }
 
 /// Self-train (MLaaS) : entraînement sur SON PROPRE dataset, sans escrow ni
@@ -57,6 +103,10 @@ model TrainingJob {
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
+  deliveryPublicKey String?
+  deliveryEnvelope Json?
+  runnerKind    RunnerKind @default(UNKNOWN)
+  runnerDeploymentId String?
 
   status      TrainingStatus @default(PENDING)
   createdAt   DateTime       @default(now())
@@ -76,6 +126,13 @@ model Loan {
   borrower  String // adresse EVM de l'emprunteur
   provider  String // adresse EVM du provider (dénormalisé pour les requêtes)
   amountUsdcAtomic String // montant USDC en unités atomiques
+  billingQuote String? // devis signé v7 complet, immuable après préparation
+  billingQuoteHash String?
+  datasetAmountUsdcAtomic String?
+  computeAmountUsdcAtomic String?
+  maxFailureFeeUsdcAtomic String?
+  retainedFeeUsdcAtomic String?
+  refundAmountUsdcAtomic String?
   modelId   String @default("linear_regression")
   modelVersion String @default("1.0.0")
 
@@ -98,6 +155,8 @@ model Loan {
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
   runnerReceipt          String? // reçu enclave : lie borrower + modèle + escrow validé
+  runnerKind             RunnerKind @default(UNKNOWN)
+  runnerDeploymentId     String?
   settleTxHash           String? // release USDC
   auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
@@ -171,6 +230,16 @@ model MutationGrant {
   @@index([expiresAt])
 }
 
+/// Tentatives de code opérateur, inscrites avant vérification : le plafond d'essais tient
+/// entre toutes les instances serverless. Seuls les échecs restent dans la fenêtre.
+model OperatorCodeAttempt {
+  id        String   @id @default(cuid())
+  address   String
+  createdAt DateTime @default(now())
+
+  @@index([address, createdAt])
+}
+
 /// Réputation dérivée des events on-chain (calcul léger au MVP).
 model Reputation {
   id             String          @id @default(cuid())
@@ -191,7 +260,13 @@ enum DatasetStatus {
   UNLISTED // « Semi-privé » : hors catalogue, empruntable par lien direct
   PRIVATE // « Privé » : provider seul (self-train), invisible et non-empruntable par des tiers
   SUSPENDED
-  DELETED // crypto-shreddé : clé détruite, data irrécupérable ; ligne gardée pour l'audit
+  DELETED // clé active supprimée ; ligne gardée pour l'audit
+}
+
+enum RunnerKind {
+  UNKNOWN
+  DEVELOPMENT
+  PHALA
 }
 
 enum LoanStatus {

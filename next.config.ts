@@ -20,6 +20,12 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: "24mb",
   },
+  // La page « Audit » est devenue « Explorer » : l'ancienne adresse renvoie en 308 vers la nouvelle,
+  // pour ne casser ni favori ni lien déjà publié. Source et destination sont des chemins fixes :
+  // aucun paramètre n'est recopié dans la cible, donc aucune redirection ouverte.
+  async redirects() {
+    return [{ source: "/audit", destination: "/explorer", permanent: true }];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

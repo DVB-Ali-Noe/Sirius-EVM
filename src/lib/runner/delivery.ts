@@ -1,5 +1,5 @@
 import "server-only";
-import { createCipheriv, createECDH, createHash, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createECDH, createHash, ECDH, hkdfSync, randomBytes } from "node:crypto";
 import { AppError } from "@/lib/app-error";
 import type {
   RunnerDeliveryEnvelope,
@@ -28,6 +28,11 @@ function decodePublicKey(value: string): Buffer {
   const key = Buffer.from(value, "base64url");
   if (key.length !== 65) throw new AppError("Clé de livraison invalide", 400);
   return key;
+}
+
+export function validateDeliveryPublicKey(value: string): void {
+  try { ECDH.convertKey(decodePublicKey(value), "prime256v1", undefined, undefined, "uncompressed"); }
+  catch { throw new AppError("Clé de livraison invalide", 400); }
 }
 
 export function encryptRunnerDelivery(
@@ -115,4 +120,10 @@ export function encryptRunnerRelease(
 
 export function hashRunnerReleaseEnvelope(envelope: RunnerReleaseEnvelope): string {
   return createHash("sha256").update(serializeRunnerReleaseEnvelope(envelope)).digest("hex");
+}
+
+export function deferredLoanDeliveryCommitment(loanKey: string, modelCid: string, clientPublicKey: string): string {
+  decodePublicKey(clientPublicKey);
+  if (!/^0x[0-9a-f]{64}$/.test(loanKey) || !modelCid) throw new AppError("Accusé de capsule invalide", 400);
+  return createHash("sha256").update(JSON.stringify(["sirius-v7-deferred-delivery", loanKey, modelCid, clientPublicKey])).digest("hex");
 }

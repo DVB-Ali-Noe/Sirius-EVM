@@ -22,6 +22,12 @@ import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
 import { trustedEscrowBinding } from "@/lib/evm/history";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
+import { budgetRunnerJob } from "@/lib/runner/budget";
+import { countsAsRunnerFailure } from "@/lib/runner/failure-policy";
+import { INVALID_DATASET_MESSAGE, trainInWorker } from "./bounded-training";
+import type { ComputeQuote } from "@/lib/billing/quote";
+import { quoteWorkflow, requireBillingBudget } from "@/lib/billing/runner";
+import { MAX_DATASET_BYTES } from "./contract";
 import type {
   DatasetIngressEnvelope,
   DatasetRef,
@@ -34,7 +40,7 @@ import type {
 import type { ModelSelection } from "@/lib/models/registry";
 
 /**
- * Cœur confidentiel, SANS aucune dépendance DB : seul module qui touche la master key enclave,
+ * Cœur confidentiel, sans accès à la base applicative : seul module qui touche la master key enclave,
  * le plaintext des datasets, les DEK et le fulfillment. Prend des inputs explicites → sera
  * exposé tel quel par le service runner isolé (inc.3d-B). Le Next l'appelle (in-process au
  * MVP, via HTTP en CVM) mais ne voit jamais ces secrets.
@@ -136,8 +142,8 @@ export async function sealDatasetEnvelope(
 }
 
 /** Déchiffre un dataset « en enclave » + vérifie l'intégrité Merkle. Le plaintext ne sort jamais. */
-async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef): Promise<Buffer> {
-  const blob = await fetchFromIpfs(cid);
+async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef, signal?: AbortSignal): Promise<Buffer> {
+  const blob = await fetchFromIpfs(cid, signal);
   const payload = JSON.parse(blob.toString()) as EncryptedPayload;
   const plaintext = decrypt(payload, unwrapKey(wrappedKey, datasetKeyContext(datasetId)));
   if (!verifyRoot(plaintext, merkleRoot, DEFAULT_CHUNK_SIZE)) {
@@ -146,20 +152,33 @@ async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: Datase
   return plaintext;
 }
 
+/** Même classement que le worker : une exception du calcul pur vient des données. */
+function trainOnData(input: TrainingInput, plaintext: Buffer) {
+  try {
+    return trainSelectedModel(input, plaintext);
+  } catch {
+    throw new AppError(INVALID_DATASET_MESSAGE, 422);
+  }
+}
+
 /** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
-async function trainAndSeal(input: TrainingInput) {
-  const plaintext = await decryptDataset(input);
-  const model = trainSelectedModel(input, plaintext);
+async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatasetBytes = MAX_DATASET_BYTES) {
+  const plaintext = await decryptDataset(input, signal);
+  if (plaintext.length > maxDatasetBytes) throw new AppError("Taille du dataset invalide", 413);
+  const model = signal ? await trainInWorker(input, plaintext, signal) : trainOnData(input, plaintext);
   const { model: gated, buffer } = gateModel(model);
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
-  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename);
+  signal?.throwIfAborted();
+  const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename, signal);
   return { modelCid: cid, model: gated };
 }
 
 /** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */
 export async function runTraining(input: TrainingInput): Promise<{ modelCid: string; metrics: Record<string, number> }> {
-  const { modelCid, model } = await trainAndSeal(input);
-  return { modelCid, metrics: model.metrics };
+  return budgetRunnerJob("training", input.keyContext, input, async () => {
+    const { modelCid, model } = await trainAndSeal(input);
+    return { modelCid, metrics: model.metrics };
+  });
 }
 
 /** Self-train : les contextes de livraison sont reconstruits dans le runner. */
@@ -218,10 +237,35 @@ export async function runEvmLoanJob(input: LoanJobInput): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
 }> {
-  const { modelCid, model } = await trainAndSeal({
+  return runTraining({
     ...input,
     keyContext: evmModelKeyContext(input.loanId, input.borrower),
     filename: `${input.loanId}.model.enc`,
   });
-  return { modelCid, metrics: model.metrics };
+}
+
+export async function runBilledEvmLoanJob(input: LoanJobInput, quote: ComputeQuote): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+  const ledger = requireBillingBudget();
+  const scope = quoteWorkflow(quote);
+  const training = { ...input, keyContext: evmModelKeyContext(input.loanId, input.borrower), filename: `${input.loanId}.model.enc` };
+  return budgetRunnerJob("training", training.keyContext, training, async () => {
+    const startedAt = Date.now();
+    const started = performance.now();
+    let result: { modelCid: string; metrics: Record<string, number> } | undefined;
+    let failure: unknown;
+    try {
+      const { modelCid, model } = await trainAndSeal(training, AbortSignal.timeout(quote.maxExecutionMs), quote.maxDatasetBytes);
+      result = { modelCid, metrics: model.metrics };
+      return result;
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      // Une mesure absente après crash ne devient jamais la consommation maximale du devis.
+      const elapsedMs = Math.min(quote.maxExecutionMs, Math.max(0, Math.floor(performance.now() - started)));
+      ledger.recordExecutionEvidence(scope,
+        JSON.stringify({ version: 1, quoteHash: scope.fingerprint, startedAt, elapsedMs, success: Boolean(result) }),
+        result ? JSON.stringify(result) : undefined, result ? true : countsAsRunnerFailure(failure));
+    }
+  });
 }

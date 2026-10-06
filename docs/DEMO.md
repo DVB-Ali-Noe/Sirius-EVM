@@ -1,12 +1,16 @@
 # Démo EVM locale et testnet
 
+**État au 23 septembre 2026 :** le [parcours v7](BILLING-INTEGRATION.md) est intégré localement et son test EVM isolé passe. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) décrit les correctifs et les limites encore bloquantes. Phala est arrêté. Les commandes de déploiement et de démarrage ci-dessous sont des procédures pour une future opération validée, pas des actions effectuées pendant ces correctifs.
+
+Pour reproduire uniquement le parcours de facturation local, `pnpm test:billing` compile les contrats et démarre son nœud Hardhat isolé avec token synthétique, worker réel et IPFS simulé. Il ne requiert ni portefeuille public financé, ni Pinata réel, ni Phala. Les valeurs de prix et de budget de ses fixtures ne sont pas des tarifs commerciaux.
+
 ## Préparation
 
 Copier l'environnement puis renseigner au minimum :
 
 - `EVM_NETWORK="testnet"` ;
 - `ROBINHOOD_DEPLOYER_KEY` avec un compte testnet financé ;
-- `ROBINHOOD_TESTNET_RPC` si le RPC public ne convient pas ;
+- `EVM_RPC_URL` pour les scripts applicatifs et de déploiement si le RPC public ne convient pas ; `ROBINHOOD_TESTNET_RPC` configure séparément le réseau Hardhat ;
 - `SIRIUS_USDC_ADDRESS`, `NEXT_PUBLIC_SIRIUS_USDC_ADDRESS` et `SIRIUS_USDC_CODE_HASH`, issus du token utilisé pour la démo ; `contracts:bootstrap-demo` peut créer un token synthétique, qui n'est pas de l'USDC officiel ;
 - `SIRIUS_KYB_ADMIN`, `SIRIUS_KYB_VERIFIER`, `SIRIUS_SMOKE_PROVIDER_ADDRESS`, `SIRIUS_SMOKE_DATASET_ID` et `SIRIUS_SMOKE_MODEL_ID` ;
 - `SIRIUS_MASTER_KEY`, `SIRIUS_SESSION_SECRET` et `RUNNER_TRANSPORT_SECRET` ;
@@ -30,21 +34,24 @@ Ne jamais utiliser de clé mainnet pour une démo.
 pnpm install --frozen-lockfile
 pnpm contracts:compile
 pnpm contracts:test
+pnpm test:billing
 pnpm contracts:abi
 pnpm datasets:generate
 ```
 
-Ces commandes valident les contrats et régénèrent les ABI TypeScript. Elles ne déploient rien.
+Ces commandes valident les contrats et régénèrent les ABI TypeScript. `test:billing` déploie uniquement des contrats éphémères sur son nœud Hardhat local ; aucun déploiement public n'est effectué.
 
-Pour Escrow v6 et les correctifs F1–F4, suivre d’abord [la procédure de migration dédiée](ESCROW-V6.md). Les étapes historiques v5 ci-dessous ne remplacent pas son préflight.
+La [procédure v6](ESCROW-V6.md) conserve les correctifs F1–F4 et la migration historique. La prochaine bascule suit [v7](BILLING-INTEGRATION.md), après correction des bloqueurs, validation des tarifs et préparation des budgets. Ne pas déployer un v6 intermédiaire pour le seul changement de runner ; les étapes historiques ci-dessous ne valent pas validation de v7.
 
 ## Déploiement testnet
+
+Avant la future bascule v7 : contrats et trésorerie choisis, politiques validées, registre persistant, historiques préservés, préflights et migrations prêts. Le mode par défaut du code reste v6 ; l'activation v7 exige `SIRIUS_BILLING_VERSION=7` de manière cohérente sur les composants concernés. Suivre [DEPLOYMENT.md](DEPLOYMENT.md) et [PHALA.md](PHALA.md).
 
 ```bash
 pnpm contracts:deploy:testnet
 ```
 
-Le constructeur v6 exige `SIRIUS_LOCK_AUTHORIZER`, l’adresse publique du compte de règlement du runner. Le script affiche les adresses de `SiriusEscrow`, `SiriusKybRegistry` et `SiriusDatasetRegistry`. Reporter ces valeurs dans `.env.local` :
+Les versions v6 et v7 exigent `SIRIUS_LOCK_AUTHORIZER`, l’adresse publique du compte de règlement du runner. Le script choisit la version d'escrow selon la configuration de facturation et affiche les adresses du déploiement. Reporter ces valeurs dans l'environnement ciblé :
 
 ```dotenv
 NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS="0x..."
@@ -82,15 +89,17 @@ pnpm exec prisma migrate deploy
 
 La migration additive `20260905010000_track_loan_deployment` conserve le réseau, l'escrow et le bloc de préparation des nouveaux prêts. Elle ne supprime aucun dataset et ne requiert pas de clôturer les prêts actifs. Le blocage des prêts et la suspension des datasets concernent l'ancienne migration `20260905000000_add_dataset_training_profile`, si celle-ci n'a pas encore été appliquée. Ne pas réécrire les migrations déjà appliquées. Le préflight refuse les schémas autres que `public` et les locks connus sans reçu miné.
 
+Les migrations supplémentaires `20260919000000_track_runner_provenance` et `20260923000000_add_compute_billing` sont nécessaires au code courant. La seconde ajoute les champs du devis au prêt ; elle ne migre aucun escrow actif vers v7. Elles n'ont pas été appliquées à distance pendant cette passe.
+
 Configurer `SIRIUS_LEGACY_ESCROW_ADDRESSES` (anciens escrows, même réseau, séparés par des virgules) dans **Next/Vercel, le worker VPS et le runner Phala**. Garder la master key du runner : changer de contrat n'implique pas de changer les clés de chiffrement. Les reçus v2 historiques ne sont acceptés que pour livrer un modèle déjà réglé, jamais pour autoriser un nouveau règlement.
 
 Le reaper récupère les locks dont le hash n'a pas été enregistré, y compris ceux annulés seulement en base. Pour les prêts anciens, la recherche commence au bloc de mint du dataset. Si ce bloc manque aussi, fournir le hash de la transaction `lock` via « Récupérer le lock » ; ne pas inventer une confirmation locale. Les prêts expirés se remboursent depuis le wallet du borrower ; le crédit USDC reste à retirer avec le mécanisme de retrait du contrat.
 
-Le VPS doit également définir `SIRIUS_DATASET_ADDRESS`. Redéployer le worker et le runner avec leurs configurations mises à jour, pas seulement le frontend. Ces correctifs applicatifs n'exigent pas un nouveau déploiement des contrats v5/v4 déjà compatibles.
+Le VPS doit également définir `SIRIUS_DATASET_ADDRESS`. Lors d'une future bascule, mettre à jour worker et runner avec leurs configurations, pas seulement le frontend. La compatibilité des contrats v5/v4 concerne la reprise historique et les correctifs applicatifs du 5 septembre ; les nouveaux prêts du code courant exigent v6 ou v7 selon le mode choisi. Elle ne dispense pas des nouveaux contrats requis pour Phala et la facturation.
 
 ## Mise à jour des correctifs sur staging
 
-La checklist qui suit concerne les correctifs applicatifs du **5 septembre**. Pour les corrections F1–F4 du 13 septembre, le nouveau contrat v6 et son registre associé sont nécessaires : voir [ESCROW-V6.md](ESCROW-V6.md).
+La checklist qui suit concerne uniquement les correctifs applicatifs du **5 septembre**. Les corrections F1–F4 du 13 septembre ont ensuite introduit v6 : voir [ESCROW-V6.md](ESCROW-V6.md). Ces instructions historiques ne constituent pas la procédure d'activation du parcours v7 audité le 23 septembre.
 
 Cette mise à jour ne change aucun contrat Solidity. Conserver Escrow v5, DatasetRegistry v4, KYB et le token existants ; ne pas relancer `contracts:deploy:testnet` ni `contracts:bootstrap-demo` pour ces correctifs.
 
@@ -111,9 +120,11 @@ Repères issus du déploiement staging communiqué le 5 septembre 2026, à compa
 
 Pour ces deux escrows uniquement : la liste historique contient l'ancien ; la liste de migration contient l'ancien **et** le courant, séparés par une virgule. Ajouter tout autre déploiement réellement utilisé par cette base.
 
-Ne jamais copier la clé privée du déployeur vers le frontend. Le mot de passe PostgreSQL précédemment partagé hors du gestionnaire de secrets doit être remplacé dans Neon puis mis à jour dans Vercel, GitHub et le worker. Ne pas changer la master key du runner pour effectuer cette rotation de mot de passe.
+Ne jamais copier la clé privée du déployeur vers le frontend. Les identifiants PostgreSQL sont conservés à la demande de Noé ; l'ancienne note évoquant un partage hors du gestionnaire de secrets n'a pas été étayée. Préserver aussi les clés historiques du runner. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) décrit la sauvegarde et les contrôles réalisés sans rotation ni activation distante.
 
 ## Smoke on-chain
+
+Cette commande conserve son périmètre historique v6 et refuse v7 avant toute écriture. Pour v7, le test local est `pnpm test:billing` ; la validation publique future devra exercer le vrai runner et ses devis, sans exporter sa clé. Ne pas employer le smoke historique comme preuve de validation v7.
 
 ```bash
 pnpm contracts:smoke
@@ -129,10 +140,12 @@ L'upload est limité à **3 Mio de CSV**, afin que l'enveloppe chiffrée encodé
 
 ```bash
 pnpm test
+pnpm test:billing
+pnpm test:operations
 pnpm lint
 pnpm build
 docker compose --env-file .env.local up --detach --wait --build
 pnpm runner:smoke
 ```
 
-La validation complète reste conditionnée à un déploiement testnet, deux wallets KYB et un runner Phala attesté.
+Validations du 23 septembre : dernière passe réussie avec 304 tests applicatifs, 13 tests des outils d'exploitation, lint et typage applicatif. Le build a été validé lors de la passe précédente. Les passes précédentes couvrent aussi 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM v7 et PostgreSQL 17 entre huit processus. La sauvegarde réelle a été restaurée et migrée sur PostgreSQL 18 local. Avant activation, valider les pannes encore ouvertes, le parcours à deux vrais wallets, les remboursements/retraits et RA-TLS sur Phala actif et testnet. Ce guide ne prouve aucune de ces validations distantes.

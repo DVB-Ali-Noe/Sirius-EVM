@@ -56,20 +56,24 @@ async function synchroniserSession(address: string, current: () => boolean): Pro
   }
 }
 
-export function openWalletModal(): void {
+/** Résout après la reprise éventuelle d'une session serveur déjà ouverte pour ce compte. */
+export async function connectWallet(): Promise<void> {
   // Clic explicite sur « Connecter » : on lève l'intention de déconnexion, sinon la
   // synchronisation continuerait de refuser le compte que l'utilisateur vient de
   // rouvrir, et le bouton semblerait ne rien faire.
   clearWalletDisconnected();
   const wallet = getExternalWallet();
-  if (!wallet) return;
-  void connectExternalWallet(wallet).then(({ address, chainId }) => {
-    if (getExternalWallet() !== wallet || walletDisconnectedByUser()) return;
-    const normalized = tryNormalizeAddress(address);
-    if (!normalized) throw new Error("Adresse EVM invalide.");
-    useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
-    void synchroniserSession(normalized, () => getExternalWallet() === wallet && useWalletStore.getState().address === normalized && useWalletStore.getState().network === networkForChain(chainId));
-  }).catch((error) => console.error("Connexion wallet EVM échouée", error));
+  if (!wallet) throw new Error("Aucun wallet détecté");
+  const { address, chainId } = await connectExternalWallet(wallet);
+  if (getExternalWallet() !== wallet || walletDisconnectedByUser()) return;
+  const normalized = tryNormalizeAddress(address);
+  if (!normalized) throw new Error("Adresse EVM invalide.");
+  useWalletStore.getState().setConnected(normalized, networkForChain(chainId), "external");
+  await synchroniserSession(normalized, () => getExternalWallet() === wallet && useWalletStore.getState().address === normalized && useWalletStore.getState().network === networkForChain(chainId));
+}
+
+export function openWalletModal(): void {
+  void connectWallet().catch((error) => console.error("Connexion wallet EVM échouée", error));
 }
 
 /**
