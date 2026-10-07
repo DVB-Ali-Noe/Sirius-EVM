@@ -241,6 +241,14 @@ model OperatorCodeAttempt {
   @@index([address, createdAt])
 }
 
+/// Compteur quotidien des questions posées à l'assistant Sirio (plafond global
+/// SIRIUS_ASSISTANT_DAILY_CAP). Une ligne par jour UTC, jamais de contenu de message.
+model AssistantUsage {
+  day       String   @id // jour UTC, AAAA-MM-JJ
+  count     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
 /// Invitation KYB signée par le vérificateur automatique (accès instantané) : trace de
 /// l'émission et plafonds (1 par wallet et par 24 h, N par IP et par heure, N par heure).
 /// Le code n'est pas un secret : il ne vaut que pour son adresse, une seule fois, et expire.
