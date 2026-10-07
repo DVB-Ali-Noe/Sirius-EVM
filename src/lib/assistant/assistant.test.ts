@@ -23,6 +23,7 @@ import {
 } from "./daily-cap";
 import { SIRIUS_ASSISTANT_RULES, SIRIUS_ASSISTANT_SYSTEM_PROMPT, SIRIUS_KNOWLEDGE_BASE } from "./knowledge";
 import * as signature from "./signature";
+import { assistantSuggestionKeys, assistantSuggestionsFor, assistantCannedAnswer } from "./suggestions";
 import { utcDay, validateAssistantChatRequest, type AssistantTurn } from "./validate";
 import type { AssistantEvent, AssistantStreamOutcome } from "./claude";
 
@@ -250,6 +251,17 @@ test("les messages d'erreur de l'assistant exposés au client ont une traduction
     "Assistant très sollicité — réessaie dans un instant", "Assistant injoignable — réessaie plus tard",
     "Assistant momentanément indisponible — réessaie plus tard", "Assistant indisponible pour le moment",
   ]) assert.ok(Object.hasOwn(EN_MESSAGES, key), key);
+});
+
+test("les questions suggérées suivent la page, ont une traduction, et seules celles qui ont une réponse servent hors ligne", () => {
+  const missing = assistantSuggestionKeys().filter((key) => !Object.hasOwn(EN_MESSAGES, key));
+  assert.deepEqual(missing, []);
+  assert.ok(assistantSuggestionsFor("/marketplace").some((item) => item.question === "Combien de datasets sur la marketplace ?"));
+  assert.deepEqual(assistantSuggestionsFor("/marketplace/abc"), assistantSuggestionsFor("/marketplace"));
+  assert.ok(assistantSuggestionsFor("/wallet").every((item) => item.answer));
+  assert.ok(assistantSuggestionsFor(null).length >= 3);
+  assert.equal(assistantCannedAnswer("/marketplace", "Combien de datasets sur la marketplace ?", (key) => key), null, "donnée en direct : pas de réponse hors ligne");
+  assert.match(assistantCannedAnswer("/train", "Why wait ~15 minutes?", (key) => EN_MESSAGES[key] ?? key) ?? "", /finalité/);
 });
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
