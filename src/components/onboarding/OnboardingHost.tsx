@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { tourController } from "@/components/tour/tour-store";
+import { useGuideStore } from "@/components/guide/guide-store";
 import { shouldPromptVerification } from "@/lib/onboarding/steps";
 import { useWalletStore } from "@/stores/wallet";
 import {
@@ -58,13 +59,17 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
         clearInterval(timer);
         return;
       }
+      // Guide Sirio en cours (pas passé, pas terminé) : c'est lui qui propose la vérification,
+      // avec son explication ; la fenêtre ne s'ouvre pas toute seule par-dessus.
+      const guide = useGuideStore.getState();
+      const guideActive = !guide.hydrated || !(guide.progress.skipped || guide.progress.tourDone);
       const ready = shouldPromptVerification({
         authenticated: true,
         kyb,
         instantAccess: instantAccess || chained,
         shownThisSession: promptShownThisSession(signed),
         overlayOpen: modalOpen() || useOnboardingStore.getState().dialog !== null,
-        tourPending: !tour.started || tour.status === "loading" || tour.active !== null,
+        tourPending: !tour.started || tour.status === "loading" || tour.active !== null || guideActive,
       });
       if (!ready) return;
       clearInterval(timer);

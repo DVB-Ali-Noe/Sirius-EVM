@@ -3,6 +3,10 @@
  * panneau de chat. Fichier séparé, fusionné dans `EN_MESSAGES`.
  */
 export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
+  // Démarrage
+  "SIRIUS_ASSISTANT_ENABLED doit valoir true ou false": "SIRIUS_ASSISTANT_ENABLED must be true or false",
+  "SIRIUS_ASSISTANT_ENABLED=true exige ANTHROPIC_API_KEY": "SIRIUS_ASSISTANT_ENABLED=true requires ANTHROPIC_API_KEY",
+
   // Route
   "Assistant indisponible": "Assistant unavailable",
   "Requête d’assistant invalide": "Invalid assistant request",

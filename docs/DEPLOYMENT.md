@@ -54,6 +54,20 @@ Les plus gros crédits passent d’abord. Chaque envoi est précédé d’une re
 - Les crédits de prêts clos depuis plus de 30 jours, ou sans déploiement enregistré, se retirent à la main.
 - Le coût réel d’un retrait est à mesurer sur Robinhood Chain puis à reporter dans le [business plan](BUSINESS-PLAN.md).
 
+## Assistant Sirio (chat Claude dans la bulle du guide)
+
+Le guide animé de première visite (`src/components/guide/`) se range dans une bulle en bas à droite qui ouvre un chat. Les réponses viennent de Claude (`claude-opus-5-5`, effort « low », réponses courtes) avec un prompt système figé compilé depuis le dépôt (`src/lib/assistant/knowledge.ts`) et mis en cache par l'API. **Désactivé par défaut** : sans le drapeau, la route `POST /api/assistant/chat` répond 404 et la bulle n'affiche que les quatre réponses fixes et le contact.
+
+**Activation, sur Vercel (projet staging puis production) :**
+1. Créer une clé API Anthropic dédiée à l'instance (une par environnement, révocable séparément) et la poser dans `ANTHROPIC_API_KEY`, marquée « Sensitive ». Jamais de préfixe `NEXT_PUBLIC_`.
+2. Poser `SIRIUS_ASSISTANT_ENABLED=true` ; facultativement `SIRIUS_ASSISTANT_DAILY_CAP` (défaut 500 requêtes par jour UTC, toutes conversations confondues).
+3. Appliquer la migration `20261007000000_add_assistant_usage` (table `AssistantUsage`, une ligne par jour, un compteur, aucun contenu).
+4. Redéployer. Au démarrage, `[sirius] SIRIUS_ASSISTANT_ENABLED=true : assistant Sirio ouvert, N requêtes par jour au plus.` ; `true` sans clé refuse de démarrer. Couper : drapeau à `false` puis redéploiement.
+
+**Garde-fous.** Origine contrôlée comme toute mutation ; 10 questions par minute par adresse IP (`SIRIUS_TRUST_PROXY_HEADERS=true`) ou par wallet signé, 6 par minute par conversation, 300 par minute par instance ; 1000 caractères par message, 20 tours d'historique (tenu par le navigateur, revalidé côté serveur) ; plafond quotidien en base. Aucune donnée de compte (adresse, soldes, prêts) n'est envoyée au modèle : seulement le texte des messages et le chemin de la page. Le journal ne contient que des compteurs (tours, jetons, latence, motif d'arrêt), jamais le contenu. Un refus du classifieur est rejoué côté API sur le modèle de repli recommandé, et sinon affiché comme tel.
+
+**Coût.** Le prompt système fait ~4 000 jetons : écrit en cache à la première question d'une fenêtre de cinq minutes (~0,02 $), puis lu à ~0,05× du prix d'entrée. Une conversation de trois questions coûte de l'ordre de 0,02 à 0,04 $ ; le plafond quotidien par défaut borne la dépense à quelques dollars par jour.
+
 ## Une cible par branche
 
 [`scripts/deployment-target.mjs`](../scripts/deployment-target.mjs) est la source de vérité utilisée par [la pipeline](../.github/workflows/pipeline.yml).

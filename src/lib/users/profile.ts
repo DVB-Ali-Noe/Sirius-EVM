@@ -38,11 +38,38 @@ const MAX_FINGERPRINT_CHARS = 128;
 const TOKEN_PATTERN = /^[A-Za-z0-9:_.-]+$/;
 
 export type FeatureTours = Partial<Record<FeatureTourKey, boolean>>;
+
+/**
+ * Progression du guide Sirio (`src/lib/guide/machine.ts`) : étapes narratives et choix de passer,
+ * rien d'autre. Alias de type (pas une interface) : Prisma n'accepte en JSON que des objets à
+ * signature d'index, ce qu'un alias satisfait implicitement.
+ */
+export type GuideProgressSetting = {
+  v: 1;
+  arrivalSeen: boolean;
+  tourIndex: number;
+  tourDone: boolean;
+  skipped: boolean;
+};
+
 export interface ProfileSettings {
   language?: ProfileLanguage;
   sidebarCollapsed?: boolean;
   /** Carte « Get started » du tableau de bord fermée par l'utilisateur ; rouvrable depuis le menu profil. */
   onboardingDismissed?: boolean;
+  guide?: GuideProgressSetting;
+}
+
+/** Arrêts du tour du menu du guide : borne de `tourIndex` (même liste que `GUIDE_TOUR_STOPS`). */
+const GUIDE_TOUR_STOP_COUNT = 6;
+
+/** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné. */
+function readGuideProgress(value: unknown): GuideProgressSetting | null {
+  if (!isPlainObject(value) || value.v !== 1) return null;
+  const { arrivalSeen, tourIndex, tourDone, skipped } = value;
+  if (typeof arrivalSeen !== "boolean" || typeof tourDone !== "boolean" || typeof skipped !== "boolean") return null;
+  if (typeof tourIndex !== "number" || !Number.isInteger(tourIndex) || tourIndex < 0 || tourIndex >= GUIDE_TOUR_STOP_COUNT) return null;
+  return { v: 1, arrivalSeen, tourIndex, tourDone, skipped };
 }
 
 /** Modification acceptée par l'API : tout le reste est refusé. */
@@ -130,6 +157,8 @@ export function sanitizeSettings(value: unknown): ProfileSettings {
   if (Object.hasOwn(value, "onboardingDismissed") && typeof value.onboardingDismissed === "boolean") {
     settings.onboardingDismissed = value.onboardingDismissed;
   }
+  const guide = readGuideProgress(value.guide);
+  if (guide) settings.guide = guide;
   return settings;
 }
 
@@ -164,6 +193,10 @@ function validateSettings(value: unknown): ProfileSettings {
     } else if (key === "onboardingDismissed") {
       if (typeof value.onboardingDismissed !== "boolean") throw new AppError("Réglages de profil invalides", 400);
       settings.onboardingDismissed = value.onboardingDismissed;
+    } else if (key === "guide") {
+      const guide = readGuideProgress(value.guide);
+      if (!guide) throw new AppError("Réglages de profil invalides", 400);
+      settings.guide = guide;
     } else {
       throw new AppError("Réglage de profil inconnu", 400);
     }

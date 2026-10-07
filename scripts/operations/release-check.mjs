@@ -67,6 +67,14 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   if (autoInviteFlag === "true") {
     if (!/^0x[a-fA-F0-9]{64}$/.test(autoInviteKey)) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
   } else if (autoInviteKey) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
+  // Assistant Sirio : la clé Anthropic ne vit que sur Next, et seulement avec le drapeau
+  // (`src/lib/assistant/config.ts`). Drapeau et clé absents = chat fermé, configuration valide.
+  for (const role of ["reaper", "runner"]) if (roles[role].ANTHROPIC_API_KEY) issues.push(`${role}.forbidden-secret-or-simulator`);
+  const assistantFlag = next.SIRIUS_ASSISTANT_ENABLED?.trim() ?? "";
+  const assistantKey = next.ANTHROPIC_API_KEY?.trim() ?? "";
+  if (assistantFlag && assistantFlag !== "true" && assistantFlag !== "false") issues.push("next.SIRIUS_ASSISTANT_ENABLED");
+  if (assistantFlag === "true" && !assistantKey) issues.push("next.ANTHROPIC_API_KEY");
+  else if (assistantFlag !== "true" && assistantKey) issues.push("next.ANTHROPIC_API_KEY.without-flag");
   if (network === "mainnet") {
     for (const role of Object.keys(roles)) {
       if (roles[role].SIRIUS_USDC_ADDRESS?.trim().toLowerCase() !== MAINNET_STABLECOIN) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);

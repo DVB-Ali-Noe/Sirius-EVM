@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
@@ -131,6 +133,33 @@ test("les messages d'erreur de l'assistant exposés au client ont une traduction
     "Assistant indisponible aujourd’hui : plafond quotidien atteint", "Assistant très sollicité — réessaie dans un instant",
     "Assistant injoignable — réessaie plus tard", "Assistant momentanément indisponible — réessaie plus tard", "Assistant indisponible pour le moment",
   ]) assert.ok(Object.hasOwn(EN_MESSAGES, key), key);
+});
+
+const root = fileURLToPath(new URL("../../", import.meta.url));
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return ["generated", "abi"].includes(entry.name) ? [] : sourceFiles(path);
+    return /\.tsx?$/.test(entry.name) && !entry.name.endsWith(".test.ts") ? [path] : [];
+  });
+}
+
+test("le SDK et la clé restent côté serveur : aucun module navigateur n'importe le client Claude", () => {
+  const claude = readFileSync(join(root, "lib/assistant/claude.ts"), "utf8");
+  assert.match(claude, /^import "server-only";/, "claude.ts est réservé au serveur");
+  assert.doesNotMatch(claude, /process\.env|apiKey\s*:/, "la clé est lue par le SDK, jamais par le code");
+  const offenders: string[] = [];
+  for (const file of [...sourceFiles(join(root, "components")), ...sourceFiles(join(root, "stores")), join(root, "lib/assistant/client.ts")]) {
+    const source = readFileSync(file, "utf8");
+    if (/@anthropic-ai\/sdk|lib\/assistant\/claude|lib\/assistant\/daily-cap|lib\/assistant\/knowledge/.test(source)) offenders.push(relative(root, file));
+  }
+  assert.deepEqual(offenders, []);
+  // Le seul import du SDK dans l'application est celui de claude.ts.
+  const importers = [...sourceFiles(join(root, "lib")), ...sourceFiles(join(root, "app"))]
+    .filter((file) => /@anthropic-ai\/sdk/.test(readFileSync(file, "utf8")))
+    .map((file) => relative(root, file).replace(/\\/g, "/"));
+  assert.deepEqual(importers, ["lib/assistant/claude.ts"]);
 });
 
 // ─── Route : même harnais que src/lib/loans/finality-route.test.ts ────────────────────────────

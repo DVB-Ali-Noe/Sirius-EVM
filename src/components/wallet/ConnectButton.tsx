@@ -146,6 +146,7 @@ export function ConnectButton({
           aria-expanded={open}
           aria-label={compact ? t("Connexion") : undefined}
           title={compact ? t("Connexion") : undefined}
+          data-guide="connect"
           className={
             compact
               ? "flex h-10 w-10 items-center justify-center rounded-full bg-accent text-background transition-colors hover:bg-accent/90"

@@ -111,6 +111,22 @@ test("le mode de vérification dit pourquoi et quoi faire, sans jamais bloquer",
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
+test("le profil accepte la progression du guide, bornée comme la machine, et refuse le reste", async () => {
+  process.env.DATABASE_URL ??= "postgresql://synthetic:synthetic@127.0.0.1:1/unused";
+  const profile = await import("../users/profile");
+  const guide = { v: 1, arrivalSeen: true, tourIndex: GUIDE_TOUR_STOPS.length - 1, tourDone: false, skipped: false };
+  assert.deepEqual(profile.validateProfilePatch({ settings: { guide } }), { settings: { guide } });
+  assert.deepEqual(profile.sanitizeSettings({ guide, onboardingDismissed: true }), { guide, onboardingDismissed: true });
+  for (const bad of [
+    { ...guide, tourIndex: GUIDE_TOUR_STOPS.length }, { ...guide, tourIndex: -1 }, { ...guide, v: 2 }, { ...guide, skipped: "yes" }, "done", null,
+  ]) {
+    assert.throws(() => profile.validateProfilePatch({ settings: { guide: bad } }), /Réglages de profil invalides/, JSON.stringify(bad));
+    assert.deepEqual(profile.sanitizeSettings({ guide: bad }), {});
+  }
+  // La progression lue par le navigateur accepte tout ce que le serveur a accepté.
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide), guide);
+});
+
 test("les arrêts du tour existent dans la barre latérale, et les ancres sont des sélecteurs d'attribut", () => {
   const sidebar = readFileSync(`${root}components/layout/Sidebar.tsx`, "utf8");
   for (const stop of GUIDE_TOUR_STOPS) {

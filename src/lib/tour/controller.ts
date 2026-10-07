@@ -57,6 +57,14 @@ export interface TourControllerDeps {
   storage: () => StorageLike | null;
   /** Lu une fois, au démarrage côté navigateur. */
   isSuppressed: () => boolean;
+  /**
+   * Ouverture automatique permise ? Lu à chaque décision. Le guide Sirio prend la première
+   * connexion à sa charge : tant qu'il est en cours, aucun tuto ne s'ouvre tout seul par-dessus
+   * (le bouton « ? » reste). Absent : toujours permise (tests, hôtes sans guide).
+   */
+  autoOpen?: () => boolean;
+  /** Le tuto de première connexion s'ouvre-t-il encore tout seul ? Faux quand le guide le remplace. */
+  autoWelcome?: boolean;
 }
 
 export const SERVER_TOUR_SNAPSHOT: TourSnapshot = Object.freeze({
@@ -197,10 +205,13 @@ export class TourController {
   private evaluate(): void {
     if (this.snapshot.suppressed || this.snapshot.status !== "ready" || !this.progress || !this.address) return;
     if (this.path === null || this.evaluatedPath === this.path) return;
+    // Guide en cours : la décision est remise à plus tard, pas consommée pour ce chemin.
+    if (this.deps.autoOpen && !this.deps.autoOpen()) return;
     this.evaluatedPath = this.path;
     if (this.snapshot.active) return;
     const pending = readPending(this.deps.storage(), this.address);
-    if (!isWelcomeDone(this.progress, pending)) {
+    // Le guide remplace le tuto de première connexion : on passe directement au tuto de la page.
+    if (!isWelcomeDone(this.progress, pending) && this.deps.autoWelcome !== false) {
       this.open({ kind: "welcome", manual: false });
       return;
     }

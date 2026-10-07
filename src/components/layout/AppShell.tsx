@@ -8,6 +8,7 @@ import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { PageTour } from "@/components/tour/PageTour";
 import { ActiveLoanIndicator } from "@/components/onboarding/ActiveLoanIndicator";
 import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
+import { GuideHost } from "@/components/guide/GuideHost";
 import { SecureAccountBanner } from "@/components/wallet/SecureAccount";
 import { APP_BACKGROUND_BLOB_Z, useBlobStore } from "@/stores/blob";
 import { useUiStore, useUiTransitionsReady } from "@/stores/ui";
@@ -49,6 +50,8 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
       <ProductTour />
       <PageTour />
       <OnboardingHost />
+      {/* Guide Sirio : accueil animé, puis bulle en bas à droite sur toutes les pages. */}
+      <GuideHost />
       {/* décalage pour la barre mobile (top-16 + nav) ; nul en desktop */}
       <div className="pt-32 md:pt-8">
         <ProfileMenu />
