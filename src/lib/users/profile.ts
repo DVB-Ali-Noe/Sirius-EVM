@@ -41,6 +41,8 @@ export type FeatureTours = Partial<Record<FeatureTourKey, boolean>>;
 export interface ProfileSettings {
   language?: ProfileLanguage;
   sidebarCollapsed?: boolean;
+  /** Carte « Get started » du tableau de bord fermée par l'utilisateur ; rouvrable depuis le menu profil. */
+  onboardingDismissed?: boolean;
 }
 
 /** Modification acceptée par l'API : tout le reste est refusé. */
@@ -125,6 +127,9 @@ export function sanitizeSettings(value: unknown): ProfileSettings {
   if (Object.hasOwn(value, "sidebarCollapsed") && typeof value.sidebarCollapsed === "boolean") {
     settings.sidebarCollapsed = value.sidebarCollapsed;
   }
+  if (Object.hasOwn(value, "onboardingDismissed") && typeof value.onboardingDismissed === "boolean") {
+    settings.onboardingDismissed = value.onboardingDismissed;
+  }
   return settings;
 }
 
@@ -156,6 +161,9 @@ function validateSettings(value: unknown): ProfileSettings {
     } else if (key === "sidebarCollapsed") {
       if (typeof value.sidebarCollapsed !== "boolean") throw new AppError("Réglages de profil invalides", 400);
       settings.sidebarCollapsed = value.sidebarCollapsed;
+    } else if (key === "onboardingDismissed") {
+      if (typeof value.onboardingDismissed !== "boolean") throw new AppError("Réglages de profil invalides", 400);
+      settings.onboardingDismissed = value.onboardingDismissed;
     } else {
       throw new AppError("Réglage de profil inconnu", 400);
     }

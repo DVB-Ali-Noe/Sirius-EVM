@@ -17,6 +17,7 @@ import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
+import { GetStartedCard } from "@/components/onboarding/GetStartedCard";
 
 interface ReputationSnapshot {
   score: number;
@@ -146,6 +147,18 @@ function DashboardPageContent() {
       <PageHeader title={t("Tableau de bord")} description={<span className="font-mono">{truncate(address)}</span>} />
 
       <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} />
+
+      {/* Parcours d'accueil : étapes déduites du KYB, des soldes lus ici et des prêts du compte. */}
+      {authenticated && (
+        <GetStartedCard
+          address={address}
+          gasWei={gas?.wei ?? null}
+          stableAtomic={error ? null : balance?.atomic ?? null}
+          token={token}
+          onAddFunds={network === "mainnet" ? () => setFundsDialog(true) : () => void handleAddFunds()}
+          fundsPending={fundsPending}
+        />
+      )}
 
       <Card className="flex flex-wrap items-end justify-between gap-4">
         <div>

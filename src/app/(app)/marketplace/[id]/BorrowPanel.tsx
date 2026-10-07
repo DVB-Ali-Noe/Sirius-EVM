@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { useDuplicateLoanConfirmation } from "@/components/loans/DuplicateLoanDialog";
-import { KybInviteForm } from "@/components/kyb/KybInviteForm";
+import { ensureVerifiedFor, requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
 import { connectWallet } from "@/components/wallet/WalletConnector";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
-import { acceptKybCredential } from "@/lib/kyb/client";
 import { borrowDataset } from "@/lib/loans/client";
 import { modelSelection } from "@/lib/models/registry";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { activeLoanOnDataset, type LoanDisplayInput } from "@/lib/train/loan-display";
 import { useWalletStore } from "@/stores/wallet";
 
@@ -56,6 +56,7 @@ export function BorrowPanel({
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const { confirmDuplicate, duplicateDialog } = useDuplicateLoanConfirmation();
   const [busy, setBusy] = useState(false);
+  const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
   // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
   // changement de wallet ou une déconnexion, rien du compte précédent ne reste affiché.
@@ -134,13 +135,22 @@ export function BorrowPanel({
     }
   }
 
+  // Un seul emprunt en vol : la garde KYB lit le réseau avant `setBusy`, et un double clic
+  // préparerait sinon deux réservations.
   async function borrow() {
+    await borrowGuard.run(borrowOnce);
+  }
+
+  async function borrowOnce() {
     setError(null);
     if (!useWalletStore.getState().authenticated) {
       await signIn();
       return;
     }
     if (providerVerified === false) return;
+    // Wallet non vérifié : la fenêtre de vérification s'ouvre, puis l'emprunt reprend ici.
+    if (!(await ensureVerifiedFor("borrow"))) return;
+    if (sessionKey && useOnboardingStore.getState().kyb === "valid") setKyb({ session: sessionKey, missing: false });
     if (!model || !priceUsdcAtomic) {
       setError("Profil d’entraînement du dataset absent ou invalide");
       return;
@@ -158,14 +168,11 @@ export function BorrowPanel({
     }
   }
 
+  // Vérification dans la fenêtre partagée (accès instantané, ou invitation si coupé), sans quitter la fiche.
   async function handleOnboard() {
     setError(null);
-    try {
-      await acceptKybCredential("borrower");
-      if (sessionKey) setKyb({ session: sessionKey, missing: false });
-    } catch (err) {
-      setError(messageOf(err));
-    }
+    const session = sessionKey;
+    if (await requestVerification("checklist", "borrower") && session) setKyb({ session, missing: false });
   }
 
   const showKyb = sessionKey !== null && kybManquant === true;
@@ -205,7 +212,6 @@ export function BorrowPanel({
           {t("Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.")}
         </p>
       )}
-      {showKyb && <KybInviteForm role="borrower" onAccepted={() => sessionKey && setKyb({ session: sessionKey, missing: false })} />}
       {error && (
         <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-3 py-2 text-sm text-negative">
           {t(error)}

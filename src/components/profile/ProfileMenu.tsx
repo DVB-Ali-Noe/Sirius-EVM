@@ -14,6 +14,7 @@ import { formatUsdcAtomic } from "@/lib/evm/usdc";
 import { useWalletStore } from "@/stores/wallet";
 import { normalizeAddress, shortAddress } from "./address";
 import { requestGuidedTour } from "./guided-tour";
+import { reopenChecklist } from "@/components/onboarding/onboarding-store";
 import { formatTokenAmount, isWrongNetwork, networkBadge, stablecoinSymbol } from "./network";
 import { useCopy } from "./useCopy";
 
@@ -413,6 +414,20 @@ function ProfilePanel({
         <Link href="/wallet" onClick={() => onClose()} className={ITEM_CLASS}>{t("Wallet")}</Link>
         <Link href="/settings" onClick={() => onClose()} className={ITEM_CLASS}>{t("Réglages")}</Link>
         <Link href="/kyb" onClick={() => onClose()} className={ITEM_CLASS}>{t("KYB")}</Link>
+        {/* Carte « Get started » masquée : elle revient sur le tableau de bord. */}
+        {authenticated && (
+          <Link
+            href="/dashboard"
+            onClick={() => {
+              reopenChecklist();
+              onClose();
+            }}
+            className={ITEM_CLASS}
+            data-testid="profile-get-started"
+          >
+            {t("Bien démarrer")}
+          </Link>
+        )}
         <button type="button" onClick={handleTour} className={ITEM_CLASS}>{t("Visite guidée")}</button>
         {tourUnavailable && (
           <p role="status" className="px-4 pb-2 text-xs text-muted">{t("La visite guidée sera bientôt disponible.")}</p>

@@ -185,6 +185,8 @@ test("la vue ne révèle ni les notes de blocage ni les clés inconnues d'une li
   assert.deepEqual(profile.sanitizeFeatureTours(null), {});
   assert.deepEqual(profile.sanitizeSettings("en"), {});
   assert.deepEqual(profile.sanitizeSettings({ language: "en", sidebarCollapsed: true }), { language: "en", sidebarCollapsed: true });
+  assert.deepEqual(profile.sanitizeSettings({ onboardingDismissed: true }), { onboardingDismissed: true });
+  assert.deepEqual(profile.sanitizeSettings({ onboardingDismissed: "yes" }), {});
 });
 
 test("validateProfilePatch : seuls les tutos et les réglages passent, tout le reste est refusé", async () => {
@@ -219,6 +221,12 @@ test("validateProfilePatch : seuls les tutos et les réglages passent, tout le r
   }
   await rejects400({ settings: { sidebarCollapsed: "yes" } }, "Réglages de profil invalides");
   await rejects400({ settings: { sidebarCollapsed: 1 } }, "Réglages de profil invalides");
+  // Carte « Get started » fermée : booléen strict, comme les autres réglages.
+  assert.deepEqual(profile.validateProfilePatch({ settings: { onboardingDismissed: true } }), { settings: { onboardingDismissed: true } });
+  assert.deepEqual(profile.validateProfilePatch({ settings: { onboardingDismissed: false } }), { settings: { onboardingDismissed: false } });
+  for (const notBoolean of ["true", 1, null, {}]) {
+    await rejects400({ settings: { onboardingDismissed: notBoolean } }, "Réglages de profil invalides");
+  }
   for (const language of ["fr", "EN", "", null, true, ["en"]]) {
     await rejects400({ settings: { language } }, "Langue non prise en charge");
   }

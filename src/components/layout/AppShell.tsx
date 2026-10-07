@@ -6,6 +6,8 @@ import { ProductTour } from "@/components/layout/ProductTour";
 import { LegalLinks } from "@/components/layout/LegalLinks";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { PageTour } from "@/components/tour/PageTour";
+import { ActiveLoanIndicator } from "@/components/onboarding/ActiveLoanIndicator";
+import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
 import { SecureAccountBanner } from "@/components/wallet/SecureAccount";
 import { APP_BACKGROUND_BLOB_Z, useBlobStore } from "@/stores/blob";
 import { useUiStore, useUiTransitionsReady } from "@/stores/ui";
@@ -31,6 +33,8 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
           {children}
           <LegalFooter />
         </div>
+        {/* Gardes Emprunter / Publier seulement : pas de proposition automatique sur l'hôte de démonstration. */}
+        <OnboardingHost autoPrompt={false} />
       </div>
     );
   }
@@ -44,9 +48,11 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
       <Sidebar />
       <ProductTour />
       <PageTour />
+      <OnboardingHost />
       {/* décalage pour la barre mobile (top-16 + nav) ; nul en desktop */}
       <div className="pt-32 md:pt-8">
         <ProfileMenu />
+        <ActiveLoanIndicator />
         <SecureAccountBanner />
         {children}
         <LegalFooter />

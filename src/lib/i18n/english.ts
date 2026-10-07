@@ -10,6 +10,7 @@ import { MARKETPLACE_MESSAGES_EN } from "./marketplace-en";
 import { TRAIN_MESSAGES_EN } from "./train-en";
 import { SETTINGS_MESSAGES_EN } from "./settings-en";
 import { FUNDING_MESSAGES_EN } from "./funding-en";
+import { ONBOARDING_MESSAGES_EN } from "./onboarding-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ERROR_MESSAGES_EN,
@@ -24,6 +25,7 @@ export const EN_MESSAGES: Record<string, string> = {
   ...TRAIN_MESSAGES_EN,
   ...SETTINGS_MESSAGES_EN,
   ...FUNDING_MESSAGES_EN,
+  ...ONBOARDING_MESSAGES_EN,
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",
   "Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.": "During the beta, access is by invitation. Paste the code you received from the Sirius team, then confirm in your wallet.",
