@@ -122,8 +122,21 @@ test("finalité rapide : facultative et cohérente entre les rôles, bornes vér
   const mixedOff = mainnetEnvironments();
   mixedOff[1].SIRIUS_FAST_FINALITY = "false";
   assert.equal(checkReleaseEnvironments(...mixedOff, "mainnet").configurationReady, true);
+  // Retour arrière de niveau 1 : Next et le reaper à false pendant que le Compose garde ses constantes.
+  const rolledBack = mainnetEnvironments();
+  Object.assign(rolledBack[2], { SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_MAX_USDC: "25", SIRIUS_FAST_FINALITY_CONFIRMATIONS: "30" });
+  rolledBack[0].SIRIUS_FAST_FINALITY = "false";
+  const rb = checkReleaseEnvironments(...rolledBack, "mainnet");
+  assert.equal(rb.configurationReady, true, JSON.stringify(rb.issues));
+  // Seuil ou confirmations du runner différents de Next pendant que Next est à false : sans effet.
+  rolledBack[2].SIRIUS_FAST_FINALITY_MAX_USDC = "10";
+  assert.equal(checkReleaseEnvironments(...rolledBack, "mainnet").configurationReady, true);
   const cases = [
-    [(env) => { env[0].SIRIUS_FAST_FINALITY = "true"; }, "divergence.SIRIUS_FAST_FINALITY"],
+    // Direction nuisible : Next demande le palier rapide à une enclave qui l'ignore.
+    [(env) => { env[0].SIRIUS_FAST_FINALITY = "true"; env[1].SIRIUS_FAST_FINALITY = "true"; }, "next.SIRIUS_FAST_FINALITY.runner-disabled"],
+    [(env) => { env[0].SIRIUS_FAST_FINALITY = "true"; env[1].SIRIUS_FAST_FINALITY = "true"; }, "reaper.SIRIUS_FAST_FINALITY.runner-disabled"],
+    // Next et le reaper doivent se lire pareil.
+    [(env) => { env[0].SIRIUS_FAST_FINALITY = "true"; env[2].SIRIUS_FAST_FINALITY = "true"; }, "divergence.SIRIUS_FAST_FINALITY"],
     [(env) => { for (const e of env) e.SIRIUS_FAST_FINALITY = "true"; env[2].SIRIUS_FAST_FINALITY_MAX_USDC = "10"; }, "divergence.SIRIUS_FAST_FINALITY_MAX_USDC"],
     [(env) => { for (const e of env) e.SIRIUS_FAST_FINALITY = "true"; env[1].SIRIUS_FAST_FINALITY_CONFIRMATIONS = "12"; }, "divergence.SIRIUS_FAST_FINALITY_CONFIRMATIONS"],
     [(env) => { env[0].SIRIUS_FAST_FINALITY = "oui"; }, "next.SIRIUS_FAST_FINALITY"],

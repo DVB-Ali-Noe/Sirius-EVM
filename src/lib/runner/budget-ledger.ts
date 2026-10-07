@@ -194,6 +194,9 @@ const WORKFLOW_SCHEMA = `
   CREATE TABLE IF NOT EXISTS operator_actions (
     id INTEGER PRIMARY KEY, action TEXT NOT NULL, operation_id TEXT, actor TEXT NOT NULL,
     reason TEXT NOT NULL, at INTEGER NOT NULL, previous TEXT NOT NULL
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS fast_exposure (
+    workflow_id TEXT PRIMARY KEY, amount TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
   ) STRICT;`;
 
 export type OperatorAction = "reset-failures" | "reopen" | "abandon" | "replace" | "interrupted";
@@ -778,6 +781,37 @@ export class BudgetLedger {
         if (!evidence.success && countFailure) this.db.prepare("UPDATE budget SET failures = failures + 1 WHERE id = 1").run();
       }
     });
+  }
+
+  /**
+   * Exposition rapide de l'enclave (fast-finality.ts) : somme des prêts admis au palier rapide,
+   * verrouillés et pas encore libérés. Réserve la part de ce prêt si la somme, ce prêt compris,
+   * reste sous `capAtomic` ; idempotent pour un même workflow. Les lignes dont l'échéance du prêt
+   * est passée (`expiresAtMs`, remboursable par l'emprunteur) sont purgées d'abord : un prêt
+   * remboursé ou jamais réglé libère sa part sans que l'enclave observe la chaîne. Renvoie faux
+   * quand le plafond est atteint : l'appelant retombe sur la finalité complète.
+   */
+  reserveFastExposure(scope: WorkflowBudget, amountAtomic: bigint, capAtomic: bigint, expiresAtMs: number, now = Date.now()): boolean {
+    return this.atomic(() => {
+      this.workflow(scope);
+      if (amountAtomic <= BigInt(0) || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= now) return false;
+      this.db.prepare("DELETE FROM fast_exposure WHERE expires_at <= ?").run(now);
+      if (this.db.prepare("SELECT workflow_id FROM fast_exposure WHERE workflow_id = ?").get(scope.id)) return true;
+      if (this.fastExposureAtomic() + amountAtomic > capAtomic) return false;
+      this.db.prepare("INSERT INTO fast_exposure VALUES (?, ?, ?, ?)").run(scope.id, String(amountAtomic), expiresAtMs, now);
+      return true;
+    });
+  }
+
+  /** Release ou remboursement confirmé : la part de ce prêt ne pèse plus sur le plafond rapide. */
+  releaseFastExposure(scope: WorkflowBudget): void {
+    this.atomic(() => { this.db.prepare("DELETE FROM fast_exposure WHERE workflow_id = ?").run(scope.id); });
+  }
+
+  fastExposureAtomic(): bigint {
+    this.assertFile();
+    return (this.db.prepare("SELECT amount FROM fast_exposure").all() as { amount: string }[])
+      .reduce<bigint>((sum, row) => sum + BigInt(row.amount), BigInt(0));
   }
 
   fixFailureReceipt(scope: WorkflowBudget, payload: string): string {

@@ -62,11 +62,25 @@ const MAX_ID_LENGTH = 128;
  * requête ; les bornes viennent de son environnement attesté (Compose). Next peut demander le
  * palier rapide, l'enclave ne l'accorde que si sa politique l'admet pour ce montant, et refuse
  * explicitement sinon : jamais de profondeur rapide pour un prêt au-dessus du seuil.
+ *
+ * Plafond d'exposition propre à l'enclave : la somme des prêts rapides verrouillés non libérés est
+ * tenue dans son registre persistant (`fast_exposure`, budget-ledger.ts) et bornée par la constante
+ * attestée SIRIUS_FAST_FINALITY_TOTAL_USDC. Plafond atteint ⇒ finalité complète pour ce prêt, pas
+ * un refus : le lock est alors lu au bloc finalisé, exactement comme avant. La part réservée est
+ * rendue au release ou au remboursement confirmé, et purgée après l'échéance du prêt.
  */
 function loanFinalityTier(requested: unknown, quote: ComputeQuote): FinalityTier {
-  const tier = enclaveFinalityTier(requested, BigInt(totalQuoteAmount(quote)), fastFinalityPolicy());
+  const config = fastFinalityPolicy();
+  const amount = BigInt(totalQuoteAmount(quote));
+  const tier = enclaveFinalityTier(requested, amount, config);
   if (tier === null) throw new AppError("Finalité rapide refusée par l’enclave pour ce prêt", 409);
-  return tier;
+  if (tier === "FULL") return "FULL";
+  const deadlineMs = (quote.expiresAt + quote.challengeDays * 86_400) * 1_000;
+  if (!requireBillingBudget().reserveFastExposure(quoteWorkflow(quote), amount, config.totalInFlightAtomic, deadlineMs)) {
+    console.warn(`[runner] plafond d'exposition rapide atteint : prêt ${quote.loanId} traité à finalité complète`);
+    return "FULL";
+  }
+  return "FAST";
 }
 const MAX_CID_LENGTH = 256;
 const MAX_WRAPPED_KEY_LENGTH = 1_024;

@@ -69,12 +69,16 @@ export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, prei
   const data = encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "release", args: [loanKey, preimage] });
   if (!ledger.find(`release:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data))) {
     const resolution = await reconcileLoanEscrow(loanKey, fromBlock, quote);
+    if (resolution.state !== "active") ledger.releaseFastExposure(quoteWorkflow(quote));
     if (resolution.state === "settled") return resolution.txHash;
     if (resolution.state === "cancelled") throw new AppError("Escrow on-chain déjà remboursé", 410);
   }
   const loan = await readLoan(loanKey, quote);
   if (loan?.billing?.termsHash !== quoteTermsHash(quote)) throw new AppError("Devis compute hors scope", 409);
-  return sendBilledAction(quote, loanKey, "release", data, finalityTier);
+  const txHash = await sendBilledAction(quote, loanKey, "release", data, finalityTier);
+  // Release confirmé au palier demandé : ce prêt ne pèse plus sur le plafond rapide de l'enclave.
+  ledger.releaseFastExposure(quoteWorkflow(quote));
+  return txHash;
 }
 
 export async function failBilledEscrow(quote: ComputeQuote, loanKey: Hex): Promise<{ refundTxHash: string; retainedFee: string }> {
@@ -96,5 +100,7 @@ export async function failBilledEscrow(quote: ComputeQuote, loanKey: Hex): Promi
   const signature = await settlementAccount().signTypedData(executionReceiptTypedData(quote, loanKey, receipt));
   const data = encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "recordExecution", args: [loanKey, receipt, signature] });
   const refundTxHash = await sendBilledAction(quote, loanKey, "failure", data);
+  // Remboursement confirmé : la part de ce prêt dans le plafond rapide de l'enclave est rendue.
+  ledger.releaseFastExposure(quoteWorkflow(quote));
   return { refundTxHash, retainedFee };
 }

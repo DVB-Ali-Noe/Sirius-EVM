@@ -52,7 +52,7 @@ test("les Compose staging figent l'image sans interpoler les secrets ni renommer
       assert.equal(runner.environment.SIRIUS_FAST_FINALITY, "true");
       assert.equal(runner.environment.SIRIUS_FAST_FINALITY_MAX_USDC, "25");
       assert.equal(runner.environment.SIRIUS_FAST_FINALITY_CONFIRMATIONS, "30");
-      assert.ok(!Object.hasOwn(runner.environment, "SIRIUS_FAST_FINALITY_TOTAL_USDC"), "le plafond global reste côté Next");
+      assert.equal(runner.environment.SIRIUS_FAST_FINALITY_TOTAL_USDC, "100", "plafond d'exposition rapide propre à l'enclave");
     } else {
       assert.ok(!Object.hasOwn(runner.environment, "SIRIUS_FAST_FINALITY"), `${mode} : pas de finalité rapide hors runner actif`);
     }

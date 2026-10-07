@@ -5,6 +5,7 @@ import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/requi
 import { errorResponse } from "@/lib/errors";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST } from "@/lib/loans/settlement-status";
+import { effectiveLoanFinalityTier } from "@/lib/sirius/finality-tier";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
@@ -36,8 +37,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json(await settlePreparedLoan(id, authorization));
     } catch (err) {
       if (err instanceof RunnerFinalityPending) {
-        // L'attente annoncée suit le palier du prêt : secondes en rapide, un quart d'heure sinon.
-        const error = loan.finalityTier === "FAST" ? SETTLEMENT_FINALITY_PENDING_FAST : SETTLEMENT_FINALITY_PENDING;
+        // L'attente annoncée suit le palier effectif du prêt (coupe-circuit compris) : secondes en
+        // rapide, un quart d'heure sinon.
+        const error = effectiveLoanFinalityTier(loan.finalityTier) === "FAST" ? SETTLEMENT_FINALITY_PENDING_FAST : SETTLEMENT_FINALITY_PENDING;
         return NextResponse.json({ pending: true, settleTxHash: err.transactionHash, error }, { status: 202 });
       }
       throw err;

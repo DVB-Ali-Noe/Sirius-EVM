@@ -64,12 +64,19 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
     "SIRIUS_LOCK_AUTHORIZER", ...CONTRACTS.map((suffix) => `SIRIUS_${suffix}_ADDRESS`)]) {
     if (new Set(Object.values(roles).map((env) => env[key]?.toLowerCase())).size !== 1) issues.push(`divergence.${key}`);
   }
-  // Un rôle qui demande le palier rapide pendant qu'un autre l'ignore ferait refuser chaque prêt
-  // rapide par l'enclave : les trois lectures doivent coïncider (absent et `false` se valent).
-  for (const key of FAST_FINALITY_KEYS) {
-    const values = Object.values(roles).map((env) => (env[key] ?? "").trim().toLowerCase())
-      .map((value) => (key === "SIRIUS_FAST_FINALITY" && value === "" ? "false" : value));
-    if (new Set(values).size !== 1) issues.push(`divergence.${key}`);
+  // Seule la direction nuisible est refusée : Next ou le reaper demandant le palier rapide à une
+  // enclave qui l'ignore (chaque prêt rapide serait refusé par l'enclave), ou avec un seuil ou des
+  // confirmations différents des constantes attestées. Next et le reaper à `false` pendant que le
+  // Compose garde ses constantes est le retour arrière de niveau 1 : autorisé.
+  const fastFlag = (env) => ((env.SIRIUS_FAST_FINALITY ?? "").trim().toLowerCase() || "false");
+  if (fastFlag(next) !== fastFlag(reaper)) issues.push("divergence.SIRIUS_FAST_FINALITY");
+  for (const [role, env] of [["next", next], ["reaper", reaper]]) {
+    if (fastFlag(env) !== "true") continue;
+    if (fastFlag(runner) !== "true") issues.push(`${role}.SIRIUS_FAST_FINALITY.runner-disabled`);
+    for (const key of FAST_FINALITY_KEYS.slice(1)) {
+      const value = (name) => (name[key] ?? "").trim().toLowerCase() || (key === "SIRIUS_FAST_FINALITY_MAX_USDC" ? "25" : "30");
+      if (value(env) !== value(runner)) issues.push(`divergence.${key}`);
+    }
   }
   for (const role of ["next", "reaper"]) {
     requireValue(role, "SIRIUS_REQUIRE_PHALA", /^true$/);
