@@ -8,6 +8,13 @@
  * prêts peuvent être acceptés après N confirmations L2, avec contrôle du hash canonique, tant que
  * l'argent exposé à ce régime reste borné.
  *
+ * Ce que N confirmations L2 garantissent, et ce qu'elles ne garantissent pas : sur un rollup à
+ * séquenceur unique, elles protègent d'une vue RPC en retard ou incohérente (nœud qui n'a pas
+ * encore le bloc, relecture d'une branche abandonnée côté RPC), pas d'un séquenceur qui publierait
+ * deux histoires ou perdrait des blocs non encore postés sur L1. Le palier rapide repose donc sur
+ * la confiance accordée au séquenceur de Robinhood Chain ; seul le bloc `finalized` (ou `safe`,
+ * mesuré à 8–13 min, ce qui annulerait l'intérêt) en est indépendant. D'où les bornes.
+ *
  * Trois bornes, lues dans l'environnement de chaque rôle :
  *  - `SIRIUS_FAST_FINALITY` : coupe-circuit. Absent ou `false` ⇒ aucune différence avec le
  *    comportement historique, partout. Toute autre valeur que `true`/`false` est refusée.
