@@ -68,19 +68,28 @@ export async function decideFastTierInTransaction(
   return current?.finalityTier === "FAST" ? "FAST" : "FULL";
 }
 
+export interface AssignFinalityTierOptions {
+  config?: FastFinalityConfig;
+  transaction?: <T>(action: (store: FinalityTierStore) => Promise<T>) => Promise<T>;
+  /** Lecture seule : décide sans marquer la ligne (candidat avant la garde de profondeur). */
+  dryRun?: boolean;
+}
+
 /**
  * Palier d'un prêt ESCROWED sur le point de démarrer. `verifyOnChainAmount` relit les termes du
  * contrat avant tout passage en rapide : le montant décidant du palier doit être celui de la
  * chaîne, jamais une valeur reçue du client. Les prêts hors seuil ne touchent ni la chaîne ni la
  * base. Coupe-circuit fermé ⇒ `FULL`, sans lecture.
+ *
+ * `dryRun` rend le palier candidat sans écrire : `prepareLoanResult` vérifie d'abord la profondeur
+ * du lock à ce palier, puis seulement marque la ligne (second appel, sans `dryRun`). Un prêt dont le
+ * lock n'est pas encore assez profond ne réserve donc jamais le plafond : impossible de l'occuper en
+ * lançant des prêts qu'on ne laisse pas démarrer.
  */
 export async function assignLoanFinalityTier(
   loan: FinalityTierLoan,
   verifyOnChainAmount: () => Promise<boolean>,
-  options: {
-    config?: FastFinalityConfig;
-    transaction?: <T>(action: (store: FinalityTierStore) => Promise<T>) => Promise<T>;
-  } = {},
+  options: AssignFinalityTierOptions = {},
 ): Promise<FinalityTier> {
   const config = options.config ?? fastFinalityPolicy();
   // Coupe-circuit fermé : finalité complète pour tous, y compris les prêts déjà marqués FAST
@@ -91,6 +100,9 @@ export async function assignLoanFinalityTier(
   if (finalityTierFor({ amountAtomic, inFlightFastAtomic: null, config }) !== "FAST") return "FULL";
   if (!(await verifyOnChainAmount())) throw new AppError("Montant on-chain du prêt différent du montant enregistré", 409);
   const transaction = options.transaction ?? ((action) => serializableTransaction((tx) => action(tx as unknown as FinalityTierStore)));
+  if (options.dryRun) {
+    return transaction(async (store) => finalityTierFor({ amountAtomic, inFlightFastAtomic: await fastInFlightAtomic(store, loan.id), config }));
+  }
   return transaction((store) => decideFastTierInTransaction(store, loan, config));
 }
 

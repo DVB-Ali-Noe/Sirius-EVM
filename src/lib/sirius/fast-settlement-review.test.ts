@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import type { Hex, PublicClient } from "viem";
+import { TransactionReceiptNotFoundError, type Hex, type PublicClient } from "viem";
 import { ESCROW_STATUS_LOCKED, ESCROW_STATUS_RELEASED, verifyFastSettlement } from "./fast-settlement-review";
 
 const saved = { ...process.env };
@@ -22,13 +22,18 @@ function fixture() {
     canonical: BLOCK_HASH as Hex,
     onChain: ESCROW_STATUS_RELEASED as number | null,
     statusReads: 0,
+    rpcError: null as Error | null,
   };
   const client = {
     getBlockNumber: async () => BigInt(10_000),
     getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => blockTag === "finalized"
       ? { number: state.finalized, hash: `0x${"cc".repeat(32)}` }
       : { number: blockNumber, hash: state.canonical },
-    getTransactionReceipt: async () => { if (!state.receipt) throw new Error("introuvable"); return state.receipt; },
+    getTransactionReceipt: async () => {
+      if (state.rpcError) throw state.rpcError;
+      if (!state.receipt) throw new TransactionReceiptNotFoundError({ hash: TX });
+      return state.receipt;
+    },
   } as unknown as PublicClient;
   const verify = () => verifyFastSettlement(client, { settleTxHash: TX, escrow: ESCROW, onChainStatus: async () => { state.statusReads++; return state.onChain; } });
   return { state, verify };
@@ -70,4 +75,16 @@ test("divergences : release disparu, remplacé, bloc réorganisé, escrow non li
   assert.deepEqual(await verify(), { state: "discrepancy", reason: "release introuvable mais escrow libéré par une autre transaction" });
   state.onChain = null;
   assert.match((await verify() as { reason: string }).reason, /inconnu/);
+});
+
+test("une erreur RPC autre que « reçu inconnu » remonte telle quelle : jamais de revue ouverte sur une panne", async () => {
+  const { state, verify } = fixture();
+  state.finalized = BigInt(1_000);
+  for (const error of [new Error("ECONNRESET"), new Error("rate limited"), new TypeError("fetch failed")]) {
+    state.rpcError = error;
+    await assert.rejects(verify(), (thrown: unknown) => thrown === error);
+  }
+  assert.equal(state.statusReads, 0, "l'état du contrat n'est pas lu sur une panne RPC");
+  state.rpcError = null;
+  assert.deepEqual(await verify(), { state: "confirmed" });
 });

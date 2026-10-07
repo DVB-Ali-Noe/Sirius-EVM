@@ -15,6 +15,12 @@ export const CANCELLED_LOCK_SEARCH_WINDOW_MS = 24 * 60 * 60_000;
  * Robinhood Chain, repasser plus tôt ne ferait que lire « pas encore ».
  */
 export const FAST_SETTLEMENT_VERIFY_DELAY_MS = 15 * 60_000;
+/**
+ * Un prêt ESCROWED classé rapide (entraînement échoué puis rendu, lancement jamais repris) pèse sur
+ * le plafond rapide sans rien faire : au-delà de ce délai sans activité, le reaper le ramène à la
+ * finalité complète ; il repassera en rapide au prochain lancement si le plafond le permet.
+ */
+export const FAST_IDLE_REVERT_MS = 10 * 60_000;
 
 export type LoanReaperAction =
   | "cancel-pending"

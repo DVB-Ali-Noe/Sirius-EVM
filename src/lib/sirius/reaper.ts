@@ -6,6 +6,7 @@ import { getPublicClient } from "@/lib/evm/client";
 import {
   CANCELLED_LOCK_SEARCH_WINDOW_MS,
   CHAIN_REAPER_LEASE_MS,
+  FAST_IDLE_REVERT_MS,
   FAST_SETTLEMENT_VERIFY_DELAY_MS,
   PENDING_REAPER_TTL_MS,
   SETTLEMENT_REAPER_LEASE_MS,
@@ -69,6 +70,8 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
           status: "SETTLED", finalityTier: "FAST", finalityVerifiedAt: null, finalityReview: null,
           settledAt: { lte: new Date(now.getTime() - FAST_SETTLEMENT_VERIFY_DELAY_MS) },
         },
+        // Prêt rapide rendu à ESCROWED et laissé sans lancement : il n'occupe pas le plafond indéfiniment.
+        { status: "ESCROWED", finalityTier: "FAST", updatedAt: { lte: new Date(now.getTime() - FAST_IDLE_REVERT_MS) } },
       ],
     },
     orderBy: { id: "asc" },
@@ -85,6 +88,16 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
       }
       if (loan.status === "SETTLED") {
         await reviewFastSettledLoan(loan, now);
+        continue;
+      }
+      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
+        // Classé rapide puis laissé sans activité : il libère le plafond et repassera par la
+        // décision au prochain lancement (finality-tier.ts). Le reste de la passe le reprendra.
+        const reverted = await prisma.loan.updateMany({
+          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
+          data: { finalityTier: "FULL" },
+        });
+        if (reverted.count === 1) console.log(`[reaper] prêt EVM ${loan.id} : palier rapide rendu après inactivité`);
         continue;
       }
       const chain = loan.billingQuoteHash ? await reconcileClosedLoan(loan) : null;

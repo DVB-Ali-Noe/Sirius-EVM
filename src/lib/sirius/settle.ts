@@ -7,6 +7,7 @@ import { getPublicClient } from "@/lib/evm/client";
 import { assertLockStable } from "@/lib/evm/finality";
 import type { FinalityTier } from "@/lib/evm/fast-finality";
 import { assignLoanFinalityTier, effectiveLoanFinalityTier } from "./finality-tier";
+import { recordSettlementEvidence } from "./settlement-evidence";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
@@ -155,20 +156,23 @@ export async function prepareLoanResult(
   if (lock?.status === "ESCROWED" && lock.evmLockBlock) {
     // Palier de finalité décidé ici, au moment où l'entraînement peut démarrer (finality-tier.ts) :
     // le montant est relu sur le contrat avant tout passage en rapide, et la somme des prêts rapides
-    // en cours est contrôlée dans la transaction qui marque le prêt. Sans hash de lock (ligne
-    // historique), le prêt garde la finalité complète.
-    const finalityTier: FinalityTier = lock.evmLockTxHash
-      ? await assignLoanFinalityTier(lock, async () => {
-        const onChain = lock.evmLoanKey ? await readLoan(lock.evmLoanKey as `0x${string}`) : null;
-        return onChain?.amountUsdcAtomic === lock.amountUsdcAtomic;
-      })
-      : "FULL";
-    await assertLockStable(
-      getPublicClient(),
-      { blockNumber: BigInt(lock.evmLockBlock), txHash: (lock.evmLockTxHash ?? `0x${"0".repeat(64)}`) as `0x${string}` },
-      finalityTier,
-      LOCK_FINALITY_PENDING,
-    );
+    // en cours est contrôlée dans la transaction qui marque le prêt. Le marquage n'a lieu qu'une
+    // fois la profondeur du lock vérifiée au palier candidat : un lock pas encore assez profond
+    // n'occupe jamais le plafond. Sans hash de lock (ligne historique), finalité complète.
+    const client = getPublicClient();
+    const lockRef = { blockNumber: BigInt(lock.evmLockBlock), txHash: (lock.evmLockTxHash ?? `0x${"0".repeat(64)}`) as `0x${string}` };
+    const verifyOnChainAmount = async () => {
+      const onChain = lock.evmLoanKey ? await readLoan(lock.evmLoanKey as `0x${string}`) : null;
+      return onChain?.amountUsdcAtomic === lock.amountUsdcAtomic;
+    };
+    const candidate: FinalityTier = lock.evmLockTxHash ? await assignLoanFinalityTier(lock, verifyOnChainAmount, { dryRun: true }) : "FULL";
+    await assertLockStable(client, lockRef, candidate, LOCK_FINALITY_PENDING);
+    if (candidate === "FAST" && lock.finalityTier !== "FAST") {
+      // Le plafond a pu se remplir entre la lecture et le marquage : le palier retenu est celui
+      // de la transaction, et un retour à la finalité complète repasse par sa propre garde.
+      const marked = await assignLoanFinalityTier(lock, verifyOnChainAmount);
+      if (marked !== "FAST") await assertLockStable(client, lockRef, "FULL", LOCK_FINALITY_PENDING);
+    }
   }
   const now = new Date();
   await prisma.loan.updateMany({
@@ -381,6 +385,8 @@ export async function settlePreparedLoan(
       data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date() },
     });
     if (updated.count !== 1) throw new AppError("Règlement de l’escrow confirmé mais état local incohérent", 409);
+    // Prêt rapide : preuves de rediffusion du release conservées pour l'opérateur (au mieux, jamais bloquant).
+    if (effectiveLoanFinalityTier(loan.finalityTier) === "FAST") await recordSettlementEvidence(loanId);
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: settlement.settleTxHash };
   } catch (error) {
     if (error instanceof RunnerFinalityPending) {

@@ -55,9 +55,18 @@ test("l’entraînement n’est demandé au runner qu’après finalité du lock
 
   assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf('status: "TRAINING"'), "garde avant la prise du lease");
   assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf("runLoanJobInRunner("));
-  // Le palier est attribué avant la garde, avec relecture du montant on-chain ; le runner reçoit celui de la ligne.
-  assert.ok(preparation.indexOf("assignLoanFinalityTier") < preparation.indexOf("assertLockStable"));
-  assert.match(preparation, /assignLoanFinalityTier\(lock, async \(\) => \{[\s\S]*?readLoan\([\s\S]*?onChain\?\.amountUsdcAtomic === lock\.amountUsdcAtomic/);
+  // Le palier candidat est lu sans écrire (dryRun), avec relecture du montant on-chain ; la garde de
+  // profondeur passe à ce palier, et seulement ensuite la ligne est marquée (plafond jamais occupé
+  // par un lock pas encore assez profond). Le runner reçoit le palier de la ligne.
+  assert.match(preparation, /verifyOnChainAmount = async \(\) => \{[\s\S]*?readLoan\([\s\S]*?onChain\?\.amountUsdcAtomic === lock\.amountUsdcAtomic/);
+  const dryRun = preparation.indexOf("assignLoanFinalityTier(lock, verifyOnChainAmount, { dryRun: true })");
+  const guard = preparation.indexOf("await assertLockStable(client, lockRef, candidate, LOCK_FINALITY_PENDING)");
+  const marking = preparation.indexOf("await assignLoanFinalityTier(lock, verifyOnChainAmount);");
+  assert.ok(dryRun > 0 && dryRun < guard && guard < marking, "candidat → garde → marquage");
+  assert.match(preparation, /if \(marked !== "FAST"\) await assertLockStable\(client, lockRef, "FULL", LOCK_FINALITY_PENDING\)/);
+  // Prêt rapide réglé : preuves de rediffusion conservées après le passage en SETTLED, sans bloquer.
+  const settled = SOURCE.slice(SOURCE.indexOf('status: "SETTLED", settleTxHash: settlement.settleTxHash'));
+  assert.match(settled, /if \(effectiveLoanFinalityTier\(loan\.finalityTier\) === "FAST"\) await recordSettlementEvidence\(loanId\);/);
   // Palier effectif : celui de la ligne tant que le coupe-circuit est ouvert, FULL sinon.
   assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
   const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
@@ -71,7 +80,9 @@ test("finalité rapide : l'enclave arbitre seule le palier des trois opérations
   const handler = read("src", "runner", "handler.ts");
   const client = read("src", "lib", "tee", "runner-client.ts");
   // Montant du devis signé, bornes de l'environnement attesté, refus explicite sinon.
-  assert.match(handler, /function loanFinalityTier\(requested: unknown, quote: ComputeQuote\)[\s\S]*?enclaveFinalityTier\(requested, BigInt\(totalQuoteAmount\(quote\)\), fastFinalityPolicy\(\)\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
+  assert.match(handler, /function loanFinalityTier\(requested: unknown, quote: ComputeQuote\)[\s\S]*?const amount = BigInt\(totalQuoteAmount\(quote\)\);[\s\S]*?enclaveFinalityTier\(requested, amount, config\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
+  // Plafond d'exposition propre à l'enclave, dans son registre persistant : atteint ⇒ finalité complète, pas un refus.
+  assert.match(handler, /reserveFastExposure\(quoteWorkflow\(quote\), amount, config\.totalInFlightAtomic, deadlineMs\)[\s\S]*?return "FULL";/);
   assert.match(handler, /loanFinalityTier\(body\.finalityTier, signedQuote\.quote\) : "FULL"/, "run-loan-job : finalité complète sans devis v7");
   assert.match(handler, /assertLoanScope\(\{[\s\S]*?billingQuote: signedQuote\.quote, finalityTier \}/);
   assert.match(handler, /settleBilledEscrow\(signedQuote\.quote, receipt\.loanKey as `0x\$\{string\}`, preimage, lockBlock, finalityTier\)/);
@@ -167,6 +178,7 @@ function settlementFixture(
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
     "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
+    "./settlement-evidence": { recordSettlementEvidence: async () => false },
   });
   return { api, updates };
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import type { Hex, PublicClient } from "viem";
+import { TransactionReceiptNotFoundError, type Hex, type PublicClient } from "viem";
 import { confirmedBlock } from "@/lib/evm/finality";
 
 /**
@@ -39,7 +39,10 @@ export async function verifyFastSettlement(client: PublicClient, input: FastSett
   let receipt: { blockNumber: bigint; blockHash: Hex; status: string; to: string | null } | null;
   try {
     receipt = await client.getTransactionReceipt({ hash: input.settleTxHash });
-  } catch {
+  } catch (error) {
+    // Seul « reçu inconnu » vaut absence. Toute autre erreur RPC (réseau, nœud, autre chaîne)
+    // remonte à l'appelant : comptée dans la passe et retentée, jamais convertie en divergence.
+    if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
     receipt = null;
   }
   if (!receipt) {

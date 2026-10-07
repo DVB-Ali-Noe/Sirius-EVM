@@ -113,6 +113,18 @@ test("un palier rapide acquis est conservé sans relecture ; un prêt hors seuil
   assert.equal(effectiveLoanFinalityTier("FULL", config), "FULL");
 });
 
+test("lecture seule (dryRun) : le palier candidat est rendu sans marquer la ligne, le plafond n'est pas occupé", async () => {
+  const db = database([escrowed("en-cours", "80", "FAST", "TRAINING"), escrowed("a", "20"), escrowed("b", "20")]);
+  const verify = async () => true;
+  assert.equal(await assignLoanFinalityTier({ id: "a", amountUsdcAtomic: usdc("20"), finalityTier: "FULL" }, verify, { config, transaction: db.transaction, dryRun: true }), "FAST");
+  assert.equal(await assignLoanFinalityTier({ id: "b", amountUsdcAtomic: usdc("20"), finalityTier: "FULL" }, verify, { config, transaction: db.transaction, dryRun: true }), "FAST", "rien d'occupé par la lecture précédente");
+  assert.deepEqual(db.writes, []);
+  // Le marquage réel, lui, tranche : un seul des deux tient sous le plafond.
+  assert.equal(await assignLoanFinalityTier({ id: "a", amountUsdcAtomic: usdc("20"), finalityTier: "FULL" }, verify, { config, transaction: db.transaction }), "FAST");
+  assert.equal(await assignLoanFinalityTier({ id: "b", amountUsdcAtomic: usdc("20"), finalityTier: "FULL" }, verify, { config, transaction: db.transaction }), "FULL");
+  assert.deepEqual(db.writes, ["a"]);
+});
+
 test("montant on-chain différent du montant enregistré : refus explicite avant tout marquage", async () => {
   const db = database([escrowed("a", "5")]);
   await assert.rejects(

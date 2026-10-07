@@ -1,6 +1,6 @@
 import { afterEach, before, beforeEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, type Hex } from "viem";
+import { decodeFunctionData, TransactionReceiptNotFoundError, type Hex } from "viem";
 import type { Loan } from "@/generated/prisma/client";
 import { loanKeyFor } from "@/lib/evm/loan-key";
 import { lockUsdcTransaction, refundEscrowTransaction } from "@/lib/evm/transaction";
@@ -536,7 +536,8 @@ function fastSettledReaperFixture(onChainStatus: number, options: { receiptMissi
     : { ...onChain(), status: onChainStatus, datasetAmount: BigInt(100), computeAmount: BigInt(40),
       maxFailureFee: BigInt(20), consumedCompute: BigInt(0), computeRecipient: PROVIDER, termsHash: HASH, lockedAt: BigInt(1) });
   mock.method(client, "getTransactionReceipt", async () => {
-    if (options.receiptMissing) throw new Error("introuvable");
+    // Seul « reçu inconnu » (classe viem) vaut absence ; une autre erreur RPC remonterait (fast-settlement-review.test.ts).
+    if (options.receiptMissing) throw new TransactionReceiptNotFoundError({ hash: HASH });
     return { status: "success", transactionHash: HASH, to: ESCROW, blockNumber: BigInt(10), blockHash: HASH };
   });
   mock.method(client, "getBlockNumber", async () => BigInt(10));
@@ -577,6 +578,40 @@ test("finalité rapide : un release disparu après réorganisation ouvre une rev
     stubDb(prisma.dataset, "findUnique", async () => ({ evmDatasetId: DATASET, evmMintBlock: "8" }));
     mock.method(client, "getChainId", async () => 46630);
   }
+});
+
+test("finalité rapide : un prêt ESCROWED classé rapide et inactif dix minutes revient à la finalité complète", async () => {
+  const now = new Date("2026-10-07T12:00:00.000Z");
+  const idle = loan({ status: "ESCROWED", modelCid: null, billingQuoteHash: HASH, finalityTier: "FAST", updatedAt: new Date(now.getTime() - 10 * 60_000) } as Partial<Loan>);
+  const active = loan({ id: "loan-2", status: "ESCROWED", modelCid: null, billingQuoteHash: HASH, finalityTier: "FAST", updatedAt: new Date(now.getTime() - 60_000) } as Partial<Loan>);
+  stubDb(prisma.loan, "findMany", async () => [idle, active]);
+  // Le prêt actif suit le chemin habituel (reprise du résultat) : l'enclave est indisponible dans ce test.
+  stubDb(prisma.loan, "findUnique", async () => { throw new Error("runner indisponible"); });
+  mock.method(console, "error", () => {});
+  mock.method(console, "log", () => {});
+  const result = await reap(now);
+  assert.equal(result.examined, 2);
+  const reverted = updates.filter((update) => update.data.finalityTier === "FULL");
+  assert.equal(reverted.length, 1);
+  assert.deepEqual(reverted[0].where, { id: "loan-1", status: "ESCROWED", finalityTier: "FAST", updatedAt: idle.updatedAt });
+  // La clause de sélection cible bien ces prêts, et seulement eux.
+  const seen: string[] = [];
+  stubDb(prisma.loan, "findMany", async ({ where }: { where: Record<string, unknown> }) => {
+    const rows = [idle, active, loan({ id: "loan-3", status: "ESCROWED", finalityTier: "FULL", updatedAt: new Date(0) } as Partial<Loan>)];
+    seen.push(...rows.filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where)).map((row) => row.id));
+    return [];
+  });
+  await reap(now);
+  assert.ok(seen.includes("loan-1") && !seen.includes("loan-2"), seen.join(","));
+});
+
+test("finalité rapide : une panne RPC pendant la revérification compte comme erreur de passe, sans ouvrir de revue", async () => {
+  const errors = fastSettledReaperFixture(2);
+  mock.method(client, "getTransactionReceipt", async () => { throw new Error("ECONNRESET"); });
+  const result = await reap();
+  assert.deepEqual(result, { examined: 1, failed: 1 });
+  assert.deepEqual(updates, [], "ni revue ni vérification écrites");
+  assert.ok(errors.every((line) => !/ALERTE finalité rapide/.test(line)), errors.join("\n"));
 });
 
 test("finalité rapide : le bloc finalisé pas encore atteint laisse le prêt tel quel, sans écriture ni alerte", async () => {
