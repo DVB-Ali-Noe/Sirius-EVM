@@ -53,6 +53,8 @@ import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
 import { fastFinalityPolicy } from "@/lib/evm/finality";
 import { enclaveFinalityTier, type FinalityTier } from "@/lib/evm/fast-finality";
 import { totalQuoteAmount, type ComputeQuote } from "@/lib/billing/quote";
+import { RunnerRetryLater } from "@/lib/runner/failure-policy";
+import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 
 const MAX_ID_LENGTH = 128;
 
@@ -63,24 +65,29 @@ const MAX_ID_LENGTH = 128;
  * palier rapide, l'enclave ne l'accorde que si sa politique l'admet pour ce montant, et refuse
  * explicitement sinon : jamais de profondeur rapide pour un prêt au-dessus du seuil.
  *
- * Plafond d'exposition propre à l'enclave : la somme des prêts rapides verrouillés non libérés est
- * tenue dans son registre persistant (`fast_exposure`, budget-ledger.ts) et bornée par la constante
- * attestée SIRIUS_FAST_FINALITY_TOTAL_USDC. Plafond atteint ⇒ finalité complète pour ce prêt, pas
- * un refus : le lock est alors lu au bloc finalisé, exactement comme avant. La part réservée est
- * rendue au release ou au remboursement confirmé, et purgée après l'échéance du prêt.
+ * Cette décision ne réserve rien : règlement et livraison de clé la reprennent telle quelle. Le
+ * plafond d'exposition de l'enclave (`reserveFastExposure`) n'est engagé qu'au lancement du calcul,
+ * une fois le lock lu à la profondeur rapide : voir `run-loan-job`.
  */
 function loanFinalityTier(requested: unknown, quote: ComputeQuote): FinalityTier {
-  const config = fastFinalityPolicy();
-  const amount = BigInt(totalQuoteAmount(quote));
-  const tier = enclaveFinalityTier(requested, amount, config);
+  const tier = enclaveFinalityTier(requested, BigInt(totalQuoteAmount(quote)), fastFinalityPolicy());
   if (tier === null) throw new AppError("Finalité rapide refusée par l’enclave pour ce prêt", 409);
-  if (tier === "FULL") return "FULL";
+  return tier;
+}
+
+/**
+ * Plafond d'exposition propre à l'enclave : la somme des prêts rapides verrouillés non libérés est
+ * tenue dans son registre persistant (`fast_exposure`, budget-ledger.ts) et bornée par la constante
+ * attestée SIRIUS_FAST_FINALITY_TOTAL_USDC. Appelé au lancement seulement, après lecture du lock à
+ * la profondeur rapide ; idempotent pour un même prêt ; la part est rendue au release ou au
+ * remboursement confirmés, à l'échec définitif du règlement, et purgée après l'échéance du prêt.
+ * Jamais sur la livraison de clé : le release l'a déjà rendue, la réserver à nouveau figerait le
+ * plafond jusqu'à l'échéance de prêts pourtant clos.
+ */
+function reserveFastExposure(quote: ComputeQuote): boolean {
+  const config = fastFinalityPolicy();
   const deadlineMs = (quote.expiresAt + quote.challengeDays * 86_400) * 1_000;
-  if (!requireBillingBudget().reserveFastExposure(quoteWorkflow(quote), amount, config.totalInFlightAtomic, deadlineMs)) {
-    console.warn(`[runner] plafond d'exposition rapide atteint : prêt ${quote.loanId} traité à finalité complète`);
-    return "FULL";
-  }
-  return "FAST";
+  return requireBillingBudget().reserveFastExposure(quoteWorkflow(quote), BigInt(totalQuoteAmount(quote)), config.totalInFlightAtomic, deadlineMs);
 }
 const MAX_CID_LENGTH = 256;
 const MAX_WRAPPED_KEY_LENGTH = 1_024;
@@ -263,7 +270,17 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const { hashlock, preimage } = escrowLock(loanId, borrower);
       const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
-      const finalityTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
+      const candidateTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
+      const loanScope = (finalityTier: FinalityTier) => assertLoanScope({
+        loanKey,
+        borrower,
+        provider: datasetReceipt.owner,
+        datasetId: dataset.datasetId,
+        amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
+        hashlock,
+        model: dataset,
+        ...(signedQuote ? { billingQuote: signedQuote.quote, finalityTier } : {}),
+      });
       const execute = async () => {
         await Promise.all([
           assertDatasetScope({
@@ -273,17 +290,17 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
             cid: dataset.cid,
             model: dataset,
           }),
-          assertLoanScope({
-            loanKey,
-            borrower,
-            provider: datasetReceipt.owner,
-            datasetId: dataset.datasetId,
-            amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
-            hashlock,
-            model: dataset,
-            ...(signedQuote ? { billingQuote: signedQuote.quote, finalityTier } : {}),
-          }),
+          loanScope(candidateTier),
         ]);
+        // Lock lu à la profondeur rapide : la part de ce prêt entre maintenant dans le plafond de
+        // l'enclave. Plafond atteint ⇒ le prêt est traité à finalité complète si son lock est déjà
+        // sous le bloc finalisé ; sinon « en attente », le même message que Next rend à la page
+        // Train pour un lock pas encore stable, sans compter d'échec ni consommer de crédit (le
+        // palier de Next, lui, reste rapide : il réessaie, le plafond se libère au fil des releases).
+        if (signedQuote && candidateTier === "FAST" && !reserveFastExposure(signedQuote.quote)) {
+          console.warn(`[runner] plafond d'exposition rapide atteint : prêt ${loanId} traité à finalité complète`);
+          try { await loanScope("FULL"); } catch { throw new RunnerRetryLater(LOCK_FINALITY_PENDING); }
+        }
 
         if (signedQuote) {
           requireBillingBudget().prepareWorkflowResult(quoteWorkflow(signedQuote.quote), JSON.stringify({

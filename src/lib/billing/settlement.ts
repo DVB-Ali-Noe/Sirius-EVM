@@ -13,6 +13,7 @@ import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
 import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
 import { assertCanonicalReceipt } from "@/lib/evm/finality";
 import type { FinalityTier } from "@/lib/evm/fast-finality";
+import { releasesReservation } from "@/lib/runner/failure-policy";
 import { quoteWorkflow, requireBillingBudget } from "./runner";
 import { executionReceiptTypedData, failureFee, quoteTermsHash, type ComputeQuote } from "./quote";
 
@@ -75,7 +76,16 @@ export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, prei
   }
   const loan = await readLoan(loanKey, quote);
   if (loan?.billing?.termsHash !== quoteTermsHash(quote)) throw new AppError("Devis compute hors scope", 409);
-  const txHash = await sendBilledAction(quote, loanKey, "release", data, finalityTier);
+  let txHash: string;
+  try {
+    txHash = await sendBilledAction(quote, loanKey, "release", data, finalityTier);
+  } catch (error) {
+    // Échec définitif du règlement (release rejeté, tentative épuisée) : le prêt ne sera plus libéré
+    // par l'enclave, sa part ne pèse plus sur le plafond rapide. Une attente de finalité ou un refus
+    // avant signature ne sont pas définitifs : la part reste réservée.
+    if (!releasesReservation(error)) ledger.releaseFastExposure(quoteWorkflow(quote));
+    throw error;
+  }
   // Release confirmé au palier demandé : ce prêt ne pèse plus sur le plafond rapide de l'enclave.
   ledger.releaseFastExposure(quoteWorkflow(quote));
   return txHash;

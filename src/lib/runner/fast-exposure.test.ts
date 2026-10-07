@@ -57,7 +57,11 @@ test("la réserve rapide est bornée par le plafond attesté, idempotente par pr
   assert.equal(ledger.reserveFastExposure(b, usdc(75), CAP, DEADLINE, NOW), true, "exactement le plafond");
   assert.equal(ledger.reserveFastExposure(c, BigInt(1), CAP, DEADLINE, NOW), false, "un atome au-dessus : finalité complète");
   assert.equal(ledger.fastExposureAtomic(), usdc(100));
+  // Release confirmé : la part est rendue tout de suite, un prêt livré ne pèse plus sur le plafond
+  // (la livraison de clé ne réserve jamais : handler.ts), et rendre deux fois est sans effet.
   ledger.releaseFastExposure(a);
+  ledger.releaseFastExposure(a);
+  assert.equal(ledger.fastExposureAtomic(), usdc(75));
   assert.equal(ledger.reserveFastExposure(c, usdc(25), CAP, DEADLINE, NOW), true, "la part libérée est réutilisable");
   // Montant nul ou échéance passée : jamais réservé.
   assert.equal(ledger.reserveFastExposure(workflow(4), BigInt(0), CAP, DEADLINE, NOW), false);

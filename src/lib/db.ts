@@ -35,6 +35,13 @@ export const prisma =
         trainingConsentVersion: true,
         trainingConsentRevokedAt: true,
       },
+      // Preuves de rediffusion d'un release rapide (settlement-evidence.ts) : matière d'opérateur,
+      // jamais une donnée de l'API. `GET /api/loans` renvoie la ligne entière ; seule la capture les
+      // relit, par `select` explicite.
+      loan: {
+        settleRawTx: true,
+        settlePreimage: true,
+      },
     },
   });
 

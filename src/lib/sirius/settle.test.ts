@@ -80,11 +80,33 @@ test("finalité rapide : l'enclave arbitre seule le palier des trois opérations
   const handler = read("src", "runner", "handler.ts");
   const client = read("src", "lib", "tee", "runner-client.ts");
   // Montant du devis signé, bornes de l'environnement attesté, refus explicite sinon.
-  assert.match(handler, /function loanFinalityTier\(requested: unknown, quote: ComputeQuote\)[\s\S]*?const amount = BigInt\(totalQuoteAmount\(quote\)\);[\s\S]*?enclaveFinalityTier\(requested, amount, config\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
-  // Plafond d'exposition propre à l'enclave, dans son registre persistant : atteint ⇒ finalité complète, pas un refus.
-  assert.match(handler, /reserveFastExposure\(quoteWorkflow\(quote\), amount, config\.totalInFlightAtomic, deadlineMs\)[\s\S]*?return "FULL";/);
-  assert.match(handler, /loanFinalityTier\(body\.finalityTier, signedQuote\.quote\) : "FULL"/, "run-loan-job : finalité complète sans devis v7");
-  assert.match(handler, /assertLoanScope\(\{[\s\S]*?billingQuote: signedQuote\.quote, finalityTier \}/);
+  // La décision ne réserve rien : règlement et livraison de clé la reprennent telle quelle.
+  const decision = handler.slice(handler.indexOf("function loanFinalityTier("), handler.indexOf("function reserveFastExposure("));
+  assert.match(decision, /enclaveFinalityTier\(requested, BigInt\(totalQuoteAmount\(quote\)\), fastFinalityPolicy\(\)\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
+  assert.doesNotMatch(decision, /reserveFastExposure|requireBillingBudget/, "aucune réservation dans la décision");
+  // Plafond d'exposition de l'enclave : réservé au lancement seulement, après lecture du lock à la
+  // profondeur rapide ; atteint ⇒ finalité complète si le lock est finalisé, sinon « en attente »
+  // (RunnerRetryLater : ni échec compté ni crédit consommé), jamais un refus dur.
+  // `lastIndexOf` : les mêmes libellés apparaissent d'abord dans scopeForRunnerOp.
+  const run = handler.slice(handler.lastIndexOf('case "run-loan-job"'), handler.lastIndexOf('case "recover-loan-job"'));
+  assert.match(run, /loanFinalityTier\(body\.finalityTier, signedQuote\.quote\) : "FULL"/, "run-loan-job : finalité complète sans devis v7");
+  const scopeRead = run.indexOf("loanScope(candidateTier)");
+  const reservation = run.indexOf("!reserveFastExposure(signedQuote.quote)");
+  assert.ok(scopeRead > 0 && scopeRead < reservation, "lecture du lock avant la réservation");
+  assert.match(run, /!reserveFastExposure\(signedQuote\.quote\)\) \{[\s\S]*?try \{ await loanScope\("FULL"\); \} catch \{ throw new RunnerRetryLater\(LOCK_FINALITY_PENDING\); \}/);
+  // Les deux autres opérations décident sans réserver : une livraison après release ne touche pas le plafond.
+  const settleOp = handler.slice(handler.lastIndexOf('case "settle-loan"'), handler.lastIndexOf('case "loan-model-key"'));
+  const keyOp = handler.slice(handler.lastIndexOf('case "loan-model-key"'), handler.lastIndexOf('case "run-training"'));
+  for (const [name, source] of [["settle-loan", settleOp], ["loan-model-key", keyOp]] as const) {
+    assert.match(source, /loanFinalityTier\(body\.finalityTier/, name);
+    assert.doesNotMatch(source, /reserveFastExposure/, `${name} ne réserve jamais`);
+  }
+  assert.equal(handler.split("reserveFastExposure(").length - 1, 3, "définition, appel du registre, appel au lancement : rien d'autre");
+  // Côté règlement : la part est rendue au release confirmé, à la résolution déjà close et à l'échec définitif, jamais sur une attente.
+  const settlement = read("src", "lib", "billing", "settlement.ts");
+  assert.match(settlement, /if \(resolution\.state !== "active"\) ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);/);
+  assert.match(settlement, /catch \(error\) \{[\s\S]*?if \(!releasesReservation\(error\)\) ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);[\s\S]*?throw error;/);
+  assert.match(settlement, /const refundTxHash = await sendBilledAction\(quote, loanKey, "failure", data\);\s*[\s\S]*?ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);/);
   assert.match(handler, /settleBilledEscrow\(signedQuote\.quote, receipt\.loanKey as `0x\$\{string\}`, preimage, lockBlock, finalityTier\)/);
   assert.match(handler, /publishedFinalizedPreimage\([\s\S]*?loanFinalityTier\(body\.finalityTier, signed\.quote\)\)/);
   // Le client n'ajoute le champ que pour FAST : un prêt FULL envoie la charge historique.
