@@ -4,6 +4,7 @@ import { exposureLimits } from "@/lib/sirius/exposure-limits";
 import { previewGateStartupNotice } from "@/lib/preview-gate/gate";
 import { autoInviteStartupNotice } from "@/lib/kyb/auto-invite";
 import { fastFinalityPolicy, finalityPolicy } from "@/lib/evm/finality";
+import { assistantStartupNotice } from "@/lib/assistant/config";
 
 const DEMO = isDemoDeployment();
 
@@ -26,6 +27,10 @@ export async function registerNode() {
   // Le message ne contient que l'adresse publique du vérificateur automatique, jamais la clé.
   const autoInvite = autoInviteStartupNotice();
   if (autoInvite) console.warn(autoInvite);
+  // Assistant Sirio : même logique, drapeau absent = chat fermé sans rien exiger ; « true »
+  // sans ANTHROPIC_API_KEY refuse de démarrer. La clé n'apparaît jamais dans le message.
+  const assistant = assistantStartupNotice();
+  if (assistant) console.warn(assistant);
   if (process.env.NODE_ENV === "production") {
     if (process.env.NEXT_PUBLIC_SIRIUS_E2E === "1") {
       throw new Error("NEXT_PUBLIC_SIRIUS_E2E interdit en production");

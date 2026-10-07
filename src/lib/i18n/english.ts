@@ -11,8 +11,12 @@ import { TRAIN_MESSAGES_EN } from "./train-en";
 import { SETTINGS_MESSAGES_EN } from "./settings-en";
 import { FUNDING_MESSAGES_EN } from "./funding-en";
 import { ONBOARDING_MESSAGES_EN } from "./onboarding-en";
+import { ASSISTANT_MESSAGES_EN } from "./assistant-en";
+import { GUIDE_MESSAGES_EN } from "./guide-en";
 
 export const EN_MESSAGES: Record<string, string> = {
+  ...ASSISTANT_MESSAGES_EN,
+  ...GUIDE_MESSAGES_EN,
   ...ERROR_MESSAGES_EN,
   ...PHALA_MESSAGES_EN,
   ...SHARED_MESSAGES_EN,
@@ -178,7 +182,6 @@ export const EN_MESSAGES: Record<string, string> = {
   "Épingler le menu": "Pin sidebar open",
   "Quitter": "Exit",
   "Bienvenue sur Sirius": "Welcome to Sirius",
-  "Connecte un wallet pour accéder à ton tableau de bord.": "Connect a wallet to access your dashboard.",
   "Connecter un wallet": "Connect a wallet",
   "Accéder à l’app": "Access the app",
   "Solde": "Balance",

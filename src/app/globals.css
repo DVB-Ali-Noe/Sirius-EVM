@@ -70,3 +70,43 @@ body::-webkit-scrollbar {
 .animate-fade-in {
   animation: fade-in 200ms ease-out;
 }
+
+/* Guide Sirio (src/components/guide/GuideBlob.tsx) : respiration du noyau, rebond de joie,
+   orbite des particules et clignement. Les composants n'appliquent ces animations que si
+   `prefers-reduced-motion` n'est pas demandé. */
+@keyframes guide-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes guide-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-6px) scale(1.05, 0.96);
+  }
+}
+
+@keyframes guide-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes guide-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}

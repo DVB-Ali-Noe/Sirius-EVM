@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EN_MESSAGES } from "@/lib/i18n/english";
-import { LOAN_PHASE_LABEL, onboardingCopyKeys, stepCopy, verificationIntro } from "./copy";
+import { LOAN_PHASE_LABEL, WELCOME_BODY, WELCOME_TITLE, onboardingCopyKeys, stepCopy, verificationIntro } from "./copy";
 import {
   ONBOARDING_STEP_IDS,
   activeLoanSummary,
@@ -25,7 +25,7 @@ const OTHER = `0x${"cd".repeat(20)}`;
 const TX = `0x${"22".repeat(32)}`;
 
 function input(overrides: Partial<OnboardingInput> = {}): OnboardingInput {
-  return { kyb: "missing", gasWei: "0", stableAtomic: "0", loans: [], viewer: ME, ...overrides };
+  return { connected: true, authenticated: true, kyb: "missing", gasWei: "0", stableAtomic: "0", loans: [], viewer: ME, ...overrides };
 }
 
 function loan(status: string, overrides: Partial<OnboardingLoan> = {}): OnboardingLoan {
@@ -36,12 +36,39 @@ function done(progress: ReturnType<typeof deriveOnboardingProgress>) {
   return Object.fromEntries(progress.steps.map((step) => [step.id, step.done]));
 }
 
-test("compte neuf : rien n'est fait, la première étape est la vérification", () => {
+test("ordre des étapes : du wallet au modèle livré", () => {
+  assert.deepEqual([...ONBOARDING_STEP_IDS], ["connect", "signin", "verify", "fund", "pick", "borrow", "model"]);
+});
+
+test("visiteur sans wallet : la première étape est la connexion, rien d'autre n'est coché", () => {
+  const progress = deriveOnboardingProgress(input({ connected: false, authenticated: false, kyb: null, gasWei: null, stableAtomic: null, loans: null, viewer: null }));
+  assert.equal(progress.current, "connect");
+  assert.equal(progress.completed, 0);
+  assert.equal(progress.total, 7);
+  assert.deepEqual(progress.funding, { gas: true, token: true });
+  // Session ou soldes restés en mémoire sans wallet connecté : jamais pris en compte.
+  const stale = deriveOnboardingProgress(input({ connected: false, authenticated: true, kyb: "valid", gasWei: "1", stableAtomic: "1", loans: [loan("SETTLED")] }));
+  assert.equal(stale.current, "connect");
+  assert.equal(stale.completed, 0);
+});
+
+test("wallet connecté mais pas signé : la signature est l'étape courante, KYB et prêts ignorés", () => {
+  const progress = deriveOnboardingProgress(input({ authenticated: false, kyb: "valid", loans: [loan("SETTLED")] }));
+  assert.equal(progress.current, "signin");
+  assert.deepEqual(done(progress), { connect: true, signin: false, verify: false, fund: false, pick: false, borrow: false, model: false });
+  // Les soldes se lisent sans session : des fonds déjà présents cochent l'étape.
+  const funded = deriveOnboardingProgress(input({ authenticated: false, gasWei: "1", stableAtomic: "1" }));
+  assert.equal(funded.current, "signin");
+  assert.equal(done(funded).fund, true);
+  assert.equal(funded.completed, 2);
+});
+
+test("compte neuf signé : connexion et signature faites, la vérification est l'étape courante", () => {
   const progress = deriveOnboardingProgress(input());
   assert.deepEqual(progress.steps.map((step) => step.id), [...ONBOARDING_STEP_IDS]);
   assert.equal(progress.current, "verify");
-  assert.equal(progress.completed, 0);
-  assert.equal(progress.total, 5);
+  assert.equal(progress.completed, 2);
+  assert.equal(progress.total, 7);
   assert.deepEqual(progress.funding, { gas: true, token: true });
 });
 
@@ -67,20 +94,20 @@ test("fonds : il faut à la fois de l'ETH pour le gas et le jeton pour emprunter
 
 test("emprunt payé : les étapes amont sont validées même si le solde est retombé à zéro", () => {
   const progress = deriveOnboardingProgress(input({ kyb: "valid", loans: [loan("ESCROWED", { evmLockTxHash: TX })] }));
-  assert.deepEqual(done(progress), { verify: true, fund: true, pick: true, borrow: true, model: false });
+  assert.deepEqual(done(progress), { connect: true, signin: true, verify: true, fund: true, pick: true, borrow: true, model: false });
   assert.equal(progress.current, "model");
 });
 
 test("un devis abandonné compte comme dataset choisi, pas comme emprunt", () => {
   const progress = deriveOnboardingProgress(input({ kyb: "valid", gasWei: "1", stableAtomic: "1", loans: [loan("PENDING")] }));
-  assert.deepEqual(done(progress), { verify: true, fund: true, pick: true, borrow: false, model: false });
+  assert.deepEqual(done(progress), { connect: true, signin: true, verify: true, fund: true, pick: true, borrow: false, model: false });
   assert.equal(progress.current, "borrow");
 });
 
 test("modèle livré : tout est fait, la carte n'a plus d'étape courante", () => {
   const progress = deriveOnboardingProgress(input({ kyb: "valid", loans: [loan("SETTLED")] }));
   assert.equal(progress.current, null);
-  assert.equal(progress.completed, 5);
+  assert.equal(progress.completed, 7);
 });
 
 test("seuls les prêts où le wallet est emprunteur comptent, quelle que soit la casse", () => {
@@ -103,11 +130,18 @@ test("emprunt payé : lock envoyé, confirmé, réglé ou remboursé ; jamais un
 });
 
 test("affichage de la carte : préférence lue, non fermée, parcours inachevé — ou rouverte à la main", () => {
-  assert.equal(showsChecklist({ dismissed: null, complete: false, reopened: false }), false);
-  assert.equal(showsChecklist({ dismissed: true, complete: false, reopened: false }), false);
-  assert.equal(showsChecklist({ dismissed: false, complete: false, reopened: false }), true);
-  assert.equal(showsChecklist({ dismissed: false, complete: true, reopened: false }), false);
-  assert.equal(showsChecklist({ dismissed: true, complete: true, reopened: true }), true);
+  const signedIn = true;
+  assert.equal(showsChecklist({ signedIn, dismissed: null, complete: false, reopened: false }), false);
+  assert.equal(showsChecklist({ signedIn, dismissed: true, complete: false, reopened: false }), false);
+  assert.equal(showsChecklist({ signedIn, dismissed: false, complete: false, reopened: false }), true);
+  assert.equal(showsChecklist({ signedIn, dismissed: false, complete: true, reopened: false }), false);
+  assert.equal(showsChecklist({ signedIn, dismissed: true, complete: true, reopened: true }), true);
+});
+
+test("affichage de la carte avant la signature : toujours, sans préférence à lire", () => {
+  assert.equal(showsChecklist({ signedIn: false, dismissed: null, complete: false, reopened: false }), true);
+  // Une fermeture restée en mémoire d'un autre compte ne masque pas l'accueil d'un visiteur.
+  assert.equal(showsChecklist({ signedIn: false, dismissed: true, complete: false, reopened: false }), true);
 });
 
 test("fenêtre de vérification : invitation si l'accès instantané est coupé, explication du gas sans ETH", () => {
@@ -244,6 +278,7 @@ test("textes sensibles au réseau : jamais « mainnet » sur le testnet", () => 
     assert.doesNotMatch(`${copy.title} ${copy.body}`, /mainnet/i);
     assert.doesNotMatch(`${EN_MESSAGES[copy.title]} ${EN_MESSAGES[copy.body]}`, /mainnet/i);
   }
+  assert.doesNotMatch(`${EN_MESSAGES[WELCOME_TITLE]} ${EN_MESSAGES[WELCOME_BODY]}`, /mainnet/i);
   assert.match(EN_MESSAGES[stepCopy("mainnet").verify.body], /mainnet/);
   assert.match(EN_MESSAGES[verificationIntro("prompt", "mainnet")], /mainnet/);
 });
@@ -254,4 +289,17 @@ test("tous les textes du parcours ont une traduction anglaise sans « USDC » é
     assert.doesNotMatch(EN_MESSAGES[key], /USDC/, key);
   }
   assert.match(EN_MESSAGES[stepCopy("mainnet").fund.title], /\{token\}/);
+});
+
+test("étapes de connexion : la signature est présentée comme gratuite et sans transaction", () => {
+  for (const network of ["mainnet", "testnet"] as const) {
+    const copy = stepCopy(network);
+    assert.equal(EN_MESSAGES[copy.connect.title], "Connect your wallet");
+    assert.equal(EN_MESSAGES[copy.signin.title], "Sign in");
+    assert.match(EN_MESSAGES[copy.signin.body], /free/);
+    assert.match(EN_MESSAGES[copy.signin.body], /not a transaction/);
+    assert.match(EN_MESSAGES[copy.signin.body], /own this wallet/);
+  }
+  assert.equal(EN_MESSAGES[WELCOME_TITLE], "Welcome to Sirius");
+  assert.match(EN_MESSAGES[WELCOME_BODY], /without ever exposing the data/);
 });

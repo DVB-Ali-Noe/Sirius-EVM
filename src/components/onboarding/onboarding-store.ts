@@ -40,6 +40,12 @@ interface OnboardingState {
   /** Carte rouverte depuis le menu profil : affichée même quand le parcours est terminé. */
   reopened: boolean;
   dialog: VerificationRequest | null;
+  /**
+   * Wallet (minuscules) qui vient de se signer depuis la carte « Get started » : la fenêtre de
+   * vérification lui est proposée même hors accès instantané (formulaire d'invitation). Hors de la
+   * remise à zéro par adresse : la signature change le propriétaire juste avant cette demande.
+   */
+  chainedFor: string | null;
 }
 
 export const useOnboardingStore = create<OnboardingState>(() => ({
@@ -50,6 +56,7 @@ export const useOnboardingStore = create<OnboardingState>(() => ({
   dismissed: null,
   reopened: false,
   dialog: null,
+  chainedFor: null,
 }));
 
 /** Au-delà, la garde relit le registre plutôt que de se fier au statut en mémoire. */
@@ -192,19 +199,41 @@ export function reopenChecklist(): void {
 
 const PROMPT_PREFIX = "sirius-onboarding-prompt:";
 
+/** Wallets à qui la fenêtre a été proposée dans cet onglet, si `sessionStorage` est interdit. */
+const shownHere = new Set<string>();
+
 /** La fenêtre d'après connexion a-t-elle déjà été proposée à ce wallet dans cet onglet ? */
 export function promptShownThisSession(address: string): boolean {
+  const key = address.toLowerCase();
+  if (shownHere.has(key)) return true;
   try {
-    return window.sessionStorage.getItem(PROMPT_PREFIX + address.toLowerCase()) === "1";
+    return window.sessionStorage.getItem(PROMPT_PREFIX + key) === "1";
   } catch {
     return false;
   }
 }
 
 export function markPromptShown(address: string): void {
+  const key = address.toLowerCase();
+  shownHere.add(key);
   try {
-    window.sessionStorage.setItem(PROMPT_PREFIX + address.toLowerCase(), "1");
+    window.sessionStorage.setItem(PROMPT_PREFIX + key, "1");
   } catch {
-    // Stockage interdit : la mémoire du module suffit pour l'onglet (voir OnboardingHost).
+    // Stockage interdit : la mémoire du module suffit pour l'onglet.
   }
+}
+
+/**
+ * Signature réussie depuis la carte « Get started » : enchaîner sur la vérification si le wallet
+ * n'est pas vérifié. Le statut est relu (la connexion a pu attester le wallet entre-temps), puis
+ * `OnboardingHost` ouvre la fenêtre quand la place est libre, une seule fois par session.
+ */
+export async function chainVerificationAfterSignIn(): Promise<void> {
+  const owner = signedAddress();
+  if (!owner || promptShownThisSession(owner)) return;
+  // L'hôte remet normalement l'état à zéro pour ce wallet ; sans effet s'il l'a déjà fait.
+  resetOnboardingFor(owner);
+  const kyb = await loadKybGate();
+  if (kyb !== "missing" || signedAddress() !== owner) return;
+  useOnboardingStore.setState({ chainedFor: owner });
 }
