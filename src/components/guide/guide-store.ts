@@ -29,9 +29,8 @@ interface GuideState {
   suppressed: boolean;
   /** Wallet signé (minuscules) dont la progression vient du profil ; `null` : note locale. */
   owner: string | null;
+  /** Progression, état réduit compris (`minimized`), mémorisée comme le reste. */
   progress: GuideProgress;
-  /** Rangé dans la bulle (Échap, « Réduire ») sans avoir passé : la bulle le rouvre là où il en était. */
-  minimized: boolean;
   panelOpen: boolean;
 }
 
@@ -40,7 +39,6 @@ export const useGuideStore = create<GuideState>(() => ({
   suppressed: false,
   owner: null,
   progress: { ...EMPTY_GUIDE_PROGRESS },
-  minimized: false,
   panelOpen: false,
 }));
 
@@ -74,21 +72,23 @@ export function startGuide(): void {
 }
 
 async function saveProfileGuide(progress: GuideProgress, owner: string): Promise<void> {
+  let saved = false;
   try {
-    await fetch("/api/profile", {
+    const response = await fetch("/api/profile", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ settings: { guide: progress } }),
       cache: "no-store",
       credentials: "same-origin",
     });
+    saved = response.ok;
   } catch {
-    // Écriture perdue : l'affichage de cet onglet suit quand même le choix de l'utilisateur ; la
-    // note locale est gardée et sera renvoyée à la prochaine signature.
-    return;
+    saved = false;
   }
-  // Confirmée pour ce wallet : la note locale anonyme n'a plus de raison d'être.
-  if (useGuideStore.getState().owner === owner) writeLocalGuideProgress(storage(), { ...EMPTY_GUIDE_PROGRESS });
+  // Écriture perdue ou refusée : l'affichage de cet onglet suit quand même le choix de
+  // l'utilisateur, et la note locale est gardée pour être renvoyée à la prochaine signature.
+  // Confirmée pour ce wallet : la note anonyme n'a plus de raison d'être.
+  if (saved && useGuideStore.getState().owner === owner) writeLocalGuideProgress(storage(), { ...EMPTY_GUIDE_PROGRESS });
 }
 
 /**
@@ -116,25 +116,28 @@ export async function syncGuideWithProfile(address: string): Promise<void> {
 /** Déconnexion ou changement de wallet : la progression redevient la note locale. */
 export function resetGuideOwner(): void {
   if (useGuideStore.getState().owner === null) return;
-  useGuideStore.setState({ owner: null, progress: readLocalGuideProgress(storage()), minimized: false });
+  useGuideStore.setState({ owner: null, progress: readLocalGuideProgress(storage()) });
 }
 
 /** Action de l'utilisateur sur le guide : à l'écran tout de suite, puis enregistrée. */
 export function applyGuideAction(action: GuideAction): void {
   const state = useGuideStore.getState();
   const progress = reduceGuideProgress(state.progress, action);
-  useGuideStore.setState({ progress, minimized: false });
+  useGuideStore.setState({ progress });
   const owner = signedAddress();
   if (owner && state.owner === owner) void saveProfileGuide(progress, owner);
   else writeLocalGuideProgress(storage(), progress);
 }
 
+/** Échap ou « Réduire » : rangé dans la bulle, mémorisé comme le reste de la progression. */
 export function minimizeGuide(): void {
-  useGuideStore.setState({ minimized: true });
+  applyGuideAction({ type: "minimize" });
 }
 
+/** Clic sur la bulle pendant un parcours réduit : reprend là où il en était. */
 export function restoreGuide(): void {
-  useGuideStore.setState({ minimized: false, panelOpen: false });
+  useGuideStore.setState({ panelOpen: false });
+  applyGuideAction({ type: "restore" });
 }
 
 export function setGuidePanelOpen(panelOpen: boolean): void {

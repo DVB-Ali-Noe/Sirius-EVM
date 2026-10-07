@@ -43,6 +43,8 @@ export interface GuideProgress {
   tourDone: boolean;
   /** « Passer » : le guide se range dans sa bulle et ne se rouvre pas tout seul. */
   skipped: boolean;
+  /** Réduit dans la bulle (Échap, « Réduire ») sans avoir passé : la bulle le rouvre là où il en était. */
+  minimized: boolean;
 }
 
 export const EMPTY_GUIDE_PROGRESS: Readonly<GuideProgress> = Object.freeze({
@@ -51,6 +53,7 @@ export const EMPTY_GUIDE_PROGRESS: Readonly<GuideProgress> = Object.freeze({
   tourIndex: 0,
   tourDone: false,
   skipped: false,
+  minimized: false,
 });
 
 export interface GuideInput {
@@ -77,6 +80,7 @@ export function parseGuideProgress(value: unknown): GuideProgress {
     tourIndex: Math.min(Math.max(index, 0), GUIDE_TOUR_STOPS.length - 1),
     tourDone: value.tourDone === true,
     skipped: value.skipped === true,
+    minimized: value.minimized === true,
   };
 }
 
@@ -88,11 +92,12 @@ export function mergeGuideProgress(a: GuideProgress, b: GuideProgress): GuidePro
     tourIndex: Math.max(a.tourIndex, b.tourIndex),
     tourDone: a.tourDone || b.tourDone,
     skipped: a.skipped || b.skipped,
+    minimized: a.minimized || b.minimized,
   };
 }
 
 export function isEmptyGuideProgress(progress: GuideProgress): boolean {
-  return !progress.arrivalSeen && progress.tourIndex === 0 && !progress.tourDone && !progress.skipped;
+  return !progress.arrivalSeen && progress.tourIndex === 0 && !progress.tourDone && !progress.skipped && !progress.minimized;
 }
 
 /**
@@ -118,22 +123,30 @@ export type GuideAction =
   | { type: "tour-previous" }
   | { type: "tour-finish" }
   | { type: "skip" }
+  | { type: "minimize" }
+  | { type: "restore" }
   | { type: "replay" };
 
+/** Toute action sur le guide ouvert le sort de l'état réduit, sauf « réduire » elle-même. */
 export function reduceGuideProgress(progress: GuideProgress, action: GuideAction): GuideProgress {
+  const open = { ...progress, minimized: false };
   switch (action.type) {
     case "arrival-continue":
-      return { ...progress, arrivalSeen: true };
+      return { ...open, arrivalSeen: true };
     case "tour-next":
       return progress.tourIndex >= GUIDE_TOUR_STOPS.length - 1
-        ? { ...progress, tourDone: true }
-        : { ...progress, tourIndex: progress.tourIndex + 1 };
+        ? { ...open, tourDone: true }
+        : { ...open, tourIndex: progress.tourIndex + 1 };
     case "tour-previous":
-      return { ...progress, tourIndex: Math.max(0, progress.tourIndex - 1) };
+      return { ...open, tourIndex: Math.max(0, progress.tourIndex - 1) };
     case "tour-finish":
-      return { ...progress, tourDone: true };
+      return { ...open, tourDone: true };
     case "skip":
-      return { ...progress, skipped: true };
+      return { ...open, skipped: true };
+    case "minimize":
+      return { ...progress, minimized: true };
+    case "restore":
+      return open;
     case "replay":
       // Repart de l'accueil ; le choix de passer est effacé pour que la relance s'affiche.
       return { ...EMPTY_GUIDE_PROGRESS };

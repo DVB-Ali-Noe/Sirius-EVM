@@ -220,6 +220,15 @@ export class TourController {
     this.open({ kind: "page", key, manual: false });
   }
 
+  /**
+   * Redemande une décision d'ouverture automatique : à appeler quand ce qui la retenait
+   * (`autoOpen` faux, le guide Sirio en cours) vient de se lever. Sans effet si une décision a
+   * déjà été prise pour ce chemin.
+   */
+  reevaluate(): void {
+    this.evaluate();
+  }
+
   /** Relance le tuto de première connexion (menu profil). Fonctionne connecté ou non. */
   restartWelcome(): void {
     if (!this.snapshot.started) this.start();

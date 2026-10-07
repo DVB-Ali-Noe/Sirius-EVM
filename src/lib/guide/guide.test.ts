@@ -58,6 +58,13 @@ test("les actions font avancer la progression ; la relance repart de l'accueil",
   assert.equal(reduceGuideProgress({ ...EMPTY_GUIDE_PROGRESS }, { type: "tour-finish" }).tourDone, true);
   assert.equal(reduceGuideProgress({ ...EMPTY_GUIDE_PROGRESS }, { type: "skip" }).skipped, true);
   assert.deepEqual(reduceGuideProgress({ ...progress, skipped: true }, { type: "replay" }), EMPTY_GUIDE_PROGRESS);
+  // Réduire est mémorisé ; reprendre, ou toute autre action, rouvre.
+  const minimized = reduceGuideProgress({ ...EMPTY_GUIDE_PROGRESS, arrivalSeen: true, tourIndex: 2 }, { type: "minimize" });
+  assert.deepEqual(minimized, { ...EMPTY_GUIDE_PROGRESS, arrivalSeen: true, tourIndex: 2, minimized: true });
+  assert.equal(deriveGuidePhase({ ...base, progress: minimized, connected: true, authenticated: true, kyb: "valid" }), "tour", "la phase ne dépend pas de l'état réduit");
+  assert.deepEqual(reduceGuideProgress(minimized, { type: "restore" }), { ...minimized, minimized: false });
+  assert.equal(reduceGuideProgress(minimized, { type: "tour-next" }).minimized, false);
+  assert.equal(reduceGuideProgress(minimized, { type: "skip" }).minimized, false);
 });
 
 test("la progression lue est bornée et fusionnée vers la plus avancée", () => {
@@ -68,8 +75,11 @@ test("la progression lue est bornée et fusionnée vers la plus avancée", () =>
   });
   assert.equal(parseGuideProgress({ v: 1, tourIndex: -4 }).tourIndex, 0);
   assert.equal(parseGuideProgress({ v: 1, tourIndex: 1.5 }).tourIndex, 0);
+  assert.equal(parseGuideProgress({ v: 1, minimized: true }).minimized, true);
+  assert.equal(parseGuideProgress({ v: 1 }).minimized, false);
   const merged = mergeGuideProgress({ ...EMPTY_GUIDE_PROGRESS, arrivalSeen: true, tourIndex: 2 }, { ...EMPTY_GUIDE_PROGRESS, tourIndex: 1, tourDone: true });
-  assert.deepEqual(merged, { v: 1, arrivalSeen: true, tourIndex: 2, tourDone: true, skipped: false });
+  assert.deepEqual(merged, { v: 1, arrivalSeen: true, tourIndex: 2, tourDone: true, skipped: false, minimized: false });
+  assert.equal(isEmptyGuideProgress({ ...EMPTY_GUIDE_PROGRESS, minimized: true }), false);
   assert.equal(isEmptyGuideProgress(EMPTY_GUIDE_PROGRESS), true);
   assert.equal(isEmptyGuideProgress(merged), false);
   assert.deepEqual(parseProfileGuideProgress({ address: A.toUpperCase(), settings: { guide: { v: 1, skipped: true } } }, A), { ...EMPTY_GUIDE_PROGRESS, skipped: true });
@@ -117,14 +127,18 @@ test("le profil accepte la progression du guide, bornée comme la machine, et re
   const guide = { v: 1, arrivalSeen: true, tourIndex: GUIDE_TOUR_STOPS.length - 1, tourDone: false, skipped: false };
   assert.deepEqual(profile.validateProfilePatch({ settings: { guide } }), { settings: { guide } });
   assert.deepEqual(profile.sanitizeSettings({ guide, onboardingDismissed: true }), { guide, onboardingDismissed: true });
+  const minimized = { ...guide, minimized: true };
+  assert.deepEqual(profile.validateProfilePatch({ settings: { guide: minimized } }), { settings: { guide: minimized } });
   for (const bad of [
-    { ...guide, tourIndex: GUIDE_TOUR_STOPS.length }, { ...guide, tourIndex: -1 }, { ...guide, v: 2 }, { ...guide, skipped: "yes" }, "done", null,
+    { ...guide, tourIndex: GUIDE_TOUR_STOPS.length }, { ...guide, tourIndex: -1 }, { ...guide, v: 2 }, { ...guide, skipped: "yes" },
+    { ...guide, minimized: "yes" }, { ...guide, extra: true }, "done", null,
   ]) {
     assert.throws(() => profile.validateProfilePatch({ settings: { guide: bad } }), /Réglages de profil invalides/, JSON.stringify(bad));
     assert.deepEqual(profile.sanitizeSettings({ guide: bad }), {});
   }
-  // La progression lue par le navigateur accepte tout ce que le serveur a accepté.
-  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide), guide);
+  // La progression lue par le navigateur accepte tout ce que le serveur a accepté, avec ou sans l'état réduit.
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide), { ...guide, minimized: false });
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide: minimized } }).settings?.guide), minimized);
 });
 
 test("les arrêts du tour existent dans la barre latérale, et les ancres sont des sélecteurs d'attribut", () => {

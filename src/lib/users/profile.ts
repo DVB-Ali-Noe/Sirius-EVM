@@ -50,6 +50,8 @@ export type GuideProgressSetting = {
   tourIndex: number;
   tourDone: boolean;
   skipped: boolean;
+  /** Réduit dans la bulle ; absent dans les profils écrits avant ce champ. */
+  minimized?: boolean;
 };
 
 export interface ProfileSettings {
@@ -66,10 +68,14 @@ const GUIDE_TOUR_STOP_COUNT = 6;
 /** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné. */
 function readGuideProgress(value: unknown): GuideProgressSetting | null {
   if (!isPlainObject(value) || value.v !== 1) return null;
-  const { arrivalSeen, tourIndex, tourDone, skipped } = value;
+  const { arrivalSeen, tourIndex, tourDone, skipped, minimized } = value;
   if (typeof arrivalSeen !== "boolean" || typeof tourDone !== "boolean" || typeof skipped !== "boolean") return null;
   if (typeof tourIndex !== "number" || !Number.isInteger(tourIndex) || tourIndex < 0 || tourIndex >= GUIDE_TOUR_STOP_COUNT) return null;
-  return { v: 1, arrivalSeen, tourIndex, tourDone, skipped };
+  if (minimized !== undefined && typeof minimized !== "boolean") return null;
+  for (const key of Object.keys(value)) {
+    if (!["v", "arrivalSeen", "tourIndex", "tourDone", "skipped", "minimized"].includes(key)) return null;
+  }
+  return minimized === undefined ? { v: 1, arrivalSeen, tourIndex, tourDone, skipped } : { v: 1, arrivalSeen, tourIndex, tourDone, skipped, minimized };
 }
 
 /** Modification acceptée par l'API : tout le reste est refusé. */

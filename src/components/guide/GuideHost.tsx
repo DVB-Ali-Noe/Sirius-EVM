@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
+import { tourController } from "@/components/tour/tour-store";
 import { useReducedMotion } from "@/components/ui/useReducedMotion";
 import { connectAndSignIn, useSignIn } from "@/components/wallet/SignInCta";
 import { connectWallet } from "@/components/wallet/WalletConnector";
@@ -121,7 +122,7 @@ export function GuideHost() {
   const dialog = useOnboardingStore((s) => s.dialog);
   const hydrated = useGuideStore((s) => s.hydrated);
   const progress = useGuideStore((s) => s.progress);
-  const minimized = useGuideStore((s) => s.minimized);
+  const minimized = progress.minimized;
   const panelOpen = useGuideStore((s) => s.panelOpen);
   const suppressed = useGuideStore((s) => s.suppressed);
   const [modal, setModal] = useState(false);
@@ -163,14 +164,27 @@ export function GuideHost() {
     if (before === "tour" && phase === "done" && progress.tourDone) {
       setEnding(true);
       const timer = setTimeout(() => setEnding(false), reduced ? 600 : ENDING_MS);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        setEnding(false);
+      };
     }
     if (before === "connect" || before === "signin" || before === "verify") {
       setCelebrate(before);
       const timer = setTimeout(() => setCelebrate(null), CELEBRATE_MS);
-      return () => clearTimeout(timer);
+      // Une phase qui change avant la fin des félicitations ne doit pas laisser l'ancien message.
+      return () => {
+        clearTimeout(timer);
+        setCelebrate(null);
+      };
     }
   }, [phase, progress.tourDone, reduced]);
+
+  // Guide rangé (passé, terminé, ou vol vers la bulle fini) : les tutos de page, retenus
+  // pendant le parcours, peuvent reprendre leur décision pour la page affichée.
+  useEffect(() => {
+    if (phase === "done" && !ending) tourController.reevaluate();
+  }, [phase, ending]);
 
   // Solde de gas, pour expliquer le besoin d'ETH avant la transaction de vérification.
   useEffect(() => {
@@ -388,7 +402,12 @@ export function GuideHost() {
         </div>
       )}
       {!ending && <GuideBubble onClick={onBubble} pending={pending} open={panelOpen} buttonRef={bubbleButtonRef} />}
-      {panelOpen && !modal && <AssistantPanel onClose={closePanel} onReplay={replayGuide} />}
+      {/* Le panneau reste monté derrière une fenêtre modale (conversation et saisie conservées), seulement masqué. */}
+      {panelOpen && (
+        <div className={modal ? "hidden" : "contents"} aria-hidden={modal || undefined}>
+          <AssistantPanel onClose={closePanel} onReplay={replayGuide} />
+        </div>
+      )}
     </>
   );
 }
