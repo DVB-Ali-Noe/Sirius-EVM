@@ -15,7 +15,7 @@ test("les CLI runner démarrent avec les seuls paquets de production et l'enviro
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const name of ["package.json", "tsconfig.json", "scripts/check-runner-finality.ts", "scripts/runner-replay.ts",
     "scripts/initialize-runner-volume.ts", "src/lib/billing/config.ts", "src/lib/runner/budget-ledger.ts", "src/lib/runner/failure-policy.ts", "src/lib/phala-demo/contract.ts",
-    "src/lib/evm/client.ts", "src/lib/evm/networks.ts", "src/lib/evm/stablecoin.ts", "src/lib/evm/finality.ts", "src/lib/runner/replay.ts", "src/lib/app-error.ts"]) {
+    "src/lib/evm/client.ts", "src/lib/evm/networks.ts", "src/lib/evm/stablecoin.ts", "src/lib/evm/finality.ts", "src/lib/evm/lock-finality.ts", "src/lib/runner/replay.ts", "src/lib/app-error.ts"]) {
     mkdirSync(dirname(join(root, name)), { recursive: true });
     copyFileSync(name, join(root, name));
   }

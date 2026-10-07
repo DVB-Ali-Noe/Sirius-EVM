@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PriceBreakdown } from "@/components/datasets/PriceBreakdown";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
+import { useDuplicateLoanConfirmation } from "@/components/loans/DuplicateLoanDialog";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
@@ -27,18 +28,19 @@ type Listing =
  */
 export function RetrainPanel({
   datasetId,
-  hasOtherActiveLoan,
+  otherActiveLoan,
   onBorrowed,
   onError,
 }: {
   datasetId: string;
   /** Un autre emprunt de ce compte est déjà actif sur ce dataset : confirmation avant d'en ouvrir un. */
-  hasOtherActiveLoan: boolean;
+  otherActiveLoan: { status: string } | null;
   onBorrowed: () => Promise<void>;
   onError: (message: string) => void;
 }) {
   const { t } = useLocale();
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
+  const { confirmDuplicate, duplicateDialog } = useDuplicateLoanConfirmation();
   const [open, setOpen] = useState(false);
   const [listing, setListing] = useState<Listing>({ status: "loading" });
   const [busy, setBusy] = useState(false);
@@ -76,9 +78,8 @@ export function RetrainPanel({
   async function confirm() {
     if (inFlight.current || !detail || !price || !model) return;
     onError("");
-    if (hasOtherActiveLoan && !window.confirm(t("Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?"))) {
-      return;
-    }
+    // Emprunt payé déjà en attente sur ce dataset : confirmation explicite, avant toute signature.
+    if (otherActiveLoan && !(await confirmDuplicate(otherActiveLoan))) return;
     const snapshot = useWalletStore.getState();
     if (!snapshot.authenticated || !snapshot.address) {
       onError(t("Connecte un wallet pour lancer un entraînement."));
@@ -104,6 +105,7 @@ export function RetrainPanel({
   return (
     <div className="mt-4 space-y-3" data-testid="retrain-panel">
       {quoteDialog}
+      {duplicateDialog}
       <DisclaimerNote variant="warning" messages={["retrainDeterministic"]}>
         <span>{t("Réentraîne uniquement si le dataset a changé.")}</span>
       </DisclaimerNote>

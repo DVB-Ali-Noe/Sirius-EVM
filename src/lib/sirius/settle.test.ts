@@ -138,6 +138,7 @@ function settlementFixture(
     "@/lib/tee/quote": quote,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
+    "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
   });
   return { api, updates };
 }

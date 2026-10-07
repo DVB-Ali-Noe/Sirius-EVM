@@ -1,6 +1,7 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
 import type { Hex, PublicClient, TransactionReceipt } from "viem";
+import { estimateLockFinality, type LockFinalityEstimate } from "./lock-finality";
 
 export function finalityPolicy(minimumConfirmations = 1) {
   const confirmations = Number(process.env.SIRIUS_EVM_CONFIRMATIONS ?? 1);
@@ -47,6 +48,33 @@ export async function assertCanonicalReceipt(
 export async function assertBlockStable(client: PublicClient, blockNumber: bigint, message: string): Promise<void> {
   const stable = await confirmedBlock(client);
   if (stable.number === null || stable.number < blockNumber) throw new AppError(message, 409);
+}
+
+/**
+ * Même profondeur stable qu'`assertBlockStable`, mais pour informer : le lock est-il déjà sous
+ * le bloc stable, et sinon dans combien de temps, d'après l'écart entre les horodatages du lock
+ * et du bloc stable (voir lock-finality.ts). Deux lectures RPC, aucune transaction.
+ */
+export async function lockFinalityStatus(client: PublicClient, lockBlock: bigint, now = Date.now()): Promise<LockFinalityEstimate> {
+  const [stable, lockTimestamp] = await Promise.all([confirmedBlock(client), lockBlockTimestamp(client, lockBlock)]);
+  if (stable.number === null) throw new AppError("Finalité EVM indisponible", 503);
+  return estimateLockFinality({ lockBlock, lockTimestamp, stableBlock: stable.number, stableTimestamp: stable.timestamp }, now);
+}
+
+/** Horodatages de blocs de lock déjà lus : un bloc miné ne change plus d'horodatage. Taille bornée. */
+const lockBlockTimestamps = new Map<string, bigint>();
+const LOCK_BLOCK_TIMESTAMP_CACHE_SIZE = 2_048;
+
+async function lockBlockTimestamp(client: PublicClient, lockBlock: bigint): Promise<bigint> {
+  const key = lockBlock.toString();
+  const cached = lockBlockTimestamps.get(key);
+  if (cached !== undefined) return cached;
+  const { timestamp } = await client.getBlock({ blockNumber: lockBlock });
+  if (lockBlockTimestamps.size >= LOCK_BLOCK_TIMESTAMP_CACHE_SIZE) {
+    lockBlockTimestamps.delete(lockBlockTimestamps.keys().next().value!);
+  }
+  lockBlockTimestamps.set(key, timestamp);
+  return timestamp;
 }
 
 export async function checkRpcFinality(client: PublicClient, chainId: number, transactionHash?: Hex) {
