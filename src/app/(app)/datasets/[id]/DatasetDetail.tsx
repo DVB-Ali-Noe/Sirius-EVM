@@ -11,6 +11,7 @@ import { ConnectPrompt } from "@/components/wallet/ConnectCta";
 import { BackLink, Page, PageHeader } from "@/components/layout/Page";
 import { CardTitle } from "@/components/ui/Heading";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { ensureVerifiedFor } from "@/components/onboarding/onboarding-store";
 import { formatCount } from "@/lib/copy/numbers";
 import { messageOf } from "@/lib/errors-client";
 import { formatBytes, truncate } from "@/lib/format";
@@ -248,7 +249,9 @@ function DetailContent({ id }: { id: string }) {
             modelValid={Boolean(model)}
             pending={busy === "publish"}
             disabled={busy !== null}
-            onPublish={() => run("publish", () => publishDataset(view.id))}
+            onPublish={() => void ensureVerifiedFor("publish").then(async (ok) => {
+              if (ok) await run("publish", () => publishDataset(view.id));
+            })}
             className="mt-3"
           />
         </Card>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Page, PageHeader } from "@/components/layout/Page";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { ensureVerifiedFor } from "@/components/onboarding/onboarding-store";
 import type { TokenInfo } from "@/components/datasets/price";
 import { messageOf } from "@/lib/errors-client";
 import { checkFileSize, inspectCsv, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
@@ -191,6 +192,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
 
   async function publish() {
     if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish) return;
+    // Wallet non vérifié : fenêtre de vérification avant tout envoi, puis la publication reprend.
+    if (!(await ensureVerifiedFor("publish"))) return;
     if (sealedDatasetId) return retryRegistration(sealedDatasetId);
     setError(null);
     setStage(null);

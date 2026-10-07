@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConnectPrompt } from "@/components/wallet/ConnectCta";
 import { Page, PageHeader } from "@/components/layout/Page";
 import { DatasetAddTile, DatasetCard } from "@/components/datasets/DatasetCard";
-import { KybInviteForm } from "@/components/kyb/KybInviteForm";
+import { ensureVerifiedFor, requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { messageOf } from "@/lib/errors-client";
-import { acceptKybCredential } from "@/lib/kyb/client";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { settlementToken } from "@/lib/datasets/token";
 import { publishDataset } from "@/lib/datasets/client";
@@ -196,6 +195,9 @@ function DatasetsContent() {
   // la même action) : bloquée sans profil valide ou sans fichier envoyé.
   async function handlePublish(id: string) {
     setError(null);
+    // Wallet non vérifié : fenêtre de vérification, puis la publication reprend.
+    if (!(await ensureVerifiedFor("publish"))) return;
+    if (useOnboardingStore.getState().kyb === "valid") setKybManquant(false);
     setPublishingId(id);
     try {
       await publishDataset(id);
@@ -207,14 +209,10 @@ function DatasetsContent() {
     }
   }
 
+  // Vérification dans la fenêtre partagée (accès instantané, ou invitation si coupé).
   async function handleOnboard() {
     setError(null);
-    try {
-      await acceptKybCredential("provider");
-      setKybManquant(false);
-    } catch (err) {
-      setError(messageOf(err));
-    }
+    if (await requestVerification("checklist", "provider")) setKybManquant(false);
   }
 
   const cards = useMemo(() => {
@@ -291,8 +289,6 @@ function DatasetsContent() {
           </>
         }
       />
-
-      {kybManquant === true && <KybInviteForm role="provider" onAccepted={() => setKybManquant(false)} />}
 
       {error && (
         <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
