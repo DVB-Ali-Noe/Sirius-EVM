@@ -1,6 +1,6 @@
 # Dashboard
 
-Fichiers : `src/app/(app)/dashboard/page.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/layout/ProductTour.tsx`, `src/components/wallet/EscrowCredits.tsx`.
+Fichiers : `src/app/(app)/dashboard/page.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/guide/GuideHost.tsx` (guide Sirio, qui remplace l'ancien `ProductTour.tsx`), `src/components/wallet/EscrowCredits.tsx`.
 
 ## Ce qu'on a dit
 

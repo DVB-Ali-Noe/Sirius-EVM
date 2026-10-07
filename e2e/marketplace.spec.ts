@@ -58,7 +58,6 @@ const paths = (requests: Request[]) => requests.map((request) => `${request.meth
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("sirius-tour-seen", "1");
     localStorage.removeItem("sirius-ui");
     localStorage.removeItem("sirius-favorites");
   });

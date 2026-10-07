@@ -48,7 +48,7 @@ async function connect(page: Page) {
 const card = (page: Page, name: string) => page.getByRole("heading", { name, exact: true }).locator("../../../..");
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => { localStorage.setItem("sirius-tour-seen", "1"); localStorage.removeItem("sirius-ui"); });
+  await page.addInitScript(() => localStorage.removeItem("sirius-ui"));
 });
 
 test("un non-admin ne voit ni catalogue ni self training, et lit l'encart de contact", async ({ page }) => {

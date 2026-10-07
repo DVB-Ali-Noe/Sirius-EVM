@@ -22,7 +22,7 @@ Voir [04-dashboard.md](04-dashboard.md) pour le tuto de première connexion et [
 - Un bouton « ? » discret sur chaque page relance son tuto.
 - Le tuto de chaque page rappelle les limites des modèles et le contact `sirius.data.contact@gmail.com` quand c'est pertinent (upload, marketplace, train).
 - Textes en anglais, rédigés par Claude, validés par Ali et Noé.
-- Le composant existant `src/components/layout/ProductTour.tsx` sert de base. Il stocke aujourd'hui « déjà vu » dans le navigateur : on passe à un stockage en base par compte, pour suivre l'utilisateur d'un appareil à l'autre.
+- Livré par les visites de page du guide Sirio (`src/lib/guide/pages.ts`, `src/components/guide/GuideHost.tsx`), qui remplacent l'ancien `ProductTour.tsx` et `src/components/tour/` (supprimés). L'état « vu » de chaque page est stocké en base par compte, dans `settings.guide.pages` du profil, pour suivre l'utilisateur d'un appareil à l'autre.
 
 **Terminé quand** : chaque page a son tuto, relançable, et la progression survit à un changement de navigateur.
 

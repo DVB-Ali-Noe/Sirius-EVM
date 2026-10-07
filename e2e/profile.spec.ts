@@ -8,7 +8,6 @@ test.describe.configure({ timeout: 90_000 });
 async function openApp(page: Page, path: string) {
   await page.route("**/api/**", (route) => route.fulfill({ json: { authenticated: false, known: true } }));
   await page.addInitScript(() => {
-    localStorage.setItem("sirius-tour-seen", "1");
     // Solde de 12,5 jetons (18 décimales sur le testnet) pour la lecture du bouton profil.
     Object.defineProperty(window, "ethereum", {
       configurable: true,
@@ -141,7 +140,6 @@ test("sur testnet, la page Wallet garde le faucet et n'affiche pas de QR code de
 
 test("sans connexion, aucun bouton profil", async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ json: { authenticated: false, known: true } }));
-  await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
   await page.goto("/explorer");
   await expect(page.getByTestId("profile-button")).toHaveCount(0);
 });
@@ -159,7 +157,6 @@ for (const viewport of [{ width: 1100, height: 800 }, { width: 390, height: 800 
 test("wallet sur un autre réseau : avertissement, solde masqué et aucune lecture du solde", async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ json: { authenticated: false, known: true } }));
   await page.addInitScript((address) => {
-    localStorage.setItem("sirius-tour-seen", "1");
     const calls = { eth_call: 0 };
     (window as unknown as { walletCalls: typeof calls }).walletCalls = calls;
     Object.defineProperty(window, "ethereum", {

@@ -21,7 +21,6 @@ export async function mockSigningWallet(page: Page, options: {
     return account.signMessage({ message: { raw: message } });
   });
   await page.addInitScript(({ walletAddress, settings }) => {
-    localStorage.setItem("sirius-tour-seen", "1");
     let connected = settings.connected || localStorage.getItem("test.wallet.connected") === "1";
     let rejectedSignature = false;
     const wallet = {
