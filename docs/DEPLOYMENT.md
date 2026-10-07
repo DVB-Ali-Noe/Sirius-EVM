@@ -66,7 +66,7 @@ Le guide animé de première visite (`src/components/guide/`) se range dans une 
 
 **Garde-fous.** Origine contrôlée comme toute mutation ; 10 questions par minute par adresse IP (`SIRIUS_TRUST_PROXY_HEADERS=true`) ou par wallet signé, 6 par minute par conversation, 300 par minute par instance ; 1000 caractères par message, 20 tours d'historique (tenu par le navigateur, revalidé côté serveur) ; plafond quotidien en base. Aucune donnée de compte (adresse, soldes, prêts) n'est envoyée au modèle : seulement le texte des messages et le chemin de la page. Le journal ne contient que des compteurs (tours, jetons, latence, motif d'arrêt), jamais le contenu. Un refus du classifieur est rejoué côté API sur le modèle de repli recommandé, et sinon affiché comme tel.
 
-**Coût.** Le prompt système fait ~4 000 jetons : écrit en cache à la première question d'une fenêtre de cinq minutes (~0,02 $), puis lu à ~0,05× du prix d'entrée. Une conversation de trois questions coûte de l'ordre de 0,02 à 0,04 $ ; le plafond quotidien par défaut borne la dépense à quelques dollars par jour.
+**Coût** (tarif Claude Opus 5.5 : 4 $ / 20 $ par million de jetons en entrée / sortie, écriture de cache 5 $, lecture 0,20 $). Le prompt système fait ~3 000 jetons : écrit en cache à la première question d'une fenêtre de cinq minutes (~0,015 $), puis lu pour ~0,0006 $. Avec des réponses courtes (effort « low », ~500 jetons produits réflexion comprise), une question coûte ~0,013 $ et une conversation de trois questions ~0,05 $ ; le plafond quotidien par défaut (500) borne la dépense à ~7 $ par jour.
 
 ## Une cible par branche
 
