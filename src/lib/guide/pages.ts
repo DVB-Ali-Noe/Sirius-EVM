@@ -194,6 +194,34 @@ export function visibleGuidePageSteps(page: GuidePageKey, present: ReadonlySet<s
   return GUIDE_PAGE_TOURS[page].steps.filter((step) => step.anchor === null || present.has(step.anchor));
 }
 
+/** Clé stable d'un arrêt : son ancre, ou `null` pour la présentation de la page. */
+export type GuidePageStepKey = string | null;
+
+/**
+ * Arrêt courant d'une visite, retrouvé par sa clé (ancre) parmi les arrêts visibles — jamais par
+ * un indice dans la liste filtrée, qui glisserait si une ancre apparaît ou disparaît en cours de
+ * visite. Si l'ancre courante n'est plus visible, l'arrêt visible suivant dans l'ordre de la
+ * visite prend la place (à défaut, le dernier visible).
+ */
+export function resolveGuidePageStep(
+  page: GuidePageKey,
+  present: ReadonlySet<string>,
+  key: GuidePageStepKey,
+): { steps: GuidePageStep[]; index: number } {
+  const steps = visibleGuidePageSteps(page, present);
+  const exact = steps.findIndex((step) => step.anchor === key);
+  if (exact !== -1) return { steps, index: exact };
+  const all = GUIDE_PAGE_TOURS[page].steps;
+  const position = all.findIndex((step) => step.anchor === key);
+  if (position !== -1) {
+    for (const step of all.slice(position + 1)) {
+      const index = steps.indexOf(step);
+      if (index !== -1) return { steps, index };
+    }
+  }
+  return { steps, index: Math.max(0, steps.length - 1) };
+}
+
 /** Toutes les clés de traduction des visites de page, pour le test. */
 export function guidePageCopyKeys(): string[] {
   const keys = new Set<string>(Object.values(GUIDE_PAGE_UI));

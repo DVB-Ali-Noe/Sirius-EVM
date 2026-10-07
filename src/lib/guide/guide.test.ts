@@ -23,7 +23,7 @@ import {
   type GuideProgress,
   type GuideStorage,
 } from "./machine";
-import { GUIDE_PAGE_KEYS, GUIDE_PAGE_TOURS, guidePageAnchor, guidePageCopyKeys, guidePageForPath, guidePageStepBody, visibleGuidePageSteps } from "./pages";
+import { GUIDE_PAGE_KEYS, GUIDE_PAGE_TOURS, guidePageAnchor, guidePageCopyKeys, guidePageForPath, guidePageStepBody, resolveGuidePageStep, visibleGuidePageSteps } from "./pages";
 
 const A = `0x${"ab".repeat(20)}`;
 const base = { connected: false, authenticated: false, kyb: null, progress: { ...EMPTY_GUIDE_PROGRESS } } as const;
@@ -192,6 +192,18 @@ test("chaque page de l'application a sa visite, et chaque arrêt vise une ancre 
   const shown = visibleGuidePageSteps("dashboard", new Set(["balance", "shortcuts"]));
   assert.deepEqual(shown.map((step) => step.anchor), [null, "balance", "shortcuts"]);
   assert.deepEqual(visibleGuidePageSteps("kyb", new Set()).map((step) => step.anchor), [null]);
+  // Arrêt retrouvé par son ancre : une ancre qui apparaît avant lui ne le décale pas.
+  const before = resolveGuidePageStep("dashboard", new Set(["balance", "shortcuts"]), "balance");
+  assert.equal(before.steps[before.index].anchor, "balance");
+  const after = resolveGuidePageStep("dashboard", new Set(["get-started", "balance", "shortcuts"]), "balance");
+  assert.equal(after.steps[after.index].anchor, "balance");
+  assert.equal(after.index, 2);
+  // Ancre disparue : l'arrêt visible suivant de la visite, sinon le dernier.
+  const gone = resolveGuidePageStep("dashboard", new Set(["get-started", "shortcuts"]), "balance");
+  assert.equal(gone.steps[gone.index].anchor, "shortcuts");
+  const tail = resolveGuidePageStep("dashboard", new Set(["get-started"]), "shortcuts");
+  assert.equal(tail.steps[tail.index].anchor, "get-started");
+  assert.equal(resolveGuidePageStep("dashboard", new Set(), null).index, 0);
   // Texte selon le réseau : le mot « mainnet » n'apparaît que sur mainnet.
   const kyb = GUIDE_PAGE_TOURS.kyb.steps[0];
   assert.match(guidePageStepBody(kyb, "mainnet"), /mainnet/);

@@ -18,7 +18,7 @@ import {
 import {
   deriveGuidePhase, GUIDE_NAME, GUIDE_PHASES, GUIDE_TOUR_STOPS, guideAnchorSelector, guideVerifyMode, shouldOfferPageTour, type GuidePhase,
 } from "@/lib/guide/machine";
-import { GUIDE_PAGE_UI, guidePageAnchor, guidePageForPath, guidePageStepBody, visibleGuidePageSteps } from "@/lib/guide/pages";
+import { GUIDE_PAGE_UI, guidePageAnchor, guidePageForPath, guidePageStepBody, resolveGuidePageStep } from "@/lib/guide/pages";
 import { useWalletStore } from "@/stores/wallet";
 import { AssistantPanel } from "./AssistantPanel";
 import { GuideBlob, type GuideGaze, type GuideMood } from "./GuideBlob";
@@ -242,8 +242,7 @@ export function GuideHost() {
   }, [offerPage]);
 
   const present = usePresentAnchors(pageTour && pageTour.page === pageKey ? pageTour.page : null);
-  const pageSteps = pageTour ? visibleGuidePageSteps(pageTour.page, present) : [];
-  const pageIndex = Math.min(pageTour?.step ?? 0, Math.max(0, pageSteps.length - 1));
+  const { steps: pageSteps, index: pageIndex } = pageTour ? resolveGuidePageStep(pageTour.page, present, pageTour.step) : { steps: [], index: 0 };
   const pageStep = pageSteps[pageIndex] ?? null;
   const pageVisible = mainShowing === null && pageTour !== null && pageTour.page === pageKey && pageStep !== null
     && !modal && dialog === null && !panelOpen && !suppressed && hydrated && vw > 0;
@@ -399,11 +398,11 @@ export function GuideHost() {
           actions: (
             <>
               {pageIndex > 0 && (
-                <button type="button" onClick={() => setPageTourStep(pageIndex - 1)} className={SECONDARY} data-testid="guide-page-previous">
+                <button type="button" onClick={() => setPageTourStep(pageSteps[pageIndex - 1]?.anchor ?? null)} className={SECONDARY} data-testid="guide-page-previous">
                   {t(GUIDE_UI.previous)}
                 </button>
               )}
-              <button ref={primaryRef} type="button" onClick={() => (last ? endPageTour(true) : setPageTourStep(pageIndex + 1))} className={BUTTON} data-testid="guide-page-next">
+              <button ref={primaryRef} type="button" onClick={() => (last ? endPageTour(true) : setPageTourStep(pageSteps[pageIndex + 1]?.anchor ?? null))} className={BUTTON} data-testid="guide-page-next">
                 {last ? t(GUIDE_UI.finish) : t(GUIDE_UI.next)}
               </button>
             </>

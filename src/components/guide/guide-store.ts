@@ -13,7 +13,7 @@ import {
   type GuideProgress,
   type GuideStorage,
 } from "@/lib/guide/machine";
-import type { GuidePageKey } from "@/lib/guide/pages";
+import type { GuidePageKey, GuidePageStepKey } from "@/lib/guide/pages";
 import { GUIDED_TOUR_EVENT } from "@/components/profile/guided-tour";
 import { useWalletStore } from "@/stores/wallet";
 
@@ -28,7 +28,8 @@ import { useWalletStore } from "@/stores/wallet";
 /** Visite de page en cours : page, arrêt affiché, et si elle a été relancée à la main. */
 export interface GuidePageTourState {
   page: GuidePageKey;
-  step: number;
+  /** Arrêt courant par son ancre (`null` : présentation), jamais par indice dans la liste filtrée. */
+  step: GuidePageStepKey;
   manual: boolean;
 }
 
@@ -167,13 +168,13 @@ export function replayGuide(): void {
  * faux), ou depuis le bouton « ? » et le panneau (`manual` vrai). Ferme le panneau.
  */
 export function startPageTour(page: GuidePageKey, manual = false): void {
-  useGuideStore.setState({ pageTour: { page, step: 0, manual }, panelOpen: false });
+  useGuideStore.setState({ pageTour: { page, step: null, manual }, panelOpen: false });
 }
 
-export function setPageTourStep(step: number): void {
+export function setPageTourStep(step: GuidePageStepKey): void {
   const current = useGuideStore.getState().pageTour;
   if (!current || current.step === step) return;
-  useGuideStore.setState({ pageTour: { ...current, step: Math.max(0, step) } });
+  useGuideStore.setState({ pageTour: { ...current, step } });
 }
 
 /**
