@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
-import { tourController } from "@/components/tour/tour-store";
 import { useReducedMotion } from "@/components/ui/useReducedMotion";
 import { connectAndSignIn, useSignIn } from "@/components/wallet/SignInCta";
 import { connectWallet } from "@/components/wallet/WalletConnector";
@@ -16,15 +16,20 @@ import {
   GUIDE_ARRIVAL, GUIDE_CONNECT, GUIDE_SIGNIN, GUIDE_TOUR_COPY, GUIDE_TOUR_END, GUIDE_UI, GUIDE_VERIFY, guideVerifyWhy,
 } from "@/lib/guide/copy";
 import {
-  deriveGuidePhase, GUIDE_NAME, GUIDE_PHASES, GUIDE_TOUR_STOPS, guideAnchorSelector, guideVerifyMode, type GuidePhase,
+  deriveGuidePhase, GUIDE_NAME, GUIDE_PHASES, GUIDE_TOUR_STOPS, guideAnchorSelector, guideVerifyMode, shouldOfferPageTour, type GuidePhase,
 } from "@/lib/guide/machine";
+import { GUIDE_PAGE_UI, guidePageAnchor, guidePageForPath, guidePageStepBody, visibleGuidePageSteps } from "@/lib/guide/pages";
 import { useWalletStore } from "@/stores/wallet";
 import { AssistantPanel } from "./AssistantPanel";
 import { GuideBlob, type GuideGaze, type GuideMood } from "./GuideBlob";
 import { GuideBubble } from "./GuideBubble";
 import { Spotlight } from "./Spotlight";
-import { applyGuideAction, minimizeGuide, replayGuide, resetGuideOwner, restoreGuide, setGuidePanelOpen, startGuide, syncGuideWithProfile, useGuideStore } from "./guide-store";
+import {
+  applyGuideAction, endPageTour, minimizeGuide, replayGuide, resetGuideOwner, restoreGuide, setGuidePanelOpen, setPageTourStep, startGuide,
+  startPageTour, subscribeGuidedTourRequests, syncGuideWithProfile, useGuideStore,
+} from "./guide-store";
 import { useAnchorRect, type AnchorRect } from "./useAnchorRect";
+import { usePresentAnchors } from "./usePresentAnchors";
 
 const NETWORK = resolveClientNetwork();
 const SMOOTH = "cubic-bezier(0.65, 0, 0.35, 1)";
@@ -34,11 +39,14 @@ const CELEBRATE_MS = 1_800;
 const ENDING_MS = 2_600;
 /** Fréquence à laquelle on regarde si une fenêtre modale du site est ouverte. */
 const MODAL_POLL_MS = 500;
+/** Délai avant qu'une visite de page s'ouvre toute seule : la page a le temps de se charger et de s'ancrer. */
+const PAGE_TOUR_DELAY_MS = 900;
 const BUBBLE_W = 320;
 const BUBBLE_H = 230;
 const MARGIN = 16;
 
 const BUTTON = "rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const SECONDARY = "rounded-xl border border-border px-3 py-2 text-sm font-medium transition-colors hover:border-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 const SUBTLE = "rounded-lg px-2 py-2 text-xs text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 function modalOpen(): boolean {
@@ -66,8 +74,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
+/** Ce que l'hôte affiche : une phase du parcours d'accueil, ou la visite de la page. */
+type Showing = GuidePhase | "page";
+
 /** Où posent le personnage et sa bulle, selon l'élément mis en lumière et la taille de l'écran. */
-function layoutFor(phase: GuidePhase, rect: AnchorRect | null, vw: number, vh: number, ending: boolean): Layout {
+function layoutFor(showing: Showing, rect: AnchorRect | null, vw: number, vh: number, ending: boolean): Layout {
   const mobile = vw < 768;
   if (ending) {
     // Vol vers la bulle flottante (bas droite, 56 px).
@@ -76,13 +87,13 @@ function layoutFor(phase: GuidePhase, rect: AnchorRect | null, vw: number, vh: n
   if (mobile) {
     return { blob: { x: MARGIN + 4, y: vh - 96 - 96, size: 72, scale: 1 }, bubble: "sheet", gaze: rect ? "up" : "center" };
   }
-  if (phase === "arrival") {
+  if (showing === "arrival") {
     const size = 128;
     return { blob: { x: vw / 2 - size / 2, y: vh / 2 - size - 60, size, scale: 1 }, bubble: { x: vw / 2 - BUBBLE_W / 2, y: vh / 2 - 40 }, gaze: "center" };
   }
   const size = 96;
   if (!rect) {
-    // Sans ancre (vérification) : posé en bas à droite, au-dessus de la bulle flottante.
+    // Sans ancre (vérification, présentation d'une page) : posé en bas à droite, au-dessus de la bulle flottante.
     const x = vw - MARGIN - size;
     const y = vh - MARGIN - 56 - 24 - size;
     return { blob: { x, y, size, scale: 1 }, bubble: { x: x - 12 - BUBBLE_W, y: clamp(y + size - BUBBLE_H, MARGIN, vh - BUBBLE_H - MARGIN) }, gaze: "left" };
@@ -90,6 +101,14 @@ function layoutFor(phase: GuidePhase, rect: AnchorRect | null, vw: number, vh: n
   const centerY = rect.top + rect.height / 2;
   const onLeft = rect.left + rect.width / 2 < vw / 2;
   const y = clamp(centerY - size / 2, MARGIN, vh - size - MARGIN);
+  // Élément large (carte, grille) : le personnage se pose sous lui plutôt qu'à côté, hors du cadre sinon.
+  const wide = rect.width > vw * 0.6;
+  if (wide) {
+    const below = rect.top + rect.height + 20 + size + MARGIN < vh;
+    const by = below ? rect.top + rect.height + 20 : clamp(rect.top - 20 - size, MARGIN, vh - size - MARGIN);
+    const bx = clamp(rect.left + rect.width - size, MARGIN, vw - size - MARGIN);
+    return { blob: { x: bx, y: by, size, scale: 1 }, bubble: { x: clamp(bx - 12 - BUBBLE_W, MARGIN, vw - BUBBLE_W - MARGIN), y: clamp(by + size / 2 - 70, MARGIN, vh - BUBBLE_H - MARGIN) }, gaze: below ? "up" : "center" };
+  }
   if (onLeft) {
     const x = rect.left + rect.width + 20;
     return { blob: { x, y, size, scale: 1 }, bubble: { x: clamp(x + size + 12, MARGIN, vw - BUBBLE_W - MARGIN), y: clamp(centerY - 70, MARGIN, vh - BUBBLE_H - MARGIN) }, gaze: "left" };
@@ -102,14 +121,18 @@ function layoutFor(phase: GuidePhase, rect: AnchorRect | null, vw: number, vh: n
  * Sirio, le guide vivant : un personnage qui accueille, se place à côté du bouton à cliquer, met
  * l'élément en lumière, attend que l'action réelle soit faite (état du wallet, de la session, du
  * registre KYB), félicite, fait le tour du menu, puis se range dans sa bulle en bas à droite.
+ * Ensuite, à la première ouverture de chaque page, il en fait la visite — élément par élément,
+ * mêmes mécaniques — et la note vue ; le bouton « ? » et le panneau la rejouent à la demande.
  *
  * Il ne bloque jamais le site : le voile laisse passer les clics, « Passer » est toujours là,
- * Échap le réduit dans sa bulle. Il s'efface derrière toute fenêtre modale du site (vérification,
- * ajout de fonds, tutos) pour ne jamais superposer deux fenêtres.
+ * Échap le réduit dans sa bulle (ou clôt la visite de page). Il s'efface derrière toute fenêtre
+ * modale du site (vérification, ajout de fonds) pour ne jamais superposer deux fenêtres, et une
+ * visite de page attend que le parcours d'accueil soit rangé.
  */
 export function GuideHost() {
   const { t } = useLocale();
   const reduced = useReducedMotion();
+  const pathname = usePathname();
   const address = useWalletStore((s) => s.address);
   const connected = useWalletStore((s) => s.connected) && address !== null;
   const authenticated = useWalletStore((s) => s.authenticated);
@@ -125,6 +148,7 @@ export function GuideHost() {
   const minimized = progress.minimized;
   const panelOpen = useGuideStore((s) => s.panelOpen);
   const suppressed = useGuideStore((s) => s.suppressed);
+  const pageTour = useGuideStore((s) => s.pageTour);
   const [modal, setModal] = useState(false);
   const [celebrate, setCelebrate] = useState<GuidePhase | null>(null);
   const [ending, setEnding] = useState(false);
@@ -133,10 +157,14 @@ export function GuideHost() {
   const primaryRef = useRef<HTMLButtonElement>(null);
   const bubbleButtonRef = useRef<HTMLButtonElement>(null);
   const { width: vw, height: vh } = useViewport();
+  const pageKey = guidePageForPath(pathname);
 
   useEffect(() => {
     startGuide();
   }, []);
+
+  // Bouton « Visite guidée » du menu profil : l'abonné accuse réception de la demande.
+  useEffect(() => subscribeGuidedTourRequests(), []);
 
   useEffect(() => {
     if (signed) void syncGuideWithProfile(signed);
@@ -180,12 +208,6 @@ export function GuideHost() {
     }
   }, [phase, progress.tourDone, reduced]);
 
-  // Guide rangé (passé, terminé, ou vol vers la bulle fini) : les tutos de page, retenus
-  // pendant le parcours, peuvent reprendre leur décision pour la page affichée.
-  useEffect(() => {
-    if (phase === "done" && !ending) tourController.reevaluate();
-  }, [phase, ending]);
-
   // Solde de gas, pour expliquer le besoin d'ETH avant la transaction de vérification.
   useEffect(() => {
     if (phase !== "verify" || !address || dialog !== null) return;
@@ -199,35 +221,64 @@ export function GuideHost() {
   }, [phase, address, dialog]);
 
   const visible = phase !== null && phase !== "done" && !minimized && !modal && dialog === null && !suppressed;
-  const showing: GuidePhase | null = ending ? "done" : visible ? phase : null;
+  const mainShowing: GuidePhase | null = ending ? "done" : visible ? phase : null;
+
+  // ── Visite de la page ────────────────────────────────────────────────────────────────────────
+  // Quitter la page en cours de visite la clôt et la note vue : elle ne reviendra pas d'elle-même.
+  useEffect(() => {
+    if (pageTour && pageTour.page !== pageKey) endPageTour(true);
+  }, [pageTour, pageKey]);
+
+  const pageIdle = pageTour === null && phase === "done" && !ending && !modal && dialog === null && !panelOpen && !suppressed;
+  const offerPage = pageIdle && shouldOfferPageTour(progress, pageKey) ? pageKey : null;
+  useEffect(() => {
+    if (!offerPage) return;
+    const timer = setTimeout(() => {
+      // L'état peut avoir changé pendant le délai (fenêtre ouverte, autre page) : relu au moment de partir.
+      const state = useGuideStore.getState();
+      if (state.pageTour === null && !state.panelOpen && !modalOpen() && shouldOfferPageTour(state.progress, offerPage)) startPageTour(offerPage, false);
+    }, PAGE_TOUR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [offerPage]);
+
+  const present = usePresentAnchors(pageTour && pageTour.page === pageKey ? pageTour.page : null);
+  const pageSteps = pageTour ? visibleGuidePageSteps(pageTour.page, present) : [];
+  const pageIndex = Math.min(pageTour?.step ?? 0, Math.max(0, pageSteps.length - 1));
+  const pageStep = pageSteps[pageIndex] ?? null;
+  const pageVisible = mainShowing === null && pageTour !== null && pageTour.page === pageKey && pageStep !== null
+    && !modal && dialog === null && !panelOpen && !suppressed && hydrated && vw > 0;
+  const showing: Showing | null = mainShowing ?? (pageVisible ? "page" : null);
+
   const stop = GUIDE_TOUR_STOPS[Math.min(progress.tourIndex, GUIDE_TOUR_STOPS.length - 1)];
   const selector = showing === "connect" ? guideAnchorSelector("connect")
     : showing === "signin" ? guideAnchorSelector("sign-in")
     : showing === "tour" && !celebrate ? guideAnchorSelector(`nav:${stop.href}`)
+    : showing === "page" && pageTour && pageStep?.anchor ? guideAnchorSelector(guidePageAnchor(pageTour.page, pageStep.anchor))
     : null;
   const rect = useAnchorRect(selector);
 
-  // Échap réduit le guide (jamais pendant une fenêtre du site, qui a sa propre touche Échap).
+  // Échap réduit le guide, ou clôt la visite de page (jamais pendant une fenêtre du site, qui a sa propre touche Échap).
   useEffect(() => {
-    if (!visible) return;
+    if (!visible && !pageVisible) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const current = document.activeElement;
       if (current && current !== document.body && !current.closest("[data-guide-host]")) return;
       event.preventDefault();
-      minimizeGuide();
+      if (pageVisible) endPageTour(true);
+      else minimizeGuide();
       bubbleButtonRef.current?.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible]);
+  }, [visible, pageVisible]);
 
-  // Focus sur l'action principale à l'accueil et à chaque reprise, seulement si le focus est libre.
+  // Focus sur l'action principale à l'accueil, au tour et à chaque arrêt de page, seulement si le focus est libre.
   useEffect(() => {
-    if (!visible || (showing !== "arrival" && showing !== "tour")) return;
+    if (!showing || (showing !== "arrival" && showing !== "tour" && showing !== "page")) return;
     const current = document.activeElement;
-    if (!current || current === document.body) primaryRef.current?.focus();
-  }, [visible, showing]);
+    if (!current || current === document.body || current.closest("[data-guide-host]")) primaryRef.current?.focus();
+  }, [showing, pageIndex]);
 
   const onBubble = useCallback(() => {
     if (minimized && phase !== null && phase !== "done") restoreGuide();
@@ -238,6 +289,10 @@ export function GuideHost() {
     setGuidePanelOpen(false);
     bubbleButtonRef.current?.focus();
   }, []);
+
+  const replayPage = useCallback(() => {
+    if (pageKey) startPageTour(pageKey, true);
+  }, [pageKey]);
 
   async function connect() {
     if (useSignIn.getState().pending) return;
@@ -321,7 +376,7 @@ export function GuideHost() {
           actions: (
             <>
               {index > 0 && (
-                <button type="button" onClick={() => applyGuideAction({ type: "tour-previous" })} className="rounded-xl border border-border px-3 py-2 text-sm font-medium transition-colors hover:border-white/20">
+                <button type="button" onClick={() => applyGuideAction({ type: "tour-previous" })} className={SECONDARY}>
                   {t(GUIDE_UI.previous)}
                 </button>
               )}
@@ -333,6 +388,28 @@ export function GuideHost() {
           link: mobile ? stop.href : null,
         };
       }
+      case "page": {
+        if (!pageStep) return null;
+        const last = pageIndex === pageSteps.length - 1;
+        return {
+          eyebrow: t(GUIDE_UI.stepOf, { current: pageIndex + 1, total: pageSteps.length }),
+          title: t(pageStep.title),
+          body: [t(guidePageStepBody(pageStep, NETWORK), { token })],
+          dots: { current: pageIndex, total: pageSteps.length },
+          actions: (
+            <>
+              {pageIndex > 0 && (
+                <button type="button" onClick={() => setPageTourStep(pageIndex - 1)} className={SECONDARY} data-testid="guide-page-previous">
+                  {t(GUIDE_UI.previous)}
+                </button>
+              )}
+              <button ref={primaryRef} type="button" onClick={() => (last ? endPageTour(true) : setPageTourStep(pageIndex + 1))} className={BUTTON} data-testid="guide-page-next">
+                {last ? t(GUIDE_UI.finish) : t(GUIDE_UI.next)}
+              </button>
+            </>
+          ),
+        };
+      }
       default:
         return null;
     }
@@ -340,6 +417,8 @@ export function GuideHost() {
 
   const bubble = showing ? content() : null;
   const transition = reduced ? "none" : `left 700ms ${SMOOTH}, top 700ms ${SMOOTH}, transform 700ms ${SMOOTH}, opacity 400ms linear`;
+  const pageMode = showing === "page";
+  const showHelp = pageKey !== null && !ending && !pageVisible;
 
   return (
     <>
@@ -367,10 +446,11 @@ export function GuideHost() {
             aria-label={t(GUIDE_UI.bubbleLabel, { name: GUIDE_NAME })}
             data-testid="guide-bubble-text"
             data-phase={showing}
+            data-page={pageMode && pageTour ? pageTour.page : undefined}
             className={`pointer-events-auto fixed rounded-2xl border border-white/15 bg-surface/90 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.5)] backdrop-blur-2xl animate-fade-in wrap-anywhere ${
               layout.bubble === "sheet" ? "inset-x-4 bottom-[5.5rem] pl-24" : ""
             }`}
-            style={layout.bubble === "sheet" ? undefined : { left: layout.bubble.x, top: layout.bubble.y, width: BUBBLE_W, transition: reduced ? "none" : `left 500ms ${SMOOTH}, top 500ms ${SMOOTH}` }}
+            style={layout.bubble === "sheet" ? { paddingBottom: "max(1rem, env(safe-area-inset-bottom))" } : { left: layout.bubble.x, top: layout.bubble.y, width: BUBBLE_W, transition: reduced ? "none" : `left 500ms ${SMOOTH}, top 500ms ${SMOOTH}` }}
           >
             <div aria-live="polite">
               {"eyebrow" in bubble && bubble.eyebrow && <div className="text-[11px] uppercase tracking-wider text-muted">{bubble.eyebrow}</div>}
@@ -387,13 +467,26 @@ export function GuideHost() {
                 <Link href={bubble.link} className="mt-1.5 inline-block text-xs text-foreground underline-offset-2 hover:underline">{bubble.title} →</Link>
               )}
             </div>
+            {"dots" in bubble && bubble.dots && (
+              <div className="mt-3 flex items-center gap-1.5" aria-hidden>
+                {Array.from({ length: bubble.dots.total }, (_, i) => (
+                  <span key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === bubble.dots.current ? "w-4 bg-accent" : "w-1.5 bg-white/25"}`} />
+                ))}
+              </div>
+            )}
             {!ending && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <button type="button" onClick={() => applyGuideAction({ type: "skip" })} className={SUBTLE} data-testid="guide-skip">{t(GUIDE_UI.skip)}</button>
+                {pageMode ? (
+                  <button type="button" onClick={() => { endPageTour(true); bubbleButtonRef.current?.focus(); }} className={SUBTLE} data-testid="guide-page-skip">{t(GUIDE_PAGE_UI.skip)}</button>
+                ) : (
+                  <button type="button" onClick={() => applyGuideAction({ type: "skip" })} className={SUBTLE} data-testid="guide-skip">{t(GUIDE_UI.skip)}</button>
+                )}
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => { minimizeGuide(); bubbleButtonRef.current?.focus(); }} aria-label={t(GUIDE_UI.minimize)} title={t(GUIDE_UI.minimize)} className={SUBTLE}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M5 12h14" /></svg>
-                  </button>
+                  {!pageMode && (
+                    <button type="button" onClick={() => { minimizeGuide(); bubbleButtonRef.current?.focus(); }} aria-label={t(GUIDE_UI.minimize)} title={t(GUIDE_UI.minimize)} className={SUBTLE}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M5 12h14" /></svg>
+                    </button>
+                  )}
                   {bubble.actions}
                 </div>
               </div>
@@ -401,11 +494,24 @@ export function GuideHost() {
           </section>
         </div>
       )}
+      {showHelp && (
+        <button
+          type="button"
+          onClick={replayPage}
+          aria-label={t(GUIDE_PAGE_UI.help)}
+          title={t(GUIDE_PAGE_UI.help)}
+          data-testid="guide-page-help"
+          // À gauche de la bulle (bas droite, 56 px) ; le panneau plein écran du mobile le recouvre.
+          className="fixed bottom-[1.4rem] right-[4.75rem] z-30 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface/80 text-sm font-semibold text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-white/20 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent print:hidden"
+        >
+          <span aria-hidden="true">?</span>
+        </button>
+      )}
       {!ending && <GuideBubble onClick={onBubble} pending={pending} open={panelOpen} buttonRef={bubbleButtonRef} />}
       {/* Le panneau reste monté derrière une fenêtre modale (conversation et saisie conservées), seulement masqué. */}
       {panelOpen && (
         <div className={modal ? "hidden" : "contents"} aria-hidden={modal || undefined}>
-          <AssistantPanel onClose={closePanel} onReplay={replayGuide} />
+          <AssistantPanel onClose={closePanel} onReplay={replayGuide} onReplayPage={pageKey ? replayPage : null} />
         </div>
       )}
     </>

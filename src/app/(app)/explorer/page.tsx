@@ -137,7 +137,7 @@ function ExplorerPageContent() {
         title={t("Explorer")}
         description={t("Your borrowings, settlements and refunds, each verifiable on the chain explorer.")}
       >
-        <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider text-muted">
+        <div className="flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider text-muted" data-guide="page:explorer:summary">
           <span>{t("Borrowings")} {borrowings.length}</span>
           <span>{t("Datasets borrowed")} {borrowedDatasetCount(borrowings)}</span>
           <span>{t("Settled")} {settled}</span>
@@ -169,8 +169,8 @@ function ExplorerPageContent() {
       )}
 
       <div className="flex flex-col gap-4">
-        {borrowings.map((loan) => (
-          <Card key={loan.id}>
+        {borrowings.map((loan, index) => (
+          <Card key={loan.id} data-guide={index === 0 ? "page:explorer:loan" : undefined}>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1 basis-64">
                 <div className="flex flex-wrap items-center gap-2">

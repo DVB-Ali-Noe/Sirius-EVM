@@ -69,11 +69,11 @@ test("Échap ferme le menu et rend le focus au bouton", async ({ page }) => {
 });
 
 test("« Guided tour » relance le guide Sirio depuis l'accueil, sans message « bientôt disponible »", async ({ page }) => {
-  // Le guide est neutralisé dans la suite e2e sauf marqueur explicite ; ici il a déjà été passé :
-  // seule la relance doit le faire réapparaître, à sa première étape.
+  // Le guide est neutralisé dans la suite e2e sauf marqueur explicite ; ici il a déjà été passé,
+  // et la visite de la page Explorer déjà vue : seule la relance doit le faire réapparaître, à sa première étape.
   await page.addInitScript(() => {
     localStorage.setItem("sirius-guide-e2e", "1");
-    localStorage.setItem("sirius-guide:anonymous", JSON.stringify({ v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, minimized: false }));
+    localStorage.setItem("sirius-guide:anonymous", JSON.stringify({ v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, minimized: false, pages: { explorer: true } }));
   });
   await openApp(page, "/explorer");
   const guide = page.getByRole("region", { name: "Sirio, the Sirius guide" });
@@ -88,6 +88,31 @@ test("« Guided tour » relance le guide Sirio depuis l'accueil, sans message «
   await expect(guide.getByRole("button", { name: "Let’s go", exact: true })).toBeVisible();
   await expect(page.locator('[role="dialog"][aria-modal="true"]')).toHaveCount(0);
   await expect(page.getByText("The guided tour will be available soon.")).toHaveCount(0);
+});
+
+test("accueil passé : Sirio fait la visite de la page Explorer à la première ouverture, puis la note vue", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("sirius-guide-e2e", "1");
+    localStorage.setItem("sirius-guide:anonymous", JSON.stringify({ v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, minimized: false }));
+  });
+  await openApp(page, "/explorer");
+  const guide = page.getByRole("region", { name: "Sirio, the Sirius guide" });
+  await expect(guide).toBeVisible();
+  await expect(guide).toHaveAttribute("data-phase", "page");
+  await expect(guide).toHaveAttribute("data-page", "explorer");
+  await expect(guide.getByRole("heading", { name: "Explorer" })).toBeVisible();
+  // Arrêt suivant : le résumé en chiffres, mis en lumière par le voile.
+  await page.getByTestId("guide-page-next").click();
+  await expect(guide.getByRole("heading", { name: "In numbers" })).toBeVisible();
+  await expect(page.locator("[data-guide-spotlight]")).toBeVisible();
+  await page.getByTestId("guide-page-skip").click();
+  await expect(guide).toHaveCount(0);
+  // Page notée vue : la visite ne se rouvre pas d'elle-même, le bouton « ? » la rejoue.
+  await page.reload();
+  await expect(page.getByTestId("guide-bubble")).toBeVisible();
+  await expect(guide).toHaveCount(0);
+  await page.getByTestId("guide-page-help").click();
+  await expect(guide).toHaveAttribute("data-phase", "page");
 });
 
 test("un abonné à l'événement de visite guidée est prévenu et le menu se ferme", async ({ page }) => {

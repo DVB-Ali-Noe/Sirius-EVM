@@ -112,7 +112,7 @@ export function PricingStep({
       }}
       noValidate
     >
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5" data-guide="page:upload:price">
         <label className="text-sm font-medium" htmlFor={ids.price}>
           {t("Ce que je veux gagner par emprunt ({symbol})", { symbol: token.symbol })}
         </label>
@@ -179,7 +179,7 @@ export function PricingStep({
         </div>
       )}
 
-      <fieldset className="flex min-w-0 flex-col gap-2" disabled={frozen}>
+      <fieldset className="flex min-w-0 flex-col gap-2" disabled={frozen} data-guide="page:upload:duration">
         <legend id={ids.duration} className="text-sm font-medium">{t("Durée de publication")}</legend>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby={ids.duration}>
           {LISTING_DURATIONS_DAYS.map((days) => (
@@ -297,7 +297,7 @@ export function PricingStep({
         </ol>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3" data-guide="page:upload:publish">
         <button type="button" onClick={onBack} disabled={frozen} className={SECONDARY_BUTTON_CLASS}>
           {t("← Retour à la donnée")}
         </button>

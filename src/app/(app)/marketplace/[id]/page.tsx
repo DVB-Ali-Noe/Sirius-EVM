@@ -116,7 +116,7 @@ export default function MarketplaceListingPage() {
           </p>
         </Card>
 
-        <Card>
+        <Card data-guide="page:dataset:data">
           <CardTitle>{t("Données")}</CardTitle>
           <dl className="mt-3 space-y-2 text-sm">
             <Fact label={t("Catégorie")} value={dataset.category ? t(categoryLabelKey(dataset.category)) : "—"} />
@@ -129,7 +129,7 @@ export default function MarketplaceListingPage() {
           </p>
         </Card>
 
-        <Card>
+        <Card data-guide="page:dataset:model">
           <CardTitle>{t("Modèle d’entraînement")}</CardTitle>
           {model ? (
             <dl className="mt-3 space-y-2 text-sm">
@@ -142,7 +142,7 @@ export default function MarketplaceListingPage() {
           )}
         </Card>
 
-        <Card>
+        <Card data-guide="page:dataset:stats">
           <CardTitle>{t("Statistiques publiques")}</CardTitle>
           <dl className="mt-3 space-y-2 text-sm">
             <Fact label={t("Emprunts")} value={formatCount(dataset.borrowCount)} />
@@ -185,7 +185,7 @@ export default function MarketplaceListingPage() {
           </Link>
         </Card>
 
-        <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2">
+        <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2" data-guide="page:dataset:price">
           <CardTitle id="price-heading" className="mb-2">{t("Ce que vous payez")}</CardTitle>
           {fee.kind !== "unknown" && dataset.providerPriceAtomic ? (
             <>
@@ -242,7 +242,7 @@ export default function MarketplaceListingPage() {
 
         <DisclaimerNote variant="warning" className="md:col-span-2" />
 
-        <Card className="md:col-span-2">
+        <Card className="md:col-span-2" data-guide="page:dataset:borrow">
           <BorrowPanel
             datasetId={dataset.id}
             providerVerified={dataset.verified}

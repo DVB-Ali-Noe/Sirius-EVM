@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/app-error";
 import { normalizeAddress, type CanonicalAddress } from "@/lib/evm/address";
+import { GUIDE_PAGE_KEYS, type GuidePageKey } from "@/lib/guide/pages";
 
 /**
  * Profil d'un wallet : tutos, réglages, cache KYB et blocage côté site.
@@ -52,6 +53,8 @@ export type GuideProgressSetting = {
   skipped: boolean;
   /** Réduit dans la bulle ; absent dans les profils écrits avant ce champ. */
   minimized?: boolean;
+  /** Visites de page vues (`src/lib/guide/pages.ts`) ; absent dans les profils écrits avant ce champ. */
+  pages?: Partial<Record<GuidePageKey, true>>;
 };
 
 export interface ProfileSettings {
@@ -65,7 +68,18 @@ export interface ProfileSettings {
 /** Arrêts du tour du menu du guide : borne de `tourIndex` (même liste que `GUIDE_TOUR_STOPS`). */
 const GUIDE_TOUR_STOP_COUNT = 6;
 
-/** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné. */
+/** Pages vues bien formées (clés connues, valeur `true`), ou `null` si la forme est inattendue. */
+function readGuidePages(value: unknown): Partial<Record<GuidePageKey, true>> | null {
+  if (!isPlainObject(value)) return null;
+  const pages: Partial<Record<GuidePageKey, true>> = {};
+  for (const key of Object.keys(value)) {
+    if (!(GUIDE_PAGE_KEYS as readonly string[]).includes(key) || value[key] !== true) return null;
+    pages[key as GuidePageKey] = true;
+  }
+  return pages;
+}
+
+/** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné, pages connues. */
 function readGuideProgress(value: unknown): GuideProgressSetting | null {
   if (!isPlainObject(value) || value.v !== 1) return null;
   const { arrivalSeen, tourIndex, tourDone, skipped, minimized } = value;
@@ -73,9 +87,14 @@ function readGuideProgress(value: unknown): GuideProgressSetting | null {
   if (typeof tourIndex !== "number" || !Number.isInteger(tourIndex) || tourIndex < 0 || tourIndex >= GUIDE_TOUR_STOP_COUNT) return null;
   if (minimized !== undefined && typeof minimized !== "boolean") return null;
   for (const key of Object.keys(value)) {
-    if (!["v", "arrivalSeen", "tourIndex", "tourDone", "skipped", "minimized"].includes(key)) return null;
+    if (!["v", "arrivalSeen", "tourIndex", "tourDone", "skipped", "minimized", "pages"].includes(key)) return null;
   }
-  return minimized === undefined ? { v: 1, arrivalSeen, tourIndex, tourDone, skipped } : { v: 1, arrivalSeen, tourIndex, tourDone, skipped, minimized };
+  const pages = value.pages === undefined ? undefined : readGuidePages(value.pages);
+  if (pages === null) return null;
+  const setting: GuideProgressSetting = { v: 1, arrivalSeen, tourIndex, tourDone, skipped };
+  if (minimized !== undefined) setting.minimized = minimized;
+  if (pages !== undefined) setting.pages = pages;
+  return setting;
 }
 
 /** Modification acceptée par l'API : tout le reste est refusé. */

@@ -568,7 +568,7 @@ function TrainPageContent() {
 
       {/* Mes données — self-train, gratuit, sans escrow : réservé à l'équipe (admin) */}
       {admin === true && (
-        <section data-testid="self-training">
+        <section data-testid="self-training" data-guide="page:train:own-data">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <SectionTitle>{t("Mes données")}</SectionTitle>
             <span className="text-xs text-muted">{t("Self-train · gratuit")}</span>
@@ -594,22 +594,24 @@ function TrainPageContent() {
 
       {/* Entraînement sur ses propres données : contact, tant que le self training n'est pas public */}
       {admin === false && (
-        <DisclaimerNote messages={[]}>
-          <span data-testid="own-data-contact">
-            {t("Envie d’entraîner sur vos propres données ? Contactez-nous à")}{" "}
-            <a
-              href={contactMailtoHref()}
-              className="font-medium text-foreground underline underline-offset-2 hover:text-accent focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              {CONTACT_EMAIL}
-            </a>
-            .
-          </span>
-        </DisclaimerNote>
+        <div data-guide="page:train:own-data">
+          <DisclaimerNote messages={[]}>
+            <span data-testid="own-data-contact">
+              {t("Envie d’entraîner sur vos propres données ? Contactez-nous à")}{" "}
+              <a
+                href={contactMailtoHref()}
+                className="font-medium text-foreground underline underline-offset-2 hover:text-accent focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                {CONTACT_EMAIL}
+              </a>
+              .
+            </span>
+          </DisclaimerNote>
+        </div>
       )}
 
       {/* Suivi unifié */}
-      <section>
+      <section data-guide="page:train:history">
         <SectionTitle className="mb-3">{t("Mes entraînements")}</SectionTitle>
         {!hasHistory && (
           <div className="py-8 text-center text-sm text-muted">

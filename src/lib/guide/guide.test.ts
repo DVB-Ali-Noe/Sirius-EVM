@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { EN_MESSAGES, translateEnglish as t } from "../i18n/english";
@@ -17,10 +18,12 @@ import {
   parseProfileGuideProgress,
   readLocalGuideProgress,
   reduceGuideProgress,
+  shouldOfferPageTour,
   writeLocalGuideProgress,
   type GuideProgress,
   type GuideStorage,
 } from "./machine";
+import { GUIDE_PAGE_KEYS, GUIDE_PAGE_TOURS, guidePageAnchor, guidePageCopyKeys, guidePageForPath, guidePageStepBody, visibleGuidePageSteps } from "./pages";
 
 const A = `0x${"ab".repeat(20)}`;
 const base = { connected: false, authenticated: false, kyb: null, progress: { ...EMPTY_GUIDE_PROGRESS } } as const;
@@ -78,7 +81,7 @@ test("la progression lue est bornée et fusionnée vers la plus avancée", () =>
   assert.equal(parseGuideProgress({ v: 1, minimized: true }).minimized, true);
   assert.equal(parseGuideProgress({ v: 1 }).minimized, false);
   const merged = mergeGuideProgress({ ...EMPTY_GUIDE_PROGRESS, arrivalSeen: true, tourIndex: 2 }, { ...EMPTY_GUIDE_PROGRESS, tourIndex: 1, tourDone: true });
-  assert.deepEqual(merged, { v: 1, arrivalSeen: true, tourIndex: 2, tourDone: true, skipped: false, minimized: false });
+  assert.deepEqual(merged, { v: 1, arrivalSeen: true, tourIndex: 2, tourDone: true, skipped: false, minimized: false, pages: {} });
   assert.equal(isEmptyGuideProgress({ ...EMPTY_GUIDE_PROGRESS, minimized: true }), false);
   assert.equal(isEmptyGuideProgress(EMPTY_GUIDE_PROGRESS), true);
   assert.equal(isEmptyGuideProgress(merged), false);
@@ -137,8 +140,8 @@ test("le profil accepte la progression du guide, bornée comme la machine, et re
     assert.deepEqual(profile.sanitizeSettings({ guide: bad }), {});
   }
   // La progression lue par le navigateur accepte tout ce que le serveur a accepté, avec ou sans l'état réduit.
-  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide), { ...guide, minimized: false });
-  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide: minimized } }).settings?.guide), minimized);
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide), { ...guide, minimized: false, pages: {} });
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide: minimized } }).settings?.guide), { ...minimized, pages: {} });
 });
 
 test("les arrêts du tour existent dans la barre latérale, et les ancres sont des sélecteurs d'attribut", () => {
@@ -150,6 +153,92 @@ test("les arrêts du tour existent dans la barre latérale, et les ancres sont d
   assert.equal(guideAnchorSelector("sign-in"), '[data-guide="sign-in"]');
   assert.equal(guideAnchorSelector("nav:/train"), '[data-guide="nav:/train"]');
   assert.equal(GUIDE_NAME, "Sirio");
+});
+
+// ─── Visites de page ──────────────────────────────────────────────────────────────────────────
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return ["generated", "abi", "i18n"].includes(entry.name) ? [] : sourceFiles(path);
+    return /\.tsx$/.test(entry.name) ? [path] : [];
+  });
+}
+
+test("chaque page de l'application a sa visite, et chaque arrêt vise une ancre posée dans l'interface", () => {
+  assert.deepEqual(
+    ["/dashboard", "/train", "/phala", "/marketplace", "/marketplace/abc-123", "/datasets", "/datasets/new", "/explorer", "/wallet", "/kyb", "/kyb/"].map(guidePageForPath),
+    ["dashboard", "train", "phala", "marketplace", "dataset", "datasets", "upload", "explorer", "wallet", "kyb", "kyb"],
+  );
+  for (const path of ["/", "/docs", "/datasets/abc", "/marketplace/a/b", "/settings", "marketplace", null, undefined, "/".padEnd(300, "a")]) {
+    assert.equal(guidePageForPath(path), null, String(path));
+  }
+  const sources = [...sourceFiles(`${root}app`), ...sourceFiles(`${root}components`)].map((file) => readFileSync(file, "utf8")).join("\n");
+  for (const page of GUIDE_PAGE_KEYS) {
+    const tour = GUIDE_PAGE_TOURS[page];
+    assert.ok(tour.steps.length >= 3, `${page} : au moins une présentation et deux arrêts`);
+    assert.equal(tour.steps[0].anchor, null, `${page} : le premier arrêt présente la page`);
+    for (const step of tour.steps) {
+      if (step.anchor === null) continue;
+      assert.match(step.anchor, /^[a-z][a-z-]*$/, `${page}:${step.anchor}`);
+      const attribute = `"${guidePageAnchor(page, step.anchor)}"`;
+      assert.ok(sources.includes(attribute), `ancre ${attribute} absente de l'interface`);
+    }
+    const anchors = tour.steps.flatMap((step) => (step.anchor ? [step.anchor] : []));
+    assert.equal(new Set(anchors).size, anchors.length, `${page} : ancres uniques`);
+  }
+  assert.equal(guideAnchorSelector(guidePageAnchor("wallet", "balance")), '[data-guide="page:wallet:balance"]');
+  // Seuls les arrêts dont l'ancre est à l'écran sont proposés ; la présentation reste toujours.
+  const shown = visibleGuidePageSteps("dashboard", new Set(["balance", "shortcuts"]));
+  assert.deepEqual(shown.map((step) => step.anchor), [null, "balance", "shortcuts"]);
+  assert.deepEqual(visibleGuidePageSteps("kyb", new Set()).map((step) => step.anchor), [null]);
+  // Texte selon le réseau : le mot « mainnet » n'apparaît que sur mainnet.
+  const kyb = GUIDE_PAGE_TOURS.kyb.steps[0];
+  assert.match(guidePageStepBody(kyb, "mainnet"), /mainnet/);
+  assert.doesNotMatch(guidePageStepBody(kyb, "testnet"), /mainnet/);
+  assert.equal(guidePageStepBody(GUIDE_PAGE_TOURS.marketplace.steps[1], "mainnet"), GUIDE_PAGE_TOURS.marketplace.steps[1].body);
+});
+
+test("les visites de page ne s'ouvrent qu'après l'accueil, une fois chacune, et leur état « vu » est mémorisé et fusionné", () => {
+  const fresh = { ...EMPTY_GUIDE_PROGRESS };
+  assert.equal(shouldOfferPageTour(fresh, "wallet"), false, "accueil pas encore passé");
+  assert.equal(shouldOfferPageTour({ ...fresh, arrivalSeen: true, tourIndex: 3 }, "wallet"), false, "tour du menu en cours");
+  const skipped = { ...fresh, skipped: true };
+  assert.equal(shouldOfferPageTour(skipped, "wallet"), true);
+  assert.equal(shouldOfferPageTour({ ...fresh, tourDone: true }, "wallet"), true);
+  assert.equal(shouldOfferPageTour(skipped, null), false);
+  const seen = reduceGuideProgress(skipped, { type: "page-seen", page: "wallet" });
+  assert.deepEqual(seen.pages, { wallet: true });
+  assert.equal(shouldOfferPageTour(seen, "wallet"), false);
+  assert.equal(shouldOfferPageTour(seen, "train"), true);
+  assert.equal(seen.skipped, true, "la visite de page ne touche pas au parcours principal");
+  // Relance du guide : les pages vues le restent (pas de cascade de visites après l'accueil).
+  assert.deepEqual(reduceGuideProgress(seen, { type: "replay" }), { ...EMPTY_GUIDE_PROGRESS, pages: { wallet: true } });
+  assert.equal(isEmptyGuideProgress({ ...EMPTY_GUIDE_PROGRESS, pages: { wallet: true } }), false);
+  // Lecture tolérante : clés inconnues ou valeurs fausses ignorées ; fusion par union.
+  assert.deepEqual(parseGuideProgress({ v: 1, skipped: true, pages: { wallet: true, train: false, bogus: true, kyb: "yes" } }).pages, { wallet: true });
+  assert.deepEqual(parseGuideProgress({ v: 1, pages: "wallet" }).pages, {});
+  assert.deepEqual(mergeGuideProgress({ ...skipped, pages: { wallet: true } }, { ...fresh, pages: { train: true } }).pages, { wallet: true, train: true });
+  assert.deepEqual(guidePageCopyKeys().filter((key) => !Object.hasOwn(EN_MESSAGES, key)), []);
+  for (const key of guidePageCopyKeys()) {
+    if (key.includes("mainnet")) continue;
+    assert.doesNotMatch(t(key), /mainnet/i, key);
+  }
+});
+
+test("le profil accepte les pages vues du guide, bornées aux pages connues, et refuse le reste", async () => {
+  process.env.DATABASE_URL ??= "postgresql://synthetic:synthetic@127.0.0.1:1/unused";
+  const profile = await import("../users/profile");
+  const guide = { v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, pages: { wallet: true, dataset: true } };
+  assert.deepEqual(profile.validateProfilePatch({ settings: { guide } }), { settings: { guide } });
+  assert.deepEqual(profile.sanitizeSettings({ guide }), { guide });
+  const none = { ...guide, pages: {} };
+  assert.deepEqual(profile.validateProfilePatch({ settings: { guide: none } }), { settings: { guide: none } });
+  for (const bad of [{ ...guide, pages: { bogus: true } }, { ...guide, pages: { wallet: false } }, { ...guide, pages: ["wallet"] }, { ...guide, pages: "wallet" }]) {
+    assert.throws(() => profile.validateProfilePatch({ settings: { guide: bad } }), /Réglages de profil invalides/, JSON.stringify(bad));
+    assert.deepEqual(profile.sanitizeSettings({ guide: bad }), {});
+  }
+  assert.deepEqual(parseGuideProgress(profile.validateProfilePatch({ settings: { guide } }).settings?.guide).pages, { wallet: true, dataset: true });
 });
 
 test("chaque texte du guide a une traduction anglaise, sans « mainnet » sur le testnet", () => {

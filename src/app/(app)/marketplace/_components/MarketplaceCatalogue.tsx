@@ -110,11 +110,11 @@ export function MarketplaceCatalogue() {
       <DisclaimerNote />
 
       <div className="flex flex-col gap-3">
-        <form role="search" onSubmit={(event) => event.preventDefault()}>
+        <form role="search" onSubmit={(event) => event.preventDefault()} data-guide="page:marketplace:search">
           <SearchBox key={resetNonce} value={query.get("q") ?? ""} urlKey={key} onCommit={commitSearch} />
         </form>
 
-        <div role="group" aria-label={t("Filtres")} className="grid grid-cols-2 gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
+        <div role="group" aria-label={t("Filtres")} data-guide="page:marketplace:filters" className="grid grid-cols-2 gap-2 text-sm sm:flex sm:flex-wrap sm:items-center">
           <SelectFilter
             label={t("Catégorie")}
             value={query.get("category") ?? ""}
@@ -177,7 +177,7 @@ export function MarketplaceCatalogue() {
                 ? t("{count} datasets", { count: formatCount(data.total) })
                 : t("Catalogue indisponible")}
           </h2>
-          <label className={CHIP}>
+          <label className={CHIP} data-guide="page:marketplace:sort">
             <span className="text-muted">{t("Trier par")}</span>
             <select
               className="bg-transparent text-foreground outline-hidden"
@@ -213,7 +213,7 @@ export function MarketplaceCatalogue() {
         )}
 
         {data && items.length > 0 && (
-          <ul className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${loading ? "opacity-60" : ""}`}>
+          <ul className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${loading ? "opacity-60" : ""}`} data-guide="page:marketplace:grid">
             {items.map((item) => {
               const isFav = favIds.includes(item.id);
               return (

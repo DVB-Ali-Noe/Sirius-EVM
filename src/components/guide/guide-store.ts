@@ -13,14 +13,24 @@ import {
   type GuideProgress,
   type GuideStorage,
 } from "@/lib/guide/machine";
+import type { GuidePageKey } from "@/lib/guide/pages";
+import { GUIDED_TOUR_EVENT } from "@/components/profile/guided-tour";
 import { useWalletStore } from "@/stores/wallet";
 
 /**
  * État du guide Sirio partagé entre l'hôte (personnage, bulle de dialogue), la bulle flottante
  * et le panneau de chat. La progression est lue en local au démarrage, puis, dès qu'un wallet
  * est signé, lue dans son profil et fusionnée avec la note locale (qui est alors renvoyée au
- * serveur). Chaque action est appliquée tout de suite à l'écran, puis enregistrée.
+ * serveur). Chaque action est appliquée tout de suite à l'écran, puis enregistrée. La visite
+ * de page en cours (`pageTour`) n'est pas mémorisée : seule la page « vue » l'est.
  */
+
+/** Visite de page en cours : page, arrêt affiché, et si elle a été relancée à la main. */
+export interface GuidePageTourState {
+  page: GuidePageKey;
+  step: number;
+  manual: boolean;
+}
 
 interface GuideState {
   /** Progression lue côté navigateur : avant, rien n'est rendu (pas de rendu serveur divergent). */
@@ -32,6 +42,7 @@ interface GuideState {
   /** Progression, état réduit compris (`minimized`), mémorisée comme le reste. */
   progress: GuideProgress;
   panelOpen: boolean;
+  pageTour: GuidePageTourState | null;
 }
 
 export const useGuideStore = create<GuideState>(() => ({
@@ -40,6 +51,7 @@ export const useGuideStore = create<GuideState>(() => ({
   owner: null,
   progress: { ...EMPTY_GUIDE_PROGRESS },
   panelOpen: false,
+  pageTour: null,
 }));
 
 function storage(): GuideStorage | null {
@@ -144,8 +156,47 @@ export function setGuidePanelOpen(panelOpen: boolean): void {
   useGuideStore.setState({ panelOpen });
 }
 
-/** « Revoir la visite guidée » : repart de l'accueil, ferme le panneau. */
+/** « Revoir la visite guidée » : repart de l'accueil, ferme le panneau et toute visite de page. */
 export function replayGuide(): void {
-  useGuideStore.setState({ panelOpen: false });
+  useGuideStore.setState({ panelOpen: false, pageTour: null });
   applyGuideAction({ type: "replay" });
+}
+
+/**
+ * Ouvre la visite d'une page au premier arrêt : toute seule à la première visite (`manual`
+ * faux), ou depuis le bouton « ? » et le panneau (`manual` vrai). Ferme le panneau.
+ */
+export function startPageTour(page: GuidePageKey, manual = false): void {
+  useGuideStore.setState({ pageTour: { page, step: 0, manual }, panelOpen: false });
+}
+
+export function setPageTourStep(step: number): void {
+  const current = useGuideStore.getState().pageTour;
+  if (!current || current.step === step) return;
+  useGuideStore.setState({ pageTour: { ...current, step: Math.max(0, step) } });
+}
+
+/**
+ * Ferme la visite de page. `seen` : terminée, passée ou quittée par navigation — la page est
+ * notée vue et ne se rouvrira plus toute seule ; faux quand c'est le site qui la masque.
+ */
+export function endPageTour(seen: boolean): void {
+  const current = useGuideStore.getState().pageTour;
+  if (!current) return;
+  useGuideStore.setState({ pageTour: null });
+  if (seen) applyGuideAction({ type: "page-seen", page: current.page });
+}
+
+/**
+ * Abonne `restart` à la demande « Visite guidée » du menu profil (`sirius:guided-tour:start`,
+ * voir `src/components/profile/guided-tour.ts`). `preventDefault()` sert d'accusé de
+ * réception : sans lui le menu afficherait « bientôt disponible ». Renvoie le désabonnement.
+ */
+export function subscribeGuidedTourRequests(target: EventTarget = window, restart: () => void = replayGuide): () => void {
+  const onStart = (event: Event) => {
+    event.preventDefault();
+    restart();
+  };
+  target.addEventListener(GUIDED_TOUR_EVENT, onStart);
+  return () => target.removeEventListener(GUIDED_TOUR_EVENT, onStart);
 }

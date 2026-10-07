@@ -112,7 +112,7 @@ function WalletPageContent() {
       <PageHeader title={t("Wallet")} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="flex flex-wrap items-end justify-between gap-4 lg:col-span-2">
+        <Card className="flex flex-wrap items-end justify-between gap-4 lg:col-span-2" data-guide="page:wallet:balance">
           <div>
             <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
             <div className="mt-1 flex items-baseline gap-2">
@@ -161,7 +161,7 @@ function WalletPageContent() {
 
       {fundsDialog && <AddFundsDialog network={NETWORK} address={address} onClose={() => setFundsDialog(false)} />}
 
-      <EscrowCredits onWithdraw={refresh} />
+      <EscrowCredits onWithdraw={refresh} guideAnchor="page:wallet:credits" />
 
       <SecureAccountCard />
     </Page>
@@ -176,7 +176,7 @@ function AccountCard({ address, authenticated }: { address: string; authenticate
   const badge = networkBadge(NETWORK);
   const wrongNetwork = isWrongNetwork(NETWORK, walletNetwork);
   return (
-    <Card className="flex flex-col gap-4">
+    <Card className="flex flex-col gap-4" data-guide="page:wallet:account">
       <div>
         <SectionTitle>{t("Network")}</SectionTitle>
         <p className="mt-2 flex items-center gap-2 text-sm font-medium">

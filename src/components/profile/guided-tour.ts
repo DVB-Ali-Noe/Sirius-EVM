@@ -2,9 +2,9 @@
  * Point d'accroche de la visite guidée (docs/passage-mainnet/04-dashboard.md : « Relançable
  * à tout moment : bouton Visite guidée dans le menu profil »).
  *
- * Le composant de visite (`src/components/layout/ProductTour.tsx`) est porté par une autre
- * tranche. Pour ne pas dépendre de lui, le menu profil émet un événement DOM et c'est le
- * composant de visite qui s'y abonne :
+ * Le composant de visite (le guide Sirio, `src/components/guide/GuideHost.tsx`) est porté par
+ * une autre tranche. Pour ne pas dépendre de lui, le menu profil émet un événement DOM et c'est
+ * le composant de visite qui s'y abonne (`subscribeGuidedTourRequests`, `guide-store.ts`) :
  *
  *   useEffect(() => {
  *     const onStart = (event: Event) => {

@@ -275,7 +275,7 @@ function DatasetsContent() {
                 {t("Configurer le KYB")}
               </button>
             )}
-            <div role="group" aria-label={t("Trier par")} className="flex items-center gap-2">
+            <div role="group" aria-label={t("Trier par")} data-guide="page:datasets:sort" className="flex items-center gap-2">
               <span className="text-xs text-muted">{t("Trier par")}</span>
               <div className="grid grid-cols-3 rounded-lg border border-border p-0.5">
                 {DATASET_SORTS.map((option) => (
@@ -313,8 +313,8 @@ function DatasetsContent() {
         </p>
       )}
 
-      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <li>
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-guide={cards.length > 0 ? "page:datasets:cards" : undefined}>
+        <li data-guide="page:datasets:new">
           <DatasetAddTile href="/datasets/new" />
         </li>
         {cards.map(({ dataset, status, borrowCount, earnedAtomic }) => (

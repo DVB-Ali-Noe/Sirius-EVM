@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { tourController } from "@/components/tour/tour-store";
 import { useGuideStore } from "@/components/guide/guide-store";
 import { shouldPromptVerification } from "@/lib/onboarding/steps";
 import { useWalletStore } from "@/stores/wallet";
@@ -54,22 +53,21 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
     if ((!autoPrompt && !chained) || !signed || owner !== signed || kyb !== "missing" || (!instantAccess && !chained)) return;
     if (promptShownThisSession(signed)) return;
     const timer = setInterval(() => {
-      const tour = tourController.getSnapshot();
-      if (tour.suppressed) {
+      const guide = useGuideStore.getState();
+      if (guide.suppressed) {
         clearInterval(timer);
         return;
       }
-      // Guide Sirio en cours (pas passé, pas terminé) : c'est lui qui propose la vérification,
-      // avec son explication ; la fenêtre ne s'ouvre pas toute seule par-dessus.
-      const guide = useGuideStore.getState();
-      const guideActive = !guide.hydrated || !(guide.progress.skipped || guide.progress.tourDone);
+      // Guide Sirio en cours (pas passé, pas terminé) ou visite de page affichée : c'est lui qui
+      // propose la vérification, avec son explication ; la fenêtre ne s'ouvre pas toute seule par-dessus.
+      const guideActive = !guide.hydrated || !(guide.progress.skipped || guide.progress.tourDone) || guide.pageTour !== null;
       const ready = shouldPromptVerification({
         authenticated: true,
         kyb,
         instantAccess: instantAccess || chained,
         shownThisSession: promptShownThisSession(signed),
         overlayOpen: modalOpen() || useOnboardingStore.getState().dialog !== null,
-        tourPending: !tour.started || tour.status === "loading" || tour.active !== null || guideActive,
+        tourPending: guideActive,
       });
       if (!ready) return;
       clearInterval(timer);

@@ -166,7 +166,7 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
   ].filter((item): item is string => item !== null);
 
   return (
-    <Card data-testid="get-started" aria-labelledby="get-started-title" role="region">
+    <Card data-testid="get-started" data-guide="page:dashboard:get-started" aria-labelledby="get-started-title" role="region">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <CardTitle id="get-started-title">{t("Bien démarrer")}</CardTitle>
