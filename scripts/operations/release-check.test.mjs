@@ -109,6 +109,39 @@ test("le mode mainnet refuse l'ancien USDC, la démo, le faucet, le KYB ouvert e
   }
 });
 
+test("finalité rapide : facultative et cohérente entre les rôles, bornes vérifiées, finalized toujours exigé", () => {
+  // Absente partout : rien ne change.
+  assert.equal(checkReleaseEnvironments(...mainnetEnvironments(), "mainnet").configurationReady, true);
+  // Active partout avec les constantes du Compose (runner) recopiées dans son fichier privé.
+  const enabled = mainnetEnvironments();
+  for (const env of enabled) Object.assign(env, { SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_MAX_USDC: "25", SIRIUS_FAST_FINALITY_CONFIRMATIONS: "30" });
+  enabled[0].SIRIUS_FAST_FINALITY_TOTAL_USDC = "100";
+  const ok = checkReleaseEnvironments(...enabled, "mainnet");
+  assert.equal(ok.configurationReady, true, JSON.stringify(ok.issues));
+  // `false` explicite et absent se valent.
+  const mixedOff = mainnetEnvironments();
+  mixedOff[1].SIRIUS_FAST_FINALITY = "false";
+  assert.equal(checkReleaseEnvironments(...mixedOff, "mainnet").configurationReady, true);
+  const cases = [
+    [(env) => { env[0].SIRIUS_FAST_FINALITY = "true"; }, "divergence.SIRIUS_FAST_FINALITY"],
+    [(env) => { for (const e of env) e.SIRIUS_FAST_FINALITY = "true"; env[2].SIRIUS_FAST_FINALITY_MAX_USDC = "10"; }, "divergence.SIRIUS_FAST_FINALITY_MAX_USDC"],
+    [(env) => { for (const e of env) e.SIRIUS_FAST_FINALITY = "true"; env[1].SIRIUS_FAST_FINALITY_CONFIRMATIONS = "12"; }, "divergence.SIRIUS_FAST_FINALITY_CONFIRMATIONS"],
+    [(env) => { env[0].SIRIUS_FAST_FINALITY = "oui"; }, "next.SIRIUS_FAST_FINALITY"],
+    [(env) => { env[2].SIRIUS_FAST_FINALITY_CONFIRMATIONS = "0"; }, "runner.SIRIUS_FAST_FINALITY_CONFIRMATIONS"],
+    [(env) => { env[2].SIRIUS_FAST_FINALITY_CONFIRMATIONS = "101"; }, "runner.SIRIUS_FAST_FINALITY_CONFIRMATIONS"],
+    [(env) => { env[0].SIRIUS_FAST_FINALITY_MAX_USDC = "0"; }, "next.SIRIUS_FAST_FINALITY_MAX_USDC"],
+    [(env) => { env[0].SIRIUS_FAST_FINALITY_MAX_USDC = "150"; }, "next.SIRIUS_FAST_FINALITY_MAX_USDC.above-total"],
+    [(env) => { env[0].SIRIUS_FAST_FINALITY_TOTAL_USDC = "-1"; }, "next.SIRIUS_FAST_FINALITY_TOTAL_USDC"],
+    // Le palier rapide n'autorise jamais le mode confirmations nu.
+    [(env) => { for (const e of env) Object.assign(e, { SIRIUS_FAST_FINALITY: "true", SIRIUS_EVM_FINALITY: "confirmations" }); }, "next.SIRIUS_EVM_FINALITY"],
+  ];
+  for (const [change, issue] of cases) {
+    const env = mainnetEnvironments();
+    change(env);
+    assert.ok(checkReleaseEnvironments(...env, "mainnet").issues.includes(issue), issue);
+  }
+});
+
 test("accès instantané KYB : la clé automatique n'est admise que sur Next, avec le drapeau, et le vérificateur humain reste interdit", () => {
   const key = `0x${"ab".repeat(32)}`;
   // Sans la fonction, rien ne change : une configuration mainnet complète passe toujours.

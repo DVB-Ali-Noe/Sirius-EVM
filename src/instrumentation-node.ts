@@ -3,11 +3,20 @@ import { assertApplicationRunnerConfiguration } from "@/lib/runner/config";
 import { exposureLimits } from "@/lib/sirius/exposure-limits";
 import { previewGateStartupNotice } from "@/lib/preview-gate/gate";
 import { autoInviteStartupNotice } from "@/lib/kyb/auto-invite";
+import { fastFinalityPolicy, finalityPolicy } from "@/lib/evm/finality";
 
 const DEMO = isDemoDeployment();
 
 export async function registerNode() {
   assertApplicationRunnerConfiguration();
+  // Finalité : la politique de base (finalized obligatoire sur mainnet, jamais « confirmations »
+  // nu) et les bornes facultatives du palier rapide sont lues au démarrage. Une valeur illisible
+  // arrête l'instance ici plutôt qu'au premier prêt ; rien n'est deviné ni dégradé.
+  finalityPolicy();
+  const fastFinality = fastFinalityPolicy();
+  if (fastFinality.enabled) {
+    console.log(`[sirius] finalité rapide active : prêts ≤ ${process.env.SIRIUS_FAST_FINALITY_MAX_USDC?.trim() || "25"} (plafond en cours ${process.env.SIRIUS_FAST_FINALITY_TOTAL_USDC?.trim() || "100"}), ${fastFinality.confirmations} confirmations`);
+  }
   // Porte d'aperçu du passage mainnet : dire au démarrage ce qu'elle ferme, sans jamais
   // écrire la clé (le message ne contient que des noms de variables).
   const previewGate = previewGateStartupNotice();

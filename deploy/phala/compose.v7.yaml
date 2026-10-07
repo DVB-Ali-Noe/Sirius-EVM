@@ -10,6 +10,13 @@ services:
       RUNNER_BILLING_POLICY_FILE: /var/lib/sirius-runner/budget/billing-policy.json
       SIRIUS_EVM_FINALITY: finalized
       SIRIUS_EVM_CONFIRMATIONS: ${SIRIUS_EVM_CONFIRMATIONS:?Profondeur validée requise}
+      # Finalité rapide (src/lib/evm/fast-finality.ts) : constantes couvertes par le hash du Compose,
+      # donc par l'attestation. L'enclave n'accorde le palier rapide qu'aux prêts ≤ 25 USDG, après
+      # 30 confirmations L2 et contrôle canonique ; le plafond global reste côté Next. Les changer
+      # change le compose hash : docs/passage-mainnet/20-finalite-rapide.md.
+      SIRIUS_FAST_FINALITY: "true"
+      SIRIUS_FAST_FINALITY_MAX_USDC: "25"
+      SIRIUS_FAST_FINALITY_CONFIRMATIONS: "30"
     volumes:
       - runner_budget:/var/lib/sirius-runner/budget
 

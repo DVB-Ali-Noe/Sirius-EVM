@@ -1,5 +1,6 @@
 import { erc20Abi, keccak256, type Address, type Hex, type PublicClient } from "viem";
 import { checkRpcFinality, finalityPolicy } from "../src/lib/evm/finality";
+import { fastFinalityConfig } from "../src/lib/evm/fast-finality";
 import { siriusescrowv7Abi } from "../src/lib/evm/abi/siriusescrowv7";
 import { siriusdatasetregistryAbi } from "../src/lib/evm/abi/siriusdatasetregistry";
 import { siriuskybregistryAbi } from "../src/lib/evm/abi/siriuskybregistry";
@@ -40,6 +41,8 @@ function v7Configuration(env: Record<string, string | undefined>, network: Netwo
       ? "Testnet, v7, KYB ouvert et finalité explicite requis pour le lot B"
       : "Mainnet, v7, KYB strict et finalité explicite requis");
   }
+  // Palier rapide facultatif : bornes lisibles ou refus, `finalized` restant la base ci-dessus.
+  fastFinalityConfig(env, NETWORKS[network].decimals);
   const address = (name: string): Address => {
     const value = env[name]?.trim().toLowerCase();
     if (!value || !/^0x(?!0{40}$)[a-f0-9]{40}$/.test(value)) throw new Error(`Adresse requise : ${name}`);
