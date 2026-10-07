@@ -241,12 +241,29 @@ model OperatorCodeAttempt {
   @@index([address, createdAt])
 }
 
-/// Compteur quotidien des questions posées à l'assistant Sirio (plafond global
-/// SIRIUS_ASSISTANT_DAILY_CAP). Une ligne par jour UTC, jamais de contenu de message.
+/// Compteurs quotidiens de l'assistant Sirio : requêtes (SIRIUS_ASSISTANT_DAILY_CAP), jetons
+/// et dépense estimée en micro-dollars (SIRIUS_ASSISTANT_DAILY_BUDGET_USD). Une ligne par jour
+/// UTC, jamais de contenu de message.
 model AssistantUsage {
-  day       String   @id // jour UTC, AAAA-MM-JJ
-  count     Int      @default(0)
-  updatedAt DateTime @default(now()) @updatedAt
+  day              String   @id // jour UTC, AAAA-MM-JJ
+  count            Int      @default(0)
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  spentMicroUsd    Int      @default(0) // 1 $ = 1 000 000
+  updatedAt        DateTime @default(now()) @updatedAt
+}
+
+/// Questions par jour et par client de l'assistant (SIRIUS_ASSISTANT_DAILY_PER_IP) : `id` est le
+/// jour suivi de l'empreinte SHA-256 de l'adresse IP transmise par l'ingress ou du wallet signé,
+/// jamais la valeur en clair. Les lignes d'avant-hier sont supprimées au fil de l'eau.
+model AssistantClientUsage {
+  id    String @id
+  day   String
+  count Int    @default(0)
+
+  @@index([day])
 }
 
 /// Invitation KYB signée par le vérificateur automatique (accès instantané) : trace de

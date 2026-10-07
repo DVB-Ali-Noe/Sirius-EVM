@@ -6,6 +6,8 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   // Démarrage
   "SIRIUS_ASSISTANT_ENABLED doit valoir true ou false": "SIRIUS_ASSISTANT_ENABLED must be true or false",
   "SIRIUS_ASSISTANT_ENABLED=true exige ANTHROPIC_API_KEY": "SIRIUS_ASSISTANT_ENABLED=true requires ANTHROPIC_API_KEY",
+  "SIRIUS_ASSISTANT_ENABLED=true exige SIRIUS_ASSISTANT_SECRET : 32 caractères au moins": "SIRIUS_ASSISTANT_ENABLED=true requires SIRIUS_ASSISTANT_SECRET: at least 32 characters",
+  "Trop de questions aujourd’hui depuis ce poste — réessaie demain": "Too many questions today from this device — try again tomorrow",
 
   // Route
   "Assistant indisponible": "Assistant unavailable",

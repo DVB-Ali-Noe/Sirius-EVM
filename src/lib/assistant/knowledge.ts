@@ -1,4 +1,5 @@
 import { CONTACT_EMAIL } from "@/lib/copy/disclaimers";
+import { DATASET_CATEGORIES, DEFAULT_LISTING_DURATION_DAYS, ESCROW_CHALLENGE_DAYS, LISTING_DURATIONS_DAYS } from "@/lib/datasets/publication";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS } from "@/lib/tee/train";
@@ -53,13 +54,13 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - Only one training job runs at a time on the engine; if it is busy, retry a little later. Jobs are queued.
 - When training completes, the escrow is released: the provider is paid and the model key is delivered. The model appears on the Train page: "Verify and download". You can decrypt it in the browser, inspect coefficients, evaluate it on a test CSV (kept in your browser) and test predictions.
 - If training fails, the dataset price and the unused compute are refunded; only measured execution fees (capped and announced in the quote) are retained.
-- If the loan is never settled before its deadline, the borrower can recover the escrow with "Recover escrow" on the Train page: refund is possible only after the refund delay chosen by the provider (shown on the dataset card as "refundable after N days", often 3 days). Release and refund are mutually exclusive.
-- Self-training: you can also train on your OWN dataset for free, without escrow (Train page, "My data"). During the beta this may be restricted to the team.
+- If the loan is never settled before its deadline, the borrower can recover the escrow with "Recover escrow" on the Train page. The escrow safety delay is fixed by Sirius for every dataset: ${ESCROW_CHALLENGE_DAYS} days (shown on the dataset card as "refundable after ${ESCROW_CHALLENGE_DAYS} d"); the provider does not choose it. Release and refund are mutually exclusive.
+- Self-training (training on your OWN dataset without escrow, Train page, "My data") is reserved to the Sirius team during the beta: other wallets see "Coming soon".
 - Linear and logistic regression are deterministic: retraining on the same data gives the same model. Results depend on the data.
 
 ## Publishing a dataset
 - "My datasets" lists the datasets uploaded from this wallet. "Upload" imports a CSV: the file is encrypted in the browser, then opened and re-sealed inside the TEE, and stored on IPFS. The Sirius web server never receives raw data.
-- At upload you choose a name, description, the training profile (linear or logistic regression), the price, and the refund delay in days. The target column of a logistic model must be strictly 0 or 1.
+- At upload you give a name, an optional description, a category (${DATASET_CATEGORIES.join(", ")}), the training profile (linear or logistic regression), the price in the stablecoin, and a listing duration of ${LISTING_DURATIONS_DAYS.join(", ").replace(/, (\d+)$/, " or $1")} days (default ${DEFAULT_LISTING_DURATION_DAYS}). The escrow safety delay (${ESCROW_CHALLENGE_DAYS} days) is fixed by Sirius. The target column of a logistic model must be strictly 0 or 1.
 - Data limits: CSV up to ${Math.round(MAX_DATASET_BYTES / MIB)} MB, between ${MIN_TRAINING_ROWS} and ${MAX_CSV_ROWS} rows, numeric columns, up to ${MAX_TRAINING_FEATURES} explanatory variables. Datasets that are too small are refused to preserve privacy.
 - A dataset becomes borrowable once its EVM title is published ("Publish title") in the SiriusDatasetRegistry contract: a non-transferable title bound to the hash of its content and its training profile. Visibility: Public (in the catalog), Unlisted (borrowable by direct link), Private (self-train only).
 - Providers get paid on each settled loan; the credit is withdrawn from the Wallet page. Deleting a dataset removes its active key and deactivates its title; models already delivered are not erased.
@@ -86,7 +87,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 
 ## Pages of the app
 - Dashboard (/dashboard): balance, "Get started" checklist, shortcuts.
-- Train (/train): your training runs, Run job, Verify and download, Recover escrow, self-training.
+- Train (/train): your training runs, Run job, Verify and download, Recover escrow; self-training is team-only during the beta.
 - Phala (/phala): confidential compute status and attestation.
 - Marketplace (/marketplace): browse and borrow datasets.
 - My datasets (/datasets): your uploaded datasets; Upload (/datasets/new).

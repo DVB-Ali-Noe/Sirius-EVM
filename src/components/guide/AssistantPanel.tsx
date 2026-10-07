@@ -98,7 +98,9 @@ export function AssistantPanel({ onClose, onReplay }: { onClose: () => void; onR
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const turns: AssistantTurn[] = [...history, userMessage].map(({ role, content: text }) => ({ role, content: text }));
+    // Les réponses repartent avec leur signature : le serveur écarte celles qu'il n'a pas signées.
+    const turns: AssistantTurn[] = [...history, userMessage].map(({ role, content: text, signature }) =>
+      role === "assistant" && signature ? { role, content: text, signature } : { role, content: text });
     const result = await streamAssistantChat(turns, pathname, (text) => {
       setMessages((current) => current.map((message) => message.id === reply.id ? { ...message, content: message.content + text } : message));
     }, controller.signal);
@@ -108,7 +110,7 @@ export function AssistantPanel({ onClose, onReplay }: { onClose: () => void; onR
       if (message.id !== reply.id) return message;
       switch (result.status) {
         case "done":
-          return { ...message, streaming: false, error: result.stopReason === "max_tokens" ? "Réponse coupée : pose une question plus précise." : undefined };
+          return { ...message, streaming: false, signature: result.signature, error: result.stopReason === "max_tokens" ? "Réponse coupée : pose une question plus précise." : undefined };
         case "refusal":
           return { ...message, streaming: false, content: "", error: "Sirio ne peut pas répondre à cette demande. Pose une question sur Sirius, ou écris à l’équipe." };
         case "disabled":

@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { ASSISTANT_MAX_OUTPUT_TOKENS, ASSISTANT_MODEL } from "./config";
+import { ASSISTANT_MAX_OUTPUT_TOKENS, ASSISTANT_MODEL, type AssistantTokenUsage } from "./config";
 import { SIRIUS_ASSISTANT_SYSTEM_PROMPT } from "./knowledge";
 import type { AssistantChatRequest } from "./validate";
 
@@ -13,24 +13,22 @@ import type { AssistantChatRequest } from "./validate";
  *   `thinking` ; la profondeur est pilotée par `output_config.effort` (« low » : réponses courtes).
  * - Replis côté serveur (`fallbacks: "default"`, bêta `server-side-fallback-2026-07-01`) : un
  *   refus du classifieur est rejoué sur le modèle recommandé par l'API au lieu d'échouer.
- * - Un `stop_reason` « refusal » final est signalé au client comme tel, sans texte partiel.
+ * - `signal` : un navigateur parti annule l'appel en amont, rien n'est généré pour personne.
  *
- * Le SDK lit `ANTHROPIC_API_KEY` lui-même ; ce module ne manipule jamais la clé. Rien du contenu
- * des messages n'est journalisé : seuls les compteurs (tours, jetons, latence, motif d'arrêt).
+ * Le SDK lit la clé d'API lui-même ; ce module ne la manipule jamais. Rien du contenu des
+ * messages n'est journalisé : seuls les compteurs (tours, jetons, latence, motif d'arrêt).
  */
 
-export interface AssistantStreamOutcome {
+export interface AssistantStreamOutcome extends AssistantTokenUsage {
   stopReason: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
+  /** Texte complet de la réponse, pour la signature ; vide après un refus. */
+  text: string;
 }
 
 /** Événements envoyés au navigateur, un par ligne `data:` du flux SSE. */
 export type AssistantEvent =
   | { type: "text"; text: string }
-  | { type: "done"; stopReason: string | null }
+  | { type: "done"; stopReason: string | null; signature: string }
   | { type: "refusal" }
   | { type: "error"; message: string };
 
@@ -68,15 +66,15 @@ export function assistantErrorMessage(error: unknown): string {
 }
 
 /**
- * Lance la génération et transmet les événements au fur et à mesure. `onEvent` est appelé pour
- * chaque fragment de texte puis une fois pour la fin (`done`, `refusal` ou `error`). Retourne les
- * compteurs à journaliser, ou `null` si l'appel a échoué avant toute réponse.
+ * Lance la génération et transmet chaque fragment de texte à `onText`. Retourne le motif
+ * d'arrêt, le texte complet et les jetons consommés (à inscrire au budget du jour). Lève l'erreur
+ * du SDK, ou l'erreur d'annulation si `signal` est déclenché.
  */
 export async function streamAssistantReply(
   request: AssistantChatRequest,
-  onEvent: (event: AssistantEvent) => void,
+  onText: (text: string) => void,
   signal?: AbortSignal,
-): Promise<AssistantStreamOutcome | null> {
+): Promise<AssistantStreamOutcome> {
   const stream = getClient().beta.messages.stream(
     {
       model: ASSISTANT_MODEL,
@@ -89,15 +87,17 @@ export async function streamAssistantReply(
     },
     { signal },
   );
-  // Un refus mi-flux rend le texte déjà envoyé caduc : on l'envoie tout de même au fil de l'eau
-  // (latence) et le client remplace tout par le message de refus à la fin.
-  stream.on("text", (text) => onEvent({ type: "text", text }));
+  let text = "";
+  stream.on("text", (delta) => {
+    text += delta;
+    onText(delta);
+  });
   const message = await stream.finalMessage();
   const usage = message.usage;
-  if (message.stop_reason === "refusal") onEvent({ type: "refusal" });
-  else onEvent({ type: "done", stopReason: message.stop_reason });
   return {
     stopReason: message.stop_reason,
+    // Un refus mi-flux rend le texte déjà envoyé caduc : le client remplace tout par le message de refus.
+    text: message.stop_reason === "refusal" ? "" : text,
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
     cacheReadTokens: usage.cache_read_input_tokens ?? 0,

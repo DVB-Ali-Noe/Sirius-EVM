@@ -1,14 +1,16 @@
-import { ASSISTANT_MAX_HISTORY } from "./config";
+import { ASSISTANT_MAX_HISTORY, ASSISTANT_MAX_HISTORY_CHARS } from "./config";
 import type { AssistantTurn } from "./validate";
 
 /**
  * Client navigateur de `/api/assistant/chat` : envoie l'historique tenu par le panneau et lit la
- * réponse en flux SSE. L'identifiant de conversation (32 hex, sans autre sens) sert au débit par
- * conversation côté serveur ; il vit dans `sessionStorage` quand il est permis, sinon en mémoire.
+ * réponse en flux SSE. Chaque réponse revient signée (`done.signature`) et la signature est
+ * renvoyée avec le tour au message suivant : le serveur écarte les tours qu'il n'a pas signés.
+ * L'identifiant de conversation (32 hex) lie les signatures à l'onglet ; il vit dans
+ * `sessionStorage` quand il est permis, sinon en mémoire. Il ne protège rien côté serveur.
  */
 
 export type AssistantChatResult =
-  | { status: "done"; stopReason: string | null }
+  | { status: "done"; stopReason: string | null; signature: string }
   | { status: "refusal" }
   | { status: "disabled" }
   /** `message` : clé française à traduire à l'affichage. */
@@ -41,11 +43,16 @@ export function assistantSessionId(): string {
   return id;
 }
 
-/** Historique borné à ce que le serveur accepte : les tours les plus anciens sont oubliés. */
+/**
+ * Historique borné à ce que le serveur accepte, en nombre de messages et en caractères : les
+ * paires (question, réponse) les plus anciennes sont oubliées, la question courante est gardée.
+ */
 export function trimAssistantHistory(messages: readonly AssistantTurn[]): AssistantTurn[] {
-  const kept = messages.slice(-ASSISTANT_MAX_HISTORY);
-  // Le premier message doit être celui de l'utilisateur : on coupe un éventuel tour assistant en tête.
-  return kept[0]?.role === "assistant" ? kept.slice(1) : kept;
+  let kept = messages.slice(-ASSISTANT_MAX_HISTORY);
+  if (kept[0]?.role === "assistant") kept = kept.slice(1);
+  const chars = (turns: readonly AssistantTurn[]) => turns.reduce((sum, turn) => sum + turn.content.length, 0);
+  while (kept.length > 1 && chars(kept) > ASSISTANT_MAX_HISTORY_CHARS) kept = kept.slice(2);
+  return kept;
 }
 
 export async function streamAssistantChat(
@@ -91,14 +98,14 @@ export async function streamAssistantChat(
         buffer = buffer.slice(separator + 2);
         separator = buffer.indexOf("\n\n");
         if (!line.startsWith("data: ")) continue;
-        let event: { type?: string; text?: string; stopReason?: string | null; message?: string };
+        let event: { type?: string; text?: string; stopReason?: string | null; signature?: string; message?: string };
         try {
           event = JSON.parse(line.slice(6));
         } catch {
           continue;
         }
         if (event.type === "text" && typeof event.text === "string") onText(event.text);
-        else if (event.type === "done") result = { status: "done", stopReason: event.stopReason ?? null };
+        else if (event.type === "done") result = { status: "done", stopReason: event.stopReason ?? null, signature: typeof event.signature === "string" ? event.signature : "" };
         else if (event.type === "refusal") result = { status: "refusal" };
         else if (event.type === "error") result = { status: "error", message: event.message ?? "Assistant indisponible pour le moment" };
       }
