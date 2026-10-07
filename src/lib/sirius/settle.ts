@@ -22,6 +22,7 @@ import { isRecordedQuoteHardwareValid, verifyTdxQuote } from "@/lib/tee/quote";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { LoanAttestationPayload } from "@/lib/tee/types";
 import { loanBillingQuote } from "@/lib/billing/loan";
+import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 
 const TRAINING_LEASE_MS = 90_000;
 
@@ -137,7 +138,8 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
   return persisted.count === 1;
 }
 
-export const LOCK_FINALITY_PENDING = "Paiement en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes";
+// Partagé avec la page Train (module sans `server-only`), réexporté pour les appelants existants.
+export { LOCK_FINALITY_PENDING };
 
 export async function prepareLoanResult(
   loanId: string,

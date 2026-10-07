@@ -4,32 +4,24 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
+import { useDuplicateLoanConfirmation } from "@/components/loans/DuplicateLoanDialog";
 import { ensureVerifiedFor, requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
 import { connectWallet } from "@/components/wallet/WalletConnector";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
-import { addressesEqual } from "@/lib/evm/address";
 import { borrowDataset } from "@/lib/loans/client";
 import { modelSelection } from "@/lib/models/registry";
 import { createInFlightGuard } from "@/lib/onboarding/steps";
+import { activeLoanOnDataset, type LoanDisplayInput } from "@/lib/train/loan-display";
 import { useWalletStore } from "@/stores/wallet";
 
-/** Statuts pendant lesquels des fonds sont déjà engagés sur ce dataset (repris de l'ancienne grille). */
 /** Au-delà du cache de 30 s de `/api/account/status`, pour relire un statut frais. */
 const KYB_RECHECK_MS = 31_000;
-
-const LOAN_EN_COURS = new Set(["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"]);
 
 /** Compte signé à l'instant présent (lu dans le store, pas dans une fermeture périmée). */
 function currentSession(): string | null {
   const { authenticated, address } = useWalletStore.getState();
   return authenticated && address ? address : null;
-}
-
-interface ActiveLoan {
-  datasetId: string;
-  borrower: string;
-  status: string;
 }
 
 /**
@@ -62,6 +54,7 @@ export function BorrowPanel({
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
+  const { confirmDuplicate, duplicateDialog } = useDuplicateLoanConfirmation();
   const [busy, setBusy] = useState(false);
   const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
@@ -75,29 +68,25 @@ export function BorrowPanel({
   // valeur d'un autre compte n'est jamais réutilisée. Le panneau n'est pas remonté à chaque
   // révision du wallet, sinon une connexion en cours perdrait son état et ses erreurs.
   const [kyb, setKyb] = useState<{ session: string; missing: boolean } | null>(null);
-  const [loans, setLoans] = useState<{ session: string; active: boolean } | null>(null);
+  const [loans, setLoans] = useState<{ session: string; active: LoanDisplayInput | null } | null>(null);
   const [rechecked, setRechecked] = useState<string | null>(null);
   const model = modelSelection(modelId, modelVersion);
   const sessionKey = authenticated && address ? address : null;
   // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
   const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
-  const dejaEmprunte = Boolean(loans && loans.session === sessionKey && loans.active);
+  const dejaEmprunte = loans && loans.session === sessionKey ? loans.active : null;
   const error = errorState && errorState.session === sessionKey ? errorState.message : null;
 
-  // Prêt déjà en cours sur ce dataset pour ce compte : emprunter deux fois est légitime, mais
-  // on demande confirmation pour distinguer l'intention du double clic.
+  // Prêt déjà payé sur ce dataset pour ce compte : emprunter deux fois est légitime, mais on
+  // demande confirmation pour distinguer l'intention d'un emprunt cru perdu (attente de finalité).
   useEffect(() => {
     if (!sessionKey) return;
     let actif = true;
     void fetch("/api/loans")
-      .then((r) => (r.ok ? (r.json() as Promise<ActiveLoan[]>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<LoanDisplayInput[]>) : null))
       .then((prets) => {
         if (!actif || !Array.isArray(prets)) return;
-        setLoans({
-          session: sessionKey,
-          active: prets.some((pret) =>
-            pret.datasetId === datasetId && addressesEqual(pret.borrower, sessionKey) && LOAN_EN_COURS.has(pret.status)),
-        });
+        setLoans({ session: sessionKey, active: activeLoanOnDataset(prets, datasetId, sessionKey) });
       })
       .catch(() => {});
     return () => {
@@ -166,9 +155,7 @@ export function BorrowPanel({
       setError("Profil d’entraînement du dataset absent ou invalide");
       return;
     }
-    if (dejaEmprunte && !window.confirm(t("Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?"))) {
-      return;
-    }
+    if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
       if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) {
@@ -193,6 +180,7 @@ export function BorrowPanel({
   return (
     <div className="space-y-3">
       {quoteDialog}
+      {duplicateDialog}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
