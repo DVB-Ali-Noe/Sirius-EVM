@@ -100,16 +100,20 @@ test("l'état de finalité d'un lock suit la même profondeur stable qu'assertBl
   let finalized = BigInt(500);
   // Le bloc finalisé est horodaté 14 minutes avant le lock (bloc 9 000).
   const timestamps: Record<string, bigint> = { "500": BigInt(1_000), "9000": BigInt(1_000 + 14 * 60), "9500": BigInt(1_000 + 15 * 60) };
+  const lockReads: bigint[] = [];
   const client = {
     getBlockNumber: async () => BigInt(10_000),
     getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => {
       const number = blockTag === "finalized" ? finalized : blockNumber!;
+      if (blockNumber !== undefined) lockReads.push(blockNumber);
       return { number, hash, timestamp: timestamps[String(number)] };
     },
   } as unknown as PublicClient;
-  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: true, estimatedReadyAt: now + 14 * 60_000 });
+  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: true, remainingMs: 14 * 60_000, estimatedReadyAt: now + 14 * 60_000 });
   await assert.rejects(assertBlockStable(client, BigInt(9_000), "en attente"), /en attente/);
   finalized = BigInt(9_500);
-  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: false, estimatedReadyAt: now });
+  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: false, remainingMs: 0, estimatedReadyAt: now });
   await assertBlockStable(client, BigInt(9_000), "en attente");
+  // L'horodatage du bloc de lock, immuable, n'est lu qu'une fois : chaque relecture coûte la tête et le bloc finalisé.
+  assert.deepEqual(lockReads, [BigInt(9_000)]);
 });

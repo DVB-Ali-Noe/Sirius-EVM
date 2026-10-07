@@ -56,12 +56,25 @@ export async function assertBlockStable(client: PublicClient, blockNumber: bigin
  * et du bloc stable (voir lock-finality.ts). Deux lectures RPC, aucune transaction.
  */
 export async function lockFinalityStatus(client: PublicClient, lockBlock: bigint, now = Date.now()): Promise<LockFinalityEstimate> {
-  const [stable, lock] = await Promise.all([confirmedBlock(client), client.getBlock({ blockNumber: lockBlock })]);
+  const [stable, lockTimestamp] = await Promise.all([confirmedBlock(client), lockBlockTimestamp(client, lockBlock)]);
   if (stable.number === null) throw new AppError("Finalité EVM indisponible", 503);
-  return estimateLockFinality(
-    { lockBlock, lockTimestamp: lock.timestamp, stableBlock: stable.number, stableTimestamp: stable.timestamp },
-    now,
-  );
+  return estimateLockFinality({ lockBlock, lockTimestamp, stableBlock: stable.number, stableTimestamp: stable.timestamp }, now);
+}
+
+/** Horodatages de blocs de lock déjà lus : un bloc miné ne change plus d'horodatage. Taille bornée. */
+const lockBlockTimestamps = new Map<string, bigint>();
+const LOCK_BLOCK_TIMESTAMP_CACHE_SIZE = 2_048;
+
+async function lockBlockTimestamp(client: PublicClient, lockBlock: bigint): Promise<bigint> {
+  const key = lockBlock.toString();
+  const cached = lockBlockTimestamps.get(key);
+  if (cached !== undefined) return cached;
+  const { timestamp } = await client.getBlock({ blockNumber: lockBlock });
+  if (lockBlockTimestamps.size >= LOCK_BLOCK_TIMESTAMP_CACHE_SIZE) {
+    lockBlockTimestamps.delete(lockBlockTimestamps.keys().next().value!);
+  }
+  lockBlockTimestamps.set(key, timestamp);
+  return timestamp;
 }
 
 export async function checkRpcFinality(client: PublicClient, chainId: number, transactionHash?: Hex) {

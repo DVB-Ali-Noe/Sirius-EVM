@@ -20,16 +20,25 @@ import { CONTACT_EMAIL, contactMailtoHref } from "@/lib/copy/disclaimers";
 import {
   LOAN_STATE_LABEL_KEY,
   LOAN_STATE_VARIANT,
+  activeLoanOnDataset,
   canRefund,
   canRescueRefund,
   canResumeSettlement,
   canRetrain,
   canRetrieveModelKey,
-  hasOtherActiveLoan,
   loanDisplayState,
   needsLockFinalityCheck,
   parseAdminResponse,
 } from "@/lib/train/loan-display";
+import {
+  initialLockFinalityTracking,
+  lockFinalityLocalReadyAt,
+  lockFinalityRunRefused,
+  observeLockFinality,
+  type LockFinalityDecision,
+  type LockFinalityObservationResult,
+  type LockFinalityTracking,
+} from "@/lib/train/lock-finality-tracker";
 import {
   cancelExpiredLoan,
   resumeLoanSubmission,
@@ -38,7 +47,7 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
-import { lockFinalityMinutesLeft, nextLockFinalityCheckMs, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
+import { lockFinalityMinutesLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
@@ -122,13 +131,6 @@ const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
   FAILED: "negative",
 };
 
-/** Attente de finalité du lock, lue sur `GET /api/loans/[id]/finality`. */
-interface LockFinality {
-  pending: boolean;
-  /** Instant estimé (ms) où le lancement sera accepté ; `null` si le serveur ne l'estime pas. */
-  estimatedReadyAt: number | null;
-}
-
 /** Rafraîchissement du compte à rebours affiché (les minutes restantes changent lentement). */
 const FINALITY_TICK_MS = 15_000;
 
@@ -169,17 +171,20 @@ function TrainPageContent() {
   const haveKey = useRef<Set<string>>(new Set());
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
-  // Attente de finalité du lock, par prêt : état affiché, relectures programmées, prêts dont
-  // l'attente a été observée sur cette page (seuls ceux-là démarrent automatiquement, une fois).
-  const [finality, setFinality] = useState<Record<string, LockFinality>>({});
+  // Attente de finalité du lock, par prêt (décisions dans lock-finality-tracker.ts) : état affiché,
+  // relectures programmées, relectures différées pendant que l'onglet est caché.
+  const [finality, setFinality] = useState<Record<string, LockFinalityTracking>>({});
   const [now, setNow] = useState(() => Date.now());
   const finalityTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const finalityWaited = useRef<Set<string>>(new Set());
-  const finalityAutoStarted = useRef<Set<string>>(new Set());
-  // Dernière liste et dernier `runJob` vus par les relectures asynchrones (jamais écrits pendant le rendu).
+  const finalityHidden = useRef<Set<string>>(new Set());
+  // Dernières valeurs vues par les relectures asynchrones (jamais écrites pendant le rendu).
+  const finalityRef = useRef<Record<string, LockFinalityTracking>>({});
   const loansRef = useRef<Loan[]>([]);
   const runJobRef = useRef<(loan: Loan) => Promise<void>>(async () => {});
   const checkLockFinalityRef = useRef<(loanId: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    finalityRef.current = finality;
+  }, [finality]);
   useEffect(() => {
     loansRef.current = loans;
   }, [loans]);
@@ -305,65 +310,93 @@ function TrainPageContent() {
   }
 
   /**
+   * Relecture programmée de l'attente d'un prêt. Onglet caché au moment prévu : la lecture est
+   * différée jusqu'au retour de l'onglet (`visibilitychange`), aucune lecture RPC en arrière-plan.
+   */
+  const scheduleLockFinalityCheck = useCallback((loanId: string, delayMs: number) => {
+    const previous = finalityTimers.current.get(loanId);
+    if (previous) clearTimeout(previous);
+    finalityTimers.current.set(loanId, setTimeout(() => {
+      if (typeof document !== "undefined" && document.hidden) {
+        finalityTimers.current.delete(loanId);
+        finalityHidden.current.add(loanId);
+        return;
+      }
+      void checkLockFinalityRef.current(loanId);
+    }, delayMs));
+  }, []);
+
+  /** Applique une décision du suivi : état affiché, relecture, lancement automatique. */
+  const applyLockFinalityDecision = useCallback((loanId: string, decision: LockFinalityDecision) => {
+    setFinality((previous) => ({ ...previous, [loanId]: decision.next }));
+    setNow(Date.now());
+    if (decision.action === "recheck") scheduleLockFinalityCheck(loanId, decision.recheckInMs ?? 0);
+    if (decision.action === "auto-run") {
+      const loan = loansRef.current.find((candidate) => candidate.id === loanId);
+      if (loan) void runJobRef.current(loan);
+    }
+  }, [scheduleLockFinalityCheck]);
+
+  /**
    * Attente de finalité du lock (incident du lancement : « Lancer le job » répondait 409 pendant
    * le quart d'heure de finalité, sans dire quand revenir). Le serveur dit si le lock est sous le
-   * bloc stable et estime l'instant où il le sera ; la page affiche le compte à rebours, relit à
-   * l'instant estimé (entre 20 s et 60 s plus tard), et, si elle est restée ouverte, lance le job
-   * une seule fois quand l'attente observée ici prend fin. Le lancement lui-même exige toujours la
-   * session de l'emprunteur (grant signé par la clé de session, clé de livraison) : rien ne
-   * démarre sans ce navigateur, d'où « tu peux fermer cette page » plutôt qu'une promesse.
+   * bloc stable et la durée restante ; la page affiche le compte à rebours, relit à l'instant
+   * estimé (entre 20 s et 60 s plus tard) et, si elle est restée ouverte, lance le job une seule
+   * fois quand l'attente observée ici prend fin. Seule une réponse 200 vaut lecture : une erreur
+   * conserve l'état et relit plus tard (`observeLockFinality`). Le lancement lui-même exige
+   * toujours la session de l'emprunteur (grant signé par la clé de session, clé de livraison) :
+   * rien ne démarre sans ce navigateur, d'où « tu peux fermer cette page » plutôt qu'une promesse.
    */
   const checkLockFinality = useCallback(async (loanId: string) => {
     finalityTimers.current.delete(loanId);
-    let status: LockFinality;
+    let result: LockFinalityObservationResult = { kind: "error" };
     try {
       const response = await fetch(`/api/loans/${encodeURIComponent(loanId)}/finality`);
-      status = parseLockFinalityResponse(response.ok ? await response.json().catch(() => null) : null);
+      if (response.status === 200) {
+        const parsed = parseLockFinalityResponse(await response.json());
+        result = parsed.pending ? { kind: "ok", pending: true, remainingMs: parsed.remainingMs } : { kind: "ok", pending: false };
+      }
     } catch {
-      status = { pending: false, estimatedReadyAt: null };
+      result = { kind: "error" };
     }
     if (!mounted.current) return;
     const loan = loansRef.current.find((candidate) => candidate.id === loanId);
-    if (!loan || !needsLockFinalityCheck(loan, address)) {
-      setFinality((previous) => {
-        if (!Object.hasOwn(previous, loanId)) return previous;
-        return Object.fromEntries(Object.entries(previous).filter(([id]) => id !== loanId));
-      });
-      return;
-    }
-    setFinality((previous) => ({ ...previous, [loanId]: status }));
-    setNow(Date.now());
-    if (status.pending) {
-      finalityWaited.current.add(loanId);
-      const delay = nextLockFinalityCheckMs(status.estimatedReadyAt ?? Date.now(), Date.now());
-      finalityTimers.current.set(loanId, setTimeout(() => void checkLockFinalityRef.current(loanId), delay));
-      return;
-    }
-    // Finalité atteinte pendant que la page attendait : un seul lancement automatique.
-    if (finalityWaited.current.has(loanId) && !finalityAutoStarted.current.has(loanId)) {
-      finalityAutoStarted.current.add(loanId);
-      void runJobRef.current(loan);
-    }
-  }, [address]);
+    if (!loan || !needsLockFinalityCheck(loan, address)) return;
+    const current = finalityRef.current[loanId] ?? initialLockFinalityTracking();
+    applyLockFinalityDecision(loanId, observeLockFinality(current, result, Date.now()));
+  }, [address, applyLockFinalityDecision]);
 
-  // À chaque liste de prêts : lecture pour les prêts éligibles pas encore suivis, relectures des
-  // autres annulées (leur état affiché n'est plus lu : `awaitingLock` exige l'éligibilité).
+  // À chaque liste de prêts : lecture pour les prêts éligibles pas encore suivis (un prêt connu
+  // « prêt » ou dont l'attente est close n'est jamais relu), relectures des autres annulées.
   useEffect(() => {
     const eligible = new Set(loans.filter((loan) => needsLockFinalityCheck(loan, address)).map((loan) => loan.id));
     for (const [id, timer] of finalityTimers.current) {
       if (eligible.has(id)) continue;
       clearTimeout(timer);
       finalityTimers.current.delete(id);
+      finalityHidden.current.delete(id);
     }
     for (const id of eligible) {
-      if (finalityTimers.current.has(id)) continue;
-      // Un prêt déjà connu « en attente » a sa relecture programmée ; un prêt sans état est lu maintenant.
-      finalityTimers.current.set(id, setTimeout(() => void checkLockFinality(id), 0));
+      const phase = finalityRef.current[id]?.phase;
+      if (finalityTimers.current.has(id) || finalityHidden.current.has(id) || phase === "ready" || phase === "exhausted") continue;
+      scheduleLockFinalityCheck(id, 0);
     }
-  }, [loans, address, checkLockFinality]);
+  }, [loans, address, scheduleLockFinalityCheck]);
+
+  // Retour de l'onglet : les relectures différées repartent aussitôt.
+  useEffect(() => {
+    const resume = () => {
+      if (document.hidden) return;
+      const deferred = [...finalityHidden.current];
+      finalityHidden.current.clear();
+      for (const id of deferred) scheduleLockFinalityCheck(id, 0);
+    };
+    document.addEventListener("visibilitychange", resume);
+    return () => document.removeEventListener("visibilitychange", resume);
+  }, [scheduleLockFinalityCheck]);
 
   // Horloge du compte à rebours, seulement tant qu'un prêt attend ; chaque relecture la remet aussi à l'heure.
-  const anyPending = Object.values(finality).some((status) => status.pending);
+  const anyPending = Object.values(finality).some((tracking) => tracking.phase === "pending");
   useEffect(() => {
     if (!anyPending) return;
     const timer = window.setInterval(() => setNow(Date.now()), FINALITY_TICK_MS);
@@ -396,13 +429,10 @@ function TrainPageContent() {
         await refresh().catch(() => {});
         setError(t("Le job TEE est déjà en cours. Actualise dans quelques secondes."));
       } else if (message === LOCK_FINALITY_PENDING) {
-        // Pas une erreur : le lock n'est pas encore sous le bloc stable. La relecture affiche
-        // l'attente et son estimation à la place du bouton.
-        setFinality((previous) => ({ ...previous, [loan.id]: { pending: true, estimatedReadyAt: previous[loan.id]?.estimatedReadyAt ?? null } }));
-        finalityWaited.current.add(loan.id);
-        const timer = finalityTimers.current.get(loan.id);
-        if (timer) clearTimeout(timer);
-        finalityTimers.current.set(loan.id, setTimeout(() => void checkLockFinality(loan.id), 0));
+        // Pas une erreur : le lock n'est pas encore sous le bloc stable. L'attente reprend (un
+        // lancement automatique refusé n'est pas consommé) et la relecture remplace le bouton.
+        const current = finalityRef.current[loan.id] ?? initialLockFinalityTracking();
+        applyLockFinalityDecision(loan.id, lockFinalityRunRefused(current, Date.now()));
       } else {
         setError(message);
       }
@@ -624,10 +654,12 @@ function TrainPageContent() {
           ))}
 
           {loans.map((l) => {
-            const lockFinality = finality[l.id];
-            const awaitingLock = lockFinality?.pending === true && needsLockFinalityCheck(l, address);
-            const minutesLeft = awaitingLock && lockFinality.estimatedReadyAt !== null
-              ? lockFinalityMinutesLeft(lockFinality.estimatedReadyAt, now) : 0;
+            const tracking = finality[l.id];
+            const trackable = needsLockFinalityCheck(l, address);
+            const awaitingLock = trackable && tracking?.phase === "pending";
+            const finalityExhausted = trackable && tracking?.phase === "exhausted";
+            const localReadyAt = awaitingLock ? lockFinalityLocalReadyAt(tracking) : null;
+            const minutesLeft = localReadyAt !== null ? lockFinalityMinutesLeft(localReadyAt, now) : 0;
             const state = loanDisplayState({ ...l, lockFinalityPending: awaitingLock });
             const refundAllowed = canRefund(l, address);
             const rescueRefund = canRescueRefund(l, address);
@@ -748,6 +780,11 @@ function TrainPageContent() {
                   </p>
                 </div>
               )}
+              {finalityExhausted && (
+                <div className="mt-4 rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs leading-relaxed text-yellow-400" data-testid="lock-finality-exhausted" aria-live="polite">
+                  {t("Le réseau met plus de temps que prévu à finaliser ton paiement. Reviens plus tard lancer le job : ton paiement est en sécurité dans l’escrow.")}
+                </div>
+              )}
               {refundAllowed && (
                 <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
                   <p className="font-medium text-negative">
@@ -763,7 +800,7 @@ function TrainPageContent() {
               {canRetrain(l, address) && (
                 <RetrainPanel
                   datasetId={l.datasetId}
-                  hasOtherActiveLoan={hasOtherActiveLoan(loans, l, address)}
+                  otherActiveLoan={activeLoanOnDataset(loans, l.datasetId, address, l.id)}
                   onBorrowed={refresh}
                   onError={setError}
                 />

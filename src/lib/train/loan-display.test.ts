@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { EN_MESSAGES } from "@/lib/i18n/english";
 import {
+  DUPLICATE_LOAN_NOTICE,
   LOAN_DISPLAY_STATES,
   LOAN_STATE_LABEL_KEY,
   LOAN_STATE_VARIANT,
   activeLoanOnDataset,
   canRefund,
+  duplicateLoanNotice,
   needsLockFinalityCheck,
   canResumeSettlement,
   canRetrain,
@@ -336,17 +338,29 @@ test("l'attente de finalité et la confirmation de double emprunt sont traduites
     "Training can start in ~{minutes} min — you can close this page, your payment is safe in escrow.");
 });
 
-test("page Train : le bouton de lancement est remplacé pendant l'attente de finalité, et le 409 la déclenche", () => {
+test("la confirmation de double emprunt dit ce que fait déjà l'emprunt existant", () => {
+  for (const status of ["ESCROWED", "PENDING", "SUBMITTING"]) assert.equal(duplicateLoanNotice(status), DUPLICATE_LOAN_NOTICE.waiting, status);
+  for (const status of ["TRAINING", "SETTLING"]) assert.equal(duplicateLoanNotice(status), DUPLICATE_LOAN_NOTICE.training, status);
+  assert.equal(EN_MESSAGES[DUPLICATE_LOAN_NOTICE.training], "Training is already in progress on this dataset for your previous loan. Borrowing again charges you again.");
+  assert.equal(EN_MESSAGES["Le réseau met plus de temps que prévu à finaliser ton paiement. Reviens plus tard lancer le job : ton paiement est en sécurité dans l’escrow."],
+    "The network is taking longer than expected to finalize your payment. Come back later to run the job: your payment is safe in escrow.");
+});
+
+test("page Train : le bouton de lancement est remplacé pendant l'attente de finalité, décidée par le suivi pur", () => {
   const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
   // Le bouton « Lancer le job » n'est rendu qu'en dehors de l'attente ; un bouton inactif le remplace.
   assert.match(page, /\{!l\.refundable && !awaitingLock && \(l\.status === "ESCROWED"/);
   assert.match(page, /data-testid="lock-finality-button"/);
   assert.match(page, /data-testid="lock-finality-wait"/);
-  // Le refus de finalité n'est pas une erreur : il relit l'état au lieu d'afficher le message brut.
-  assert.match(page, /message === LOCK_FINALITY_PENDING/);
-  // Un seul lancement automatique par prêt, et seulement après une attente observée sur cette page.
-  assert.match(page, /finalityWaited\.current\.has\(loanId\) && !finalityAutoStarted\.current\.has\(loanId\)/);
-  assert.equal(page.match(/finalityAutoStarted\.current\.add\(/g)?.length, 1);
+  assert.match(page, /data-testid="lock-finality-exhausted"/);
+  // Seule une réponse 200 est une lecture ; tout le reste est une erreur pour le suivi (lock-finality-tracker.ts).
+  assert.match(page, /if \(response\.status === 200\)/);
+  assert.match(page, /observeLockFinality\(current, result, Date\.now\(\)\)/);
+  // Le refus de finalité n'est pas une erreur : il rend le lancement automatique et reprend l'attente.
+  assert.match(page, /message === LOCK_FINALITY_PENDING[\s\S]*?lockFinalityRunRefused\(current, Date\.now\(\)\)/);
+  // Onglet caché : aucune relecture, reprise au retour.
+  assert.match(page, /document\.hidden/);
+  assert.match(page, /addEventListener\("visibilitychange"/);
 });
 
 test("le self training n'est montré que si le serveur répond exactement admin: true", () => {

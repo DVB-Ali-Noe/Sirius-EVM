@@ -17,7 +17,7 @@ test("un lock sous le bloc stable n'attend plus, quel que soit l'écart d'horoda
       { lockBlock: BigInt(100), lockTimestamp: BigInt(1_000), stableBlock, stableTimestamp: BigInt(10) },
       NOW,
     );
-    assert.deepEqual(estimate, { pending: false, estimatedReadyAt: NOW });
+    assert.deepEqual(estimate, { pending: false, remainingMs: 0, estimatedReadyAt: NOW });
   }
 });
 
@@ -27,16 +27,16 @@ test("un lock au-dessus du bloc stable attend l'écart entre son horodatage et c
     { lockBlock: BigInt(9_000), lockTimestamp: BigInt(1_000 + 14 * 60), stableBlock: BigInt(500), stableTimestamp: BigInt(1_000) },
     NOW,
   );
-  assert.deepEqual(estimate, { pending: true, estimatedReadyAt: NOW + 14 * 60_000 });
+  assert.deepEqual(estimate, { pending: true, remainingMs: 14 * 60_000, estimatedReadyAt: NOW + 14 * 60_000 });
   // Mode confirmations (testnet) : un bloc d'écart, quelques secondes.
   assert.deepEqual(
     estimateLockFinality({ lockBlock: BigInt(11), lockTimestamp: BigInt(1_002), stableBlock: BigInt(10), stableTimestamp: BigInt(1_000) }, NOW),
-    { pending: true, estimatedReadyAt: NOW + 2_000 },
+    { pending: true, remainingMs: 2_000, estimatedReadyAt: NOW + 2_000 },
   );
-  // Horodatages incohérents (RPC en retard) : jamais d'instant dans le passé.
+  // Horodatages incohérents (RPC en retard) : jamais de durée négative.
   assert.deepEqual(
     estimateLockFinality({ lockBlock: BigInt(11), lockTimestamp: BigInt(900), stableBlock: BigInt(10), stableTimestamp: BigInt(1_000) }, NOW),
-    { pending: true, estimatedReadyAt: NOW },
+    { pending: true, remainingMs: 0, estimatedReadyAt: NOW },
   );
 });
 
@@ -58,12 +58,13 @@ test("la relecture vise l'instant estimé, bornée entre 20 s et 60 s", () => {
   assert.equal(nextLockFinalityCheckMs(NOW - 60_000, NOW), 20_000);
 });
 
-test("la réponse du serveur est lue de façon défensive : seul pending: true met en attente", () => {
-  const iso = new Date(NOW + 60_000).toISOString();
-  assert.deepEqual(parseLockFinalityResponse({ pending: true, estimatedReadyAt: iso }), { pending: true, estimatedReadyAt: NOW + 60_000 });
-  assert.deepEqual(parseLockFinalityResponse({ pending: true, estimatedReadyAt: "bientôt" }), { pending: true, estimatedReadyAt: null });
-  assert.deepEqual(parseLockFinalityResponse({ pending: true }), { pending: true, estimatedReadyAt: null });
-  for (const body of [{ pending: false, estimatedReadyAt: null }, { pending: "true" }, { known: true }, {}, null, undefined, "pending", []]) {
-    assert.deepEqual(parseLockFinalityResponse(body), { pending: false, estimatedReadyAt: null });
+test("la réponse du serveur est lue de façon défensive : seul pending: true met en attente, durée serveur en ms", () => {
+  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 60_000, estimatedReadyAt: "2026-10-07T10:01:00.000Z" }), { pending: true, remainingMs: 60_000 });
+  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 0 }), { pending: true, remainingMs: 0 });
+  for (const remainingMs of ["60000", -1, Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
+    assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs }), { pending: true, remainingMs: null }, String(remainingMs));
+  }
+  for (const body of [{ pending: false, remainingMs: null }, { pending: "true" }, { known: true }, {}, null, undefined, "pending", []]) {
+    assert.deepEqual(parseLockFinalityResponse(body), { pending: false, remainingMs: null });
   }
 });

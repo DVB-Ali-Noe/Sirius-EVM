@@ -236,6 +236,20 @@ export function needsLockFinalityCheck(loan: LoanDisplayInput, viewer: string | 
   );
 }
 
+/**
+ * Phrase de la confirmation avant un second emprunt, selon ce que fait déjà l'emprunt existant :
+ * payé et en attente de lancement (ESCROWED, ou paiement en cours PENDING/SUBMITTING), ou bien
+ * entraînement déjà en cours (TRAINING, SETTLING). Clés françaises, traduites dans `train-en.ts`.
+ */
+export const DUPLICATE_LOAN_NOTICE = {
+  waiting: "Tu as déjà un emprunt payé sur ce dataset, en attente d’entraînement. Emprunter à nouveau te fait payer une seconde fois.",
+  training: "Un entraînement est déjà en cours sur ce dataset pour ton emprunt précédent. Emprunter à nouveau te fait payer une seconde fois.",
+} as const;
+
+export function duplicateLoanNotice(status: string): string {
+  return status === "TRAINING" || status === "SETTLING" ? DUPLICATE_LOAN_NOTICE.training : DUPLICATE_LOAN_NOTICE.waiting;
+}
+
 /** Clé de traduction du libellé d'un état (phrases françaises, voir `train-en.ts`). */
 export const LOAN_STATE_LABEL_KEY: Readonly<Record<LoanDisplayState, string>> = {
   "awaiting-finality": "Paiement en attente de finalité",

@@ -21,11 +21,15 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
     "The network is finalizing your payment: training can start any minute now. Your payment is safe in escrow.",
   "Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.":
     "If this page stays open, training starts automatically once finality is reached. Otherwise, come back and run the job: no need to borrow again.",
+  "Le réseau met plus de temps que prévu à finaliser ton paiement. Reviens plus tard lancer le job : ton paiement est en sécurité dans l’escrow.":
+    "The network is taking longer than expected to finalize your payment. Come back later to run the job: your payment is safe in escrow.",
 
   // Confirmation avant un second emprunt du même dataset (marketplace et ré-entraînement)
   "Emprunt déjà en cours": "Loan already in progress",
   "Tu as déjà un emprunt payé sur ce dataset, en attente d’entraînement. Emprunter à nouveau te fait payer une seconde fois.":
     "You already have a paid loan on this dataset waiting to train. Borrowing again charges you again.",
+  "Un entraînement est déjà en cours sur ce dataset pour ton emprunt précédent. Emprunter à nouveau te fait payer une seconde fois.":
+    "Training is already in progress on this dataset for your previous loan. Borrowing again charges you again.",
   "Voir mes entraînements": "See my training runs",
   "Emprunter quand même": "Borrow anyway",
 

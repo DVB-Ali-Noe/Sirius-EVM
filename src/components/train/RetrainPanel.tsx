@@ -28,13 +28,13 @@ type Listing =
  */
 export function RetrainPanel({
   datasetId,
-  hasOtherActiveLoan,
+  otherActiveLoan,
   onBorrowed,
   onError,
 }: {
   datasetId: string;
   /** Un autre emprunt de ce compte est déjà actif sur ce dataset : confirmation avant d'en ouvrir un. */
-  hasOtherActiveLoan: boolean;
+  otherActiveLoan: { status: string } | null;
   onBorrowed: () => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -79,7 +79,7 @@ export function RetrainPanel({
     if (inFlight.current || !detail || !price || !model) return;
     onError("");
     // Emprunt payé déjà en attente sur ce dataset : confirmation explicite, avant toute signature.
-    if (hasOtherActiveLoan && !(await confirmDuplicate())) return;
+    if (otherActiveLoan && !(await confirmDuplicate(otherActiveLoan))) return;
     const snapshot = useWalletStore.getState();
     if (!snapshot.authenticated || !snapshot.address) {
       onError(t("Connecte un wallet pour lancer un entraînement."));

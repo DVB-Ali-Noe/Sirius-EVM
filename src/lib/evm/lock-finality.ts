@@ -23,14 +23,16 @@ export interface LockFinalityObservation {
 
 export interface LockFinalityEstimate {
   pending: boolean;
-  /** Instant estimé (ms epoch) où le lock passera sous le bloc stable ; `now` s'il l'est déjà. */
+  /** Durée estimée avant que le lock passe sous le bloc stable ; 0 s'il l'est déjà. */
+  remainingMs: number;
+  /** Instant estimé (ms epoch serveur) correspondant ; `now` s'il l'est déjà. */
   estimatedReadyAt: number;
 }
 
 export function estimateLockFinality(observation: LockFinalityObservation, now = Date.now()): LockFinalityEstimate {
-  if (observation.stableBlock >= observation.lockBlock) return { pending: false, estimatedReadyAt: now };
-  const gapMs = Number(observation.lockTimestamp - observation.stableTimestamp) * 1_000;
-  return { pending: true, estimatedReadyAt: now + Math.max(0, gapMs) };
+  if (observation.stableBlock >= observation.lockBlock) return { pending: false, remainingMs: 0, estimatedReadyAt: now };
+  const remainingMs = Math.max(0, Number(observation.lockTimestamp - observation.stableTimestamp) * 1_000);
+  return { pending: true, remainingMs, estimatedReadyAt: now + remainingMs };
 }
 
 /** Minutes restantes affichées, arrondies au supérieur ; 0 dès que l'estimation est dépassée. */
@@ -52,16 +54,20 @@ export function nextLockFinalityCheckMs(estimatedReadyAt: number, now = Date.now
 
 export interface LockFinalityResponse {
   pending: boolean;
-  /** ISO 8601 quand `pending` ; `null` sinon. */
+  /** Durée restante calculée par le serveur (ms) quand `pending` ; `null` sinon. Jamais une date : l'horloge du client peut différer. */
+  remainingMs: number | null;
+  /** ISO 8601 indicatif quand `pending` ; `null` sinon. */
   estimatedReadyAt: string | null;
 }
 
-/** Lecture défensive de la réponse : tout corps inattendu vaut « pas en attente ». */
-export function parseLockFinalityResponse(body: unknown): { pending: boolean; estimatedReadyAt: number | null } {
+/**
+ * Lecture d'un corps HTTP 200. Tout corps inattendu vaut « pas en attente » : l'appelant ne doit
+ * passer ici qu'une réponse 200, une erreur HTTP ou réseau n'est jamais une finalité.
+ */
+export function parseLockFinalityResponse(body: unknown): { pending: boolean; remainingMs: number | null } {
   if (!body || typeof body !== "object" || (body as { pending?: unknown }).pending !== true) {
-    return { pending: false, estimatedReadyAt: null };
+    return { pending: false, remainingMs: null };
   }
-  const raw = (body as { estimatedReadyAt?: unknown }).estimatedReadyAt;
-  const parsed = typeof raw === "string" ? Date.parse(raw) : Number.NaN;
-  return { pending: true, estimatedReadyAt: Number.isFinite(parsed) ? parsed : null };
+  const raw = (body as { remainingMs?: unknown }).remainingMs;
+  return { pending: true, remainingMs: typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : null };
 }

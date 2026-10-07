@@ -67,13 +67,13 @@ export function BorrowPanel({
   // valeur d'un autre compte n'est jamais réutilisée. Le panneau n'est pas remonté à chaque
   // révision du wallet, sinon une connexion en cours perdrait son état et ses erreurs.
   const [kyb, setKyb] = useState<{ session: string; missing: boolean } | null>(null);
-  const [loans, setLoans] = useState<{ session: string; active: boolean } | null>(null);
+  const [loans, setLoans] = useState<{ session: string; active: LoanDisplayInput | null } | null>(null);
   const [rechecked, setRechecked] = useState<string | null>(null);
   const model = modelSelection(modelId, modelVersion);
   const sessionKey = authenticated && address ? address : null;
   // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
   const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
-  const dejaEmprunte = Boolean(loans && loans.session === sessionKey && loans.active);
+  const dejaEmprunte = loans && loans.session === sessionKey ? loans.active : null;
   const error = errorState && errorState.session === sessionKey ? errorState.message : null;
 
   // Prêt déjà payé sur ce dataset pour ce compte : emprunter deux fois est légitime, mais on
@@ -85,7 +85,7 @@ export function BorrowPanel({
       .then((r) => (r.ok ? (r.json() as Promise<LoanDisplayInput[]>) : null))
       .then((prets) => {
         if (!actif || !Array.isArray(prets)) return;
-        setLoans({ session: sessionKey, active: activeLoanOnDataset(prets, datasetId, sessionKey) !== null });
+        setLoans({ session: sessionKey, active: activeLoanOnDataset(prets, datasetId, sessionKey) });
       })
       .catch(() => {});
     return () => {
@@ -145,7 +145,7 @@ export function BorrowPanel({
       setError("Profil d’entraînement du dataset absent ou invalide");
       return;
     }
-    if (dejaEmprunte && !(await confirmDuplicate())) return;
+    if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
       if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) {
