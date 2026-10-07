@@ -1,4 +1,5 @@
 import type { KybGateState } from "@/lib/onboarding/steps";
+import { GUIDE_PAGE_KEYS, isGuidePageKey, type GuidePageKey } from "./pages";
 
 /**
  * Guide vivant « Sirio » : logique pure, sans React ni réseau.
@@ -10,7 +11,8 @@ import type { KybGateState } from "@/lib/onboarding/steps";
  * phases faites ; un visiteur qui revient reprend là où il en était.
  *
  * Progression : `localStorage` avant la signature (clé anonyme), puis réglage `guide` du profil
- * une fois signé ; la note locale est fusionnée dans le profil à la première signature.
+ * une fois signé ; la note locale est fusionnée dans le profil à la première signature. Les
+ * visites de page (`pages.ts`) y notent, page par page, celles déjà vues.
  */
 
 /** Nom du personnage, en un seul endroit. */
@@ -45,7 +47,12 @@ export interface GuideProgress {
   skipped: boolean;
   /** Réduit dans la bulle (Échap, « Réduire ») sans avoir passé : la bulle le rouvre là où il en était. */
   minimized: boolean;
+  /** Visites de page déjà vues : elles ne se rouvrent plus toutes seules (relance manuelle toujours possible). */
+  pages: GuidePagesSeen;
 }
+
+/** Pages dont la visite a été vue (terminée ou passée) ; seules les clés connues sont gardées. */
+export type GuidePagesSeen = Partial<Record<GuidePageKey, true>>;
 
 export const EMPTY_GUIDE_PROGRESS: Readonly<GuideProgress> = Object.freeze({
   v: GUIDE_PROGRESS_VERSION,
@@ -54,6 +61,7 @@ export const EMPTY_GUIDE_PROGRESS: Readonly<GuideProgress> = Object.freeze({
   tourDone: false,
   skipped: false,
   minimized: false,
+  pages: Object.freeze({}),
 });
 
 export interface GuideInput {
@@ -70,6 +78,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
+/** Pages vues lues d'une valeur quelconque : seules les clés connues, à `true`, sont gardées. */
+export function parseGuidePagesSeen(value: unknown): GuidePagesSeen {
+  const pages: GuidePagesSeen = {};
+  if (!isPlainObject(value)) return pages;
+  for (const key of GUIDE_PAGE_KEYS) {
+    if (value[key] === true) pages[key] = true;
+  }
+  return pages;
+}
+
 /** Lit une progression (profil ou stockage local) ; toute forme inattendue donne la progression vide. */
 export function parseGuideProgress(value: unknown): GuideProgress {
   if (!isPlainObject(value) || value.v !== GUIDE_PROGRESS_VERSION) return { ...EMPTY_GUIDE_PROGRESS };
@@ -81,6 +99,7 @@ export function parseGuideProgress(value: unknown): GuideProgress {
     tourDone: value.tourDone === true,
     skipped: value.skipped === true,
     minimized: value.minimized === true,
+    pages: parseGuidePagesSeen(value.pages),
   };
 }
 
@@ -93,11 +112,23 @@ export function mergeGuideProgress(a: GuideProgress, b: GuideProgress): GuidePro
     tourDone: a.tourDone || b.tourDone,
     skipped: a.skipped || b.skipped,
     minimized: a.minimized || b.minimized,
+    pages: { ...a.pages, ...b.pages },
   };
 }
 
 export function isEmptyGuideProgress(progress: GuideProgress): boolean {
-  return !progress.arrivalSeen && progress.tourIndex === 0 && !progress.tourDone && !progress.skipped && !progress.minimized;
+  return !progress.arrivalSeen && progress.tourIndex === 0 && !progress.tourDone && !progress.skipped && !progress.minimized
+    && Object.keys(progress.pages).length === 0;
+}
+
+/** Le parcours d'accueil est rangé (terminé ou passé) : les visites de page peuvent se proposer. */
+export function guideMainDone(progress: GuideProgress): boolean {
+  return progress.skipped || progress.tourDone;
+}
+
+/** La visite de cette page peut s'ouvrir toute seule : accueil rangé et page jamais vue. */
+export function shouldOfferPageTour(progress: GuideProgress, page: GuidePageKey | null): page is GuidePageKey {
+  return page !== null && isGuidePageKey(page) && guideMainDone(progress) && progress.pages[page] !== true;
 }
 
 /**
@@ -125,7 +156,8 @@ export type GuideAction =
   | { type: "skip" }
   | { type: "minimize" }
   | { type: "restore" }
-  | { type: "replay" };
+  | { type: "replay" }
+  | { type: "page-seen"; page: GuidePageKey };
 
 /** Toute action sur le guide ouvert le sort de l'état réduit, sauf « réduire » elle-même. */
 export function reduceGuideProgress(progress: GuideProgress, action: GuideAction): GuideProgress {
@@ -148,8 +180,12 @@ export function reduceGuideProgress(progress: GuideProgress, action: GuideAction
     case "restore":
       return open;
     case "replay":
-      // Repart de l'accueil ; le choix de passer est effacé pour que la relance s'affiche.
-      return { ...EMPTY_GUIDE_PROGRESS };
+      // Repart de l'accueil ; le choix de passer est effacé pour que la relance s'affiche. Les
+      // visites de page déjà vues le restent : elles ne se rouvriront pas toutes en cascade.
+      return { ...EMPTY_GUIDE_PROGRESS, pages: { ...progress.pages } };
+    case "page-seen":
+      // Visite de page terminée ou passée : ne touche pas à l'état réduit du parcours principal.
+      return { ...progress, pages: { ...progress.pages, [action.page]: true } };
   }
 }
 
@@ -166,7 +202,7 @@ export function guideVerifyMode(input: { kyb: KybGateState | null; instantAccess
 
 /** Sélecteurs des éléments que le guide met en lumière (attributs posés dans l'interface). */
 export const GUIDE_ANCHOR_ATTRIBUTE = "data-guide";
-export function guideAnchorSelector(anchor: "sign-in" | "connect" | `nav:${string}`): string {
+export function guideAnchorSelector(anchor: "sign-in" | "connect" | `nav:${string}` | `page:${GuidePageKey}:${string}`): string {
   return `[${GUIDE_ANCHOR_ATTRIBUTE}="${anchor}"]`;
 }
 

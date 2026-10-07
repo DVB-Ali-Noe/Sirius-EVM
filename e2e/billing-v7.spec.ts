@@ -148,7 +148,7 @@ async function borrowButton(page: Page) {
 const transactions = (page: Page) => page.evaluate(() => window.v7Transactions);
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => { localStorage.setItem("sirius-tour-seen", "1"); localStorage.removeItem("sirius-ui"); });
+  await page.addInitScript(() => localStorage.removeItem("sirius-ui"));
 });
 
 test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; accepter approuve le total exact puis verrouille", async ({ page }) => {

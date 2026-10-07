@@ -165,7 +165,7 @@ function DashboardPageContent() {
         fundsPending={fundsPending}
       />
 
-      <Card className="flex flex-wrap items-end justify-between gap-4">
+      <Card className="flex flex-wrap items-end justify-between gap-4" data-guide="page:dashboard:balance">
         <div>
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -200,10 +200,10 @@ function DashboardPageContent() {
         </div>
       </Card>
 
-      <EscrowCredits onWithdraw={refresh} />
+      <EscrowCredits onWithdraw={refresh} guideAnchor="page:dashboard:credits" />
 
       {reputation && (
-        <Card>
+        <Card data-guide="page:dashboard:trust">
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <div>
               <CardTitle>{t("Confiance EVM")}</CardTitle>
@@ -218,7 +218,7 @@ function DashboardPageContent() {
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3" data-guide="page:dashboard:shortcuts">
         {SHORTCUTS.map((s) => (
           <Link
             key={s.href}

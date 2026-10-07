@@ -15,7 +15,6 @@ async function open(page: Page, path: string, options: { connect?: boolean; hand
     if (handler) return handler(route);
     return route.fulfill({ json: { authenticated: false, known: false } });
   });
-  await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
   await page.goto(path);
   await page.waitForFunction(() => Boolean(window.__SIRIUS_E2E__));
   if (options.connect !== false) await page.evaluate((address) => window.__SIRIUS_E2E__?.connect(address, "provider"), ADDRESS);

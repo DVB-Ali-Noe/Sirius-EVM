@@ -21,6 +21,8 @@ _Points supplémentaires à prendre en compte pendant l'audit interne._
 
 ## A1 — Socle base de données
 
+> Mise à jour (octobre 2026) : `featureTours` n'est plus lu, écrit ni renvoyé par `/api/profile` ; la colonne reste en base. Un PATCH qui l'envoie encore est ignoré sans erreur. Les vérifications ci-dessous qui le citent décrivent l'état d'origine.
+
 Branche `feat/socle-profils`, PR vers `staging`, six commits (`27d3f35` implémentation ; `aa9bb6c`, `e9ed707`, `3dbd044`, `f515d25` et `eb1b09d` correctifs issus des trois passages de revue interne). Tout ce qui suit est vérifiable depuis `git diff staging...HEAD` (15 fichiers plus cette section).
 
 ### 1. Ce qui a changé
@@ -545,6 +547,8 @@ Méthode : cinq passes de revue adversariale, chacune avec six relecteurs indép
 ---
 
 ## A3 — Tutos de première connexion et par page
+
+> Mise à jour (octobre 2026) : les fichiers de cette section (`src/components/tour/`, `src/components/layout/ProductTour.tsx`, `src/lib/tour/`, `src/lib/i18n/tour-en.ts`) ont été supprimés et remplacés par le guide Sirio (`src/lib/guide/`, `src/components/guide/`), qui garde l'état vu par page dans `settings.guide.pages`. La marque e2e `sirius-tour-seen` n'existe plus. Ce qui suit décrit l'état d'origine.
 
 Branche `feat/tutos`, partie de `staging` (e829cfc) puis rebasée sur `staging` (2f6ae81, journal des accès) ; seul conflit, la ligne du script `test` de `package.json`, résolu en gardant les deux ajouts. Aucune page n'est modifiée : le tuto de chaque page est monté depuis le layout de l'application selon le chemin courant. Aucune route, table, colonne, migration, contrat ni transaction : la slice lit et écrit le profil uniquement par la route `/api/profile` livrée par A1.
 

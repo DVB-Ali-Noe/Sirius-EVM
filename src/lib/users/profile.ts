@@ -3,15 +3,17 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/app-error";
 import { normalizeAddress, type CanonicalAddress } from "@/lib/evm/address";
+import { GUIDE_PAGE_KEYS, type GuidePageKey } from "@/lib/guide/pages";
 
 /**
- * Profil d'un wallet : tutos, réglages, cache KYB et blocage côté site.
+ * Profil d'un wallet : tuto terminé, réglages (dont la progression du guide), cache KYB et
+ * blocage côté site.
  *
  * Règles de sécurité de ce module :
  *   - l'adresse vient toujours de la session, jamais d'un corps de requête, et elle est
  *     normalisée en minuscules avant toute lecture ou écriture (une casse divergente
  *     créerait deux profils pour un même wallet) ;
- *   - l'API publique ne modifie que `tourCompletedAt`, `featureTours` et `settings` ; le
+ *   - l'API publique ne modifie que `tourCompletedAt` et `settings` ; le
  *     KYB et le blocage sont posés par l'admin ou le contrat, et une tentative de les
  *     modifier ici est refusée, pas ignorée ;
  *   - les JSON reçus sont bornés en taille et validés clé par clé, puis re-filtrés à la
@@ -19,10 +21,6 @@ import { normalizeAddress, type CanonicalAddress } from "@/lib/evm/address";
  *   - la vue renvoyée n'expose ni `blockedReason` ni `blockedBy` (notes internes de
  *     l'admin), seulement la date de blocage.
  */
-
-/** Pages dotées d'un tuto ([02](../../../docs/passage-mainnet/02-general.md)). Liste fermée. */
-export const FEATURE_TOUR_KEYS = ["dashboard", "datasets", "upload", "marketplace", "train", "explorer", "wallet"] as const;
-export type FeatureTourKey = (typeof FEATURE_TOUR_KEYS)[number];
 
 /** Langues de l'interface : anglais seul au lancement, le français viendra après. */
 export const PROFILE_LANGUAGES = ["en"] as const;
@@ -37,7 +35,12 @@ const MAX_CID_CHARS = 256;
 const MAX_FINGERPRINT_CHARS = 128;
 const TOKEN_PATTERN = /^[A-Za-z0-9:_.-]+$/;
 
-export type FeatureTours = Partial<Record<FeatureTourKey, boolean>>;
+/**
+ * Ancien champ des tutos par page, remplacés par les visites du guide (`settings.guide.pages`).
+ * La colonne reste en base mais n'est plus lue ; un ancien client qui l'envoie encore est ignoré
+ * sans erreur.
+ */
+const LEGACY_PATCH_KEYS: readonly string[] = ["featureTours"];
 
 /**
  * Progression du guide Sirio (`src/lib/guide/machine.ts`) : étapes narratives et choix de passer,
@@ -52,6 +55,8 @@ export type GuideProgressSetting = {
   skipped: boolean;
   /** Réduit dans la bulle ; absent dans les profils écrits avant ce champ. */
   minimized?: boolean;
+  /** Visites de page vues (`src/lib/guide/pages.ts`) ; absent dans les profils écrits avant ce champ. */
+  pages?: Partial<Record<GuidePageKey, true>>;
 };
 
 export interface ProfileSettings {
@@ -65,7 +70,18 @@ export interface ProfileSettings {
 /** Arrêts du tour du menu du guide : borne de `tourIndex` (même liste que `GUIDE_TOUR_STOPS`). */
 const GUIDE_TOUR_STOP_COUNT = 6;
 
-/** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné. */
+/** Pages vues bien formées (clés connues, valeur `true`), ou `null` si la forme est inattendue. */
+function readGuidePages(value: unknown): Partial<Record<GuidePageKey, true>> | null {
+  if (!isPlainObject(value)) return null;
+  const pages: Partial<Record<GuidePageKey, true>> = {};
+  for (const key of Object.keys(value)) {
+    if (!(GUIDE_PAGE_KEYS as readonly string[]).includes(key) || value[key] !== true) return null;
+    pages[key as GuidePageKey] = true;
+  }
+  return pages;
+}
+
+/** Progression du guide bien formée, ou `null` : version 1, booléens, index entier borné, pages connues. */
 function readGuideProgress(value: unknown): GuideProgressSetting | null {
   if (!isPlainObject(value) || value.v !== 1) return null;
   const { arrivalSeen, tourIndex, tourDone, skipped, minimized } = value;
@@ -73,16 +89,20 @@ function readGuideProgress(value: unknown): GuideProgressSetting | null {
   if (typeof tourIndex !== "number" || !Number.isInteger(tourIndex) || tourIndex < 0 || tourIndex >= GUIDE_TOUR_STOP_COUNT) return null;
   if (minimized !== undefined && typeof minimized !== "boolean") return null;
   for (const key of Object.keys(value)) {
-    if (!["v", "arrivalSeen", "tourIndex", "tourDone", "skipped", "minimized"].includes(key)) return null;
+    if (!["v", "arrivalSeen", "tourIndex", "tourDone", "skipped", "minimized", "pages"].includes(key)) return null;
   }
-  return minimized === undefined ? { v: 1, arrivalSeen, tourIndex, tourDone, skipped } : { v: 1, arrivalSeen, tourIndex, tourDone, skipped, minimized };
+  const pages = value.pages === undefined ? undefined : readGuidePages(value.pages);
+  if (pages === null) return null;
+  const setting: GuideProgressSetting = { v: 1, arrivalSeen, tourIndex, tourDone, skipped };
+  if (minimized !== undefined) setting.minimized = minimized;
+  if (pages !== undefined) setting.pages = pages;
+  return setting;
 }
 
 /** Modification acceptée par l'API : tout le reste est refusé. */
 export interface UserProfilePatch {
   /** Booléen côté API : `true` pose la date côté serveur, `false` l'efface. */
   tourCompletedAt?: boolean;
-  featureTours?: FeatureTours;
   settings?: ProfileSettings;
 }
 
@@ -90,7 +110,6 @@ export interface UserProfilePatch {
 export interface UserProfileView {
   address: CanonicalAddress;
   tourCompletedAt: string | null;
-  featureTours: FeatureTours;
   settings: ProfileSettings;
   kybStatus: string | null;
   kybCheckedAt: string | null;
@@ -103,7 +122,6 @@ export interface UserProfileView {
 export interface UserProfileRow {
   address: string;
   tourCompletedAt: Date | null;
-  featureTours: unknown;
   settings: unknown;
   kybStatus: string | null;
   kybCheckedAt: Date | null;
@@ -140,16 +158,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/** Ne garde que les tutos connus avec une valeur booléenne : une ligne altérée reste lisible. */
-export function sanitizeFeatureTours(value: unknown): FeatureTours {
-  const tours: FeatureTours = {};
-  if (!isPlainObject(value)) return tours;
-  for (const key of FEATURE_TOUR_KEYS) {
-    if (Object.hasOwn(value, key) && typeof value[key] === "boolean") tours[key] = value[key] as boolean;
-  }
-  return tours;
-}
-
 /** Ne garde que les réglages connus et bien typés. */
 export function sanitizeSettings(value: unknown): ProfileSettings {
   const settings: ProfileSettings = {};
@@ -171,17 +179,6 @@ export function sanitizeSettings(value: unknown): ProfileSettings {
 /** Normalise l'adresse d'un profil ou lève une 400 : minuscules, 20 octets hexadécimaux. */
 export function normalizeProfileAddress(address: unknown): CanonicalAddress {
   return normalizeAddress(address, "adresse du profil");
-}
-
-function validateFeatureTours(value: unknown): FeatureTours {
-  if (!isPlainObject(value)) throw new AppError("Tutos de profil invalides", 400);
-  const tours: FeatureTours = {};
-  for (const key of Object.keys(value)) {
-    if (!(FEATURE_TOUR_KEYS as readonly string[]).includes(key)) throw new AppError("Tuto de profil inconnu", 400);
-    if (typeof value[key] !== "boolean") throw new AppError("Tutos de profil invalides", 400);
-    tours[key as FeatureTourKey] = value[key] as boolean;
-  }
-  return tours;
 }
 
 function validateSettings(value: unknown): ProfileSettings {
@@ -211,10 +208,11 @@ function validateSettings(value: unknown): ProfileSettings {
 }
 
 /**
- * Valide strictement une modification de profil. Toute clé hors `tourCompletedAt`,
- * `featureTours` et `settings` est refusée (400), y compris `address`, `kybStatus` et
- * les champs de blocage : l'API ne les ignore pas silencieusement pour qu'un client qui
- * tenterait de les écrire s'en aperçoive. Une modification vide est refusée aussi.
+ * Valide strictement une modification de profil. Toute clé hors `tourCompletedAt` et
+ * `settings` est refusée (400), y compris `address`, `kybStatus` et les champs de blocage :
+ * l'API ne les ignore pas silencieusement pour qu'un client qui tenterait de les écrire s'en
+ * aperçoive. Seule exception : l'ancien `featureTours`, ignoré sans erreur (onglet ouvert avant
+ * sa suppression). Une modification vide est refusée aussi.
  */
 export function validateProfilePatch(input: unknown): UserProfilePatch {
   if (!isPlainObject(input)) throw new AppError("Modification de profil invalide", 400);
@@ -222,19 +220,20 @@ export function validateProfilePatch(input: unknown): UserProfilePatch {
     throw new AppError("Modification de profil trop volumineuse", 413);
   }
   const patch: UserProfilePatch = {};
+  let legacy = false;
   for (const key of Object.keys(input)) {
     if (key === "tourCompletedAt") {
       if (typeof input.tourCompletedAt !== "boolean") throw new AppError("Modification de profil invalide", 400);
       patch.tourCompletedAt = input.tourCompletedAt;
-    } else if (key === "featureTours") {
-      patch.featureTours = validateFeatureTours(input.featureTours);
+    } else if (LEGACY_PATCH_KEYS.includes(key)) {
+      legacy = true;
     } else if (key === "settings") {
       patch.settings = validateSettings(input.settings);
     } else {
       throw new AppError("Champ de profil non modifiable", 400);
     }
   }
-  if (Object.keys(patch).length === 0) throw new AppError("Aucune modification de profil", 400);
+  if (Object.keys(patch).length === 0 && !legacy) throw new AppError("Aucune modification de profil", 400);
   return patch;
 }
 
@@ -243,7 +242,6 @@ export function toUserProfileView(row: UserProfileRow): UserProfileView {
   return {
     address: normalizeProfileAddress(row.address),
     tourCompletedAt: row.tourCompletedAt?.toISOString() ?? null,
-    featureTours: sanitizeFeatureTours(row.featureTours),
     settings: sanitizeSettings(row.settings),
     kybStatus: row.kybStatus,
     kybCheckedAt: row.kybCheckedAt?.toISOString() ?? null,
@@ -289,9 +287,9 @@ export async function readUserProfile(address: unknown, db: Db = prisma): Promis
 }
 
 /**
- * Applique une modification validée. `featureTours` et `settings` sont fusionnés clé par
- * clé avec l'existant, dans une transaction sérialisable : deux pages qui marquent leur
- * tuto en même temps ne s'effacent pas l'une l'autre. Le profil est créé s'il manque
+ * Applique une modification validée. `settings` est fusionné clé par clé avec l'existant,
+ * dans une transaction sérialisable : deux onglets qui écrivent un réglage en même temps ne
+ * s'effacent pas l'un l'autre. Le profil est créé s'il manque
  * (session ouverte avant la migration) par un upsert : une création concurrente entre la
  * lecture et l'écriture (connexion dans un autre onglet) ne lève pas de violation d'unicité.
  */
@@ -309,9 +307,6 @@ export async function updateUserProfile(
     const data: Prisma.UserProfileUncheckedUpdateInput = { lastSeenAt: now };
     if (patch.tourCompletedAt !== undefined) {
       data.tourCompletedAt = patch.tourCompletedAt ? (existing?.tourCompletedAt ?? now) : null;
-    }
-    if (patch.featureTours) {
-      data.featureTours = { ...sanitizeFeatureTours(existing?.featureTours), ...patch.featureTours };
     }
     if (patch.settings) {
       data.settings = { ...sanitizeSettings(existing?.settings), ...patch.settings };

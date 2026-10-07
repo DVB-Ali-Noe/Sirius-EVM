@@ -18,7 +18,6 @@ declare global {
 async function wallets(page: Page, late = false) {
   await page.route("**/api/**", route => route.fulfill({ json: { authenticated: false, known: true } }));
   await page.addInitScript(({ addresses, late }) => {
-    localStorage.setItem("sirius-tour-seen", "1");
     if (late) localStorage.setItem("sirius.wallet.rdns", "audit.b");
     const make = (address: string) => {
       const listeners = new Map<string, Set<(value: unknown) => void>>();
@@ -90,7 +89,6 @@ for (const pagination of [false, true]) {
     const fixture = (owner: string) => ({ id: `dataset-${owner}`, name: `Dataset ${owner}`, status: "DRAFT",
       modelId: "linear_regression", modelVersion: "1.0.0", ipfsCid: "fixture", sizeBytes: 100 });
     let ownerB = false;
-    await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
     await page.route("**/api/**", async route => {
       const url = new URL(route.request().url());
       if (url.pathname !== "/api/datasets") return route.fulfill({ json: { known: true } });

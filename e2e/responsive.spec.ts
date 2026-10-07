@@ -81,7 +81,6 @@ function catalogueBody(datasets: Array<typeof dataset>) {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("sirius-tour-seen", "1");
     localStorage.removeItem("sirius-favorites");
     localStorage.removeItem("sirius-ui");
   });

@@ -253,7 +253,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
         title={t("Publier un dataset")}
         actions={<p className="text-sm text-muted" aria-live="polite">{t("Étape {step} / 2", { step: stepNumber })}</p>}
       >
-        <ol className="flex gap-2 text-xs" aria-label={t("Étapes")}>
+        <ol className="flex gap-2 text-xs" aria-label={t("Étapes")} data-guide="page:upload:steps">
           {[t("La donnée"), t("Prix et publication")].map((label, index) => {
             const current = index + 1 === stepNumber;
             const done = index + 1 < stepNumber;

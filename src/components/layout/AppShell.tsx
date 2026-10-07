@@ -2,10 +2,8 @@
 
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { ProductTour } from "@/components/layout/ProductTour";
 import { LegalLinks } from "@/components/layout/LegalLinks";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
-import { PageTour } from "@/components/tour/PageTour";
 import { ActiveLoanIndicator } from "@/components/onboarding/ActiveLoanIndicator";
 import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
 import { GuideHost } from "@/components/guide/GuideHost";
@@ -47,10 +45,8 @@ export function AppShell({ children, demoOnly = false }: { children: React.React
       }`}
     >
       <Sidebar />
-      <ProductTour />
-      <PageTour />
       <OnboardingHost />
-      {/* Guide Sirio : accueil animé, puis bulle en bas à droite sur toutes les pages. */}
+      {/* Guide Sirio : accueil animé, visites de page, puis bulle en bas à droite sur toutes les pages. */}
       <GuideHost />
       {/* décalage pour la barre mobile (top-16 + nav) ; nul en desktop */}
       <div className="pt-32 md:pt-8">

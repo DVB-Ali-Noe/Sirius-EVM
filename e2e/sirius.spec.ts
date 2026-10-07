@@ -60,7 +60,6 @@ async function connect(page: Page, address: string, role: "provider" | "borrower
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("sirius-tour-seen", "1");
     localStorage.removeItem("sirius-ui");
     localStorage.removeItem("sirius-favorites");
   });

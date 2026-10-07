@@ -51,4 +51,59 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   "Conversation avec Sirio": "Conversation with Sirio",
   "Fermer le panneau": "Close panel",
   "Revoir la visite guidée": "Replay the guided tour",
+  "Revoir la visite de cette page": "Replay this page’s tour",
+  "Réduire le panneau": "Shrink the panel",
+  "Agrandir le panneau": "Enlarge the panel",
+  "Copier la réponse": "Copy the answer",
+  "Réponse copiée": "Answer copied",
+  "Copier": "Copy",
+  "Copié": "Copied",
+  "Questions suggérées": "Suggested questions",
+  "Dernier message": "Latest message",
+  "Arrêter la réponse": "Stop the answer",
+  "Réponse interrompue.": "Answer stopped.",
+  "Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne": "Enter to send · Shift+Enter for a new line",
+
+  // Questions suggérées selon la page, et leurs réponses hors ligne
+  "Combien de datasets sur la marketplace ?": "How many datasets are on the marketplace?",
+  "Quels sont les plafonds de prêt ?": "What are the loan limits?",
+  "Que veut dire le badge KYB ?": "What does the KYB badge mean?",
+  "Le badge indique que le fournisseur du dataset a une attestation KYB valide dans le registre on-chain. Sans attestation valide, le dataset reste visible mais ne peut pas être emprunté.":
+    "The badge means the dataset provider has a valid KYB attestation in the on-chain registry. Without a valid attestation, the dataset stays visible but cannot be borrowed.",
+  "Comment récupérer mon modèle ?": "How do I get my model?",
+  "Quand l’entraînement est réglé, clique sur Vérifier et télécharger sur la page Entraîner : la clé du modèle est livrée et tu peux le déchiffrer dans ton navigateur.":
+    "Once training is settled, click Verify and download on the Train page: the model key is delivered and you can decrypt it in your browser.",
+  "Que faire si l’entraînement échoue ?": "What if training fails?",
+  "Le prix du dataset et le compute non utilisé sont remboursés dans l’escrow ; seuls les frais d’exécution mesurés, plafonnés dans le devis, sont retenus. Retire le crédit depuis la page Wallet.":
+    "The dataset price and the unused compute are refunded into the escrow; only measured execution fees, capped in the quote, are retained. Withdraw the credit from the Wallet page.",
+  "Quelles limites pour mon CSV ?": "What limits apply to my CSV?",
+  "Un CSV de colonnes numériques, assez grand pour préserver la confidentialité : la taille, le nombre de lignes et de colonnes acceptés sont rappelés sur la page de publication.":
+    "A CSV of numeric columns, large enough to preserve privacy: the accepted size, row and column counts are listed on the publishing page.",
+  "Quand suis-je payé·e ?": "When do I get paid?",
+  "À chaque entraînement réglé, ton gain est crédité dans l’escrow : retire-le depuis la page Wallet (tu paies le gas).":
+    "On every settled training run, your earnings are credited in the escrow: withdraw them from the Wallet page (you pay the gas).",
+  "Comment ajouter des fonds ?": "How do I add funds?",
+  "Clique sur Ajouter des fonds : par carte, depuis un autre wallet ou depuis une autre chaîne sur mainnet ; un robinet de test sur le testnet.":
+    "Click Add funds: by card, from another wallet or from another chain on mainnet; a test faucet on the testnet.",
+  "Pourquoi me faut-il de l’ETH ?": "Why do I need ETH?",
+  "Le gas (frais réseau) se paie toujours en ETH sur Robinhood Chain, séparément du stablecoin qui règle les emprunts.":
+    "Gas (network fees) is always paid in ETH on Robinhood Chain, separately from the stablecoin that pays for loans.",
+  "Comment retirer mes règlements ?": "How do I withdraw my settlements?",
+  "Les règlements et remboursements sont crédités dans l’escrow : sur la page Wallet, clique sur Retirer pour les ramener dans ton wallet.":
+    "Settlements and refunds are credited in the escrow: on the Wallet page, click Withdraw to move them to your wallet.",
+  "Que montre l’Explorer ?": "What does the Explorer show?",
+  "Tes emprunts, règlements et remboursements, chacun vérifiable sur l’explorateur de la chaîne. Jamais le contenu des datasets.":
+    "Your borrowings, settlements and refunds, each verifiable on the chain explorer. Never the contents of datasets.",
+  "Qu’est-ce qu’un reçu d’audit ?": "What is an audit receipt?",
+  "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle livré.":
+    "Every training run produces an audit receipt and a certificate binding the dataset title, the loan, the TEE attestation and the fingerprint of the delivered model.",
+  "Pourquoi une vérification KYB ?": "Why a KYB verification?",
+  "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde sur la marketplace.":
+    "Every lender and borrower is verified on-chain: it protects everyone’s data and money on the marketplace.",
+  "Comment obtenir l’accès instantané ?": "How do I get instant access?",
+  "Quand il est ouvert, Sirius signe une attestation de 30 jours pour ton wallet : une seule transaction à confirmer, avec un peu d’ETH pour le gas.":
+    "When it is open, Sirius signs a 30-day attestation for your wallet: a single transaction to confirm, with a little ETH for gas.",
+  "Qu’est-ce qu’une attestation TEE ?": "What is a TEE attestation?",
+  "La preuve, vérifiée à chaque requête, que le code qui entraîne tourne bien dans l’enclave attendue : son identité est épinglée et comparée.":
+    "The proof, checked on every request, that the training code runs inside the expected enclave: its identity is pinned and compared.",
 };
