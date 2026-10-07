@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  FAST_FINALITY_MS_PER_BLOCK,
+  LOCK_FINALITY_FAST_POLL_MAX_MS,
+  LOCK_FINALITY_FAST_POLL_MIN_MS,
   LOCK_FINALITY_POLL_MAX_MS,
   LOCK_FINALITY_POLL_MIN_MS,
+  estimateFastLockFinality,
   estimateLockFinality,
   lockFinalityMinutesLeft,
+  lockFinalitySecondsLeft,
   nextLockFinalityCheckMs,
   parseLockFinalityResponse,
 } from "./lock-finality";
@@ -59,12 +64,36 @@ test("la relecture vise l'instant estimé, bornée entre 20 s et 60 s", () => {
 });
 
 test("la réponse du serveur est lue de façon défensive : seul pending: true met en attente, durée serveur en ms", () => {
-  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 60_000, estimatedReadyAt: "2026-10-07T10:01:00.000Z" }), { pending: true, remainingMs: 60_000 });
-  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 0 }), { pending: true, remainingMs: 0 });
+  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 60_000, estimatedReadyAt: "2026-10-07T10:01:00.000Z" }), { pending: true, remainingMs: 60_000, tier: "FULL" });
+  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 0 }), { pending: true, remainingMs: 0, tier: "FULL" });
   for (const remainingMs of ["60000", -1, Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
-    assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs }), { pending: true, remainingMs: null }, String(remainingMs));
+    assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs }), { pending: true, remainingMs: null, tier: "FULL" }, String(remainingMs));
   }
   for (const body of [{ pending: false, remainingMs: null }, { pending: "true" }, { known: true }, {}, null, undefined, "pending", []]) {
-    assert.deepEqual(parseLockFinalityResponse(body), { pending: false, remainingMs: null });
+    assert.deepEqual(parseLockFinalityResponse(body), { pending: false, remainingMs: null, tier: "FULL" });
   }
+  // Palier rapide annoncé par le serveur ; tout palier illisible retombe sur l'affichage long.
+  assert.deepEqual(parseLockFinalityResponse({ pending: true, remainingMs: 5_000, tier: "FAST" }), { pending: true, remainingMs: 5_000, tier: "FAST" });
+  assert.deepEqual(parseLockFinalityResponse({ pending: false, tier: "FAST" }), { pending: false, remainingMs: null, tier: "FAST" });
+  assert.equal(parseLockFinalityResponse({ pending: true, remainingMs: 5_000, tier: "fast" }).tier, "FULL");
+});
+
+test("palier rapide : il manque (confirmations - 1) blocs au-dessus du lock, comptés 250 ms chacun, relecture entre 5 s et 20 s", () => {
+  assert.equal(FAST_FINALITY_MS_PER_BLOCK, 250);
+  // Lock au bloc 1 000, trente confirmations : prêt dès que la tête atteint 1 029.
+  assert.deepEqual(estimateFastLockFinality({ lockBlock: BigInt(1_000), tipBlock: BigInt(1_029), confirmations: 30 }, NOW), { pending: false, remainingMs: 0, estimatedReadyAt: NOW });
+  assert.deepEqual(estimateFastLockFinality({ lockBlock: BigInt(1_000), tipBlock: BigInt(5_000), confirmations: 30 }, NOW), { pending: false, remainingMs: 0, estimatedReadyAt: NOW });
+  assert.deepEqual(estimateFastLockFinality({ lockBlock: BigInt(1_000), tipBlock: BigInt(1_028), confirmations: 30 }, NOW), { pending: true, remainingMs: 250, estimatedReadyAt: NOW + 250 });
+  assert.deepEqual(estimateFastLockFinality({ lockBlock: BigInt(1_000), tipBlock: BigInt(1_000), confirmations: 30 }, NOW), { pending: true, remainingMs: 29 * 250, estimatedReadyAt: NOW + 29 * 250 });
+  // Une seule confirmation : le bloc de lock lui-même suffit.
+  assert.deepEqual(estimateFastLockFinality({ lockBlock: BigInt(1_000), tipBlock: BigInt(1_000), confirmations: 1 }, NOW), { pending: false, remainingMs: 0, estimatedReadyAt: NOW });
+  assert.equal(lockFinalitySecondsLeft(NOW + 7_250, NOW), 8);
+  assert.equal(lockFinalitySecondsLeft(NOW, NOW), 0);
+  assert.equal(lockFinalitySecondsLeft(NOW - 1, NOW), 0);
+  assert.equal(LOCK_FINALITY_FAST_POLL_MIN_MS, 5_000);
+  assert.equal(LOCK_FINALITY_FAST_POLL_MAX_MS, 20_000);
+  assert.equal(nextLockFinalityCheckMs(NOW + 60_000, NOW, "FAST"), 20_000);
+  assert.equal(nextLockFinalityCheckMs(NOW + 7_000, NOW, "FAST"), 7_000);
+  assert.equal(nextLockFinalityCheckMs(NOW, NOW, "FAST"), 5_000);
+  assert.equal(nextLockFinalityCheckMs(NOW + 7_000, NOW, "FULL"), 20_000, "le palier complet garde ses bornes");
 });

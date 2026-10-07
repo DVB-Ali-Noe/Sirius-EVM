@@ -1,7 +1,9 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
 import type { Hex, PublicClient, TransactionReceipt } from "viem";
-import { estimateLockFinality, type LockFinalityEstimate } from "./lock-finality";
+import { estimateFastLockFinality, estimateLockFinality, type LockFinalityEstimate } from "./lock-finality";
+import { fastFinalityConfig, FastFinalityConfigError, type FastFinalityConfig, type FinalityTier } from "./fast-finality";
+import { USDC_DECIMALS } from "./usdc";
 
 export function finalityPolicy(minimumConfirmations = 1) {
   const confirmations = Number(process.env.SIRIUS_EVM_CONFIRMATIONS ?? 1);
@@ -16,9 +18,37 @@ export function finalityPolicy(minimumConfirmations = 1) {
   return { confirmations: Math.max(confirmations, minimumConfirmations), finalized: mode === "finalized" };
 }
 
-export async function confirmedBlock(client: PublicClient, minimumConfirmations = 1) {
+/**
+ * Bornes de la finalité rapide de ce rôle (fast-finality.ts), lues dans l'environnement avec la
+ * précision du jeton du réseau. Une valeur illisible vaut refus de service, jamais un défaut.
+ */
+export function fastFinalityPolicy(env: Record<string, string | undefined> = process.env): FastFinalityConfig {
+  try {
+    return fastFinalityConfig(env, USDC_DECIMALS);
+  } catch (error) {
+    if (error instanceof FastFinalityConfigError) throw new AppError(`Politique de finalité rapide invalide : ${error.message}`, 503);
+    throw error;
+  }
+}
+
+/**
+ * Bloc stable du palier demandé. `FULL` : la politique historique (bloc `finalized` sur mainnet).
+ * `FAST` : la tête moins les confirmations rapides, sans lire `finalized` ; la finalité rapide doit
+ * être active dans l'environnement de CE rôle, sinon refus (un palier rapide ne se déduit jamais
+ * d'une demande extérieure). Le hash du bloc rendu sert au contrôle canonique de l'appelant.
+ */
+export async function confirmedBlock(client: PublicClient, minimumConfirmations = 1, tier: FinalityTier = "FULL") {
   const policy = finalityPolicy(minimumConfirmations);
   const tip = await client.getBlockNumber({ cacheTime: 0 });
+  if (tier === "FAST") {
+    const fast = fastFinalityPolicy();
+    if (!fast.enabled) throw new AppError("Finalité rapide désactivée pour ce rôle", 503);
+    const number = tip - BigInt(Math.max(fast.confirmations, policy.confirmations)) + BigInt(1);
+    if (number < BigInt(0)) throw new AppError("Profondeur de confirmation indisponible", 503);
+    const block = await client.getBlock({ blockNumber: number });
+    if (block.number === null || block.hash === null) throw new AppError("Profondeur de confirmation indisponible", 503);
+    return block;
+  }
   const number = tip - BigInt(policy.confirmations) + BigInt(1);
   if (number < BigInt(0)) throw new AppError("Profondeur de confirmation indisponible", 503);
   if (!policy.finalized) return client.getBlock({ blockNumber: number });
@@ -31,12 +61,41 @@ export async function assertCanonicalReceipt(
   client: PublicClient,
   receipt: Pick<TransactionReceipt, "blockNumber" | "blockHash">,
   minimumConfirmations = 1,
+  tier: FinalityTier = "FULL",
 ): Promise<void> {
   const [canonical, stable] = await Promise.all([
-    client.getBlock({ blockNumber: receipt.blockNumber }), confirmedBlock(client, minimumConfirmations),
+    client.getBlock({ blockNumber: receipt.blockNumber }), confirmedBlock(client, minimumConfirmations, tier),
   ]);
   if (!canonical.hash || canonical.hash !== receipt.blockHash || stable.number === null || stable.number < receipt.blockNumber) {
     throw new AppError("Transaction on-chain non confirmée ou réorganisée", 409);
+  }
+}
+
+/**
+ * Le lock d'un prêt est-il assez profond pour son palier ? `FULL` : même garde qu'`assertBlockStable`
+ * (le bloc finalisé a dépassé le bloc de lock). `FAST` : le reçu du lock est relu, doit être dans le
+ * bloc persisté, et ce bloc doit être canonique et sous la profondeur rapide. Dans les deux cas,
+ * un refus porte `message` (reconnu par la page Train comme une attente, pas une erreur).
+ */
+export async function assertLockStable(
+  client: PublicClient,
+  lock: { blockNumber: bigint; txHash: Hex },
+  tier: FinalityTier,
+  message: string,
+): Promise<void> {
+  if (tier === "FULL") return assertBlockStable(client, lock.blockNumber, message);
+  let receipt: Pick<TransactionReceipt, "blockNumber" | "blockHash" | "status">;
+  try {
+    receipt = await client.getTransactionReceipt({ hash: lock.txHash });
+  } catch {
+    throw new AppError(message, 409);
+  }
+  if (receipt.status !== "success" || receipt.blockNumber !== lock.blockNumber) throw new AppError(message, 409);
+  try {
+    await assertCanonicalReceipt(client, receipt, 1, "FAST");
+  } catch (error) {
+    if (error instanceof AppError && error.status === 409) throw new AppError(message, 409);
+    throw error;
   }
 }
 
@@ -59,6 +118,18 @@ export async function lockFinalityStatus(client: PublicClient, lockBlock: bigint
   const [stable, lockTimestamp] = await Promise.all([confirmedBlock(client), lockBlockTimestamp(client, lockBlock)]);
   if (stable.number === null) throw new AppError("Finalité EVM indisponible", 503);
   return estimateLockFinality({ lockBlock, lockTimestamp, stableBlock: stable.number, stableTimestamp: stable.timestamp }, now);
+}
+
+/**
+ * Même information pour un prêt au palier rapide : il manque `lockBlock + confirmations - 1 - tête`
+ * blocs, convertis en secondes par le rythme de production conservateur de lock-finality.ts. Une
+ * lecture RPC (la tête) ; la décision reste celle d'`assertLockStable`, qui relit aussi le reçu.
+ */
+export async function fastLockFinalityStatus(client: PublicClient, lockBlock: bigint, now = Date.now()): Promise<LockFinalityEstimate> {
+  const fast = fastFinalityPolicy();
+  if (!fast.enabled) throw new AppError("Finalité rapide désactivée pour ce rôle", 503);
+  const tip = await client.getBlockNumber({ cacheTime: 0 });
+  return estimateFastLockFinality({ lockBlock, tipBlock: tip, confirmations: Math.max(fast.confirmations, finalityPolicy().confirmations) }, now);
 }
 
 /** Horodatages de blocs de lock déjà lus : un bloc miné ne change plus d'horodatage. Taille bornée. */

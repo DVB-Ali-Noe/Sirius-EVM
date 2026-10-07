@@ -162,6 +162,13 @@ model Loan {
   auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
 
+  // Finalité rapide (src/lib/evm/fast-finality.ts) : palier décidé au lancement de l'entraînement,
+  // appliqué aussi au règlement ; un prêt FAST réglé est revérifié à finalité complète par le reaper.
+  finalityTier       FinalityTier @default(FULL)
+  finalityVerifiedAt DateTime? // release FAST confirmé sous le bloc finalisé
+  finalityReview     String? // divergence constatée à finalité complète : motif, revue manuelle
+  finalityReviewAt   DateTime?
+
   status    LoanStatus @default(PENDING)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -174,6 +181,7 @@ model Loan {
   @@index([status])
   @@index([provider, status])
   @@index([borrower, status])
+  @@index([finalityTier, status])
 }
 
 /// Octroi de la clé de déchiffrement au TEE pour un job donné.
@@ -295,6 +303,12 @@ enum LoanStatus {
   SETTLING // release USDC soumis ou à réconcilier
   SETTLED // release USDC validé, capsule déverrouillable
   CANCELLED // réservation abandonnée ou remboursement USDC confirmé
+}
+
+/// Palier de finalité d'un prêt (src/lib/evm/fast-finality.ts).
+enum FinalityTier {
+  FULL // bloc finalisé (mainnet) ou politique historique
+  FAST // N confirmations L2 avec contrôle canonique, petits prêts seulement
 }
 
 enum TrainingStatus {
