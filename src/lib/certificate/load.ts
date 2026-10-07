@@ -28,6 +28,7 @@ const CERTIFICATE_SELECT = {
   attestationComposeHash: true,
   settleTxHash: true,
   settledAt: true,
+  finalityReview: true,
   dataset: {
     select: {
       id: true,

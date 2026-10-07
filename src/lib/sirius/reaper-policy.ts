@@ -9,6 +9,12 @@ export const CHAIN_REAPER_LEASE_MS = 90_000;
  * contrat refuse tout lock après cette échéance : 24 h couvrent largement la finalité mainnet.
  */
 export const CANCELLED_LOCK_SEARCH_WINDOW_MS = 24 * 60 * 60_000;
+/**
+ * Délai avant de revérifier, sous le bloc finalisé, un release accepté au palier rapide
+ * (fast-settlement-review.ts) : le bloc `finalized` traîne un quart d'heure derrière la tête sur
+ * Robinhood Chain, repasser plus tôt ne ferait que lire « pas encore ».
+ */
+export const FAST_SETTLEMENT_VERIFY_DELAY_MS = 15 * 60_000;
 
 export type LoanReaperAction =
   | "cancel-pending"

@@ -520,3 +520,71 @@ test("A-19 : une préparation jamais signée sort de la liste du reaper, un lock
   await reap(now);
   assert.deepEqual(seen.sort(), ["abandoned-recent", "settling-old", "submitted-old"]);
 });
+
+// --- Finalité rapide : un release accepté à N confirmations est revérifié sous le bloc finalisé.
+
+function fastSettledReaperFixture(onChainStatus: number, options: { receiptMissing?: boolean; reorged?: boolean } = {}) {
+  process.env.SIRIUS_EVM_FINALITY = "confirmations";
+  process.env.SIRIUS_EVM_CONFIRMATIONS = "1";
+  const settled = loan({
+    status: "SETTLED", modelCid: "bafyModel", billingQuoteHash: HASH, settleTxHash: HASH, settledAt: new Date(0),
+    finalityTier: "FAST", finalityVerifiedAt: null, finalityReview: null,
+  } as Partial<Loan>);
+  stubDb(prisma.loan, "findMany", async () => [settled]);
+  mock.method(client, "readContract", async ({ functionName }: { functionName: string }) => functionName === "VERSION"
+    ? "sirius-escrow-usdc-v7"
+    : { ...onChain(), status: onChainStatus, datasetAmount: BigInt(100), computeAmount: BigInt(40),
+      maxFailureFee: BigInt(20), consumedCompute: BigInt(0), computeRecipient: PROVIDER, termsHash: HASH, lockedAt: BigInt(1) });
+  mock.method(client, "getTransactionReceipt", async () => {
+    if (options.receiptMissing) throw new Error("introuvable");
+    return { status: "success", transactionHash: HASH, to: ESCROW, blockNumber: BigInt(10), blockHash: HASH };
+  });
+  mock.method(client, "getBlockNumber", async () => BigInt(10));
+  mock.method(client, "getBlock", async ({ blockNumber }: { blockNumber: bigint }) => ({ number: blockNumber, hash: options.reorged ? DATASET : HASH }));
+  const errors: string[] = [];
+  mock.method(console, "error", (...args: unknown[]) => { errors.push(args.map(String).join(" ")); });
+  mock.method(console, "log", () => {});
+  return errors;
+}
+
+test("finalité rapide : un release confirmé sous le bloc finalisé est marqué vérifié, sans alerte", async () => {
+  const errors = fastSettledReaperFixture(2);
+  const result = await reap();
+  assert.deepEqual(result, { examined: 1, failed: 0 });
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].where, { id: "loan-1", status: "SETTLED", finalityTier: "FAST", finalityVerifiedAt: null });
+  assert.ok(updates[0].data.finalityVerifiedAt instanceof Date);
+  assert.deepEqual(errors, []);
+});
+
+test("finalité rapide : un release disparu après réorganisation ouvre une revue, alerte et compte comme erreur de passe", async () => {
+  for (const [options, reason] of [
+    [{ receiptMissing: true }, /release disparu après réorganisation : escrow encore verrouillé/],
+    [{ reorged: true }, /bloc du release réorganisé/],
+  ] as const) {
+    updates = [];
+    const errors = fastSettledReaperFixture(1, options);
+    const result = await reap();
+    assert.deepEqual(result, { examined: 1, failed: 1 }, JSON.stringify(options));
+    assert.equal(updates.length, 1);
+    assert.deepEqual(updates[0].where, { id: "loan-1", status: "SETTLED", finalityTier: "FAST", finalityReview: null });
+    assert.match(String(updates[0].data.finalityReview), reason);
+    assert.ok(updates[0].data.finalityReviewAt instanceof Date);
+    assert.ok(errors.some((line) => /\[reaper\] ALERTE finalité rapide : prêt EVM loan-1/.test(line) && reason.test(line)), errors.join("\n"));
+    mock.restoreAll();
+    while (restoreDb.length) restoreDb.pop()!();
+    stubDb(prisma.loan, "updateMany", async (args: typeof updates[number]) => { updates.push(args); return { count: 1 }; });
+    stubDb(prisma.dataset, "findUnique", async () => ({ evmDatasetId: DATASET, evmMintBlock: "8" }));
+    mock.method(client, "getChainId", async () => 46630);
+  }
+});
+
+test("finalité rapide : le bloc finalisé pas encore atteint laisse le prêt tel quel, sans écriture ni alerte", async () => {
+  const errors = fastSettledReaperFixture(2);
+  // Reçu au bloc 10, tête à 10 mais deux confirmations exigées : le bloc stable est 9.
+  process.env.SIRIUS_EVM_CONFIRMATIONS = "2";
+  const result = await reap();
+  assert.deepEqual(result, { examined: 1, failed: 0 });
+  assert.deepEqual(updates, []);
+  assert.deepEqual(errors, []);
+});
