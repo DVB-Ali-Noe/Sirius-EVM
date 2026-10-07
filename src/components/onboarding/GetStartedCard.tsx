@@ -13,15 +13,46 @@ import {
 } from "@/lib/onboarding/steps";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { stepCopy } from "@/lib/onboarding/copy";
-import { dismissChecklist, loadChecklistPreference, requestVerification, useOnboardingStore } from "./onboarding-store";
+import { messageOf } from "@/lib/errors-client";
+import { useWalletStore } from "@/stores/wallet";
+import { connectAndSignIn, useSignIn } from "@/components/wallet/SignInCta";
+import { connectWallet } from "@/components/wallet/WalletConnector";
+import { TermsNotice } from "@/components/wallet/TermsNotice";
+import {
+  chainVerificationAfterSignIn,
+  dismissChecklist,
+  loadChecklistPreference,
+  requestVerification,
+  useOnboardingStore,
+} from "./onboarding-store";
 
 /** Textes des étapes pour le réseau du site (inliné au build) : pas de « mainnet » sur le testnet. */
 const STEP_COPY = stepCopy(resolveClientNetwork());
 
 const PRIMARY ="inline-flex rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50";
 
+/** Étape « Connecte ton wallet » : la connexion seule, la signature est l'étape suivante. */
+async function connectFromCard(): Promise<void> {
+  if (useSignIn.getState().pending) return;
+  useSignIn.setState({ pending: true, error: null });
+  try {
+    await connectWallet();
+  } catch (error) {
+    useSignIn.setState({ error: messageOf(error) });
+  } finally {
+    useSignIn.setState({ pending: false });
+  }
+}
+
+/** Étape « Connecte-toi » : signature, puis vérification proposée si le wallet n'est pas vérifié. */
+async function signInFromCard(): Promise<void> {
+  await connectAndSignIn();
+  if (useWalletStore.getState().authenticated) await chainVerificationAfterSignIn();
+}
+
 interface GetStartedCardProps {
-  address: string;
+  /** Wallet connecté, ou `null` pour un visiteur qui n'en a pas encore connecté. */
+  address: string | null;
   /** Soldes lus par le tableau de bord : `null` tant qu'ils sont inconnus. */
   gasWei: string | null;
   stableAtomic: string | null;
@@ -33,20 +64,28 @@ interface GetStartedCardProps {
 }
 
 /**
- * Carte « Get started » du tableau de bord : les cinq étapes d'un premier entraînement, cochées
- * d'après l'état réel du compte (registre KYB, soldes, prêts), chacune avec son action. Seule
- * l'étape suivante porte le bouton principal. Masquable ; la fermeture est enregistrée dans le
- * profil et la carte revient depuis « Get started » du menu profil.
+ * Carte « Get started » du tableau de bord : les étapes d'un premier entraînement, de la
+ * connexion du wallet au modèle livré, cochées d'après l'état réel du compte (wallet, session,
+ * registre KYB, soldes, prêts), chacune avec son action. Seule l'étape suivante porte le bouton
+ * principal, qui fait l'action elle-même. Affichée dès la première visite ; une fois signé, elle
+ * est masquable, la fermeture est enregistrée dans le profil et la carte revient depuis
+ * « Get started » du menu profil.
  */
 export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFunds, fundsPending }: GetStartedCardProps) {
   const { t } = useLocale();
+  const connected = useWalletStore((s) => s.connected) && address !== null;
+  const authenticated = useWalletStore((s) => s.authenticated);
+  const signedIn = connected && authenticated;
+  const signPending = useSignIn((s) => s.pending);
+  const signError = useSignIn((s) => s.error);
   const owner = useOnboardingStore((s) => s.owner);
   const kyb = useOnboardingStore((s) => s.kyb);
   const instantAccess = useOnboardingStore((s) => s.instantAccess);
   const dismissed = useOnboardingStore((s) => s.dismissed);
   const reopened = useOnboardingStore((s) => s.reopened);
-  const [loans, setLoans] = useState<{ address: string; list: OnboardingLoan[] } | null>(null);
-  const ready = owner === address.toLowerCase();
+  const [loans, setLoans] = useState<{ address: string | null; list: OnboardingLoan[] } | null>(null);
+  // Le statut KYB, les prêts et la préférence ne se lisent qu'une fois signé.
+  const ready = signedIn && address !== null && owner === address.toLowerCase();
 
   useEffect(() => {
     if (!ready) return;
@@ -70,13 +109,34 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
     };
   }, [ready, address, kyb]);
 
-  // Rien tant que l'état n'est pas lu : une carte qui coche ses étapes une à une désoriente.
-  if (!ready || kyb === null || !loans || loans.address !== address) return null;
-  const progress = deriveOnboardingProgress({ kyb, gasWei, stableAtomic, loans: loans.list, viewer: address });
-  if (!showsChecklist({ dismissed, complete: progress.current === null, reopened })) return null;
+  // Une fois signé, rien tant que l'état n'est pas lu : une carte qui coche ses étapes une à une
+  // désoriente. Avant, il n'y a rien à lire : la carte s'affiche tout de suite.
+  if (signedIn && (!ready || kyb === null || !loans || loans.address !== address)) return null;
+  const progress = deriveOnboardingProgress({
+    connected,
+    authenticated: signedIn,
+    kyb,
+    gasWei: connected ? gasWei : null,
+    stableAtomic: connected ? stableAtomic : null,
+    loans: signedIn ? loans?.list ?? null : null,
+    viewer: address,
+  });
+  if (!showsChecklist({ signedIn, dismissed, complete: progress.current === null, reopened })) return null;
 
   function action(id: OnboardingStepId) {
     switch (id) {
+      case "connect":
+        return (
+          <button type="button" onClick={() => void connectFromCard()} disabled={signPending} className={PRIMARY} data-testid="get-started-connect">
+            {signPending ? t("Connexion…") : t("Connecter un wallet")}
+          </button>
+        );
+      case "signin":
+        return (
+          <button type="button" onClick={() => void signInFromCard()} disabled={signPending} className={PRIMARY} data-testid="get-started-signin">
+            {signPending ? t("Signature…") : t("Se connecter")}
+          </button>
+        );
       case "verify":
         if (kyb === "unknown") {
           return <Link href="/kyb" className={PRIMARY}>{t("Voir mon statut KYB")}</Link>;
@@ -116,13 +176,16 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
               : t("{done} étapes sur {total} — de ton wallet à ton premier modèle entraîné.", { done: progress.completed, total: progress.total })}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={dismissChecklist}
-          className="rounded-lg px-2 py-1 text-xs text-muted transition-colors hover:text-foreground"
-        >
-          {t("Masquer")}
-        </button>
+        {/* Pas de profil avant la signature : rien où ranger la fermeture, la carte reste. */}
+        {signedIn && (
+          <button
+            type="button"
+            onClick={dismissChecklist}
+            className="rounded-lg px-2 py-1 text-xs text-muted transition-colors hover:text-foreground"
+          >
+            {t("Masquer")}
+          </button>
+        )}
       </div>
 
       <div
@@ -166,6 +229,12 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
                   <p className="mt-1 text-xs text-negative">{t("Il te manque : {items}.", { items: missing.join(t(" et ")) })}</p>
                 )}
                 {current && <div className="mt-2.5">{action(step.id)}</div>}
+                {current && (step.id === "connect" || step.id === "signin") && (
+                  <>
+                    <TermsNotice className="mt-2" />
+                    {signError && <p role="alert" className="mt-1 text-xs text-negative">{t(signError)}</p>}
+                  </>
+                )}
               </div>
             </li>
           );

@@ -11,6 +11,13 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "Masquer": "Hide",
   "Progression": "Progress",
   "fait": "done",
+  "Loue des datasets privés pour entraîner tes modèles sans jamais exposer les données ; leurs fournisseurs sont payés à chaque entraînement.":
+    "Rent private datasets to train your models without ever exposing the data; their providers get paid on every training run.",
+  "Connecte ton wallet": "Connect your wallet",
+  "Ton wallet est ton compte Sirius : pas d’e-mail ni de mot de passe.": "Your wallet is your Sirius account: no email, no password.",
+  "Connecte-toi": "Sign in",
+  "Signe un message dans ton wallet : c’est gratuit, ce n’est pas une transaction, et ça prouve que ce wallet est bien à toi.":
+    "Sign a message in your wallet: it’s free, it’s not a transaction, and it proves you own this wallet.",
   "Vérifie ton wallet": "Verify your wallet",
   "Obligatoire pour prêter et emprunter sur mainnet. Une seule transaction à confirmer.": "Required to lend and borrow on mainnet. One transaction to confirm.",
   "Obligatoire pour prêter et emprunter. Une seule transaction à confirmer.": "Required to lend and borrow. One transaction to confirm.",
@@ -65,4 +72,5 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "fonds en escrow · lance l’entraînement": "funds in escrow — start training",
   "entraînement en cours": "training",
   "livraison du modèle": "delivering model",
-  "action requise sur Train": "action needed on Train",};
+  "action requise sur Train": "action needed on Train",
+};

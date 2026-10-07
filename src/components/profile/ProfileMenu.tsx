@@ -191,6 +191,7 @@ function SignInButton({ authenticated }: { authenticated: boolean }) {
       onClick={() => void connectAndSignIn()}
       disabled={pending || phase !== "idle"}
       data-testid="profile-sign-in"
+      data-guide="sign-in"
       // Le libellé est éclaté en lettres pour l'animation : le nom accessible est porté ici.
       aria-label={signed ? t("Authentifié") : label}
       aria-live="polite"

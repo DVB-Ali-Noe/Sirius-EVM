@@ -54,7 +54,8 @@ export function PageTour() {
           aria-label={t(TOUR_UI.helpButton)}
           aria-haspopup="dialog"
           title={t(TOUR_UI.helpButton)}
-          className="fixed bottom-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface/80 text-sm font-semibold text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-white/20 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent print:hidden"
+          // À gauche de la bulle du guide Sirio (bas droite, 56 px).
+          className="fixed bottom-[1.4rem] right-[4.75rem] z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface/80 text-sm font-semibold text-muted shadow-lg backdrop-blur-sm transition-colors hover:border-white/20 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent print:hidden"
         >
           <span aria-hidden="true">?</span>
         </button>

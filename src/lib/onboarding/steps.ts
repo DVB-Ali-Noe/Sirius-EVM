@@ -3,10 +3,10 @@ import { addressesEqual } from "@/lib/evm/address";
 /**
  * Parcours d'accueil : logique pure, sans React ni réseau.
  *
- * Les étapes de la carte « Get started » sont déduites de l'état réel du compte (statut KYB lu
- * sur le registre, soldes lus sur la chaîne, prêts renvoyés par `GET /api/loans`) : rien n'est
- * coché parce qu'un bouton a été cliqué. Seule la fermeture de la carte est mémorisée (réglage
- * `onboardingDismissed` du profil).
+ * Les étapes de la carte « Get started » sont déduites de l'état réel du compte (wallet connecté
+ * et session signée, statut KYB lu sur le registre, soldes lus sur la chaîne, prêts renvoyés par
+ * `GET /api/loans`) : rien n'est coché parce qu'un bouton a été cliqué. Seule la fermeture de la
+ * carte est mémorisée (réglage `onboardingDismissed` du profil), et seulement une fois signé.
  *
  * En cas de doute (lecture en échec), une étape reste « à faire » et la décision de blocage
  * penche vers « laisser essayer » : le serveur et le contrat restent les seuls gardiens.
@@ -15,7 +15,7 @@ import { addressesEqual } from "@/lib/evm/address";
 /** Statut KYB vu par l'interface : `unknown` quand la lecture a échoué. */
 export type KybGateState = "valid" | "missing" | "unknown";
 
-export const ONBOARDING_STEP_IDS = ["verify", "fund", "pick", "borrow", "model"] as const;
+export const ONBOARDING_STEP_IDS = ["connect", "signin", "verify", "fund", "pick", "borrow", "model"] as const;
 export type OnboardingStepId = (typeof ONBOARDING_STEP_IDS)[number];
 
 export interface OnboardingLoan {
@@ -27,6 +27,10 @@ export interface OnboardingLoan {
 }
 
 export interface OnboardingInput {
+  /** Wallet connecté au site (adresse connue). */
+  connected: boolean;
+  /** Session signée : sans elle, ni le statut KYB ni les prêts ne sont lisibles. */
+  authenticated: boolean;
   /** `null` : statut pas encore lu. */
   kyb: KybGateState | null;
   /** Solde natif en wei (chaîne décimale) ; `null` si illisible ou pas encore lu. */
@@ -103,11 +107,20 @@ export function isPaidLoan(loan: OnboardingLoan): boolean {
 
 /** Étapes de la carte « Get started », dans l'ordre, et la suivante à faire. */
 export function deriveOnboardingProgress(input: OnboardingInput): OnboardingProgress {
-  const mine = borrowerLoans(input.loans, input.viewer);
+  const connected = input.connected;
+  const signed = connected && input.authenticated;
+  // Avant la signature, le statut KYB et les prêts éventuellement en mémoire ne sont pas ceux
+  // de cette session : on ne s'y fie pas. Les soldes, eux, se lisent dès la connexion.
+  const mine = signed ? borrowerLoans(input.loans, input.viewer) : [];
   const borrowed = mine.some(isPaidLoan);
-  const funding: FundingNeeds = { gas: !positive(input.gasWei), token: !positive(input.stableAtomic) };
+  const funding: FundingNeeds = {
+    gas: !connected || !positive(input.gasWei),
+    token: !connected || !positive(input.stableAtomic),
+  };
   const done: Record<OnboardingStepId, boolean> = {
-    verify: input.kyb === "valid",
+    connect: connected,
+    signin: signed,
+    verify: signed && input.kyb === "valid",
     // Un emprunt déjà payé prouve que les fonds étaient là, même si le solde est retombé à zéro.
     fund: borrowed || (!funding.gas && !funding.token),
     // Choisir un dataset, c'est en avoir préparé l'emprunt, même abandonné au devis.
@@ -131,11 +144,13 @@ export function deriveOnboardingProgress(input: OnboardingInput): OnboardingProg
 }
 
 /**
- * La carte est-elle affichée ? Jamais tant que la préférence n'est pas lue (pas de clignotement),
- * ni une fois fermée. Un parcours terminé la masque aussi, sauf si l'utilisateur l'a rouverte
- * lui-même depuis le menu (`reopened`).
+ * La carte est-elle affichée ? Avant la signature, toujours : il n'y a pas encore de profil où
+ * lire ou ranger sa fermeture, et c'est justement là qu'elle guide. Une fois signé, jamais tant
+ * que la préférence n'est pas lue (pas de clignotement), ni une fois fermée. Un parcours terminé
+ * la masque aussi, sauf si l'utilisateur l'a rouverte lui-même depuis le menu (`reopened`).
  */
-export function showsChecklist(state: { dismissed: boolean | null; complete: boolean; reopened: boolean }): boolean {
+export function showsChecklist(state: { signedIn: boolean; dismissed: boolean | null; complete: boolean; reopened: boolean }): boolean {
+  if (!state.signedIn) return true;
   if (state.reopened) return true;
   if (state.dismissed !== false) return false;
   return !state.complete;
