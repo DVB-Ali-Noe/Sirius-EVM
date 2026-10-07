@@ -168,6 +168,10 @@ model Loan {
   finalityVerifiedAt DateTime? // release FAST confirmé sous le bloc finalisé
   finalityReview     String? // divergence constatée à finalité complète : motif, revue manuelle
   finalityReviewAt   DateTime?
+  // Preuves de rediffusion d'un release rapide (settlement-evidence.ts) : transaction signée brute
+  // et préimage public, pour qu'un opérateur rejoue le release si une réorganisation l'efface.
+  settleRawTx        String?
+  settlePreimage     String?
 
   status    LoanStatus @default(PENDING)
   createdAt DateTime   @default(now())
