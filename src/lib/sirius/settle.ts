@@ -6,7 +6,7 @@ import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
 import { getPublicClient } from "@/lib/evm/client";
 import { assertLockStable } from "@/lib/evm/finality";
 import type { FinalityTier } from "@/lib/evm/fast-finality";
-import { assignLoanFinalityTier } from "./finality-tier";
+import { assignLoanFinalityTier, effectiveLoanFinalityTier } from "./finality-tier";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
@@ -238,7 +238,7 @@ export async function prepareLoanResult(
       deliveryPublicKey,
       authorization,
       billingQuote,
-      loan.finalityTier,
+      effectiveLoanFinalityTier(loan.finalityTier),
     );
     await verifyLoanAttestation({
       attestation: result.attestation,
@@ -366,14 +366,15 @@ export async function settlePreparedLoan(
 
   try {
     // Même palier qu'au lancement : un prêt rapide est réglé après les mêmes confirmations, le
-    // reaper le revérifie ensuite sous le bloc finalisé (fast-settlement-review.ts).
+    // reaper le revérifie ensuite sous le bloc finalisé (fast-settlement-review.ts). Coupe-circuit
+    // fermé entre-temps : finalité complète, comme avant.
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
       payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
-      loan.finalityTier,
+      effectiveLoanFinalityTier(loan.finalityTier),
     );
     const updated = await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },

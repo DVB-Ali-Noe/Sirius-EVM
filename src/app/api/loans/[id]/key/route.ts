@@ -12,6 +12,7 @@ import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { recordDatasetAccess } from "@/lib/users/profile";
+import { effectiveLoanFinalityTier } from "@/lib/sirius/finality-tier";
 
 export const runtime = "nodejs";
 
@@ -99,7 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       deliveryPublicKey,
       authorization,
       loan.settleTxHash,
-      loan.finalityTier,
+      effectiveLoanFinalityTier(loan.finalityTier),
     );
     await logModelDelivery(loan, session.address, delivery.modelCid);
     return NextResponse.json({ modelCid: delivery.modelCid, modelKeyEnvelope: delivery.modelKeyEnvelope });

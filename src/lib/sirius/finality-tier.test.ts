@@ -27,7 +27,7 @@ const usdc = (value: string) => (BigInt(value) * BigInt(10) ** BigInt(DECIMALS))
 const { fastFinalityConfig } = fastFinality;
 const config = fastFinalityConfig({ SIRIUS_FAST_FINALITY: "true" }, DECIMALS);
 
-const { assignLoanFinalityTier, decideFastTierInTransaction, FAST_IN_FLIGHT_STATUSES } = load<typeof import("./finality-tier")>("src/lib/sirius/finality-tier.ts", {
+const { assignLoanFinalityTier, decideFastTierInTransaction, effectiveLoanFinalityTier, FAST_IN_FLIGHT_STATUSES } = load<typeof import("./finality-tier")>("src/lib/sirius/finality-tier.ts", {
   "server-only": {},
   "@/lib/errors": { AppError },
   "@/lib/db": { prisma: {}, serializableTransaction: async () => { throw new Error("base inattendue"); } },
@@ -102,10 +102,15 @@ test("un palier rapide acquis est conservé sans relecture ; un prêt hors seuil
   assert.equal(await assignLoanFinalityTier({ id: "gros", amountUsdcAtomic: usdc("26"), finalityTier: "FULL" }, verify, { config, transaction: db.transaction }), "FULL");
   assert.equal(chainReads, 0);
   assert.deepEqual(db.writes, []);
-  // Coupe-circuit fermé : finalité complète pour tous, sans lecture.
+  // Coupe-circuit fermé : finalité complète pour tous, sans lecture, même pour une ligne déjà FAST
+  // (comportement historique retrouvé partout, la ligne garde son palier).
   const closed = fastFinalityConfig({}, DECIMALS);
   assert.equal(await assignLoanFinalityTier({ id: "gros", amountUsdcAtomic: usdc("5"), finalityTier: "FULL" }, verify, { config: closed, transaction: db.transaction }), "FULL");
+  assert.equal(await assignLoanFinalityTier({ id: "petit", amountUsdcAtomic: usdc("5"), finalityTier: "FAST" }, verify, { config: closed, transaction: db.transaction }), "FULL");
   assert.equal(chainReads, 0);
+  assert.equal(effectiveLoanFinalityTier("FAST", closed), "FULL");
+  assert.equal(effectiveLoanFinalityTier("FAST", config), "FAST");
+  assert.equal(effectiveLoanFinalityTier("FULL", config), "FULL");
 });
 
 test("montant on-chain différent du montant enregistré : refus explicite avant tout marquage", async () => {

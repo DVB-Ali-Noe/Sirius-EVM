@@ -58,9 +58,13 @@ test("l’entraînement n’est demandé au runner qu’après finalité du lock
   // Le palier est attribué avant la garde, avec relecture du montant on-chain ; le runner reçoit celui de la ligne.
   assert.ok(preparation.indexOf("assignLoanFinalityTier") < preparation.indexOf("assertLockStable"));
   assert.match(preparation, /assignLoanFinalityTier\(lock, async \(\) => \{[\s\S]*?readLoan\([\s\S]*?onChain\?\.amountUsdcAtomic === lock\.amountUsdcAtomic/);
-  assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*loan\.finalityTier,\s*\)/);
+  // Palier effectif : celui de la ligne tant que le coupe-circuit est ouvert, FULL sinon.
+  assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
   const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
-  assert.match(settlement, /settleLoanInRunner\([\s\S]*?authorization,\s*loan\.finalityTier,\s*\)/);
+  assert.match(settlement, /settleLoanInRunner\([\s\S]*?authorization,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
+  const key = read("src", "app", "api", "loans", "[id]", "key", "route.ts");
+  assert.match(key, /loanModelKeyInRunner\([\s\S]*?loan\.settleTxHash,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
+  assert.match(key, /if \(loan\.finalityReview\) return NextResponse\.json\(\{ error: "Règlement en cours de revue : livraison suspendue" \}, \{ status: 409 \}\)/);
 });
 
 test("finalité rapide : l'enclave arbitre seule le palier des trois opérations v7, Next ne transmet que FAST", () => {
@@ -162,7 +166,7 @@ function settlementFixture(
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
-    "./finality-tier": { assignLoanFinalityTier: async () => "FULL" },
+    "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
   });
   return { api, updates };
 }

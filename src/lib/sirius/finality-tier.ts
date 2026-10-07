@@ -82,9 +82,11 @@ export async function assignLoanFinalityTier(
     transaction?: <T>(action: (store: FinalityTierStore) => Promise<T>) => Promise<T>;
   } = {},
 ): Promise<FinalityTier> {
-  if (loan.finalityTier === "FAST") return "FAST";
   const config = options.config ?? fastFinalityPolicy();
+  // Coupe-circuit fermé : finalité complète pour tous, y compris les prêts déjà marqués FAST
+  // (la ligne garde son palier, seul le comportement revient à l'historique).
   if (!config.enabled) return "FULL";
+  if (loan.finalityTier === "FAST") return "FAST";
   const amountAtomic = BigInt(loan.amountUsdcAtomic);
   if (finalityTierFor({ amountAtomic, inFlightFastAtomic: null, config }) !== "FAST") return "FULL";
   if (!(await verifyOnChainAmount())) throw new AppError("Montant on-chain du prêt différent du montant enregistré", 409);
@@ -93,14 +95,22 @@ export async function assignLoanFinalityTier(
 }
 
 /**
+ * Palier effectif d'un prêt déjà classé, pour le règlement et la livraison : celui de la ligne
+ * tant que la finalité rapide est active ici, `FULL` dès que le coupe-circuit est fermé.
+ */
+export function effectiveLoanFinalityTier(tier: FinalityTier, config: FastFinalityConfig = fastFinalityPolicy()): FinalityTier {
+  return config.enabled ? tier : "FULL";
+}
+
+/**
  * Palier que le prêt obtiendrait maintenant, sans rien écrire : pour l'affichage de l'attente
  * (`GET /api/loans/[id]/finality`). Un prêt déjà FAST le reste ; sinon même règle que ci-dessus,
  * la somme en cours lue hors transaction (indicatif, la décision reste au lancement).
  */
 export async function prospectiveLoanFinalityTier(loan: FinalityTierLoan, store: FinalityTierStore = prisma as unknown as FinalityTierStore): Promise<FinalityTier> {
-  if (loan.finalityTier === "FAST") return "FAST";
   const config = fastFinalityPolicy();
   if (!config.enabled) return "FULL";
+  if (loan.finalityTier === "FAST") return "FAST";
   const amountAtomic = BigInt(loan.amountUsdcAtomic);
   if (finalityTierFor({ amountAtomic, inFlightFastAtomic: null, config }) !== "FAST") return "FULL";
   return finalityTierFor({ amountAtomic, inFlightFastAtomic: await fastInFlightAtomic(store, loan.id), config });
