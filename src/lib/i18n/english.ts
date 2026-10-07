@@ -178,7 +178,6 @@ export const EN_MESSAGES: Record<string, string> = {
   "Épingler le menu": "Pin sidebar open",
   "Quitter": "Exit",
   "Bienvenue sur Sirius": "Welcome to Sirius",
-  "Connecte un wallet pour accéder à ton tableau de bord.": "Connect a wallet to access your dashboard.",
   "Connecter un wallet": "Connect a wallet",
   "Accéder à l’app": "Access the app",
   "Solde": "Balance",

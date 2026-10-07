@@ -11,6 +11,11 @@ import type { ActiveLoanPhase, OnboardingStepId } from "./steps";
 type StepCopy = Record<OnboardingStepId, { title: string; body: string }>;
 
 const STEP_COPY_BASE: Omit<StepCopy, "verify"> = {
+  connect: { title: "Connecte ton wallet", body: "Ton wallet est ton compte Sirius : pas d’e-mail ni de mot de passe." },
+  signin: {
+    title: "Connecte-toi",
+    body: "Signe un message dans ton wallet : c’est gratuit, ce n’est pas une transaction, et ça prouve que ce wallet est bien à toi.",
+  },
   fund: { title: "Ajoute de l’ETH et des {token}", body: "L’ETH paie le gas de chaque transaction ; les {token} paient l’emprunt." },
   pick: { title: "Choisis un dataset", body: "Parcours la marketplace et ouvre la fiche d’un dataset." },
   borrow: { title: "Emprunte-le", body: "Sur la fiche, clique sur Emprunter : le prix du dataset et le compute sont bloqués en escrow." },
@@ -26,6 +31,11 @@ const VERIFY_BODY: Record<EvmNetwork, string> = {
 export function stepCopy(network: EvmNetwork): StepCopy {
   return { verify: { title: "Vérifie ton wallet", body: VERIFY_BODY[network] }, ...STEP_COPY_BASE };
 }
+
+/** Accueil du tableau de bord pour un visiteur pas encore connecté ou pas encore signé. */
+export const WELCOME_TITLE = "Bienvenue sur Sirius";
+export const WELCOME_BODY =
+  "Loue des datasets privés pour entraîner tes modèles sans jamais exposer les données ; leurs fournisseurs sont payés à chaque entraînement.";
 
 /** Origine de la fenêtre de vérification. */
 export type VerificationIntroReason = "prompt" | "checklist" | "borrow" | "publish";
@@ -64,5 +74,7 @@ export function onboardingCopyKeys(): string[] {
     ...networks.flatMap((network) => Object.values(stepCopy(network)).flatMap((copy) => [copy.title, copy.body])),
     ...networks.flatMap((network) => (["prompt", "checklist", "borrow", "publish"] as const).map((reason) => verificationIntro(reason, network))),
     ...Object.values(LOAN_PHASE_LABEL),
+    WELCOME_TITLE,
+    WELCOME_BODY,
   ];
 }

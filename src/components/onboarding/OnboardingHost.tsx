@@ -14,9 +14,6 @@ import {
 } from "./onboarding-store";
 import { VerificationDialog } from "./VerificationDialog";
 
-/** Wallets à qui la fenêtre a été proposée dans cet onglet, si `sessionStorage` est interdit. */
-const shownHere = new Set<string>();
-
 /** Fréquence à laquelle on regarde si la place est libre (tuto ou autre fenêtre fermés). */
 const PROMPT_POLL_MS = 1_000;
 
@@ -32,7 +29,9 @@ function modalOpen(): boolean {
  * Jamais par-dessus une autre fenêtre : la proposition attend que le tuto de bienvenue (qui
  * s'ouvre lui aussi après la première connexion) et toute autre fenêtre modale soient fermés.
  * Neutralisée avec les tutos dans la suite e2e. `autoPrompt` à faux (hôte de démonstration) :
- * la fenêtre ne s'ouvre qu'à la demande d'une garde.
+ * la fenêtre ne s'ouvre qu'à la demande d'une garde. Une signature faite depuis la carte
+ * « Get started » (`chainedFor`) enchaîne aussi sur la fenêtre, y compris en mode invitation :
+ * l'utilisateur suit le parcours, la vérification en est l'étape suivante.
  */
 export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) {
   const address = useWalletStore((s) => s.address);
@@ -43,6 +42,7 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
   const kyb = useOnboardingStore((s) => s.kyb);
   const instantAccess = useOnboardingStore((s) => s.instantAccess);
   const dialog = useOnboardingStore((s) => s.dialog);
+  const chained = useOnboardingStore((s) => s.chainedFor !== null && s.chainedFor === signed);
 
   useEffect(() => {
     resetOnboardingFor(signed);
@@ -50,8 +50,8 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
   }, [signed]);
 
   useEffect(() => {
-    if (!autoPrompt || !signed || owner !== signed || kyb !== "missing" || !instantAccess) return;
-    if (shownHere.has(signed) || promptShownThisSession(signed)) return;
+    if ((!autoPrompt && !chained) || !signed || owner !== signed || kyb !== "missing" || (!instantAccess && !chained)) return;
+    if (promptShownThisSession(signed)) return;
     const timer = setInterval(() => {
       const tour = tourController.getSnapshot();
       if (tour.suppressed) {
@@ -61,19 +61,19 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
       const ready = shouldPromptVerification({
         authenticated: true,
         kyb,
-        instantAccess,
-        shownThisSession: shownHere.has(signed) || promptShownThisSession(signed),
+        instantAccess: instantAccess || chained,
+        shownThisSession: promptShownThisSession(signed),
         overlayOpen: modalOpen() || useOnboardingStore.getState().dialog !== null,
         tourPending: !tour.started || tour.status === "loading" || tour.active !== null,
       });
       if (!ready) return;
       clearInterval(timer);
-      shownHere.add(signed);
       markPromptShown(signed);
+      useOnboardingStore.setState({ chainedFor: null });
       void requestVerification("prompt");
     }, PROMPT_POLL_MS);
     return () => clearInterval(timer);
-  }, [autoPrompt, signed, owner, kyb, instantAccess]);
+  }, [autoPrompt, chained, signed, owner, kyb, instantAccess]);
 
   if (!dialog || !signed || owner !== signed || !address) return null;
   return <VerificationDialog key={dialog.id} requestId={dialog.id} reason={dialog.reason} role={dialog.role} address={address} />;
