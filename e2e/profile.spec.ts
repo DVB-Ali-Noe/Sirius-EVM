@@ -68,12 +68,25 @@ test("Échap ferme le menu et rend le focus au bouton", async ({ page }) => {
   await expect(page.getByTestId("profile-button")).toBeFocused();
 });
 
-test("« Guided tour » relance le tuto d'accueil, sans message « bientôt disponible »", async ({ page }) => {
+test("« Guided tour » relance le guide Sirio depuis l'accueil, sans message « bientôt disponible »", async ({ page }) => {
+  // Le guide est neutralisé dans la suite e2e sauf marqueur explicite ; ici il a déjà été passé :
+  // seule la relance doit le faire réapparaître, à sa première étape.
+  await page.addInitScript(() => {
+    localStorage.setItem("sirius-guide-e2e", "1");
+    localStorage.setItem("sirius-guide:anonymous", JSON.stringify({ v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, minimized: false }));
+  });
   await openApp(page, "/explorer");
+  const guide = page.getByRole("region", { name: "Sirio, the Sirius guide" });
+  await expect(page.getByTestId("guide-bubble")).toBeVisible();
+  await expect(guide).toHaveCount(0);
   await page.getByTestId("profile-button").click();
   await page.getByRole("button", { name: "Guided tour", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Profile menu" })).toHaveCount(0);
-  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toBeVisible();
+  await expect(guide).toBeVisible();
+  await expect(guide).toHaveAttribute("data-phase", "arrival");
+  await expect(guide.getByRole("heading", { name: "Hi, I’m Sirio." })).toBeVisible();
+  await expect(guide.getByRole("button", { name: "Let’s go", exact: true })).toBeVisible();
+  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toHaveCount(0);
   await expect(page.getByText("The guided tour will be available soon.")).toHaveCount(0);
 });
 
