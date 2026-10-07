@@ -1,5 +1,6 @@
 import { isSimulator } from "@/lib/tee/dstack";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
+import { fastFinalityPolicy } from "@/lib/evm/finality";
 
 export function runnerBootstrapOnly(): boolean {
   const flag = process.env.RUNNER_BOOTSTRAP_ONLY;
@@ -10,6 +11,9 @@ export function runnerBootstrapOnly(): boolean {
 export function validateRunnerConfiguration(): { bootstrapOnly: boolean; tlsEnabled: boolean } {
   const bootstrapOnly = runnerBootstrapOnly();
   if (!bootstrapOnly && billingEnabled()) billingPolicy();
+  // Bornes de la finalité rapide (constantes du Compose attesté) : lues et refusées au démarrage
+  // si elles sont illisibles, jamais découvertes au premier prêt.
+  if (!bootstrapOnly) fastFinalityPolicy();
   const production = process.env.NODE_ENV === "production";
   const tlsEnabled = production || bootstrapOnly || process.env.RUNNER_TLS_ENABLED === "true";
   if (tlsEnabled && process.env.TEE_MODE !== "phala") throw new Error("TEE_MODE=phala obligatoire quand TLS runner est activé");

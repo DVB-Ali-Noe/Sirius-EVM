@@ -6,6 +6,9 @@
  * échouer silencieusement chaque prêt v7 dans la boucle du reaper : remboursements et
  * règlements ne seraient plus réconciliés, sans alerte (audit M9). On s'arrête au démarrage.
  */
+import { fastFinalityConfig } from "@/lib/evm/fast-finality";
+import { MAINNET_STABLECOIN_DECIMALS } from "@/lib/evm/stablecoin";
+
 type Env = Record<string, string | undefined>;
 
 const REQUIRED = [
@@ -21,6 +24,13 @@ export function reaperMainnetIssues(env: Env = process.env): string[] {
   if (env.SIRIUS_REQUIRE_PHALA !== "true") issues.push("SIRIUS_REQUIRE_PHALA=true");
   if (env.SIRIUS_BILLING_VERSION !== "7") issues.push("SIRIUS_BILLING_VERSION=7");
   if (env.SIRIUS_EVM_FINALITY && env.SIRIUS_EVM_FINALITY !== "finalized") issues.push("SIRIUS_EVM_FINALITY=finalized");
+  // Finalité rapide facultative (fast-finality.ts) : `finalized` reste la base, les bornes doivent
+  // être lisibles ; une valeur invalide bloque le démarrage plutôt que d'être devinée.
+  try {
+    fastFinalityConfig(env, MAINNET_STABLECOIN_DECIMALS);
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : "SIRIUS_FAST_FINALITY");
+  }
   for (const name of REQUIRED) if (!env[name]?.trim()) issues.push(name);
   // Aucun escrow historique sur mainnet : une liste héritée du testnet serait « approuvée » à tort.
   if (env.SIRIUS_LEGACY_ESCROW_ADDRESSES?.trim()) issues.push("SIRIUS_LEGACY_ESCROW_ADDRESSES vide");

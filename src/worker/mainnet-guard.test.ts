@@ -25,6 +25,27 @@ test("une configuration mainnet complète démarre", () => {
   assert.doesNotThrow(() => assertReaperMainnetConfiguration(complete));
 });
 
+test("finalité rapide : facultative, finalized reste exigé, bornes invalides refusées, jamais de « confirmations » nu", () => {
+  assert.deepEqual(reaperMainnetIssues({ ...complete, SIRIUS_FAST_FINALITY: "true" }), []);
+  assert.deepEqual(reaperMainnetIssues({ ...complete, SIRIUS_FAST_FINALITY: "false" }), []);
+  assert.deepEqual(reaperMainnetIssues({ ...complete, SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_MAX_USDC: "25",
+    SIRIUS_FAST_FINALITY_TOTAL_USDC: "100", SIRIUS_FAST_FINALITY_CONFIRMATIONS: "30" }), []);
+  for (const [env, issue] of [
+    [{ SIRIUS_FAST_FINALITY: "yes" }, /SIRIUS_FAST_FINALITY doit valoir true ou false/],
+    [{ SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_CONFIRMATIONS: "0" }, /SIRIUS_FAST_FINALITY_CONFIRMATIONS/],
+    [{ SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_CONFIRMATIONS: "101" }, /SIRIUS_FAST_FINALITY_CONFIRMATIONS/],
+    [{ SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_MAX_USDC: "0" }, /SIRIUS_FAST_FINALITY_MAX_USDC/],
+    [{ SIRIUS_FAST_FINALITY: "true", SIRIUS_FAST_FINALITY_MAX_USDC: "200" }, /supérieur à SIRIUS_FAST_FINALITY_TOTAL_USDC/],
+    [{ SIRIUS_FAST_FINALITY: "false", SIRIUS_FAST_FINALITY_MAX_USDC: "abc" }, /SIRIUS_FAST_FINALITY_MAX_USDC/],
+    // La finalité rapide ne remplace jamais finalized : le mode confirmations reste refusé.
+    [{ SIRIUS_FAST_FINALITY: "true", SIRIUS_EVM_FINALITY: "confirmations" }, /SIRIUS_EVM_FINALITY=finalized/],
+  ] as const) {
+    assert.throws(() => assertReaperMainnetConfiguration({ ...complete, ...env }), issue, JSON.stringify(env));
+  }
+  // Hors mainnet, la garde ne lit rien.
+  assert.deepEqual(reaperMainnetIssues({ EVM_NETWORK: "testnet", SIRIUS_FAST_FINALITY: "yes" }), []);
+});
+
 test("les valeurs de démonstration et les oublis bloquent le démarrage sur mainnet", () => {
   assert.throws(() => assertReaperMainnetConfiguration({ ...complete, TEE_MODE: "stub" }), /TEE_MODE=phala/);
   assert.throws(() => assertReaperMainnetConfiguration({ ...complete, SIRIUS_BILLING_VERSION: "6" }), /SIRIUS_BILLING_VERSION=7/);

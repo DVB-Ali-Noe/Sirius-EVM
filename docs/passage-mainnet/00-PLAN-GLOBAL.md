@@ -151,3 +151,4 @@ Un seul des quatre premiers points non coché suffit à reporter.
 | [17-audit-et-lancement-restants.md](17-audit-et-lancement-restants.md) | Audit et lancement technique | Oui |
 | [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md) | Ce qui ne se teste que sur mainnet | Oui, au passage |
 | [19-mise-en-production.md](19-mise-en-production.md) | Checklist exécutable de la mise en production, variables, retour arrière, RPC d'archive | Oui, le jour J |
+| [20-finalite-rapide.md](20-finalite-rapide.md) | Finalité rapide des petits prêts : décision, variables, mise à niveau de la CVM et ré-épinglage, retour arrière, alerte de revue | Oui, après le lancement |

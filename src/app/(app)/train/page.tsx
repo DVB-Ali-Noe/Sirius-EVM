@@ -47,7 +47,7 @@ import {
   runLoanJob,
 } from "@/lib/loans/client";
 import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
-import { lockFinalityMinutesLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
+import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
@@ -354,7 +354,9 @@ function TrainPageContent() {
       const response = await fetch(`/api/loans/${encodeURIComponent(loanId)}/finality`);
       if (response.status === 200) {
         const parsed = parseLockFinalityResponse(await response.json());
-        result = parsed.pending ? { kind: "ok", pending: true, remainingMs: parsed.remainingMs } : { kind: "ok", pending: false };
+        result = parsed.pending
+          ? { kind: "ok", pending: true, remainingMs: parsed.remainingMs, tier: parsed.tier }
+          : { kind: "ok", pending: false, tier: parsed.tier };
       }
     } catch {
       result = { kind: "error" };
@@ -660,6 +662,9 @@ function TrainPageContent() {
             const finalityExhausted = trackable && tracking?.phase === "exhausted";
             const localReadyAt = awaitingLock ? lockFinalityLocalReadyAt(tracking) : null;
             const minutesLeft = localReadyAt !== null ? lockFinalityMinutesLeft(localReadyAt, now) : 0;
+            // Palier rapide (petit prêt) : l'attente se compte en secondes, le texte aussi.
+            const fastLock = awaitingLock && tracking?.tier === "FAST";
+            const secondsLeft = fastLock && localReadyAt !== null ? lockFinalitySecondsLeft(localReadyAt, now) : 0;
             const state = loanDisplayState({ ...l, lockFinalityPending: awaitingLock });
             const refundAllowed = canRefund(l, address);
             const rescueRefund = canRescueRefund(l, address);
@@ -709,7 +714,9 @@ function TrainPageContent() {
                     data-testid="lock-finality-button"
                     className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-2 text-sm font-medium text-yellow-400"
                   >
-                    {minutesLeft > 0 ? t("Finalité du paiement : ~{minutes} min", { minutes: minutesLeft }) : t("Finalité imminente…")}
+                    {fastLock
+                      ? (secondsLeft > 0 ? t("Confirmation du paiement : ~{seconds} s", { seconds: secondsLeft }) : t("Confirmation imminente…"))
+                      : (minutesLeft > 0 ? t("Finalité du paiement : ~{minutes} min", { minutes: minutesLeft }) : t("Finalité imminente…"))}
                   </button>
                 )}
                 {!l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
@@ -769,14 +776,20 @@ function TrainPageContent() {
               </div>
 
               {awaitingLock && (
-                <div className="mt-4 rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs leading-relaxed" data-testid="lock-finality-wait" aria-live="polite">
+                <div className="mt-4 rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs leading-relaxed" data-testid="lock-finality-wait" data-tier={fastLock ? "FAST" : "FULL"} aria-live="polite">
                   <p className="font-medium text-yellow-400">
-                    {minutesLeft > 0
-                      ? t("L’entraînement pourra démarrer dans ~{minutes} min — tu peux fermer cette page, ton paiement est en sécurité dans l’escrow.", { minutes: minutesLeft })
-                      : t("Le réseau finalise ton paiement : l’entraînement pourra démarrer d’une minute à l’autre. Ton paiement est en sécurité dans l’escrow.")}
+                    {fastLock
+                      ? (secondsLeft > 0
+                        ? t("L’entraînement pourra démarrer dans ~{seconds} s — ton paiement est en sécurité dans l’escrow.", { seconds: secondsLeft })
+                        : t("Le réseau confirme ton paiement : l’entraînement pourra démarrer d’une seconde à l’autre. Ton paiement est en sécurité dans l’escrow."))
+                      : (minutesLeft > 0
+                        ? t("L’entraînement pourra démarrer dans ~{minutes} min — tu peux fermer cette page, ton paiement est en sécurité dans l’escrow.", { minutes: minutesLeft })
+                        : t("Le réseau finalise ton paiement : l’entraînement pourra démarrer d’une minute à l’autre. Ton paiement est en sécurité dans l’escrow."))}
                   </p>
                   <p className="mt-1 text-muted">
-                    {t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")}
+                    {fastLock
+                      ? t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la confirmation. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")
+                      : t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")}
                   </p>
                 </div>
               )}

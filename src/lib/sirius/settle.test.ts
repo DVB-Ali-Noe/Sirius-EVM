@@ -50,11 +50,71 @@ test("un règlement en attente de finalité reste SETTLING avec son hash, sans r
   assert.ok(settlement.indexOf("RunnerFinalityPending") < settlement.indexOf("reconcileLoanEscrow"), "l’attente passe avant toute réconciliation");
 });
 
-test("l’entraînement n’est demandé au runner qu’après finalité du lock", () => {
+test("l’entraînement n’est demandé au runner qu’après finalité du lock, au palier décidé en transaction", () => {
   const preparation = SOURCE.slice(SOURCE.indexOf("export async function prepareLoanResult"));
 
-  assert.ok(preparation.indexOf("assertBlockStable") < preparation.indexOf('status: "TRAINING"'), "garde avant la prise du lease");
-  assert.ok(preparation.indexOf("assertBlockStable") < preparation.indexOf("runLoanJobInRunner("));
+  assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf('status: "TRAINING"'), "garde avant la prise du lease");
+  assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf("runLoanJobInRunner("));
+  // Le palier candidat est lu sans écrire (dryRun), avec relecture du montant on-chain ; la garde de
+  // profondeur passe à ce palier, et seulement ensuite la ligne est marquée (plafond jamais occupé
+  // par un lock pas encore assez profond). Le runner reçoit le palier de la ligne.
+  assert.match(preparation, /verifyOnChainAmount = async \(\) => \{[\s\S]*?readLoan\([\s\S]*?onChain\?\.amountUsdcAtomic === lock\.amountUsdcAtomic/);
+  const dryRun = preparation.indexOf("assignLoanFinalityTier(lock, verifyOnChainAmount, { dryRun: true })");
+  const guard = preparation.indexOf("await assertLockStable(client, lockRef, candidate, LOCK_FINALITY_PENDING)");
+  const marking = preparation.indexOf("await assignLoanFinalityTier(lock, verifyOnChainAmount);");
+  assert.ok(dryRun > 0 && dryRun < guard && guard < marking, "candidat → garde → marquage");
+  assert.match(preparation, /if \(marked !== "FAST"\) await assertLockStable\(client, lockRef, "FULL", LOCK_FINALITY_PENDING\)/);
+  // Prêt rapide réglé : preuves de rediffusion conservées après le passage en SETTLED, sans bloquer.
+  const settled = SOURCE.slice(SOURCE.indexOf('status: "SETTLED", settleTxHash: settlement.settleTxHash'));
+  assert.match(settled, /if \(effectiveLoanFinalityTier\(loan\.finalityTier\) === "FAST"\) await recordSettlementEvidence\(loanId\);/);
+  // Palier effectif : celui de la ligne tant que le coupe-circuit est ouvert, FULL sinon.
+  assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
+  const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
+  assert.match(settlement, /settleLoanInRunner\([\s\S]*?authorization,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
+  const key = read("src", "app", "api", "loans", "[id]", "key", "route.ts");
+  assert.match(key, /loanModelKeyInRunner\([\s\S]*?loan\.settleTxHash,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
+  assert.match(key, /if \(loan\.finalityReview\) return NextResponse\.json\(\{ error: "Règlement en cours de revue : livraison suspendue" \}, \{ status: 409 \}\)/);
+});
+
+test("finalité rapide : l'enclave arbitre seule le palier des trois opérations v7, Next ne transmet que FAST", () => {
+  const handler = read("src", "runner", "handler.ts");
+  const client = read("src", "lib", "tee", "runner-client.ts");
+  // Montant du devis signé, bornes de l'environnement attesté, refus explicite sinon.
+  // La décision ne réserve rien : règlement et livraison de clé la reprennent telle quelle.
+  const decision = handler.slice(handler.indexOf("function loanFinalityTier("), handler.indexOf("function reserveFastExposure("));
+  assert.match(decision, /enclaveFinalityTier\(requested, BigInt\(totalQuoteAmount\(quote\)\), fastFinalityPolicy\(\)\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
+  assert.doesNotMatch(decision, /reserveFastExposure|requireBillingBudget/, "aucune réservation dans la décision");
+  // Plafond d'exposition de l'enclave : réservé au lancement seulement, après lecture du lock à la
+  // profondeur rapide ; atteint ⇒ finalité complète si le lock est finalisé, sinon « en attente »
+  // (RunnerRetryLater : ni échec compté ni crédit consommé), jamais un refus dur.
+  // `lastIndexOf` : les mêmes libellés apparaissent d'abord dans scopeForRunnerOp.
+  const run = handler.slice(handler.lastIndexOf('case "run-loan-job"'), handler.lastIndexOf('case "recover-loan-job"'));
+  assert.match(run, /loanFinalityTier\(body\.finalityTier, signedQuote\.quote\) : "FULL"/, "run-loan-job : finalité complète sans devis v7");
+  const scopeRead = run.indexOf("loanScope(candidateTier)");
+  const reservation = run.indexOf("!reserveFastExposure(signedQuote.quote)");
+  assert.ok(scopeRead > 0 && scopeRead < reservation, "lecture du lock avant la réservation");
+  assert.match(run, /!reserveFastExposure\(signedQuote\.quote\)\) \{[\s\S]*?try \{ await loanScope\("FULL"\); \} catch \{ throw new RunnerRetryLater\(LOCK_FINALITY_PENDING\); \}/);
+  // Les deux autres opérations décident sans réserver : une livraison après release ne touche pas le plafond.
+  const settleOp = handler.slice(handler.lastIndexOf('case "settle-loan"'), handler.lastIndexOf('case "loan-model-key"'));
+  const keyOp = handler.slice(handler.lastIndexOf('case "loan-model-key"'), handler.lastIndexOf('case "run-training"'));
+  for (const [name, source] of [["settle-loan", settleOp], ["loan-model-key", keyOp]] as const) {
+    assert.match(source, /loanFinalityTier\(body\.finalityTier/, name);
+    assert.doesNotMatch(source, /reserveFastExposure/, `${name} ne réserve jamais`);
+  }
+  assert.equal(handler.split("reserveFastExposure(").length - 1, 3, "définition, appel du registre, appel au lancement : rien d'autre");
+  // Côté règlement : la part est rendue au release confirmé, à la résolution déjà close et à l'échec définitif, jamais sur une attente.
+  const settlement = read("src", "lib", "billing", "settlement.ts");
+  assert.match(settlement, /if \(resolution\.state !== "active"\) ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);/);
+  assert.match(settlement, /catch \(error\) \{[\s\S]*?if \(!releasesReservation\(error\)\) ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);[\s\S]*?throw error;/);
+  assert.match(settlement, /const refundTxHash = await sendBilledAction\(quote, loanKey, "failure", data\);\s*[\s\S]*?ledger\.releaseFastExposure\(quoteWorkflow\(quote\)\);/);
+  assert.match(handler, /settleBilledEscrow\(signedQuote\.quote, receipt\.loanKey as `0x\$\{string\}`, preimage, lockBlock, finalityTier\)/);
+  assert.match(handler, /publishedFinalizedPreimage\([\s\S]*?loanFinalityTier\(body\.finalityTier, signed\.quote\)\)/);
+  // Le client n'ajoute le champ que pour FAST : un prêt FULL envoie la charge historique.
+  assert.match(client, /return tier === "FAST" \? \{ finalityTier: "FAST" \} : \{\};/);
+  for (const op of ["run-loan-job", "settle-loan", "loan-model-key"]) {
+    const call = client.slice(client.indexOf(`"${op}"`));
+    assert.match(call.slice(0, call.indexOf(";")), /\.\.\.finalityTierField\(finalityTier\)/, op);
+  }
 });
 
 test("l’attente de finalité traverse le runner distant comme en processus", () => {
@@ -139,6 +199,8 @@ function settlementFixture(
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
+    "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
+    "./settlement-evidence": { recordSettlementEvidence: async () => false },
   });
   return { api, updates };
 }

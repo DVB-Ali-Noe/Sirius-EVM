@@ -1,4 +1,4 @@
-import { LOCK_FINALITY_POLL_MIN_MS, nextLockFinalityCheckMs } from "@/lib/evm/lock-finality";
+import { LOCK_FINALITY_POLL_MIN_MS, nextLockFinalityCheckMs, type LockFinalityTier } from "@/lib/evm/lock-finality";
 
 /**
  * Suivi, côté page Train, de l'attente de finalité d'un lock : décisions pures, sans horloge ni
@@ -28,11 +28,13 @@ export interface LockFinalityTracking {
   failures: number;
   /** Lancement automatique déjà consommé. */
   autoStarted: boolean;
+  /** Palier annoncé par le serveur : `FAST` se compte en secondes, `FULL` en minutes. */
+  tier: LockFinalityTier;
 }
 
 export type LockFinalityObservationResult =
-  | { kind: "ok"; pending: true; remainingMs: number | null }
-  | { kind: "ok"; pending: false }
+  | { kind: "ok"; pending: true; remainingMs: number | null; tier?: LockFinalityTier }
+  | { kind: "ok"; pending: false; tier?: LockFinalityTier }
   | { kind: "error" };
 
 export type LockFinalityAction = "none" | "recheck" | "auto-run" | "give-up";
@@ -50,7 +52,7 @@ export const LOCK_FINALITY_MAX_WAIT_MS = 40 * 60_000;
 export const LOCK_FINALITY_ERROR_BACKOFF_MAX_MS = 5 * 60_000;
 
 export function initialLockFinalityTracking(): LockFinalityTracking {
-  return { phase: "unknown", remainingMs: null, observedAt: null, waitingSince: null, failures: 0, autoStarted: false };
+  return { phase: "unknown", remainingMs: null, observedAt: null, waitingSince: null, failures: 0, autoStarted: false, tier: "FULL" };
 }
 
 export function lockFinalityErrorBackoffMs(failures: number): number {
@@ -72,16 +74,18 @@ export function observeLockFinality(
     const next = { ...state, failures: state.failures + 1 };
     return { next, action: "recheck", recheckInMs: lockFinalityErrorBackoffMs(next.failures) };
   }
+  // Le palier suit la dernière lecture réussie : relecture courte et compte en secondes en rapide.
+  const tier = result.tier ?? state.tier;
   if (result.pending) {
     const waitingSince = state.waitingSince ?? now;
     if (now - waitingSince >= LOCK_FINALITY_MAX_WAIT_MS) {
-      return { next: { ...state, phase: "exhausted", waitingSince, failures: 0 }, action: "give-up" };
+      return { next: { ...state, phase: "exhausted", waitingSince, failures: 0, tier }, action: "give-up" };
     }
-    const next: LockFinalityTracking = { ...state, phase: "pending", remainingMs: result.remainingMs, observedAt: now, waitingSince, failures: 0 };
-    return { next, action: "recheck", recheckInMs: nextLockFinalityCheckMs(now + (result.remainingMs ?? 0), now) };
+    const next: LockFinalityTracking = { ...state, phase: "pending", remainingMs: result.remainingMs, observedAt: now, waitingSince, failures: 0, tier };
+    return { next, action: "recheck", recheckInMs: nextLockFinalityCheckMs(now + (result.remainingMs ?? 0), now, tier) };
   }
   const autoRun = state.waitingSince !== null && !state.autoStarted;
-  const next: LockFinalityTracking = { ...state, phase: "ready", remainingMs: 0, observedAt: now, failures: 0, autoStarted: state.autoStarted || autoRun };
+  const next: LockFinalityTracking = { ...state, phase: "ready", remainingMs: 0, observedAt: now, failures: 0, autoStarted: state.autoStarted || autoRun, tier };
   return { next, action: autoRun ? "auto-run" : "none" };
 }
 
