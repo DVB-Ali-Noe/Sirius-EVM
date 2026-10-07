@@ -35,11 +35,9 @@ function fixture() {
   initializeBudgetLedger(path, p);
   const open = () => { const ledger = new BudgetLedger(path, p.chainId, p.wallet); ledgers.push(ledger); return ledger; };
   const ledger = open();
-  const workflow = (n: number) => {
-    const scope = { id: `loan:46630:0xescrow:${n}`, fingerprint: `0x${String(n).repeat(64).slice(0, 64)}` };
-    ledger.reserveWorkflow(scope, `signed-${n}`, p.validUntil, BigInt(p.gas.totalWei));
-    return scope;
-  };
+  // Compteur d'exposition, pas une dépense : aucune ligne `workflows` ni allocation de budget
+  // n'est requise (le devis est vérifié par l'appelant avant d'arriver au registre).
+  const workflow = (n: number) => ({ id: `loan:46630:0xescrow:${n}`, fingerprint: `0x${String(n).repeat(64).slice(0, 64)}` });
   return { ledger, open, workflow };
 }
 

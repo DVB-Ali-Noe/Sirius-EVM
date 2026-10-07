@@ -790,10 +790,13 @@ export class BudgetLedger {
    * est passée (`expiresAtMs`, remboursable par l'emprunteur) sont purgées d'abord : un prêt
    * remboursé ou jamais réglé libère sa part sans que l'enclave observe la chaîne. Renvoie faux
    * quand le plafond est atteint : l'appelant retombe sur la finalité complète.
+   *
+   * Compteur d'exposition, pas une dépense : il ne passe ni par l'admission (coupe-circuit,
+   * politique périmée) ni par l'allocation du budget, et n'exige pas de ligne `workflows` — le
+   * devis a déjà été vérifié par l'appelant (`runnerComputeQuote`) avant d'arriver ici.
    */
   reserveFastExposure(scope: WorkflowBudget, amountAtomic: bigint, capAtomic: bigint, expiresAtMs: number, now = Date.now()): boolean {
     return this.atomic(() => {
-      this.workflow(scope);
       if (amountAtomic <= BigInt(0) || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= now) return false;
       this.db.prepare("DELETE FROM fast_exposure WHERE expires_at <= ?").run(now);
       if (this.db.prepare("SELECT workflow_id FROM fast_exposure WHERE workflow_id = ?").get(scope.id)) return true;
