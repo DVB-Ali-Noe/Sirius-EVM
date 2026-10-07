@@ -7,7 +7,9 @@ import {
   LOAN_DISPLAY_STATES,
   LOAN_STATE_LABEL_KEY,
   LOAN_STATE_VARIANT,
+  activeLoanOnDataset,
   canRefund,
+  needsLockFinalityCheck,
   canResumeSettlement,
   canRetrain,
   canRetrieveModelKey,
@@ -243,6 +245,50 @@ test("Ré-entraîner : jamais sur un autre état, un tiers ou le fournisseur", (
   assert.equal(canRetrain({ ...completed(), datasetId: "" }, ME), false);
 });
 
+test("un lock ESCROWED en attente de finalité s'affiche comme paiement en attente, et seulement lui", () => {
+  assert.equal(loanDisplayState(loan({ lockFinalityPending: true })), "awaiting-finality");
+  assert.equal(loanDisplayState(loan({ lockFinalityPending: false })), "in-progress");
+  assert.equal(loanDisplayState(loan({ lockFinalityPending: undefined })), "in-progress");
+  // Échu : l'échec et le remboursement priment sur l'attente.
+  assert.equal(loanDisplayState(loan({ lockFinalityPending: true, refundable: true })), "failed");
+  // Les autres statuts ignorent le drapeau : il ne concerne que la garde de `prepareLoanResult`.
+  assert.equal(loanDisplayState(loan({ status: "TRAINING", lockFinalityPending: true })), "in-progress");
+  assert.equal(loanDisplayState(loan({ status: "SETTLED", settleTxHash: TX, modelCid: "bafy", lockFinalityPending: true })), "completed");
+});
+
+test("la lecture de finalité ne concerne qu'un lock ESCROWED jamais entraîné, vu par son emprunteur", () => {
+  assert.equal(needsLockFinalityCheck(loan(), ME), true);
+  assert.equal(needsLockFinalityCheck(loan(), ME.toUpperCase().replace("0X", "0x")), true);
+  assert.equal(needsLockFinalityCheck(loan(), OTHER), false);
+  assert.equal(needsLockFinalityCheck(loan(), null), false);
+  assert.equal(needsLockFinalityCheck(loan({ borrower: null }), ME), false);
+  assert.equal(needsLockFinalityCheck(loan({ evmLockTxHash: null }), ME), false);
+  assert.equal(needsLockFinalityCheck(loan({ modelCid: "bafy" }), ME), false);
+  assert.equal(needsLockFinalityCheck(loan({ refundable: true }), ME), false);
+  for (const status of ["PENDING", "SUBMITTING", "TRAINING", "SETTLING", "SETTLED", "CANCELLED", "X"]) {
+    assert.equal(needsLockFinalityCheck(loan({ status }), ME), false, status);
+  }
+});
+
+test("un emprunt payé du même emprunteur sur un dataset est retrouvé avant un nouvel emprunt", () => {
+  const waiting = loan({ id: "loan-2" });
+  assert.equal(activeLoanOnDataset([waiting], "dataset-1", ME), waiting);
+  assert.equal(activeLoanOnDataset([loan({ id: "loan-2", status: "TRAINING" })], "dataset-1", ME)?.id, "loan-2");
+  assert.equal(activeLoanOnDataset([loan({ id: "loan-2", status: "SETTLING" })], "dataset-1", ME)?.id, "loan-2");
+  assert.equal(activeLoanOnDataset([loan({ id: "loan-2", status: "SUBMITTING" })], "dataset-1", ME)?.id, "loan-2");
+  assert.equal(activeLoanOnDataset([loan({ id: "loan-2", status: "PENDING" })], "dataset-1", ME)?.id, "loan-2");
+  // Devis refusé ou abandonné, prêt terminé, remboursé, autre dataset, autre emprunteur : rien.
+  assert.equal(activeLoanOnDataset([loan({ id: "loan-2", status: "PENDING", evmLockTxHash: null })], "dataset-1", ME), null);
+  assert.equal(activeLoanOnDataset([completed()], "dataset-1", ME), null);
+  assert.equal(activeLoanOnDataset([loan({ status: "CANCELLED", cancelTxHash: TX })], "dataset-1", ME), null);
+  assert.equal(activeLoanOnDataset([waiting], "dataset-2", ME), null);
+  assert.equal(activeLoanOnDataset([waiting], "dataset-1", OTHER), null);
+  assert.equal(activeLoanOnDataset([waiting], "dataset-1", null), null);
+  assert.equal(activeLoanOnDataset([], "dataset-1", ME), null);
+  // Le prêt dont on part (ré-entraînement) est exclu.
+  assert.equal(activeLoanOnDataset([waiting], "dataset-1", ME, "loan-2"), null);
+});
+
 test("un emprunt actif du même emprunteur sur le même dataset est détecté", () => {
   const current = completed();
   assert.equal(hasOtherActiveLoan([current], current, ME), false);
@@ -266,6 +312,41 @@ test("chaque libellé d'état est traduit en anglais", () => {
     ["État inconnu", "Unknown status"],
   ]);
   for (const key of Object.values(LOAN_STATE_LABEL_KEY)) assert.equal(EN_MESSAGES[key], english.get(key), key);
+});
+
+test("l'attente de finalité et la confirmation de double emprunt sont traduites, sans jeton codé en dur", () => {
+  const keys = [
+    "Finalité du paiement : ~{minutes} min",
+    "Finalité imminente…",
+    "L’entraînement pourra démarrer dans ~{minutes} min — tu peux fermer cette page, ton paiement est en sécurité dans l’escrow.",
+    "Le réseau finalise ton paiement : l’entraînement pourra démarrer d’une minute à l’autre. Ton paiement est en sécurité dans l’escrow.",
+    "Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.",
+    "Emprunt déjà en cours",
+    "Tu as déjà un emprunt payé sur ce dataset, en attente d’entraînement. Emprunter à nouveau te fait payer une seconde fois.",
+    "Voir mes entraînements",
+    "Emprunter quand même",
+  ];
+  for (const key of keys) {
+    assert.equal(typeof EN_MESSAGES[key], "string", key);
+    assert.doesNotMatch(`${key} ${EN_MESSAGES[key]}`, /USD[CG]/, key);
+  }
+  assert.equal(EN_MESSAGES["Tu as déjà un emprunt payé sur ce dataset, en attente d’entraînement. Emprunter à nouveau te fait payer une seconde fois."],
+    "You already have a paid loan on this dataset waiting to train. Borrowing again charges you again.");
+  assert.equal(EN_MESSAGES["L’entraînement pourra démarrer dans ~{minutes} min — tu peux fermer cette page, ton paiement est en sécurité dans l’escrow."],
+    "Training can start in ~{minutes} min — you can close this page, your payment is safe in escrow.");
+});
+
+test("page Train : le bouton de lancement est remplacé pendant l'attente de finalité, et le 409 la déclenche", () => {
+  const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
+  // Le bouton « Lancer le job » n'est rendu qu'en dehors de l'attente ; un bouton inactif le remplace.
+  assert.match(page, /\{!l\.refundable && !awaitingLock && \(l\.status === "ESCROWED"/);
+  assert.match(page, /data-testid="lock-finality-button"/);
+  assert.match(page, /data-testid="lock-finality-wait"/);
+  // Le refus de finalité n'est pas une erreur : il relit l'état au lieu d'afficher le message brut.
+  assert.match(page, /message === LOCK_FINALITY_PENDING/);
+  // Un seul lancement automatique par prêt, et seulement après une attente observée sur cette page.
+  assert.match(page, /finalityWaited\.current\.has\(loanId\) && !finalityAutoStarted\.current\.has\(loanId\)/);
+  assert.equal(page.match(/finalityAutoStarted\.current\.add\(/g)?.length, 1);
 });
 
 test("le self training n'est montré que si le serveur répond exactement admin: true", () => {

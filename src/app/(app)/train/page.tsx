@@ -27,6 +27,7 @@ import {
   canRetrieveModelKey,
   hasOtherActiveLoan,
   loanDisplayState,
+  needsLockFinalityCheck,
   parseAdminResponse,
 } from "@/lib/train/loan-display";
 import {
@@ -36,6 +37,8 @@ import {
   retrieveLoanKey,
   runLoanJob,
 } from "@/lib/loans/client";
+import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { lockFinalityMinutesLeft, nextLockFinalityCheckMs, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
@@ -119,6 +122,16 @@ const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
   FAILED: "negative",
 };
 
+/** Attente de finalité du lock, lue sur `GET /api/loans/[id]/finality`. */
+interface LockFinality {
+  pending: boolean;
+  /** Instant estimé (ms) où le lancement sera accepté ; `null` si le serveur ne l'estime pas. */
+  estimatedReadyAt: number | null;
+}
+
+/** Rafraîchissement du compte à rebours affiché (les minutes restantes changent lentement). */
+const FINALITY_TICK_MS = 15_000;
+
 export default function TrainPage() {
   const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
   return <TrainPageContent key={identity} />;
@@ -156,10 +169,27 @@ function TrainPageContent() {
   const haveKey = useRef<Set<string>>(new Set());
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
+  // Attente de finalité du lock, par prêt : état affiché, relectures programmées, prêts dont
+  // l'attente a été observée sur cette page (seuls ceux-là démarrent automatiquement, une fois).
+  const [finality, setFinality] = useState<Record<string, LockFinality>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const finalityTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const finalityWaited = useRef<Set<string>>(new Set());
+  const finalityAutoStarted = useRef<Set<string>>(new Set());
+  // Dernière liste et dernier `runJob` vus par les relectures asynchrones (jamais écrits pendant le rendu).
+  const loansRef = useRef<Loan[]>([]);
+  const runJobRef = useRef<(loan: Loan) => Promise<void>>(async () => {});
+  const checkLockFinalityRef = useRef<(loanId: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    loansRef.current = loans;
+  }, [loans]);
   useEffect(() => {
     mounted.current = true;
+    const timers = finalityTimers.current;
     return () => {
       mounted.current = false;
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
     };
   }, []);
 
@@ -274,6 +304,72 @@ function TrainPageContent() {
     }
   }
 
+  /**
+   * Attente de finalité du lock (incident du lancement : « Lancer le job » répondait 409 pendant
+   * le quart d'heure de finalité, sans dire quand revenir). Le serveur dit si le lock est sous le
+   * bloc stable et estime l'instant où il le sera ; la page affiche le compte à rebours, relit à
+   * l'instant estimé (entre 20 s et 60 s plus tard), et, si elle est restée ouverte, lance le job
+   * une seule fois quand l'attente observée ici prend fin. Le lancement lui-même exige toujours la
+   * session de l'emprunteur (grant signé par la clé de session, clé de livraison) : rien ne
+   * démarre sans ce navigateur, d'où « tu peux fermer cette page » plutôt qu'une promesse.
+   */
+  const checkLockFinality = useCallback(async (loanId: string) => {
+    finalityTimers.current.delete(loanId);
+    let status: LockFinality;
+    try {
+      const response = await fetch(`/api/loans/${encodeURIComponent(loanId)}/finality`);
+      status = parseLockFinalityResponse(response.ok ? await response.json().catch(() => null) : null);
+    } catch {
+      status = { pending: false, estimatedReadyAt: null };
+    }
+    if (!mounted.current) return;
+    const loan = loansRef.current.find((candidate) => candidate.id === loanId);
+    if (!loan || !needsLockFinalityCheck(loan, address)) {
+      setFinality((previous) => {
+        if (!Object.hasOwn(previous, loanId)) return previous;
+        return Object.fromEntries(Object.entries(previous).filter(([id]) => id !== loanId));
+      });
+      return;
+    }
+    setFinality((previous) => ({ ...previous, [loanId]: status }));
+    setNow(Date.now());
+    if (status.pending) {
+      finalityWaited.current.add(loanId);
+      const delay = nextLockFinalityCheckMs(status.estimatedReadyAt ?? Date.now(), Date.now());
+      finalityTimers.current.set(loanId, setTimeout(() => void checkLockFinalityRef.current(loanId), delay));
+      return;
+    }
+    // Finalité atteinte pendant que la page attendait : un seul lancement automatique.
+    if (finalityWaited.current.has(loanId) && !finalityAutoStarted.current.has(loanId)) {
+      finalityAutoStarted.current.add(loanId);
+      void runJobRef.current(loan);
+    }
+  }, [address]);
+
+  // À chaque liste de prêts : lecture pour les prêts éligibles pas encore suivis, relectures des
+  // autres annulées (leur état affiché n'est plus lu : `awaitingLock` exige l'éligibilité).
+  useEffect(() => {
+    const eligible = new Set(loans.filter((loan) => needsLockFinalityCheck(loan, address)).map((loan) => loan.id));
+    for (const [id, timer] of finalityTimers.current) {
+      if (eligible.has(id)) continue;
+      clearTimeout(timer);
+      finalityTimers.current.delete(id);
+    }
+    for (const id of eligible) {
+      if (finalityTimers.current.has(id)) continue;
+      // Un prêt déjà connu « en attente » a sa relecture programmée ; un prêt sans état est lu maintenant.
+      finalityTimers.current.set(id, setTimeout(() => void checkLockFinality(id), 0));
+    }
+  }, [loans, address, checkLockFinality]);
+
+  // Horloge du compte à rebours, seulement tant qu'un prêt attend ; chaque relecture la remet aussi à l'heure.
+  const anyPending = Object.values(finality).some((status) => status.pending);
+  useEffect(() => {
+    if (!anyPending) return;
+    const timer = window.setInterval(() => setNow(Date.now()), FINALITY_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [anyPending]);
+
   async function runJob(loan: Loan) {
     const key = `job:${loan.id}`;
     if (activeLoanJobs.current.has(key)) return;
@@ -299,6 +395,14 @@ function TrainPageContent() {
       if (message === "Loan non verrouillé ou déjà en cours") {
         await refresh().catch(() => {});
         setError(t("Le job TEE est déjà en cours. Actualise dans quelques secondes."));
+      } else if (message === LOCK_FINALITY_PENDING) {
+        // Pas une erreur : le lock n'est pas encore sous le bloc stable. La relecture affiche
+        // l'attente et son estimation à la place du bouton.
+        setFinality((previous) => ({ ...previous, [loan.id]: { pending: true, estimatedReadyAt: previous[loan.id]?.estimatedReadyAt ?? null } }));
+        finalityWaited.current.add(loan.id);
+        const timer = finalityTimers.current.get(loan.id);
+        if (timer) clearTimeout(timer);
+        finalityTimers.current.set(loan.id, setTimeout(() => void checkLockFinality(loan.id), 0));
       } else {
         setError(message);
       }
@@ -307,6 +411,10 @@ function TrainPageContent() {
       setBusyKey(key, false);
     }
   }
+  useEffect(() => {
+    runJobRef.current = runJob;
+    checkLockFinalityRef.current = checkLockFinality;
+  });
 
   async function resumeJob(loan: Loan) {
     const key = `job:${loan.id}`;
@@ -516,7 +624,11 @@ function TrainPageContent() {
           ))}
 
           {loans.map((l) => {
-            const state = loanDisplayState(l);
+            const lockFinality = finality[l.id];
+            const awaitingLock = lockFinality?.pending === true && needsLockFinalityCheck(l, address);
+            const minutesLeft = awaitingLock && lockFinality.estimatedReadyAt !== null
+              ? lockFinalityMinutesLeft(lockFinality.estimatedReadyAt, now) : 0;
+            const state = loanDisplayState({ ...l, lockFinalityPending: awaitingLock });
             const refundAllowed = canRefund(l, address);
             const rescueRefund = canRescueRefund(l, address);
             return (
@@ -557,7 +669,18 @@ function TrainPageContent() {
                     {busy.has(`refund:${l.id}`) ? t("Remboursement…") : t("Rembourser")}
                   </button>
                 )}
-                {!l.refundable && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
+                {awaitingLock && (
+                  // Le bouton est remplacé, pas seulement désactivé : cliquer ne ferait qu'un 409.
+                  <button
+                    type="button"
+                    disabled
+                    data-testid="lock-finality-button"
+                    className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-2 text-sm font-medium text-yellow-400"
+                  >
+                    {minutesLeft > 0 ? t("Finalité du paiement : ~{minutes} min", { minutes: minutesLeft }) : t("Finalité imminente…")}
+                  </button>
+                )}
+                {!l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
                   <button
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -613,6 +736,18 @@ function TrainPageContent() {
                 )}
               </div>
 
+              {awaitingLock && (
+                <div className="mt-4 rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs leading-relaxed" data-testid="lock-finality-wait" aria-live="polite">
+                  <p className="font-medium text-yellow-400">
+                    {minutesLeft > 0
+                      ? t("L’entraînement pourra démarrer dans ~{minutes} min — tu peux fermer cette page, ton paiement est en sécurité dans l’escrow.", { minutes: minutesLeft })
+                      : t("Le réseau finalise ton paiement : l’entraînement pourra démarrer d’une minute à l’autre. Ton paiement est en sécurité dans l’escrow.")}
+                  </p>
+                  <p className="mt-1 text-muted">
+                    {t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")}
+                  </p>
+                </div>
+              )}
               {refundAllowed && (
                 <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
                   <p className="font-medium text-negative">

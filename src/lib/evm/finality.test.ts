@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { PublicClient, Hex } from "viem";
-import { assertCanonicalReceipt, checkRpcFinality, finalityPolicy } from "./finality";
+import { assertBlockStable, assertCanonicalReceipt, checkRpcFinality, finalityPolicy, lockFinalityStatus } from "./finality";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -91,4 +91,25 @@ test("le préflight refuse finalized absent ou non canonique sans dégrader sa p
   await assert.rejects(checkRpcFinality(client, 46630), /finalized indisponible/);
   missing = false;
   await assert.rejects(checkRpcFinality(client, 46630), /Finalité EVM indisponible/);
+});
+
+test("l'état de finalité d'un lock suit la même profondeur stable qu'assertBlockStable, avec une estimation", async () => {
+  process.env.SIRIUS_EVM_FINALITY = "finalized";
+  const hash = `0x${"12".repeat(32)}` as Hex;
+  const now = Date.UTC(2026, 9, 7, 10, 0, 0);
+  let finalized = BigInt(500);
+  // Le bloc finalisé est horodaté 14 minutes avant le lock (bloc 9 000).
+  const timestamps: Record<string, bigint> = { "500": BigInt(1_000), "9000": BigInt(1_000 + 14 * 60), "9500": BigInt(1_000 + 15 * 60) };
+  const client = {
+    getBlockNumber: async () => BigInt(10_000),
+    getBlock: async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) => {
+      const number = blockTag === "finalized" ? finalized : blockNumber!;
+      return { number, hash, timestamp: timestamps[String(number)] };
+    },
+  } as unknown as PublicClient;
+  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: true, estimatedReadyAt: now + 14 * 60_000 });
+  await assert.rejects(assertBlockStable(client, BigInt(9_000), "en attente"), /en attente/);
+  finalized = BigInt(9_500);
+  assert.deepEqual(await lockFinalityStatus(client, BigInt(9_000), now), { pending: false, estimatedReadyAt: now });
+  await assertBlockStable(client, BigInt(9_000), "en attente");
 });

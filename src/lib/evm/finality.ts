@@ -1,6 +1,7 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
 import type { Hex, PublicClient, TransactionReceipt } from "viem";
+import { estimateLockFinality, type LockFinalityEstimate } from "./lock-finality";
 
 export function finalityPolicy(minimumConfirmations = 1) {
   const confirmations = Number(process.env.SIRIUS_EVM_CONFIRMATIONS ?? 1);
@@ -47,6 +48,20 @@ export async function assertCanonicalReceipt(
 export async function assertBlockStable(client: PublicClient, blockNumber: bigint, message: string): Promise<void> {
   const stable = await confirmedBlock(client);
   if (stable.number === null || stable.number < blockNumber) throw new AppError(message, 409);
+}
+
+/**
+ * Même profondeur stable qu'`assertBlockStable`, mais pour informer : le lock est-il déjà sous
+ * le bloc stable, et sinon dans combien de temps, d'après l'écart entre les horodatages du lock
+ * et du bloc stable (voir lock-finality.ts). Deux lectures RPC, aucune transaction.
+ */
+export async function lockFinalityStatus(client: PublicClient, lockBlock: bigint, now = Date.now()): Promise<LockFinalityEstimate> {
+  const [stable, lock] = await Promise.all([confirmedBlock(client), client.getBlock({ blockNumber: lockBlock })]);
+  if (stable.number === null) throw new AppError("Finalité EVM indisponible", 503);
+  return estimateLockFinality(
+    { lockBlock, lockTimestamp: lock.timestamp, stableBlock: stable.number, stableTimestamp: stable.timestamp },
+    now,
+  );
 }
 
 export async function checkRpcFinality(client: PublicClient, chainId: number, transactionHash?: Hex) {

@@ -25,6 +25,8 @@ export interface LoanDisplayInput {
   runnerReceipt?: string | null;
   /** Calculé par le serveur : prêt actif dont l'échéance est dépassée. */
   refundable?: boolean;
+  /** Lu sur `GET /api/loans/[id]/finality` : lock pas encore sous le bloc stable, lancement refusé. */
+  lockFinalityPending?: boolean;
 }
 
 export const LOAN_DISPLAY_STATES = [
@@ -96,7 +98,8 @@ export function isOverdueWithCapsule(loan: LoanDisplayInput): boolean {
 /**
  * État lisible d'un emprunt.
  *  - `awaiting-finality` : paiement envoyé mais pas finalisé (verrouillage SUBMITTING, ou PENDING avec
- *    un hash de lock, ou règlement SETTLING en cours de confirmation) ;
+ *    un hash de lock, lock ESCROWED pas encore sous le bloc stable, ou règlement SETTLING en cours
+ *    de confirmation) ;
  *  - `in-progress` : emprunt en préparation (PENDING sans paiement envoyé : devis refusé ou approbation
  *    en cours), ou fonds verrouillés, entraînement à lancer ou en cours ;
  *  - `completed` : règlement validé, modèle livrable ;
@@ -119,6 +122,7 @@ export function loanDisplayState(loan: LoanDisplayInput): LoanDisplayState {
     case "TRAINING":
     case "SETTLING":
       if (isOverdueUnsettled(loan)) return "failed";
+      if (loan.status === "ESCROWED" && loan.lockFinalityPending === true) return "awaiting-finality";
       return loan.status === "SETTLING" ? "awaiting-finality" : "in-progress";
     default:
       return "unknown";
@@ -185,20 +189,50 @@ export function canRetrieveModelKey(loan: LoanDisplayInput, viewer: string | nul
   );
 }
 
+/**
+ * Un emprunt payé (ou en cours de paiement) du même emprunteur sur ce dataset, le plus récent
+ * d'abord selon l'ordre reçu. Sert à demander confirmation avant un nouvel emprunt du même
+ * dataset : ré-emprunter est légitime (le serveur l'accepte), mais fait payer une seconde fois,
+ * et un emprunt en attente de finalité se confond facilement avec un emprunt perdu.
+ */
+export function activeLoanOnDataset(
+  loans: readonly LoanDisplayInput[],
+  datasetId: string,
+  viewer: string | null | undefined,
+  excludeLoanId?: string,
+): LoanDisplayInput | null {
+  return loans.find(
+    (other) =>
+      other.id !== excludeLoanId &&
+      other.datasetId === datasetId &&
+      ACTIVE_STATUSES.has(other.status) &&
+      // Un prêt PENDING sans lock est un devis refusé ou abandonné, pas un emprunt en cours.
+      (other.status !== "PENDING" || Boolean(other.evmLockTxHash)) &&
+      isBorrower(other, viewer),
+  ) ?? null;
+}
+
 /** Un autre emprunt actif du même emprunteur sur ce dataset (confirmation avant d'en ouvrir un nouveau). */
 export function hasOtherActiveLoan(
   loans: readonly LoanDisplayInput[],
   loan: LoanDisplayInput,
   viewer: string | null | undefined,
 ): boolean {
-  return loans.some(
-    (other) =>
-      other.id !== loan.id &&
-      other.datasetId === loan.datasetId &&
-      ACTIVE_STATUSES.has(other.status) &&
-      // Un prêt PENDING sans lock est un devis refusé ou abandonné, pas un emprunt en cours.
-      (other.status !== "PENDING" || Boolean(other.evmLockTxHash)) &&
-      isBorrower(other, viewer),
+  return activeLoanOnDataset(loans, loan.datasetId, viewer, loan.id) !== null;
+}
+
+/**
+ * Prêt dont la page doit lire l'attente de finalité : lock confirmé (ESCROWED), entraînement
+ * jamais lancé, dans les délais, vu par son emprunteur. Un fournisseur ne lance rien, un prêt
+ * échu se rembourse, un prêt TRAINING a déjà passé la garde de finalité.
+ */
+export function needsLockFinalityCheck(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+  return (
+    loan.status === "ESCROWED" &&
+    Boolean(loan.evmLockTxHash) &&
+    !loan.modelCid &&
+    !isOverdueUnsettled(loan) &&
+    isBorrower(loan, viewer)
   );
 }
 

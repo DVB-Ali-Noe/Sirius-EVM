@@ -24,7 +24,6 @@ export const EN_MESSAGES: Record<string, string> = {
   ...TRAIN_MESSAGES_EN,
   ...SETTINGS_MESSAGES_EN,
   ...FUNDING_MESSAGES_EN,
-  "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",
   "Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.": "During the beta, access is by invitation. Paste the code you received from the Sirius team, then confirm in your wallet.",
