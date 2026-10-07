@@ -12,10 +12,17 @@ import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
 import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
 import { assertCanonicalReceipt } from "@/lib/evm/finality";
+import type { FinalityTier } from "@/lib/evm/fast-finality";
 import { quoteWorkflow, requireBillingBudget } from "./runner";
 import { executionReceiptTypedData, failureFee, quoteTermsHash, type ComputeQuote } from "./quote";
 
-async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "release" | "failure", data: Hex): Promise<string> {
+/**
+ * `finalityTier` : profondeur à laquelle le reçu vaut confirmation. `FULL` (défaut, et toujours pour
+ * un remboursement) attend le bloc finalisé ; `FAST`, déjà arbitré par l'enclave pour un petit prêt,
+ * se contente des confirmations rapides avec contrôle du hash canonique. Avant cette profondeur, la
+ * transaction reste « pending » : hash durable, reprise plus tard, aucun échec compté.
+ */
+async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "release" | "failure", data: Hex, finalityTier: FinalityTier = "FULL"): Promise<string> {
   const ledger = requireBillingBudget();
   const account = settlementAccount();
   const client = getPublicClient();
@@ -51,13 +58,13 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
       const receipt = await client.waitForTransactionReceipt({ hash, confirmations: ledger.policy.gas.confirmations, timeout: 15000, retryCount: 0 });
       if (receipt.transactionHash.toLowerCase() !== hash || receipt.from.toLowerCase() !== quote.runner
         || receipt.to?.toLowerCase() !== quote.escrow) return "pending";
-      await assertCanonicalReceipt(client, receipt, ledger.policy.gas.confirmations);
+      await assertCanonicalReceipt(client, receipt, ledger.policy.gas.confirmations, finalityTier);
       return receipt.status;
     },
   }, quoteWorkflow(quote));
 }
 
-export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, preimage: Hex, fromBlock: bigint): Promise<string> {
+export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, preimage: Hex, fromBlock: bigint, finalityTier: FinalityTier = "FULL"): Promise<string> {
   const ledger = requireBillingBudget();
   const data = encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "release", args: [loanKey, preimage] });
   if (!ledger.find(`release:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data))) {
@@ -67,7 +74,7 @@ export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, prei
   }
   const loan = await readLoan(loanKey, quote);
   if (loan?.billing?.termsHash !== quoteTermsHash(quote)) throw new AppError("Devis compute hors scope", 409);
-  return sendBilledAction(quote, loanKey, "release", data);
+  return sendBilledAction(quote, loanKey, "release", data, finalityTier);
 }
 
 export async function failBilledEscrow(quote: ComputeQuote, loanKey: Hex): Promise<{ refundTxHash: string; retainedFee: string }> {

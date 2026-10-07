@@ -2,9 +2,11 @@ import "server-only";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
-import { reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
 import { getPublicClient } from "@/lib/evm/client";
-import { assertBlockStable } from "@/lib/evm/finality";
+import { assertLockStable } from "@/lib/evm/finality";
+import type { FinalityTier } from "@/lib/evm/fast-finality";
+import { assignLoanFinalityTier } from "./finality-tier";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
@@ -146,9 +148,27 @@ export async function prepareLoanResult(
   deliveryPublicKey: string,
   authorization: RunnerGrant,
 ): Promise<PreparedLoanResult> {
-  const lock = await prisma.loan.findUnique({ where: { id: loanId }, select: { status: true, evmLockBlock: true } });
+  const lock = await prisma.loan.findUnique({
+    where: { id: loanId },
+    select: { id: true, status: true, evmLockBlock: true, evmLockTxHash: true, evmLoanKey: true, amountUsdcAtomic: true, finalityTier: true },
+  });
   if (lock?.status === "ESCROWED" && lock.evmLockBlock) {
-    await assertBlockStable(getPublicClient(), BigInt(lock.evmLockBlock), LOCK_FINALITY_PENDING);
+    // Palier de finalité décidé ici, au moment où l'entraînement peut démarrer (finality-tier.ts) :
+    // le montant est relu sur le contrat avant tout passage en rapide, et la somme des prêts rapides
+    // en cours est contrôlée dans la transaction qui marque le prêt. Sans hash de lock (ligne
+    // historique), le prêt garde la finalité complète.
+    const finalityTier: FinalityTier = lock.evmLockTxHash
+      ? await assignLoanFinalityTier(lock, async () => {
+        const onChain = lock.evmLoanKey ? await readLoan(lock.evmLoanKey as `0x${string}`) : null;
+        return onChain?.amountUsdcAtomic === lock.amountUsdcAtomic;
+      })
+      : "FULL";
+    await assertLockStable(
+      getPublicClient(),
+      { blockNumber: BigInt(lock.evmLockBlock), txHash: (lock.evmLockTxHash ?? `0x${"0".repeat(64)}`) as `0x${string}` },
+      finalityTier,
+      LOCK_FINALITY_PENDING,
+    );
   }
   const now = new Date();
   await prisma.loan.updateMany({
@@ -218,6 +238,7 @@ export async function prepareLoanResult(
       deliveryPublicKey,
       authorization,
       billingQuote,
+      loan.finalityTier,
     );
     await verifyLoanAttestation({
       attestation: result.attestation,
@@ -344,12 +365,15 @@ export async function settlePreparedLoan(
   if (claimed.count !== 1) throw new AppError("Règlement déjà en cours", 409);
 
   try {
+    // Même palier qu'au lancement : un prêt rapide est réglé après les mêmes confirmations, le
+    // reaper le revérifie ensuite sous le bloc finalisé (fast-settlement-review.ts).
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
       payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
+      loan.finalityTier,
     );
     const updated = await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },

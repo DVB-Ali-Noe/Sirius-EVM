@@ -50,8 +50,24 @@ import type { DatasetIngressEnvelope, DatasetRef } from "@/lib/tee/contract";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { checkDemoOperation, demoEnabled, demoGrantScope, withDemoAdmission } from "@/lib/phala-demo/runner-session";
 import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
+import { fastFinalityPolicy } from "@/lib/evm/finality";
+import { enclaveFinalityTier, type FinalityTier } from "@/lib/evm/fast-finality";
+import { totalQuoteAmount, type ComputeQuote } from "@/lib/billing/quote";
 
 const MAX_ID_LENGTH = 128;
+
+/**
+ * Palier de finalité d'un prêt v7, arbitré par l'enclave seule (fast-finality.ts). Le montant vient
+ * du devis qu'elle a signé et que `matchesScope` lie aux termes on-chain, jamais du corps de la
+ * requête ; les bornes viennent de son environnement attesté (Compose). Next peut demander le
+ * palier rapide, l'enclave ne l'accorde que si sa politique l'admet pour ce montant, et refuse
+ * explicitement sinon : jamais de profondeur rapide pour un prêt au-dessus du seuil.
+ */
+function loanFinalityTier(requested: unknown, quote: ComputeQuote): FinalityTier {
+  const tier = enclaveFinalityTier(requested, BigInt(totalQuoteAmount(quote)), fastFinalityPolicy());
+  if (tier === null) throw new AppError("Finalité rapide refusée par l’enclave pour ce prêt", 409);
+  return tier;
+}
 const MAX_CID_LENGTH = 256;
 const MAX_WRAPPED_KEY_LENGTH = 1_024;
 const MAX_RECEIPT_LENGTH = 8_192;
@@ -233,6 +249,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const { hashlock, preimage } = escrowLock(loanId, borrower);
       const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
+      const finalityTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
       const execute = async () => {
         await Promise.all([
           assertDatasetScope({
@@ -250,7 +267,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
             amountUsdcAtomic: datasetReceipt.priceUsdcAtomic,
             hashlock,
             model: dataset,
-            ...(signedQuote ? { billingQuote: signedQuote.quote } : {}),
+            ...(signedQuote ? { billingQuote: signedQuote.quote, finalityTier } : {}),
           }),
         ]);
 
@@ -358,8 +375,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           });
           if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
         }
+        const finalityTier = loanFinalityTier(body.finalityTier, signedQuote.quote);
         return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => ({
-          settleTxHash: await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock),
+          settleTxHash: await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock, finalityTier),
         })));
       }
       const { subject } = await verifyRunnerGrant(body.authorization, {
@@ -387,7 +405,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           if (!/^0x[0-9a-fA-F]{64}$/.test(settleTxHash)) throw new AppError("Hash de règlement invalide", 400);
           await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
             settleTxHash as `0x${string}`, signed.quote,
-            requireBillingBudget().policy.gas.confirmations);
+            requireBillingBudget().policy.gas.confirmations, loanFinalityTier(body.finalityTier, signed.quote));
         } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
         return {
           modelCid: receipt.modelCid,

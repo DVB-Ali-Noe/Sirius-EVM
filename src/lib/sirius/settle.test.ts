@@ -50,11 +50,34 @@ test("un règlement en attente de finalité reste SETTLING avec son hash, sans r
   assert.ok(settlement.indexOf("RunnerFinalityPending") < settlement.indexOf("reconcileLoanEscrow"), "l’attente passe avant toute réconciliation");
 });
 
-test("l’entraînement n’est demandé au runner qu’après finalité du lock", () => {
+test("l’entraînement n’est demandé au runner qu’après finalité du lock, au palier décidé en transaction", () => {
   const preparation = SOURCE.slice(SOURCE.indexOf("export async function prepareLoanResult"));
 
-  assert.ok(preparation.indexOf("assertBlockStable") < preparation.indexOf('status: "TRAINING"'), "garde avant la prise du lease");
-  assert.ok(preparation.indexOf("assertBlockStable") < preparation.indexOf("runLoanJobInRunner("));
+  assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf('status: "TRAINING"'), "garde avant la prise du lease");
+  assert.ok(preparation.indexOf("assertLockStable") < preparation.indexOf("runLoanJobInRunner("));
+  // Le palier est attribué avant la garde, avec relecture du montant on-chain ; le runner reçoit celui de la ligne.
+  assert.ok(preparation.indexOf("assignLoanFinalityTier") < preparation.indexOf("assertLockStable"));
+  assert.match(preparation, /assignLoanFinalityTier\(lock, async \(\) => \{[\s\S]*?readLoan\([\s\S]*?onChain\?\.amountUsdcAtomic === lock\.amountUsdcAtomic/);
+  assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*loan\.finalityTier,\s*\)/);
+  const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
+  assert.match(settlement, /settleLoanInRunner\([\s\S]*?authorization,\s*loan\.finalityTier,\s*\)/);
+});
+
+test("finalité rapide : l'enclave arbitre seule le palier des trois opérations v7, Next ne transmet que FAST", () => {
+  const handler = read("src", "runner", "handler.ts");
+  const client = read("src", "lib", "tee", "runner-client.ts");
+  // Montant du devis signé, bornes de l'environnement attesté, refus explicite sinon.
+  assert.match(handler, /function loanFinalityTier\(requested: unknown, quote: ComputeQuote\)[\s\S]*?enclaveFinalityTier\(requested, BigInt\(totalQuoteAmount\(quote\)\), fastFinalityPolicy\(\)\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
+  assert.match(handler, /loanFinalityTier\(body\.finalityTier, signedQuote\.quote\) : "FULL"/, "run-loan-job : finalité complète sans devis v7");
+  assert.match(handler, /assertLoanScope\(\{[\s\S]*?billingQuote: signedQuote\.quote, finalityTier \}/);
+  assert.match(handler, /settleBilledEscrow\(signedQuote\.quote, receipt\.loanKey as `0x\$\{string\}`, preimage, lockBlock, finalityTier\)/);
+  assert.match(handler, /publishedFinalizedPreimage\([\s\S]*?loanFinalityTier\(body\.finalityTier, signed\.quote\)\)/);
+  // Le client n'ajoute le champ que pour FAST : un prêt FULL envoie la charge historique.
+  assert.match(client, /return tier === "FAST" \? \{ finalityTier: "FAST" \} : \{\};/);
+  for (const op of ["run-loan-job", "settle-loan", "loan-model-key"]) {
+    const call = client.slice(client.indexOf(`"${op}"`));
+    assert.match(call.slice(0, call.indexOf(";")), /\.\.\.finalityTierField\(finalityTier\)/, op);
+  }
 });
 
 test("l’attente de finalité traverse le runner distant comme en processus", () => {
@@ -139,6 +162,7 @@ function settlementFixture(
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
     "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
+    "./finality-tier": { assignLoanFinalityTier: async () => "FULL" },
   });
   return { api, updates };
 }

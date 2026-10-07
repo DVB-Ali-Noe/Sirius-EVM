@@ -52,6 +52,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     ) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
+    if (loan.finalityReview) return NextResponse.json({ error: "Règlement en cours de revue : livraison suspendue" }, { status: 409 });
     if (loanBillingQuote(loan)) return NextResponse.json({ error: "Livraison par le runner après confirmation" }, { status: 409 });
     const onChain = await readLoan(loan.evmLoanKey as `0x${string}`, loanEscrowBinding(loan));
     if (!onChain || onChain.status !== 2 || !addressesEqual(onChain.borrower, loan.borrower)) {
@@ -88,6 +89,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (loan.status !== "SETTLED" || !loan.modelCid || !loan.runnerReceipt || !loan.settleTxHash) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
+    // Release rapide contredit par la finalité complète (fast-settlement-review.ts) : plus aucune
+    // livraison tant qu'un opérateur n'a pas tranché.
+    if (loan.finalityReview) return NextResponse.json({ error: "Règlement en cours de revue : livraison suspendue" }, { status: 409 });
     await assertCurrentRunner(loan);
     const delivery = await loanModelKeyInRunner(
       id,
@@ -95,6 +99,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       deliveryPublicKey,
       authorization,
       loan.settleTxHash,
+      loan.finalityTier,
     );
     await logModelDelivery(loan, session.address, delivery.modelCid);
     return NextResponse.json({ modelCid: delivery.modelCid, modelKeyEnvelope: delivery.modelKeyEnvelope });

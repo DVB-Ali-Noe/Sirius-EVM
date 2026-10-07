@@ -19,8 +19,18 @@ import type {
 import { attestedRunnerFetch } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
 import type { SignedComputeQuote } from "@/lib/billing/quote";
+import type { FinalityTier } from "@/lib/evm/fast-finality";
 
 const RUNNER_TIMEOUT_MS = 60_000;
+
+/**
+ * Palier demandé à l'enclave, transmis seulement quand il est rapide : un prêt à finalité complète
+ * envoie exactement la charge historique, et l'enclave lit « absent » comme `FULL`. Elle n'accorde
+ * de toute façon le palier rapide qu'après sa propre vérification (fast-finality.ts).
+ */
+function finalityTierField(tier?: FinalityTier): { finalityTier?: FinalityTier } {
+  return tier === "FAST" ? { finalityTier: "FAST" } : {};
+}
 
 export function usesRemoteRunner(): boolean {
   return endpoint() !== null;
@@ -96,6 +106,7 @@ export async function runLoanJobInRunner(
   deliveryPublicKey: string,
   authorization: RunnerGrant,
   billingQuote?: SignedComputeQuote,
+  finalityTier?: FinalityTier,
 ): Promise<{
   modelCid: string;
   metrics: Record<string, number>;
@@ -107,7 +118,7 @@ export async function runLoanJobInRunner(
   return dispatchRunner(
     "run-loan-job",
     { datasetId: input.datasetId, loanId: input.loanId },
-    { ...input, datasetReceipt, deliveryPublicKey, authorization, ...(billingQuote ? { billingQuote } : {}) },
+    { ...input, datasetReceipt, deliveryPublicKey, authorization, ...(billingQuote ? { billingQuote } : {}), ...finalityTierField(finalityTier) },
   );
 }
 
@@ -117,11 +128,12 @@ export async function settleLoanInRunner(
   releaseEnvelopeHash: string,
   lockBlock: string,
   authorization?: RunnerGrant,
+  finalityTier?: FinalityTier,
 ): Promise<{ settleTxHash: string }> {
   return dispatchRunner(
     "settle-loan",
     { loanId },
-    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}) },
+    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}), ...finalityTierField(finalityTier) },
   );
 }
 
@@ -135,11 +147,12 @@ export async function loanModelKeyInRunner(
   deliveryPublicKey: string,
   authorization: RunnerGrant,
   settleTxHash?: string,
+  finalityTier?: FinalityTier,
 ): Promise<{ modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope }> {
   return dispatchRunner(
     "loan-model-key",
     { loanId },
-    { loanId, loanReceipt, deliveryPublicKey, authorization, ...(settleTxHash ? { settleTxHash } : {}) },
+    { loanId, loanReceipt, deliveryPublicKey, authorization, ...(settleTxHash ? { settleTxHash } : {}), ...finalityTierField(finalityTier) },
   );
 }
 
