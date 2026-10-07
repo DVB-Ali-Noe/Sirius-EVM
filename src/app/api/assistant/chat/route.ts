@@ -15,6 +15,7 @@ import {
 } from "@/lib/assistant/config";
 import { recordAssistantUsage, reserveAssistantClient, reserveAssistantRequest } from "@/lib/assistant/daily-cap";
 import { pruneUnsignedHistory, signAssistantTurn, verifyAssistantTurn } from "@/lib/assistant/signature";
+import { assistantToolSource } from "@/lib/assistant/tools-server";
 import { utcDay, validateAssistantChatRequest } from "@/lib/assistant/validate";
 
 export const runtime = "nodejs";
@@ -46,8 +47,10 @@ function sseLine(event: AssistantEvent): Uint8Array {
  * Ouvert aux visiteurs comme aux wallets signés ; l'adresse de session ne sert qu'au débit, elle
  * n'est jamais transmise au modèle. 404 tant que `SIRIUS_ASSISTANT_ENABLED=true` n'est pas posé.
  * Chaque réponse est signée (HMAC) ; les tours d'assistant non signés de l'historique sont
- * écartés. Un navigateur parti annule l'appel en amont. Journal : compteurs et latence
- * seulement, jamais le contenu des messages.
+ * écartés. Les outils du modèle (catalogue public, état du protocole) sont exécutés ici, côté
+ * serveur, dans une boucle bornée ; leurs tours s'ajoutent aux jetons inscrits au budget du
+ * jour. Un navigateur parti annule l'appel en amont. Journal : compteurs et latence seulement,
+ * jamais le contenu des messages ni des résultats d'outils.
  */
 export async function POST(req: Request) {
   try {
@@ -85,13 +88,13 @@ export async function POST(req: Request) {
           }
         };
         try {
-          const outcome = await streamAssistantReply({ messages, page: request.page }, (text) => send({ type: "text", text }), upstream.signal);
+          const outcome = await streamAssistantReply({ messages, page: request.page }, (text) => send({ type: "text", text }), upstream.signal, assistantToolSource());
           if (outcome.stopReason === "refusal") send({ type: "refusal" });
           else send({ type: "done", stopReason: outcome.stopReason, signature: signAssistantTurn(secret, conversation, outcome.text) });
           // Les jetons sont facturés même si le navigateur est parti entre-temps : au budget du jour.
           const spent = await recordAssistantUsage(prisma.assistantUsage, day, outcome).catch(() => -1);
           console.log(
-            `[assistant] turns=${turns} stop=${outcome.stopReason ?? "none"} in=${outcome.inputTokens} out=${outcome.outputTokens} `
+            `[assistant] turns=${turns} tool_rounds=${outcome.toolRounds} stop=${outcome.stopReason ?? "none"} in=${outcome.inputTokens} out=${outcome.outputTokens} `
             + `cache_read=${outcome.cacheReadTokens} cache_write=${outcome.cacheWriteTokens} micro_usd=${spent} ms=${Date.now() - startedAt}`,
           );
         } catch (error) {
