@@ -13,6 +13,7 @@ import * as body from "../http/body";
 import { CONTACT_EMAIL } from "../copy/disclaimers";
 import { EN_MESSAGES } from "../i18n/english";
 import * as config from "./config";
+import type { AssistantTokenUsage } from "./config";
 import {
   assistantClientUsageId,
   recordAssistantUsage,
@@ -305,7 +306,7 @@ function load<T>(file: string, dependencies: Record<string, unknown>, sandboxCon
   return exports as T;
 }
 
-type Reply = (onText: (text: string) => void, signal?: AbortSignal) => Promise<Partial<AssistantStreamOutcome>>;
+type Reply = (onText: (text: string) => void, signal?: AbortSignal, onUsage?: (total: AssistantTokenUsage) => void) => Promise<Partial<AssistantStreamOutcome>>;
 /** Sources d'outils factices : la route les transmet telles quelles, sans les appeler elle-même. */
 const TOOL_SOURCE = { catalogue: async () => { throw new Error("jamais appelé par la route"); }, status: () => { throw new Error("jamais appelé par la route"); } };
 
@@ -330,11 +331,17 @@ function fixture(options: { reply?: Reply; cap?: number; perClient?: number } = 
     "@/lib/http/rate-limit": rate,
     "@/lib/assistant/claude": {
       assistantErrorMessage: () => "Assistant indisponible pour le moment",
-      streamAssistantReply: async (request: { messages: AssistantTurn[]; page: string | null }, onText: (text: string) => void, signal?: AbortSignal, source?: unknown) => {
+      streamAssistantReply: async (
+        request: { messages: AssistantTurn[]; page: string | null },
+        onText: (text: string) => void,
+        signal?: AbortSignal,
+        source?: unknown,
+        onUsage?: (total: AssistantTokenUsage) => void,
+      ) => {
         assert.deepEqual(source, TOOL_SOURCE, "les outils publics sont transmis au modèle");
         calls.push({ messages: request.messages, page: request.page });
         const reply: Reply = options.reply ?? (async (emit) => { emit("Hi"); return { text: "Hi" }; });
-        const partial = await reply(onText, signal);
+        const partial = await reply(onText, signal, onUsage);
         return { stopReason: "end_turn", text: "", inputTokens: 10, outputTokens: 2, cacheReadTokens: 9, cacheWriteTokens: 0, toolRounds: 0, ...partial };
       },
     },
@@ -453,6 +460,12 @@ test("POST /api/assistant/chat : refus et panne du modèle deviennent des évén
     assert.equal(response.status, 200);
     assert.deepEqual(await readSse(response), [{ type: "error", message: "Assistant indisponible pour le moment" }]);
     assert.equal(failed.recorded.length, 0, "aucun usage connu après une panne");
+    // Panne après des tours déjà payés : le total courant est inscrit au budget quand même.
+    const spent = { inputTokens: 800, outputTokens: 35, cacheReadTokens: 5_000, cacheWriteTokens: 0 };
+    const late = fixture({ reply: async (emit, _signal, onUsage) => { emit("Let me check."); onUsage?.(spent); throw new Error("boom"); } });
+    const lateEvents = await readSse(await late.post(QUESTION));
+    assert.deepEqual(lateEvents.at(-1), { type: "error", message: "Assistant indisponible pour le moment" });
+    assert.deepEqual(late.recorded, [spent]);
   });
 });
 

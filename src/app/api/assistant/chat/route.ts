@@ -12,6 +12,7 @@ import {
   assistantDailyPerClient,
   assistantEnabled,
   assistantSecret,
+  type AssistantTokenUsage,
 } from "@/lib/assistant/config";
 import { recordAssistantUsage, reserveAssistantClient, reserveAssistantRequest } from "@/lib/assistant/daily-cap";
 import { pruneUnsignedHistory, signAssistantTurn, verifyAssistantTurn } from "@/lib/assistant/signature";
@@ -36,6 +37,10 @@ const SESSION_PATTERN = /^[0-9a-f]{32}$/;
 const clientLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 10, maxGlobal: 300 });
 
 const encoder = new TextEncoder();
+
+function hasTokens(usage: AssistantTokenUsage): boolean {
+  return usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens > 0;
+}
 
 function sseLine(event: AssistantEvent): Uint8Array {
   return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
@@ -87,12 +92,29 @@ export async function POST(req: Request) {
             closed = true;
           }
         };
+        // Total courant des jetons de la question, tenu tour par tour : inscrit au budget du jour
+        // même si un tour suivant échoue ou si le navigateur part (jetons facturés quand même).
+        let usage: AssistantTokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+        let recorded = false;
+        const record = async () => {
+          recorded = true;
+          if (!hasTokens(usage)) return 0;
+          return recordAssistantUsage(prisma.assistantUsage, day, usage).catch(() => -1);
+        };
         try {
-          const outcome = await streamAssistantReply({ messages, page: request.page }, (text) => send({ type: "text", text }), upstream.signal, assistantToolSource());
+          const outcome = await streamAssistantReply(
+            { messages, page: request.page },
+            (text) => send({ type: "text", text }),
+            upstream.signal,
+            assistantToolSource(),
+            (total) => {
+              usage = total;
+            },
+          );
+          usage = outcome;
           if (outcome.stopReason === "refusal") send({ type: "refusal" });
           else send({ type: "done", stopReason: outcome.stopReason, signature: signAssistantTurn(secret, conversation, outcome.text) });
-          // Les jetons sont facturés même si le navigateur est parti entre-temps : au budget du jour.
-          const spent = await recordAssistantUsage(prisma.assistantUsage, day, outcome).catch(() => -1);
+          const spent = await record();
           console.log(
             `[assistant] turns=${turns} tool_rounds=${outcome.toolRounds} stop=${outcome.stopReason ?? "none"} in=${outcome.inputTokens} out=${outcome.outputTokens} `
             + `cache_read=${outcome.cacheReadTokens} cache_write=${outcome.cacheWriteTokens} micro_usd=${spent} ms=${Date.now() - startedAt}`,
@@ -106,6 +128,7 @@ export async function POST(req: Request) {
             send({ type: "error", message: assistantErrorMessage(error) });
           }
         } finally {
+          if (!recorded) await record();
           req.signal?.removeEventListener("abort", abortUpstream);
           if (!closed) {
             closed = true;

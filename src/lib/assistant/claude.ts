@@ -75,8 +75,23 @@ export function assistantErrorMessage(error: unknown): string {
   return "Assistant indisponible pour le moment";
 }
 
+function tokenUsage(usage: Anthropic.Beta.BetaUsage): AssistantTokenUsage {
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+  };
+}
+
 /** Un appel au modèle en flux ; le texte part au fil de l'eau, le message final donne outils et usage. */
-async function callModel(messages: LoopMessage[], toolsAllowed: boolean, emit: (text: string) => void, signal?: AbortSignal): Promise<LoopRound> {
+async function callModel(
+  messages: LoopMessage[],
+  toolsAllowed: boolean,
+  emit: (text: string) => void,
+  reportPartialUsage: (usage: AssistantTokenUsage) => void,
+  signal?: AbortSignal,
+): Promise<LoopRound> {
   const stream = getClient().beta.messages.stream(
     {
       model: ASSISTANT_MODEL,
@@ -96,19 +111,21 @@ async function callModel(messages: LoopMessage[], toolsAllowed: boolean, emit: (
     text += delta;
     emit(delta);
   });
-  const message = await stream.finalMessage();
-  const usage = message.usage;
+  let message: Anthropic.Beta.BetaMessage;
+  try {
+    message = await stream.finalMessage();
+  } catch (error) {
+    // Tour interrompu (annulation, coupure) : les jetons déjà comptés restent dus au budget.
+    const snapshot = stream.currentMessage?.usage;
+    if (snapshot) reportPartialUsage(tokenUsage(snapshot));
+    throw error;
+  }
   return {
     stopReason: message.stop_reason,
     text,
     content: message.content,
     toolUses: message.content.flatMap((block) => (block.type === "tool_use" ? [{ id: block.id, name: block.name, input: block.input }] : [])),
-    usage: {
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-      cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
-    },
+    usage: tokenUsage(message.usage),
   };
 }
 
@@ -116,18 +133,21 @@ async function callModel(messages: LoopMessage[], toolsAllowed: boolean, emit: (
  * Lance la génération et transmet chaque fragment de texte à `onText`. Les outils (`source`)
  * sont exécutés côté serveur dans la boucle bornée. Retourne le motif d'arrêt, le texte complet
  * et les jetons consommés par tous les tours (à inscrire au budget du jour). Lève l'erreur du
- * SDK, ou l'erreur d'annulation si `signal` est déclenché.
+ * SDK, ou l'erreur d'annulation si `signal` est déclenché ; `onUsage` reçoit alors quand même
+ * le total des jetons déjà consommés.
  */
 export async function streamAssistantReply(
   request: AssistantChatRequest,
   onText: (text: string) => void,
   signal?: AbortSignal,
   source: AssistantToolSource | null = null,
+  onUsage?: (total: AssistantTokenUsage) => void,
 ): Promise<AssistantStreamOutcome> {
   return runAssistantLoop({
     messages: buildAssistantMessages(request),
-    call: (messages, toolsAllowed, emit) => callModel(messages, toolsAllowed, emit, signal),
+    call: (messages, toolsAllowed, emit, reportPartialUsage) => callModel(messages, toolsAllowed, emit, reportPartialUsage, signal),
     source,
     onText,
+    onUsage,
   });
 }

@@ -23,6 +23,8 @@ export const ASSISTANT_MAX_TOOL_ROUNDS = 3;
 export const ASSISTANT_TOOL_MAX_ITEMS = 20;
 /** Longueur maximale d'un terme de recherche transmis au catalogue. */
 const MAX_SEARCH_CHARS = 100;
+/** Longueur maximale d'un nom de dataset renvoyé au modèle : le nom est choisi par le fournisseur. */
+export const ASSISTANT_TOOL_MAX_NAME_CHARS = 80;
 
 export const ASSISTANT_TOOL_NAMES = ["list_marketplace_datasets", "get_protocol_status"] as const;
 export type AssistantToolName = (typeof ASSISTANT_TOOL_NAMES)[number];
@@ -57,8 +59,9 @@ export const ASSISTANT_TOOLS: readonly AssistantToolDefinition[] = Object.freeze
           description: "Restrict to one category, or null for all categories.",
         },
         search: {
-          anyOf: [{ type: "string", maxLength: 100 }, { type: "null" }],
-          description: "Words to search in dataset names and descriptions, or null.",
+          // Pas de `maxLength` : contrainte refusée par les schémas stricts ; `validateToolInput` tronque.
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description: "A few words (at most 100 characters) to search in dataset names and descriptions, or null.",
         },
       },
       required: ["category", "search"],
@@ -163,7 +166,7 @@ export function summarizeCatalogue(response: CatalogueResponse): { total: number
     datasets: items.map((item) => {
       const model = modelSelection(item.modelId, item.modelVersion);
       return {
-        name: item.name,
+        name: item.name.length > ASSISTANT_TOOL_MAX_NAME_CHARS ? `${item.name.slice(0, ASSISTANT_TOOL_MAX_NAME_CHARS - 1)}…` : item.name,
         path: `/marketplace/${encodeURIComponent(item.id)}`,
         category: item.category,
         trainingProfile: model ? MODEL_REGISTRY[model.modelId].label : null,
