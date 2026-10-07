@@ -22,10 +22,29 @@ test("une première lecture « en attente » ouvre l'attente, relit à l'instant
   const decision = observeLockFinality(initialLockFinalityTracking(), pending(), NOW);
   assert.equal(decision.action, "recheck");
   assert.equal(decision.recheckInMs, 60_000);
-  assert.deepEqual(decision.next, { phase: "pending", remainingMs: 14 * MIN, observedAt: NOW, waitingSince: NOW, failures: 0, autoStarted: false });
+  assert.deepEqual(decision.next, { phase: "pending", remainingMs: 14 * MIN, observedAt: NOW, waitingSince: NOW, failures: 0, autoStarted: false, tier: "FULL" });
   assert.equal(lockFinalityLocalReadyAt(decision.next), NOW + 14 * MIN);
   // Sans estimation : relecture au plus tôt.
   assert.equal(observeLockFinality(initialLockFinalityTracking(), pending(null), NOW).recheckInMs, 20_000);
+});
+
+test("palier rapide annoncé par le serveur : compte en secondes, relecture courte, palier conservé sur erreur et à la fin", () => {
+  const fast = observeLockFinality(initialLockFinalityTracking(), { kind: "ok", pending: true, remainingMs: 7_000, tier: "FAST" }, NOW);
+  assert.equal(fast.action, "recheck");
+  assert.equal(fast.recheckInMs, 7_000, "entre 5 s et 20 s, à l'instant estimé");
+  assert.equal(fast.next.tier, "FAST");
+  assert.equal(observeLockFinality(initialLockFinalityTracking(), { kind: "ok", pending: true, remainingMs: 0, tier: "FAST" }, NOW).recheckInMs, 5_000);
+  // Une erreur ne change pas le palier ; une lecture sans palier le conserve aussi.
+  assert.equal(observeLockFinality(fast.next, failure, NOW + 5_000).next.tier, "FAST");
+  assert.equal(observeLockFinality(fast.next, pending(3_000), NOW + 5_000).next.tier, "FAST");
+  assert.equal(observeLockFinality(fast.next, pending(3_000), NOW + 5_000).recheckInMs, 5_000);
+  // Le serveur peut rétrograder (plafond atteint entre deux lectures) : l'affichage repasse en minutes.
+  const downgraded = observeLockFinality(fast.next, { kind: "ok", pending: true, remainingMs: 14 * MIN, tier: "FULL" }, NOW + 10_000);
+  assert.equal(downgraded.next.tier, "FULL");
+  assert.equal(downgraded.recheckInMs, 60_000);
+  const done = observeLockFinality(fast.next, { kind: "ok", pending: false, tier: "FAST" }, NOW + 8_000);
+  assert.equal(done.action, "auto-run");
+  assert.equal(done.next.tier, "FAST");
 });
 
 test("seule une réponse 200 pending:false après une attente observée lance le job, une seule fois", () => {

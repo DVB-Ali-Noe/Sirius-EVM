@@ -4,7 +4,7 @@ import { settlePreparedLoan } from "@/lib/sirius/settle";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
 import { errorResponse } from "@/lib/errors";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
-import { SETTLEMENT_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST } from "@/lib/loans/settlement-status";
 import { readJson } from "@/lib/http/body";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
@@ -29,14 +29,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Autorisation manquante" }, { status: 400 });
     }
     await assertAuthenticGrant(session, authorization);
-    const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true } });
+    const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true, finalityTier: true } });
     if (!loan) return NextResponse.json({ error: "Loan introuvable" }, { status: 404 });
     assertOwner(session, loan.borrower);
-    return NextResponse.json(await settlePreparedLoan(id, authorization));
-  } catch (err) {
-    if (err instanceof RunnerFinalityPending) {
-      return NextResponse.json({ pending: true, settleTxHash: err.transactionHash, error: SETTLEMENT_FINALITY_PENDING }, { status: 202 });
+    try {
+      return NextResponse.json(await settlePreparedLoan(id, authorization));
+    } catch (err) {
+      if (err instanceof RunnerFinalityPending) {
+        // L'attente annoncée suit le palier du prêt : secondes en rapide, un quart d'heure sinon.
+        const error = loan.finalityTier === "FAST" ? SETTLEMENT_FINALITY_PENDING_FAST : SETTLEMENT_FINALITY_PENDING;
+        return NextResponse.json({ pending: true, settleTxHash: err.transactionHash, error }, { status: 202 });
+      }
+      throw err;
     }
+  } catch (err) {
     return errorResponse(err);
   }
 }

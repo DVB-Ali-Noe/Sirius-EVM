@@ -28,15 +28,22 @@ function load<T>(file: string, dependencies: Record<string, unknown>): T {
 
 type Route = typeof import("../../app/api/loans/[id]/finality/route");
 
-function fixture(loans: Record<string, { borrower: string; status: string; evmLockBlock: string | null }>) {
+type LoanRow = { borrower: string; status: string; evmLockBlock: string | null; amountUsdcAtomic?: string; finalityTier?: "FULL" | "FAST" };
+
+function fixture(loans: Record<string, LoanRow>, tier: "FULL" | "FAST" = "FULL") {
   const session = { current: null as { address: string } | null };
   const rpc: string[] = [];
+  const tiers: string[] = [];
   let estimate = { pending: true, remainingMs: 14 * 60_000, estimatedReadyAt: Date.UTC(2026, 9, 7, 10, 14) };
   const route = load<Route>(ROUTE, {
     "next/server": { NextResponse },
-    "@/lib/db": { prisma: { loan: { findUnique: async ({ where }: { where: { id: string } }) => loans[where.id] ?? null } } },
+    "@/lib/db": { prisma: { loan: { findUnique: async ({ where }: { where: { id: string } }) => loans[where.id] ? { id: where.id, amountUsdcAtomic: "1", finalityTier: "FULL", ...loans[where.id] } : null } } },
     "@/lib/evm/client": { getPublicClient: () => ({}) },
-    "@/lib/evm/finality": { lockFinalityStatus: async (_client: unknown, lockBlock: bigint) => { rpc.push(lockBlock.toString()); return estimate; } },
+    "@/lib/evm/finality": {
+      lockFinalityStatus: async (_client: unknown, lockBlock: bigint) => { rpc.push(`full:${lockBlock}`); return estimate; },
+      fastLockFinalityStatus: async (_client: unknown, lockBlock: bigint) => { rpc.push(`fast:${lockBlock}`); return estimate; },
+    },
+    "@/lib/sirius/finality-tier": { prospectiveLoanFinalityTier: async (loan: { id: string; finalityTier: string }) => { tiers.push(`${loan.id}:${loan.finalityTier}`); return tier; } },
     "@/lib/auth/require-auth": {
       requireAuth: () => { if (!session.current) throw new AppError("Authentification requise", 401); return session.current; },
       assertOwner: (current: { address: string }, owner: string) => {
@@ -48,7 +55,7 @@ function fixture(loans: Record<string, { borrower: string; status: string; evmLo
   });
   const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
   const get = (id: string) => route.GET(new Request(`https://test.invalid/api/loans/${id}/finality`), ctx(id));
-  return { session, rpc, get, setEstimate: (next: typeof estimate) => { estimate = next; } };
+  return { session, rpc, tiers, get, setEstimate: (next: typeof estimate) => { estimate = next; } };
 }
 
 test("GET /api/loans/[id]/finality : 401 sans session, 403 pour un autre wallet, 404 prêt inconnu, sans lecture RPC", async () => {
@@ -75,13 +82,24 @@ test("GET /api/loans/[id]/finality : l'emprunteur lit l'attente en millisecondes
   const waiting = await get("waiting");
   assert.equal(waiting.status, 200);
   assert.equal(waiting.headers.get("cache-control"), "private, no-store");
-  assert.deepEqual(await waiting.json(), { pending: true, remainingMs: 14 * 60_000, estimatedReadyAt: "2026-10-07T10:14:00.000Z" });
+  assert.deepEqual(await waiting.json(), { pending: true, remainingMs: 14 * 60_000, estimatedReadyAt: "2026-10-07T10:14:00.000Z", tier: "FULL" });
   setEstimate({ pending: false, remainingMs: 0, estimatedReadyAt: 0 });
-  assert.deepEqual(await (await get("waiting")).json(), { pending: false, remainingMs: null, estimatedReadyAt: null });
-  assert.deepEqual(rpc, ["9000", "9000"]);
+  assert.deepEqual(await (await get("waiting")).json(), { pending: false, remainingMs: null, estimatedReadyAt: null, tier: "FULL" });
+  assert.deepEqual(rpc, ["full:9000", "full:9000"]);
   assert.deepEqual(await (await get("training")).json(), { pending: false, remainingMs: null, estimatedReadyAt: null });
   assert.deepEqual(await (await get("unlocked")).json(), { pending: false, remainingMs: null, estimatedReadyAt: null });
-  assert.deepEqual(rpc, ["9000", "9000"], "seul un prêt ESCROWED avec bloc de lock lit la chaîne");
+  assert.deepEqual(rpc, ["full:9000", "full:9000"], "seul un prêt ESCROWED avec bloc de lock lit la chaîne");
+});
+
+test("GET /api/loans/[id]/finality : au palier rapide, l'estimation se lit sur la tête et la réponse annonce le palier", async () => {
+  const { session, rpc, tiers, get, setEstimate } = fixture({ small: { borrower: OWNER, status: "ESCROWED", evmLockBlock: "9000", amountUsdcAtomic: "5000000" } }, "FAST");
+  session.current = { address: OWNER };
+  setEstimate({ pending: true, remainingMs: 5_000, estimatedReadyAt: Date.UTC(2026, 9, 7, 10, 0, 5) });
+  assert.deepEqual(await (await get("small")).json(), { pending: true, remainingMs: 5_000, estimatedReadyAt: "2026-10-07T10:00:05.000Z", tier: "FAST" });
+  setEstimate({ pending: false, remainingMs: 0, estimatedReadyAt: 0 });
+  assert.deepEqual(await (await get("small")).json(), { pending: false, remainingMs: null, estimatedReadyAt: null, tier: "FAST" });
+  assert.deepEqual(rpc, ["fast:9000", "fast:9000"], "jamais le bloc finalisé pour un prêt rapide");
+  assert.deepEqual(tiers, ["small:FULL", "small:FULL"], "palier prospectif calculé depuis la ligne, sans écriture");
 });
 
 test("GET /api/loans/[id]/finality : trente lectures par minute et par compte", async () => {

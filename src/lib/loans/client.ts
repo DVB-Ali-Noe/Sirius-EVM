@@ -163,7 +163,8 @@ async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> 
     body: JSON.stringify({ authorization }),
   });
   const body = await response.json() as { error?: string; pending?: boolean };
-  if (response.status === 202 && body.pending) throw new Error(SETTLEMENT_FINALITY_PENDING);
+  // Le serveur annonce l'attente selon le palier du prêt (secondes ou quart d'heure) ; sans message, l'attente longue.
+  if (response.status === 202 && body.pending) throw new Error(typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING);
   if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");
 }
 

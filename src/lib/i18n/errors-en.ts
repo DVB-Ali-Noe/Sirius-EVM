@@ -516,6 +516,12 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Transaction envoyée, en attente de finalité du réseau": "Transaction sent, waiting for network finality",
   "Paiement en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes": "Payment waiting for network finality: training can start in a few minutes",
   "Règlement envoyé : le réseau le confirme en général sous 15 à 30 minutes. Reviens ensuite pour récupérer ton modèle.": "Settlement sent: the network usually confirms it within 15 to 30 minutes. Come back then to collect your model.",
+  // Finalité rapide (src/lib/evm/fast-finality.ts)
+  "Règlement envoyé : le réseau le confirme en général sous une minute. Reviens ensuite pour récupérer ton modèle.": "Settlement sent: the network usually confirms it within a minute. Come back then to collect your model.",
+  "Finalité rapide désactivée pour ce rôle": "Fast finality is disabled for this role",
+  "Finalité rapide refusée par l’enclave pour ce prêt": "The enclave refused fast finality for this loan",
+  "Montant on-chain du prêt différent du montant enregistré": "On-chain loan amount differs from the recorded amount",
+  "Règlement en cours de revue : livraison suspendue": "Settlement under review: delivery suspended",
   "Transaction runner à remplacer invalide": "Invalid runner transaction to replace",
   "Ferme la session avant de reprendre les opérations orphelines": "Close the session before recovering orphaned operations",
   "Reprise réservée à la démonstration sponsorisée": "Recovery is limited to the sponsored demo",

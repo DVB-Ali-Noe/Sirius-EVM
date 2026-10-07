@@ -23,6 +23,15 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
     "If this page stays open, training starts automatically once finality is reached. Otherwise, come back and run the job: no need to borrow again.",
   "Le réseau met plus de temps que prévu à finaliser ton paiement. Reviens plus tard lancer le job : ton paiement est en sécurité dans l’escrow.":
     "The network is taking longer than expected to finalize your payment. Come back later to run the job: your payment is safe in escrow.",
+  // Palier rapide (petits prêts, src/lib/evm/fast-finality.ts) : l'attente se compte en secondes
+  "Confirmation du paiement : ~{seconds} s": "Payment confirmation: ~{seconds} s",
+  "Confirmation imminente…": "Confirmation imminent…",
+  "L’entraînement pourra démarrer dans ~{seconds} s — ton paiement est en sécurité dans l’escrow.":
+    "Training can start in ~{seconds} s — your payment is safe in escrow.",
+  "Le réseau confirme ton paiement : l’entraînement pourra démarrer d’une seconde à l’autre. Ton paiement est en sécurité dans l’escrow.":
+    "The network is confirming your payment: training can start any second now. Your payment is safe in escrow.",
+  "Si cette page reste ouverte, l’entraînement démarre automatiquement dès la confirmation. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.":
+    "If this page stays open, training starts automatically once confirmed. Otherwise, come back and run the job: no need to borrow again.",
 
   // Confirmation avant un second emprunt du même dataset (marketplace et ré-entraînement)
   "Emprunt déjà en cours": "Loan already in progress",
