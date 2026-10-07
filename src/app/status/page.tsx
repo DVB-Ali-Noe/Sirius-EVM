@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { resolveServerNetwork } from "@/lib/evm/networks";
-import { MAINNET_STABLECOIN_NAME, stablecoinSymbol } from "@/lib/evm/stablecoin";
+import { MAINNET_STABLECOIN_NAME } from "@/lib/evm/stablecoin";
 import { addressExplorerUrl } from "@/lib/evm/explorer";
+import { readProtocolStatus } from "@/lib/sirius/protocol-status";
 import { LegalLinks } from "@/components/layout/LegalLinks";
 
 /**
@@ -10,8 +10,9 @@ import { LegalLinks } from "@/components/layout/LegalLinks";
  *
  * Ce que Sirius promet doit pouvoir être comparé à ce qui tourne réellement : réseau,
  * contrats, mode de calcul, plafonds et statut de l'audit. La page lit la configuration du
- * serveur à chaque requête ; elle n'affiche que des données publiques (adresses, plafonds),
- * jamais une valeur secrète. Textes en anglais, comme les autres pages serveur publiques.
+ * serveur à chaque requête (`readProtocolStatus`, partagé avec l'outil de l'assistant) ; elle
+ * n'affiche que des données publiques (adresses, plafonds), jamais une valeur secrète. Textes
+ * en anglais, comme les autres pages serveur publiques.
  */
 
 export const runtime = "nodejs";
@@ -34,19 +35,8 @@ function Row({ label, value, href, mono = false }: { label: string; value: strin
 }
 
 export default function StatusPage() {
-  const { network, chain } = resolveServerNetwork();
-  const mainnet = network === "mainnet";
   // « USDG » sur mainnet, « test USDC » sur testnet : la page est en anglais, sans t().
-  const symbol = stablecoinSymbol(network);
-  const enclave = process.env.TEE_MODE === "phala" && process.env.SIRIUS_REQUIRE_PHALA === "true" && Boolean(process.env.SIRIUS_EXPECTED_MRTD);
-  const contracts = [
-    ["Escrow", process.env.SIRIUS_ESCROW_ADDRESS],
-    ["Dataset registry", process.env.SIRIUS_DATASET_ADDRESS],
-    ["KYB registry", process.env.SIRIUS_KYB_ADDRESS],
-    [symbol, process.env.SIRIUS_USDC_ADDRESS],
-  ] as const;
-  const maxLoan = process.env.SIRIUS_MAX_LOAN_USDC?.trim();
-  const maxExposure = process.env.SIRIUS_MAX_EXPOSURE_USDC?.trim();
+  const { network, chain, mainnet, symbol, confidentialCompute, settlement, externalAudit, limits, contracts } = readProtocolStatus();
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
@@ -60,19 +50,17 @@ export default function StatusPage() {
 
       <dl className="mt-8 rounded-xl border border-border bg-surface px-5 py-1">
         <Row label="Network" value={`${chain.name} (chain ${chain.id})`} />
-        <Row label="Confidential compute" value={enclave
-          ? "Hardware enclave (Intel TDX), attested on every request against pinned measurements"
-          : "Demonstration mode: training is not yet isolated in an enclave on this instance"} />
-        <Row label="Settlement" value="On-chain escrow: the provider is paid when training completes; the borrower is refunded after the deadline otherwise" />
-        <Row label="External audit" value="Not yet audited. Internal review completed on 1 October 2026." />
-        {mainnet && <Row label="Per-loan limit" value={maxLoan ? `${maxLoan} ${symbol}` : "Not configured"} />}
-        {mainnet && <Row label="Total exposure limit" value={maxExposure ? `${maxExposure} ${symbol} locked across all loans` : "Not configured"} />}
+        <Row label="Confidential compute" value={confidentialCompute} />
+        <Row label="Settlement" value={settlement} />
+        <Row label="External audit" value={externalAudit} />
+        {mainnet && <Row label="Per-loan limit" value={limits.perLoan ?? "Not configured"} />}
+        {mainnet && <Row label="Total exposure limit" value={limits.totalExposure ?? "Not configured"} />}
         {mainnet && <Row label="Access" value="Open, with instant on-chain wallet verification" />}
       </dl>
 
       <h2 className="mt-10 text-lg font-semibold">Contracts</h2>
       <dl className="mt-3 rounded-xl border border-border bg-surface px-5 py-1">
-        {contracts.map(([label, address]) => address
+        {contracts.map(({ label, address }) => address
           ? <Row key={label} label={label} value={address} href={addressExplorerUrl(network, address)} mono />
           : <Row key={label} label={label} value="Not configured" />)}
       </dl>
