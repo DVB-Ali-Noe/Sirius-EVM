@@ -8,7 +8,7 @@ import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
 import { fetchGasBalance } from "@/lib/evm/balance";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { acceptInstantAccess, acceptKybCredential, type KybRole } from "@/lib/kyb/client";
-import { VERIFICATION_INTRO } from "@/lib/onboarding/copy";
+import { verificationIntro } from "@/lib/onboarding/copy";
 import { verificationMode } from "@/lib/onboarding/steps";
 import { addFunds } from "@/lib/wallet/onramp";
 import { closeVerification, markVerified, useOnboardingStore, type VerificationReason } from "./onboarding-store";
@@ -22,9 +22,6 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => element.getClientRects().length > 0);
 }
 
-/** Phrase d'introduction selon l'action qui a ouvert la fenêtre. Clés de traduction. */
-const INTRO: Record<VerificationReason, string> = VERIFICATION_INTRO;
-
 type Gas = { status: "loading" } | { status: "ready"; wei: string | null };
 
 /**
@@ -36,7 +33,13 @@ type Gas = { status: "loading" } | { status: "ready"; wei: string | null };
  * ferme, le focus revient à l'élément d'origine. Pas de fermeture au clic sur le fond pendant
  * une transaction : une confirmation en attente dans le wallet ne doit pas perdre sa fenêtre.
  */
-export function VerificationDialog({ reason, role, address }: { reason: VerificationReason; role: KybRole; address: string }) {
+export function VerificationDialog({ requestId, reason, role, address }: {
+  /** Ouverture servie par cette fenêtre (`dialog.id` du store). */
+  requestId: number;
+  reason: VerificationReason;
+  role: KybRole;
+  address: string;
+}) {
   const { t } = useLocale();
   const instantAccess = useOnboardingStore((s) => s.instantAccess);
   const [gas, setGas] = useState<Gas>({ status: "loading" });
@@ -54,12 +57,28 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
 
   const close = useCallback((ok: boolean) => {
     if (busyRef.current) return;
-    closeVerification(ok);
+    closeVerification(ok, requestId);
+  }, [requestId]);
+
+  // Opération en cours (transaction, formulaire d'invitation, faucet) : Échap et « Plus tard »
+  // sont sans effet tant qu'elle n'a pas abouti. Le ref est posé tout de suite, sans attendre
+  // le rendu, pour qu'aucun second clic ne passe entre-temps.
+  const setWorking = useCallback((value: boolean) => {
+    busyRef.current = value;
+    setBusy(value);
   }, []);
 
+  // Élément qui avait le focus à l'ouverture (bouton Emprunter, Publier, carte…), capté une
+  // seule fois : le passage par la fenêtre d'ajout de fonds ne doit pas le remplacer par `body`.
+  // Déclaré avant le piège pour être lu avant que le titre ne prenne le focus.
   useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
+    const trigger = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : null;
+    return () => {
+      if (trigger?.isConnected) trigger.focus();
+    };
+  }, []);
 
   // Solde de gas relu à l'ouverture et après un ajout de fonds.
   useEffect(() => {
@@ -75,11 +94,11 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
     };
   }, [address, gasAttempt]);
 
-  // Ouverture : mémorise le focus, le place sur le titre, piège Tab, Échap ferme. Mis en
-  // veille pendant que la fenêtre d'ajout de fonds (qui a son propre piège) est ouverte.
+  // Focus sur le titre, piège Tab, Échap ferme. Mis en veille pendant que la fenêtre d'ajout
+  // de fonds (qui a son propre piège) est ouverte ; le retour du focus au déclencheur est
+  // porté par l'effet précédent, à la fermeture définitive seulement.
   useEffect(() => {
     if (funding) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     headingRef.current?.focus();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -122,15 +141,16 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
     };
   }, [funding, close]);
 
   function succeed() {
     markVerified();
+    // Fenêtre déjà fermée ou remplacée (fin tardive) : le statut est à jour, rien d'autre.
+    if (useOnboardingStore.getState().dialog?.id !== requestId) return;
     // Action d'origine (Emprunter, Publier) : elle reprend aussitôt, sans étape de plus.
     if (reason === "borrow" || reason === "publish") {
-      closeVerification(true);
+      closeVerification(true, requestId);
       return;
     }
     setVerified(true);
@@ -143,23 +163,22 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
    */
   async function runInstantAccess(sponsored = false) {
     if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
+    setWorking(true);
     setError(null);
     try {
       if (sponsored) await acceptKybCredential(role);
       else await acceptInstantAccess(role);
-      busyRef.current = false;
+      setWorking(false);
       succeed();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Accès instantané refusé");
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      setWorking(false);
     }
   }
 
   async function addGas() {
+    if (busyRef.current) return;
     setFundsMessage(null);
     // Mainnet : la fenêtre d'ajout de fonds existante (carte, autre wallet, pont).
     if (NETWORK === "mainnet") {
@@ -167,14 +186,14 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
       return;
     }
     // Testnet : le faucet envoie aussi un peu d'ETH de test.
-    setBusy(true);
+    setWorking(true);
     try {
       await addFunds();
       setGasAttempt((value) => value + 1);
     } catch (err) {
       setFundsMessage(err instanceof Error ? err.message : "Ajout de fonds indisponible");
     } finally {
-      setBusy(false);
+      setWorking(false);
     }
   }
 
@@ -225,7 +244,7 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                onClick={() => closeVerification(true)}
+                onClick={() => closeVerification(true, requestId)}
                 className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 {t("Continuer")}
@@ -235,7 +254,7 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
         ) : (
           <>
             <div id={descriptionId} className="mt-3 space-y-2 text-sm leading-relaxed text-muted">
-              <p>{t(INTRO[reason])}</p>
+              <p>{t(verificationIntro(reason, NETWORK))}</p>
               {mode === "instant" && (
                 <p>{t("Sirius signe une attestation de 30 jours pour ce wallet ; tu la confirmes dans ton wallet. La transaction coûte un peu d’ETH de gas.")}</p>
               )}
@@ -252,7 +271,7 @@ export function VerificationDialog({ reason, role, address }: { reason: Verifica
 
             {mode === "invitation" && (
               <div className="mt-4 space-y-3">
-                <KybInviteForm role={role} onAccepted={succeed} />
+                <KybInviteForm role={role} onAccepted={succeed} onBusyChange={setWorking} />
                 <p className="text-xs text-muted">
                   {t("Pas d’invitation ? Écris-nous :")}{" "}
                   <a href={`mailto:${KYB_CONTACT_EMAIL}`} className="font-medium text-accent underline-offset-2 hover:underline">{KYB_CONTACT_EMAIL}</a>

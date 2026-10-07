@@ -11,6 +11,7 @@ import { messageOf } from "@/lib/errors-client";
 import { addressesEqual } from "@/lib/evm/address";
 import { borrowDataset } from "@/lib/loans/client";
 import { modelSelection } from "@/lib/models/registry";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { useWalletStore } from "@/stores/wallet";
 
 /** Statuts pendant lesquels des fonds sont déjà engagés sur ce dataset (repris de l'ancienne grille). */
@@ -62,6 +63,7 @@ export function BorrowPanel({
   const authenticated = useWalletStore((s) => s.authenticated);
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const [busy, setBusy] = useState(false);
+  const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
   // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
   // changement de wallet ou une déconnexion, rien du compte précédent ne reste affiché.
@@ -144,7 +146,13 @@ export function BorrowPanel({
     }
   }
 
+  // Un seul emprunt en vol : la garde KYB lit le réseau avant `setBusy`, et un double clic
+  // préparerait sinon deux réservations.
   async function borrow() {
+    await borrowGuard.run(borrowOnce);
+  }
+
+  async function borrowOnce() {
     setError(null);
     if (!useWalletStore.getState().authenticated) {
       await signIn();

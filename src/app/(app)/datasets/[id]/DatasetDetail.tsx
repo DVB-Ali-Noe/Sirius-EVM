@@ -12,6 +12,7 @@ import { BackLink, Page, PageHeader } from "@/components/layout/Page";
 import { CardTitle } from "@/components/ui/Heading";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { ensureVerifiedFor } from "@/components/onboarding/onboarding-store";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { formatCount } from "@/lib/copy/numbers";
 import { messageOf } from "@/lib/errors-client";
 import { formatBytes, truncate } from "@/lib/format";
@@ -84,6 +85,8 @@ function DetailContent({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  // Une seule publication en vol : la garde KYB lit le réseau avant que `run` ne pose `busy`.
+  const [publishGuard] = useState(createInFlightGuard);
   const request = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -249,8 +252,8 @@ function DetailContent({ id }: { id: string }) {
             modelValid={Boolean(model)}
             pending={busy === "publish"}
             disabled={busy !== null}
-            onPublish={() => void ensureVerifiedFor("publish").then(async (ok) => {
-              if (ok) await run("publish", () => publishDataset(view.id));
+            onPublish={() => void publishGuard.run(async () => {
+              if (await ensureVerifiedFor("publish")) await run("publish", () => publishDataset(view.id));
             })}
             className="mt-3"
           />

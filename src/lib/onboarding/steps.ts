@@ -190,15 +190,33 @@ export function shouldPromptVerification(input: {
   );
 }
 
-/** Phase d'un prêt actif pour l'indicateur global. */
-export type ActiveLoanPhase = "payment" | "training" | "settling" | "attention";
+/**
+ * Phase d'un prêt actif pour l'indicateur global :
+ *  - `payment` : lock envoyé, pas encore finalisé (SUBMITTING, ou PENDING avec un hash de lock) ;
+ *  - `escrow` : fonds en escrow, l'entraînement est à lancer depuis Train (ESCROWED) ;
+ *  - `training` : entraînement en cours (TRAINING) ;
+ *  - `delivering` : règlement envoyé, modèle en cours de livraison (SETTLING) ;
+ *  - `attention` : échéance dépassée, une action est requise sur Train.
+ */
+export type ActiveLoanPhase = "payment" | "escrow" | "training" | "delivering" | "attention";
 
-const PHASE_ORDER: Record<ActiveLoanPhase, number> = { attention: 3, settling: 2, training: 1, payment: 0 };
+/** Priorité d'affichage : d'abord ce qui demande une action de l'utilisateur. */
+const PHASE_ORDER: Record<ActiveLoanPhase, number> = { attention: 4, escrow: 3, delivering: 2, training: 1, payment: 0 };
+
+/** Phase d'un prêt d'emprunteur, ou `null` s'il n'est pas en cours (devis, réglé, annulé). */
+export function loanPhase(loan: OnboardingLoan): ActiveLoanPhase | null {
+  let phase: ActiveLoanPhase;
+  if (loan.status === "SUBMITTING" || (loan.status === "PENDING" && Boolean(loan.evmLockTxHash))) phase = "payment";
+  else if (loan.status === "ESCROWED") phase = "escrow";
+  else if (loan.status === "TRAINING") phase = "training";
+  else if (loan.status === "SETTLING") phase = "delivering";
+  else return null;
+  return loan.refundable === true ? "attention" : phase;
+}
 
 /**
- * Prêts d'emprunteur en cours (ESCROWED, TRAINING, SETTLING) et la phase à afficher : celle du
- * prêt qui demande le plus d'attention. Un prêt échu (`refundable`) demande une action sur Train.
- * `null` sans prêt actif : l'indicateur ne s'affiche pas.
+ * Prêts d'emprunteur en cours et la phase à afficher : celle du prêt qui demande le plus
+ * d'attention. `null` sans prêt actif : l'indicateur ne s'affiche pas.
  */
 export function activeLoanSummary(
   loans: readonly OnboardingLoan[] | null,
@@ -207,17 +225,40 @@ export function activeLoanSummary(
   let phase: ActiveLoanPhase | null = null;
   let count = 0;
   for (const loan of borrowerLoans(loans, viewer)) {
-    let next: ActiveLoanPhase;
-    if (loan.status === "ESCROWED") next = "payment";
-    else if (loan.status === "TRAINING") next = "training";
-    else if (loan.status === "SETTLING") next = "settling";
-    else continue;
-    if (loan.refundable === true) next = "attention";
+    const next = loanPhase(loan);
+    if (next === null) continue;
     count += 1;
     if (phase === null || PHASE_ORDER[next] > PHASE_ORDER[phase]) phase = next;
   }
   return phase === null ? null : { count, phase };
 }
+
+/**
+ * Verrou synchrone d'une action à un seul exemplaire en vol (Emprunter, Publier). La garde KYB
+ * lit le réseau AVANT que le bouton passe en « occupé » : sans ce verrou, un double clic
+ * lancerait deux préparations (deux réservations, deux devis). Un appel concurrent est ignoré
+ * et résout `false` ; le verrou est relâché quand l'action se termine, même en erreur.
+ */
+export function createInFlightGuard() {
+  let running = false;
+  return {
+    get running() {
+      return running;
+    },
+    async run(action: () => Promise<unknown>): Promise<boolean> {
+      if (running) return false;
+      running = true;
+      try {
+        await action();
+        return true;
+      } finally {
+        running = false;
+      }
+    },
+  };
+}
+
+export type InFlightGuard = ReturnType<typeof createInFlightGuard>;
 
 /**
  * Préférence « carte fermée » lue dans la réponse de `/api/profile`. `null` si la réponse ne

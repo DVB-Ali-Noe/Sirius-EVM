@@ -11,10 +11,14 @@ import {
   type OnboardingLoan,
   type OnboardingStepId,
 } from "@/lib/onboarding/steps";
-import { STEP_COPY } from "@/lib/onboarding/copy";
+import { resolveClientNetwork } from "@/lib/evm/networks";
+import { stepCopy } from "@/lib/onboarding/copy";
 import { dismissChecklist, loadChecklistPreference, requestVerification, useOnboardingStore } from "./onboarding-store";
 
-const PRIMARY = "inline-flex rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50";
+/** Textes des étapes pour le réseau du site (inliné au build) : pas de « mainnet » sur le testnet. */
+const STEP_COPY = stepCopy(resolveClientNetwork());
+
+const PRIMARY ="inline-flex rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50";
 
 interface GetStartedCardProps {
   address: string;

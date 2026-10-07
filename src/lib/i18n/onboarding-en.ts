@@ -13,6 +13,9 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "fait": "done",
   "Vérifie ton wallet": "Verify your wallet",
   "Obligatoire pour prêter et emprunter sur mainnet. Une seule transaction à confirmer.": "Required to lend and borrow on mainnet. One transaction to confirm.",
+  "Obligatoire pour prêter et emprunter. Une seule transaction à confirmer.": "Required to lend and borrow. One transaction to confirm.",
+  "Avant de prêter ou d’emprunter un dataset, ton wallet doit être vérifié (KYB). Ça prend une seule transaction.":
+    "Before you lend or borrow a dataset, your wallet must be verified (KYB). It takes a single transaction.",
   "Ajoute de l’ETH et des {token}": "Add ETH and {token}",
   "L’ETH paie le gas de chaque transaction ; les {token} paient l’emprunt.": "ETH pays the gas for each transaction; {token} pays for the loan.",
   "Choisis un dataset": "Pick a dataset",
@@ -59,7 +62,7 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "1 emprunt :": "1 loan:",
   "{count} emprunts :": "{count} loans:",
   "paiement en cours de finalisation": "payment finalizing",
-  "entraînement": "training",
-  "terminé": "done",
-  "action requise sur Train": "action needed on Train",
-};
+  "fonds en escrow · lance l’entraînement": "funds in escrow — start training",
+  "entraînement en cours": "training",
+  "livraison du modèle": "delivering model",
+  "action requise sur Train": "action needed on Train",};

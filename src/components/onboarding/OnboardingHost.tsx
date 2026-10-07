@@ -76,5 +76,5 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
   }, [autoPrompt, signed, owner, kyb, instantAccess]);
 
   if (!dialog || !signed || owner !== signed || !address) return null;
-  return <VerificationDialog key={dialog.id} reason={dialog.reason} role={dialog.role} address={address} />;
+  return <VerificationDialog key={dialog.id} requestId={dialog.id} reason={dialog.reason} role={dialog.role} address={address} />;
 }

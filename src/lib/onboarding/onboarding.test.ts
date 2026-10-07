@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EN_MESSAGES } from "@/lib/i18n/english";
-import { onboardingCopyKeys, STEP_COPY } from "./copy";
+import { LOAN_PHASE_LABEL, onboardingCopyKeys, stepCopy, verificationIntro } from "./copy";
 import {
   ONBOARDING_STEP_IDS,
   activeLoanSummary,
+  createInFlightGuard,
+  loanPhase,
   deriveOnboardingProgress,
   gateDecision,
   isPaidLoan,
@@ -159,16 +161,91 @@ test("préférence de la carte : lue seulement dans le profil du wallet attendu"
   }
 });
 
-test("indicateur global : prêts actifs de l'emprunteur et phase la plus avancée", () => {
+test("phase d'un prêt : paiement en finalisation, escrow, entraînement, livraison", () => {
+  assert.equal(loanPhase(loan("SUBMITTING")), "payment");
+  assert.equal(loanPhase(loan("PENDING", { evmLockTxHash: TX })), "payment");
+  assert.equal(loanPhase(loan("ESCROWED")), "escrow");
+  assert.equal(loanPhase(loan("TRAINING")), "training");
+  assert.equal(loanPhase(loan("SETTLING")), "delivering");
+  // Devis refusé ou abandonné, prêt réglé ou annulé : pas en cours.
+  for (const status of ["PENDING", "SETTLED", "CANCELLED", "INCONNU"]) assert.equal(loanPhase(loan(status)), null, status);
+  assert.equal(loanPhase(loan("SETTLING", { refundable: true })), "attention");
+  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.payment], "payment finalizing");
+  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.escrow], "funds in escrow — start training");
+  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.training], "training");
+  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.delivering], "delivering model");
+});
+
+test("indicateur global : prêts actifs de l'emprunteur, la phase qui demande une action en premier", () => {
   assert.equal(activeLoanSummary(null, ME), null);
-  assert.equal(activeLoanSummary([loan("PENDING"), loan("SETTLED"), loan("CANCELLED"), loan("SUBMITTING")], ME), null);
-  assert.deepEqual(activeLoanSummary([loan("ESCROWED")], ME), { count: 1, phase: "payment" });
-  assert.deepEqual(activeLoanSummary([loan("ESCROWED"), loan("TRAINING")], ME), { count: 2, phase: "training" });
-  assert.deepEqual(activeLoanSummary([loan("SETTLING"), loan("ESCROWED")], ME), { count: 2, phase: "settling" });
-  assert.deepEqual(activeLoanSummary([loan("TRAINING", { refundable: true }), loan("SETTLING")], ME), { count: 2, phase: "attention" });
+  assert.equal(activeLoanSummary([loan("PENDING"), loan("SETTLED"), loan("CANCELLED")], ME), null);
+  assert.deepEqual(activeLoanSummary([loan("SUBMITTING")], ME), { count: 1, phase: "payment" });
+  assert.deepEqual(activeLoanSummary([loan("PENDING", { evmLockTxHash: TX })], ME), { count: 1, phase: "payment" });
+  assert.deepEqual(activeLoanSummary([loan("ESCROWED")], ME), { count: 1, phase: "escrow" });
+  assert.deepEqual(activeLoanSummary([loan("SUBMITTING"), loan("TRAINING")], ME), { count: 2, phase: "training" });
+  assert.deepEqual(activeLoanSummary([loan("TRAINING"), loan("SETTLING")], ME), { count: 2, phase: "delivering" });
+  // Fonds en escrow : l'entraînement est à lancer, cela passe avant un prêt qui suit son cours.
+  assert.deepEqual(activeLoanSummary([loan("SETTLING"), loan("ESCROWED")], ME), { count: 2, phase: "escrow" });
+  assert.deepEqual(activeLoanSummary([loan("TRAINING", { refundable: true }), loan("ESCROWED")], ME), { count: 2, phase: "attention" });
   // Prêts où l'on est fournisseur : jamais affichés.
   assert.equal(activeLoanSummary([loan("TRAINING", { borrower: OTHER })], ME), null);
   assert.equal(activeLoanSummary([loan("TRAINING")], null), null);
+});
+
+test("verrou d'action : un double clic pendant la garde KYB ne lance qu'une préparation", async () => {
+  const guard = createInFlightGuard();
+  let calls = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const action = async () => {
+    calls += 1;
+    await pending;
+  };
+  const first = guard.run(action);
+  assert.equal(guard.running, true);
+  assert.equal(await guard.run(action), false, "second clic ignoré");
+  release();
+  assert.equal(await first, true);
+  assert.equal(calls, 1);
+  assert.equal(guard.running, false);
+  // Relâché même en erreur : l'utilisateur peut réessayer.
+  await assert.rejects(guard.run(async () => {
+    throw new Error("boom");
+  }), /boom/);
+  assert.equal(guard.running, false);
+  assert.equal(await guard.run(async () => {}), true);
+});
+
+test("fenêtre de vérification : une fin tardive d'une ouverture remplacée ne ferme pas la nouvelle", async () => {
+  const store = await import("@/components/onboarding/onboarding-store");
+  const first = store.requestVerification("borrow");
+  const firstId = store.useOnboardingStore.getState().dialog!.id;
+  const second = store.requestVerification("publish");
+  const secondId = store.useOnboardingStore.getState().dialog!.id;
+  assert.notEqual(firstId, secondId);
+  // La première ouverture a été remplacée : son action d'origine ne reprend pas.
+  assert.equal(await first, false);
+  // Formulaire d'invitation de la première fenêtre qui aboutit après coup : sans effet.
+  store.closeVerification(true, firstId);
+  assert.equal(store.useOnboardingStore.getState().dialog?.id, secondId);
+  store.closeVerification(true, secondId);
+  assert.equal(store.useOnboardingStore.getState().dialog, null);
+  assert.equal(await second, true);
+});
+
+test("textes sensibles au réseau : jamais « mainnet » sur le testnet", () => {
+  for (const reason of ["prompt", "checklist", "borrow", "publish"] as const) {
+    assert.doesNotMatch(verificationIntro(reason, "testnet"), /mainnet/i, reason);
+    assert.doesNotMatch(EN_MESSAGES[verificationIntro(reason, "testnet")], /mainnet/i, reason);
+  }
+  for (const copy of Object.values(stepCopy("testnet"))) {
+    assert.doesNotMatch(`${copy.title} ${copy.body}`, /mainnet/i);
+    assert.doesNotMatch(`${EN_MESSAGES[copy.title]} ${EN_MESSAGES[copy.body]}`, /mainnet/i);
+  }
+  assert.match(EN_MESSAGES[stepCopy("mainnet").verify.body], /mainnet/);
+  assert.match(EN_MESSAGES[verificationIntro("prompt", "mainnet")], /mainnet/);
 });
 
 test("tous les textes du parcours ont une traduction anglaise sans « USDC » écrit en dur", () => {
@@ -176,5 +253,5 @@ test("tous les textes du parcours ont une traduction anglaise sans « USDC » é
     assert.ok(Object.hasOwn(EN_MESSAGES, key), key);
     assert.doesNotMatch(EN_MESSAGES[key], /USDC/, key);
   }
-  assert.match(EN_MESSAGES[STEP_COPY.fund.title], /\{token\}/);
+  assert.match(EN_MESSAGES[stepCopy("mainnet").fund.title], /\{token\}/);
 });

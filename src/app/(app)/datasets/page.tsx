@@ -7,6 +7,7 @@ import { DatasetAddTile, DatasetCard } from "@/components/datasets/DatasetCard";
 import { ensureVerifiedFor, requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { messageOf } from "@/lib/errors-client";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { settlementToken } from "@/lib/datasets/token";
 import { publishDataset } from "@/lib/datasets/client";
@@ -94,6 +95,8 @@ function DatasetsContent() {
   const [statsError, setStatsError] = useState<string | null>(null);
   const [sort, setSort] = useState<DatasetSort>("date");
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  // Une seule publication en vol : la garde KYB lit le réseau avant `setPublishingId`.
+  const [publishGuard] = useState(createInFlightGuard);
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -194,6 +197,10 @@ function DatasetsContent() {
   // Publication d'un brouillon depuis sa carte, comme sur l'ancienne liste (la fiche propose
   // la même action) : bloquée sans profil valide ou sans fichier envoyé.
   async function handlePublish(id: string) {
+    await publishGuard.run(() => publishOnce(id));
+  }
+
+  async function publishOnce(id: string) {
     setError(null);
     // Wallet non vérifié : fenêtre de vérification, puis la publication reprend.
     if (!(await ensureVerifiedFor("publish"))) return;

@@ -116,8 +116,14 @@ export function requestVerification(reason: VerificationReason, role: KybRole = 
   });
 }
 
-/** Ferme la fenêtre ; `verified` dit si l'action d'origine peut reprendre. */
-export function closeVerification(verified: boolean): void {
+/**
+ * Ferme la fenêtre ; `verified` dit si l'action d'origine peut reprendre. `id` : ouverture
+ * concernée. Une fin tardive d'une fenêtre déjà remplacée (formulaire d'invitation qui aboutit
+ * après la fermeture) ne ferme pas la nouvelle et ne reprend pas son action.
+ */
+export function closeVerification(verified: boolean, id?: number): void {
+  const current = useOnboardingStore.getState().dialog;
+  if (id !== undefined && current?.id !== id) return;
   useOnboardingStore.setState({ dialog: null });
   settle(verified);
 }
