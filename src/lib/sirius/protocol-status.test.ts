@@ -21,7 +21,7 @@ test("état du protocole : plafonds seulement sur mainnet, enclave seulement si 
   const env = {
     TEE_MODE: "phala", SIRIUS_REQUIRE_PHALA: "true", SIRIUS_EXPECTED_MRTD: "ab",
     SIRIUS_MAX_LOAN_USDC: " 50 ", SIRIUS_MAX_EXPOSURE_USDC: "1000", SIRIUS_ESCROW_ADDRESS: "0xescrow", SIRIUS_USDC_ADDRESS: "",
-  } as NodeJS.ProcessEnv;
+  };
   const mainnet = withNetwork("mainnet", () => readProtocolStatus(env));
   assert.equal(mainnet.mainnet, true);
   assert.equal(mainnet.enclave, true);

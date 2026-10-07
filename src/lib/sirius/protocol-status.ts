@@ -37,7 +37,7 @@ export interface ProtocolStatus {
 export const PROTOCOL_SETTLEMENT = "On-chain escrow: the provider is paid when training completes; the borrower is refunded after the deadline otherwise";
 export const PROTOCOL_EXTERNAL_AUDIT = "Not yet audited. Internal review completed on 1 October 2026.";
 
-export function readProtocolStatus(env: NodeJS.ProcessEnv = process.env): ProtocolStatus {
+export function readProtocolStatus(env: Readonly<Record<string, string | undefined>> = process.env): ProtocolStatus {
   const { network, chain } = resolveServerNetwork();
   const mainnet = network === "mainnet";
   const symbol = stablecoinSymbol(network);
