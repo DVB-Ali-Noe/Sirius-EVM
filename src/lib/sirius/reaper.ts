@@ -1,10 +1,13 @@
 import "server-only";
 import type { Loan } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { getPublicClient } from "@/lib/evm/client";
 import {
   CANCELLED_LOCK_SEARCH_WINDOW_MS,
   CHAIN_REAPER_LEASE_MS,
+  FAST_IDLE_REVERT_MS,
+  FAST_SETTLEMENT_VERIFY_DELAY_MS,
   PENDING_REAPER_TTL_MS,
   SETTLEMENT_REAPER_LEASE_MS,
   SUBMISSION_REAPER_LEASE_MS,
@@ -13,7 +16,9 @@ import {
 import { recoverUnsubmittedLoan } from "./recover-loan";
 import { resolveLoanEscrow } from "@/lib/evm/history";
 import { recoverLoanResult, settlePreparedLoan } from "./settle";
+import { verifyFastSettlement } from "./fast-settlement-review";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
+import { AppError } from "@/lib/app-error";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -59,6 +64,14 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         { status: "TRAINING", modelCid: null, updatedAt: { lte: new Date(now.getTime() - TRAINING_REAPER_LEASE_MS) } },
         { status: "SETTLING", updatedAt: { lte: new Date(now.getTime() - SETTLEMENT_REAPER_LEASE_MS) } },
         { status: { in: ["ESCROWED", "TRAINING", "SETTLING"] }, updatedAt: { lte: new Date(now.getTime() - CHAIN_REAPER_LEASE_MS) } },
+        // Release accepté au palier rapide : revérifié sous le bloc finalisé, une fois celui-ci
+        // censé l'avoir dépassé, jusqu'à confirmation ou ouverture d'une revue.
+        {
+          status: "SETTLED", finalityTier: "FAST", finalityVerifiedAt: null, finalityReview: null,
+          settledAt: { lte: new Date(now.getTime() - FAST_SETTLEMENT_VERIFY_DELAY_MS) },
+        },
+        // Prêt rapide rendu à ESCROWED et laissé sans lancement : il n'occupe pas le plafond indéfiniment.
+        { status: "ESCROWED", finalityTier: "FAST", updatedAt: { lte: new Date(now.getTime() - FAST_IDLE_REVERT_MS) } },
       ],
     },
     orderBy: { id: "asc" },
@@ -71,6 +84,20 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
     try {
       if (loan.status === "PENDING" || loan.status === "SUBMITTING" || loan.status === "CANCELLED") {
         await recoverUnsubmittedLoan(loan);
+        continue;
+      }
+      if (loan.status === "SETTLED") {
+        await reviewFastSettledLoan(loan, now);
+        continue;
+      }
+      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
+        // Classé rapide puis laissé sans activité : il libère le plafond et repassera par la
+        // décision au prochain lancement (finality-tier.ts). Le reste de la passe le reprendra.
+        const reverted = await prisma.loan.updateMany({
+          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
+          data: { finalityTier: "FULL" },
+        });
+        if (reverted.count === 1) console.log(`[reaper] prêt EVM ${loan.id} : palier rapide rendu après inactivité`);
         continue;
       }
       const chain = loan.billingQuoteHash ? await reconcileClosedLoan(loan) : null;
@@ -107,6 +134,37 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
     }
   }
   return { examined: loans.length, failed };
+}
+
+/**
+ * Prêt FAST déjà SETTLED : verdict à finalité complète (fast-settlement-review.ts). Confirmé ⇒
+ * `finalityVerifiedAt`. Divergence ⇒ alerte journalisée, `finalityReview` posé (livraison de clé
+ * et certificat suspendus) et erreur comptée dans la passe : le battement du reaper la fait
+ * remonter. Rien n'est retenté ni annulé automatiquement : un opérateur tranche (runbook 20).
+ */
+async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
+  const open = async (reason: string) => {
+    console.error(`[reaper] ALERTE finalité rapide : prêt EVM ${loan.id} — ${reason} ; revue manuelle requise (docs/passage-mainnet/20-finalite-rapide.md)`);
+    await prisma.loan.updateMany({
+      where: { id: loan.id, status: "SETTLED", finalityTier: "FAST", finalityReview: null },
+      data: { finalityReview: reason, finalityReviewAt: now },
+    });
+    throw new AppError(`Finalité rapide contredite : ${reason}`, 409);
+  };
+  if (!loan.settleTxHash || !loan.evmLoanKey) return open("hash de release ou clé de prêt absents");
+  const binding = await resolveLoanEscrow(loan);
+  const verdict = await verifyFastSettlement(getPublicClient(), {
+    settleTxHash: loan.settleTxHash as `0x${string}`,
+    escrow: binding.escrow,
+    onChainStatus: async () => (await readLoan(loan.evmLoanKey as `0x${string}`, binding))?.status ?? null,
+  });
+  if (verdict.state === "pending") return;
+  if (verdict.state === "discrepancy") return open(verdict.reason);
+  await prisma.loan.updateMany({
+    where: { id: loan.id, status: "SETTLED", finalityTier: "FAST", finalityVerifiedAt: null },
+    data: { finalityVerifiedAt: now },
+  });
+  console.log(`[reaper] prêt EVM ${loan.id} : release rapide confirmé à finalité complète`);
 }
 
 /**

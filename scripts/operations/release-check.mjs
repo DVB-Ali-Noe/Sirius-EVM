@@ -16,6 +16,31 @@ export const MAINNET_STABLECOIN = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 /** @deprecated Nom historique gardé par compatibilité (cahier des charges A8) : vaut l'USDG, pas l'USDC. Aucun importateur hors tests. */
 export const MAINNET_USDC = MAINNET_STABLECOIN;
 
+/**
+ * Finalité rapide (src/lib/evm/fast-finality.ts), facultative : `finalized` reste exigé partout,
+ * le palier rapide s'y ajoute pour les petits prêts. Ici, sans chargeur TypeScript, les mêmes
+ * bornes sont recopiées : drapeau `true`/`false` ou absent, montants décimaux positifs, seuil par
+ * prêt ≤ plafond global, confirmations entre 1 et 100. Les trois rôles doivent se lire pareil : le
+ * runner tient les siennes du Compose attesté, le fichier privé les recopie pour cette vérification.
+ */
+const DECIMAL_AMOUNT = /^(0|[1-9][0-9]{0,6})(?:\.[0-9]{1,6})?$/;
+const FAST_CONFIRMATIONS = /^(?:[1-9]|[1-9][0-9]|100)$/;
+const FAST_FINALITY_KEYS = ["SIRIUS_FAST_FINALITY", "SIRIUS_FAST_FINALITY_MAX_USDC", "SIRIUS_FAST_FINALITY_CONFIRMATIONS"];
+
+function fastFinalityIssues(role, env) {
+  const issues = [];
+  const flag = (env.SIRIUS_FAST_FINALITY ?? "").trim().toLowerCase();
+  if (flag && flag !== "true" && flag !== "false") issues.push(`${role}.SIRIUS_FAST_FINALITY`);
+  const max = (env.SIRIUS_FAST_FINALITY_MAX_USDC ?? "").trim() || "25";
+  const total = (env.SIRIUS_FAST_FINALITY_TOTAL_USDC ?? "").trim() || "100";
+  const confirmations = (env.SIRIUS_FAST_FINALITY_CONFIRMATIONS ?? "").trim() || "30";
+  if (!DECIMAL_AMOUNT.test(max) || Number(max) <= 0) issues.push(`${role}.SIRIUS_FAST_FINALITY_MAX_USDC`);
+  if (!DECIMAL_AMOUNT.test(total) || Number(total) <= 0) issues.push(`${role}.SIRIUS_FAST_FINALITY_TOTAL_USDC`);
+  else if (DECIMAL_AMOUNT.test(max) && Number(max) > Number(total)) issues.push(`${role}.SIRIUS_FAST_FINALITY_MAX_USDC.above-total`);
+  if (!FAST_CONFIRMATIONS.test(confirmations)) issues.push(`${role}.SIRIUS_FAST_FINALITY_CONFIRMATIONS`);
+  return issues;
+}
+
 export function checkReleaseEnvironments(next, reaper, runner, network = "testnet") {
   if (network !== "testnet" && network !== "mainnet") throw new Error("Réseau attendu : testnet ou mainnet");
   const issues = [];
@@ -28,6 +53,7 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
     requireValue(role, "SIRIUS_BILLING_VERSION", /^7$/);
     requireValue(role, "SIRIUS_EVM_FINALITY", /^finalized$/);
     requireValue(role, "SIRIUS_EVM_CONFIRMATIONS", /^(?:[1-9]|[1-9][0-9]|100)$/);
+    issues.push(...fastFinalityIssues(role, roles[role]));
     requireValue(role, "TEE_MODE", /^phala$/);
     requireValue(role, "SIRIUS_LOCK_AUTHORIZER", ADDRESS);
     for (const suffix of CONTRACTS) requireValue(role, `SIRIUS_${suffix}_ADDRESS`, ADDRESS);
@@ -37,6 +63,20 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   for (const key of ["EVM_NETWORK", "SIRIUS_BILLING_VERSION", "SIRIUS_EVM_FINALITY", "SIRIUS_EVM_CONFIRMATIONS",
     "SIRIUS_LOCK_AUTHORIZER", ...CONTRACTS.map((suffix) => `SIRIUS_${suffix}_ADDRESS`)]) {
     if (new Set(Object.values(roles).map((env) => env[key]?.toLowerCase())).size !== 1) issues.push(`divergence.${key}`);
+  }
+  // Seule la direction nuisible est refusée : Next ou le reaper demandant le palier rapide à une
+  // enclave qui l'ignore (chaque prêt rapide serait refusé par l'enclave), ou avec un seuil ou des
+  // confirmations différents des constantes attestées. Next et le reaper à `false` pendant que le
+  // Compose garde ses constantes est le retour arrière de niveau 1 : autorisé.
+  const fastFlag = (env) => ((env.SIRIUS_FAST_FINALITY ?? "").trim().toLowerCase() || "false");
+  if (fastFlag(next) !== fastFlag(reaper)) issues.push("divergence.SIRIUS_FAST_FINALITY");
+  for (const [role, env] of [["next", next], ["reaper", reaper]]) {
+    if (fastFlag(env) !== "true") continue;
+    if (fastFlag(runner) !== "true") issues.push(`${role}.SIRIUS_FAST_FINALITY.runner-disabled`);
+    for (const key of FAST_FINALITY_KEYS.slice(1)) {
+      const value = (name) => (name[key] ?? "").trim().toLowerCase() || (key === "SIRIUS_FAST_FINALITY_MAX_USDC" ? "25" : "30");
+      if (value(env) !== value(runner)) issues.push(`divergence.${key}`);
+    }
   }
   for (const role of ["next", "reaper"]) {
     requireValue(role, "SIRIUS_REQUIRE_PHALA", /^true$/);
@@ -67,6 +107,22 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   if (autoInviteFlag === "true") {
     if (!/^0x[a-fA-F0-9]{64}$/.test(autoInviteKey)) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
   } else if (autoInviteKey) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
+  // Assistant Sirio : la clé Anthropic ne vit que sur Next, et seulement avec le drapeau
+  // (`src/lib/assistant/config.ts`). Drapeau et clé absents = chat fermé, configuration valide.
+  for (const role of ["reaper", "runner"]) {
+    if (roles[role].ANTHROPIC_API_KEY || roles[role].SIRIUS_ASSISTANT_SECRET) issues.push(`${role}.forbidden-secret-or-simulator`);
+  }
+  const assistantFlag = next.SIRIUS_ASSISTANT_ENABLED?.trim() ?? "";
+  const assistantKey = next.ANTHROPIC_API_KEY?.trim() ?? "";
+  const assistantSecret = next.SIRIUS_ASSISTANT_SECRET?.trim() ?? "";
+  if (assistantFlag && assistantFlag !== "true" && assistantFlag !== "false") issues.push("next.SIRIUS_ASSISTANT_ENABLED");
+  if (assistantFlag === "true") {
+    if (!assistantKey) issues.push("next.ANTHROPIC_API_KEY");
+    if (assistantSecret.length < 32) issues.push("next.SIRIUS_ASSISTANT_SECRET");
+  } else {
+    if (assistantKey) issues.push("next.ANTHROPIC_API_KEY.without-flag");
+    if (assistantSecret) issues.push("next.SIRIUS_ASSISTANT_SECRET.without-flag");
+  }
   if (network === "mainnet") {
     for (const role of Object.keys(roles)) {
       if (roles[role].SIRIUS_USDC_ADDRESS?.trim().toLowerCase() !== MAINNET_STABLECOIN) issues.push(`${role}.SIRIUS_USDC_ADDRESS.mainnet`);

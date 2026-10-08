@@ -97,7 +97,6 @@ async function fillStepOne(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("sirius-tour-seen", "1");
     localStorage.removeItem("sirius-ui");
   });
 });

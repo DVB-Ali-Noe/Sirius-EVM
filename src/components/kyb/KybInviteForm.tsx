@@ -8,7 +8,13 @@ import { acceptKybCredential } from "@/lib/kyb/client";
  * Saisie d'un code d'invitation KYB. Le code, signé hors ligne par un vérificateur Sirius,
  * ne vaut que pour l'adresse connectée ; le wallet signe ensuite l'acceptation on-chain.
  */
-export function KybInviteForm({ role, secondary = false, onAccepted }: { role: "provider" | "borrower"; secondary?: boolean; onAccepted: () => void }) {
+export function KybInviteForm({ role, secondary = false, onAccepted, onBusyChange }: {
+  role: "provider" | "borrower";
+  secondary?: boolean;
+  onAccepted: () => void;
+  /** Prévenu au début et à la fin d'une validation (une fenêtre parente bloque alors sa fermeture). */
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const { t } = useLocale();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,16 +24,21 @@ export function KybInviteForm({ role, secondary = false, onAccepted }: { role: "
     event.preventDefault();
     if (!code.trim() || busy) return;
     setBusy(true);
+    onBusyChange?.(true);
     setError(null);
+    let accepted = false;
     try {
       await acceptKybCredential(role, code);
       setCode("");
-      onAccepted();
+      accepted = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Code d’invitation KYB invalide");
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
+    // Après la levée du verrou : la fenêtre parente peut alors se fermer.
+    if (accepted) onAccepted();
   }
 
   return (

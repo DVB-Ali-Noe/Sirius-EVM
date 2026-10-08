@@ -18,7 +18,7 @@ export default function PhalaPage() {
       title="Train with Phala"
       description="Use a sample dataset or your own CSV to train a model inside a Phala enclave. Runs are sponsored by Sirius while the demo is open."
     />
-    <Card className="flex flex-col items-start gap-4">
+    <Card className="flex flex-col items-start gap-4" data-guide="page:phala:workspace">
       {target
         ? <a className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90" href={target}>Open the Phala workspace</a>
         : <p className="text-sm text-muted">The demo is currently closed.</p>}

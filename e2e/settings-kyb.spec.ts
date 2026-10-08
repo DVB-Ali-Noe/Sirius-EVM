@@ -15,7 +15,6 @@ async function open(page: Page, path: string, options: { connect?: boolean; hand
     if (handler) return handler(route);
     return route.fulfill({ json: { authenticated: false, known: false } });
   });
-  await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
   await page.goto(path);
   await page.waitForFunction(() => Boolean(window.__SIRIUS_E2E__));
   if (options.connect !== false) await page.evaluate((address) => window.__SIRIUS_E2E__?.connect(address, "provider"), ADDRESS);
@@ -35,8 +34,13 @@ test("/settings sans connexion : message de connexion, réseau affiché, éléme
   await expect(page.getByRole("button", { name: "Restart guided tour" })).toBeVisible();
 });
 
-test("/settings connecté : la langue s'enregistre via PATCH /api/profile et le tuto se relance", async ({ page }) => {
+test("/settings connecté : la langue s'enregistre via PATCH /api/profile et le guide Sirio se relance", async ({ page }) => {
   const patches: unknown[] = [];
+  // Guide neutralisé dans la suite e2e sauf marqueur explicite ; déjà passé : seule la relance l'affiche.
+  await page.addInitScript(() => {
+    localStorage.setItem("sirius-guide-e2e", "1");
+    localStorage.setItem("sirius-guide:anonymous", JSON.stringify({ v: 1, arrivalSeen: true, tourIndex: 0, tourDone: false, skipped: true, minimized: false }));
+  });
   await open(page, "/settings", {
     handlers: {
       "/api/profile": async (route) => {
@@ -55,8 +59,14 @@ test("/settings connecté : la langue s'enregistre via PATCH /api/profile et le 
   expect(patches).toEqual([{ settings: { language: "en" } }]);
   await expect(save).toBeDisabled();
 
+  const guide = page.getByRole("region", { name: "Sirio, the Sirius guide" });
+  await expect(guide).toHaveCount(0);
   await page.getByRole("button", { name: "Restart guided tour" }).click();
-  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toBeVisible();
+  await expect(guide).toBeVisible();
+  await expect(guide).toHaveAttribute("data-phase", "arrival");
+  await expect(guide.getByRole("button", { name: "Let’s go", exact: true })).toBeVisible();
+  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toHaveCount(0);
+  await expect(page.getByText("The guided tour will be available soon.")).toHaveCount(0);
 });
 
 test("/settings : un échec d'enregistrement est signalé sans bloquer la page", async ({ page }) => {

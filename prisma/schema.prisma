@@ -162,6 +162,17 @@ model Loan {
   auditReceipt           String? // signature HMAC de l'attestation runner
   cancelTxHash           String? // remboursement USDC confirmé après expiration
 
+  // Finalité rapide (src/lib/evm/fast-finality.ts) : palier décidé au lancement de l'entraînement,
+  // appliqué aussi au règlement ; un prêt FAST réglé est revérifié à finalité complète par le reaper.
+  finalityTier       FinalityTier @default(FULL)
+  finalityVerifiedAt DateTime? // release FAST confirmé sous le bloc finalisé
+  finalityReview     String? // divergence constatée à finalité complète : motif, revue manuelle
+  finalityReviewAt   DateTime?
+  // Preuves de rediffusion d'un release rapide (settlement-evidence.ts) : transaction signée brute
+  // et préimage public, pour qu'un opérateur rejoue le release si une réorganisation l'efface.
+  settleRawTx        String?
+  settlePreimage     String?
+
   status    LoanStatus @default(PENDING)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -174,6 +185,7 @@ model Loan {
   @@index([status])
   @@index([provider, status])
   @@index([borrower, status])
+  @@index([finalityTier, status])
 }
 
 /// Octroi de la clé de déchiffrement au TEE pour un job donné.
@@ -241,6 +253,31 @@ model OperatorCodeAttempt {
   @@index([address, createdAt])
 }
 
+/// Compteurs quotidiens de l'assistant Sirio : requêtes (SIRIUS_ASSISTANT_DAILY_CAP), jetons
+/// et dépense estimée en micro-dollars (SIRIUS_ASSISTANT_DAILY_BUDGET_USD). Une ligne par jour
+/// UTC, jamais de contenu de message.
+model AssistantUsage {
+  day              String   @id // jour UTC, AAAA-MM-JJ
+  count            Int      @default(0)
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  spentMicroUsd    Int      @default(0) // 1 $ = 1 000 000
+  updatedAt        DateTime @default(now()) @updatedAt
+}
+
+/// Questions par jour et par client de l'assistant (SIRIUS_ASSISTANT_DAILY_PER_IP) : `id` est le
+/// jour suivi de l'empreinte SHA-256 de l'adresse IP transmise par l'ingress ou du wallet signé,
+/// jamais la valeur en clair. Les lignes d'avant-hier sont supprimées au fil de l'eau.
+model AssistantClientUsage {
+  id    String @id
+  day   String
+  count Int    @default(0)
+
+  @@index([day])
+}
+
 /// Invitation KYB signée par le vérificateur automatique (accès instantané) : trace de
 /// l'émission et plafonds (1 par wallet et par 24 h, N par IP et par heure, N par heure).
 /// Le code n'est pas un secret : il ne vaut que pour son adresse, une seule fois, et expire.
@@ -295,6 +332,12 @@ enum LoanStatus {
   SETTLING // release USDC soumis ou à réconcilier
   SETTLED // release USDC validé, capsule déverrouillable
   CANCELLED // réservation abandonnée ou remboursement USDC confirmé
+}
+
+/// Palier de finalité d'un prêt (src/lib/evm/fast-finality.ts).
+enum FinalityTier {
+  FULL // bloc finalisé (mainnet) ou politique historique
+  FAST // N confirmations L2 avec contrôle canonique, petits prêts seulement
 }
 
 enum TrainingStatus {

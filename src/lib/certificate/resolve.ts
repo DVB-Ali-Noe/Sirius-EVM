@@ -74,6 +74,8 @@ export interface CertificateLoanRow {
   attestationComposeHash: string | null;
   settleTxHash: string | null;
   settledAt: Date | null;
+  /** Revue ouverte par le reaper : release rapide contredit à finalité complète (fast-settlement-review.ts). */
+  finalityReview?: string | null;
   dataset: {
     id: string;
     name: string;
@@ -124,6 +126,8 @@ export function resolveCertificate(
 
   if (
     loan.status !== "SETTLED" ||
+    // Release rapide contredit sous le bloc finalisé : aucun certificat tant que la revue est ouverte.
+    loan.finalityReview ||
     !loan.attestationHash ||
     !loan.attestationPayload ||
     !loan.modelCid ||

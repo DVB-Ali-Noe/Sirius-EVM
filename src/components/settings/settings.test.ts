@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestGuidedTour } from "../profile/guided-tour";
-import { subscribeGuidedTourRequests } from "../tour/tour-store";
+import { subscribeGuidedTourRequests } from "../guide/guide-store";
 import { formatKybDate, offersRenewal, parseInstantAccess, parseKybStatus, parsePublicKybStatus, showsInvitationForm } from "./kyb-state";
 import { KYB_CONTACT_EMAIL, KYB_SOON, kybSoonItems, networkInfo, savedLanguage, TESTNET_SITE_URL } from "./settings-logic";
 

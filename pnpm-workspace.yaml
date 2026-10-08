@@ -17,7 +17,7 @@ overrides:
   '@segment/analytics-next>js-cookie': '3.0.7'
   '@prisma/dev>@hono/node-server': '1.19.15'
   'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
-  'next>sharp': '0.35.4'
+  'next>sharp': '0.35.5'
   'postcss@>=8.0.0 <8.5.23': '8.5.23'
   'protobufjs@>=7.5.0 <7.6.5': '7.6.5'
   'ws@>=8.0.0 <8.21.0': '8.21.0'
@@ -51,6 +51,8 @@ overrides:
   'axios@>=1 <1.20.0': '1.20.0'
   # Déni de service par offsets de sections indexées (GHSA-68fv-2mgg-jv7q), atteint via postcss.
   'source-map-js@>=1 <1.2.2': '1.2.2'
+  # Avis du 7 octobre 2026 : librsvg via sharp (GHSA-wq5f-xc86-pv6w) et pbkdf2 (GHSA-477h-4r7f-fvrx).
+  'pbkdf2@<3.1.7': '3.1.7'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans

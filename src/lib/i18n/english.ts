@@ -5,13 +5,17 @@ import { SHARED_MESSAGES_EN } from "./shared-en";
 import { DATASETS_MESSAGES_EN } from "./datasets-en";
 import { UPLOAD_MESSAGES_EN } from "./upload-en";
 import { PROFILE_MESSAGES_EN } from "./profile-en";
-import { TOUR_MESSAGES_EN } from "./tour-en";
 import { MARKETPLACE_MESSAGES_EN } from "./marketplace-en";
 import { TRAIN_MESSAGES_EN } from "./train-en";
 import { SETTINGS_MESSAGES_EN } from "./settings-en";
 import { FUNDING_MESSAGES_EN } from "./funding-en";
+import { ONBOARDING_MESSAGES_EN } from "./onboarding-en";
+import { ASSISTANT_MESSAGES_EN } from "./assistant-en";
+import { GUIDE_MESSAGES_EN } from "./guide-en";
 
 export const EN_MESSAGES: Record<string, string> = {
+  ...ASSISTANT_MESSAGES_EN,
+  ...GUIDE_MESSAGES_EN,
   ...ERROR_MESSAGES_EN,
   ...PHALA_MESSAGES_EN,
   ...SHARED_MESSAGES_EN,
@@ -19,12 +23,11 @@ export const EN_MESSAGES: Record<string, string> = {
   ...DATASETS_MESSAGES_EN,
   ...UPLOAD_MESSAGES_EN,
   ...PROFILE_MESSAGES_EN,
-  ...TOUR_MESSAGES_EN,
   ...MARKETPLACE_MESSAGES_EN,
   ...TRAIN_MESSAGES_EN,
   ...SETTINGS_MESSAGES_EN,
   ...FUNDING_MESSAGES_EN,
-  "Tu as déjà un emprunt en cours sur ce dataset. Préparer un nouvel emprunt ?": "You already have an active loan on this dataset. Prepare another loan?",
+  ...ONBOARDING_MESSAGES_EN,
   "Prix du dataset": "Dataset price",
   "Code d’invitation KYB": "KYB invitation code",
   "Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.": "During the beta, access is by invitation. Paste the code you received from the Sirius team, then confirm in your wallet.",
@@ -177,7 +180,6 @@ export const EN_MESSAGES: Record<string, string> = {
   "Épingler le menu": "Pin sidebar open",
   "Quitter": "Exit",
   "Bienvenue sur Sirius": "Welcome to Sirius",
-  "Connecte un wallet pour accéder à ton tableau de bord.": "Connect a wallet to access your dashboard.",
   "Connecter un wallet": "Connect a wallet",
   "Accéder à l’app": "Access the app",
   "Solde": "Balance",

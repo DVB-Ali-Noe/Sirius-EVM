@@ -16,7 +16,6 @@ test.beforeAll(async () => {
 });
 
 async function mock(page: Page, phase = "closed") {
-  await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
   await page.route("**/__delivery-test.js", (route) => route.fulfill({ contentType: "application/javascript", body: deliveryScript }));
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;

@@ -53,7 +53,7 @@ export function KybView() {
         <ConnectPrompt message={t("Connecte un wallet pour voir ton statut KYB.")} data-testid="kyb-signed-out" />
       )}
 
-      <section aria-labelledby="kyb-soon">
+      <section aria-labelledby="kyb-soon" data-guide="page:kyb:soon">
         <SectionTitle id="kyb-soon" className="mb-3">{t("Coming soon")}</SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {kybSoonItems(instantAccess).map((item) => <SoonItem key={item.title} {...item} />)}
@@ -122,7 +122,7 @@ function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess 
 
   return (
     <>
-      <Card data-testid="kyb-status" data-state={view.state}>
+      <Card data-testid="kyb-status" data-state={view.state} data-guide="page:kyb:status">
         <SectionTitle>{t("Status")}</SectionTitle>
         {view.state === "verified" && (
           <>
@@ -168,7 +168,7 @@ function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess 
       </Card>
 
       {(showsInvitationForm(view) || (instantAccess && offersRenewal(view))) && (
-        <Card className="flex flex-col gap-3" aria-labelledby="kyb-invite" role="region">
+        <Card className="flex flex-col gap-3" aria-labelledby="kyb-invite" role="region" data-guide="page:kyb:invite">
           <SectionTitle id="kyb-invite">{t("Invitation")}</SectionTitle>
           {authenticated ? (
             <>

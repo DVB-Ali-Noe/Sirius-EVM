@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Page, PageHeader } from "@/components/layout/Page";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { ensureVerifiedFor } from "@/components/onboarding/onboarding-store";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import type { TokenInfo } from "@/components/datasets/price";
 import { messageOf } from "@/lib/errors-client";
 import { checkFileSize, inspectCsv, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
@@ -59,6 +61,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const [listingDays, setListingDays] = useState<ListingDurationDays>(DEFAULT_LISTING_DURATION_DAYS);
   const [consent, setConsent] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  // Une seule publication en vol : la garde KYB lit le réseau avant `setPublishing`.
+  const [publishGuard] = useState(createInFlightGuard);
   const [progress, setProgress] = useState<Record<UploadStep, StepState>>(PENDING_PROGRESS);
   const [stage, setStage] = useState<PublishDatasetStage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +194,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   }
 
   async function publish() {
+    await publishGuard.run(publishOnce);
+  }
+
+  async function publishOnce() {
     if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish) return;
+    // Wallet non vérifié : fenêtre de vérification avant tout envoi, puis la publication reprend.
+    if (!(await ensureVerifiedFor("publish"))) return;
     if (sealedDatasetId) return retryRegistration(sealedDatasetId);
     setError(null);
     setStage(null);
@@ -243,7 +253,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
         title={t("Publier un dataset")}
         actions={<p className="text-sm text-muted" aria-live="polite">{t("Étape {step} / 2", { step: stepNumber })}</p>}
       >
-        <ol className="flex gap-2 text-xs" aria-label={t("Étapes")}>
+        <ol className="flex gap-2 text-xs" aria-label={t("Étapes")} data-guide="page:upload:steps">
           {[t("La donnée"), t("Prix et publication")].map((label, index) => {
             const current = index + 1 === stepNumber;
             const done = index + 1 < stepNumber;

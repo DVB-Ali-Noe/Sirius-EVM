@@ -28,7 +28,7 @@ Références : [MAINNET-LAUNCH-PLAN.md](../MAINNET-LAUNCH-PLAN.md), [MAINNET-RUN
 | VPS | `162.19.66.80`, compte `sirius-deploy`, dossier `/opt/sirius`, projet Compose `sirius` |
 | Base Neon | projet `summer-sun-75471238`, branche `mainnet` `br-icy-band-b42mskv2`, déjà créée et migrée |
 | Plafonds de la bêta | `SIRIUS_MAX_LOAN_USDC=50`, `SIRIUS_MAX_EXPOSURE_USDC=500` ([plan](../MAINNET-LAUNCH-PLAN.md)) |
-| Finalité | `SIRIUS_EVM_FINALITY=finalized`, `SIRIUS_EVM_CONFIRMATIONS=1` ; le bloc `finalized` est environ 8 500 blocs (≈ 14 min) derrière la tête (relevé du 5 octobre) |
+| Finalité | `SIRIUS_EVM_FINALITY=finalized`, `SIRIUS_EVM_CONFIRMATIONS=1` ; le bloc `finalized` est environ 8 500 blocs (≈ 14 min) derrière la tête (relevé du 5 octobre). Palier rapide facultatif pour les petits prêts : [20-finalite-rapide.md](20-finalite-rapide.md) |
 
 ## 1. Pré-requis
 

@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConnectPrompt } from "@/components/wallet/ConnectCta";
 import { Page, PageHeader } from "@/components/layout/Page";
 import { DatasetAddTile, DatasetCard } from "@/components/datasets/DatasetCard";
-import { KybInviteForm } from "@/components/kyb/KybInviteForm";
+import { ensureVerifiedFor, requestVerification, useOnboardingStore } from "@/components/onboarding/onboarding-store";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { messageOf } from "@/lib/errors-client";
-import { acceptKybCredential } from "@/lib/kyb/client";
+import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import { settlementToken } from "@/lib/datasets/token";
 import { publishDataset } from "@/lib/datasets/client";
@@ -95,6 +95,8 @@ function DatasetsContent() {
   const [statsError, setStatsError] = useState<string | null>(null);
   const [sort, setSort] = useState<DatasetSort>("date");
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  // Une seule publication en vol : la garde KYB lit le réseau avant `setPublishingId`.
+  const [publishGuard] = useState(createInFlightGuard);
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -195,7 +197,14 @@ function DatasetsContent() {
   // Publication d'un brouillon depuis sa carte, comme sur l'ancienne liste (la fiche propose
   // la même action) : bloquée sans profil valide ou sans fichier envoyé.
   async function handlePublish(id: string) {
+    await publishGuard.run(() => publishOnce(id));
+  }
+
+  async function publishOnce(id: string) {
     setError(null);
+    // Wallet non vérifié : fenêtre de vérification, puis la publication reprend.
+    if (!(await ensureVerifiedFor("publish"))) return;
+    if (useOnboardingStore.getState().kyb === "valid") setKybManquant(false);
     setPublishingId(id);
     try {
       await publishDataset(id);
@@ -207,14 +216,10 @@ function DatasetsContent() {
     }
   }
 
+  // Vérification dans la fenêtre partagée (accès instantané, ou invitation si coupé).
   async function handleOnboard() {
     setError(null);
-    try {
-      await acceptKybCredential("provider");
-      setKybManquant(false);
-    } catch (err) {
-      setError(messageOf(err));
-    }
+    if (await requestVerification("checklist", "provider")) setKybManquant(false);
   }
 
   const cards = useMemo(() => {
@@ -270,7 +275,7 @@ function DatasetsContent() {
                 {t("Configurer le KYB")}
               </button>
             )}
-            <div role="group" aria-label={t("Trier par")} className="flex items-center gap-2">
+            <div role="group" aria-label={t("Trier par")} data-guide="page:datasets:sort" className="flex items-center gap-2">
               <span className="text-xs text-muted">{t("Trier par")}</span>
               <div className="grid grid-cols-3 rounded-lg border border-border p-0.5">
                 {DATASET_SORTS.map((option) => (
@@ -292,8 +297,6 @@ function DatasetsContent() {
         }
       />
 
-      {kybManquant === true && <KybInviteForm role="provider" onAccepted={() => setKybManquant(false)} />}
-
       {error && (
         <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
@@ -310,8 +313,8 @@ function DatasetsContent() {
         </p>
       )}
 
-      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <li>
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-guide={cards.length > 0 ? "page:datasets:cards" : undefined}>
+        <li data-guide="page:datasets:new">
           <DatasetAddTile href="/datasets/new" />
         </li>
         {cards.map(({ dataset, status, borrowCount, earnedAtomic }) => (

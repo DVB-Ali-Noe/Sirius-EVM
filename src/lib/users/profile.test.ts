@@ -127,7 +127,7 @@ test("ensureUserProfile crée la ligne puis ne fait que dater le passage", async
   assert.equal(row.tourCompletedAt?.toISOString(), "2026-10-02T00:00:00.000Z", "le tuto terminé n'est pas effacé");
   assert.deepEqual(row.featureTours, { upload: true });
   assert.equal(view.tourCompletedAt, "2026-10-02T00:00:00.000Z");
-  assert.deepEqual(view.featureTours, { upload: true });
+  assert.ok(!("featureTours" in view), "l'ancien champ des tutos n'est plus exposé");
   assert.equal(view.lastSeenAt, row.lastSeenAt.toISOString());
 });
 
@@ -172,7 +172,6 @@ test("la vue ne révèle ni les notes de blocage ni les clés inconnues d'une li
   assert.deepEqual(view, {
     address: SUBJECT,
     tourCompletedAt: null,
-    featureTours: { dashboard: true, wallet: false },
     settings: {},
     kybStatus: "ACCEPTED",
     kybCheckedAt: "2026-10-03T08:00:00.000Z",
@@ -181,17 +180,19 @@ test("la vue ne révèle ni les notes de blocage ni les clés inconnues d'une li
     lastSeenAt: "2026-10-03T10:00:00.000Z",
   });
   assert.ok(!("blockedReason" in view) && !("blockedBy" in view));
-  assert.deepEqual(profile.sanitizeFeatureTours(["dashboard"]), {});
-  assert.deepEqual(profile.sanitizeFeatureTours(null), {});
   assert.deepEqual(profile.sanitizeSettings("en"), {});
   assert.deepEqual(profile.sanitizeSettings({ language: "en", sidebarCollapsed: true }), { language: "en", sidebarCollapsed: true });
+  assert.deepEqual(profile.sanitizeSettings({ onboardingDismissed: true }), { onboardingDismissed: true });
+  assert.deepEqual(profile.sanitizeSettings({ onboardingDismissed: "yes" }), {});
 });
 
-test("validateProfilePatch : seuls les tutos et les réglages passent, tout le reste est refusé", async () => {
+test("validateProfilePatch : seuls le tuto et les réglages passent, tout le reste est refusé", async () => {
   assert.deepEqual(profile.validateProfilePatch({ tourCompletedAt: true }), { tourCompletedAt: true });
+  // Ancien champ des tutos par page : ignoré sans erreur, quelle que soit sa forme.
   assert.deepEqual(profile.validateProfilePatch({ featureTours: { dashboard: true, wallet: false }, settings: { language: "en", sidebarCollapsed: true } }),
-    { featureTours: { dashboard: true, wallet: false }, settings: { language: "en", sidebarCollapsed: true } });
-  assert.deepEqual(profile.validateProfilePatch({ featureTours: {} }), { featureTours: {} });
+    { settings: { language: "en", sidebarCollapsed: true } });
+  assert.deepEqual(profile.validateProfilePatch({ featureTours: {} }), {});
+  assert.deepEqual(profile.validateProfilePatch({ featureTours: { unknown: "x" } }), {});
 
   for (const notObject of [null, undefined, "{}", 1, true, [], [{ tourCompletedAt: true }]]) {
     await rejects400(notObject, "Modification de profil invalide");
@@ -205,20 +206,18 @@ test("validateProfilePatch : seuls les tutos et les réglages passent, tout le r
   for (const notBoolean of ["true", 1, null, new Date().toISOString(), {}]) {
     await rejects400({ tourCompletedAt: notBoolean }, "Modification de profil invalide");
   }
-  for (const notObject of [null, true, "dashboard", ["dashboard"], 1]) {
-    await rejects400({ featureTours: notObject }, "Tutos de profil invalides");
-  }
-  await rejects400({ featureTours: { dashboard: "true" } }, "Tutos de profil invalides");
-  await rejects400({ featureTours: { dashboard: null } }, "Tutos de profil invalides");
-  await rejects400({ featureTours: { dashboard: { seen: true } } }, "Tutos de profil invalides");
-  for (const unknownTour of ["settings", "Dashboard", "kyb", "__proto__", "admin", ""]) {
-    await rejects400({ featureTours: { [unknownTour]: true } }, "Tuto de profil inconnu");
-  }
+  await rejects400({ featureTours: {}, kybStatus: "ACCEPTED" }, "Champ de profil non modifiable");
   for (const notObject of [null, true, "en", ["en"], 1]) {
     await rejects400({ settings: notObject }, "Réglages de profil invalides");
   }
   await rejects400({ settings: { sidebarCollapsed: "yes" } }, "Réglages de profil invalides");
   await rejects400({ settings: { sidebarCollapsed: 1 } }, "Réglages de profil invalides");
+  // Carte « Get started » fermée : booléen strict, comme les autres réglages.
+  assert.deepEqual(profile.validateProfilePatch({ settings: { onboardingDismissed: true } }), { settings: { onboardingDismissed: true } });
+  assert.deepEqual(profile.validateProfilePatch({ settings: { onboardingDismissed: false } }), { settings: { onboardingDismissed: false } });
+  for (const notBoolean of ["true", 1, null, {}]) {
+    await rejects400({ settings: { onboardingDismissed: notBoolean } }, "Réglages de profil invalides");
+  }
   for (const language of ["fr", "EN", "", null, true, ["en"]]) {
     await rejects400({ settings: { language } }, "Langue non prise en charge");
   }
@@ -229,29 +228,30 @@ test("validateProfilePatch : seuls les tutos et les réglages passent, tout le r
 
 test("une modification trop volumineuse est refusée avant toute validation détaillée", async () => {
   const padding = "x".repeat(profile.MAX_PROFILE_PATCH_CHARS);
-  await rejects400({ featureTours: { dashboard: true }, note: padding }, "Modification de profil trop volumineuse", 413);
+  await rejects400({ settings: { sidebarCollapsed: true }, note: padding }, "Modification de profil trop volumineuse", 413);
   await rejects400({ featureTours: { [padding]: true } }, "Modification de profil trop volumineuse", 413);
-  const justBelow = { tourCompletedAt: true, settings: { language: "en" }, featureTours: Object.fromEntries(profile.FEATURE_TOUR_KEYS.map((key) => [key, true])) };
+  const justBelow = { tourCompletedAt: true, settings: { language: "en" } };
   assert.ok(JSON.stringify(justBelow).length < profile.MAX_PROFILE_PATCH_CHARS);
-  assert.deepEqual(profile.validateProfilePatch(justBelow).featureTours, justBelow.featureTours);
-  const largestValid = { tourCompletedAt: true, settings: { language: "en", sidebarCollapsed: true }, featureTours: Object.fromEntries(profile.FEATURE_TOUR_KEYS.map((key) => [key, false])) };
+  assert.deepEqual(profile.validateProfilePatch(justBelow).settings, justBelow.settings);
+  const largestValid = { tourCompletedAt: true, settings: { language: "en", sidebarCollapsed: true, onboardingDismissed: true } };
   assert.ok(JSON.stringify(largestValid).length <= profile.MAX_PROFILE_PATCH_CHARS, "la plus grande modification légitime passe la borne");
 });
 
-test("updateUserProfile fusionne tutos et réglages clé par clé, pose la date du tuto et crée le profil manquant", async () => {
+test("updateUserProfile fusionne les réglages clé par clé, pose la date du tuto et crée le profil manquant", async () => {
   const seeded = fakeDb([{ address: SUBJECT, featureTours: { dashboard: true, junk: 1 }, settings: { sidebarCollapsed: false, theme: "dark" }, kybStatus: "ACCEPTED" }]);
   const before = Date.now();
   let view = await profile.updateUserProfile(MIXED_CASE, { featureTours: { upload: true }, settings: { language: "en" } }, seeded.transaction);
-  assert.deepEqual(view.featureTours, { dashboard: true, upload: true }, "les tutos existants restent, les clés inconnues disparaissent");
+  assert.ok(!("featureTours" in view));
   assert.deepEqual(view.settings, { sidebarCollapsed: false, language: "en" });
   assert.equal(view.kybStatus, "ACCEPTED", "le KYB n'est pas touché");
   assert.equal(view.tourCompletedAt, null);
-  assert.deepEqual(seeded.rows.get(SUBJECT)!.featureTours, { dashboard: true, upload: true });
+  assert.deepEqual(seeded.rows.get(SUBJECT)!.featureTours, { dashboard: true, junk: 1 }, "l'ancienne colonne n'est plus écrite");
   assert.ok(seeded.rows.get(SUBJECT)!.lastSeenAt.getTime() >= before);
   assert.deepEqual(seeded.calls, [`findUnique:${SUBJECT}`, `update:${SUBJECT}`]);
 
+  // Ancien client qui n'envoie que les tutos : rien à écrire hors du passage, pas d'erreur.
   view = await profile.updateUserProfile(SUBJECT, { featureTours: { dashboard: false } }, seeded.transaction);
-  assert.deepEqual(view.featureTours, { dashboard: false, upload: true }, "une valeur peut être remise à faux");
+  assert.deepEqual(view.settings, { sidebarCollapsed: false, language: "en" });
 
   view = await profile.updateUserProfile(SUBJECT, { tourCompletedAt: true }, seeded.transaction);
   const completedAt = view.tourCompletedAt;
@@ -435,9 +435,9 @@ test("hors connexion, GET et PATCH posent aussi des délais PostgreSQL bornés �
   const direct = fakeDb();
   await profile.ensureUserProfile(SUBJECT, { ...(direct.db as object), $transaction: async () => { throw new Error("ne doit pas être appelé"); } } as never);
   assert.ok(direct.rows.has(SUBJECT), "ensureUserProfile n'ouvre jamais de transaction, même si le client le permet");
-  await profile.updateUserProfile(SUBJECT, { featureTours: { wallet: true } }, async (action) => action(tx as never));
+  await profile.updateUserProfile(SUBJECT, { settings: { sidebarCollapsed: true } }, async (action) => action(tx as never));
   assert.deepEqual(statements, [`SET LOCAL lock_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`, `SET LOCAL statement_timeout = ${profile.PROFILE_DB_TIMEOUT_MS}`]);
-  assert.deepEqual(store.rows.get(SUBJECT)!.featureTours, { wallet: true });
+  assert.deepEqual(store.rows.get(SUBJECT)!.settings, { sidebarCollapsed: true });
   assert.ok(profile.PROFILE_DB_TIMEOUT_MS > profile.LOGIN_PROFILE_TIMEOUT_MS && profile.PROFILE_DB_TIMEOUT_MS <= 10_000, "plus large qu'à la connexion, mais borné");
   // Reprises sérialisables épuisées : 409 réessayable plutôt qu'un 500 opaque.
   const exhausted = new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "test" });
@@ -486,7 +486,7 @@ test("GET /api/profile renvoie le profil du wallet de la session, créé au beso
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   const json = await response.json();
   assert.equal(json.address, SUBJECT);
-  assert.deepEqual(Object.keys(json).sort(), ["address", "blockedAt", "createdAt", "featureTours", "kybCheckedAt", "kybStatus", "lastSeenAt", "settings", "tourCompletedAt"]);
+  assert.deepEqual(Object.keys(json).sort(), ["address", "blockedAt", "createdAt", "kybCheckedAt", "kybStatus", "lastSeenAt", "settings", "tourCompletedAt"]);
   assert.ok(store.rows.has(SUBJECT));
 
   const anonymous = profileRoute(store, null);
@@ -499,19 +499,23 @@ test("GET /api/profile renvoie le profil du wallet de la session, créé au beso
 });
 
 test("PATCH /api/profile ne touche que le profil de la session et refuse toute adresse ou champ protégé du corps", async () => {
-  const store = fakeDb([{ address: OTHER, featureTours: { dashboard: true } }]);
+  const store = fakeDb([{ address: OTHER, settings: { sidebarCollapsed: false } }]);
   const route = profileRoute(store);
-  let response = await patch(route, { featureTours: { upload: true } });
+  let response = await patch(route, { settings: { sidebarCollapsed: true } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
-  assert.deepEqual((await response.json()).featureTours, { upload: true });
-  assert.deepEqual(store.rows.get(OTHER)!.featureTours, { dashboard: true }, "l'autre wallet n'est pas touché");
+  assert.deepEqual((await response.json()).settings, { sidebarCollapsed: true });
+  assert.deepEqual(store.rows.get(OTHER)!.settings, { sidebarCollapsed: false }, "l'autre wallet n'est pas touché");
 
-  response = await patch(route, { address: OTHER, featureTours: { train: true } });
+  response = await patch(route, { address: OTHER, settings: { sidebarCollapsed: false } });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "Champ de profil non modifiable");
-  assert.deepEqual(store.rows.get(OTHER)!.featureTours, { dashboard: true });
-  assert.deepEqual(store.rows.get(SUBJECT)!.featureTours, { upload: true });
+  assert.deepEqual(store.rows.get(OTHER)!.settings, { sidebarCollapsed: false });
+  assert.deepEqual(store.rows.get(SUBJECT)!.settings, { sidebarCollapsed: true });
+  // Ancien client qui envoie encore les tutos par page : 200, rien d'écrit.
+  response = await patch(route, { featureTours: { upload: true } });
+  assert.equal(response.status, 200);
+  assert.ok(!("featureTours" in (await response.json())));
 
   for (const [payload, status, error] of [
     [{ kybStatus: "ACCEPTED" }, 400, "Champ de profil non modifiable"],
@@ -521,8 +525,8 @@ test("PATCH /api/profile ne touche que le profil de la session et refuse toute a
     ["null", 400, "JSON invalide"],
     ["{not json", 400, "JSON invalide"],
     [{ settings: { language: "fr" } }, 400, "Langue non prise en charge"],
-    [{ featureTours: { dashboard: true }, note: "x".repeat(2 * profile.MAX_PROFILE_PATCH_CHARS) }, 413, "Requête trop volumineuse"],
-    [{ featureTours: { dashboard: true }, note: "x".repeat(profile.MAX_PROFILE_PATCH_CHARS) }, 413, "Modification de profil trop volumineuse"],
+    [{ tourCompletedAt: true, note: "x".repeat(2 * profile.MAX_PROFILE_PATCH_CHARS) }, 413, "Requête trop volumineuse"],
+    [{ tourCompletedAt: true, note: "x".repeat(profile.MAX_PROFILE_PATCH_CHARS) }, 413, "Modification de profil trop volumineuse"],
   ] as const) {
     response = await patch(route, payload);
     assert.equal(response.status, status, JSON.stringify(payload));
@@ -541,7 +545,7 @@ test("GET et PATCH /api/profile sont limités en débit par wallet, avant toute 
   const store = fakeDb();
   const route = profileRoute(store);
   const statuses: number[] = [];
-  for (let i = 0; i < 21; i++) statuses.push((await patch(route, { featureTours: { dashboard: i % 2 === 0 } })).status);
+  for (let i = 0; i < 21; i++) statuses.push((await patch(route, { settings: { sidebarCollapsed: i % 2 === 0 } })).status);
   assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
   assert.equal(statuses[20], 429);
   const refused = await patch(route, { kybStatus: "ACCEPTED" });

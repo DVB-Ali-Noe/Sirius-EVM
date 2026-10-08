@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EscrowCredits } from "@/components/wallet/EscrowCredits";
 import { Card } from "@/components/ui/Card";
-import { ConnectPrompt } from "@/components/wallet/ConnectCta";
 import { Page, PageHeader } from "@/components/layout/Page";
 import { CardTitle } from "@/components/ui/Heading";
 import { useWalletStore } from "@/stores/wallet";
@@ -17,6 +16,8 @@ import { truncate } from "@/lib/format";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { AddFundsDialog } from "@/components/wallet/AddFundsDialog";
+import { GetStartedCard } from "@/components/onboarding/GetStartedCard";
+import { WELCOME_BODY, WELCOME_TITLE } from "@/lib/onboarding/copy";
 
 interface ReputationSnapshot {
   score: number;
@@ -132,22 +133,39 @@ function DashboardPageContent() {
     };
   }, [address, authenticated]);
 
+  // Accueil tant que la session n'est pas signée : ce qu'est Sirius, puis le parcours, dont
+  // la première étape (connexion ou signature) se fait depuis la carte.
+  const welcome = <PageHeader title={t(WELCOME_TITLE)} description={t(WELCOME_BODY)} />;
+  const onAddFunds = network === "mainnet" ? () => setFundsDialog(true) : () => void handleAddFunds();
+
   if (!connected || !address) {
     return (
       <Page>
-        <PageHeader title={t("Bienvenue sur Sirius")} />
-        <ConnectPrompt message={t("Connecte un wallet pour accéder à ton tableau de bord.")} />
+        {welcome}
+        <GetStartedCard address={null} gasWei={null} stableAtomic={null} token={token} onAddFunds={onAddFunds} fundsPending={fundsPending} />
       </Page>
     );
   }
 
   return (
     <Page>
-      <PageHeader title={t("Tableau de bord")} description={<span className="font-mono">{truncate(address)}</span>} />
+      {authenticated ? (
+        <PageHeader title={t("Tableau de bord")} description={<span className="font-mono">{truncate(address)}</span>} />
+      ) : welcome}
 
       <DisclaimerNote messages={["betaLimits", "modelQuality", "contactUs"]} />
 
-      <Card className="flex flex-wrap items-end justify-between gap-4">
+      {/* Parcours d'accueil : étapes déduites de la session, du KYB, des soldes lus ici et des prêts du compte. */}
+      <GetStartedCard
+        address={address}
+        gasWei={gas?.wei ?? null}
+        stableAtomic={error ? null : balance?.atomic ?? null}
+        token={token}
+        onAddFunds={onAddFunds}
+        fundsPending={fundsPending}
+      />
+
+      <Card className="flex flex-wrap items-end justify-between gap-4" data-guide="page:dashboard:balance">
         <div>
           <div className="text-xs uppercase tracking-wider text-muted">{t("Solde")}</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -182,10 +200,10 @@ function DashboardPageContent() {
         </div>
       </Card>
 
-      <EscrowCredits onWithdraw={refresh} />
+      <EscrowCredits onWithdraw={refresh} guideAnchor="page:dashboard:credits" />
 
       {reputation && (
-        <Card>
+        <Card data-guide="page:dashboard:trust">
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <div>
               <CardTitle>{t("Confiance EVM")}</CardTitle>
@@ -200,7 +218,7 @@ function DashboardPageContent() {
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3" data-guide="page:dashboard:shortcuts">
         {SHORTCUTS.map((s) => (
           <Link
             key={s.href}

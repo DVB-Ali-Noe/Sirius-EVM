@@ -25,10 +25,6 @@ async function connect(page: Page, address = A) {
   await page.evaluate(a => window.__SIRIUS_E2E__?.connect(a, "provider"), address);
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("sirius-tour-seen", "1"));
-});
-
 test("Entraîner ignore la réponse privée d'un compte remplacé", async ({ page }) => {
   let ownerB = false;
   const delayed: Route[] = [];

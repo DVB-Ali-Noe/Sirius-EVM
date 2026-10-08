@@ -24,7 +24,8 @@ interface Credit {
   transaction?: Record<string, unknown>;
 }
 
-export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> }) {
+/** `guideAnchor` : ancre de la visite de page (`data-guide`), posée sur la carte quand elle s'affiche. */
+export function EscrowCredits({ onWithdraw, guideAnchor }: { onWithdraw: () => Promise<void>; guideAnchor?: string }) {
   const authenticated = useWalletStore((state) => state.authenticated);
   const { t } = useLocale();
   const [identity] = useState(() => ({ revision: useWalletStore.getState().revision, provider: getExternalWallet() }));
@@ -90,7 +91,7 @@ export function EscrowCredits({ onWithdraw }: { onWithdraw: () => Promise<void> 
   const visible = credits.filter((credit) => !credit.available || BigInt(credit.atomic ?? 0) > BigInt(0));
   if (!authenticated || (!error && visible.length === 0)) return null;
   return (
-    <Card>
+    <Card data-guide={guideAnchor}>
       <div className="flex items-center justify-between gap-4">
         <CardTitle>{t("{token} à retirer", { token: TOKEN })}</CardTitle>
         <button onClick={() => void refresh()} disabled={loading || Boolean(withdrawing)} className="text-xs text-accent disabled:opacity-50">{t("Actualiser")}</button>

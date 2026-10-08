@@ -23,6 +23,7 @@ import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import type { BudgetLedger } from "@/lib/runner/budget-ledger";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
 import { assertCanonicalReceipt, confirmedBlock } from "./finality";
+import type { FinalityTier } from "./fast-finality";
 
 /**
  * Adaptateur du contrat SiriusEscrow. L'état d'un prêt se lit en un `eth_call`;
@@ -117,12 +118,16 @@ export async function assertLoanScope(input: {
   model: ModelSelection;
   minimumRemainingSeconds?: number;
   billingQuote?: ComputeQuote;
+  /** Palier déjà arbitré par l'enclave (`enclaveFinalityTier`) ; absent ⇒ finalité complète. */
+  finalityTier?: FinalityTier;
 }): Promise<void> {
   const client = getPublicClient();
   const provider = normalizeAddress(input.provider);
   if (input.billingQuote) {
     const quote = input.billingQuote;
-    const block = await confirmedBlock(client, runnerBudget()?.policy.gas.confirmations);
+    // Le lock est relu à la profondeur du palier : bloc finalisé, ou N confirmations L2 pour un
+    // petit prêt admis en rapide (le hash de ce bloc est contrôlé par confirmedBlock).
+    const block = await confirmedBlock(client, runnerBudget()?.policy.gas.confirmations, input.finalityTier ?? "FULL");
     const request = {
       address: escrowAddress(), abi: siriusescrowv7Abi, functionName: "matchesScope",
       args: [input.loanKey, quoteTermsHash(quote), BigInt(input.minimumRemainingSeconds ?? MIN_REMAINING_SECONDS)],
@@ -385,6 +390,7 @@ export async function publishedFinalizedPreimage(
   settleTxHash: Hex,
   binding: EvmEscrowBinding,
   confirmations: number,
+  finalityTier: FinalityTier = "FULL",
 ): Promise<Hex> {
   const client = getPublicClient();
   if (await client.getChainId() !== binding.chainId) throw new AppError("RPC sur un autre réseau", 503);
@@ -397,7 +403,7 @@ export async function publishedFinalizedPreimage(
     || receipt.to?.toLowerCase() !== address || transaction.to?.toLowerCase() !== address) {
     throw new AppError("Règlement on-chain non confirmé", 409);
   }
-  await assertCanonicalReceipt(client, receipt, confirmations);
+  await assertCanonicalReceipt(client, receipt, confirmations, finalityTier);
   let call;
   try { call = decodeFunctionData({ abi: siriusescrowv7Abi, data: transaction.input }); }
   catch { throw new AppError("Transaction de règlement invalide", 409); }

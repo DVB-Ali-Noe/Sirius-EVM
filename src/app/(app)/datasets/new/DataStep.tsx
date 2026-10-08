@@ -86,6 +86,7 @@ export function DataStep({
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
           data-dragging={dragging ? "true" : undefined}
+          data-guide="page:upload:file"
           className={`flex min-w-0 flex-col gap-3 rounded-xl border border-dashed p-4 transition-colors ${
             dragging ? "border-accent bg-accent/5" : "border-border bg-surface/30"
           }`}
@@ -198,7 +199,7 @@ export function DataStep({
         />
       </div>
 
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-5 sm:grid-cols-2" data-guide="page:upload:profile">
         <div className="flex min-w-0 flex-col gap-1.5">
           <label className="text-sm font-medium" htmlFor={ids.category}>{t("Catégorie")}</label>
           <select

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { restartWelcomeTour } from "@/components/tour/tour-store";
+import { replayGuide } from "@/components/guide/guide-store";
 import { Card } from "@/components/ui/Card";
 import { ConnectPrompt } from "@/components/wallet/ConnectCta";
 import { Page, PageHeader } from "@/components/layout/Page";
@@ -61,7 +61,7 @@ export function SettingsView() {
             <p className="mt-2 text-xs text-muted">{t("Replay the welcome tour of the application.")}</p>
             <button
               type="button"
-              onClick={() => restartWelcomeTour()}
+              onClick={() => replayGuide()}
               className="mt-3 rounded-lg border border-border px-3.5 py-2 text-sm font-medium transition-colors hover:border-white/20"
             >
               {t("Restart guided tour")}

@@ -248,6 +248,7 @@ function NavLinks({ vertical, expanded = true }: { vertical?: boolean; expanded?
             }}
             href={item.href}
             aria-current={active ? "page" : undefined}
+            data-guide={`nav:${item.href}`}
             title={vertical && !expanded ? t(item.label) : undefined}
             className={`relative rounded-[2rem] font-medium transition-[background-color,color,transform] duration-200 active:scale-[0.96] ${
               vertical ? "flex min-h-14 w-full items-center px-[18px] text-base" : "shrink-0 px-4 py-2.5 text-sm"} ${
