@@ -1,4 +1,53 @@
-# Annonce du 6 octobre — brouillons
+# Annonces mainnet — tweets publiés et brouillons
+
+La première partie garde les tweets publiés sur [@sirius_data](https://x.com/sirius_data), du plus ancien au plus récent, avec leur vidéo. La seconde garde les brouillons écrits avant le lancement du 6 octobre.
+
+## Tweets publiés
+
+### 6 octobre — lancement du mainnet
+
+Vidéo : `Sirius_Launch_4K_16x9.mp4`. Publié : https://x.com/sirius_data/status/2107442766737526843
+
+> Sirius is live on Robinhood Chain mainnet.
+>
+> Rent access to private datasets without ever exposing them: data stays encrypted, models train inside an Intel TDX enclave, payments settle on-chain in USDG.
+>
+> You get the model. Never the data.
+>
+> 🔗 sirius-data.tech
+
+### Paiement à la livraison
+
+> You rented out your data. When do you get paid?
+>
+> On Sirius, the buyer's payment is locked in a smart contract. The transaction that delivers the model credits the seller.
+>
+> Paid on delivery. Held by no one.
+>
+> Live on mainnet
+
+### 8 octobre — Sirio, le guide
+
+Vidéo : `Sirio_v2_16x9.mp4` (Remotion, 36 s). Mise en production le même jour : Sirio, l'assistant et la finalité rapide des petits prêts.
+
+> Every product has a manual. Nobody reads it.
+>
+> So we made ours alive. Meet Sirio, the guide inside Sirius 🌑
+>
+> → Greets you on arrival
+> → Walks you through every page
+> → Answers your questions, live
+>
+> Now live on mainnet 👇
+> sirius-data.tech
+
+Réponse en fil, seulement une fois un prêt de test réglé en quelques secondes sur le mainnet :
+
+> Also shipped today: small loans (≤ 25 USDG) now confirm in seconds instead of ~15 minutes.
+>
+> Borrow a dataset, hit Run job, get your model. The data never leaves the enclave.
+
+## Brouillons d'avant le lancement (6 octobre)
 
 Brouillons à relire à deux la veille, publiés seulement si la porte go/no-go du dimanche 5 est franchie. Ils restent factuels : bêta plafonnée, accès sur invitation, pas d'audit externe revendiqué. Aucune mention d'un partenaire tant qu'il n'a pas validé le texte.
 
