@@ -46,7 +46,7 @@ function mcpHandler(origin: string): McpHttpHandler {
 
 async function serve(req: Request): Promise<Response> {
   if (process.env.SIRIUS_MCP_ENABLED !== "true") {
-    return noStore(NextResponse.json({ error: "Not found" }, { status: 404 }));
+    return noStore(NextResponse.json({ error: "Serveur MCP indisponible" }, { status: 404 }));
   }
   try {
     enforceRateLimit(limiter, requestClientKey(req));
