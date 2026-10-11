@@ -53,6 +53,9 @@ overrides:
   'source-map-js@>=1 <1.2.2': '1.2.2'
   # Avis du 7 octobre 2026 : librsvg via sharp (GHSA-wq5f-xc86-pv6w) et pbkdf2 (GHSA-477h-4r7f-fvrx).
   'pbkdf2@<3.1.7': '3.1.7'
+  # Avis du 5 octobre 2026 : handlebars (GHSA-8r5x-fm3f-whwj, GHSA-p8wg-vrv2-v86f, GHSA-xw65-4hp5-5hc7),
+  # atteint uniquement par l'outillage Solidity de développement (solidity-coverage > sc-istanbul).
+  'handlebars@>=4 <4.7.10': '4.7.10'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans
