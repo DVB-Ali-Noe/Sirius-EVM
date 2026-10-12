@@ -137,7 +137,7 @@ const SECTIONS: [string, string[]][] = [
 
 export default function PrivacyPage() {
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Sirius</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Privacy policy</h1>
       <p className="mt-3 text-sm text-muted">Last updated {LAST_UPDATED}. This policy completes the <Link href="/terms" className="text-accent hover:text-accent/80">terms</Link>.</p>
