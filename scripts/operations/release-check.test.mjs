@@ -168,6 +168,9 @@ test("accès instantané KYB : la clé automatique n'est admise que sur Next, av
   const padded = mainnetEnvironments();
   Object.assign(padded[0], { SIRIUS_KYB_AUTO_INVITE: " true ", SIRIUS_KYB_AUTO_INVITE_KEY: ` ${key} ` });
   assert.equal(checkReleaseEnvironments(...padded, "mainnet").configurationReady, true);
+  const sponsored = mainnetEnvironments();
+  Object.assign(sponsored[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: key, SIRIUS_KYB_AUTO_SPONSOR: "true" });
+  assert.equal(checkReleaseEnvironments(...sponsored, "mainnet").configurationReady, true);
   const blank = mainnetEnvironments();
   Object.assign(blank[0], { SIRIUS_KYB_AUTO_INVITE: " ", SIRIUS_KYB_AUTO_INVITE_KEY: "  " });
   assert.equal(checkReleaseEnvironments(...blank, "mainnet").configurationReady, true);
@@ -177,6 +180,7 @@ test("accès instantané KYB : la clé automatique n'est admise que sur Next, av
     [(env) => { env[0].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag"],
     [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "false", SIRIUS_KYB_AUTO_INVITE_KEY: key }); }, "next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag"],
     [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "1", SIRIUS_KYB_AUTO_INVITE_KEY: key }); }, "next.SIRIUS_KYB_AUTO_INVITE"],
+    [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: key, SIRIUS_KYB_AUTO_SPONSOR: "yes" }); }, "next.SIRIUS_KYB_AUTO_SPONSOR"],
     [(env) => { env[1].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "reaper.forbidden-secret-or-simulator"],
     [(env) => { env[2].SIRIUS_KYB_AUTO_INVITE_KEY = key; }, "runner.forbidden-secret-or-simulator"],
     [(env) => { Object.assign(env[0], { SIRIUS_KYB_AUTO_INVITE: "true", SIRIUS_KYB_AUTO_INVITE_KEY: key, SIRIUS_KYB_VERIFIER_KEY: key }); }, "next.forbidden-secret-or-simulator"],

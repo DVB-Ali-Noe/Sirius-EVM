@@ -93,9 +93,9 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
     steps: [
       { anchor: null, title: "La marketplace", body: "Les datasets publiés par les fournisseurs. Un emprunt, c’est un entraînement dans l’enclave : tu reçois le modèle, jamais la donnée." },
       { anchor: "search", title: "Rechercher", body: "Par nom ou description ; la recherche part après une pause de frappe, ou sur Entrée." },
-      { anchor: "filters", title: "Filtrer", body: "Catégorie, modèle, prix total, taille — et « Vérifiés KYB uniquement » pour ne garder que les fournisseurs attestés." },
+      { anchor: "filters", title: "Filtrer", body: "Catégorie, modèle, prix total, taille — et « Vérifiés uniquement » pour ne garder que les fournisseurs attestés." },
       { anchor: "sort", title: "Trier", body: "Plus récents, plus empruntés ou prix croissant." },
-      { anchor: "grid", title: "Les fiches", body: "Prix affiché frais de calcul compris quand ils sont connus, lignes, colonnes, badge KYB. L’étoile garde un favori ; clique sur une fiche pour l’ouvrir et emprunter." },
+      { anchor: "grid", title: "Les fiches", body: "Prix affiché frais de calcul compris quand ils sont connus, lignes, colonnes, badge « vérifié ». L’étoile garde un favori ; clique sur une fiche pour l’ouvrir et emprunter." },
     ],
   },
   dataset: {
@@ -106,7 +106,7 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
       { anchor: "model", title: "Le modèle", body: "Fixé par le fournisseur à la publication : c’est ce modèle entraîné que tu recevras, avec ses coefficients et ses métriques." },
       { anchor: "stats", title: "Statistiques", body: "Emprunts passés et part réglée au fournisseur : un signal sur la fiabilité du dataset." },
       { anchor: "price", title: "Ce que tu paies", body: "La part du fournisseur plus les frais de calcul. Le montant exact est dans le devis, avant tout paiement ; le gas se paie à part, en ETH." },
-      { anchor: "borrow", title: "Emprunter", body: "Une transaction bloque le prix en escrow. La connexion et la vérification KYB ne sont demandées qu’à ce moment-là." },
+      { anchor: "borrow", title: "Emprunter", body: "Une transaction bloque le prix en escrow. La connexion et la vérification du wallet ne sont demandées qu’à ce moment-là." },
     ],
   },
   datasets: {
@@ -155,17 +155,17 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
     ],
   },
   kyb: {
-    title: "Vérification KYB",
+    title: "Vérification du wallet",
     steps: [
       {
         anchor: null,
-        title: "Vérification KYB",
+        title: "Vérification du wallet",
         body: {
-          mainnet: "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.",
-          testnet: "Chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.",
+          mainnet: "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.",
+          testnet: "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.",
         },
       },
-      { anchor: "status", title: "Ton statut", body: "Lu dans le registre KYB on-chain : vérifié, avec la date d’expiration, ou non vérifié." },
+      { anchor: "status", title: "Ton statut", body: "Lu dans le registre de vérification on-chain : vérifié, avec la date d’expiration, ou non vérifié." },
       { anchor: "invite", title: "Obtenir l’accès", body: "L’accès instantané quand il est ouvert — une transaction —, sinon le code d’invitation reçu de l’équipe." },
       { anchor: "soon", title: "Bientôt", body: "Ce qui arrive ensuite pour la vérification." },
     ],

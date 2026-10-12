@@ -72,9 +72,9 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await expect(page.getByRole("heading", { name: "Available datasets" })).toBeVisible();
   const card = page.getByRole("listitem").filter({ hasText: item.name });
   await expect(card.getByText("4.75 USDC", { exact: true })).toBeVisible();
-  await expect(card.getByText("KYB-verified provider")).toBeVisible();
+  await expect(card.getByText("Verified provider")).toBeVisible();
   await expect(card.getByText("Mobility")).toBeVisible();
-  await expect(page.getByRole("listitem").filter({ hasText: other.name }).getByText("Provider not KYB-verified")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: other.name }).getByText("Unverified provider")).toBeVisible();
   await expect(page.getByText("Prices include the compute fee from the latest quote")).toBeVisible();
 
   await card.getByRole("link", { name: item.name }).click();
@@ -134,8 +134,8 @@ test("filtres : catégorie, modèle, recherche, vérifiés, fourchettes et tri p
   await expect(search).toHaveValue("crédit pme");
   expect(lastQuery().get("q")).toBe("crédit pme");
 
-  await page.getByRole("checkbox", { name: "KYB-verified providers only" }).click();
-  await expect(page.getByRole("checkbox", { name: "KYB-verified providers only" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "Verified providers only" }).click();
+  await expect(page.getByRole("checkbox", { name: "Verified providers only" })).toBeChecked();
   await expect(page).toHaveURL(/verified=1/);
 
   await page.getByRole("button", { name: "Total price (USDC)" }).click();
@@ -177,7 +177,7 @@ test("fournisseur sans KYB valide et facturation v6 : emprunt désactivé, texte
   });
   await page.goto(`/marketplace/${item.id}`);
   await expect(page.getByRole("button", { name: "Borrow" })).toBeDisabled();
-  await expect(page.getByText("Borrowing unavailable: the provider’s KYB attestation is missing or expired.")).toBeVisible();
+  await expect(page.getByText("Borrowing unavailable: the provider’s verification attestation is missing or expired.")).toBeVisible();
   await expect(page.getByText("No compute fee is charged: the locked amount is returned in full.", { exact: false })).toBeVisible();
   await expect(page.getByText("Only the compute actually consumed is retained", { exact: false })).toHaveCount(0);
 });

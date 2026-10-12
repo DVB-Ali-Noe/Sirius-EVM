@@ -21,8 +21,8 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "Vérifie ton wallet": "Verify your wallet",
   "Obligatoire pour prêter et emprunter sur mainnet. Une seule transaction à confirmer.": "Required to lend and borrow on mainnet. One transaction to confirm.",
   "Obligatoire pour prêter et emprunter. Une seule transaction à confirmer.": "Required to lend and borrow. One transaction to confirm.",
-  "Avant de prêter ou d’emprunter un dataset, ton wallet doit être vérifié (KYB). Ça prend une seule transaction.":
-    "Before you lend or borrow a dataset, your wallet must be verified (KYB). It takes a single transaction.",
+  "Avant de prêter ou d’emprunter un dataset, ton wallet doit être vérifié. Ça prend une seule transaction.":
+    "Before you lend or borrow a dataset, your wallet must be verified. It takes a single transaction.",
   "Ajoute de l’ETH et des {token}": "Add ETH and {token}",
   "L’ETH paie le gas de chaque transaction ; les {token} paient l’emprunt.": "ETH pays the gas for each transaction; {token} pays for the loan.",
   "Choisis un dataset": "Pick a dataset",
@@ -31,7 +31,7 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "Sur la fiche, clique sur Emprunter : le prix du dataset et le compute sont bloqués en escrow.": "On the dataset page, click Borrow: the dataset price and compute are locked in escrow.",
   "Récupère ton modèle": "Get your model",
   "L’entraînement tourne dans une enclave TEE ; ton modèle t’attend sur la page Entraîner.": "Training runs in a TEE enclave; your model waits for you on the Train page.",
-  "Voir mon statut KYB": "Check my KYB status",
+  "Voir mon statut de vérification": "Check my verification status",
   "Saisir un code d’invitation": "Enter an invitation code",
   "Ouvrir la marketplace": "Open the marketplace",
   "Ouvrir Entraîner": "Open Train",
@@ -41,14 +41,14 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   " et ": " and ",
 
   // Fenêtre de vérification
-  "KYB · une transaction": "KYB · one transaction",
+  "Vérification · une transaction": "Verification · one transaction",
   "Ton wallet est vérifié": "Your wallet is verified",
-  "Avant de prêter ou d’emprunter un dataset sur mainnet, ton wallet doit être vérifié (KYB). Ça prend une seule transaction.":
-    "Before you lend or borrow a dataset on mainnet, your wallet must be verified (KYB). It takes a single transaction.",
-  "Pour emprunter ce dataset, ton wallet doit d’abord être vérifié (KYB). Une fois fait, l’emprunt reprend tout seul.":
-    "To borrow this dataset, your wallet must first be verified (KYB). Once done, the loan continues on its own.",
-  "Pour publier un dataset, ton wallet doit d’abord être vérifié (KYB). Une fois fait, la publication reprend toute seule.":
-    "To publish a dataset, your wallet must first be verified (KYB). Once done, publishing continues on its own.",
+  "Avant de prêter ou d’emprunter un dataset sur mainnet, ton wallet doit être vérifié. Ça prend une seule transaction.":
+    "Before you lend or borrow a dataset on mainnet, your wallet must be verified. It takes a single transaction.",
+  "Pour emprunter ce dataset, ton wallet doit d’abord être vérifié. Une fois fait, l’emprunt reprend tout seul.":
+    "To borrow this dataset, your wallet must first be verified. Once done, the loan continues on its own.",
+  "Pour publier un dataset, ton wallet doit d’abord être vérifié. Une fois fait, la publication reprend toute seule.":
+    "To publish a dataset, your wallet must first be verified. Once done, publishing continues on its own.",
   "Sirius signe une attestation de 30 jours pour ce wallet ; tu la confirmes dans ton wallet. La transaction coûte un peu d’ETH de gas.":
     "Sirius signs a 30-day attestation for this wallet; you confirm it in your wallet. The transaction costs a little ETH for gas.",
   "Ton wallet n’a pas encore d’ETH sur Robinhood Chain. Il en faut un peu pour payer le gas de la transaction : ajoute-en d’abord, puis reviens ici.":

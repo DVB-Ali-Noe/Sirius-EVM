@@ -11,7 +11,7 @@ import {
 } from "@/lib/onboarding/steps";
 
 /**
- * État partagé du parcours d'accueil : statut KYB du wallet signé, fenêtre de vérification
+ * État partagé du parcours d'accueil : statut de vérification du wallet signé, fenêtre de vérification
  * ouverte et préférence « carte Get started fermée ».
  *
  * Une seule lecture de `/api/kyb/status` sert la carte du tableau de bord, la fenêtre proposée
@@ -79,7 +79,7 @@ export function resetOnboardingFor(address: string | null): void {
   useOnboardingStore.setState({ owner, kyb: null, instantAccess: false, checkedAt: 0, dismissed: null, reopened: false, dialog: null });
 }
 
-/** Lit le statut KYB du wallet signé. Les lectures simultanées d'un même wallet sont partagées. */
+/** Lit le statut de vérification du wallet signé. Les lectures simultanées d'un même wallet sont partagées. */
 export function loadKybGate(): Promise<KybGateState> {
   const owner = signedAddress();
   if (!owner) return Promise.resolve("unknown");

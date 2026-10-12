@@ -33,7 +33,7 @@ test("état KYB : une réponse douteuse n'est jamais « vérifié » ni « non v
   for (const bad of [null, undefined, "x", 1, [], {}, { valid: "true", revoked: false, expiresAt: 1 },
     { valid: true, revoked: "no", expiresAt: 1 }, { valid: true, expiresAt: "1", revoked: false },
     { valid: true, expiresAt: -5, revoked: false }, { valid: true, expiresAt: 1.5, revoked: false },
-    { valid: true, expiresAt: 1, revoked: true }, { error: "Statut KYB indisponible" }]) {
+    { valid: true, expiresAt: 1, revoked: true }, { error: "Statut de vérification indisponible" }]) {
     assert.deepEqual(parseKybStatus(bad), unknown, JSON.stringify(bad));
   }
   // Valide sans date lisible : vérifié, sans inventer d'échéance.

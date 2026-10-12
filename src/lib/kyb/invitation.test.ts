@@ -34,6 +34,6 @@ test("modifier l'adresse, l'expiration ou le nonce casse la signature", async ()
 test("un code mal formé est refusé sans exception non maîtrisée", () => {
   for (const code of [undefined, 42, "", "sirius-kyb-", "autre-prefixe-abc", "sirius-kyb-%%%", `sirius-kyb-${"a".repeat(3000)}`,
     `sirius-kyb-${Buffer.from(JSON.stringify({ v: 2 })).toString("base64url")}`]) {
-    assert.throws(() => decodeKybInvitation(code), /Code d’invitation KYB invalide/);
+    assert.throws(() => decodeKybInvitation(code), /Code d’invitation invalide/);
   }
 });

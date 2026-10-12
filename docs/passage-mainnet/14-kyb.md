@@ -55,6 +55,17 @@ Décision des fondateurs : ouvrir le mainnet **sans contact manuel**, en gardant
 2. Safe admin `0xb6288dA83c69B1337525ad73298A36334Aa68631` → registre `0x8bd1590e2e223605adf3ea83dfa4cd272033c24c` → `addVerifier(<adresse dérivée>)`.
 3. Vercel, projet de production : `SIRIUS_KYB_AUTO_INVITE_KEY` (Sensitive) puis `SIRIUS_KYB_AUTO_INVITE=true`, redéployer. Au démarrage, les logs annoncent l'adresse du vérificateur automatique et les plafonds. `SIRIUS_KYB_AUTO_INVITE=true` sans clé valide refuse de démarrer ; `release-check` n'admet la clé que sur Next et seulement avec le drapeau.
 
+### Attestation parrainée à la connexion (KYB invisible)
+
+Fichiers : `prepareSponsoredAttestation` / `submitSponsoredAttestation` dans `src/lib/kyb/auto-invite.ts`, `src/app/api/kyb/auto-attest/route.ts`, `attestViaAutoSponsor` dans `src/lib/kyb/client.ts`.
+
+Décision des fondateurs (12 octobre 2026) : plus aucune étape KYB visible. Le registre et l'escrow ne changent pas ; juste après la connexion, le wallet signe **son consentement** (EIP-712, aucune transaction, aucun ETH) et le **vérificateur automatique** envoie `attestWithConsent` en payant le gas. L'utilisateur se connecte et peut aussitôt louer ou publier. Si le parrainage échoue ou est coupé, le parcours habituel (accès instantané, code d'invitation) reste proposé.
+
+- **Mêmes règles que l'accès instantané** : wallet bloqué ou révoqué refusé, attestation de l'équipe jamais remplacée, renouvellement dans les 7 derniers jours, mêmes plafonds en base (une émission par wallet et par 24 h, par IP et par heure, par heure).
+- **Aucune dépense inutile** : signature vérifiée hors chaîne, transaction simulée avant l'envoi, une seule transaction du vérificateur à la fois par instance.
+- **Gas** : approvisionner l'adresse du vérificateur automatique. Sous **0,0002 ETH**, le parrainage s'arrête (503) pour garder la réserve des révocations ; les utilisateurs retombent sur l'accès instantané.
+- **Activation** : `SIRIUS_KYB_AUTO_SPONSOR=true` sur Vercel (production), en plus de `SIRIUS_KYB_AUTO_INVITE=true` et de sa clé, puis redéploiement. Coupure : retirer le drapeau (retour au bouton d'accès instantané).
+
 ### Interrupteurs
 
 - **Drapeau** : `SIRIUS_KYB_AUTO_INVITE` retiré ou à `false`, redéploiement → plus aucune invitation émise (route 404, bouton absent). Les attestations déjà acceptées courent jusqu'à leur terme (30 jours au plus).

@@ -32,7 +32,7 @@ export function KybInviteForm({ role, secondary = false, onAccepted, onBusyChang
       setCode("");
       accepted = true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Code d’invitation KYB invalide");
+      setError(err instanceof Error ? err.message : "Code d’invitation invalide");
     } finally {
       setBusy(false);
       onBusyChange?.(false);
@@ -43,7 +43,7 @@ export function KybInviteForm({ role, secondary = false, onAccepted, onBusyChang
 
   return (
     <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
-      <label htmlFor={`kyb-invite-${role}`} className="text-sm font-medium">{t("Code d’invitation KYB")}</label>
+      <label htmlFor={`kyb-invite-${role}`} className="text-sm font-medium">{t("Code d’invitation")}</label>
       {/* Avec l'accès instantané, le code collé devient le chemin secondaire : la phrase ne parle plus d'invitation obligatoire. */}
       <p className="text-xs text-muted">
         {secondary

@@ -58,7 +58,7 @@ export function encodeKybInvitation(invitation: KybInvitation): string {
 }
 
 export function decodeKybInvitation(code: unknown): KybInvitation {
-  const invalid = () => new Error("Code d’invitation KYB invalide");
+  const invalid = () => new Error("Code d’invitation invalide");
   if (typeof code !== "string" || code.length > 2048 || !code.startsWith("sirius-kyb-")) throw invalid();
   const body = code.slice("sirius-kyb-".length).trim();
   if (!/^[A-Za-z0-9_-]+$/.test(body)) throw invalid();

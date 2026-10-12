@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     const [valid, attestation] = await Promise.all([
       client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "isKybValid", args: [address] }),
       client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "attestationOf", args: [address] }),
-    ]).catch(() => { throw new AppError("Statut KYB indisponible", 503); });
+    ]).catch(() => { throw new AppError("Statut de vérification indisponible", 503); });
     const attested = attestation.verifier !== "0x0000000000000000000000000000000000000000";
     return NextResponse.json(
       {
