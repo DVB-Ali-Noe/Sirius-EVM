@@ -169,7 +169,8 @@ function knownModel(row: Pick<MarketplaceDatasetRow, "modelId" | "modelVersion">
   return modelSelection(row.modelId, row.modelVersion);
 }
 
-function displayedPrice(providerPriceAtomic: string, fee: ComputeFee): Pick<PublicListing, "priceAtomic" | "priceKind"> {
+/** Prix affiché : part du fournisseur + frais de calcul quand ils sont connus, sinon la seule part. */
+export function displayedPrice(providerPriceAtomic: string, fee: ComputeFee): Pick<PublicListing, "priceAtomic" | "priceKind"> {
   if (fee.kind !== "unknown" && ATOMIC.test(providerPriceAtomic) && ATOMIC.test(fee.atomic)) {
     return { priceAtomic: (BigInt(providerPriceAtomic) + BigInt(fee.atomic)).toString(), priceKind: "borrowerPays" };
   }

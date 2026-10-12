@@ -87,7 +87,11 @@ export function createSiriusMcpServer(source: AgentToolSource, origin: string): 
       outputSchema: searchDatasetsOutput,
       annotations: READ_ONLY,
     },
-    async (input) => guarded(async () => searchDatasetsResult(await source.catalogue(catalogueQuery(input)), origin)),
+    async (input) =>
+      guarded(async () => {
+        const [catalogue, pricing] = await Promise.all([source.catalogue(catalogueQuery(input)), source.pricing()]);
+        return searchDatasetsResult(catalogue, pricing, origin);
+      }),
   );
 
   server.registerTool(
@@ -102,7 +106,11 @@ export function createSiriusMcpServer(source: AgentToolSource, origin: string): 
       outputSchema: getDatasetOutput,
       annotations: READ_ONLY,
     },
-    async ({ datasetId }) => guarded(async () => getDatasetResult(await source.dataset(datasetId), origin)),
+    async ({ datasetId }) =>
+      guarded(async () => {
+        const [dataset, pricing] = await Promise.all([source.dataset(datasetId), source.pricing()]);
+        return getDatasetResult(dataset, pricing, origin);
+      }),
   );
 
   server.registerTool(

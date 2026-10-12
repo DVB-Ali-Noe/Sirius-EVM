@@ -4,7 +4,7 @@ import type { CertificateRecord } from "@/lib/certificate/resolve";
 import { presentVerification, type VerificationOutcome } from "@/lib/certificate/presentation";
 import { CATEGORY_IDS, type CategoryId } from "@/lib/marketplace/categories";
 import type { CatalogueResponse, DetailResponse } from "@/lib/marketplace/catalogue";
-import type { ComputeFee, PublicListing } from "@/lib/marketplace/listing";
+import { displayedPrice, feeForRow, type ComputeFee, type PublicListing } from "@/lib/marketplace/listing";
 import {
   DEFAULT_MARKETPLACE_QUERY,
   foldSearchText,
@@ -249,16 +249,42 @@ function trainingProfile(listing: Pick<PublicListing, "modelId" | "modelVersion"
   return { id: entry.id, label: entry.label, output: entry.description };
 }
 
-function datasetSummary(listing: PublicListing, token: TokenInfo, origin: string): z.infer<typeof datasetSummaryOutput> {
+/**
+ * Prix tels qu'un agent doit les lire. Le symbole est celui de `/status` (« test USDC » hors
+ * mainnet) : un agent ne doit pas prendre un jeton de test pour des dollars. Le tarif publié
+ * (la politique de facturation que le runner applique aux devis) donne les frais de calcul
+ * quand le catalogue n'a pas de devis récent pour le profil.
+ */
+export interface AgentPricing {
+  symbol: string;
+  /** Jeton de règlement décrit comme dans `get_protocol_status`. */
+  settlementToken: string;
+  tariff: { decimals: number; computeFeeAtomic: Partial<Record<ModelId, string>> } | null;
+}
+
+/** Frais du catalogue (devis récent ou facturation v6), sinon ceux du tarif publié pour le profil. */
+function agentFee(listing: Pick<PublicListing, "modelId">, fee: ComputeFee, token: TokenInfo, pricing: AgentPricing): ComputeFee {
+  if (fee.kind !== "unknown" || !listing.modelId || pricing.tariff?.decimals !== token.decimals) return fee;
+  const atomic = pricing.tariff.computeFeeAtomic[listing.modelId];
+  return atomic === undefined ? fee : { kind: "quoted", atomic };
+}
+
+function datasetSummary(
+  listing: PublicListing,
+  fee: ComputeFee,
+  token: TokenInfo,
+  origin: string,
+): z.infer<typeof datasetSummaryOutput> {
+  const price = displayedPrice(listing.providerPriceAtomic, fee);
   return {
     id: listing.id,
     name: cleanProviderName(listing.name),
     url: siteUrl(origin, `/marketplace/${encodeURIComponent(listing.id)}`),
     category: listing.category,
     trainingProfile: trainingProfile(listing),
-    price: formatTokenWithSymbol(listing.priceAtomic, token),
+    price: formatTokenWithSymbol(price.priceAtomic, token),
     priceMeaning:
-      listing.priceKind === "borrowerPays" ? "total paid by the buyer" : "amount received by the provider (compute fee unknown)",
+      price.priceKind === "borrowerPays" ? "total paid by the buyer" : "amount received by the provider (compute fee unknown)",
     rows: listing.rowCount,
     columns: listing.columnCount,
     borrowCount: listing.borrowCount,
@@ -267,15 +293,22 @@ function datasetSummary(listing: PublicListing, token: TokenInfo, origin: string
   };
 }
 
-export function searchDatasetsResult(response: CatalogueResponse, origin: string): z.infer<typeof searchDatasetsOutput> {
+export function searchDatasetsResult(
+  response: CatalogueResponse,
+  pricing: AgentPricing,
+  origin: string,
+): z.infer<typeof searchDatasetsOutput> {
+  const token = { symbol: pricing.symbol, decimals: response.token.decimals };
   return {
     notice: PROVIDER_TEXT_NOTICE,
     total: response.total,
     page: response.page,
     pageCount: response.pageCount,
-    settlementToken: response.token.symbol,
+    settlementToken: pricing.settlementToken,
     catalogueTruncated: response.truncated,
-    datasets: response.items.map((item) => datasetSummary(item, response.token, origin)),
+    datasets: response.items.map((item) =>
+      datasetSummary(item, agentFee(item, feeForRow(item, response.computeFees), token, pricing), token, origin),
+    ),
   };
 }
 
@@ -288,24 +321,33 @@ export const HOW_TO_BUY =
   "training runs inside an Intel TDX enclave, and only the trained model is delivered (never the raw rows). " +
   "Purchase through this MCP server is not available yet.";
 
-export function getDatasetResult(detail: DetailResponse | null, origin: string): z.infer<typeof getDatasetOutput> {
+export function getDatasetResult(
+  detail: DetailResponse | null,
+  pricing: AgentPricing,
+  origin: string,
+): z.infer<typeof getDatasetOutput> {
   if (!detail) return { notice: PROVIDER_TEXT_NOTICE, found: false, dataset: null };
-  const { dataset, token } = detail;
-  const total = dataset.priceKind === "borrowerPays" ? formatTokenWithSymbol(dataset.priceAtomic, token) : null;
+  const { dataset } = detail;
+  const token = { symbol: pricing.symbol, decimals: detail.token.decimals };
+  const fee = agentFee(dataset, dataset.computeFee, token, pricing);
+  const price = displayedPrice(dataset.providerPriceAtomic, fee);
   return {
     notice: PROVIDER_TEXT_NOTICE,
     found: true,
     dataset: {
-      ...datasetSummary(dataset, token, origin),
+      ...datasetSummary(dataset, fee, token, origin),
       description: cleanProviderDescription(dataset.description),
       sizeBytes: dataset.sizeBytes,
       provider: dataset.provider,
       pricing: {
         providerReceives: formatTokenWithSymbol(dataset.providerPriceAtomic, token),
-        computeFee: dataset.computeFee.kind === "unknown" ? null : formatTokenWithSymbol(dataset.computeFee.atomic, token),
-        computeFeeStatus: feeStatus(dataset.computeFee),
-        totalPaidByBuyer: total,
-        note: "The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
+        computeFee: fee.kind === "unknown" ? null : formatTokenWithSymbol(fee.atomic, token),
+        computeFeeStatus: feeStatus(fee),
+        totalPaidByBuyer: price.priceKind === "borrowerPays" ? formatTokenWithSymbol(price.priceAtomic, token) : null,
+        note:
+          fee.kind === "unknown"
+            ? "No compute fee is published right now: the signed quote presented before payment gives it, and the total."
+            : "The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
       },
       refundAfterDays: dataset.challengeDays,
       stats: {
@@ -386,6 +428,7 @@ export function verifyCertificateResult(lookup: CertificateLookup, origin: strin
 /** Sources de données injectées : `tools-server.ts` branche le vrai catalogue, l'état et les certificats. */
 export interface AgentToolSource {
   catalogue(query: MarketplaceQuery): Promise<CatalogueResponse>;
+  pricing(): Promise<AgentPricing> | AgentPricing;
   dataset(id: string): Promise<DetailResponse | null>;
   status(): Promise<ProtocolStatusSummary> | ProtocolStatusSummary;
   certificate(loanId: string): Promise<CertificateLookup>;
