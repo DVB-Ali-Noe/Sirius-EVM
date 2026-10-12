@@ -83,7 +83,7 @@ function Measurement({ measurement }: { measurement: CertificateMeasurement }) {
 export function CertificateView(props: CertificateViewProps) {
   const { presentation } = props;
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{props.datasetName}</h1>
 
@@ -98,7 +98,30 @@ export function CertificateView(props: CertificateViewProps) {
         <p className="mt-1 text-sm text-muted">{presentation.summary}</p>
       </section>
 
-      <dl className="mt-6 rounded-xl border border-border bg-surface px-5 py-1">
+      {/* Lecture sans jargon, réservée au verdict vérifié : sur tout autre état, ces phrases affirmeraient ce que la page ne prouve pas. */}
+      {presentation.verdict === "verified" && (
+        <section className="mt-6" aria-labelledby="certificate-plain">
+          <h2 id="certificate-plain" className="text-sm font-semibold uppercase tracking-wider text-muted">
+            In plain words
+          </h2>
+          <ul className="mt-3 flex flex-col gap-2 text-sm" data-plain-summary>
+            <li>
+              A {props.modelName} model was trained on the dataset “{props.datasetName}”.
+            </li>
+            <li>
+              The training ran inside a sealed Intel TDX machine on Phala Cloud. The data was only decrypted there:
+              whoever rented it received the trained model, never the data.
+            </li>
+            <li>
+              The payment settled on {props.networkLabel}
+              {props.settledAt ? ` on ${props.settledAt}` : ""}. Anyone can check every step below, without an account.
+            </li>
+          </ul>
+        </section>
+      )}
+
+      <h2 className="mt-10 text-sm font-semibold uppercase tracking-wider text-muted">Technical details</h2>
+      <dl className="mt-3 rounded-xl border border-border bg-surface px-5 py-1">
         <Row label="Dataset" mono={false}>
           <Link href={props.proofHref} className="text-accent hover:text-accent/80">
             {props.datasetName} — on-chain proof →
@@ -172,7 +195,7 @@ export function CertificateView(props: CertificateViewProps) {
 
 export function CertificateUnavailable() {
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Certificate not available yet</h1>
       <p className="mt-4 max-w-prose text-sm text-muted">
@@ -190,7 +213,7 @@ export function CertificateUnavailable() {
 
 export function CertificateBusy() {
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Too many requests</h1>
       <p className="mt-4 max-w-prose text-sm text-muted">

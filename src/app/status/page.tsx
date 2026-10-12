@@ -39,7 +39,7 @@ export default function StatusPage() {
   const { network, chain, mainnet, symbol, confidentialCompute, settlement, externalAudit, limits, contracts } = readProtocolStatus();
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-12">
+    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Protocol status</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{mainnet ? "Mainnet beta" : "Testnet"}</h1>
       <p className="mt-3 max-w-prose text-sm text-muted">

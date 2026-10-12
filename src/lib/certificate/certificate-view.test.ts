@@ -42,12 +42,15 @@ test("certificat vérifié : titre, mesures, règlement, lien de preuve et tél�
   // RTMR3 n'est pas épinglé : la page ne prétend jamais qu'il correspond à une valeur attendue.
   assert.match(out, /data-pin="event-log">Not pinned: changes at every restart, checked by the event log replay</);
   assert.equal(out.match(/data-check-state="pass"/g)?.length, 4);
+  assert.match(out, /data-plain-summary/);
+  assert.match(out, /whoever rented it received the trained model, never the data/);
 });
 
 test("échec, attente, erreur, sans quote : jamais le titre d'exécution vérifiée", () => {
   for (const name of ["failed", "hard-failed", "pending", "error", "unattested"]) {
     const out = page(name);
     assert.equal(out.includes(HEADLINE), false, name);
+    assert.equal(out.includes("data-plain-summary"), false, `${name} : pas de résumé affirmatif`);
     assert.match(out, /Download raw attestation \(JSON\)/, name);
   }
   assert.match(page("hard-failed"), /data-verdict="failed"/);
