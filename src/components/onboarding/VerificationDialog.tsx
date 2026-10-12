@@ -159,7 +159,7 @@ export function VerificationDialog({ requestId, reason, role, address }: {
   /**
    * Accès instantané ; ou, hors mainnet et sans accès instantané, l'attestation parrainée des
    * instances de démonstration (`acceptKybCredential` sans code), chemin qu'offraient déjà les
-   * boutons « Configurer le KYB » remplacés par cette fenêtre.
+   * boutons « Vérifier mon wallet » remplacés par cette fenêtre.
    */
   async function runInstantAccess(sponsored = false) {
     if (busyRef.current) return;
@@ -231,7 +231,7 @@ export function VerificationDialog({ requestId, reason, role, address }: {
         data-mode={verified ? "verified" : mode ?? "loading"}
         className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-border bg-surface p-6 shadow-xl wrap-anywhere"
       >
-        <div className="text-xs uppercase tracking-wider text-muted">{t("KYB · une transaction")}</div>
+        <div className="text-xs uppercase tracking-wider text-muted">{t("Vérification · une transaction")}</div>
         <h2 ref={headingRef} id={titleId} tabIndex={-1} className="mt-2 text-xl font-semibold tracking-tight focus:outline-none">
           {verified ? t("Ton wallet est vérifié") : t("Vérifie ton wallet")}
         </h2>

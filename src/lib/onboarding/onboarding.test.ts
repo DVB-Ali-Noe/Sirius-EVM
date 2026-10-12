@@ -72,7 +72,7 @@ test("compte neuf signé : connexion et signature faites, la vérification est l
   assert.deepEqual(progress.funding, { gas: true, token: true });
 });
 
-test("statut KYB inconnu ou pas encore lu : l'étape reste à faire", () => {
+test("statut de vérification inconnu ou pas encore lu : l'étape reste à faire", () => {
   assert.equal(deriveOnboardingProgress(input({ kyb: "unknown" })).current, "verify");
   assert.equal(deriveOnboardingProgress(input({ kyb: null })).current, "verify");
 });
@@ -173,7 +173,7 @@ test("proposition après connexion : une fois, jamais par-dessus une autre fenê
   assert.equal(shouldPromptVerification({ ...base, tourPending: true }), false);
 });
 
-test("statut KYB : seule une réponse bien formée donne « vérifié » ou « non vérifié »", () => {
+test("statut de vérification : seule une réponse bien formée donne « vérifié » ou « non vérifié »", () => {
   assert.deepEqual(parseKybGate({ valid: true, revoked: false, expiresAt: 1, instantAccess: true }), { kyb: "valid", instantAccess: true });
   assert.deepEqual(parseKybGate({ valid: false, revoked: false, expiresAt: null }), { kyb: "missing", instantAccess: false });
   assert.deepEqual(parseKybGate({ valid: false, revoked: true, expiresAt: 1 }), { kyb: "missing", instantAccess: false });

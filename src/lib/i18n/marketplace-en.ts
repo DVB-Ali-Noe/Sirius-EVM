@@ -35,7 +35,7 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Max": "Max",
   "Appliquer": "Apply",
   "Fournisseur": "Provider",
-  "Vérifiés KYB uniquement": "KYB-verified providers only",
+  "Vérifiés uniquement": "Verified providers only",
   "Réinitialiser les filtres": "Reset filters",
   "{count} datasets": "{count} datasets",
   "Trier par": "Sort by",
@@ -46,8 +46,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
     "Prices include the compute fee from the latest quote for each model. The exact amount is shown in the quote, before any payment.",
   "Quand les frais de calcul ne sont pas encore connus, la carte indique ce que reçoit le fournisseur ; les frais s’ajoutent dans le devis.":
     "When the compute fee is not known yet, the card shows what the provider receives; the fee is added in the quote.",
-  "Le statut KYB de certains fournisseurs n’a pas pu être lu. Ils sont affichés sans badge et exclus du filtre « vérifiés ».":
-    "The KYB status of some providers could not be read. They are shown without a badge and excluded from the “verified” filter.",
+  "Le statut de vérification de certains fournisseurs n’a pas pu être lu. Ils sont affichés sans badge et exclus du filtre « vérifiés ».":
+    "The verification status of some providers could not be read. They are shown without a badge and excluded from the “verified” filter.",
   "Seuls les {count} datasets les plus récents ont été parcourus.": "Only the {count} most recent datasets were searched.",
   "Aucun dataset ne correspond à ces filtres.": "No dataset matches these filters.",
   "Pagination": "Pagination",
@@ -77,12 +77,12 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
     "No compute fee is charged: the locked amount is returned in full.",
   "Le devis précise ce qui est retenu en cas d’échec, avant tout paiement.":
     "The quote states what is retained if training fails, before any payment.",
-  "Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.":
-    "Borrowing unavailable: the provider’s KYB attestation is missing or expired.",
+  "Emprunt indisponible : l’attestation de vérification du fournisseur est absente ou expirée.":
+    "Borrowing unavailable: the provider’s verification attestation is missing or expired.",
   "Aucun emprunt terminé": "No completed loan yet",
   "{rate} % ({settled} sur {count} emprunts terminés)": "{rate}% ({settled} of {count} completed loans)",
   "Adresse": "Address",
-  "KYB": "KYB",
+  "Vérification": "Verification",
   "Vérifié": "Verified",
   "Non vérifié": "Not verified",
   "Statut indisponible": "Status unavailable",

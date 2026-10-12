@@ -32,7 +32,7 @@ interface DatasetCardProps {
   borrowCount: number;
   /** Revenus totaux du fournisseur (Mes datasets uniquement). Omis : la ligne est masquée. `null` : « — ». */
   revenueAtomic?: AtomicAmount | null;
-  /** `true` : fournisseur vérifié KYB. `false` : non vérifié. Absent : rien n'est affiché. */
+  /** `true` : fournisseur vérifié. `false` : non vérifié. Absent : rien n'est affiché. */
   verified?: boolean;
   /** Chemin interne de la fiche (« /datasets/abc »). Tout autre lien est ignoré. */
   href?: string;
@@ -96,8 +96,8 @@ export function DatasetCard({
       <div className="flex flex-wrap gap-2">
         {category && <Badge variant="muted">{category}</Badge>}
         <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
-        {verified === true && <Badge variant="positive">{t("Fournisseur vérifié KYB")}</Badge>}
-        {verified === false && <Badge variant="muted">{t("Fournisseur non vérifié KYB")}</Badge>}
+        {verified === true && <Badge variant="positive">{t("Fournisseur vérifié")}</Badge>}
+        {verified === false && <Badge variant="muted">{t("Fournisseur non vérifié")}</Badge>}
       </div>
 
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">

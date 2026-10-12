@@ -414,7 +414,7 @@ function ProfilePanel({
       <nav className="py-1" aria-label={t("Navigation")}>
         <Link href="/wallet" onClick={() => onClose()} className={ITEM_CLASS}>{t("Wallet")}</Link>
         <Link href="/settings" onClick={() => onClose()} className={ITEM_CLASS}>{t("Réglages")}</Link>
-        <Link href="/kyb" onClick={() => onClose()} className={ITEM_CLASS}>{t("KYB")}</Link>
+        <Link href="/kyb" onClick={() => onClose()} className={ITEM_CLASS}>{t("Vérification")}</Link>
         {/* Carte « Get started » masquée : elle revient sur le tableau de bord. */}
         {authenticated && (
           <Link

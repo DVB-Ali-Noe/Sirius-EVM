@@ -89,7 +89,7 @@ export async function acceptKybCredential(role: KybRole, invitation?: string): P
   };
 
   // Avec une invitation, un refus est définitif : on ne bascule pas sur l'attestation de démo.
-  if (!preparation.ok && invitation) throw new Error(prepared.error ?? "Code d’invitation KYB invalide");
+  if (!preparation.ok && invitation) throw new Error(prepared.error ?? "Code d’invitation invalide");
   if (!preparation.ok) {
     // Le parcours normal suppose une attestation déjà posée hors de l'application.
     // Sur une instance de démonstration, on la pose ici plutôt que de renvoyer le

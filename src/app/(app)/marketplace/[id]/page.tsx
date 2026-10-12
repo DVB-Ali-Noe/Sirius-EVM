@@ -103,8 +103,8 @@ export default function MarketplaceListingPage() {
         <div className="flex flex-wrap gap-2">
           {dataset.category && <Badge variant="muted">{t(categoryLabelKey(dataset.category))}</Badge>}
           <Badge variant={model ? "default" : "negative"}>{model ? modelDisplayName(model) : t("Profil absent")}</Badge>
-          {dataset.verified === true && <Badge variant="positive">{t("Fournisseur vérifié KYB")}</Badge>}
-          {dataset.verified === false && <Badge variant="muted">{t("Fournisseur non vérifié KYB")}</Badge>}
+          {dataset.verified === true && <Badge variant="positive">{t("Fournisseur vérifié")}</Badge>}
+          {dataset.verified === false && <Badge variant="muted">{t("Fournisseur non vérifié")}</Badge>}
         </div>
       </PageHeader>
 
@@ -171,7 +171,7 @@ export default function MarketplaceListingPage() {
               <dd className="font-mono" title={dataset.provider}>{truncate(dataset.provider, 6, 4)}</dd>
             </div>
             <Fact
-              label={t("KYB")}
+              label={t("Vérification")}
               value={dataset.verified === true
                 ? t("Vérifié")
                 : dataset.verified === false ? t("Non vérifié") : t("Statut indisponible")}

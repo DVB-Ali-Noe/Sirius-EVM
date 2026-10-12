@@ -4,7 +4,7 @@ import { addressesEqual } from "@/lib/evm/address";
  * Parcours d'accueil : logique pure, sans React ni réseau.
  *
  * Les étapes de la carte « Get started » sont déduites de l'état réel du compte (wallet connecté
- * et session signée, statut KYB lu sur le registre, soldes lus sur la chaîne, prêts renvoyés par
+ * et session signée, statut de vérification lu sur le registre, soldes lus sur la chaîne, prêts renvoyés par
  * `GET /api/loans`) : rien n'est coché parce qu'un bouton a été cliqué. Seule la fermeture de la
  * carte est mémorisée (réglage `onboardingDismissed` du profil), et seulement une fois signé.
  *
@@ -29,7 +29,7 @@ export interface OnboardingLoan {
 export interface OnboardingInput {
   /** Wallet connecté au site (adresse connue). */
   connected: boolean;
-  /** Session signée : sans elle, ni le statut KYB ni les prêts ne sont lisibles. */
+  /** Session signée : sans elle, ni le statut de vérification ni les prêts ne sont lisibles. */
   authenticated: boolean;
   /** `null` : statut pas encore lu. */
   kyb: KybGateState | null;
@@ -109,7 +109,7 @@ export function isPaidLoan(loan: OnboardingLoan): boolean {
 export function deriveOnboardingProgress(input: OnboardingInput): OnboardingProgress {
   const connected = input.connected;
   const signed = connected && input.authenticated;
-  // Avant la signature, le statut KYB et les prêts éventuellement en mémoire ne sont pas ceux
+  // Avant la signature, le statut de vérification et les prêts éventuellement en mémoire ne sont pas ceux
   // de cette session : on ne s'y fie pas. Les soldes, eux, se lisent dès la connexion.
   const mine = signed ? borrowerLoans(input.loans, input.viewer) : [];
   const borrowed = mine.some(isPaidLoan);

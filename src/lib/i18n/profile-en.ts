@@ -13,7 +13,7 @@ export const PROFILE_MESSAGES_EN: Record<string, string> = {
   "Copie impossible": "Copy failed",
   "Wallet": "Wallet",
   "Réglages": "Settings",
-  "KYB": "KYB",
+  "Vérification": "Verification",
   "Visite guidée": "Guided tour",
   "La visite guidée sera bientôt disponible.": "The guided tour will be available soon.",
   "Se déconnecter": "Log out",

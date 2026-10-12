@@ -272,7 +272,7 @@ function DatasetsContent() {
                 onClick={handleOnboard}
                 className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
               >
-                {t("Configurer le KYB")}
+                {t("Vérifier mon wallet")}
               </button>
             )}
             <div role="group" aria-label={t("Trier par")} data-guide="page:datasets:sort" className="flex items-center gap-2">

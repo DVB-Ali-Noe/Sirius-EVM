@@ -84,7 +84,7 @@ test("/settings : un échec d'enregistrement est signalé sans bloquer la page",
 
 test("/kyb sans connexion : invitation à se connecter et éléments Soon", async ({ page }) => {
   await open(page, "/kyb", { connect: false });
-  await expect(page.getByTestId("kyb-signed-out")).toContainText("Connect a wallet to see your KYB status.");
+  await expect(page.getByTestId("kyb-signed-out")).toContainText("Connect a wallet to see your verification status.");
   await expect(page.getByTestId("soon-item")).toHaveCount(2);
   await expect(page.getByTestId("kyb-status")).toHaveCount(0);
 });
@@ -95,7 +95,7 @@ test("/kyb non vérifié : formulaire d'invitation et adresse de contact", async
   });
   await expect(page.getByTestId("kyb-status")).toHaveAttribute("data-state", "none");
   await expect(page.getByTestId("kyb-status")).toContainText("Not verified");
-  await expect(page.getByLabel("KYB invitation code")).toBeVisible();
+  await expect(page.getByLabel("Invitation code")).toBeVisible();
   await expect(page.getByTestId("kyb-contact")).toContainText("No invitation? Write to us:");
   await expect(page.getByRole("link", { name: "sirius.data.contact@gmail.com" }))
     .toHaveAttribute("href", "mailto:sirius.data.contact@gmail.com");
@@ -107,7 +107,7 @@ test("/kyb vérifié : date d'expiration affichée, pas de formulaire", async ({
   });
   await expect(page.getByTestId("kyb-status")).toHaveAttribute("data-state", "verified");
   await expect(page.getByTestId("kyb-expiry")).toHaveText("Attestation valid until January 1, 2027 (UTC).");
-  await expect(page.getByLabel("KYB invitation code")).toHaveCount(0);
+  await expect(page.getByLabel("Invitation code")).toHaveCount(0);
 });
 
 test("/kyb : une lecture en échec n'affiche ni « vérifié » ni formulaire, et propose de réessayer", async ({ page }) => {
@@ -115,12 +115,12 @@ test("/kyb : une lecture en échec n'affiche ni « vérifié » ni formulaire, e
   await open(page, "/kyb", {
     handlers: {
       "/api/kyb/status": (route) => (failing
-        ? route.fulfill({ status: 503, json: { error: "Statut KYB indisponible" } })
+        ? route.fulfill({ status: 503, json: { error: "Statut de vérification indisponible" } })
         : route.fulfill({ json: { valid: true, expiresAt: 1_798_761_600, revoked: false } })),
     },
   });
   await expect(page.getByTestId("kyb-status")).toHaveAttribute("data-state", "unknown");
-  await expect(page.getByLabel("KYB invitation code")).toHaveCount(0);
+  await expect(page.getByLabel("Invitation code")).toHaveCount(0);
   failing = false;
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.getByTestId("kyb-status")).toHaveAttribute("data-state", "verified");

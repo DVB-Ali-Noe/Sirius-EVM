@@ -445,7 +445,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Trop de challenges actifs — réessaie plus tard": "Too many active challenges — try again later",
   "Trop de datasets en attente d’upload": "Too many datasets awaiting upload",
   "Trop d’emprunts en attente": "Too many pending loans",
-  "Code d’invitation KYB invalide": "Invalid KYB invitation code",
+  "Code d’invitation invalide": "Invalid invitation code",
   "Invitation KYB émise pour un autre réseau ou un autre registre": "KYB invitation issued for another network or registry",
   "Invitation KYB destinée à une autre adresse": "KYB invitation issued for another address",
   "Invitation KYB expirée ou hors durée autorisée": "KYB invitation expired or outside the allowed duration",

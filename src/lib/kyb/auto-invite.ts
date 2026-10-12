@@ -280,7 +280,7 @@ async function autoEligibility(subjectRaw: string, verifier: PrivateKeyAccount, 
   const attestation = await registry.attestationOf(subject);
   const attested = attestation.verifier !== ZERO_ADDRESS;
   // Une révocation est une décision de l'équipe (ou du vérificateur émetteur) : un clic ne la défait pas.
-  if (attested && attestation.revoked) throw new AppError("Vérification KYB révoquée : contacte l’équipe Sirius", 403);
+  if (attested && attestation.revoked) throw new AppError("Vérification du wallet révoquée : contacte l’équipe Sirius", 403);
   if (await registry.isKybValid(subject)) {
     // Seules les attestations du vérificateur automatique se renouvellent ici : celle d'un
     // vérificateur humain serait remplacée par une attestation plus courte, sans que l'équipe le sache.

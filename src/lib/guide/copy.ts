@@ -46,8 +46,8 @@ export const GUIDE_SIGNIN = {
 } as const;
 
 const VERIFY_WHY: Record<EvmNetwork, string> = {
-  mainnet: "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.",
-  testnet: "Chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.",
+  mainnet: "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.",
+  testnet: "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.",
 };
 
 export const GUIDE_VERIFY = {
@@ -57,13 +57,13 @@ export const GUIDE_VERIFY = {
     instant: "Une seule transaction à confirmer dans ton wallet, et c’est fait.",
     "needs-gas": "Il te faut un peu d’ETH pour payer le gas de cette transaction : ajoute des fonds d’abord, je t’attends ici.",
     invitation: "L’accès instantané n’est pas ouvert : colle le code d’invitation reçu de l’équipe, ou écris-nous.",
-    unknown: "Je n’arrive pas à lire ton statut pour l’instant. Tu peux le vérifier sur la page KYB, ou continuer.",
+    unknown: "Je n’arrive pas à lire ton statut pour l’instant. Tu peux le vérifier sur la page Vérification, ou continuer.",
   } satisfies Record<GuideVerifyMode, string>,
   action: {
     instant: "Obtenir l’accès instantané",
     "needs-gas": "Ajouter des fonds",
     invitation: "Saisir un code d’invitation",
-    unknown: "Voir mon statut KYB",
+    unknown: "Voir mon statut de vérification",
   },
   done: "Ton wallet est vérifié. Je te fais visiter ?",
 } as const;

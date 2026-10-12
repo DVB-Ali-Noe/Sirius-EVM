@@ -34,8 +34,8 @@ export function KybView() {
   return (
     <Page width="wide">
       <PageHeader
-        title={t("KYB")}
-        description={t("Business verification, recorded on-chain. It is required to lend and to borrow datasets on mainnet.")}
+        title={t("Vérification")}
+        description={t("Wallet verification, recorded on-chain. Sirius sets it up automatically when you sign in.")}
       />
 
       {connected && address ? (
@@ -50,7 +50,7 @@ export function KybView() {
           />
         </div>
       ) : (
-        <ConnectPrompt message={t("Connecte un wallet pour voir ton statut KYB.")} data-testid="kyb-signed-out" />
+        <ConnectPrompt message={t("Connecte un wallet pour voir ton statut de vérification.")} data-testid="kyb-signed-out" />
       )}
 
       <section aria-labelledby="kyb-soon" data-guide="page:kyb:soon">
@@ -113,7 +113,7 @@ function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess 
   if (!view) {
     return (
       <Card data-testid="kyb-loading">
-        <p className="text-sm text-muted">{t("Checking your KYB status…")}</p>
+        <p className="text-sm text-muted">{t("Checking your verification status…")}</p>
       </Card>
     );
   }
@@ -152,7 +152,7 @@ function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess 
         {view.state === "unknown" && (
           <>
             <p className="mt-2 text-sm font-medium">{t("Status unavailable")}</p>
-            <p className="mt-1 text-xs text-muted">{t("We could not read your KYB status. This does not mean you are not verified.")}</p>
+            <p className="mt-1 text-xs text-muted">{t("We could not read your verification status. This does not mean you are not verified.")}</p>
             <button
               type="button"
               onClick={refresh}
@@ -163,7 +163,7 @@ function KybStatusCard({ address, authenticated, instantAccess, onInstantAccess 
           </>
         )}
         {view.state !== "unknown" && (
-          <p className="mt-3 text-xs text-muted">{t("The status is read from the KYB registry contract.")}</p>
+          <p className="mt-3 text-xs text-muted">{t("The status is read from the verification registry contract.")}</p>
         )}
       </Card>
 

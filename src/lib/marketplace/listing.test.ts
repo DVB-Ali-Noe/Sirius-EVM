@@ -93,7 +93,7 @@ test("prix affiché : total si les frais sont connus (v6 : zéro), sinon le gain
   assert.deepEqual([broken.providerPriceAtomic, broken.priceAtomic, broken.priceKind], ["", "", "providerReceives"]);
 });
 
-test("valeurs stockées douteuses : profil inconnu, métriques et tailles invalides, statut KYB non booléen", () => {
+test("valeurs stockées douteuses : profil inconnu, métriques et tailles invalides, statut de vérification non booléen", () => {
   const listing = toPublicListing(
     row({ modelId: "random_forest", modelVersion: "9", metrics: { rowCount: -1, columnCount: 2 }, sizeBytes: -5, category: "<img src=x>", listedAt: new Date(Number.NaN) }),
     { borrowCount: Number.NaN, settledCount: -1, refundedCount: 1.5 },
@@ -151,7 +151,7 @@ test("filtres : catégorie, modèle, vérifié KYB, lignes, prix et recherche", 
   assert.deepEqual(ids(filterAndSortListings(CATALOGUE, q({ category: "finance" }))), ["a"]);
   assert.deepEqual(ids(filterAndSortListings(CATALOGUE, q({ category: "energy" }))), ["b"]);
   assert.deepEqual(ids(filterAndSortListings(CATALOGUE, q({ model: "linear_regression" }))), ["b", "c"]);
-  // Un statut KYB illisible (`null`) n'est jamais compté comme vérifié.
+  // Un statut de vérification illisible (`null`) n'est jamais compté comme vérifié.
   assert.deepEqual(ids(filterAndSortListings(CATALOGUE, q({ verifiedOnly: true }))), ["a"]);
   // Sans nombre de lignes connu, un dataset ne passe aucun filtre de taille.
   assert.deepEqual(ids(filterAndSortListings(CATALOGUE, q({ minRows: 0 }))), ["a", "b"]);

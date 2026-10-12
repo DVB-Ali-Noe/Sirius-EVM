@@ -41,13 +41,13 @@ export const WELCOME_BODY =
 export type VerificationIntroReason = "prompt" | "checklist" | "borrow" | "publish";
 
 const GENERAL_INTRO: Record<EvmNetwork, string> = {
-  mainnet: "Avant de prêter ou d’emprunter un dataset sur mainnet, ton wallet doit être vérifié (KYB). Ça prend une seule transaction.",
-  testnet: "Avant de prêter ou d’emprunter un dataset, ton wallet doit être vérifié (KYB). Ça prend une seule transaction.",
+  mainnet: "Avant de prêter ou d’emprunter un dataset sur mainnet, ton wallet doit être vérifié. Ça prend une seule transaction.",
+  testnet: "Avant de prêter ou d’emprunter un dataset, ton wallet doit être vérifié. Ça prend une seule transaction.",
 };
 
 const ACTION_INTRO = {
-  borrow: "Pour emprunter ce dataset, ton wallet doit d’abord être vérifié (KYB). Une fois fait, l’emprunt reprend tout seul.",
-  publish: "Pour publier un dataset, ton wallet doit d’abord être vérifié (KYB). Une fois fait, la publication reprend toute seule.",
+  borrow: "Pour emprunter ce dataset, ton wallet doit d’abord être vérifié. Une fois fait, l’emprunt reprend tout seul.",
+  publish: "Pour publier un dataset, ton wallet doit d’abord être vérifié. Une fois fait, la publication reprend toute seule.",
 } as const;
 
 /** Phrase d'introduction de la fenêtre de vérification, selon l'action qui l'a ouverte et le réseau. */
