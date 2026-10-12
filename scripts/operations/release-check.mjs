@@ -107,6 +107,9 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
   if (autoInviteFlag === "true") {
     if (!/^0x[a-fA-F0-9]{64}$/.test(autoInviteKey)) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY");
   } else if (autoInviteKey) issues.push("next.SIRIUS_KYB_AUTO_INVITE_KEY.without-flag");
+  // Attestation parrainée : simple drapeau, sans effet sans l'accès instantané (coupure d'urgence comprise).
+  const autoSponsorFlag = next.SIRIUS_KYB_AUTO_SPONSOR?.trim() ?? "";
+  if (autoSponsorFlag && autoSponsorFlag !== "true" && autoSponsorFlag !== "false") issues.push("next.SIRIUS_KYB_AUTO_SPONSOR");
   // Assistant Sirio : la clé Anthropic ne vit que sur Next, et seulement avec le drapeau
   // (`src/lib/assistant/config.ts`). Drapeau et clé absents = chat fermé, configuration valide.
   for (const role of ["reaper", "runner"]) {

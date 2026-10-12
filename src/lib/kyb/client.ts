@@ -126,16 +126,67 @@ export async function acceptKybCredential(role: KybRole, invitation?: string): P
  * Ne lève jamais : un échec ici ne doit pas annuler une connexion réussie. Le bouton
  * de secours reste affiché tant que l'attestation manque.
  */
-export async function ensureKybAttested(address: string, assertCurrent: () => void = () => {}): Promise<void> {
-  try {
-    const statut = await fetch(`/api/account/status?address=${encodeURIComponent(address)}`);
-    if (statut.ok) {
-      const { known } = (await statut.json()) as { known?: unknown };
-      if (known === true) return;
+export function ensureKybAttested(address: string, assertCurrent: () => void = () => {}): Promise<void> {
+  const run = (async () => {
+    try {
+      const statut = await fetch(`/api/account/status?address=${encodeURIComponent(address)}`);
+      if (statut.ok) {
+        const { known } = (await statut.json()) as { known?: unknown };
+        if (known === true) return;
+      }
+      assertCurrent();
+      if (await attestViaAutoSponsor(assertCurrent)) return;
+      assertCurrent();
+      await attestViaSponsor(assertCurrent);
+    } catch {
+      // Silence volontaire : l'utilisateur est connecté, c'est ce qu'il demandait.
     }
-    assertCurrent();
-    await attestViaSponsor(assertCurrent);
-  } catch {
-    // Silence volontaire : l'utilisateur est connecté, c'est ce qu'il demandait.
+  })();
+  attesting = run;
+  return run.finally(() => {
+    if (attesting === run) attesting = null;
+  });
+}
+
+let attesting: Promise<void> | null = null;
+
+/**
+ * Attestation automatique en cours (juste après la connexion), sinon `null`. La fenêtre de
+ * vérification attend sa fin avant de se proposer : elle n'a pas à s'ouvrir pour un geste
+ * déjà en route.
+ */
+export function pendingKybAttestation(): Promise<void> | null {
+  return attesting;
+}
+
+/**
+ * Attestation parrainée par le vérificateur automatique (mainnet compris) : une signature de
+ * consentement, puis Sirius pose l'attestation et paie le gas. Retourne `false` si l'instance
+ * ne la propose pas (404), pour laisser la place au parrainage de démonstration.
+ */
+export async function attestViaAutoSponsor(assertCurrent: () => void = () => {}): Promise<boolean> {
+  assertCurrent();
+  const preparation = await fetch("/api/kyb/auto-attest", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  if (preparation.status === 404) return false;
+  const prepared = (await preparation.json().catch(() => ({}))) as {
+    expiresAt?: number;
+    typedData?: { domain: Record<string, unknown>; types: Record<string, unknown>; primaryType: string; message: Record<string, unknown> };
+    error?: string;
+  };
+  if (!preparation.ok || !prepared.typedData || typeof prepared.expiresAt !== "number") {
+    throw new Error(prepared.error ?? `Attestation automatique indisponible (${preparation.status})`);
   }
+
+  assertCurrent();
+  const signature = await signTypedDataWithActiveWallet(prepared.typedData);
+
+  assertCurrent();
+  const submission = await fetch("/api/kyb/auto-attest", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresAt: prepared.expiresAt, signature }),
+  });
+  const result = (await submission.json().catch(() => ({}))) as { error?: string };
+  if (!submission.ok) throw new Error(result.error ?? "Attestation automatique échouée");
+  return true;
 }
