@@ -177,7 +177,7 @@ test("fournisseur sans KYB valide et facturation v6 : emprunt désactivé, texte
   });
   await page.goto(`/marketplace/${item.id}`);
   await expect(page.getByRole("button", { name: "Borrow" })).toBeDisabled();
-  await expect(page.getByText("Borrowing unavailable: the provider’s KYB attestation is missing or expired.")).toBeVisible();
+  await expect(page.getByText("Borrowing unavailable: the provider’s verification attestation is missing or expired.")).toBeVisible();
   await expect(page.getByText("No compute fee is charged: the locked amount is returned in full.", { exact: false })).toBeVisible();
   await expect(page.getByText("Only the compute actually consumed is retained", { exact: false })).toHaveCount(0);
 });
