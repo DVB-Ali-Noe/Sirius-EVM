@@ -63,6 +63,7 @@ function fixture(overrides: Partial<AgentToolSource> = {}) {
         calls.dataset.push(id);
         return null;
       },
+      pricing: () => ({ symbol: "USDG", settlementToken: "USDG (Global Dollar, issued by Paxos)", tariff: null }),
       status: () => {
         throw new Error("connect ECONNREFUSED https://rpc.example/secret-key");
       },
