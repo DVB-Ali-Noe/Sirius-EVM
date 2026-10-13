@@ -227,7 +227,7 @@ export const verifyCertificateOutput = z.object({
       summary: z.string(),
       checks: z.array(z.object({ label: z.string(), state: z.enum(["pass", "fail", "unknown"]), detail: z.string() })),
       measurements: z.array(
-        z.object({ label: z.string(), value: z.string().nullable(), pin: z.enum(["match", "mismatch", "unpinned", "event-log"]) }),
+        z.object({ label: z.string(), value: z.string().nullable(), pin: z.enum(["match", "mismatch", "unpinned", "event-log", "retired"]) }),
       ),
     })
     .nullable(),
