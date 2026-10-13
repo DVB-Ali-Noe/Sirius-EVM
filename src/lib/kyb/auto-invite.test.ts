@@ -3,10 +3,11 @@ import { test } from "node:test";
 import { getAddress, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
-  AUTO_INVITE_REVOKE_MIN_WEI, AUTO_INVITE_VALIDITY_DAYS, autoInviteEnabled, autoInviteSigner, autoInviteStartupNotice,
-  issueAutoInvitation, readAutoInviteConfig, revokeAutoAttestation,
+  AUTO_INVITE_REVOKE_MIN_WEI, AUTO_INVITE_VALIDITY_DAYS, AUTO_SPONSOR_MIN_WEI, autoInviteEnabled, autoInviteSigner,
+  autoInviteStartupNotice, autoSponsorEnabled, issueAutoInvitation, prepareSponsoredAttestation, readAutoInviteConfig,
+  revokeAutoAttestation, submitSponsoredAttestation,
   type AutoInviteAttestation, type AutoInviteDependencies, type AutoInviteEnvironment, type AutoInviteIssuances,
-  type AutoInviteRegistry, type AutoRevokeDependencies,
+  type AutoInviteRegistry, type AutoRevokeDependencies, type AutoSponsorChain,
 } from "./auto-invite";
 import { decodeKybInvitation, invitationSigner, kybAttestationTypedData } from "./invitation";
 
@@ -271,4 +272,103 @@ test("révocation admin : seulement une attestation du vérificateur automatique
     await assert.rejects(revokeAutoAttestation(SUBJECT, refused), denied(status, pattern), pattern.source);
     assert.deepEqual(refused.sent, [], pattern.source);
   }
+});
+
+const SUBJECT_KEY = generatePrivateKey();
+const SUBJECT_ACCOUNT = privateKeyToAccount(SUBJECT_KEY);
+const SPONSORED = { ...ENABLED, SIRIUS_KYB_AUTO_SPONSOR: "true" };
+const TX = `0x${"cd".repeat(32)}` as Hex;
+
+function sponsorDeps(overrides: Partial<AutoInviteDependencies> & { env?: AutoInviteEnvironment; chain?: Partial<AutoSponsorChain> } = {}) {
+  const { chain, env = SPONSORED, ...rest } = overrides;
+  const issued = memoryIssuances();
+  const attested: { subject: Address; expiresAt: number; signature: Hex }[] = [];
+  const sponsorChain: AutoSponsorChain = {
+    balanceOf: async () => AUTO_SPONSOR_MIN_WEI,
+    attest: async (subject, expiresAt, signature) => { attested.push({ subject, expiresAt, signature }); return TX; },
+    ...chain,
+  };
+  return { ...deps({ env, issuances: issued.store, ...rest }), sponsorChain, rows: issued.rows, attested };
+}
+
+async function consent(d: AutoInviteDependencies, account = SUBJECT_ACCOUNT) {
+  const prepared = await prepareSponsoredAttestation(account.address, d);
+  const { message } = prepared.typedData;
+  const signature = await account.signTypedData({
+    ...prepared.typedData,
+    message: { ...message, nonce: BigInt(message.nonce), verifierEpoch: BigInt(message.verifierEpoch) },
+  });
+  return { prepared, signature };
+}
+
+test("parrainage : deux interrupteurs, l'accès instantané et SIRIUS_KYB_AUTO_SPONSOR ; la coupure du premier ne casse rien", () => {
+  assert.equal(autoSponsorEnabled(ENABLED), false);
+  assert.equal(autoSponsorEnabled({ SIRIUS_KYB_AUTO_SPONSOR: "true", SIRIUS_KYB_AUTO_INVITE_KEY: KEY }), false);
+  assert.equal(autoSponsorEnabled(SPONSORED), true);
+  assert.equal(readAutoInviteConfig(SPONSORED).sponsor, true);
+  assert.equal(readAutoInviteConfig(ENABLED).sponsor, false);
+  assert.throws(() => autoInviteStartupNotice({ ...SPONSORED, SIRIUS_KYB_AUTO_SPONSOR: "yes" }), /SIRIUS_KYB_AUTO_SPONSOR/);
+  assert.match(autoInviteStartupNotice({ SIRIUS_KYB_AUTO_SPONSOR: "true" }) ?? "", /parrainée fermée/);
+  const notice = autoInviteStartupNotice(SPONSORED) ?? "";
+  assert.match(notice, /parrainée à la connexion/);
+  assert.ok(!notice.toLowerCase().includes(KEY.slice(2).toLowerCase()));
+});
+
+test("parrainage : le sujet signe son consentement, le vérificateur pose l'attestation et l'émission compte dans les plafonds", async () => {
+  const d = sponsorDeps();
+  const { prepared, signature } = await consent(d);
+  assert.equal(prepared.expiresAt, NOW_SECONDS + AUTO_INVITE_VALIDITY_DAYS * 86_400);
+  assert.equal(prepared.typedData.message.verifier, VERIFIER);
+  assert.equal(prepared.typedData.domain.chainId, 4663);
+  assert.equal(d.rows.length, 0, "préparer n'inscrit rien");
+
+  const result = await submitSponsoredAttestation(SUBJECT_ACCOUNT.address.toLowerCase(), prepared.expiresAt, signature, d);
+  assert.deepEqual(result, { subject: SUBJECT_ACCOUNT.address, verifier: VERIFIER, txHash: TX, expiresAt: prepared.expiresAt });
+  assert.deepEqual(d.attested, [{ subject: SUBJECT_ACCOUNT.address, expiresAt: prepared.expiresAt, signature }]);
+  assert.equal(d.rows.length, 1);
+  assert.match(d.logs[0], /attestation parrainée posée/);
+
+  // Même wallet, même jour : le plafond par wallet s'applique, rien n'est envoyé.
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt, signature, d), denied(429, /par wallet/));
+  assert.equal(d.attested.length, 1);
+});
+
+test("parrainage : signature d'un autre wallet, expiration retouchée ou fonction fermée refusées sans dépense", async () => {
+  const d = sponsorDeps();
+  const { prepared } = await consent(d);
+  const { signature: foreign } = await consent(sponsorDeps(), privateKeyToAccount(generatePrivateKey()));
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt, foreign, d), denied(400, /invalide/));
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt, "0x1234", d), denied(400, /malformée/));
+  const { signature } = await consent(d);
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt + 3600, signature, d), denied(400, /expiré/));
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt - 86_400, signature, d), denied(400, /expiré/));
+  await assert.rejects(prepareSponsoredAttestation(SUBJECT_ACCOUNT.address, sponsorDeps({ env: ENABLED })), denied(404, /indisponible/));
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, prepared.expiresAt, signature, sponsorDeps({ env: ENABLED })), denied(404, /indisponible/));
+  assert.deepEqual(d.attested, []);
+  assert.equal(d.rows.length, 0);
+});
+
+test("parrainage : mêmes refus que l'invitation (wallet bloqué, révoqué, KYB de l'équipe)", async () => {
+  const cases: [Partial<AutoInviteDependencies>, number, RegExp][] = [
+    [{ isBlocked: async () => true }, 403, /bloqué/],
+    [{ registry: registry({ attestation: { verifier: HUMAN_VERIFIER, revoked: true } }) }, 403, /révoquée/],
+    [{ registry: registry({ valid: true, attestation: { verifier: HUMAN_VERIFIER, expiresAt: NOW_SECONDS + 86_400 * 100 } }) }, 409, /équipe/],
+    [{ registry: registry({ verifiers: [] }) }, 503, /retiré/],
+  ];
+  for (const [override, status, pattern] of cases) {
+    await assert.rejects(prepareSponsoredAttestation(SUBJECT_ACCOUNT.address, sponsorDeps(override)), denied(status, pattern), pattern.source);
+  }
+});
+
+test("parrainage : solde trop bas ou transaction en échec, la trace est retirée pour ne pas bloquer 24 heures", async () => {
+  const poor = sponsorDeps({ chain: { balanceOf: async () => AUTO_SPONSOR_MIN_WEI - BigInt(1) } });
+  const first = await consent(poor);
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, first.prepared.expiresAt, first.signature, poor), denied(503, /approvisionner/));
+  assert.deepEqual(poor.attested, []);
+  assert.equal(poor.rows.length, 0);
+
+  const failing = sponsorDeps({ chain: { attest: async () => { throw new Error("rpc down"); } } });
+  const second = await consent(failing);
+  await assert.rejects(submitSponsoredAttestation(SUBJECT_ACCOUNT.address, second.prepared.expiresAt, second.signature, failing), /rpc down/);
+  assert.equal(failing.rows.length, 0);
 });

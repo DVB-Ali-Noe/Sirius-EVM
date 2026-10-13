@@ -44,8 +44,8 @@ export const SHARED_MESSAGES_EN: Record<string, string> = {
   // Carte de dataset ("Profil absent", "{count} lignes" et "{count} colonnes" existent déjà)
   "Emprunts": "Borrows",
   "Revenus totaux": "Total earned",
-  "Fournisseur vérifié KYB": "KYB-verified provider",
-  "Fournisseur non vérifié KYB": "Provider not KYB-verified",
+  "Fournisseur vérifié": "Verified provider",
+  "Fournisseur non vérifié": "Unverified provider",
   "Publier un dataset": "Publish a dataset",
   "Dataset sans nom": "Untitled dataset",
 };

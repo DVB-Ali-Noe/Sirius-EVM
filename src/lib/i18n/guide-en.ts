@@ -33,18 +33,18 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "Bravo, tu es connecté·e !": "Well done, you’re signed in!",
 
   // Vérification
-  "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.":
-    "On mainnet, every lender and borrower is verified on-chain (KYB): it protects everyone’s data and money.",
-  "Chaque prêteur et chaque emprunteur est vérifié on-chain (KYB) : ça protège les données et l’argent de tout le monde.":
-    "Every lender and borrower is verified on-chain (KYB): it protects everyone’s data and money.",
+  "Sur mainnet, chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.":
+    "On mainnet, every lender and borrower is verified on-chain: it protects everyone’s data and money.",
+  "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde.":
+    "Every lender and borrower is verified on-chain: it protects everyone’s data and money.",
   "Je regarde si ton wallet est déjà vérifié…": "Checking whether your wallet is already verified…",
   "Une seule transaction à confirmer dans ton wallet, et c’est fait.": "One transaction to confirm in your wallet, and you’re done.",
   "Il te faut un peu d’ETH pour payer le gas de cette transaction : ajoute des fonds d’abord, je t’attends ici.":
     "You need a little ETH to pay the gas for this transaction: add funds first, I’ll wait here.",
   "L’accès instantané n’est pas ouvert : colle le code d’invitation reçu de l’équipe, ou écris-nous.":
     "Instant access is not open: paste the invitation code you received from the team, or write to us.",
-  "Je n’arrive pas à lire ton statut pour l’instant. Tu peux le vérifier sur la page KYB, ou continuer.":
-    "I can’t read your status right now. You can check it on the KYB page, or continue.",
+  "Je n’arrive pas à lire ton statut pour l’instant. Tu peux le vérifier sur la page Vérification, ou continuer.":
+    "I can’t read your status right now. You can check it on the Verification page, or continue.",
   "Ton wallet est vérifié. Je te fais visiter ?": "Your wallet is verified. Shall I show you around?",
 
   // Tour du menu (« Phala » est un nom propre, identique dans les deux langues)
@@ -73,7 +73,7 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "Wallet": "Wallet",
   "Visite guidée": "Guided tour",
   "Fiche d’un dataset": "Dataset page",
-  "Vérification KYB": "KYB verification",
+  "Vérification du wallet": "Wallet verification",
 
   // Tableau de bord
   "Ton tableau de bord": "Your dashboard",
@@ -133,13 +133,13 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "Par nom ou description ; la recherche part après une pause de frappe, ou sur Entrée.":
     "By name or description; the search runs after a typing pause, or on Enter.",
   "Filtrer": "Filter",
-  "Catégorie, modèle, prix total, taille — et « Vérifiés KYB uniquement » pour ne garder que les fournisseurs attestés.":
+  "Catégorie, modèle, prix total, taille — et « Vérifiés uniquement » pour ne garder que les fournisseurs attestés.":
     "Category, model, total price, size — and “Verified KYB only” to keep only attested providers.",
   "Trier": "Sort",
   "Plus récents, plus empruntés ou prix croissant.": "Most recent, most borrowed or lowest price first.",
   "Les fiches": "The cards",
-  "Prix affiché frais de calcul compris quand ils sont connus, lignes, colonnes, badge KYB. L’étoile garde un favori ; clique sur une fiche pour l’ouvrir et emprunter.":
-    "Price shown with compute fees when they are known, rows, columns, KYB badge. The star keeps a favourite; click a card to open it and borrow.",
+  "Prix affiché frais de calcul compris quand ils sont connus, lignes, colonnes, badge « vérifié ». L’étoile garde un favori ; clique sur une fiche pour l’ouvrir et emprunter.":
+    "Price shown with compute fees when they are known, rows, columns, “verified” badge. The star keeps a favourite; click a card to open it and borrow.",
 
   // Fiche d’un dataset
   "Tout ce qui est public sur ce dataset avant d’emprunter. Les colonnes elles-mêmes restent chiffrées.":
@@ -157,8 +157,8 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "La part du fournisseur plus les frais de calcul. Le montant exact est dans le devis, avant tout paiement ; le gas se paie à part, en ETH.":
     "The provider’s share plus compute fees. The exact amount is in the quote, before any payment; gas is paid separately, in ETH.",
   "Emprunter": "Borrow",
-  "Une transaction bloque le prix en escrow. La connexion et la vérification KYB ne sont demandées qu’à ce moment-là.":
-    "One transaction locks the price in escrow. Sign-in and KYB verification are only requested at that point.",
+  "Une transaction bloque le prix en escrow. La connexion et la vérification du wallet ne sont demandées qu’à ce moment-là.":
+    "One transaction locks the price in escrow. Sign-in and wallet verification are only requested at that point.",
 
   // Mes datasets
   "Les datasets importés depuis ce wallet : leur état, leurs emprunts et ce qu’ils t’ont rapporté.":
@@ -217,8 +217,8 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
 
   // KYB
   "Ton statut": "Your status",
-  "Lu dans le registre KYB on-chain : vérifié, avec la date d’expiration, ou non vérifié.":
-    "Read from the on-chain KYB registry: verified, with its expiry date, or not verified.",
+  "Lu dans le registre de vérification on-chain : vérifié, avec la date d’expiration, ou non vérifié.":
+    "Read from the on-chain verification registry: verified, with its expiry date, or not verified.",
   "Obtenir l’accès": "Get access",
   "L’accès instantané quand il est ouvert — une transaction —, sinon le code d’invitation reçu de l’équipe.":
     "Instant access when it is open — one transaction — otherwise the invitation code received from the team.",

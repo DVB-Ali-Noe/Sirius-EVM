@@ -37,7 +37,7 @@ const BY_PAGE: readonly { prefix: string; suggestions: readonly AssistantSuggest
     suggestions: [
       LIVE_COUNT,
       BORROW,
-      { question: "Que veut dire le badge KYB ?", answer: "Le badge indique que le fournisseur du dataset a une attestation KYB valide dans le registre on-chain. Sans attestation valide, le dataset reste visible mais ne peut pas être emprunté." },
+      { question: "Que veut dire le badge « vérifié » ?", answer: "Le badge indique que le fournisseur du dataset a une attestation KYB valide dans le registre on-chain. Sans attestation valide, le dataset reste visible mais ne peut pas être emprunté." },
       SAFETY,
     ],
   },
@@ -78,7 +78,7 @@ const BY_PAGE: readonly { prefix: string; suggestions: readonly AssistantSuggest
   {
     prefix: "/kyb",
     suggestions: [
-      { question: "Pourquoi une vérification KYB ?", answer: "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde sur la marketplace." },
+      { question: "Pourquoi vérifier mon wallet ?", answer: "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde sur la marketplace." },
       { question: "Comment obtenir l’accès instantané ?", answer: "Quand il est ouvert, Sirius signe une attestation de 30 jours pour ton wallet : une seule transaction à confirmer, avec un peu d’ETH pour le gas." },
       SAFETY,
     ],

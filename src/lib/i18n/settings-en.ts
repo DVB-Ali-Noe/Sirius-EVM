@@ -5,8 +5,8 @@
  */
 const IDENTICAL = [
   "Attestation valid until {date} (UTC).",
-  "Business verification, recorded on-chain. It is required to lend and to borrow datasets on mainnet.",
-  "Checking your KYB status…",
+  "Wallet verification, recorded on-chain. Sirius sets it up automatically when you sign in.",
+  "Checking your verification status…",
   "Coming soon",
   "Could not load your settings.",
   "Could not save your settings. Try again.",
@@ -28,10 +28,10 @@ const IDENTICAL = [
   "Soon",
   "Status unavailable",
   "Status",
-  "The status is read from the KYB registry contract.",
+  "The status is read from the verification registry contract.",
   "Try it on testnet",
   "Verified",
-  "We could not read your KYB status. This does not mean you are not verified.",
+  "We could not read your verification status. This does not mean you are not verified.",
   "Your attestation expired on {date} (UTC). Ask for a new invitation.",
   "Your attestation has expired. Ask for a new invitation.",
   "Your attestation is no longer accepted by the registry. Ask for a new invitation.",
@@ -52,6 +52,6 @@ const IDENTICAL = [
 export const SETTINGS_MESSAGES_EN: Record<string, string> = {
   ...Object.fromEntries(IDENTICAL.map((text) => [text, text])),
   "Connecte un wallet pour enregistrer tes réglages.": "Connect a wallet to save your settings.",
-  "Connecte un wallet pour voir ton statut KYB.": "Connect a wallet to see your KYB status.",
-  "Statut KYB indisponible": "KYB status unavailable",
+  "Connecte un wallet pour voir ton statut de vérification.": "Connect a wallet to see your verification status.",
+  "Statut de vérification indisponible": "Verification status unavailable",
 };

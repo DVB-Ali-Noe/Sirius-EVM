@@ -48,7 +48,7 @@ test("le bouton profil donne le réseau, l'adresse, le solde et les liens, puis 
   await expect(explorer).toHaveAttribute("href", `https://explorer.testnet.chain.robinhood.com/address/${ADDRESS}`);
   await expect(explorer).toHaveAttribute("rel", "noopener noreferrer");
   await expect(panel.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/settings");
-  await expect(panel.getByRole("link", { name: "KYB", exact: true })).toHaveAttribute("href", "/kyb");
+  await expect(panel.getByRole("link", { name: "Verification", exact: true })).toHaveAttribute("href", "/kyb");
   await expect(panel.getByRole("button", { name: "Guided tour", exact: true })).toBeVisible();
   await expect(panel.getByRole("button", { name: "Log out", exact: true })).toBeVisible();
 

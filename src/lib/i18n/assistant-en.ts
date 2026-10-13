@@ -67,7 +67,7 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   // Questions suggérées selon la page, et leurs réponses hors ligne
   "Combien de datasets sur la marketplace ?": "How many datasets are on the marketplace?",
   "Quels sont les plafonds de prêt ?": "What are the loan limits?",
-  "Que veut dire le badge KYB ?": "What does the KYB badge mean?",
+  "Que veut dire le badge « vérifié » ?": "What does the “verified” badge mean?",
   "Le badge indique que le fournisseur du dataset a une attestation KYB valide dans le registre on-chain. Sans attestation valide, le dataset reste visible mais ne peut pas être emprunté.":
     "The badge means the dataset provider has a valid KYB attestation in the on-chain registry. Without a valid attestation, the dataset stays visible but cannot be borrowed.",
   "Comment récupérer mon modèle ?": "How do I get my model?",
@@ -97,7 +97,7 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   "Qu’est-ce qu’un reçu d’audit ?": "What is an audit receipt?",
   "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle livré.":
     "Every training run produces an audit receipt and a certificate binding the dataset title, the loan, the TEE attestation and the fingerprint of the delivered model.",
-  "Pourquoi une vérification KYB ?": "Why a KYB verification?",
+  "Pourquoi vérifier mon wallet ?": "Why verify my wallet?",
   "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde sur la marketplace.":
     "Every lender and borrower is verified on-chain: it protects everyone’s data and money on the marketplace.",
   "Comment obtenir l’accès instantané ?": "How do I get instant access?",

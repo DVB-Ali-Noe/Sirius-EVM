@@ -193,7 +193,7 @@ test("DatasetCard : toutes les informations de la mosaïque", () => {
   assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>23\.00 USDG<\/dd>/);
   assert.match(out, /<dt[^>]*>Borrows<\/dt><dd[^>]*>12<\/dd>/);
   assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDG<\/dd>/);
-  assert.match(out, />KYB-verified provider</);
+  assert.match(out, />Verified provider</);
 });
 
 test("DatasetCard : champs optionnels absents, prix côté fournisseur", () => {
@@ -206,7 +206,7 @@ test("DatasetCard : champs optionnels absents, prix côté fournisseur", () => {
   const empty = page("card-empty");
   assert.match(empty, /Borrows<\/dt><dd[^>]*>0<\/dd>/);
   assert.match(empty, /<dd[^>]*>—<\/dd>/);
-  assert.match(page("card-unverified"), />Provider not KYB-verified</);
+  assert.match(page("card-unverified"), />Unverified provider</);
   assert.match(page("card-null-revenue"), /Total earned<\/dt><dd[^>]*>—<\/dd>/);
 });
 

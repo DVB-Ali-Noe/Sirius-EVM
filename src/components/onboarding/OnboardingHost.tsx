@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useGuideStore } from "@/components/guide/guide-store";
+import { pendingKybAttestation } from "@/lib/kyb/client";
 import { shouldPromptVerification } from "@/lib/onboarding/steps";
 import { useWalletStore } from "@/stores/wallet";
 import {
@@ -52,7 +53,19 @@ export function OnboardingHost({ autoPrompt = true }: { autoPrompt?: boolean }) 
   useEffect(() => {
     if ((!autoPrompt && !chained) || !signed || owner !== signed || kyb !== "missing" || (!instantAccess && !chained)) return;
     if (promptShownThisSession(signed)) return;
+    let attestationSeen = false;
     const timer = setInterval(() => {
+      // Attestation automatique en route juste après la connexion : on attend sa fin, puis on
+      // relit le statut ; la fenêtre ne se propose que si le wallet n'est toujours pas vérifié.
+      if (pendingKybAttestation()) {
+        attestationSeen = true;
+        return;
+      }
+      if (attestationSeen) {
+        attestationSeen = false;
+        void loadKybGate();
+        return;
+      }
       const guide = useGuideStore.getState();
       if (guide.suppressed) {
         clearInterval(timer);

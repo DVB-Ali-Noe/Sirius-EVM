@@ -7,10 +7,12 @@ import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { resolveServerNetwork } from "@/lib/evm/networks";
 import {
-  autoInviteSigner, issueAutoInvitation, readAutoInviteConfig, revokeAutoAttestation,
-  type AutoInviteIssuances, type AutoInviteRegistry, type AutoInviteResult,
+  autoInviteSigner, issueAutoInvitation, prepareSponsoredAttestation, readAutoInviteConfig, revokeAutoAttestation,
+  submitSponsoredAttestation,
+  type AutoInviteIssuances, type AutoInviteRegistry, type AutoInviteResult, type AutoSponsorChain, type SponsoredAttestationRequest,
 } from "@/lib/kyb/auto-invite";
 import type { AutoInviteRetentionStore } from "@/lib/kyb/auto-invite-retention";
+import { finalizeKybAcceptance } from "@/lib/sirius/kyb";
 import { readUserProfile } from "@/lib/users/profile";
 
 /** Branchement de l'accès instantané sur la chaîne et la base ; la logique vit dans `@/lib/kyb/auto-invite`. */
@@ -51,8 +53,12 @@ async function profileBlocked(subject: string): Promise<boolean> {
 
 /** Invitation pour le wallet de la session : l'adresse ne vient jamais de la requête. */
 export function issueSessionAutoInvitation(subject: string, ip: string | null): Promise<AutoInviteResult> {
+  return issueAutoInvitation(subject, sessionDependencies(ip));
+}
+
+function sessionDependencies(ip: string | null) {
   const { chain } = resolveServerNetwork();
-  return issueAutoInvitation(subject, {
+  return {
     config: readAutoInviteConfig(),
     registry: chainRegistry(),
     issuances: databaseIssuances,
@@ -60,7 +66,53 @@ export function issueSessionAutoInvitation(subject: string, ip: string | null): 
     chainId: chain.id,
     registryAddress: kybRegistryAddress() as Address,
     ip,
-  });
+  };
+}
+
+/** Consentement à faire signer par le wallet de la session : l'adresse ne vient jamais de la requête. */
+export function prepareSessionSponsoredAttestation(subject: string, ip: string | null): Promise<SponsoredAttestationRequest> {
+  return prepareSponsoredAttestation(subject, sessionDependencies(ip));
+}
+
+// Une seule transaction du vérificateur à la fois par instance : deux envois simultanés
+// prendraient le même nonce de compte et l'un des deux échouerait.
+let sponsorQueue: Promise<void> = Promise.resolve();
+
+function enqueueSponsor<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = sponsorQueue.catch(() => {}).then(operation);
+  sponsorQueue = queued.then(() => {}, () => {});
+  return queued;
+}
+
+const sponsorChain: AutoSponsorChain = {
+  balanceOf: (address) => getPublicClient().getBalance({ address }),
+  attest: (subject, expiresAt, subjectSignature) => enqueueSponsor(async () => {
+    const signer = autoInviteSigner();
+    if (!signer) throw new AppError("Vérificateur automatique non configuré", 404);
+    const registry = kybRegistryAddress();
+    const { chain, rpcUrl } = resolveServerNetwork();
+    const publicClient = getPublicClient();
+    // Simulée d'abord : une signature que le contrat refuserait ne coûte aucun gas.
+    const { request } = await publicClient.simulateContract({
+      address: registry, abi: siriuskybregistryAbi, functionName: "attestWithConsent",
+      args: [subject, expiresAt, subjectSignature], account: signer, chain,
+    }).catch(() => { throw new AppError("Attestation refusée par le registre", 409); });
+    const wallet = createWalletClient({ account: signer, chain, transport: http(rpcUrl) });
+    const hash = await wallet.writeContract(request);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+    if (receipt.status !== "success") throw new AppError("Attestation rejetée par la chaîne", 502);
+    return hash;
+  }),
+};
+
+/**
+ * Attestation parrainée du wallet de la session, puis le même enregistrement applicatif
+ * qu'après une attestation acceptée (`finalizeKybAcceptance`, qui relit `isKybValid`).
+ */
+export async function submitSessionSponsoredAttestation(subject: string, ip: string | null, expiresAt: number, signature: string) {
+  const result = await submitSponsoredAttestation(subject, expiresAt, signature, { ...sessionDependencies(ip), sponsorChain });
+  await finalizeKybAcceptance(result.subject, result.txHash, result.verifier);
+  return result;
 }
 
 /**

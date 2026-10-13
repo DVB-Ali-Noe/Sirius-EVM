@@ -197,7 +197,7 @@ export function BorrowPanel({
             onClick={() => void handleOnboard()}
             className="rounded-xl border border-border bg-surface px-3 py-2 text-xs font-medium text-muted transition-colors hover:border-white/20"
           >
-            {t("Configurer le KYB")}
+            {t("Vérifier mon wallet")}
           </button>
         )}
       </div>
@@ -209,7 +209,7 @@ export function BorrowPanel({
       {!model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
       {providerVerified === false && (
         <p className="text-xs text-negative">
-          {t("Emprunt indisponible : l’attestation KYB du fournisseur est absente ou expirée.")}
+          {t("Emprunt indisponible : l’attestation de vérification du fournisseur est absente ou expirée.")}
         </p>
       )}
       {error && (

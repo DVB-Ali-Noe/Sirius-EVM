@@ -54,7 +54,7 @@ async function persistAccepted(subject: string, txHash?: string) {
  */
 async function invitationTransaction(subject: string, code: unknown) {
   let invitation;
-  try { invitation = decodeKybInvitation(code); } catch { throw new AppError("Code d’invitation KYB invalide", 400); }
+  try { invitation = decodeKybInvitation(code); } catch { throw new AppError("Code d’invitation invalide", 400); }
   const registry = kybRegistryAddress();
   const { chain } = resolveServerNetwork();
   if (invitation.chainId !== chain.id || !addressesEqual(invitation.registry, registry)) {

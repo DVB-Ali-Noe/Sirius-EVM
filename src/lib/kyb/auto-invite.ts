@@ -1,5 +1,5 @@
 import "server-only";
-import { getAddress, type Address, type Hex } from "viem";
+import { getAddress, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { AppError } from "@/lib/app-error";
 import { decodeKybInvitation, encodeKybInvitation, invitationSigner, kybAttestationTypedData } from "./invitation";
@@ -46,6 +46,15 @@ export const DEFAULT_AUTO_INVITE_MAX_PER_HOUR = 120;
 export const DEFAULT_AUTO_INVITE_MAX_PER_IP_HOUR = 3;
 /** ETH minimal du vérificateur automatique pour une révocation (≈ 0,0001 ETH, des dizaines d'écritures sur cette chaîne). */
 export const AUTO_INVITE_REVOKE_MIN_WEI = BigInt("100000000000000");
+/**
+ * Attestation parrainée : le sujet signe seulement son consentement, le vérificateur automatique
+ * envoie `attestWithConsent` et paie le gas. Second interrupteur, posé en plus de l'accès instantané.
+ */
+export const AUTO_SPONSOR_FLAG = "SIRIUS_KYB_AUTO_SPONSOR";
+/** Solde sous lequel le parrainage s'arrête : il garde de quoi révoquer (`AUTO_INVITE_REVOKE_MIN_WEI`) et une attestation. */
+export const AUTO_SPONSOR_MIN_WEI = BigInt("200000000000000");
+/** Marge acceptée entre l'expiration préparée et celle soumise (secondes) : le temps de signer dans le wallet. */
+const SPONSOR_EXPIRY_SLACK_SECONDS = 15 * 60;
 const MAX_AUTO_INVITE_PER_HOUR = 1_000;
 const PRIVATE_KEY = /^0x[0-9a-fA-F]{64}$/;
 const KYB_REGISTRY_VERSION = "sirius-kyb-v3";
@@ -60,10 +69,16 @@ export interface AutoInviteConfig {
   account: PrivateKeyAccount | null;
   maxPerHour: number;
   maxPerIpHour: number;
+  /** Accès instantané ouvert ET `SIRIUS_KYB_AUTO_SPONSOR=true` : le vérificateur paie l'attestation. */
+  sponsor: boolean;
 }
 
 function flagOn(env: AutoInviteEnvironment): boolean {
   return env.SIRIUS_KYB_AUTO_INVITE?.trim() === "true";
+}
+
+function sponsorFlagOn(env: AutoInviteEnvironment): boolean {
+  return env.SIRIUS_KYB_AUTO_SPONSOR?.trim() === "true";
 }
 
 function keyOf(env: AutoInviteEnvironment): Hex | null {
@@ -83,6 +98,11 @@ export function autoInviteEnabled(env: AutoInviteEnvironment = process.env): boo
   return flagOn(env) && keyOf(env) !== null;
 }
 
+/** Attestation parrainée proposée : accès instantané ouvert et `SIRIUS_KYB_AUTO_SPONSOR=true`. */
+export function autoSponsorEnabled(env: AutoInviteEnvironment = process.env): boolean {
+  return autoInviteEnabled(env) && sponsorFlagOn(env);
+}
+
 export function readAutoInviteConfig(env: AutoInviteEnvironment = process.env): AutoInviteConfig {
   const key = flagOn(env) ? keyOf(env) : null;
   return {
@@ -90,6 +110,7 @@ export function readAutoInviteConfig(env: AutoInviteEnvironment = process.env): 
     account: key ? privateKeyToAccount(key) : null,
     maxPerHour: boundedCount(env.SIRIUS_KYB_AUTO_INVITE_MAX_PER_HOUR, DEFAULT_AUTO_INVITE_MAX_PER_HOUR) ?? DEFAULT_AUTO_INVITE_MAX_PER_HOUR,
     maxPerIpHour: boundedCount(env.SIRIUS_KYB_AUTO_INVITE_MAX_PER_IP_HOUR, DEFAULT_AUTO_INVITE_MAX_PER_IP_HOUR) ?? DEFAULT_AUTO_INVITE_MAX_PER_IP_HOUR,
+    sponsor: key !== null && sponsorFlagOn(env),
   };
 }
 
@@ -114,12 +135,16 @@ export function autoInviteSigner(env: AutoInviteEnvironment = process.env): Priv
 export function autoInviteStartupNotice(env: AutoInviteEnvironment = process.env): string | null {
   const flag = env.SIRIUS_KYB_AUTO_INVITE?.trim();
   if (flag && flag !== "true" && flag !== "false") throw new Error("SIRIUS_KYB_AUTO_INVITE doit valoir true ou false");
+  const sponsorFlag = env.SIRIUS_KYB_AUTO_SPONSOR?.trim();
+  if (sponsorFlag && sponsorFlag !== "true" && sponsorFlag !== "false") throw new Error("SIRIUS_KYB_AUTO_SPONSOR doit valoir true ou false");
   const key = keyOf(env);
   const maxPerHour = boundedCount(env.SIRIUS_KYB_AUTO_INVITE_MAX_PER_HOUR, DEFAULT_AUTO_INVITE_MAX_PER_HOUR);
   if (maxPerHour === null) throw new Error("SIRIUS_KYB_AUTO_INVITE_MAX_PER_HOUR invalide : entier entre 1 et 1000");
   const maxPerIpHour = boundedCount(env.SIRIUS_KYB_AUTO_INVITE_MAX_PER_IP_HOUR, DEFAULT_AUTO_INVITE_MAX_PER_IP_HOUR);
   if (maxPerIpHour === null) throw new Error("SIRIUS_KYB_AUTO_INVITE_MAX_PER_IP_HOUR invalide : entier entre 1 et 1000");
   if (flag !== "true") {
+    // Couper l'accès instantané coupe aussi le parrainage, sans arrêter le serveur.
+    if (sponsorFlag === "true") return `[sirius] ${AUTO_SPONSOR_FLAG}=true sans ${AUTO_INVITE_FLAG}=true : attestation parrainée fermée.`;
     return env.SIRIUS_KYB_AUTO_INVITE_KEY?.trim()
       ? `[sirius] ${AUTO_INVITE_KEY_VARIABLE} présente sans ${AUTO_INVITE_FLAG}=true : accès instantané KYB fermé, la clé est ignorée (à retirer).`
       : null;
@@ -130,7 +155,8 @@ export function autoInviteStartupNotice(env: AutoInviteEnvironment = process.env
   }
   const { address } = privateKeyToAccount(key);
   return `[sirius] ${AUTO_INVITE_FLAG}=true : accès instantané KYB ouvert, vérificateur automatique ${address}, `
-    + `${maxPerHour} invitations par heure au plus, 1 par wallet et par 24 h, ${maxPerIpHour} par adresse IP et par heure.`;
+    + `${maxPerHour} invitations par heure au plus, 1 par wallet et par 24 h, ${maxPerIpHour} par adresse IP et par heure`
+    + (sponsorFlag === "true" ? ", attestation parrainée à la connexion (le vérificateur paie le gas)." : ".");
 }
 
 export interface AutoInviteAttestation {
@@ -196,36 +222,10 @@ export interface AutoInviteResult {
  * KYB déjà valide hors renouvellement automatique (409), plafonds (429).
  */
 export async function issueAutoInvitation(subjectRaw: string, deps: AutoInviteDependencies): Promise<AutoInviteResult> {
-  const { config, registry, issuances, isBlocked, chainId, registryAddress, ip = null, now = new Date(), log = console.log } = deps;
+  const { config, issuances, chainId, registryAddress, now = new Date(), log = console.log } = deps;
   if (!config.enabled || !config.account) throw new AppError("Accès instantané KYB indisponible", 404);
   const verifier = config.account;
-  const verifierAddress = getAddress(verifier.address);
-  const subject = getAddress(subjectRaw);
-  const subjectKey = subject.toLowerCase();
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-
-  if (await isBlocked(subjectKey)) throw new AppError("Compte bloqué : contacte l’équipe Sirius", 403);
-  if (await registry.version() !== KYB_REGISTRY_VERSION) throw new AppError("Migration du registre KYB requise", 503);
-  // Le Safe a retiré le vérificateur : on ne signe plus rien, même si le drapeau est resté posé.
-  if (!await registry.isVerifier(verifierAddress)) {
-    throw new AppError("Vérificateur automatique retiré du registre : accès instantané suspendu", 503);
-  }
-  const attestation = await registry.attestationOf(subject);
-  const attested = attestation.verifier !== ZERO_ADDRESS;
-  // Une révocation est une décision de l'équipe (ou du vérificateur émetteur) : un clic ne la défait pas.
-  if (attested && attestation.revoked) throw new AppError("Vérification KYB révoquée : contacte l’équipe Sirius", 403);
-  if (await registry.isKybValid(subject)) {
-    // Seules les attestations du vérificateur automatique se renouvellent ici : celle d'un
-    // vérificateur humain serait remplacée par une attestation plus courte, sans que l'équipe le sache.
-    if (getAddress(attestation.verifier) !== verifierAddress) {
-      throw new AppError("KYB déjà valide, attesté par l’équipe Sirius : renouvellement par l’équipe", 409);
-    }
-    if (attestation.expiresAt - nowSeconds > AUTO_INVITE_RENEWAL_DAYS * 86_400) {
-      throw new AppError("KYB déjà valide : renouvellement possible dans les 7 derniers jours de l’attestation", 409);
-    }
-  }
-
-  const [epoch, nonce] = await Promise.all([registry.verifierEpoch(verifierAddress), registry.nonces(subject)]);
+  const { verifierAddress, subject, subjectKey, nowSeconds, epoch, nonce } = await autoEligibility(subjectRaw, verifier, deps);
   const walletSince = new Date(now.getTime() - AUTO_INVITE_WALLET_WINDOW_MS);
 
   // Une transaction refusée dans le wallet ne doit pas coûter 24 heures : tant que le code
@@ -249,9 +249,62 @@ export async function issueAutoInvitation(subjectRaw: string, deps: AutoInviteDe
   if (getAddress(await invitationSigner(invitation)) !== fields.verifier) throw new AppError("Auto-vérification de la signature échouée", 500);
   const code = encodeKybInvitation(invitation);
 
-  // Inscrit puis compté, comme les essais de code opérateur : en parallèle sur plusieurs
-  // instances, la k-ième inscription voit les k − 1 précédentes. Un code refusé n'est jamais
-  // retourné et sa trace est retirée, pour ne pas prolonger le blocage.
+  await recordWithinCaps(subjectKey, code, expiresAt, deps);
+  log(`[kyb] invitation automatique émise pour ${subject}, expire le ${new Date(expiresAt * 1000).toISOString()}`);
+  return { code, subject, verifier: fields.verifier, expiresAt };
+}
+
+interface AutoEligibility {
+  verifierAddress: Address;
+  subject: Address;
+  subjectKey: string;
+  nowSeconds: number;
+  epoch: bigint;
+  nonce: bigint;
+}
+
+/** Refus communs à l'invitation et au parrainage, dans l'ordre documenté sur `issueAutoInvitation`. */
+async function autoEligibility(subjectRaw: string, verifier: PrivateKeyAccount, deps: AutoInviteDependencies): Promise<AutoEligibility> {
+  const { registry, isBlocked, now = new Date() } = deps;
+  const verifierAddress = getAddress(verifier.address);
+  const subject = getAddress(subjectRaw);
+  const subjectKey = subject.toLowerCase();
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+
+  if (await isBlocked(subjectKey)) throw new AppError("Compte bloqué : contacte l’équipe Sirius", 403);
+  if (await registry.version() !== KYB_REGISTRY_VERSION) throw new AppError("Migration du registre KYB requise", 503);
+  // Le Safe a retiré le vérificateur : on ne signe plus rien, même si le drapeau est resté posé.
+  if (!await registry.isVerifier(verifierAddress)) {
+    throw new AppError("Vérificateur automatique retiré du registre : accès instantané suspendu", 503);
+  }
+  const attestation = await registry.attestationOf(subject);
+  const attested = attestation.verifier !== ZERO_ADDRESS;
+  // Une révocation est une décision de l'équipe (ou du vérificateur émetteur) : un clic ne la défait pas.
+  if (attested && attestation.revoked) throw new AppError("Vérification du wallet révoquée : contacte l’équipe Sirius", 403);
+  if (await registry.isKybValid(subject)) {
+    // Seules les attestations du vérificateur automatique se renouvellent ici : celle d'un
+    // vérificateur humain serait remplacée par une attestation plus courte, sans que l'équipe le sache.
+    if (getAddress(attestation.verifier) !== verifierAddress) {
+      throw new AppError("KYB déjà valide, attesté par l’équipe Sirius : renouvellement par l’équipe", 409);
+    }
+    if (attestation.expiresAt - nowSeconds > AUTO_INVITE_RENEWAL_DAYS * 86_400) {
+      throw new AppError("KYB déjà valide : renouvellement possible dans les 7 derniers jours de l’attestation", 409);
+    }
+  }
+
+  const [epoch, nonce] = await Promise.all([registry.verifierEpoch(verifierAddress), registry.nonces(subject)]);
+  return { verifierAddress, subject, subjectKey, nowSeconds, epoch, nonce };
+}
+
+/**
+ * Inscrit puis compté, comme les essais de code opérateur : en parallèle sur plusieurs
+ * instances, la k-ième inscription voit les k − 1 précédentes. Une émission refusée n'est
+ * jamais rendue et sa trace est retirée, pour ne pas prolonger le blocage. Rend l'identifiant
+ * de la trace, que le parrainage retire aussi si la transaction échoue.
+ */
+async function recordWithinCaps(subjectKey: string, code: string, expiresAt: number, deps: AutoInviteDependencies): Promise<string> {
+  const { config, issuances, ip = null, now = new Date() } = deps;
+  const walletSince = new Date(now.getTime() - AUTO_INVITE_WALLET_WINDOW_MS);
   const hourSince = new Date(now.getTime() - AUTO_INVITE_GLOBAL_WINDOW_MS);
   const issuance = await issuances.record(subjectKey, code, ip, now, new Date(expiresAt * 1000));
   const refuse = async (message: string) => {
@@ -263,8 +316,103 @@ export async function issueAutoInvitation(subjectRaw: string, deps: AutoInviteDe
     await refuse("Trop de demandes d’accès instantané depuis cette adresse — réessaie plus tard");
   }
   if (await issuances.countSince(hourSince) > config.maxPerHour) await refuse("Trop de demandes d’accès instantané — réessaie plus tard");
-  log(`[kyb] invitation automatique émise pour ${subject}, expire le ${new Date(expiresAt * 1000).toISOString()}`);
-  return { code, subject, verifier: fields.verifier, expiresAt };
+  return issuance;
+}
+
+/** Données EIP-712 que le wallet du sujet signe, entiers en chaînes pour passer en JSON. */
+export interface SponsoredAttestationRequest {
+  expiresAt: number;
+  typedData: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: Address };
+    types: ReturnType<typeof kybAttestationTypedData>["types"];
+    primaryType: "KybAttestation";
+    message: { subject: Address; verifier: Address; expiresAt: number; nonce: string; verifierEpoch: string };
+  };
+}
+
+/** Chaîne côté parrainage, injectée pour que la logique se teste sans réseau. */
+export interface AutoSponsorChain {
+  /** Solde natif (wei) du vérificateur automatique. */
+  balanceOf(address: Address): Promise<bigint>;
+  /** Envoie `attestWithConsent`, attend la confirmation et relit `isKybValid` ; rend le hash. */
+  attest(subject: Address, expiresAt: number, subjectSignature: Hex): Promise<Hex>;
+}
+
+export interface SponsoredAttestationResult {
+  subject: Address;
+  verifier: Address;
+  txHash: Hex;
+  expiresAt: number;
+}
+
+function assertSponsorOpen(config: AutoInviteConfig): PrivateKeyAccount {
+  if (!config.enabled || !config.sponsor || !config.account) throw new AppError("Attestation parrainée indisponible", 404);
+  return config.account;
+}
+
+/**
+ * Prépare le consentement que le wallet de la session signe. Mêmes refus que l'invitation
+ * (wallet bloqué, attestation révoquée, KYB déjà valide…) ; rien n'est inscrit ni dépensé ici.
+ */
+export async function prepareSponsoredAttestation(subjectRaw: string, deps: AutoInviteDependencies): Promise<SponsoredAttestationRequest> {
+  const verifier = assertSponsorOpen(deps.config);
+  const { verifierAddress, subject, nowSeconds, epoch, nonce } = await autoEligibility(subjectRaw, verifier, deps);
+  const expiresAt = nowSeconds + AUTO_INVITE_VALIDITY_DAYS * 86_400;
+  const { domain, types, primaryType } = kybAttestationTypedData({
+    chainId: deps.chainId, registry: deps.registryAddress, subject, verifier: verifierAddress,
+    expiresAt, nonce: nonce.toString(), verifierEpoch: epoch.toString(),
+  });
+  return {
+    expiresAt,
+    typedData: {
+      domain, types, primaryType,
+      message: { subject, verifier: verifierAddress, expiresAt, nonce: nonce.toString(), verifierEpoch: epoch.toString() },
+    },
+  };
+}
+
+/**
+ * Pose l'attestation avec le consentement signé : le vérificateur automatique envoie la
+ * transaction et paie le gas. La signature est vérifiée avant toute dépense, l'émission compte
+ * dans les mêmes plafonds que les invitations, et un solde trop bas arrête le parrainage (503)
+ * plutôt que d'entamer la réserve qui sert aux révocations.
+ */
+export async function submitSponsoredAttestation(
+  subjectRaw: string,
+  expiresAt: number,
+  subjectSignature: string,
+  deps: AutoInviteDependencies & { sponsorChain: AutoSponsorChain },
+): Promise<SponsoredAttestationResult> {
+  const { sponsorChain, issuances, chainId, registryAddress, log = console.log } = deps;
+  const verifier = assertSponsorOpen(deps.config);
+  if (!/^0x[0-9a-fA-F]{130}$/.test(subjectSignature)) throw new AppError("Signature de consentement malformée", 400);
+  const { verifierAddress, subject, subjectKey, nowSeconds, epoch, nonce } = await autoEligibility(subjectRaw, verifier, deps);
+  const latest = nowSeconds + AUTO_INVITE_VALIDITY_DAYS * 86_400;
+  if (!Number.isSafeInteger(expiresAt) || expiresAt > latest || expiresAt < latest - SPONSOR_EXPIRY_SLACK_SECONDS) {
+    throw new AppError("Consentement expiré : relance la connexion", 400);
+  }
+
+  const signer = await recoverTypedDataAddress({
+    ...kybAttestationTypedData({
+      chainId, registry: registryAddress, subject, verifier: verifierAddress,
+      expiresAt, nonce: nonce.toString(), verifierEpoch: epoch.toString(),
+    }),
+    signature: subjectSignature as Hex,
+  }).catch(() => null);
+  if (!signer || getAddress(signer) !== subject) throw new AppError("Signature de consentement invalide", 400);
+
+  const issuance = await recordWithinCaps(subjectKey, `sponsored:${expiresAt}`, expiresAt, deps);
+  try {
+    if (await sponsorChain.balanceOf(verifierAddress) < AUTO_SPONSOR_MIN_WEI) {
+      throw new AppError("Attestation parrainée suspendue : vérificateur automatique à approvisionner", 503);
+    }
+    const txHash = await sponsorChain.attest(subject, expiresAt, subjectSignature as Hex);
+    log(`[kyb] attestation parrainée posée pour ${subject}, expire le ${new Date(expiresAt * 1000).toISOString()}`);
+    return { subject, verifier: verifierAddress, txHash, expiresAt };
+  } catch (error) {
+    await issuances.remove(issuance);
+    throw error;
+  }
 }
 
 function reusableInvitation(

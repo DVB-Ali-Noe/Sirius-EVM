@@ -72,6 +72,10 @@ Le guide animé de première visite (`src/components/guide/`) se range dans une 
 - Pire cas par question : 6 000 caractères d'historique (~1 700 jetons) + 800 jetons produits + écriture de cache à chaque question si le trafic est espacé (> 5 min) : ~0,04 $.
 - Pire cas par jour avec les réglages par défaut : le budget de 5 $ s'arrête avant le plafond de 500 requêtes (500 × 0,04 $ = 20 $) ; relever `SIRIUS_ASSISTANT_DAILY_BUDGET_USD` relève la dépense maximale d'autant. Le quota de 40 par client borne un poste à ~1,60 $ par jour.
 
+## Serveur MCP (lecture seule)
+
+`POST /api/mcp` expose aux agents les données publiques du site : catalogue, fiche, profils d'entraînement, état du protocole et vérification de certificat. **Désactivé par défaut** : sans `SIRIUS_MCP_ENABLED=true`, la route répond 404. Aucun secret, aucune migration. Détail, garde-fous et connexion des clients : [MCP.md](MCP.md).
+
 ## Une cible par branche
 
 [`scripts/deployment-target.mjs`](../scripts/deployment-target.mjs) est la source de vérité utilisée par [la pipeline](../.github/workflows/pipeline.yml).

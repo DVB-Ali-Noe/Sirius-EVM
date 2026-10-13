@@ -84,7 +84,7 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
   const dismissed = useOnboardingStore((s) => s.dismissed);
   const reopened = useOnboardingStore((s) => s.reopened);
   const [loans, setLoans] = useState<{ address: string | null; list: OnboardingLoan[] } | null>(null);
-  // Le statut KYB, les prêts et la préférence ne se lisent qu'une fois signé.
+  // Le statut de vérification, les prêts et la préférence ne se lisent qu'une fois signé.
   const ready = signedIn && address !== null && owner === address.toLowerCase();
 
   useEffect(() => {
@@ -139,7 +139,7 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
         );
       case "verify":
         if (kyb === "unknown") {
-          return <Link href="/kyb" className={PRIMARY}>{t("Voir mon statut KYB")}</Link>;
+          return <Link href="/kyb" className={PRIMARY}>{t("Voir mon statut de vérification")}</Link>;
         }
         return (
           <button type="button" onClick={() => void requestVerification("checklist")} aria-haspopup="dialog" className={PRIMARY} data-testid="get-started-verify">
