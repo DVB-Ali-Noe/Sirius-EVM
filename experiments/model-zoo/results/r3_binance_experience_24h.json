@@ -1,0 +1,809 @@
+{
+  "seeds": 3,
+  "summary": {
+    "experience": {
+      "public_only_full_history": {
+        "ic": {
+          "mean": 0.017203716510160158,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 1.7174357093795927,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.21014492753623185,
+          "std": 2.7755575615628914e-17
+        }
+      },
+      "own_30_days": {
+        "ic": {
+          "mean": 0.053798007410592014,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 0.8181798293339199,
+          "std": 1.1102230246251565e-16
+        },
+        "coverage": {
+          "mean": 0.9968944099378882,
+          "std": 0.0
+        }
+      },
+      "rent_Atlas": {
+        "ic": {
+          "mean": 0.020084784389299042,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": -0.20451819840987673,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.33229813664596275,
+          "std": 0.0
+        }
+      },
+      "rent_Kite": {
+        "ic": {
+          "mean": -0.0010003766267125118,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": -0.915932228757622,
+          "std": 1.1102230246251565e-16
+        },
+        "coverage": {
+          "mean": 0.1832298136645963,
+          "std": 2.7755575615628914e-17
+        }
+      },
+      "rent_Orion": {
+        "ic": {
+          "mean": 0.015506857473079123,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 0.17722117300331028,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.1832298136645963,
+          "std": 2.7755575615628914e-17
+        }
+      },
+      "rent_Pine": {
+        "ic": {
+          "mean": 0.00737067869446863,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": -0.08207166484088252,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.34161490683229817,
+          "std": 5.551115123125783e-17
+        }
+      },
+      "pool": {
+        "ic": {
+          "mean": 0.026926022627612203,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 0.09237851609196246,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.18219461697722564,
+          "std": 2.7755575615628914e-17
+        }
+      },
+      "pool_public_features_only": {
+        "ic": {
+          "mean": 0.001545175825835009,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 0.6487734716079172,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 0.3819875776397515,
+          "std": 5.551115123125783e-17
+        }
+      },
+      "pool_linear": {
+        "ic": {
+          "mean": 0.03126613746667369,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 1.5522405668157873,
+          "std": 2.220446049250313e-16
+        },
+        "coverage": {
+          "mean": 0.2567287784679089,
+          "std": 0.0
+        }
+      },
+      "ceiling_all_symbols_full_history": {
+        "ic": {
+          "mean": 0.029583896883162087,
+          "std": 0.0
+        },
+        "sharpe": {
+          "mean": 0.5524507137920106,
+          "std": 0.0
+        },
+        "coverage": {
+          "mean": 1.0,
+          "std": 0.0
+        }
+      },
+      "membership_atlas": {
+        "capped": {
+          "auc": {
+            "mean": 0.5044815088889192,
+            "std": 0.005445371581859316
+          },
+          "tpr_1fpr": {
+            "mean": 0.009056855929000351,
+            "std": 0.0007927460416709079
+          },
+          "auc_cal": {
+            "mean": 0.5184937734956074,
+            "std": 0.001956555033147737
+          },
+          "tpr_1fpr_cal": {
+            "mean": 0.012455021370569462,
+            "std": 0.0015374922474107895
+          },
+          "tpr_01fpr_cal": {
+            "mean": 0.002149966918983158,
+            "std": 0.0007626537223244771
+          },
+          "test": {
+            "ic": {
+              "mean": 0.04770452541345316,
+              "std": 0.002412196427444081
+            },
+            "sharpe": {
+              "mean": 2.2620461833114818,
+              "std": 0.351325186155456
+            },
+            "coverage": {
+              "mean": 1.0,
+              "std": 0.0
+            }
+          },
+          "artifacts": {
+            "splits": {
+              "mean": 1836.3333333333333,
+              "std": 21.452790546272116
+            },
+            "tail_splits": {
+              "mean": 0.0,
+              "std": 0.0
+            },
+            "min_leaf_records": {
+              "mean": 200.0,
+              "std": 0.0
+            },
+            "small_leaves": {
+              "mean": 0.0,
+              "std": 0.0
+            },
+            "counts_exported": true
+          }
+        },
+        "free": {
+          "auc": {
+            "mean": 0.607393891597556,
+            "std": 0.0013788542000455325
+          },
+          "tpr_1fpr": {
+            "mean": 0.013150281197505463,
+            "std": 0.001100697761019185
+          },
+          "auc_cal": {
+            "mean": 0.5752899120288453,
+            "std": 0.004311971335832247
+          },
+          "tpr_1fpr_cal": {
+            "mean": 0.015750516348515983,
+            "std": 0.0009992558406087058
+          },
+          "tpr_01fpr_cal": {
+            "mean": 0.002081384606184664,
+            "std": 0.00022123258973247184
+          },
+          "test": {
+            "ic": {
+              "mean": 0.03627198815378586,
+              "std": 0.0006624018842450783
+            },
+            "sharpe": {
+              "mean": 1.5861692366403695,
+              "std": 1.159493107441094
+            },
+            "coverage": {
+              "mean": 1.0,
+              "std": 0.0
+            }
+          },
+          "artifacts": {
+            "splits": {
+              "mean": 31000.0,
+              "std": 0.0
+            },
+            "tail_splits": {
+              "mean": 5.666666666666667,
+              "std": 4.4969125210773475
+            },
+            "min_leaf_records": {
+              "mean": 1.0,
+              "std": 0.0
+            },
+            "small_leaves": {
+              "mean": 0.14409523809523808,
+              "std": 0.0029489084659421938
+            },
+            "counts_exported": true
+          }
+        }
+      }
+    },
+    "quantile": {
+      "public.unconditional": {
+        "pinball": {
+          "mean": 4.69275551320299,
+          "std": 0.0
+        },
+        "coverage_80": {
+          "mean": 0.7949226326451445,
+          "std": 1.1102230246251565e-16
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.911206896551724,
+          "std": 1.1102230246251565e-16
+        },
+        "width": {
+          "mean": 13.564821647377443,
+          "std": 0.0
+        }
+      },
+      "public.linear_quantile": {
+        "pinball": {
+          "mean": 4.584171198858544,
+          "std": 0.002199569294650549
+        },
+        "coverage_80": {
+          "mean": 0.8055687254859704,
+          "std": 0.0003965970932816692
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.7494252873563219,
+          "std": 0.006699162774065936
+        },
+        "width": {
+          "mean": 14.361344843489528,
+          "std": 0.051219630255109644
+        }
+      },
+      "public.gbdt_capped": {
+        "pinball": {
+          "mean": 4.592371580523538,
+          "std": 0.0
+        },
+        "coverage_80": {
+          "mean": 0.7875091590879704,
+          "std": 0.0
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.6931034482758621,
+          "std": 0.0
+        },
+        "width": {
+          "mean": 14.274790440094838,
+          "std": 1.7763568394002505e-15
+        }
+      },
+      "public_context.unconditional": {
+        "pinball": {
+          "mean": 4.69275551320299,
+          "std": 0.0
+        },
+        "coverage_80": {
+          "mean": 0.7949226326451445,
+          "std": 1.1102230246251565e-16
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.911206896551724,
+          "std": 1.1102230246251565e-16
+        },
+        "width": {
+          "mean": 13.564821647377443,
+          "std": 0.0
+        }
+      },
+      "public_context.linear_quantile": {
+        "pinball": {
+          "mean": 4.656974474860289,
+          "std": 0.003698479433656996
+        },
+        "coverage_80": {
+          "mean": 0.7963737195235838,
+          "std": 0.0015373571943043491
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.6755747126436781,
+          "std": 0.006511648961853265
+        },
+        "width": {
+          "mean": 14.416099468988817,
+          "std": 0.06281697682404372
+        }
+      },
+      "public_context.gbdt_capped": {
+        "pinball": {
+          "mean": 4.607006238325499,
+          "std": 0.0
+        },
+        "coverage_80": {
+          "mean": 0.7823369682341278,
+          "std": 0.0
+        },
+        "coverage_80_high_vol": {
+          "mean": 0.6987068965517241,
+          "std": 0.0
+        },
+        "width": {
+          "mean": 14.238206507301244,
+          "std": 0.0
+        }
+      }
+    },
+    "rows": {
+      "history": {
+        "mean": 43059.0,
+        "std": 0.0
+      },
+      "own": {
+        "mean": 5623.0,
+        "std": 0.0
+      },
+      "test": {
+        "mean": 23201.0,
+        "std": 0.0
+      }
+    }
+  },
+  "runs": [
+    {
+      "experience": {
+        "public_only_full_history": {
+          "ic": 0.017203716510160158,
+          "sharpe": 1.7174357093795927,
+          "coverage": 0.21014492753623187
+        },
+        "own_30_days": {
+          "ic": 0.053798007410592014,
+          "sharpe": 0.8181798293339198,
+          "coverage": 0.9968944099378882
+        },
+        "rent_Atlas": {
+          "ic": 0.020084784389299042,
+          "sharpe": -0.20451819840987673,
+          "coverage": 0.33229813664596275
+        },
+        "rent_Kite": {
+          "ic": -0.0010003766267125118,
+          "sharpe": -0.9159322287576221,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Orion": {
+          "ic": 0.015506857473079123,
+          "sharpe": 0.17722117300331028,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Pine": {
+          "ic": 0.00737067869446863,
+          "sharpe": -0.08207166484088252,
+          "coverage": 0.3416149068322981
+        },
+        "pool": {
+          "ic": 0.026926022627612203,
+          "sharpe": 0.09237851609196246,
+          "coverage": 0.18219461697722567
+        },
+        "pool_public_features_only": {
+          "ic": 0.001545175825835009,
+          "sharpe": 0.6487734716079172,
+          "coverage": 0.38198757763975155
+        },
+        "pool_linear": {
+          "ic": 0.03126613746667369,
+          "sharpe": 1.552240566815787,
+          "coverage": 0.2567287784679089
+        },
+        "ceiling_all_symbols_full_history": {
+          "ic": 0.029583896883162087,
+          "sharpe": 0.5524507137920106,
+          "coverage": 1.0
+        },
+        "membership_atlas": {
+          "capped": {
+            "auc": 0.4969434144024788,
+            "tpr_1fpr": 0.007995846313603323,
+            "auc_cal": 0.5159082336537836,
+            "tpr_1fpr_cal": 0.013187954309449636,
+            "tpr_01fpr_cal": 0.003115264797507788,
+            "test": {
+              "ic": 0.04730685441588687,
+              "sharpe": 1.7989284870624447,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 1806,
+              "tail_splits": 0,
+              "min_leaf_records": 200,
+              "small_leaves": 0.0,
+              "counts_exported": true
+            }
+          },
+          "free": {
+            "auc": 0.6057150841891986,
+            "tpr_1fpr": 0.012564901349948079,
+            "auc_cal": 0.581207725020911,
+            "tpr_1fpr_cal": 0.016926272066458983,
+            "tpr_01fpr_cal": 0.0023883696780893043,
+            "test": {
+              "ic": 0.03704851409311485,
+              "sharpe": 2.1646145168979256,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 31000,
+              "tail_splits": 0,
+              "min_leaf_records": 1,
+              "small_leaves": 0.14063492063492064,
+              "counts_exported": true
+            }
+          }
+        }
+      },
+      "quantile": {
+        "public.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public.linear_quantile": {
+          "pinball": 4.581376411019278,
+          "coverage_80": 0.8053101159432783,
+          "coverage_80_high_vol": 0.75,
+          "width": 14.291762628620665
+        },
+        "public.gbdt_capped": {
+          "pinball": 4.592371580523538,
+          "coverage_80": 0.7875091590879704,
+          "coverage_80_high_vol": 0.6931034482758621,
+          "width": 14.274790440094836
+        },
+        "public_context.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public_context.linear_quantile": {
+          "pinball": 4.657721313067909,
+          "coverage_80": 0.7947933278737985,
+          "coverage_80_high_vol": 0.6797413793103448,
+          "width": 14.340726431056787
+        },
+        "public_context.gbdt_capped": {
+          "pinball": 4.607006238325499,
+          "coverage_80": 0.7823369682341278,
+          "coverage_80_high_vol": 0.6987068965517241,
+          "width": 14.238206507301244
+        }
+      },
+      "rows": {
+        "history": 43059,
+        "own": 5623,
+        "test": 23201
+      }
+    },
+    {
+      "experience": {
+        "public_only_full_history": {
+          "ic": 0.017203716510160158,
+          "sharpe": 1.7174357093795927,
+          "coverage": 0.21014492753623187
+        },
+        "own_30_days": {
+          "ic": 0.053798007410592014,
+          "sharpe": 0.8181798293339198,
+          "coverage": 0.9968944099378882
+        },
+        "rent_Atlas": {
+          "ic": 0.020084784389299042,
+          "sharpe": -0.20451819840987673,
+          "coverage": 0.33229813664596275
+        },
+        "rent_Kite": {
+          "ic": -0.0010003766267125118,
+          "sharpe": -0.9159322287576221,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Orion": {
+          "ic": 0.015506857473079123,
+          "sharpe": 0.17722117300331028,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Pine": {
+          "ic": 0.00737067869446863,
+          "sharpe": -0.08207166484088252,
+          "coverage": 0.3416149068322981
+        },
+        "pool": {
+          "ic": 0.026926022627612203,
+          "sharpe": 0.09237851609196246,
+          "coverage": 0.18219461697722567
+        },
+        "pool_public_features_only": {
+          "ic": 0.001545175825835009,
+          "sharpe": 0.6487734716079172,
+          "coverage": 0.38198757763975155
+        },
+        "pool_linear": {
+          "ic": 0.03126613746667369,
+          "sharpe": 1.552240566815787,
+          "coverage": 0.2567287784679089
+        },
+        "ceiling_all_symbols_full_history": {
+          "ic": 0.029583896883162087,
+          "sharpe": 0.5524507137920106,
+          "coverage": 1.0
+        },
+        "membership_atlas": {
+          "capped": {
+            "auc": 0.509614724791765,
+            "tpr_1fpr": 0.00927373137438783,
+            "auc_cal": 0.5189330803585258,
+            "tpr_1fpr_cal": 0.01031572366364489,
+            "tpr_01fpr_cal": 0.002083984578514119,
+            "test": {
+              "ic": 0.04496917776523748,
+              "sharpe": 2.649443342535958,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 1852,
+              "tail_splits": 0,
+              "min_leaf_records": 200,
+              "small_leaves": 0.0,
+              "counts_exported": true
+            }
+          },
+          "free": {
+            "auc": 0.6090924010121732,
+            "tpr_1fpr": 0.01469209127852454,
+            "auc_cal": 0.5710565400586776,
+            "tpr_1fpr_cal": 0.014483692820673128,
+            "tpr_01fpr_cal": 0.001875586120662707,
+            "test": {
+              "ic": 0.036337509255612487,
+              "sharpe": 2.625738225254008,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 31000,
+              "tail_splits": 6,
+              "min_leaf_records": 1,
+              "small_leaves": 0.14784126984126983,
+              "counts_exported": true
+            }
+          }
+        }
+      },
+      "quantile": {
+        "public.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public.linear_quantile": {
+          "pinball": 4.584385787501274,
+          "coverage_80": 0.8052670143528297,
+          "coverage_80_high_vol": 0.740948275862069,
+          "width": 14.413569031995952
+        },
+        "public.gbdt_capped": {
+          "pinball": 4.592371580523538,
+          "coverage_80": 0.7875091590879704,
+          "coverage_80_high_vol": 0.6931034482758621,
+          "width": 14.274790440094836
+        },
+        "public_context.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public_context.linear_quantile": {
+          "pinball": 4.661084335772327,
+          "coverage_80": 0.7958708676350157,
+          "coverage_80_high_vol": 0.6663793103448276,
+          "width": 14.413065750594994
+        },
+        "public_context.gbdt_capped": {
+          "pinball": 4.607006238325499,
+          "coverage_80": 0.7823369682341278,
+          "coverage_80_high_vol": 0.6987068965517241,
+          "width": 14.238206507301244
+        }
+      },
+      "rows": {
+        "history": 43059,
+        "own": 5623,
+        "test": 23201
+      }
+    },
+    {
+      "experience": {
+        "public_only_full_history": {
+          "ic": 0.017203716510160158,
+          "sharpe": 1.7174357093795927,
+          "coverage": 0.21014492753623187
+        },
+        "own_30_days": {
+          "ic": 0.053798007410592014,
+          "sharpe": 0.8181798293339198,
+          "coverage": 0.9968944099378882
+        },
+        "rent_Atlas": {
+          "ic": 0.020084784389299042,
+          "sharpe": -0.20451819840987673,
+          "coverage": 0.33229813664596275
+        },
+        "rent_Kite": {
+          "ic": -0.0010003766267125118,
+          "sharpe": -0.9159322287576221,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Orion": {
+          "ic": 0.015506857473079123,
+          "sharpe": 0.17722117300331028,
+          "coverage": 0.18322981366459629
+        },
+        "rent_Pine": {
+          "ic": 0.00737067869446863,
+          "sharpe": -0.08207166484088252,
+          "coverage": 0.3416149068322981
+        },
+        "pool": {
+          "ic": 0.026926022627612203,
+          "sharpe": 0.09237851609196246,
+          "coverage": 0.18219461697722567
+        },
+        "pool_public_features_only": {
+          "ic": 0.001545175825835009,
+          "sharpe": 0.6487734716079172,
+          "coverage": 0.38198757763975155
+        },
+        "pool_linear": {
+          "ic": 0.03126613746667369,
+          "sharpe": 1.552240566815787,
+          "coverage": 0.2567287784679089
+        },
+        "ceiling_all_symbols_full_history": {
+          "ic": 0.029583896883162087,
+          "sharpe": 0.5524507137920106,
+          "coverage": 1.0
+        },
+        "membership_atlas": {
+          "capped": {
+            "auc": 0.5068863874725137,
+            "tpr_1fpr": 0.009900990099009901,
+            "auc_cal": 0.5206400064745129,
+            "tpr_1fpr_cal": 0.013861386138613862,
+            "tpr_01fpr_cal": 0.0012506513809275664,
+            "test": {
+              "ic": 0.050837544059235136,
+              "sharpe": 2.3377667203360426,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 1851,
+              "tail_splits": 0,
+              "min_leaf_records": 200,
+              "small_leaves": 0.0,
+              "counts_exported": true
+            }
+          },
+          "free": {
+            "auc": 0.6073741895912959,
+            "tpr_1fpr": 0.012193850964043773,
+            "auc_cal": 0.5736054710069471,
+            "tpr_1fpr_cal": 0.015841584158415842,
+            "tpr_01fpr_cal": 0.0019801980198019802,
+            "test": {
+              "ic": 0.03542994111263023,
+              "sharpe": -0.031845032230825215,
+              "coverage": 1.0
+            },
+            "artifacts": {
+              "splits": 31000,
+              "tail_splits": 11,
+              "min_leaf_records": 1,
+              "small_leaves": 0.1438095238095238,
+              "counts_exported": true
+            }
+          }
+        }
+      },
+      "quantile": {
+        "public.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public.linear_quantile": {
+          "pinball": 4.586751398055081,
+          "coverage_80": 0.8061290461618034,
+          "coverage_80_high_vol": 0.7573275862068966,
+          "width": 14.378702869851974
+        },
+        "public.gbdt_capped": {
+          "pinball": 4.592371580523538,
+          "coverage_80": 0.7875091590879704,
+          "coverage_80_high_vol": 0.6931034482758621,
+          "width": 14.274790440094836
+        },
+        "public_context.unconditional": {
+          "pinball": 4.69275551320299,
+          "coverage_80": 0.7949226326451446,
+          "coverage_80_high_vol": 0.9112068965517242,
+          "width": 13.564821647377443
+        },
+        "public_context.linear_quantile": {
+          "pinball": 4.6521177757406305,
+          "coverage_80": 0.798456963061937,
+          "coverage_80_high_vol": 0.680603448275862,
+          "width": 14.494506225314666
+        },
+        "public_context.gbdt_capped": {
+          "pinball": 4.607006238325499,
+          "coverage_80": 0.7823369682341278,
+          "coverage_80_high_vol": 0.6987068965517241,
+          "width": 14.238206507301244
+        }
+      },
+      "rows": {
+        "history": 43059,
+        "own": 5623,
+        "test": 23201
+      }
+    }
+  ],
+  "notes": {
+    "source": "data.binance.vision USD-M futures (klines 1h, bookDepth, metrics), 2025",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "LINKUSDT"
+    ]
+  }
+}

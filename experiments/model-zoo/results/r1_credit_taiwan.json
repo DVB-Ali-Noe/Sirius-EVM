@@ -1,0 +1,1492 @@
+{
+  "seeds": 5,
+  "summary": {
+    "logistic": {
+      "canary_x1": {
+        "auc": {
+          "mean": 0.5235000000000001,
+          "std": 0.05021453972705517
+        },
+        "extracted": {
+          "mean": 0.15,
+          "std": 0.11832159566199231
+        },
+        "control_hits": {
+          "mean": 0.19,
+          "std": 0.08602325267042626
+        }
+      },
+      "quality": {
+        "auc": {
+          "mean": 0.7163628710688494,
+          "std": 0.0066788297432261905
+        },
+        "brier": {
+          "mean": 0.14625423284740258,
+          "std": 0.0010902046142843283
+        },
+        "ece": {
+          "mean": 0.048894696266500066,
+          "std": 0.0021257379049253494
+        },
+        "auto_5pct": {
+          "mean": 0.0015,
+          "std": 0.001039831717154271
+        },
+        "pnl_per_client": {
+          "mean": 0.01754,
+          "std": 0.0009010549372818491
+        },
+        "grant_rate": {
+          "mean": 0.38245,
+          "std": 0.013112875352110982
+        },
+        "default_rate_granted": {
+          "mean": 0.1284399485728965,
+          "std": 0.0016671161703899384
+        }
+      },
+      "train_auc": {
+        "mean": 0.7281420995391666,
+        "std": 0.0026199700743281353
+      },
+      "membership": {
+        "auc": {
+          "mean": 0.4989522375,
+          "std": 0.002341698521634581
+        },
+        "tpr_1fpr": {
+          "mean": 0.00965,
+          "std": 0.0014173037783058368
+        },
+        "auc_cal": {
+          "mean": 0.5067051156250001,
+          "std": 0.004150642997928174
+        },
+        "tpr_1fpr_cal": {
+          "mean": 0.011175000000000001,
+          "std": 0.0024566236993076493
+        },
+        "tpr_01fpr_cal": {
+          "mean": 0.0013249999999999998,
+          "std": 0.000682825014187383
+        }
+      },
+      "canary_x5": {
+        "auc": {
+          "mean": 0.575,
+          "std": 0.059728552636071824
+        },
+        "extracted": {
+          "mean": 0.25,
+          "std": 0.0894427190999916
+        },
+        "control_hits": {
+          "mean": 0.27999999999999997,
+          "std": 0.12489995996796797
+        }
+      }
+    },
+    "gbdt_capped": {
+      "canary_x1": {
+        "auc": {
+          "mean": 0.6580000000000001,
+          "std": 0.13891004283348268
+        },
+        "extracted": {
+          "mean": 0.67,
+          "std": 0.06782329983125265
+        },
+        "control_hits": {
+          "mean": 0.4,
+          "std": 0.14491376746189438
+        }
+      },
+      "quality": {
+        "auc": {
+          "mean": 0.7705495470869909,
+          "std": 0.006575813675428247
+        },
+        "brier": {
+          "mean": 0.13721101742366798,
+          "std": 0.000867555353706786
+        },
+        "ece": {
+          "mean": 0.014174729614350751,
+          "std": 0.002843016358085227
+        },
+        "auto_5pct": {
+          "mean": 0.09642500000000001,
+          "std": 0.050055381828530685
+        },
+        "pnl_per_client": {
+          "mean": 0.042845,
+          "std": 0.0020778233803670607
+        },
+        "grant_rate": {
+          "mean": 0.5604250000000001,
+          "std": 0.01415154585195556
+        },
+        "default_rate_granted": {
+          "mean": 0.10288918734164076,
+          "std": 0.003967556421806743
+        }
+      },
+      "train_auc": {
+        "mean": 0.8363872081239346,
+        "std": 0.002387450728300532
+      },
+      "membership": {
+        "auc": {
+          "mean": 0.5106606515625,
+          "std": 0.0037515314012715557
+        },
+        "tpr_1fpr": {
+          "mean": 0.010499999999999999,
+          "std": 0.0020325476624177847
+        },
+        "auc_cal": {
+          "mean": 0.5503928625000001,
+          "std": 0.004344803578925413
+        },
+        "tpr_1fpr_cal": {
+          "mean": 0.0199,
+          "std": 0.001773767177506675
+        },
+        "tpr_01fpr_cal": {
+          "mean": 0.0034500000000000004,
+          "std": 0.0012414709017935135
+        }
+      },
+      "artifacts": {
+        "splits": {
+          "mean": 1722.4,
+          "std": 36.76737684415357
+        },
+        "tail_splits": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "min_leaf_records": {
+          "mean": 200.0,
+          "std": 0.0
+        },
+        "small_leaves": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "counts_exported": true
+      },
+      "canary_x5": {
+        "auc": {
+          "mean": 0.8205,
+          "std": 0.12829068555433007
+        },
+        "extracted": {
+          "mean": 0.99,
+          "std": 0.020000000000000018
+        },
+        "control_hits": {
+          "mean": 0.5599999999999999,
+          "std": 0.16852299546352717
+        }
+      }
+    },
+    "gbdt_strict": {
+      "canary_x1": {
+        "auc": {
+          "mean": 0.5285,
+          "std": 0.11563520225260124
+        },
+        "extracted": {
+          "mean": 0.3,
+          "std": 0.04472135954999579
+        },
+        "control_hits": {
+          "mean": 0.27999999999999997,
+          "std": 0.12489995996796796
+        }
+      },
+      "quality": {
+        "auc": {
+          "mean": 0.7604042832323905,
+          "std": 0.006070353359245841
+        },
+        "brier": {
+          "mean": 0.14175715837697983,
+          "std": 0.0007248011936471609
+        },
+        "ece": {
+          "mean": 0.013275313074529694,
+          "std": 0.0014709598324452622
+        },
+        "auto_5pct": {
+          "mean": 0.045525,
+          "std": 0.05070468420175792
+        },
+        "pnl_per_client": {
+          "mean": 0.04241999999999999,
+          "std": 0.001078702924812942
+        },
+        "grant_rate": {
+          "mean": 0.5556,
+          "std": 0.010823123393919172
+        },
+        "default_rate_granted": {
+          "mean": 0.10303323461427442,
+          "std": 0.0014772657679180956
+        }
+      },
+      "train_auc": {
+        "mean": 0.7910204290026843,
+        "std": 0.00344426285308576
+      },
+      "membership": {
+        "auc": {
+          "mean": 0.5010507593750001,
+          "std": 0.003934899692039323
+        },
+        "tpr_1fpr": {
+          "mean": 0.010899999999999998,
+          "std": 0.001022863627273939
+        },
+        "auc_cal": {
+          "mean": 0.5187829421875001,
+          "std": 0.0028319461695952824
+        },
+        "tpr_1fpr_cal": {
+          "mean": 0.014099999999999998,
+          "std": 0.0012903487900563942
+        },
+        "tpr_01fpr_cal": {
+          "mean": 0.0018249999999999998,
+          "std": 0.0007810249675906654
+        }
+      },
+      "artifacts": {
+        "splits": {
+          "mean": 712.6,
+          "std": 17.82806775845324
+        },
+        "tail_splits": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "min_leaf_records": {
+          "mean": 1001.0,
+          "std": 0.8944271909999159
+        },
+        "small_leaves": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "counts_exported": true
+      },
+      "canary_x5": {
+        "auc": {
+          "mean": 0.631,
+          "std": 0.13241601111648096
+        },
+        "extracted": {
+          "mean": 0.65,
+          "std": 0.1264911064067352
+        },
+        "control_hits": {
+          "mean": 0.44000000000000006,
+          "std": 0.15937377450509227
+        }
+      }
+    },
+    "gbdt_free": {
+      "canary_x1": {
+        "auc": {
+          "mean": 0.992,
+          "std": 0.01363818169698587
+        },
+        "extracted": {
+          "mean": 1.0,
+          "std": 0.0
+        },
+        "control_hits": {
+          "mean": 0.49000000000000005,
+          "std": 0.08602325267042626
+        }
+      },
+      "quality": {
+        "auc": {
+          "mean": 0.7472255182867836,
+          "std": 0.003939026736558616
+        },
+        "brier": {
+          "mean": 0.16154566409362467,
+          "std": 0.0016750122343318905
+        },
+        "ece": {
+          "mean": 0.12421327722990778,
+          "std": 0.0019277387305352135
+        },
+        "auto_5pct": {
+          "mean": 0.00475,
+          "std": 0.0034287388351987385
+        },
+        "pnl_per_client": {
+          "mean": 0.024754999999999992,
+          "std": 0.0019895602529202278
+        },
+        "grant_rate": {
+          "mean": 0.7660750000000001,
+          "std": 0.006691692610991637
+        },
+        "default_rate_granted": {
+          "mean": 0.1397240087202587,
+          "std": 0.0023456028519191134
+        }
+      },
+      "train_auc": {
+        "mean": 0.9999997311299602,
+        "std": 2.183679106638053e-07
+      },
+      "membership": {
+        "auc": {
+          "mean": 0.7271299640625,
+          "std": 0.0061261033661814505
+        },
+        "tpr_1fpr": {
+          "mean": 0.015375,
+          "std": 0.0013252358280698565
+        },
+        "auc_cal": {
+          "mean": 0.6964219187499999,
+          "std": 0.0042049221392648755
+        },
+        "tpr_1fpr_cal": {
+          "mean": 0.069475,
+          "std": 0.004346981711486716
+        },
+        "tpr_01fpr_cal": {
+          "mean": 0.0201,
+          "std": 0.0030428194162651183
+        }
+      },
+      "artifacts": {
+        "splits": {
+          "mean": 31000.0,
+          "std": 0.0
+        },
+        "tail_splits": {
+          "mean": 16.4,
+          "std": 12.674383614203888
+        },
+        "min_leaf_records": {
+          "mean": 1.0,
+          "std": 0.0
+        },
+        "small_leaves": {
+          "mean": 0.23281904761904762,
+          "std": 0.003214316676315705
+        },
+        "counts_exported": true
+      },
+      "canary_x5": {
+        "auc": {
+          "mean": 0.9875,
+          "std": 0.017606816861658985
+        },
+        "extracted": {
+          "mean": 1.0,
+          "std": 0.0
+        },
+        "control_hits": {
+          "mean": 0.53,
+          "std": 0.116619037896906
+        }
+      }
+    },
+    "transfer": {
+      "provider_default_rate": {
+        "mean": 0.21476809378185524,
+        "std": 0.0
+      },
+      "borrower_default_rate": {
+        "mean": 0.24446301713330548,
+        "std": 0.0013796551624921966
+      },
+      "logistic": {
+        "provider_model": {
+          "pnl_per_client": {
+            "mean": 0.00970330129544505,
+            "std": 0.0009694223066443147
+          },
+          "grant_rate": {
+            "mean": 0.4208524864187213,
+            "std": 0.0017199428021108865
+          },
+          "default_rate_granted": {
+            "mean": 0.14744983741264778,
+            "std": 0.0019521758107307675
+          },
+          "auc": {
+            "mean": 0.7180966442517336,
+            "std": 0.0028860015751591005
+          },
+          "ece": {
+            "mean": 0.044913488193110654,
+            "std": 0.0009368921310256927
+          }
+        },
+        "recalibrated": {
+          "pnl_per_client": {
+            "mean": 0.010547430004178857,
+            "std": 0.0018073922250094973
+          },
+          "grant_rate": {
+            "mean": 0.299206017551191,
+            "std": 0.06010480709433573
+          },
+          "default_rate_granted": {
+            "mean": 0.13485468291921707,
+            "std": 0.012556313710125767
+          },
+          "ece": {
+            "mean": 0.06359651141186806,
+            "std": 0.009100993499998959
+          }
+        },
+        "borrower_500_only": {
+          "pnl_per_client": {
+            "mean": 0.005223568742164647,
+            "std": 0.003642082502214948
+          },
+          "grant_rate": {
+            "mean": 0.3693689928959465,
+            "std": 0.051871088625265065
+          },
+          "default_rate_granted": {
+            "mean": 0.15400941853567648,
+            "std": 0.008017374444775892
+          },
+          "auc": {
+            "mean": 0.6891066806548087,
+            "std": 0.009354419040164097
+          }
+        }
+      },
+      "gbdt_capped": {
+        "provider_model": {
+          "pnl_per_client": {
+            "mean": 0.036715419974926874,
+            "std": 0.0010434091310850381
+          },
+          "grant_rate": {
+            "mean": 0.5456330965315503,
+            "std": 0.0014022533836658847
+          },
+          "default_rate_granted": {
+            "mean": 0.11059253574752767,
+            "std": 0.0015693565652817065
+          },
+          "auc": {
+            "mean": 0.7752261443350997,
+            "std": 0.002417667601037695
+          },
+          "ece": {
+            "mean": 0.018367433124034063,
+            "std": 0.0010704799741188238
+          }
+        },
+        "recalibrated": {
+          "pnl_per_client": {
+            "mean": 0.03632260760551609,
+            "std": 0.0007331002844826901
+          },
+          "grant_rate": {
+            "mean": 0.48374425407438365,
+            "std": 0.05913329360862577
+          },
+          "default_rate_granted": {
+            "mean": 0.10306504751018009,
+            "std": 0.008427718702176958
+          },
+          "ece": {
+            "mean": 0.023598919223955378,
+            "std": 0.005890988406795616
+          }
+        },
+        "borrower_500_only": {
+          "pnl_per_client": {
+            "mean": 0.004931048892603427,
+            "std": 0.004387598745810844
+          },
+          "grant_rate": {
+            "mean": 0.2412870873380694,
+            "std": 0.07049647868460515
+          },
+          "default_rate_granted": {
+            "mean": 0.1513291798845621,
+            "std": 0.014485864787843653
+          },
+          "auc": {
+            "mean": 0.6187229221164889,
+            "std": 0.008122453097430093
+          }
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "logistic": {
+        "canary_x1": {
+          "auc": 0.5725,
+          "extracted": 0.1,
+          "control_hits": 0.15
+        },
+        "quality": {
+          "auc": 0.7091812620389527,
+          "brier": 0.14507879170342108,
+          "ece": 0.04962918138428274,
+          "auto_5pct": 0.0005,
+          "pnl_per_client": 0.016325,
+          "grant_rate": 0.362875,
+          "default_rate_granted": 0.12917671374440234
+        },
+        "train_auc": 0.729817274773279,
+        "membership": {
+          "auc": 0.49847912499999997,
+          "tpr_1fpr": 0.009375,
+          "auc_cal": 0.5104418359375,
+          "tpr_1fpr_cal": 0.01225,
+          "tpr_01fpr_cal": 0.00225
+        },
+        "canary_x5": {
+          "auc": 0.6375000000000001,
+          "extracted": 0.2,
+          "control_hits": 0.15
+        }
+      },
+      "gbdt_capped": {
+        "canary_x1": {
+          "auc": 0.8424999999999999,
+          "extracted": 0.7,
+          "control_hits": 0.2
+        },
+        "quality": {
+          "auc": 0.7632275205999858,
+          "brier": 0.13674542397668693,
+          "ece": 0.01842195844272794,
+          "auto_5pct": 0.02725,
+          "pnl_per_client": 0.044175,
+          "grant_rate": 0.538125,
+          "default_rate_granted": 0.09825783972125436
+        },
+        "train_auc": 0.8344727477592487,
+        "membership": {
+          "auc": 0.50878715625,
+          "tpr_1fpr": 0.009375,
+          "auc_cal": 0.5473165390625,
+          "tpr_1fpr_cal": 0.020125,
+          "tpr_01fpr_cal": 0.002
+        },
+        "artifacts": {
+          "splits": 1729,
+          "tail_splits": 0,
+          "min_leaf_records": 200,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.9025000000000001,
+          "extracted": 1.0,
+          "control_hits": 0.35
+        }
+      },
+      "gbdt_strict": {
+        "canary_x1": {
+          "auc": 0.73,
+          "extracted": 0.35,
+          "control_hits": 0.05
+        },
+        "quality": {
+          "auc": 0.7510334827798388,
+          "brier": 0.14060803602377925,
+          "ece": 0.016078797273598337,
+          "auto_5pct": 0.02775,
+          "pnl_per_client": 0.042125,
+          "grant_rate": 0.539875,
+          "default_rate_granted": 0.10164389905070619
+        },
+        "train_auc": 0.7887244582037882,
+        "membership": {
+          "auc": 0.49951067187500003,
+          "tpr_1fpr": 0.01075,
+          "auc_cal": 0.521110359375,
+          "tpr_1fpr_cal": 0.01625,
+          "tpr_01fpr_cal": 0.002625
+        },
+        "artifacts": {
+          "splits": 695,
+          "tail_splits": 0,
+          "min_leaf_records": 1002,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.8600000000000001,
+          "extracted": 0.8,
+          "control_hits": 0.25
+        }
+      },
+      "gbdt_free": {
+        "canary_x1": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.45
+        },
+        "quality": {
+          "auc": 0.7408183013632256,
+          "brier": 0.15829020252089537,
+          "ece": 0.12071064779846075,
+          "auto_5pct": 0.008375,
+          "pnl_per_client": 0.028549999999999996,
+          "grant_rate": 0.7555,
+          "default_rate_granted": 0.13517538054268696
+        },
+        "train_auc": 0.9999999559033079,
+        "membership": {
+          "auc": 0.7340522890625,
+          "tpr_1fpr": 0.0155,
+          "auc_cal": 0.7004851328124999,
+          "tpr_1fpr_cal": 0.06675,
+          "tpr_01fpr_cal": 0.02325
+        },
+        "artifacts": {
+          "splits": 31000,
+          "tail_splits": 12,
+          "min_leaf_records": 1,
+          "small_leaves": 0.23136507936507936,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.5
+        }
+      },
+      "transfer": {
+        "provider_default_rate": 0.21476809378185524,
+        "borrower_default_rate": 0.24362724613455913,
+        "logistic": {
+          "provider_model": {
+            "pnl_per_client": 0.011241119933138323,
+            "grant_rate": 0.41976598412035104,
+            "default_rate_granted": 0.1443504230960677,
+            "auc": 0.723803459909214,
+            "ece": 0.04512416482975884
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.013246970330129546,
+            "grant_rate": 0.2028834099456749,
+            "default_rate_granted": 0.11225540679711637,
+            "ece": 0.07788444260455797
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.005599665691600502,
+            "grant_rate": 0.31257835353113245,
+            "default_rate_granted": 0.1517379679144385,
+            "auc": 0.6791653241473422
+          }
+        },
+        "gbdt_capped": {
+          "provider_model": {
+            "pnl_per_client": 0.037944003343083996,
+            "grant_rate": 0.5470121186794819,
+            "default_rate_granted": 0.10886172650878534,
+            "auc": 0.7787052348777044,
+            "ece": 0.018526334692287563
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.03631424989552863,
+            "grant_rate": 0.41224404513163393,
+            "default_rate_granted": 0.0932589964521034,
+            "ece": 0.03330941870637564
+          },
+          "borrower_500_only": {
+            "pnl_per_client": -0.0007939824488090264,
+            "grant_rate": 0.15148349352277476,
+            "default_rate_granted": 0.17103448275862068,
+            "auc": 0.6051208030476768
+          }
+        }
+      }
+    },
+    {
+      "logistic": {
+        "canary_x1": {
+          "auc": 0.5575000000000001,
+          "extracted": 0.2,
+          "control_hits": 0.15
+        },
+        "quality": {
+          "auc": 0.7135675654569419,
+          "brier": 0.14655256357884272,
+          "ece": 0.04711820351411149,
+          "auto_5pct": 0.000875,
+          "pnl_per_client": 0.0186,
+          "grant_rate": 0.39825,
+          "default_rate_granted": 0.12774639045825487
+        },
+        "train_auc": 0.7266537381201676,
+        "membership": {
+          "auc": 0.49975104687500005,
+          "tpr_1fpr": 0.01025,
+          "auc_cal": 0.5068223359374999,
+          "tpr_1fpr_cal": 0.014,
+          "tpr_01fpr_cal": 0.001125
+        },
+        "canary_x5": {
+          "auc": 0.64,
+          "extracted": 0.2,
+          "control_hits": 0.15
+        }
+      },
+      "gbdt_capped": {
+        "canary_x1": {
+          "auc": 0.8049999999999999,
+          "extracted": 0.7,
+          "control_hits": 0.25
+        },
+        "quality": {
+          "auc": 0.7725943828088031,
+          "brier": 0.1364924527188143,
+          "ece": 0.013297573168053956,
+          "auto_5pct": 0.145875,
+          "pnl_per_client": 0.0425,
+          "grant_rate": 0.5605,
+          "default_rate_granted": 0.10347903657448707
+        },
+        "train_auc": 0.8376804177645204,
+        "membership": {
+          "auc": 0.514246375,
+          "tpr_1fpr": 0.00825,
+          "auc_cal": 0.5479543671875,
+          "tpr_1fpr_cal": 0.017,
+          "tpr_01fpr_cal": 0.00225
+        },
+        "artifacts": {
+          "splits": 1724,
+          "tail_splits": 0,
+          "min_leaf_records": 200,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.9125,
+          "extracted": 1.0,
+          "control_hits": 0.4
+        }
+      },
+      "gbdt_strict": {
+        "canary_x1": {
+          "auc": 0.5875,
+          "extracted": 0.25,
+          "control_hits": 0.25
+        },
+        "quality": {
+          "auc": 0.761734792928911,
+          "brier": 0.14178020930653498,
+          "ece": 0.012209456973379884,
+          "auto_5pct": 0.0,
+          "pnl_per_client": 0.04284999999999999,
+          "grant_rate": 0.55175,
+          "default_rate_granted": 0.10194834617127323
+        },
+        "train_auc": 0.7940570904334269,
+        "membership": {
+          "auc": 0.50500640625,
+          "tpr_1fpr": 0.009625,
+          "auc_cal": 0.51748271875,
+          "tpr_1fpr_cal": 0.013625,
+          "tpr_01fpr_cal": 0.001375
+        },
+        "artifacts": {
+          "splits": 696,
+          "tail_splits": 0,
+          "min_leaf_records": 1000,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.6999999999999998,
+          "extracted": 0.6,
+          "control_hits": 0.25
+        }
+      },
+      "gbdt_free": {
+        "canary_x1": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.4
+        },
+        "quality": {
+          "auc": 0.747622596007474,
+          "brier": 0.1617101581459778,
+          "ece": 0.12476907293817968,
+          "auto_5pct": 0.001,
+          "pnl_per_client": 0.024349999999999993,
+          "grant_rate": 0.7765,
+          "default_rate_granted": 0.14053444945267224
+        },
+        "train_auc": 1.0,
+        "membership": {
+          "auc": 0.7262745859375,
+          "tpr_1fpr": 0.017875,
+          "auc_cal": 0.6950284375,
+          "tpr_1fpr_cal": 0.065875,
+          "tpr_01fpr_cal": 0.02275
+        },
+        "artifacts": {
+          "splits": 31000,
+          "tail_splits": 15,
+          "min_leaf_records": 1,
+          "small_leaves": 0.22752380952380952,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.35
+        }
+      },
+      "transfer": {
+        "provider_default_rate": 0.21476809378185524,
+        "borrower_default_rate": 0.2440451316339323,
+        "logistic": {
+          "provider_model": {
+            "pnl_per_client": 0.008357709987463435,
+            "grant_rate": 0.4203928123694108,
+            "default_rate_granted": 0.15009940357852883,
+            "auc": 0.7168781757120031,
+            "ece": 0.046347859181820605
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.011408274132887591,
+            "grant_rate": 0.27768491433347264,
+            "default_rate_granted": 0.13243039879608728,
+            "ece": 0.06629385011840028
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.006184705390722941,
+            "grant_rate": 0.32804011700793984,
+            "default_rate_granted": 0.15095541401273885,
+            "auc": 0.6976135305209115
+          }
+        },
+        "gbdt_capped": {
+          "provider_model": {
+            "pnl_per_client": 0.03773506059339741,
+            "grant_rate": 0.5447137484329294,
+            "default_rate_granted": 0.10893747602608363,
+            "auc": 0.7771309216853328,
+            "ece": 0.01715252213531885
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.037024655244463016,
+            "grant_rate": 0.4333472628499791,
+            "default_rate_granted": 0.09546769527483125,
+            "ece": 0.022772860722633383
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.012202256581696616,
+            "grant_rate": 0.2590890096113665,
+            "default_rate_granted": 0.12741935483870967,
+            "auc": 0.6294357029540274
+          }
+        }
+      }
+    },
+    {
+      "logistic": {
+        "canary_x1": {
+          "auc": 0.43,
+          "extracted": 0.1,
+          "control_hits": 0.2
+        },
+        "quality": {
+          "auc": 0.72901419776848,
+          "brier": 0.1449998612036624,
+          "ece": 0.05033489696983605,
+          "auto_5pct": 0.000625,
+          "pnl_per_client": 0.018574999999999994,
+          "grant_rate": 0.377875,
+          "default_rate_granted": 0.1257029440952696
+        },
+        "train_auc": 0.7258978419699053,
+        "membership": {
+          "auc": 0.49916381249999997,
+          "tpr_1fpr": 0.01175,
+          "auc_cal": 0.49884134375,
+          "tpr_1fpr_cal": 0.013125,
+          "tpr_01fpr_cal": 0.002
+        },
+        "canary_x5": {
+          "auc": 0.48,
+          "extracted": 0.3,
+          "control_hits": 0.45
+        }
+      },
+      "gbdt_capped": {
+        "canary_x1": {
+          "auc": 0.5075000000000001,
+          "extracted": 0.55,
+          "control_hits": 0.55
+        },
+        "quality": {
+          "auc": 0.7814963963174806,
+          "brier": 0.1363703916962256,
+          "ece": 0.009657750420293687,
+          "auto_5pct": 0.161125,
+          "pnl_per_client": 0.04589999999999999,
+          "grant_rate": 0.56025,
+          "default_rate_granted": 0.09839357429718876
+        },
+        "train_auc": 0.8326801517520847,
+        "membership": {
+          "auc": 0.512451171875,
+          "tpr_1fpr": 0.012625,
+          "auc_cal": 0.5472387187500001,
+          "tpr_1fpr_cal": 0.021875,
+          "tpr_01fpr_cal": 0.004125
+        },
+        "artifacts": {
+          "splits": 1699,
+          "tail_splits": 0,
+          "min_leaf_records": 200,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.6225,
+          "extracted": 0.95,
+          "control_hits": 0.75
+        }
+      },
+      "gbdt_strict": {
+        "canary_x1": {
+          "auc": 0.45,
+          "extracted": 0.25,
+          "control_hits": 0.35
+        },
+        "quality": {
+          "auc": 0.769811638541798,
+          "brier": 0.1413656143546569,
+          "ece": 0.013232004230960387,
+          "auto_5pct": 0.140875,
+          "pnl_per_client": 0.043574999999999996,
+          "grant_rate": 0.562875,
+          "default_rate_granted": 0.10215411947590496
+        },
+        "train_auc": 0.7870776577077222,
+        "membership": {
+          "auc": 0.5016340234375,
+          "tpr_1fpr": 0.0105,
+          "auc_cal": 0.5137997421875,
+          "tpr_1fpr_cal": 0.012375,
+          "tpr_01fpr_cal": 0.000875
+        },
+        "artifacts": {
+          "splits": 741,
+          "tail_splits": 0,
+          "min_leaf_records": 1000,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.5149999999999999,
+          "extracted": 0.55,
+          "control_hits": 0.6
+        }
+      },
+      "gbdt_free": {
+        "canary_x1": {
+          "auc": 0.965,
+          "extracted": 1.0,
+          "control_hits": 0.65
+        },
+        "quality": {
+          "auc": 0.752910600725617,
+          "brier": 0.16219946329745627,
+          "ece": 0.1238136412452793,
+          "auto_5pct": 0.0035,
+          "pnl_per_client": 0.024524999999999995,
+          "grant_rate": 0.767625,
+          "default_rate_granted": 0.14004233838137112
+        },
+        "train_auc": 0.9999995961366975,
+        "membership": {
+          "auc": 0.733966890625,
+          "tpr_1fpr": 0.014875,
+          "auc_cal": 0.6933454531250001,
+          "tpr_1fpr_cal": 0.065625,
+          "tpr_01fpr_cal": 0.021625
+        },
+        "artifacts": {
+          "splits": 31000,
+          "tail_splits": 41,
+          "min_leaf_records": 1,
+          "small_leaves": 0.23330158730158732,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.9824999999999999,
+          "extracted": 1.0,
+          "control_hits": 0.7
+        }
+      },
+      "transfer": {
+        "provider_default_rate": 0.21476809378185524,
+        "borrower_default_rate": 0.2440451316339323,
+        "logistic": {
+          "provider_model": {
+            "pnl_per_client": 0.009820309235269536,
+            "grant_rate": 0.41893021312160467,
+            "default_rate_granted": 0.14713216957605985,
+            "auc": 0.71663763090938,
+            "ece": 0.044019210255670696
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.00919348098620978,
+            "grant_rate": 0.3067279565399081,
+            "default_rate_granted": 0.14168937329700274,
+            "ece": 0.06289096509453662
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.009068115336397828,
+            "grant_rate": 0.38257417467613875,
+            "default_rate_granted": 0.14691425450573456,
+            "auc": 0.6969581553798738
+          }
+        },
+        "gbdt_capped": {
+          "provider_model": {
+            "pnl_per_client": 0.036063518595904724,
+            "grant_rate": 0.5476389469285415,
+            "default_rate_granted": 0.11178939336131248,
+            "auc": 0.7718440237927562,
+            "ece": 0.018671820619543263
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.03635603844546594,
+            "grant_rate": 0.5315503552026745,
+            "default_rate_granted": 0.10966981132075472,
+            "ece": 0.021609165382553534
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.006644379440033431,
+            "grant_rate": 0.2588800668616799,
+            "default_rate_granted": 0.14527845036319612,
+            "auc": 0.6196496825234558
+          }
+        }
+      }
+    },
+    {
+      "logistic": {
+        "canary_x1": {
+          "auc": 0.5175,
+          "extracted": 0.35,
+          "control_hits": 0.35
+        },
+        "quality": {
+          "auc": 0.7149472916246413,
+          "brier": 0.1467600581238434,
+          "ece": 0.051589123223379475,
+          "auto_5pct": 0.003,
+          "pnl_per_client": 0.017125,
+          "grant_rate": 0.377375,
+          "default_rate_granted": 0.12885061278569063
+        },
+        "train_auc": 0.7324984748488714,
+        "membership": {
+          "auc": 0.49505271093750003,
+          "tpr_1fpr": 0.0095,
+          "auc_cal": 0.5076413671875001,
+          "tpr_1fpr_cal": 0.0085,
+          "tpr_01fpr_cal": 0.000625
+        },
+        "canary_x5": {
+          "auc": 0.5675,
+          "extracted": 0.4,
+          "control_hits": 0.4
+        }
+      },
+      "gbdt_capped": {
+        "canary_x1": {
+          "auc": 0.5974999999999999,
+          "extracted": 0.65,
+          "control_hits": 0.5
+        },
+        "quality": {
+          "auc": 0.7643600807031357,
+          "brier": 0.13859328939336035,
+          "ece": 0.014226380733740513,
+          "auto_5pct": 0.081,
+          "pnl_per_client": 0.03977499999999999,
+          "grant_rate": 0.560375,
+          "default_rate_granted": 0.10751728753067143
+        },
+        "train_auc": 0.8383890854639233,
+        "membership": {
+          "auc": 0.5041837109375,
+          "tpr_1fpr": 0.009,
+          "auc_cal": 0.5586929765624999,
+          "tpr_1fpr_cal": 0.0215,
+          "tpr_01fpr_cal": 0.005375
+        },
+        "artifacts": {
+          "splits": 1675,
+          "tail_splits": 0,
+          "min_leaf_records": 200,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.95,
+          "extracted": 1.0,
+          "control_hits": 0.55
+        }
+      },
+      "gbdt_strict": {
+        "canary_x1": {
+          "auc": 0.44250000000000006,
+          "extracted": 0.35,
+          "control_hits": 0.4
+        },
+        "quality": {
+          "auc": 0.7581034962304856,
+          "brier": 0.1425357812614015,
+          "ece": 0.011988945787591316,
+          "auto_5pct": 0.00875,
+          "pnl_per_client": 0.040475,
+          "grant_rate": 0.551875,
+          "default_rate_granted": 0.10554926387315969
+        },
+        "train_auc": 0.7960963673673118,
+        "membership": {
+          "auc": 0.49432825,
+          "tpr_1fpr": 0.010875,
+          "auc_cal": 0.5211701328125,
+          "tpr_1fpr_cal": 0.013625,
+          "tpr_01fpr_cal": 0.002875
+        },
+        "artifacts": {
+          "splits": 725,
+          "tail_splits": 0,
+          "min_leaf_records": 1002,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.525,
+          "extracted": 0.5,
+          "control_hits": 0.6
+        }
+      },
+      "gbdt_free": {
+        "canary_x1": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.45
+        },
+        "quality": {
+          "auc": 0.7459744403854658,
+          "brier": 0.16281853213770028,
+          "ece": 0.1255369247629428,
+          "auto_5pct": 0.00925,
+          "pnl_per_client": 0.022874999999999996,
+          "grant_rate": 0.765375,
+          "default_rate_granted": 0.141760574881594
+        },
+        "train_auc": 0.9999994232155731,
+        "membership": {
+          "auc": 0.7185570703124999,
+          "tpr_1fpr": 0.01425,
+          "auc_cal": 0.7021211015625,
+          "tpr_1fpr_cal": 0.0765,
+          "tpr_01fpr_cal": 0.016125
+        },
+        "artifacts": {
+          "splits": 31000,
+          "tail_splits": 7,
+          "min_leaf_records": 1,
+          "small_leaves": 0.23504761904761906,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 1.0,
+          "extracted": 1.0,
+          "control_hits": 0.5
+        }
+      },
+      "transfer": {
+        "provider_default_rate": 0.21476809378185524,
+        "borrower_default_rate": 0.24341830338487255,
+        "logistic": {
+          "provider_model": {
+            "pnl_per_client": 0.010029251984956121,
+            "grant_rate": 0.4212285833681571,
+            "default_rate_granted": 0.14682539682539683,
+            "auc": 0.7159203643979504,
+            "ece": 0.045314463109786735
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.010865022983702467,
+            "grant_rate": 0.3213539490179691,
+            "default_rate_granted": 0.13849154746423928,
+            "ece": 0.06136034778449087
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.006936899289594653,
+            "grant_rate": 0.3631424989552863,
+            "default_rate_granted": 0.15074798619102417,
+            "auc": 0.6954923177032404
+          }
+        },
+        "gbdt_capped": {
+          "provider_model": {
+            "pnl_per_client": 0.03669034684496447,
+            "grant_rate": 0.5445048056832428,
+            "default_rate_granted": 0.11051419800460476,
+            "auc": 0.7743851140165914,
+            "ece": 0.01735521329621859
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.036941078144588385,
+            "grant_rate": 0.47179272879231093,
+            "default_rate_granted": 0.10141718334809566,
+            "ece": 0.015110986726571506
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.0022147931466778114,
+            "grant_rate": 0.18282490597576265,
+            "default_rate_granted": 0.15657142857142858,
+            "auc": 0.6233991511130234
+          }
+        }
+      }
+    },
+    {
+      "logistic": {
+        "canary_x1": {
+          "auc": 0.54,
+          "extracted": 0.0,
+          "control_hits": 0.1
+        },
+        "quality": {
+          "auc": 0.7151040384552312,
+          "brier": 0.14787988962724333,
+          "ece": 0.04580207624089058,
+          "auto_5pct": 0.0025,
+          "pnl_per_client": 0.017075,
+          "grant_rate": 0.395875,
+          "default_rate_granted": 0.13072308178086517
+        },
+        "train_auc": 0.7258431679836099,
+        "membership": {
+          "auc": 0.5023144921875,
+          "tpr_1fpr": 0.007375,
+          "auc_cal": 0.5097786953125001,
+          "tpr_1fpr_cal": 0.008,
+          "tpr_01fpr_cal": 0.000625
+        },
+        "canary_x5": {
+          "auc": 0.55,
+          "extracted": 0.15,
+          "control_hits": 0.25
+        }
+      },
+      "gbdt_capped": {
+        "canary_x1": {
+          "auc": 0.5375,
+          "extracted": 0.75,
+          "control_hits": 0.5
+        },
+        "quality": {
+          "auc": 0.7710693550055486,
+          "brier": 0.13785352933325265,
+          "ece": 0.01526998530693766,
+          "auto_5pct": 0.066875,
+          "pnl_per_client": 0.041874999999999996,
+          "grant_rate": 0.582875,
+          "default_rate_granted": 0.10679819858460218
+        },
+        "train_auc": 0.8387136378798961,
+        "membership": {
+          "auc": 0.51363484375,
+          "tpr_1fpr": 0.01325,
+          "auc_cal": 0.5507617109375,
+          "tpr_1fpr_cal": 0.019,
+          "tpr_01fpr_cal": 0.0035
+        },
+        "artifacts": {
+          "splits": 1785,
+          "tail_splits": 0,
+          "min_leaf_records": 200,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.715,
+          "extracted": 1.0,
+          "control_hits": 0.75
+        }
+      },
+      "gbdt_strict": {
+        "canary_x1": {
+          "auc": 0.43250000000000005,
+          "extracted": 0.3,
+          "control_hits": 0.35
+        },
+        "quality": {
+          "auc": 0.7613380056809191,
+          "brier": 0.1424961509385264,
+          "ece": 0.012867361107118542,
+          "auto_5pct": 0.05025,
+          "pnl_per_client": 0.04307499999999999,
+          "grant_rate": 0.571625,
+          "default_rate_granted": 0.10387054450032801
+        },
+        "train_auc": 0.7891465713011726,
+        "membership": {
+          "auc": 0.5047744453125,
+          "tpr_1fpr": 0.01275,
+          "auc_cal": 0.5203517578125,
+          "tpr_1fpr_cal": 0.014625,
+          "tpr_01fpr_cal": 0.001375
+        },
+        "artifacts": {
+          "splits": 706,
+          "tail_splits": 0,
+          "min_leaf_records": 1001,
+          "small_leaves": 0.0,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.5549999999999999,
+          "extracted": 0.8,
+          "control_hits": 0.5
+        }
+      },
+      "gbdt_free": {
+        "canary_x1": {
+          "auc": 0.995,
+          "extracted": 1.0,
+          "control_hits": 0.5
+        },
+        "quality": {
+          "auc": 0.7488016529521353,
+          "brier": 0.16270996436609358,
+          "ece": 0.12623609940467637,
+          "auto_5pct": 0.001625,
+          "pnl_per_client": 0.023474999999999996,
+          "grant_rate": 0.765375,
+          "default_rate_granted": 0.14110730034296914
+        },
+        "train_auc": 0.9999996803942218,
+        "membership": {
+          "auc": 0.722798984375,
+          "tpr_1fpr": 0.014375,
+          "auc_cal": 0.69112946875,
+          "tpr_1fpr_cal": 0.072625,
+          "tpr_01fpr_cal": 0.01675
+        },
+        "artifacts": {
+          "splits": 31000,
+          "tail_splits": 7,
+          "min_leaf_records": 1,
+          "small_leaves": 0.23685714285714285,
+          "counts_exported": true
+        },
+        "canary_x5": {
+          "auc": 0.9550000000000001,
+          "extracted": 1.0,
+          "control_hits": 0.6
+        }
+      },
+      "transfer": {
+        "provider_default_rate": 0.21476809378185524,
+        "borrower_default_rate": 0.24717927287923108,
+        "logistic": {
+          "provider_model": {
+            "pnl_per_client": 0.009068115336397828,
+            "grant_rate": 0.42394483911408276,
+            "default_rate_granted": 0.1488417939871858,
+            "auc": 0.7172435903301209,
+            "ece": 0.04376174358851643
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.008023401587964898,
+            "grant_rate": 0.3873798579189302,
+            "default_rate_granted": 0.1494066882416397,
+            "ece": 0.04955295145735462
+          },
+          "borrower_500_only": {
+            "pnl_per_client": -0.0016715419974926869,
+            "grant_rate": 0.46050982030923526,
+            "default_rate_granted": 0.16969147005444646,
+            "auc": 0.6763040755226755
+          }
+        },
+        "gbdt_capped": {
+          "provider_model": {
+            "pnl_per_client": 0.035144170497283744,
+            "grant_rate": 0.5442958629335563,
+            "default_rate_granted": 0.1128598848368522,
+            "auc": 0.7740654273031138,
+            "ece": 0.02013127487680205
+          },
+          "recalibrated": {
+            "pnl_per_client": 0.03497701629753447,
+            "grant_rate": 0.5697868783953197,
+            "default_rate_granted": 0.11551155115511551,
+            "ece": 0.025192164581642838
+          },
+          "borrower_500_only": {
+            "pnl_per_client": 0.004387797743418304,
+            "grant_rate": 0.35415796071876304,
+            "default_rate_granted": 0.15634218289085547,
+            "auc": 0.6160092709442611
+          }
+        }
+      }
+    }
+  ],
+  "notes": {
+    "features": [
+      "limit",
+      "sex",
+      "education",
+      "marriage",
+      "age",
+      "pay_status_0",
+      "pay_status_1",
+      "pay_status_2",
+      "pay_status_3",
+      "pay_status_4",
+      "pay_status_5",
+      "bill_0",
+      "bill_1",
+      "bill_2",
+      "bill_3",
+      "bill_4",
+      "bill_5",
+      "paid_0",
+      "paid_1",
+      "paid_2",
+      "paid_3",
+      "paid_4",
+      "paid_5"
+    ],
+    "source": "OpenML 42477 / UCI default of credit card clients",
+    "rows": 30000
+  }
+}

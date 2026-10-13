@@ -1,0 +1,270 @@
+{
+  "seeds": 5,
+  "summary": {
+    "public_only_model": {
+      "ic": {
+        "mean": 0.024808498014356133,
+        "std": 0.008507584735177008
+      },
+      "long_short_sharpe": {
+        "mean": 0.5693044769269399,
+        "std": 0.19999658010834392
+      }
+    },
+    "model_delivered_without_panel": {
+      "ic": {
+        "mean": 0.044032439978220136,
+        "std": 0.015911460619594534
+      },
+      "long_short_sharpe": {
+        "mean": 0.9544741687972816,
+        "std": 0.47067462048960107
+      }
+    },
+    "enclave_signals": {
+      "ic": {
+        "mean": 0.08213110868457048,
+        "std": 0.013968898353069682
+      },
+      "long_short_sharpe": {
+        "mean": 1.6377889836587696,
+        "std": 0.4052141199920609
+      },
+      "panel_corr": {
+        "mean": 0.7071308975116909,
+        "std": 0.04698119488859529
+      },
+      "panel_corr_public_only": {
+        "mean": 0.19243482560146596,
+        "std": 0.03967666461911613
+      }
+    },
+    "enclave_signals_coarse": {
+      "ic": {
+        "mean": 0.028919654213508988,
+        "std": 0.006493656209549375
+      },
+      "long_short_sharpe": {
+        "mean": 1.6377889836587696,
+        "std": 0.4052141199920609
+      },
+      "panel_corr": {
+        "mean": 0.3664772973103808,
+        "std": 0.032330685162745405
+      },
+      "panel_corr_public_only": {
+        "mean": 0.19243482560146596,
+        "std": 0.03967666461911613
+      }
+    },
+    "enclave_signals_coarse_delayed_1w": {
+      "ic": {
+        "mean": 0.03289312699307659,
+        "std": 0.015841773555154072
+      },
+      "long_short_sharpe": {
+        "mean": 1.7837346476754576,
+        "std": 0.766154662519222
+      },
+      "panel_corr": {
+        "mean": 0.3101727176095883,
+        "std": 0.02068112673242269
+      },
+      "panel_corr_public_only": {
+        "mean": 0.19243482560146596,
+        "std": 0.03967666461911613
+      }
+    },
+    "panel_itself": {
+      "ic": {
+        "mean": 0.07987630245004618,
+        "std": 0.023025386253696156
+      },
+      "long_short_sharpe": {
+        "mean": 2.7880581788872485,
+        "std": 0.21850694460578615
+      }
+    },
+    "panel_vs_truth_corr": {
+      "mean": 0.9833848687549456,
+      "std": 0.0031013932393498555
+    }
+  },
+  "runs": [
+    {
+      "public_only_model": {
+        "ic": 0.013011747144648582,
+        "long_short_sharpe": 0.7107550263853933
+      },
+      "model_delivered_without_panel": {
+        "ic": 0.017890179565003002,
+        "long_short_sharpe": 0.3114635535630082
+      },
+      "enclave_signals": {
+        "ic": 0.07607156427306024,
+        "long_short_sharpe": 1.1653133747435942,
+        "panel_corr": 0.7200701672693545,
+        "panel_corr_public_only": 0.22138417510359154
+      },
+      "enclave_signals_coarse": {
+        "ic": 0.02166453659315631,
+        "long_short_sharpe": 1.1653133747435942,
+        "panel_corr": 0.3421117717693319,
+        "panel_corr_public_only": 0.22138417510359154
+      },
+      "enclave_signals_coarse_delayed_1w": {
+        "ic": 0.04687659469493749,
+        "long_short_sharpe": 2.5040957005673694,
+        "panel_corr": 0.30384682904350724,
+        "panel_corr_public_only": 0.22138417510359154
+      },
+      "panel_itself": {
+        "ic": 0.09485267386038983,
+        "long_short_sharpe": 2.822447928437337
+      },
+      "panel_vs_truth_corr": 0.9818857046243841
+    },
+    {
+      "public_only_model": {
+        "ic": 0.0356244588634465,
+        "long_short_sharpe": 0.5769460684113097
+      },
+      "model_delivered_without_panel": {
+        "ic": 0.042242925367334046,
+        "long_short_sharpe": 0.6315623944278018
+      },
+      "enclave_signals": {
+        "ic": 0.10307226711151936,
+        "long_short_sharpe": 1.9438331279471486,
+        "panel_corr": 0.7272982740064506,
+        "panel_corr_public_only": 0.22652617321661825
+      },
+      "enclave_signals_coarse": {
+        "ic": 0.030192163802290433,
+        "long_short_sharpe": 1.9438331279471486,
+        "panel_corr": 0.3165510471335985,
+        "panel_corr_public_only": 0.22652617321661825
+      },
+      "enclave_signals_coarse_delayed_1w": {
+        "ic": 0.016998225346947442,
+        "long_short_sharpe": 1.1296617850942718,
+        "panel_corr": 0.28222187990816405,
+        "panel_corr_public_only": 0.22652617321661825
+      },
+      "panel_itself": {
+        "ic": 0.10498791410362515,
+        "long_short_sharpe": 3.0586644710870616
+      },
+      "panel_vs_truth_corr": 0.9887017621430851
+    },
+    {
+      "public_only_model": {
+        "ic": 0.023889972364330037,
+        "long_short_sharpe": 0.5885878409660409
+      },
+      "model_delivered_without_panel": {
+        "ic": 0.05969819116516317,
+        "long_short_sharpe": 1.5539469439744837
+      },
+      "enclave_signals": {
+        "ic": 0.09213756609662646,
+        "long_short_sharpe": 2.054678655744696,
+        "panel_corr": 0.724376629560613,
+        "panel_corr_public_only": 0.22635687852596204
+      },
+      "enclave_signals_coarse": {
+        "ic": 0.03770839669312988,
+        "long_short_sharpe": 2.054678655744696,
+        "panel_corr": 0.39734209058737036,
+        "panel_corr_public_only": 0.22635687852596204
+      },
+      "enclave_signals_coarse_delayed_1w": {
+        "ic": 0.04181314913054646,
+        "long_short_sharpe": 2.301942041062825,
+        "panel_corr": 0.3460990006924625,
+        "panel_corr_public_only": 0.22635687852596204
+      },
+      "panel_itself": {
+        "ic": 0.08029913457962469,
+        "long_short_sharpe": 2.8932627626532255
+      },
+      "panel_vs_truth_corr": 0.984061568792977
+    },
+    {
+      "public_only_model": {
+        "ic": 0.01857834872894147,
+        "long_short_sharpe": 0.1975584651692422
+      },
+      "model_delivered_without_panel": {
+        "ic": 0.03879423114985739,
+        "long_short_sharpe": 0.8518423175264446
+      },
+      "enclave_signals": {
+        "ic": 0.0764162323397562,
+        "long_short_sharpe": 1.8991698516047928,
+        "panel_corr": 0.6152579343946045,
+        "panel_corr_public_only": 0.14084614988450336
+      },
+      "enclave_signals_coarse": {
+        "ic": 0.03365672757651655,
+        "long_short_sharpe": 1.8991698516047928,
+        "panel_corr": 0.3771347978952509,
+        "panel_corr_public_only": 0.14084614988450336
+      },
+      "enclave_signals_coarse_delayed_1w": {
+        "ic": 0.010647211696711697,
+        "long_short_sharpe": 0.6114649719597629,
+        "panel_corr": 0.3057968488583313,
+        "panel_corr_public_only": 0.14084614988450336
+      },
+      "panel_itself": {
+        "ic": 0.08170273648129363,
+        "long_short_sharpe": 2.7688553149019453
+      },
+      "panel_vs_truth_corr": 0.9792643573546037
+    },
+    {
+      "public_only_model": {
+        "ic": 0.03293796297041407,
+        "long_short_sharpe": 0.7726749837027135
+      },
+      "model_delivered_without_panel": {
+        "ic": 0.06153667264374305,
+        "long_short_sharpe": 1.4235556344946698
+      },
+      "enclave_signals": {
+        "ic": 0.0629579136018901,
+        "long_short_sharpe": 1.1259499082536164,
+        "panel_corr": 0.7486514823274321,
+        "panel_corr_public_only": 0.14706075127665466
+      },
+      "enclave_signals_coarse": {
+        "ic": 0.021376446402451767,
+        "long_short_sharpe": 1.1259499082536164,
+        "panel_corr": 0.39924677916635254,
+        "panel_corr_public_only": 0.14706075127665466
+      },
+      "enclave_signals_coarse_delayed_1w": {
+        "ic": 0.04813045409623986,
+        "long_short_sharpe": 2.3715087396930583,
+        "panel_corr": 0.3128990295454763,
+        "panel_corr_public_only": 0.14706075127665466
+      },
+      "panel_itself": {
+        "ic": 0.03753905322529759,
+        "long_short_sharpe": 2.397060417356672
+      },
+      "panel_vs_truth_corr": 0.9830109508596778
+    }
+  ],
+  "notes": {
+    "features": [
+      "mom4",
+      "mom12",
+      "sector",
+      "reported_growth",
+      "panel_growth",
+      "panel_change"
+    ]
+  }
+}
