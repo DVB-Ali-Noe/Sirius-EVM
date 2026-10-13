@@ -55,6 +55,7 @@ const PIN_LABEL: Record<PinState, string> = {
   mismatch: "Differs from the pinned value",
   unpinned: "No pinned value configured",
   "event-log": "Not pinned: changes at every restart, checked by the event log replay",
+  retired: "Matches the Sirius production enclave of that time, upgraded since",
 };
 
 function Check({ check }: { check: CertificateCheck }) {
@@ -170,7 +171,8 @@ export function CertificateView(props: CertificateViewProps) {
           </dl>
           <p className="mt-3 max-w-prose text-xs text-muted">
             Pinned values are the measurements this server expects from the Sirius enclave today. A training run
-            before an enclave upgrade can differ from them.
+            before an enclave upgrade can differ from them: it is then checked against the Sirius production enclave of
+            that time.
           </p>
         </>
       )}

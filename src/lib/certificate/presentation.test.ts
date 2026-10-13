@@ -146,3 +146,41 @@ test("date : UTC, indépendante du fuseau du serveur", () => {
   assert.equal(formatCertificateDate(null), null);
   assert.equal(formatCertificateDate(new Date(Number.NaN)), null);
 });
+
+test("ancienne enclave Sirius de production : vérifié, compose présenté comme celui de l'époque", () => {
+  const retiredEnclave = { retiredAt: new Date("2026-10-08T12:28:56Z") };
+  const old = verification({ composeHashMatches: false, codeIdentityMatches: false });
+  const view = presentVerification({ status: "complete", verification: old, retiredEnclave });
+  assert.equal(view.verdict, "verified");
+  assert.equal(view.headline, VERIFIED_HEADLINE);
+  assert.ok(view.checks.every((check) => check.state === "pass"));
+  assert.match(view.summary, /upgraded on 2026-10-08 12:28 UTC/);
+  assert.equal(view.measurements.find((m) => m.label === "Compose hash")?.pin, "retired");
+  assert.equal(view.measurements.find((m) => m.label === "MRTD")?.pin, "match");
+
+  // En attente de la collatérale Intel : l'identité passe, le verdict reste incomplet.
+  const pending = presentVerification({ status: "pending", verification: old, retiredEnclave });
+  assert.equal(pending.verdict, "incomplete");
+  assert.equal(pending.checks.find((check) => check.label === "Code identity")?.state, "pass");
+});
+
+test("ancienne enclave : ne couvre ni une autre image, ni un event log rejeté, ni une quote non liée", () => {
+  const retiredEnclave = { retiredAt: new Date("2026-10-08T12:28:56Z") };
+  const cases = [
+    verification({ composeHashMatches: false, codeIdentityMatches: false, baseImageMatches: false }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, baseImageMatches: null }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, eventLogMatches: false }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, eventLogMatches: null }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, reportDataMatches: false }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, hardwareVerified: false, tcbStatus: undefined }),
+  ];
+  for (const item of cases) {
+    const view = presentVerification({ status: "complete", verification: item, retiredEnclave });
+    assert.notEqual(view.verdict, "verified");
+    assert.notEqual(view.headline, VERIFIED_HEADLINE);
+  }
+  // Sans entrée, l'écart de compose reste un écart.
+  const plain = presentVerification({ status: "complete", verification: verification({ composeHashMatches: false, codeIdentityMatches: false }) });
+  assert.equal(plain.verdict, "incomplete");
+  assert.equal(plain.measurements.find((m) => m.label === "Compose hash")?.pin, "mismatch");
+});

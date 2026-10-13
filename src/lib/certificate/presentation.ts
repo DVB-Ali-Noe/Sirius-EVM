@@ -4,7 +4,8 @@
  *
  * Règle de rédaction : la page ne dit « Executed inside an Intel TDX enclave on Phala
  * Cloud » que si **toutes** les vérifications ont abouti (quote liée au prêt, matériel
- * Intel et TCB acceptés, identité du code égale aux valeurs épinglées). Dans tous les
+ * Intel et TCB acceptés, identité du code égale aux valeurs épinglées, ou à celles d'une
+ * enclave Sirius de production remplacée après le prêt). Dans tous les
  * autres cas, le titre dit ce qui manque, sans rien promettre.
  */
 
@@ -21,13 +22,21 @@ export interface QuoteVerificationView {
   tcbStatus?: string;
 }
 
+/**
+ * Le compose mesuré est celui d'une enclave Sirius de production remplacée depuis
+ * (`retired-enclaves.ts`), et le prêt a été réglé avant ce remplacement.
+ */
+export interface RetiredEnclaveView {
+  retiredAt: Date;
+}
+
 export type VerificationOutcome =
   /** Aucune quote enregistrée pour ce prêt. */
   | { status: "absent" }
   /** Vérification complète, matériel compris (ou simulateur). */
-  | { status: "complete"; verification: QuoteVerificationView }
+  | { status: "complete"; verification: QuoteVerificationView; retiredEnclave?: RetiredEnclaveView }
   /** Contrôles locaux seulement : vérification matérielle plafonnée, lente, échouée ou abandonnée. */
-  | { status: "pending"; verification: QuoteVerificationView }
+  | { status: "pending"; verification: QuoteVerificationView; retiredEnclave?: RetiredEnclaveView }
   /** La quote n'a pas pu être lue ou vérifiée. */
   | { status: "error" };
 
@@ -42,8 +51,9 @@ export interface CertificateCheck {
 /**
  * `event-log` : mesure jamais épinglée, authentifiée seulement par le rejeu de l'event log.
  * C'est le cas de RTMR3 depuis la PR #72 : il change à chaque redémarrage de la CVM.
+ * `retired` : compose d'une enclave Sirius de production remplacée après ce prêt.
  */
-export type PinState = "match" | "mismatch" | "unpinned" | "event-log";
+export type PinState = "match" | "mismatch" | "unpinned" | "event-log" | "retired";
 
 export interface CertificateMeasurement {
   label: string;
@@ -125,8 +135,15 @@ function bindingCheck(verification: QuoteVerificationView): CertificateCheck {
       };
 }
 
-function codeCheck(verification: QuoteVerificationView): CertificateCheck {
+function codeCheck(verification: QuoteVerificationView, retired: RetiredEnclaveView | null): CertificateCheck {
   const label = "Code identity";
+  if (retired) {
+    return {
+      label,
+      state: "pass",
+      detail: `MRTD matches the value pinned by Sirius today. The compose hash is the one of the Sirius production enclave until its upgrade on ${formatCertificateDate(retired.retiredAt)}, after this run. The event log replays to RTMR3 with a single boot-time compose hash.`,
+    };
+  }
   if (verification.codeIdentityMatches === true) {
     return {
       label,
@@ -183,7 +200,17 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
   }
 
   const verification = outcome.verification;
-  const checks = [bindingCheck(verification), hardwareCheck(outcome), codeCheck(verification), eventLogCheck(verification)];
+  // Seul le compose diffère, et c'est celui d'une enclave Sirius remplacée après ce prêt :
+  // l'identité du code est établie comme si la valeur épinglée d'alors était lue.
+  const retired =
+    outcome.retiredEnclave &&
+    verification.composeHashMatches === false &&
+    verification.baseImageMatches === true &&
+    verification.eventLogMatches === true
+      ? outcome.retiredEnclave
+      : null;
+  const codeIdentityMatches = retired ? true : verification.codeIdentityMatches;
+  const checks = [bindingCheck(verification), hardwareCheck(outcome), codeCheck(verification, retired), eventLogCheck(verification)];
   const measurements: CertificateMeasurement[] = [
     { label: "MRTD", value: measurementValue(verification.measurements.mrTd), pin: pin(verification.baseImageMatches) },
     // RTMR3 n'est plus comparé à une valeur épinglée : son contrôle est la ligne « Event log ».
@@ -191,7 +218,7 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
     {
       label: "Compose hash",
       value: measurementValue(verification.measurements.composeHash),
-      pin: pin(verification.composeHashMatches),
+      pin: retired ? "retired" : pin(verification.composeHashMatches),
     },
   ];
 
@@ -199,13 +226,14 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
     outcome.status === "complete" &&
     verification.reportDataMatches &&
     verification.hardwareVerified === true &&
-    verification.codeIdentityMatches === true;
+    codeIdentityMatches === true;
   if (verified) {
     return {
       verdict: "verified",
       headline: VERIFIED_HEADLINE,
-      summary:
-        "The Intel TDX quote recorded for this loan passed Intel's signature and TCB checks, is bound to this loan's result, and carries the enclave measurements Sirius pins.",
+      summary: retired
+        ? `The Intel TDX quote recorded for this loan passed Intel's signature and TCB checks, is bound to this loan's result, and carries the measurements of the Sirius enclave in production at the time, upgraded on ${formatCertificateDate(retired.retiredAt)}.`
+        : "The Intel TDX quote recorded for this loan passed Intel's signature and TCB checks, is bound to this loan's result, and carries the enclave measurements Sirius pins.",
       checks,
       measurements,
     };
@@ -234,7 +262,7 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
       measurements,
     };
   }
-  if (verification.codeIdentityMatches === false) {
+  if (codeIdentityMatches === false) {
     return {
       verdict: "incomplete",
       headline: "Enclave execution not fully confirmed",
