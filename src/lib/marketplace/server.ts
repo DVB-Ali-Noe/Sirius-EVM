@@ -7,6 +7,7 @@ import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
 import { resolveServerNetwork, USDC_DECIMALS_BY_NETWORK } from "@/lib/evm/networks";
 import { USDC_DECIMALS } from "@/lib/evm/usdc";
 import { AppError } from "@/lib/app-error";
+import { publishedTariff } from "@/lib/datasets/tariff-server";
 import type { BillingMode, MarketplaceDb, MarketplaceDeps } from "./catalogue";
 import { createKybStatusReader } from "./kyb";
 import { marketplaceToken } from "./token";
@@ -63,6 +64,11 @@ export function marketplaceDeps(): MarketplaceDeps {
     db,
     kybStatuses,
     billingMode,
+    // Un tarif dans une autre précision que le jeton affiché n'est pas repris.
+    publishedComputeFees: () => {
+      const tariff = publishedTariff();
+      return tariff && tariff.decimals === token.decimals ? tariff.computeFeeAtomic : null;
+    },
     token,
     now: () => new Date(),
   };

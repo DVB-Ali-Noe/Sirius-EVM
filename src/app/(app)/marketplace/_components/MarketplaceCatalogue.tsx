@@ -199,7 +199,7 @@ export function MarketplaceCatalogue() {
 
         {data && (
           <div className="mb-4 space-y-2 text-xs text-muted">
-            {quoted && <p>{t("Les prix incluent les frais de calcul du dernier devis de chaque modèle. Le montant exact est affiché dans le devis, avant tout paiement.")}</p>}
+            {quoted && <p>{t("Les prix incluent les frais de calcul indicatifs de chaque modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.")}</p>}
             {unknownFee && <p>{t("Quand les frais de calcul ne sont pas encore connus, la carte indique ce que reçoit le fournisseur ; les frais s’ajoutent dans le devis.")}</p>}
             {!data.kybAvailable && <p>{t("Le statut de vérification de certains fournisseurs n’a pas pu être lu. Ils sont affichés sans badge et exclus du filtre « vérifiés ».")}</p>}
             {data.truncated && <p>{t("Seuls les {count} datasets les plus récents ont été parcourus.", { count: formatCount(MARKETPLACE_MAX_CANDIDATES) })}</p>}

@@ -42,8 +42,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Plus récents": "Most recent",
   "Plus empruntés": "Most borrowed",
   "Prix croissant": "Price: low to high",
-  "Les prix incluent les frais de calcul du dernier devis de chaque modèle. Le montant exact est affiché dans le devis, avant tout paiement.":
-    "Prices include the compute fee from the latest quote for each model. The exact amount is shown in the quote, before any payment.",
+  "Les prix incluent les frais de calcul indicatifs de chaque modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.":
+    "Prices include each model's indicative compute fee (latest quote or published rate). The exact amount is shown in the quote, before any payment.",
   "Quand les frais de calcul ne sont pas encore connus, la carte indique ce que reçoit le fournisseur ; les frais s’ajoutent dans le devis.":
     "When the compute fee is not known yet, the card shows what the provider receives; the fee is added in the quote.",
   "Le statut de vérification de certains fournisseurs n’a pas pu être lu. Ils sont affichés sans badge et exclus du filtre « vérifiés ».":
@@ -88,8 +88,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Statut indisponible": "Status unavailable",
   "Voir la preuve on-chain": "View the on-chain proof",
   "Ce que vous payez": "What you pay",
-  "Frais de calcul du dernier devis pour ce modèle. Le montant exact est affiché dans le devis, avant tout paiement.":
-    "Compute fee from the latest quote for this model. The exact amount is shown in the quote, before any payment.",
+  "Frais de calcul indicatifs pour ce modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.":
+    "Indicative compute fee for this model (latest quote or published rate). The exact amount is shown in the quote, before any payment.",
   "Indiqués dans le devis": "Shown in the quote",
   "Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.":
     "The compute fee and the total are shown in the quote, before any payment.",
