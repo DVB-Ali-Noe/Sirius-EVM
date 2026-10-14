@@ -75,7 +75,7 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await expect(card.getByText("Verified provider")).toBeVisible();
   await expect(card.getByText("Mobility")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: other.name }).getByText("Unverified provider")).toBeVisible();
-  await expect(page.getByText("Prices include the compute fee from the latest quote")).toBeVisible();
+  await expect(page.getByText("Prices include each model's indicative compute fee")).toBeVisible();
 
   await card.getByRole("link", { name: item.name }).click();
   // Premier passage en développement : la route de la fiche se compile pendant la navigation.

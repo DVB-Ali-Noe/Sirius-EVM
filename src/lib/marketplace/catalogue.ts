@@ -68,6 +68,11 @@ export interface MarketplaceDeps {
   /** Statut KYB par adresse (minuscules) : `true`, `false`, ou `null` si illisible. */
   kybStatuses(addresses: readonly string[]): Promise<Map<string, boolean | null>>;
   billingMode(): BillingMode;
+  /**
+   * Frais de calcul du tarif publié par profil (même politique que celle dont le runner signe les
+   * devis), en unités atomiques du jeton affiché ; `null` si le tarif est indisponible.
+   */
+  publishedComputeFees?(): Partial<Record<ModelId, string>> | null;
   token: TokenInfo;
   now(): Date;
 }
@@ -123,10 +128,16 @@ async function loanStatsFor(db: MarketplaceDb, ids: readonly string[]): Promise<
  * du dernier devis d'un prêt dont les fonds ont été verrouillés (le montant figure alors dans les
  * conditions du lock, publiques on-chain ; un devis préparé puis abandonné n'est jamais lu), pour
  * le même profil et la même version, s'il date de moins de 30 jours. Le montant ne dépend que du
- * profil (`prepareComputeQuote`), identique pour tous les emprunteurs. Le devis présenté avant
- * paiement reste la seule valeur qui engage.
+ * profil (`prepareComputeQuote`), identique pour tous les emprunteurs. Sans devis récent, le tarif
+ * publié en tient lieu (même calcul que `prepareComputeQuote`). Le devis présenté avant paiement
+ * reste la seule valeur qui engage.
  */
-export async function computeFeesFor(db: MarketplaceDb, mode: BillingMode, now: Date): Promise<ComputeFees> {
+export async function computeFeesFor(
+  db: MarketplaceDb,
+  mode: BillingMode,
+  now: Date,
+  published: Partial<Record<ModelId, string>> | null = null,
+): Promise<ComputeFees> {
   const ids = Object.keys(MODEL_REGISTRY) as ModelId[];
   if (mode === "v6") {
     return Object.fromEntries(ids.map((id) => [id, { kind: "none", atomic: "0" }])) as ComputeFees;
@@ -151,7 +162,10 @@ export async function computeFeesFor(db: MarketplaceDb, mode: BillingMode, now: 
       select: { computeAmountUsdcAtomic: true, createdAt: true },
     });
     const amount = latest?.computeAmountUsdcAtomic;
-    if (!latest || typeof amount !== "string" || !ATOMIC.test(amount)) return [id, UNKNOWN_COMPUTE_FEE];
+    if (!latest || typeof amount !== "string" || !ATOMIC.test(amount)) {
+      const tariff = published?.[id];
+      return [id, typeof tariff === "string" && ATOMIC.test(tariff) ? { kind: "quoted", atomic: tariff } : UNKNOWN_COMPUTE_FEE];
+    }
     // La date du devis n'est pas renvoyée : elle dirait quand quelqu'un a emprunté.
     return [id, { kind: "quoted", atomic: amount }];
   }));
@@ -209,7 +223,7 @@ export async function readCatalogueSnapshot(deps: MarketplaceDeps): Promise<Cata
   const providers = [...new Set(online.map((row) => row.provider))];
   const [stats, fees, kyb] = await Promise.all([
     loanStatsFor(deps.db, online.map((row) => row.id)),
-    computeFeesFor(deps.db, deps.billingMode(), now),
+    computeFeesFor(deps.db, deps.billingMode(), now, deps.publishedComputeFees?.() ?? null),
     kybFor(deps, providers),
   ]);
   return { rows: online, truncated, stats, fees, kyb };
@@ -287,7 +301,7 @@ export async function loadListingDetail(id: string, deps: MarketplaceDeps): Prom
   const billingMode = deps.billingMode();
   const [stats, fees, kyb] = await Promise.all([
     loanStatsFor(deps.db, [row.id]),
-    computeFeesFor(deps.db, billingMode, now),
+    computeFeesFor(deps.db, billingMode, now, deps.publishedComputeFees?.() ?? null),
     kybFor(deps, [row.provider]),
   ]);
   return {
