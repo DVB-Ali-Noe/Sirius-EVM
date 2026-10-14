@@ -112,3 +112,16 @@ for (const screen of [
     });
   });
 }
+
+test("la page MCP donne l’adresse du serveur et la connexion par client", async ({ page }) => {
+  await page.route("**/api/**", (route) => route.abort());
+  await openLayoutPage(page, "/docs/mcp", 16);
+  await expect(page.getByRole("heading", { name: "Use Sirius from your AI agent" })).toBeVisible();
+  await expect(page.locator("main")).toContainText("https://sirius-data.tech/api/mcp");
+  await expect(page.locator("#outils")).toContainText("verify_certificate");
+  await page.getByRole("tab", { name: "Cursor" }).click();
+  await expect(page.getByRole("tabpanel")).toContainText("mcpServers");
+  await page.getByRole("tab", { name: "Claude Code" }).click();
+  await expect(page.getByRole("tabpanel")).toContainText("claude mcp add --transport http sirius");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+});
