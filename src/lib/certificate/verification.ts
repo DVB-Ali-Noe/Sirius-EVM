@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { verifyTdxQuote, type QuoteVerification } from "@/lib/tee/quote";
 import type { CertificateRecord } from "./resolve";
 import type { VerificationOutcome } from "./presentation";
+import { retiredEnclaveFor } from "./retired-enclaves";
 
 /**
  * Vérification bornée de la quote TDX pour la page publique du certificat.
@@ -304,5 +305,8 @@ export async function verifyCertificate(record: CertificateRecord, keepAlive?: K
   const { quote, payloadHash, eventLog, composeHash } = record.evidence;
   if (!quote) return { status: "absent" };
   const evidence = eventLog && composeHash ? { eventLog, composeHash } : undefined;
-  return certificateVerifier().check(verificationCacheKey(record), { quote, payloadHash, evidence }, keepAlive);
+  const outcome = await certificateVerifier().check(verificationCacheKey(record), { quote, payloadHash, evidence }, keepAlive);
+  const retired = retiredEnclaveFor(record.settlement.chainId, composeHash, record.settledAt);
+  if (!retired || (outcome.status !== "complete" && outcome.status !== "pending")) return outcome;
+  return { ...outcome, retiredEnclave: { retiredAt: retired.retiredAt } };
 }

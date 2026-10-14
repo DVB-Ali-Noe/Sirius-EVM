@@ -384,6 +384,11 @@ jobs:
           # supprimerait les images pendantes des autres projets, ce qui n'est pas à
           # nous de décider.
           docker compose -p "${PROJET}" --env-file .env.vps up --detach --pull always
+          # Ménage ciblé sur nos seules images : les anciennes sirius-worker avaient rempli
+          # le disque (13 oct.). Les cinq plus récentes restent pour un retour arrière ;
+          # celle qu'utilise encore l'autre pile Sirius est refusée par docker rmi et reste.
+          docker images --filter "reference=ghcr.io/${OWNER}/sirius-worker" --format '{{.ID}}' \
+            | awk '!vu[\$0]++' | tail -n +6 | xargs -r docker rmi >/dev/null 2>&1 || true
           EOF
 
       - name: Vérifier que le reaper tourne
