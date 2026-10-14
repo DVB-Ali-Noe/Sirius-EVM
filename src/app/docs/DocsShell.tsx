@@ -124,10 +124,10 @@ export function DocsShell({ title, lead, actions, toc, tocLabel, children }: {
     <div className="relative z-10 min-h-full text-foreground">
       <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-background/40 backdrop-blur-xl">
         <div className="flex h-16 items-center justify-between px-4 sm:px-8">
-          <Link href="/" className="flex items-baseline gap-2">
-            <span className="text-xl font-semibold tracking-[-0.04em]">Sirius</span>
-            <span className="text-sm font-medium text-muted">Docs</span>
-          </Link>
+          <div className="flex items-baseline gap-2">
+            <Link href="/" className="text-xl font-semibold tracking-[-0.04em]">Sirius</Link>
+            <span className="text-sm font-medium text-muted">{t("Documentation")}</span>
+          </div>
           <ConnectButton />
         </div>
         <div className="flex gap-6 overflow-x-auto px-4 [scrollbar-width:none] sm:px-8">
