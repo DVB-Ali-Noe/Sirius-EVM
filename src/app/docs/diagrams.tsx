@@ -48,7 +48,7 @@ function DiagramFrame({ children, height, title, description, d }: {
   const arrowId = `${id}-arrow`;
 
   return (
-    <figure className="min-w-0 rounded-2xl border border-border bg-surface/40 p-4">
+    <figure className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4">
       <div className="overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-foreground" role="region" aria-label={title} tabIndex={0}>
         <svg viewBox={`0 0 760 ${height}`} className="h-auto w-full" style={{ minWidth: 760 }} fill="none" role="img" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`}>
           <title id={`${id}-title`}>{title}</title>
