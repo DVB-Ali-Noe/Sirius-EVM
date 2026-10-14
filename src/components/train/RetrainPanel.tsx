@@ -145,7 +145,7 @@ export function RetrainPanel({
           )}
           {detail && fee?.kind === "quoted" && (
             <p className="text-xs text-muted">
-              {t("Frais de calcul du dernier devis pour ce modèle. Le montant exact est affiché dans le devis, avant tout paiement.")}
+              {t("Frais de calcul indicatifs pour ce modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.")}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">

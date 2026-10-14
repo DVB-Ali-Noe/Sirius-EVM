@@ -103,8 +103,9 @@ export const EMPTY_LOAN_STATS: LoanStats = { borrowCount: 0, settledCount: 0, re
 /**
  * Frais de calcul ajoutés au gain du fournisseur pour un profil d'entraînement.
  * - `none` : facturation v6, aucun frais de calcul (le total est le prix du dataset) ;
- * - `quoted` : montant du dernier devis signé pour ce profil (indicatif, le devis fait foi) ;
- * - `unknown` : aucun devis récent, ou configuration illisible.
+ * - `quoted` : montant du dernier devis signé pour ce profil, à défaut celui du tarif publié
+ *   (indicatif, le devis fait foi) ;
+ * - `unknown` : ni devis récent ni tarif publié, ou configuration illisible.
  */
 export type ComputeFee =
   | { kind: "none"; atomic: "0" }

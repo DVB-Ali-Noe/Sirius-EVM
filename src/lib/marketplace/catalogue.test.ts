@@ -150,6 +150,34 @@ test("catalogue : frais en v6 (aucun), en configuration illisible ou sans devis 
   }
 });
 
+test("catalogue : sans devis récent, les frais viennent du tarif publié ; un devis récent reste prioritaire", async () => {
+  const tariff = { publishedComputeFees: () => ({ linear_regression: "7000000" }) };
+  const fromTariff = await loadCatalogue(q(), deps(fakeDb(ROWS, { quote: null }).db, tariff));
+  const listed = fromTariff.items.find((item) => item.id === "listed")!;
+  assert.deepEqual([listed.priceAtomic, listed.priceKind], ["27000000", "borrowerPays"]);
+  assert.deepEqual(fromTariff.computeFees.linear_regression, { kind: "quoted", atomic: "7000000" });
+  // Profil absent du tarif : toujours inconnu.
+  assert.equal(fromTariff.computeFees.logistic_regression.kind, "unknown");
+
+  const quoted = await loadCatalogue(q(), deps(fakeDb(ROWS).db, tariff));
+  assert.deepEqual(quoted.computeFees.linear_regression, { kind: "quoted", atomic: "3000000" });
+
+  for (const variant of [
+    deps(fakeDb(ROWS, { quote: null }).db, { publishedComputeFees: () => null }),
+    deps(fakeDb(ROWS, { quote: null }).db, { publishedComputeFees: () => ({ linear_regression: "1e9" }) }),
+    deps(fakeDb(ROWS, { quote: null }).db, { publishedComputeFees: () => ({ linear_regression: "0" }) }),
+    deps(fakeDb(ROWS).db, { ...tariff, billingMode: () => "unknown" }),
+  ]) {
+    assert.equal((await loadCatalogue(q(), variant)).computeFees.linear_regression.kind, "unknown");
+  }
+  // v6 : jamais de frais de calcul, tarif ou pas.
+  const v6 = await loadCatalogue(q(), deps(fakeDb(ROWS).db, { ...tariff, billingMode: () => "v6" }));
+  assert.deepEqual(v6.computeFees.linear_regression, { kind: "none", atomic: "0" });
+
+  const detail = await loadListingDetail("listed", deps(fakeDb(ROWS, { quote: null }).db, tariff));
+  assert.deepEqual(detail!.dataset.computeFee, { kind: "quoted", atomic: "7000000" });
+});
+
 test("catalogue : KYB lu, illisible ou en panne ; le filtre « vérifiés » ne garde que les vrais", async () => {
   const { db } = fakeDb(ROWS);
   const all = await loadCatalogue(q(), deps(db));
