@@ -472,3 +472,47 @@ Menu profil (haut à droite) : point vert/rouge identique au bouton wallet de la
 Bouton « Sign in » en haut à droite : à la réussite de la signature, les lettres de « Signing… » convergent vers le centre en tournant, le bouton se resserre en pastille ronde où une coche se dessine, puis la pastille s’efface (environ 2 s). Séquence vérifiée par capture continue avec le wallet simulé des tests e2e. Correctif : le bouton ne disparaît plus dès que la session est signée, avant la fin du chargement.
 
 Barre latérale : bouton de sortie placé avant le bouton wallet, à la même position repliée ou dépliée ; une marge invisible de 16 px au bord gauche de l’écran déplie aussi la barre repliée.
+
+### Capacité CSV et calcul — avant modification, 17 octobre 2026
+
+Demande : lever le refus des jeux tabulaires d’environ 30 000 lignes sans augmenter le plafond d’upload de 3 Mio. Diagnostic reproduit localement : une logistique à 23 variables et 4 200 lignes (201 685 octets) échoue sur le budget de 20 M opérations ; à 30 000 lignes (1 440 085 octets), le parseur refuse d’abord le plafond de 20 000 lignes. Le même profil à 4 000 lignes termine dans le worker actuel en 236 ms, avec un pic RSS du processus de 105 Mio sur ce poste. Le plafond Vercel de 4,5 Mo concerne le corps HTTP chiffré, non ces refus de calcul.
+
+Prévoir une augmentation bornée des opérations et des lignes, puis mesurer une exécution réelle de 30 000 lignes dans le worker et tester les frontières de refus. Ne relever la mémoire du worker que si le besoin est observé ; conserver les 3 Mio, le modèle, la facturation et les contrats inchangés. Pas de CVM, de dépense, de mutation distante, de Git ni de lancement de PR dans cette passe locale.
+
+### Capacité CSV et calcul — après modification locale, 17 octobre 2026
+
+`MAX_TRAINING_OPERATIONS` passe de 20 M à 200 M, `MAX_CSV_ROWS` de 20 000 à 50 000 (en-tête compris). 30 000 lignes × 24 paramètres × 200 = 144 M en logistique. Le budget refuse encore dès 31 251 lignes avec 32 paramètres ; l’analyse côté navigateur et le runner suivent les mêmes bornes. Le plafond de 3 Mio, le worker à 128 Mio d’old-gen, les délais de 15 s et la facturation restent inchangés.
+
+Sur ce poste, le vrai worker accepte 30 000 lignes et 23 variables avec un CSV synthétique de 2 820 085 octets en 759 ms, pic RSS du processus 148 Mio ; un exemple plus compact (1 440 085 octets) termine en 748 ms, pic RSS 128 Mio. Les 20 tests ciblés de validation navigateur/runner et entraînement passent, dont la limite exacte du budget et l’entraînement de 30 000 lignes sous le timeout. RSS du processus ≠ heap du worker. Ces mesures locales ne prouvent ni le temps, ni la mémoire disponibles sur tdx.small à 1 vCPU.
+
+Restent à faire avant ouverture : créneau et coût de la CVM staging explicitement validés, déploiement/attestation de la nouvelle image, mesures d’un CSV représentatif de 30 000 lignes et parcours réel. Si le délai doit changer, synchroniser aussi le maximum signé du devis v7. Aucun déploiement, dépense ni opération Git dans cette passe.
+
+Vérification finale locale : `pnpm test` 1 032/1 032, `pnpm test:phala-demo` 27/27, typage et build Next réussis, lint des fichiers touchés sans erreur. Le lint global reste bloqué par 10 erreurs dans `experiments/kev-decision-tune/.vendor/kev/` (dépendances tierces hors chantier). En navigateur, la page réelle de publication affiche 50 000 lignes ; un CSV logistique synthétique de 30 000 lignes et 23 variables (2 760 083 octets) est accepté avec le bon compte de lignes ; à 31 251 lignes et 31 variables (2 000 179 octets), le navigateur affiche le refus de budget. Le serveur de production local sans `SIRIUS_SESSION_SECRET` a refusé le démarrage comme prévu ; le parcours visible a été vérifié avec le serveur de développement, arrêté ensuite. Le test d’inventaire exact de `public/`, fragile à la présence locale de `.DS_Store`, est remplacé par des assertions comportementales : les fichiers cachés ne franchissent pas la porte de prévisualisation.
+
+### Portage isolé depuis staging — 17 octobre 2026
+
+Après accord pour préparer une branche, le correctif a été transféré dans `fix/staging-training-capacity`, créée depuis `origin/staging` à `3ba030c`. Les expériences et fichiers d’environnement copiés automatiquement par l’outil de worktree ont été retirés **du nouveau dossier seulement**, avec accord explicite ; le dossier initial et les branches distantes existantes restent intacts. Sur cette base staging propre : 1 065 tests applicatifs et 27 tests Phala réussis, lint global et typage réussis, build Next réussi avec une URL PostgreSQL locale fictive et un secret de session de test. Aucun service distant ni CVM n’a été modifié ou démarré par ces contrôles. Le créneau CVM et la dépense restent à valider séparément avant de publier des mesures matérielles.
+
+La branche a été poussée et la [PR #105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) est ouverte en brouillon vers `staging` ; aucune branche distante existante n’a été modifiée ou fusionnée. Noé reporte le test matériel jusqu’au réapprovisionnement Phala : ne pas démarrer la CVM, déployer l’image staging ni fusionner cette PR avant ce financement, l’estimation de coût actualisée et les mesures matérielles. Le testnet EVM n’annule pas le coût de la CVM.
+
+### Chemin réel du self-train — avant correctif complémentaire
+
+Relecture de la PR : le test de 30 000 lignes exerçait `trainInWorker` isolément, mais `/api/train` → `runSelfTraining` → `runTraining` appelait `trainAndSeal` sans signal, donc `trainOnData` dans le processus runner. La protection mémoire du worker et son annulation n’étaient pas exercées sur le parcours Phala réel. Relier uniquement le self-train de la démonstration au worker et au délai configurable de 15 s par défaut ; préserver le parcours in-process hors démonstration et les emprunts v6. Vérifier avec un CSV synthétique chiffré et un stockage IPFS simulé localement, sans CVM ni dépense.
+
+### Chemin réel du self-train — après correctif complémentaire
+
+`runSelfTraining` accepte désormais un délai et l’opération runner `run-training` le fournit quand `SIRIUS_PHALA_DEMO=true`, via `RUNNER_TRAINING_TIMEOUT_MS` (15 s par défaut). Le self-train Phala passe donc par `trainInWorker`, son plafond de 128 Mio d’old-gen et son annulation ; un délai dépassé retourne une erreur 503 et ne publie aucun modèle. Hors démonstration, le comportement self-train antérieur et les emprunts v6/v7 ne changent pas. Nouvelle régression : CSV synthétique de 30 000 lignes chiffré, stocké dans un IPFS simulé, entraîné et republié ; le même parcours avec 1 ms est interrompu sans nouvel upload. Aucun appel réseau extérieur, CVM ou dépense.
+
+Consigne de Noé pour la future mesure : Phala sera réapprovisionné, mais ne pas consommer tout le solde. Relever d’abord tarif et solde, puis faire valider un plafond explicite très inférieur au solde et un créneau court ; fermer et confirmer l’arrêt dès les mesures prises.
+
+### Revue approfondie de la PR #105 — avant corrections
+
+Deux relectures indépendantes (sécurité, exactitude) sans faille critique. À corriger : (1) le délai de 15 s couvrait aussi le téléchargement IPFS et l’envoi du modèle, et un dépassement devenait une 503 comptée par le coupe-circuit financier (3 échecs ferment le runner à tous) ; (2) les noms de colonnes non bornés (jusqu’à 10 000 caractères) faisaient dépasser l’output-gate de 256 Kio, avec une 500 comptée : trois entraînements d’un visiteur suffisaient à fermer la démo ; (3) le test d’inventaire de `public/` et des tests de textes avaient été supprimés au lieu d’être adaptés. Également : self-train hors démonstration et emprunts v6 encore dans le processus runner malgré un budget ×10 ; double analyse du CSV à l’ingestion ; parseur construisant environ 96 Mio de tas pour 3 Mio de cellules longues (mesuré), proche du plafond de 128 Mio du worker ; erreur de délai v7 dans `COMPUTE-BILLING.md`.
+
+### Revue approfondie de la PR #105 — après corrections
+
+- Dans l’enclave (`TEE_MODE=phala`), self-train et emprunts v6 passent toujours par le worker borné, sans dépendre du handler. Le délai démarre après téléchargement, déchiffrement et Merkle ; les reprises IPFS sont conservées. Un délai ou une mémoire de worker épuisés (`TrainingLimitExceeded`) deviennent une 422 « Calcul trop long ou trop lourd pour ce fichier » : coût et quota consommés, coupe-circuit intact. Le parcours facturé v7 garde sa 503 comptée et son délai de devis inchangés. Le Next en processus (sans `TEE_MODE=phala`) reste inchangé.
+- Noms de colonnes limités à 128 caractères dans le navigateur et le runner (`MAX_HEADER_CHARS`), message traduit ; un modèle refusé par l’output-gate devient une 422. Les datasets déjà scellés avec un nom plus long deviennent inexploitables à l’entraînement (422) et doivent être réimportés.
+- `parseCsv` copie par tranches : 3 Mio de cellules de 10 000 caractères passent de 96 Mio de tas et 261 ms à moins de 1 Mio et 23 ms ; 200 000 entrées aléatoires donnent un résultat et des erreurs identiques à l’ancien parseur. L’ingestion ne relit plus le fichier pour ses volumes.
+- Tests restaurés avec 50 000 lignes : textes communs, rendu de l’avertissement, message « Too many rows », inventaire de `public/` (fichiers cachés ignorés). Nouveaux : bornes 128/129 caractères, 422 non comptée au dépassement du délai.
+- Retour arrière : une image antérieure refuserait l’analyse des datasets scellés avec plus de 19 999 lignes de données.

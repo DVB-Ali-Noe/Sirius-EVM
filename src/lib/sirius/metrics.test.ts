@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeMetrics, publicDatasetMetrics } from "./metrics";
+import { computeMetrics, MAX_CSV_ROWS, publicDatasetMetrics } from "./metrics";
 
 test("ne publie que les volumes globaux du dataset", () => {
   const metrics = computeMetrics(Buffer.from("patient_id,salary\np-001,123456\n"));
@@ -22,5 +22,6 @@ test("retire les statistiques détaillées des datasets historiques", () => {
 });
 
 test("rejette les métriques publiques hors bornes", () => {
-  assert.equal(publicDatasetMetrics({ rowCount: 20_001, columnCount: 2 }), null);
+  assert.deepEqual(publicDatasetMetrics({ rowCount: MAX_CSV_ROWS, columnCount: 2 }), { rowCount: MAX_CSV_ROWS, columnCount: 2 });
+  assert.equal(publicDatasetMetrics({ rowCount: MAX_CSV_ROWS + 1, columnCount: 2 }), null);
 });

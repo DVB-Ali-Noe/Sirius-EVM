@@ -110,7 +110,7 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
   await page.goto("/datasets/new");
   await page.waitForFunction(() => Boolean(window.__SIRIUS_E2E__));
   await expect(page.getByText("Step 1 of 2")).toBeVisible();
-  await expect(page.getByText(/CSV up to 3 MB, 100 to 20,000 rows/)).toBeVisible();
+  await expect(page.getByText(/CSV up to 3 MB, 100 to 50,000 rows/)).toBeVisible();
 
   const file = page.locator('input[type="file"]');
   await file.setInputFiles({ name: "tiny.csv", mimeType: "text/csv", buffer: Buffer.from(csv(2, () => "1")) });
@@ -118,7 +118,7 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
 
   await file.setInputFiles({ name: "dup.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row)).replace("x1,x2,y", "x1,x1,y")) });
-  await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a name, with no duplicates.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a unique name of at most 128 characters.");
 
   await file.setInputFiles({ name: "continuous.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row * 3))) });
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();

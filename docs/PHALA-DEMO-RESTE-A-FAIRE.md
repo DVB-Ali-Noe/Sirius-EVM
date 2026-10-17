@@ -155,6 +155,13 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 - [ ] Activer, vérifier le journal de démarrage et un premier retrait réel. Le bouton manuel doit rester fonctionnel.
 - [ ] Mesurer le coût réel par retrait et le reporter dans le business plan.
 
+## Capacité CSV et calcul — code local du 17 octobre 2026
+
+- [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester 30 000 lignes et le refus au-delà du budget.
+- [x] Faire passer tout entraînement exécuté dans l’enclave (self-train, emprunts v6) par le worker borné, délai de 15 s par défaut après téléchargement ; dépassement imputé au fichier (422) sans ouvrir le coupe-circuit. Noms de colonnes limités à 128 caractères. Vérifié localement.
+- [ ] Mesurer sur la CVM staging un CSV représentatif de 30 000 lignes, temps, mémoire et marge sur le délai de 15 s. Ne porter le heap de 128 à 256 Mio ou le délai à 30 s qu’après cette mesure et vérification des autres jobs/coûts.
+- [ ] Après réapprovisionnement Phala : relever tarif et solde, faire valider un plafond très inférieur au solde et un créneau court, déployer en staging, attester la nouvelle image, mesurer puis confirmer l’arrêt. La PR [#105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) reste en brouillon jusqu’aux mesures. La production reste une opération distincte avec rotation du compose hash et validation des clés.
+
 ## Suites produit différées
 
 - [ ] Uploads plus volumineux et reprise d’envoi.

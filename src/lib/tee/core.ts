@@ -12,10 +12,10 @@ import {
   type EncryptedPayload,
 } from "@/lib/crypto/encryption";
 import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/merkle";
-import { computeMetrics } from "@/lib/sirius/metrics";
+import { computeMetrics, type DatasetMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainSelectedModel } from "./model-registry";
-import { DatasetValidationError, validateTrainingDataset } from "./train";
+import { DatasetValidationError, trainingTimeoutMs, validateTrainingDataset, type TrainedModel } from "./train";
 import { gateModel } from "./output-gate";
 import { decryptDatasetIngress } from "./ingress";
 import { evmEscrowBinding, type EvmEscrowBinding } from "./evm-binding";
@@ -24,7 +24,7 @@ import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
 import { budgetRunnerJob } from "@/lib/runner/budget";
 import { countsAsRunnerFailure } from "@/lib/runner/failure-policy";
-import { INVALID_DATASET_MESSAGE, trainInWorker } from "./bounded-training";
+import { INVALID_DATASET_MESSAGE, TrainingLimitExceeded, trainInWorker } from "./bounded-training";
 import type { ComputeQuote } from "@/lib/billing/quote";
 import { quoteWorkflow, requireBillingBudget } from "@/lib/billing/runner";
 import { MAX_DATASET_BYTES } from "./contract";
@@ -106,9 +106,8 @@ const evmModelKeyContext = (loanId: string, borrower: string, binding = evmEscro
  * Scelle un dataset (upload provider) : Merkle + métriques sur le plaintext → DEK aléatoire →
  * AES-256-GCM → IPFS. La DEK est renvoyée UNIQUEMENT wrappée (destructible, crypto-shredding).
  */
-export async function sealDataset(datasetId: string, content: Buffer): Promise<SealDatasetResult> {
+export async function sealDataset(datasetId: string, content: Buffer, metrics = computeMetrics(content)): Promise<SealDatasetResult> {
   const tree = buildMerkleTree(content);
-  const metrics = computeMetrics(content);
   const dek = generateKey();
   const payload = encrypt(content, dek);
   // Wrap avant l'upload : si la clé enclave manque, on échoue sans pinner un blob orphelin.
@@ -132,13 +131,14 @@ export async function sealDatasetEnvelope(
   // opaque, sinon l'emprunteur apprendrait la forme d'une donnée qu'il n'a pas le droit de
   // voir. Tout ce qui n'est pas imputable au fichier continue de remonter tel quel, et
   // `errorResponse` s'en charge — une erreur technique peut porter un préimage ou un jeton.
+  let metrics: DatasetMetrics;
   try {
-    validateTrainingDataset(content, model);
+    metrics = validateTrainingDataset(content, model);
   } catch (error) {
     if (error instanceof DatasetValidationError) throw new AppError(error.message, 400);
     throw error;
   }
-  return sealDataset(datasetId, content);
+  return sealDataset(datasetId, content, metrics);
 }
 
 /** Déchiffre un dataset « en enclave » + vérifie l'intégrité Merkle. Le plaintext ne sort jamais. */
@@ -161,35 +161,72 @@ function trainOnData(input: TrainingInput, plaintext: Buffer) {
   }
 }
 
-/** Déchiffre → entraîne → output-gate → chiffre le modèle sous `keyContext` → IPFS. */
-async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatasetBytes = MAX_DATASET_BYTES) {
-  const plaintext = await decryptDataset(input, signal);
-  if (plaintext.length > maxDatasetBytes) throw new AppError("Taille du dataset invalide", 413);
-  const model = signal ? await trainInWorker(input, plaintext, signal) : trainOnData(input, plaintext);
-  const { model: gated, buffer } = gateModel(model);
+/** Output-gate → chiffre le modèle sous `keyContext` → IPFS. Un modèle hors plafond vient des données. */
+async function sealTrainedModel(input: TrainingInput, model: TrainedModel, signal?: AbortSignal) {
+  let gated: TrainedModel;
+  let buffer: Buffer;
+  try {
+    ({ model: gated, buffer } = gateModel(model));
+  } catch {
+    throw new AppError(INVALID_DATASET_MESSAGE, 422);
+  }
   const payload = encrypt(buffer, deriveKey(getMasterKey(), input.keyContext));
   signal?.throwIfAborted();
   const { cid } = await uploadToIpfs(Buffer.from(JSON.stringify(payload)), input.filename, signal);
   return { modelCid: cid, model: gated };
 }
 
-/** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */
-export async function runTraining(input: TrainingInput): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+/** Déchiffre → entraîne → scelle, sous un seul délai : celui du devis facturé. */
+async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatasetBytes = MAX_DATASET_BYTES) {
+  const plaintext = await decryptDataset(input, signal);
+  if (plaintext.length > maxDatasetBytes) throw new AppError("Taille du dataset invalide", 413);
+  const model = signal ? await trainInWorker(input, plaintext, signal) : trainOnData(input, plaintext);
+  return sealTrainedModel(input, model, signal);
+}
+
+/** Message sûr : un fichier trop lourd pour le délai ou la mémoire du calcul confidentiel. */
+export const TRAINING_LIMIT_MESSAGE = "Calcul trop long ou trop lourd pour ce fichier : réduis le nombre de lignes ou de variables";
+
+/**
+ * Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower ; emprunt v6).
+ * Dans l'enclave, le calcul passe toujours par le worker borné. Le délai ne court qu'après le
+ * téléchargement et le déchiffrement : une passerelle IPFS lente garde ses reprises et n'est pas
+ * imputée au fichier. Un délai ou une mémoire épuisés sont une erreur liée au fichier (422) :
+ * coût et quota restent consommés, mais le coupe-circuit de la plateforme n'est pas touché.
+ */
+export async function runTraining(
+  input: TrainingInput,
+  maxExecutionMs = process.env.TEE_MODE === "phala" ? trainingTimeoutMs() : undefined,
+): Promise<{ modelCid: string; metrics: Record<string, number> }> {
   return budgetRunnerJob("training", input.keyContext, input, async () => {
-    const { modelCid, model } = await trainAndSeal(input);
-    return { modelCid, metrics: model.metrics };
+    if (maxExecutionMs === undefined) {
+      const { modelCid, model } = await trainAndSeal(input);
+      return { modelCid, metrics: model.metrics };
+    }
+    const plaintext = await decryptDataset(input);
+    if (plaintext.length > MAX_DATASET_BYTES) throw new AppError("Taille du dataset invalide", 413);
+    let model: TrainedModel;
+    try {
+      model = await trainInWorker(input, plaintext, AbortSignal.timeout(maxExecutionMs));
+    } catch (error) {
+      if (error instanceof TrainingLimitExceeded) throw new AppError(TRAINING_LIMIT_MESSAGE, 422);
+      throw error;
+    }
+    const { modelCid, model: gated } = await sealTrainedModel(input, model);
+    return { modelCid, metrics: gated.metrics };
   });
 }
 
 /** Self-train : les contextes de livraison sont reconstruits dans le runner. */
 export async function runSelfTraining(
   input: SelfTrainingInput,
+  maxExecutionMs?: number,
 ): Promise<{ modelCid: string; metrics: Record<string, number> }> {
   return runTraining({
     ...input,
     keyContext: selfTrainKeyContext(input.jobId, input.owner),
     filename: `${input.jobId}.model.enc`,
-  });
+  }, maxExecutionMs);
 }
 
 

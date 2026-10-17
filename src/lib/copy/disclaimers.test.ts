@@ -36,7 +36,7 @@ test("les cinq textes anglais sont ceux de 16-socle-technique.md, section 4", ()
   );
   assert.equal(
     disclaimerText("dataLimits", t),
-    "CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features.",
+    "CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features.",
   );
 });
 

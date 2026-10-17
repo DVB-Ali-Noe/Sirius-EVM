@@ -513,6 +513,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Seule une transaction close en échec peut être rouverte": "Only a transaction closed as failed can be reopened",
   "Seule une transaction encore réservée peut être abandonnée": "Only a transaction that is still reserved can be abandoned",
   "Dataset inexploitable pour ce modèle": "This dataset cannot be used with this model",
+  "Calcul trop long ou trop lourd pour ce fichier : réduis le nombre de lignes ou de variables": "Computation too long or too heavy for this file: reduce the number of rows or features",
   "Règlement refusé avant signature : nouvelle tentative possible (vérifier ETH, gas et RPC)": "Settlement refused before signing: it can be retried (check ETH, gas and RPC)",
   "Transaction envoyée, en attente de finalité du réseau": "Transaction sent, waiting for network finality",
   "Paiement en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes": "Payment waiting for network finality: training can start in a few minutes",

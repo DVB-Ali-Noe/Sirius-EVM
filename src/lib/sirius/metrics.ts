@@ -3,16 +3,21 @@ export interface DatasetMetrics {
   columnCount: number;
 }
 
-export const MAX_CSV_ROWS = 20_000;
+export const MAX_CSV_ROWS = 50_000;
 export const MAX_CSV_COLUMNS = 64;
 const MAX_CELL_CHARS = 10_000;
 
-/** Parser CSV conforme RFC 4180 (guillemets, échappements "", CRLF). */
+/**
+ * Parser CSV conforme RFC 4180 (guillemets, échappements "", CRLF). Les caractères ordinaires
+ * sont copiés par tranches : une concaténation caractère par caractère construit des chaînes
+ * chaînées d'environ 30 octets par caractère, soit près de 100 Mo de tas pour 3 Mo de texte.
+ */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let inQuotes = false;
+  let segment = 0;
 
   const pushField = () => {
     if (field.length > MAX_CELL_CHARS) throw new Error("cellule CSV trop volumineuse");
@@ -29,24 +34,32 @@ export function parseCsv(text: string): string[][] {
     if (field.length + value.length > MAX_CELL_CHARS) throw new Error("cellule CSV trop volumineuse");
     field += value;
   };
+  const flush = (end: number) => {
+    if (end > segment) append(text.slice(segment, end));
+  };
 
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          append('"');
-          i++;
-        } else inQuotes = false;
-      } else append(c);
-    } else if (c === '"') inQuotes = true;
-    else if (c === ",") {
-      pushField();
-    } else if (c === "\n") {
-      pushField();
-      pushRow();
-    } else if (c !== "\r") append(c);
+      if (c !== '"') continue;
+      flush(i);
+      if (text[i + 1] === '"') {
+        append('"');
+        i++;
+      } else inQuotes = false;
+      segment = i + 1;
+    } else if (c === '"' || c === "," || c === "\n" || c === "\r") {
+      flush(i);
+      segment = i + 1;
+      if (c === '"') inQuotes = true;
+      else if (c === ",") pushField();
+      else if (c === "\n") {
+        pushField();
+        pushRow();
+      }
+    }
   }
+  flush(text.length);
 
   if (field.length > 0 || row.length > 0) {
     pushField();
