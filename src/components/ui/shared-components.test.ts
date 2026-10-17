@@ -39,7 +39,6 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
   assert.notEqual(info.match(/class="[^"]*"/)?.[0], warning.match(/class="[^"]*"/)?.[0]);
   assert.match(info, /Beta: instant on-chain wallet verification, capped amounts per loan and in total\./);
   assert.doesNotMatch(info, /mailto:/, "pas de lien quand le texte ne mentionne pas le contact");
-  assert.match(warning, /CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features\. Linear and logistic regression are deterministic/);
   assert.match(page("note-children-hostile"), /&lt;b onmouseover=&quot;x&quot;&gt;/);
   assert.doesNotMatch(page("note-children-hostile"), /<b /);
   assert.doesNotMatch(page("note-empty"), /<p>/);

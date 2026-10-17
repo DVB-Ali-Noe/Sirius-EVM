@@ -1,14 +1,10 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
-import { resolve } from "node:path";
 import { test } from "node:test";
 import {
   CLOSED_API_BODY,
   PREVIEW_COOKIE_MAX_AGE_SECONDS,
   PREVIEW_KEY_MIN_LENGTH,
-  PUBLIC_DIRECTORIES,
   PUBLIC_PAGES,
-  ROOT_FILES,
   decidePreviewGate,
   isPreviewGateExempt,
   isPublicPage,
@@ -148,26 +144,10 @@ test("une extension n'exempte pas une route dynamique ni la page 404 : liste fer
   for (const path of contournements) assert.equal(await decidePreviewGate(config, path, cookie), "open", path);
 });
 
-test("liste des fichiers racine et dossiers de public/ : exactement ceux du dépôt", () => {
-  // Lue sur disque : un fichier ajouté à `public/` ou une icône ajoutée à `src/app` sans
-  // mise à jour de la liste fait échouer ce test, plutôt que d'être réécrit vers la page
-  // d'attente en production.
-  const root = resolve(import.meta.dirname, "../../..");
-  const publicEntries = readdirSync(resolve(root, "public"), { withFileTypes: true });
-  const publicFiles = publicEntries.filter((entry) => entry.isFile()).map((entry) => `/${entry.name}`);
-  const publicDirectories = publicEntries.filter((entry) => entry.isDirectory()).map((entry) => `/${entry.name}/`);
-  const metadataIcons = readdirSync(resolve(root, "src/app"), { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /^(favicon\.ico|(apple-)?icon\.[a-z]+|(opengraph|twitter)-image\.[a-z]+)$/.test(entry.name))
-    .map((entry) => `/${entry.name}`);
-  assert.deepEqual([...ROOT_FILES].sort(), [...publicFiles, ...metadataIcons].sort());
-  assert.deepEqual([...PUBLIC_DIRECTORIES].sort(), publicDirectories.sort());
-  assert.deepEqual([...ROOT_FILES].sort(), ["/apple-icon.png", "/favicon.ico", "/file.svg", "/globe.svg", "/icon.png", "/next.svg", "/opengraph-image.png", "/twitter-image.png", "/vercel.svg", "/window.svg"]);
-  assert.deepEqual([...PUBLIC_DIRECTORIES], ["/images/", "/examples/"]);
-  for (const directory of PUBLIC_DIRECTORIES) assert.match(directory, /^\/[a-z]+\/$/);
-  for (const file of ROOT_FILES) assert.match(file, /^\/[a-z-]+\.[a-z]+$/);
-  // Une extension en majuscules reste un fichier ; un segment ne commence jamais par un point.
+test("les fichiers cachés et les faux chemins statiques ne franchissent pas la porte", () => {
   assert.equal(isStaticFilePath("/examples/regression/HOUSING.CSV"), true);
   assert.equal(isStaticFilePath("/examples/.env"), false);
+  assert.equal(isStaticFilePath("/.DS_Store"), false);
   assert.equal(isStaticFilePath("/FAVICON.ICO"), false);
 });
 

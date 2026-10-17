@@ -42,7 +42,7 @@ test("tous les filtres valides sont lus et convertis", () => {
   assert.equal(query.minPriceAtomic, BigInt(1_500_000));
   assert.equal(query.maxPriceAtomic, BigInt(20_000_000));
   assert.equal(query.minRows, 100);
-  assert.equal(query.maxRows, MAX_CSV_ROWS);
+  assert.equal(query.maxRows, 20_000);
   assert.equal(query.verifiedOnly, true);
   assert.equal(query.sort, "price");
   assert.equal(query.page, 3);

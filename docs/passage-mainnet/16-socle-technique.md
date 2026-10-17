@@ -58,9 +58,11 @@ Un seul fichier source, pour que le même texte apparaisse partout et se modifie
 | `contactUs` | « Need a stronger model or specific data? Contact us at sirius.data.contact@gmail.com. » | Mêmes endroits |
 | `betaLimits` | « Beta: invitation-only access, capped amounts per loan and in total. » | Dashboard, tuto, landing |
 | `retrainDeterministic` | « Linear and logistic regression are deterministic: retraining on the same data gives the same model. » | Train |
-| `dataLimits` | « CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features. » | Upload, tuto |
+| `dataLimits` | « CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features. » | Upload, tuto |
 
 Les limites citées viennent du code (`MAX_DATASET_BYTES`, `MAX_CSV_ROWS`, `MIN_TRAINING_ROWS`, `MAX_TRAINING_FEATURES`). Les textes lisent ces constantes plutôt que de les recopier, pour rester justes si elles changent.
+
+Le maximum de 50 000 compte aussi l’en-tête : au plus 49 999 lignes de données. Taille, nombre de variables, minimum par profil et budget de 200 millions d’opérations peuvent restreindre davantage les combinaisons admises. Ces valeurs décrivent le code local du 17 octobre, pas encore mesuré sur la CVM.
 
 Les textes passent par les fichiers de traduction existants : le test des traductions vérifie qu'aucun n'est oublié.
 

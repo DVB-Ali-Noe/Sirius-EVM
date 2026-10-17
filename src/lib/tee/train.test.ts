@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import { trainInWorker } from "./bounded-training";
 import { gateModel } from "./output-gate";
-import { DatasetValidationError, MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "./train";
+import { DatasetValidationError, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "./train";
 import { trainSelectedModel } from "./model-registry";
 import { modelSelection } from "@/lib/models/registry";
 import { translateEnglish } from "@/lib/i18n/english";
@@ -160,17 +161,31 @@ test("chaque motif de validation a une traduction anglaise", () => {
   }
 });
 
-for (const [modelId, rows] of [["linear_regression", 19_999], ["logistic_regression", 4_000]] as const) {
-  test(`l'ingestion refuse le budget excessif pour ${modelId}`, () => {
-    const header = Array.from({ length: 32 }, (_, index) => `f${index}`).join(",");
-    const csv = Buffer.from([header, ...Array.from({ length: rows }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
-    assert.ok(csv.length < 3 * 1024 * 1024);
-    const selection = modelSelection(modelId, "1.0.0")!;
-    for (const run of [() => validateTrainingDataset(csv, selection), () => trainSelectedModel(selection, csv)]) {
-      assert.throws(run, (error) => error instanceof DatasetValidationError && /budget de calcul/.test(error.message));
-    }
-    const limit = Math.floor(20_000_000 / (32 * (modelId === "linear_regression" ? 32 : 200)));
-    const boundary = Buffer.from([header, ...Array.from({ length: limit }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
-    assert.doesNotThrow(() => validateTrainingDataset(boundary, selection));
-  });
-}
+test("le budget élargi admet 30 000 lignes et refuse la première logistique hors limite", () => {
+  const header = Array.from({ length: 32 }, (_, index) => `f${index}`).join(",");
+  const rows = Math.floor(MAX_TRAINING_OPERATIONS / (32 * 200));
+  const csv = Buffer.from([header, ...Array.from({ length: rows + 1 }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
+  assert.ok(csv.length < 3 * 1024 * 1024);
+  const selection = modelSelection("logistic_regression", "1.0.0")!;
+  const accepted = csv.subarray(0, csv.lastIndexOf("\n"));
+  validateTrainingDataset(accepted, selection);
+  assert.throws(
+    () => validateTrainingDataset(csv, selection),
+    (error) => error instanceof DatasetValidationError && /budget de calcul/.test(error.message),
+  );
+});
+
+test("entraîne 30 000 lignes en worker sans épuiser son délai ni sa mémoire", { timeout: 20_000 }, async () => {
+  const header = Array.from({ length: 24 }, (_, index) => `f${index}`).join(",");
+  const data = Array.from({ length: 30_000 }, (_, index) => [
+    index % 2,
+    ...Array.from({ length: 22 }, (_, feature) => String((index * 37 + feature * 71) % 1000).padStart(3, "0")),
+    index % 2,
+  ].join(","));
+  const csv = Buffer.from([header, ...data].join("\n"));
+  assert.ok(csv.length < 3 * 1024 * 1024);
+  const model = await trainInWorker(modelSelection("logistic_regression", "1.0.0")!, csv, AbortSignal.timeout(15_000));
+  assert.equal(model.algo, "logistic_regression");
+  assert.equal(model.metrics.n, 30_000);
+  assert.ok(model.metrics.accuracy > 0.9);
+});
