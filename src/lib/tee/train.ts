@@ -1,10 +1,12 @@
 import { MODEL_REGISTRY, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
-import { parseCsv } from "@/lib/sirius/metrics";
+import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel;
 
 const RIDGE = 1e-8;
 export const MAX_TRAINING_FEATURES = 31;
+/** Les noms de colonnes sortent dans le modèle : bornés pour rester sous le plafond de l'output-gate. */
+export const MAX_HEADER_CHARS = 128;
 export const MAX_TRAINING_OPERATIONS = 200_000_000;
 const MAX_ABS_VALUE = 1e12;
 const DEFAULT_TRAINING_TIMEOUT_MS = 15_000;
@@ -57,7 +59,7 @@ function trainingColumns(csv: Buffer, target: string | undefined, deadline: numb
   if (table.length < 2) throw new DatasetValidationError("dataset insuffisant");
 
   const [header, ...rows] = table;
-  if (new Set(header).size !== header.length || header.some((column) => !column)) {
+  if (new Set(header).size !== header.length || header.some((column) => !column || column.length > MAX_HEADER_CHARS)) {
     throw new DatasetValidationError("en-têtes CSV invalides");
   }
   const numeric = numericColumns(header, rows);
@@ -84,9 +86,10 @@ function assertTrainingBudget(rows: number, parameters: number, logistic: boolea
   }
 }
 
-export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): void {
+/** Contrôle d'ingestion ; renvoie les volumes publiables pour éviter de relire le fichier. */
+export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): DatasetMetrics {
   const deadline = performance.now() + trainingTimeoutMs();
-  const { rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline);
+  const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline);
   assertTrainingBudget(rows.length, featureIdx.length + 1, selection.modelId === "logistic_regression");
   if (
     selection.modelId === "logistic_regression" &&
@@ -96,6 +99,7 @@ export function validateTrainingDataset(csv: Buffer, selection: ModelSelection):
   ) {
     throw new DatasetValidationError("la cible de la régression logistique doit contenir les classes 0 et 1");
   }
+  return { rowCount: rows.length, columnCount: header.length };
 }
 
 function invert(matrix: number[][], deadline: number): number[][] {

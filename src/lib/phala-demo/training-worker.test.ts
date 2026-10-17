@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AppError } from "@/lib/app-error";
-import { runSelfTraining, sealDataset } from "@/lib/tee/core";
+import { countsAsRunnerFailure } from "@/lib/runner/failure-policy";
+import { runSelfTraining, sealDataset, TRAINING_LIMIT_MESSAGE } from "@/lib/tee/core";
 
-test("le self-train de 30 000 lignes livre un modèle et respecte le délai du worker", { timeout: 35_000 }, async () => {
+test("le self-train de 30 000 lignes livre un modèle ; un délai épuisé est imputé au fichier, pas au runner", { timeout: 35_000 }, async () => {
   const originalFetch = globalThis.fetch;
   const keys = ["TEE_MODE", "EVM_NETWORK", "SIRIUS_MASTER_KEY", "PINATA_JWT", "PINATA_GATEWAY", "RUNNER_BUDGET_FILE"] as const;
   const previous = keys.map((key) => process.env[key]);
@@ -50,9 +51,11 @@ test("le self-train de 30 000 lignes livre un modèle et respecte le délai du w
     assert.equal(result.metrics.n, 30_000);
     assert.equal(uploads, 2, "dataset et modèle chiffré sont stockés");
 
+    // Seul le worker borné émet ce refus : le délai explicite impose donc bien son usage.
     await assert.rejects(
       runSelfTraining({ ...input, jobId: "capacity-timeout" }, 1),
-      (error) => error instanceof AppError && error.status === 503,
+      (error) => error instanceof AppError && error.status === 422 && error.message === TRAINING_LIMIT_MESSAGE
+        && !countsAsRunnerFailure(error),
     );
     assert.equal(uploads, 2, "un calcul interrompu ne doit pas publier de modèle");
   } finally {

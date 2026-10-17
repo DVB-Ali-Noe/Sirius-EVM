@@ -1,6 +1,7 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv } from "@/lib/sirius/metrics";
 import {
+  MAX_HEADER_CHARS,
   MAX_TRAINING_FEATURES,
   MAX_TRAINING_OPERATIONS,
   MIN_ROWS_PER_PARAMETER,
@@ -95,7 +96,7 @@ export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
 
   const [header, ...rows] = table;
   const summary: Partial<CsvSummary> = { rowCount: rows.length, columnCount: header.length, header };
-  if (new Set(header).size !== header.length || header.some((column) => !column)) {
+  if (new Set(header).size !== header.length || header.some((column) => !column || column.length > MAX_HEADER_CHARS)) {
     return { ok: false, reason: { kind: "invalid-header" }, summary };
   }
   const numericIndexes = header
@@ -159,7 +160,7 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
     case "no-data-rows":
       return t("Le fichier doit contenir un en-tête et au moins une ligne de données.");
     case "invalid-header":
-      return t("En-tête invalide : chaque colonne doit avoir un nom, sans doublon.");
+      return t("En-tête invalide : chaque colonne doit avoir un nom unique de {max} caractères au plus.", { max: formatCount(MAX_HEADER_CHARS) });
     case "too-few-numeric-columns":
       return t("Au moins deux colonnes entièrement numériques sont requises ({found} détectée(s)).", {
         found: formatCount(reason.found),

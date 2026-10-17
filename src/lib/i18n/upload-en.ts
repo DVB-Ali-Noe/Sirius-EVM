@@ -53,7 +53,7 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Trop de colonnes : au plus {max}.": "Too many columns: at most {max}.",
   "Une cellule dépasse la taille autorisée.": "A cell exceeds the allowed size.",
   "Le fichier doit contenir un en-tête et au moins une ligne de données.": "The file must contain a header and at least one data row.",
-  "En-tête invalide : chaque colonne doit avoir un nom, sans doublon.": "Invalid header: every column needs a name, with no duplicates.",
+  "En-tête invalide : chaque colonne doit avoir un nom unique de {max} caractères au plus.": "Invalid header: every column needs a unique name of at most {max} characters.",
   "Au moins deux colonnes entièrement numériques sont requises ({found} détectée(s)).":
     "At least two fully numeric columns are required ({found} detected).",
   "Trop de variables numériques : {found}, maximum {max} en plus de la cible.":

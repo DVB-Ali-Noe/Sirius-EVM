@@ -118,7 +118,7 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
 
   await file.setInputFiles({ name: "dup.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row)).replace("x1,x2,y", "x1,x1,y")) });
-  await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a name, with no duplicates.");
+  await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a unique name of at most 128 characters.");
 
   await file.setInputFiles({ name: "continuous.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row * 3))) });
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();

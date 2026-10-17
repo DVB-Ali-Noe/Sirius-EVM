@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_COLUMNS, MAX_CSV_ROWS } from "@/lib/sirius/metrics";
-import { DatasetValidationError, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS, validateTrainingDataset } from "@/lib/tee/train";
+import { DatasetValidationError, MAX_HEADER_CHARS, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS, validateTrainingDataset } from "@/lib/tee/train";
 import { selectionForModelId, type ModelId } from "@/lib/models/registry";
 import { EN_MESSAGES, translateEnglish as t } from "@/lib/i18n/english";
 import { checkFileSize, csvRejectionText, inspectCsv, type CsvRejection } from "./csv-check";
@@ -51,6 +51,8 @@ test("un fichier accepté par le navigateur l'est par l'enclave, et inversement,
     { text: csv(200, 2, (row) => (row % 2 ? "1" : "2")), modelId: "logistic_regression", accepted: false, label: "logistique classes 1/2" },
     { text: csv(200, 2).replace("x0,x1,y", "x0,x0,y"), modelId: "linear_regression", accepted: false, label: "en-tête dupliqué" },
     { text: csv(200, 2).replace("x0,x1,y", ",x1,y"), modelId: "linear_regression", accepted: false, label: "en-tête vide" },
+    { text: csv(200, 2).replace("x0,x1,y", `${"h".repeat(MAX_HEADER_CHARS)},x1,y`), modelId: "linear_regression", accepted: true, label: "nom de colonne à la limite" },
+    { text: csv(200, 2).replace("x0,x1,y", `${"h".repeat(MAX_HEADER_CHARS + 1)},x1,y`), modelId: "linear_regression", accepted: false, label: "nom de colonne trop long" },
     { text: "x,y\n", modelId: "linear_regression", accepted: false, label: "en-tête seul" },
     { text: "", modelId: "linear_regression", accepted: false, label: "vide" },
     { text: `a,y\n${Array.from({ length: 150 }, (_, i) => `t${i},${i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "une seule colonne numérique" },
@@ -78,6 +80,7 @@ test("la raison du refus correspond à celle de l'enclave", () => {
     [csv(Math.floor(MAX_TRAINING_OPERATIONS / (32 * 200)) + 1, 31, binary), "logistic_regression", "compute-budget", /budget de calcul/],
     [csv(200, 2, () => "1"), "logistic_regression", "logistic-target", /classes 0 et 1/],
     [csv(200, 2).replace("x0,x1,y", "x0,x0,y"), "linear_regression", "invalid-header", /en-têtes/],
+    [csv(200, 2).replace("x0,x1,y", `x0,x1,${"y".repeat(MAX_HEADER_CHARS + 1)}`), "linear_regression", "invalid-header", /en-têtes/],
     ["x,y\n", "linear_regression", "no-data-rows", /insuffisant/],
     [csv(MAX_CSV_ROWS, 1), "linear_regression", "too-many-rows", /trop de lignes/],
   ];
@@ -164,6 +167,7 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
     assert.doesNotMatch(text, /[àéèç]/, `texte non traduit : ${text}`);
   }
   assert.equal(csvRejectionText({ kind: "too-many-features", found: 32, maxFeatures: MAX_TRAINING_FEATURES }, t), "Too many numeric features: 32, maximum 31 in addition to the target.");
+  assert.equal(csvRejectionText({ kind: "too-many-rows", maxRows: MAX_CSV_ROWS }, t), "Too many rows: at most 50,000 rows, header included.");
   assert.equal(csvRejectionText({ kind: "file-too-large", sizeBytes: MAX_DATASET_BYTES + 1, maxBytes: MAX_DATASET_BYTES }, t), "File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB.");
   assert.equal(csvRejectionText({ kind: "logistic-target", target: "y" }, t), "For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
   // Les clés françaises des raisons sont toutes traduites (le test d'anglais vérifie les appels `t()`).
