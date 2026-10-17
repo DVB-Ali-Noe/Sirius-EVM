@@ -159,7 +159,7 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 
 - [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester le worker à 30 000 lignes et le refus au-delà du budget.
 - [ ] Mesurer sur la CVM staging un CSV représentatif de 30 000 lignes, temps, mémoire et marge sur le délai signé de 15 s. Ne porter le heap de 128 à 256 Mio ou le délai à 30 s qu’après cette mesure et vérification des autres jobs/coûts.
-- [ ] Déployer en staging après créneau et coût approuvés, attester la nouvelle image et rejouer le parcours réel ; publier les mesures dans une PR sur demande Git explicite. La mise en production reste une opération distincte avec rotation du compose hash et validation des clés.
+- [ ] Après réapprovisionnement Phala et accord sur le coût actualisé : déployer en staging, attester la nouvelle image, mesurer et rejouer le parcours réel. La PR [#105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) est ouverte en brouillon ; ne pas la fusionner avant les mesures. La production reste une opération distincte avec rotation du compose hash et validation des clés.
 
 ## Suites produit différées
 
