@@ -113,6 +113,14 @@ Ce mécanisme autorise une enveloppe interne. Il ne choisit pas le solde que Pha
 
 Les essais unitaires/navigateur locaux ne remplacent pas cette répétition réseau/Phala/Neon/wallet. Ne pas annoncer la confidentialité matérielle de cette nouvelle version avant sa vérification effective.
 
+### Mesure du plafond CSV sur la CVM staging (différée jusqu’au financement)
+
+1. Après réapprovisionnement, relever le solde et le tarif fournisseur actuels, puis annoncer créneau et budget maximal **très inférieur au solde** ; obtenir l’autorisation explicite avant de démarrer et ne jamais consommer tout le solde. Ne pas assimiler les crédits du testnet EVM au financement Phala. Vérifier que la session est fermée et que l’image candidate est issue de la PR staging ; ne pas toucher à production.
+2. Installer l’image runner figée par digest et les mesures attendues propres à son nouveau Compose. Vérifier matériellement la quote `UpToDate`, le hash Compose, MRTD/RTMR3, la clé KMS, l’empreinte d’ingestion et le signataire avant ouverture manuelle ; ne pas réutiliser les anciens pins.
+3. Depuis la même origine, le même navigateur et un wallet opérateur autorisé, importer un CSV synthétique binaire de 30 000 lignes de données, 23 variables numériques plus la cible, sous 3 Mio ; noter taille et empreinte SHA-256 **sans publier les données**. Contrôler l’acceptation navigateur, l’ingestion, puis lancer un seul self-train. Mesurer séparément l’aller-retour complet (chiffrement, IPFS et réseau inclus) et le calcul du worker si les journaux internes le permettent ; relever le pic mémoire du conteneur et l’état du worker, qui ne sont pas équivalents au heap V8 de 128 Mio.
+4. Réussite attendue : résultat de 30 000 lignes, modèle téléchargeable, aucune interruption du worker ni 503, marge réelle sur les 15 s de calcul et sur la mémoire de la CVM. Un rejet à 31 251 lignes avec 31 variables doit rester explicite côté navigateur, sans nouveau calcul facturé ; ne pas envoyer un CSV tiers pour cette vérification.
+5. Fermer manuellement en drainant les opérations et confirmer l’arrêt chez Phala. Relever le coût et le solde avant/après. Si mémoire ou délai manquent, analyser leur cause sur la CVM avant de proposer 256 Mio d’old-gen ou 30 s ; un changement de délai du parcours facturé v7 exige également un devis signé cohérent. Consigner les mesures dans la PR avant toute fusion.
+
 ## Incident et reprise
 
 - Erreur de commande/attestation : page indisponible ; consulter l’état fournisseur. Aucune garantie que la machine soit arrêtée tant que Phala ne le confirme pas. Utiliser Arrêt d’urgence si nécessaire.

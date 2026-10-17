@@ -174,22 +174,29 @@ async function trainAndSeal(input: TrainingInput, signal?: AbortSignal, maxDatas
 }
 
 /** Entraînement sans attestation (self-train : pas de fair-exchange, propriétaire = borrower). */
-export async function runTraining(input: TrainingInput): Promise<{ modelCid: string; metrics: Record<string, number> }> {
+export async function runTraining(input: TrainingInput, maxExecutionMs?: number): Promise<{ modelCid: string; metrics: Record<string, number> }> {
   return budgetRunnerJob("training", input.keyContext, input, async () => {
-    const { modelCid, model } = await trainAndSeal(input);
-    return { modelCid, metrics: model.metrics };
+    const signal = maxExecutionMs === undefined ? undefined : AbortSignal.timeout(maxExecutionMs);
+    try {
+      const { modelCid, model } = await trainAndSeal(input, signal);
+      return { modelCid, metrics: model.metrics };
+    } catch (error) {
+      if (signal?.aborted) throw new AppError("Exécution confidentielle interrompue", 503);
+      throw error;
+    }
   });
 }
 
 /** Self-train : les contextes de livraison sont reconstruits dans le runner. */
 export async function runSelfTraining(
   input: SelfTrainingInput,
+  maxExecutionMs?: number,
 ): Promise<{ modelCid: string; metrics: Record<string, number> }> {
   return runTraining({
     ...input,
     keyContext: selfTrainKeyContext(input.jobId, input.owner),
     filename: `${input.jobId}.model.enc`,
-  });
+  }, maxExecutionMs);
 }
 
 

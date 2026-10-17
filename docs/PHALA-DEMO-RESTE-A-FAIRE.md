@@ -157,9 +157,10 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 
 ## Capacité CSV et calcul — code local du 17 octobre 2026
 
-- [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester le worker à 30 000 lignes et le refus au-delà du budget.
-- [ ] Mesurer sur la CVM staging un CSV représentatif de 30 000 lignes, temps, mémoire et marge sur le délai signé de 15 s. Ne porter le heap de 128 à 256 Mio ou le délai à 30 s qu’après cette mesure et vérification des autres jobs/coûts.
-- [ ] Après réapprovisionnement Phala et accord sur le coût actualisé : déployer en staging, attester la nouvelle image, mesurer et rejouer le parcours réel. La PR [#105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) est ouverte en brouillon ; ne pas la fusionner avant les mesures. La production reste une opération distincte avec rotation du compose hash et validation des clés.
+- [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester 30 000 lignes et le refus au-delà du budget.
+- [x] Faire passer le self-train réel de la démonstration Phala par le worker borné et son délai de 15 s par défaut ; vérifier localement l’entraînement de 30 000 lignes et l’interruption sans publication.
+- [ ] Mesurer sur la CVM staging un CSV représentatif de 30 000 lignes, temps, mémoire et marge sur le délai de 15 s. Ne porter le heap de 128 à 256 Mio ou le délai à 30 s qu’après cette mesure et vérification des autres jobs/coûts.
+- [ ] Après réapprovisionnement Phala : relever tarif et solde, faire valider un plafond très inférieur au solde et un créneau court, déployer en staging, attester la nouvelle image, mesurer puis confirmer l’arrêt. La PR [#105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) reste en brouillon jusqu’aux mesures. La production reste une opération distincte avec rotation du compose hash et validation des clés.
 
 ## Suites produit différées
 

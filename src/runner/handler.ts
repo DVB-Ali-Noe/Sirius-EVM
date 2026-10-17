@@ -25,6 +25,7 @@ import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
+import { trainingTimeoutMs } from "@/lib/tee/train";
 import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
@@ -486,7 +487,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         model: dataset,
       });
       const result = await withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, deliveryPublicKey }, async () => {
-        const trained = await runSelfTraining({ ...dataset, jobId, owner: subject });
+        const trained = await runSelfTraining({ ...dataset, jobId, owner: subject }, demoEnabled() ? trainingTimeoutMs() : undefined);
         return { ...trained, ...(deliveryPublicKey ? { modelKeyEnvelope: encryptRunnerDelivery(
           selfTrainModelKey(jobId, subject), deliveryPublicKey, selfTrainDeliveryContext(jobId, subject),
         ) } : {}) };

@@ -36,7 +36,7 @@ function assertWithinDeadline(deadline: number): void {
   if (performance.now() > deadline) throw new Error("budget de calcul dépassé");
 }
 
-function trainingTimeoutMs(): number {
+export function trainingTimeoutMs(): number {
   const value = Number(process.env.RUNNER_TRAINING_TIMEOUT_MS ?? DEFAULT_TRAINING_TIMEOUT_MS);
   if (!Number.isSafeInteger(value) || value < 1_000 || value > 30_000) {
     throw new Error("RUNNER_TRAINING_TIMEOUT_MS invalide");
