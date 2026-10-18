@@ -96,7 +96,7 @@ test("accès opérateur : mauvais code refusé, bon code transmis à chaque requ
   await expect(page.getByLabel("Access code")).toBeVisible();
 });
 
-test("un seul bouton connecte le wallet puis signe, sans perdre l’exemple choisi", async ({ page }) => {
+test("menu de choix du wallet puis signature, sans perdre l’exemple choisi", async ({ page }) => {
   const wallet = await mockSigningWallet(page, { api: async (path, route) => {
     if (path === "/api/phala-demo/session") return route.fulfill({ json: { phase: "open", available: true, sessionRevision: 1 } });
     if (path === "/api/train") return route.fulfill({ json: [] });
@@ -105,7 +105,13 @@ test("un seul bouton connecte le wallet puis signe, sans perdre l’exemple choi
   await page.goto("/phala");
   await page.getByRole("button", { name: "Use this example" }).first().click();
   await expect(page.getByText("✓ housing.csv")).toBeVisible();
-  await page.getByRole("button", { name: "Connect my testnet wallet" }).click();
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Connect", exact: true }).click();
+  await main.getByRole("menu").getByRole("button", { name: "Test Wallet", exact: true }).click();
+  const signIn = main.getByRole("button", { name: "Sign in", exact: true });
+  await expect(signIn).toBeVisible();
+  expect(wallet.signatureCount()).toBe(0);
+  await signIn.click();
   await expect.poll(wallet.signatureCount).toBe(1);
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
   await expect(page.getByText("✓ housing.csv")).toBeVisible();
