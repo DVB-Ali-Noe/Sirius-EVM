@@ -160,7 +160,7 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 - [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester 30 000 lignes et le refus au-delà du budget.
 - [x] Faire passer tout entraînement exécuté dans l’enclave (self-train, emprunts v6) par le worker borné, délai de 15 s par défaut après téléchargement ; dépassement imputé au fichier (422) sans ouvrir le coupe-circuit. Noms de colonnes limités à 128 caractères. Vérifié localement.
 - [x] Mesurer sur la CVM staging 30 000 lignes : environ 5 s de bout en bout en régression linéaire, sans 503 ni arrêt du worker (18 octobre). Délai de 15 s et heap de 128 Mio conservés.
-- [ ] Mesurer la régression logistique à 30 000 lignes (cas le plus lourd, 144 M d’opérations) avec un wallet dont le quota n’est pas épuisé.
+- [x] Mesurer la régression logistique à 30 000 lignes (cas le plus lourd, 144 M d’opérations) : 201 puis 200, 5,74 s entre `POST` et `GET /api/train`, `n = 30000`, coût 0,011 USD (18 octobre). Délai de 15 s conservé.
 - [x] Réaligner le scénario Playwright de connexion sur le menu de choix du wallet (PR #54/#55) : 6/6 scénarios Phala verts (18 octobre).
 - [x] Replacer l’adresse démo figée `demo.sirius-data.tech` sur le déploiement de `0bf7fea` (#105 à #107), ancienne cible `hftbdgjta` notée pour retour arrière (18 octobre).
 - [ ] Mise en production : opération distincte avec rotation du hash Compose et validation des clés.

@@ -556,3 +556,26 @@ Retour arrière : `vercel alias set sirius-evm-staging-hftbdgjta-byezzaali-gmail
 ### Mesure logistique 30 000 lignes sur la CVM staging — avant, 18 octobre 2026
 
 Créneau confirmé par Noé. Plafond : 0,30 USD et 1 h. Coût annoncé : environ 0,06 USD/h (tdx.small à 0,058 USD/h, plus le disque). Noé ouvre et ferme la session depuis `/operator` et entraîne avec un autre wallet ; Claude ne démarre rien. État à 17:49:52 UTC : solde 10,085743 USD, CVM `sirius-phala-production` et `sirius-mainnet` `stopped`, session `phase=closed`, contrôleur VPS `active` (révision 34, 0 opération). Suivi en lecture : `/api/phala-demo/session`, `/phala/attestation`, `vercel logs` filtré sur `/api/datasets` et `/api/train`.
+
+### Mesure logistique 30 000 lignes sur la CVM staging — après, 18 octobre 2026
+
+Chronologie, relevée toutes les 20 s par `/api/phala-demo/session` et `phala cvms list` :
+
+- 17:53:35 UTC : ouverture par Noé, CVM `starting`.
+- 17:53:58 : CVM `running`.
+- 17:54:22 : `open`, révision de session 27.
+- 18:01:56 : Désactiver, `closing` et CVM `stopping`.
+- 18:02:19 : `closed` et CVM `stopped`.
+
+Contrôleur VPS ensuite : `phase=closed`, révision 36, 0 opération active.
+
+Self-train avec un autre wallet : `capacity-30000x23.csv` (30 000 lignes, 24 colonnes), profil « Binary logistic regression », cible `y`. Logs Vercel de `sirius-evm-staging` :
+
+- 18:00:12.049Z : `POST /api/datasets` 201.
+- Upload 200, puis `POST` et `PUT …/list` 200, puis `GET /api/datasets/:id` 200.
+- 18:00:27.912Z : `POST /api/train` 201.
+- 18:00:33.648Z : `GET /api/train` 200.
+
+**Durée POST → GET : 5,74 s**, du même ordre que la régression linéaire et loin du délai de 15 s. Résultat affiché : `n = 30000`, f1, recall, accuracy et precision = 1 (CSV synthétique à cible séparable ; ce n’est pas une mesure de qualité). Aucune 503 ni 422. Pendant la session, `/phala/attestation` affichait « Attestation verified » sur `phala.sirius-data.tech` et sur `demo.sirius-data.tech`.
+
+Coût : solde 10,085743 → 10,074990 USD à 18:02:30 UTC, soit **0,010753 USD** pour environ 9 min de CVM, sous le plafond de 0,30 USD et 1 h. Délai de 15 s et heap de 128 Mio conservés ; aucun réglage modifié.
