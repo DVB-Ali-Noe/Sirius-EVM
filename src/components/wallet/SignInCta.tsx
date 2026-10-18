@@ -26,8 +26,8 @@ export async function connectAndSignIn(): Promise<void> {
   }
 }
 
-/** Connexion puis signature en un seul geste : un wallet seulement connecté reste anonyme pour le serveur. */
-export function SignInCta({ children }: { children: React.ReactNode }) {
+/** Connexion puis signature en un seul geste : un wallet seulement connecté reste anonyme pour le serveur. Sans libellé, « Se connecter ». */
+export function SignInCta({ children }: { children?: React.ReactNode }) {
   const connected = useWalletStore((state) => state.connected);
   const pending = useSignIn((state) => state.pending);
   const error = useSignIn((state) => state.error);
@@ -40,7 +40,7 @@ export function SignInCta({ children }: { children: React.ReactNode }) {
         disabled={pending}
         className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
       >
-        {pending ? (connected ? t("Signature…") : t("Connexion…")) : connected ? t("Se connecter") : children}
+        {pending ? (connected ? t("Signature…") : t("Connexion…")) : connected || !children ? t("Se connecter") : children}
       </button>
       {connected && !pending && <p className="text-xs text-muted">{t("Signe pour prouver la possession du wallet")}</p>}
       <TermsNotice />
