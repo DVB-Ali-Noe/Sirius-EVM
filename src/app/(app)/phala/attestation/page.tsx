@@ -10,8 +10,6 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Runner attestation — Sirius × Phala", robots: { index: false, follow: false } };
 
-const HEX = /^[0-9a-f]{96}$/i;
-
 export default async function PhalaAttestationPage() {
   if (process.env.SIRIUS_PHALA_DEMO !== "true") notFound();
   let key: string | null;
@@ -23,19 +21,18 @@ export default async function PhalaAttestationPage() {
   if (!attestationLimiter.consume(key)) return <AttestationBusy />;
   const attestation = await readDemoAttestation();
   if (!attestation) return <AttestationUnavailable />;
-  const { evidence } = attestation;
-  // Le transport n'est ouvert qu'avec un MRTD égal à la valeur épinglée : c'est celle affichée.
-  const pinnedMrtd = process.env.SIRIUS_EXPECTED_MRTD?.trim().toLowerCase() ?? "";
+  const { evidence, release } = attestation;
   return (
     <AttestationView
       checkedAt={attestation.checkedAt}
-      mrtd={HEX.test(pinnedMrtd) ? pinnedMrtd : null}
+      quoteBytes={evidence.quote.length / 2}
+      mrTd={attestation.mrTd}
       composeHash={evidence.composeHash.toLowerCase()}
+      release={release}
       certificateSha256={evidence.certificateSha256.toLowerCase()}
       ingressKeySha256={evidence.ingressKeySha256.toLowerCase()}
       masterKeyChainSha256={evidence.masterKeyChainSha256.toLowerCase()}
       settlementAddress={evidence.settlementAddress}
-      quoteBytes={evidence.quote.length / 2}
     />
   );
 }

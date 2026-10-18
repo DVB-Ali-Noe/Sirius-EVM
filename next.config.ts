@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   devIndicators: { position: "bottom-right" },
   // SDK dstack (socket natif) + dcap-qvl (vérif de quote) → laissés externes (pas de bundling serveur).
   serverExternalPackages: ["@phala/dstack-sdk", "@phala/dcap-qvl"],
+  // `app-compose.json` publiés, lus octet pour octet à l'exécution (src/lib/phala-demo/attestation.ts).
+  outputFileTracingIncludes: {
+    "/phala/attestation": ["src/lib/phala-demo/composes/*.json"],
+    "/api/phala-demo/attestation": ["src/lib/phala-demo/composes/*.json"],
+  },
   experimental: {
     proxyClientMaxBodySize: "24mb",
   },
