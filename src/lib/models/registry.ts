@@ -96,9 +96,9 @@ export const DEFAULT_MODEL_SELECTION: ModelSelection = {
  * Profil proposé à la publication et accepté par le runner pour un nouvel usage. Les
  * enregistrements existants se lisent toujours avec `modelSelection`, quel que soit cet état.
  */
-export function isModelOffered(modelId: ModelId): boolean {
+export function isModelOffered(modelId: ModelId, optInModels = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS): boolean {
   if (!MODEL_REGISTRY[modelId].optIn) return true;
-  return (process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS ?? "").split(",").some((id) => id.trim() === modelId);
+  return (optInModels ?? "").split(",").some((id) => id.trim() === modelId);
 }
 
 export const MODEL_OPTIONS = Object.values(MODEL_REGISTRY).filter((model) => isModelOffered(model.id));

@@ -21,8 +21,15 @@ import { GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumn
  * Arbres boostés stricts (profil `gradient_boosted_trees` v1), perte logistique, déterministes.
  *
  * - Séparation fixe : une ligne sur cinq sert aux métriques « held-out », jamais à l'entraînement.
- * - Les seuils candidats sont des quantiles de la partie entraînement arrondis à 3 chiffres
- *   significatifs avant l'entraînement : le modèle livré coupe exactement où l'entraînement a coupé.
+ * - Les seuils candidats sont, pour chaque quantile de la partie entraînement, le milieu entre la
+ *   valeur du quantile et la valeur distincte immédiatement inférieure : aucune valeur d'une ligne
+ *   n'est publiée telle quelle. Ce milieu est arrondi à 3 chiffres significatifs avant
+ *   l'entraînement : le modèle livré coupe exactement où l'entraînement a coupé.
+ *   Limite de l'arrondi : sur des valeurs à beaucoup de chiffres (années, timestamps, montants au
+ *   centime), 3 chiffres donnent un pas grossier (2 023 → 2 020, 1 718 000 000 → 1,72 × 10⁹) ;
+ *   plusieurs quantiles se confondent, la variable offre peu de coupes, et le seuil arrondi peut
+ *   retomber sur une valeur ronde présente dans les données. Recentrer ces colonnes (âge plutôt
+ *   qu'année, durée plutôt que timestamp) avant publication.
  * - Les feuilles sont arrondies à leur création et c'est la valeur arrondie qui met à jour les
  *   scores : métriques et modèle livré décrivent le même objet.
  * - Une coupe exige au moins `GBDT_MIN_LEAF_ROWS` lignes d'entraînement de chaque côté ; un
@@ -57,7 +64,17 @@ export function trainGradientBoostedTrees(csv: Buffer, target?: string): Gradien
     column.sort();
     const featureEdges: number[] = [];
     for (let quantile = 1; quantile < GBDT_BINS; quantile++) {
-      const edge = roundSig(column[Math.floor((quantile * n) / GBDT_BINS)], THRESHOLD_SIG_FIGS);
+      const upper = column[Math.floor((quantile * n) / GBDT_BINS)];
+      // Première occurrence de `upper` : la valeur distincte précédente est juste avant.
+      let low = 0;
+      let high = n;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (column[middle] < upper) low = middle + 1;
+        else high = middle;
+      }
+      if (low === 0) continue;
+      const edge = roundSig((column[low - 1] + upper) / 2, THRESHOLD_SIG_FIGS);
       if (edge > column[0] && (featureEdges.length === 0 || edge > featureEdges[featureEdges.length - 1])) featureEdges.push(edge);
     }
     edges.push(featureEdges);

@@ -128,6 +128,16 @@ test("chaque feuille regroupe au moins 1 000 lignes d'entraînement, y compris a
   }
 });
 
+test("les seuils publiés sont des milieux entre valeurs voisines, jamais la valeur d'une ligne", () => {
+  // Variables entières de 0 à 99 : un milieu entre deux entiers voisins vaut toujours x,5.
+  const model = gateModel(trainGradientBoostedTrees(thresholdCsv(GBDT_MIN_ROWS))).model;
+  const thresholds: number[] = [];
+  for (const tree of model.trees) walk(tree, 0, (node) => { if ("feature" in node) thresholds.push(node.threshold); });
+  assert.ok(thresholds.length > 0);
+  assert.ok(thresholds.every((threshold) => !Number.isInteger(threshold) && Number.isInteger(threshold * 2)), thresholds.join(","));
+  assert.ok(model.metrics.heldOutAuc > 0.75);
+});
+
 test("les lignes mises de côté ne servent jamais à l'entraînement", () => {
   const csv = thresholdCsv(GBDT_MIN_ROWS);
   const flipped = thresholdCsv(GBDT_MIN_ROWS, 4, (row, risk) => (isHeldOut(row) ? (risk ? "0" : "1") : risk ? "1" : "0"));

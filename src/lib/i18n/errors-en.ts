@@ -31,6 +31,8 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Consommation incertaine : remboursement à échéance": "Uncertain consumption: refund available at expiry",
   "Contrats du reaper incompatibles : escrow v5, v6 ou v7 et registre dataset v4 ou v5 lié requis": "Reaper requires escrow v5, v6 or v7 and its linked dataset registry v4 or v5",
   "Les arbres boostés demandent au moins 10 000 lignes ; utilise la régression logistique pour ce fichier.": "Boosted trees need at least 10,000 rows; use logistic regression for this file.",
+  "Profil d’entraînement sans tarif de calcul : publication impossible pour l’instant": "This training profile has no compute tariff yet: publication is not possible for now",
+  "Registre dataset : un profil d’entraînement proposé n’est pas accepté on-chain": "Dataset registry: an offered training profile is not accepted on-chain",
   "Contrats EVM incompatibles avec la version de facturation configurée": "EVM contracts do not match the configured billing version",
   "Devis compute absent du prêt": "Compute quote is missing from the loan",
   "Devis compute expiré": "Compute quote has expired",
