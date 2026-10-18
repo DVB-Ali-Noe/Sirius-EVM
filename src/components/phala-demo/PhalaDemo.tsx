@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { CardTitle, SectionTitle } from "@/components/ui/Heading";
 import { Page, PageHeader } from "@/components/layout/Page";
@@ -43,6 +44,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [downloadError, setDownloadError] = useState<{ jobId: string; message: string } | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const available = session?.available === true;
 
@@ -113,7 +115,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   async function download(job: Job) {
     if (!address) return;
     const revision = useWalletStore.getState().revision;
-    setBusy(true); setError("");
+    setBusy(true); setDownloadError(null);
     try {
       const response = await fetch(`/api/phala-demo/results/${encodeURIComponent(job.id)}`);
       const result = await response.json();
@@ -122,7 +124,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       const output = await fetchDecryptedModel(result.modelCid, key);
       if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
       downloadDecryptedModel(output, `sirius-${job.id}.json`);
-    } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); }
+    } catch (cause) { setDownloadError({ jobId: job.id, message: messageOf(cause) }); } finally { setBusy(false); }
   }
 
   return <Page>
@@ -133,9 +135,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : session.available ? "Démonstration ouverte · offerte par Sirius" : session.phase === null ? "Démonstration indisponible"
         : session.phase === "opening" ? "Démarrage en cours" : session.phase === "open" ? "Démonstration ouverte · capacité momentanément indisponible"
         : "Démonstration fermée")}</span>
-      <a href="/api/phala-demo/attestation" target="_blank" rel="noreferrer" className="text-sm underline">{t("Attestation du runner")}</a>
+      <Link href="/phala/attestation" className="text-sm underline">{t("Attestation du runner")}</Link>
     </div>
-    {error && <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     <div className="grid gap-4 md:grid-cols-2" data-guide="page:phala:examples">{DEMO_EXAMPLES.map((sample, index) => <Card key={sample.id} className={example === sample.id ? "ring-1 ring-positive/50" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
       <CardTitle className="mt-3">{sample.name}</CardTitle><p className="mt-2 min-h-12 text-sm text-muted">{sample.description}</p>
@@ -166,6 +167,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
+      {/* Sous le bouton : un refus (quota, fichier, session) reste visible là où l'on vient de cliquer. */}
+      {error && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     </Card>
     {authenticated && <section className="space-y-3" data-guide="page:phala:results"><SectionTitle>{t("Mes résultats")}</SectionTitle>
       <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>
@@ -175,6 +178,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
           <p className="text-xs text-muted">{t("Entraîné le {date}", { date: new Date(job.completedAt ?? job.createdAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })}</p></div>
         <button className={button} disabled={busy || job.status !== "DONE"} onClick={() => void download(job)}>{t("Télécharger le modèle")}</button></div>
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
+        {downloadError?.jobId === job.id && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(downloadError.message)}</p>}
       </Card>)}
     </section>}
   </Page>;
