@@ -135,7 +135,6 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : "Démonstration fermée")}</span>
       <a href="/api/phala-demo/attestation" target="_blank" rel="noreferrer" className="text-sm underline">{t("Attestation du runner")}</a>
     </div>
-    {error && <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     <div className="grid gap-4 md:grid-cols-2" data-guide="page:phala:examples">{DEMO_EXAMPLES.map((sample, index) => <Card key={sample.id} className={example === sample.id ? "ring-1 ring-positive/50" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
       <CardTitle className="mt-3">{sample.name}</CardTitle><p className="mt-2 min-h-12 text-sm text-muted">{sample.description}</p>
@@ -166,6 +165,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
+      {/* Sous le bouton : un refus (quota, fichier, session) reste visible là où l'on vient de cliquer. */}
+      {error && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     </Card>
     {authenticated && <section className="space-y-3" data-guide="page:phala:results"><SectionTitle>{t("Mes résultats")}</SectionTitle>
       <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>

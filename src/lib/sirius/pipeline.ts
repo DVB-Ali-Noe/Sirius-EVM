@@ -186,14 +186,14 @@ export async function completeDatasetIngestion(
       dataset.model,
     );
   } catch (error) {
-    // Un fichier refusé laissait un brouillon sans lignes ni colonnes, dont le bouton de
-    // publication est désactivé : l'interface conseille déjà de le supprimer et de
-    // recommencer. On fait le geste à la place du fournisseur.
+    // Un refus du runner (fichier invalide, quota de démonstration, session fermée, grant
+    // refusé) laissait un brouillon vide, inutilisable : chaque nouvelle tentative du
+    // navigateur crée son propre brouillon. On le supprime à la place du fournisseur, sinon
+    // cinq refus bloquent ses dépôts suivants (« Trop de datasets en attente d’upload »).
     //
-    // Uniquement sur un refus imputable au fichier. Sur une panne passagère du runner, le
-    // brouillon reste et l'upload se retente — supprimer là ferait perdre le formulaire
-    // pour une raison qui n'a rien à voir avec ce qu'il contient.
-    if (error instanceof AppError && error.status === 400) {
+    // Uniquement sur un refus (4xx). Sur une panne passagère du runner (5xx), le brouillon
+    // reste ; le nettoyage différé de `beginDatasetIngestion` s'en charge.
+    if (error instanceof AppError && error.status >= 400 && error.status < 500) {
       await prisma.dataset
         .deleteMany({
           where: {

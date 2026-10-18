@@ -190,6 +190,32 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
   assert.equal(stored.runnerDeploymentId, runner.runnerDeploymentId);
 });
 
+test("un refus du runner supprime le brouillon vide ; une panne passagère le conserve", async () => {
+  const deleted: unknown[] = [];
+  let refusal: AppError = new AppError("Quota de démonstration atteint", 429);
+  const datasetStore = {
+    deleteMany: async ({ where }: { where: unknown }) => { deleted.push(where); return { count: 1 }; },
+  };
+  const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
+    "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
+    "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
+    "@/lib/db": { serializableTransaction: async () => { throw new Error("inutile"); }, prisma: { dataset: datasetStore } },
+    "@/lib/tee/runner-client": { sealDatasetInRunner: async () => { throw refusal; } },
+  });
+  const upload = { id: "draft", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7,
+    model: { modelId: "linear_regression" as const, modelVersion: "1.0.0" as const }, ...runner };
+  for (const status of [400, 403, 429]) {
+    refusal = new AppError("refus", status);
+    await assert.rejects(api.completeDatasetIngestion(upload, {} as never, {} as never), (error) => error === refusal);
+  }
+  assert.equal(deleted.length, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(deleted[0])), { id: "draft", provider, status: "DRAFT", ipfsCid: null, wrappedKey: null, evmDatasetId: null });
+  refusal = new AppError("Runner indisponible", 503);
+  await assert.rejects(api.completeDatasetIngestion(upload, {} as never, {} as never), (error) => error === refusal);
+  assert.equal(deleted.length, 3, "une panne passagère du runner ne supprime pas le brouillon");
+});
+
 test("le préflight de bascule refuse les ressources actives et compte les modèles historiques sans écrire", async () => {
   let blocked: "dataset" | "trainingJob" | "loan" | null = null;
   let escrowChecks = 0;
