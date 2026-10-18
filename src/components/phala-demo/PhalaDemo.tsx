@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { CardTitle, SectionTitle } from "@/components/ui/Heading";
 import { Page, PageHeader } from "@/components/layout/Page";
@@ -133,7 +134,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : session.available ? "Démonstration ouverte · offerte par Sirius" : session.phase === null ? "Démonstration indisponible"
         : session.phase === "opening" ? "Démarrage en cours" : session.phase === "open" ? "Démonstration ouverte · capacité momentanément indisponible"
         : "Démonstration fermée")}</span>
-      <a href="/api/phala-demo/attestation" target="_blank" rel="noreferrer" className="text-sm underline">{t("Attestation du runner")}</a>
+      <Link href="/phala/attestation" className="text-sm underline">{t("Attestation du runner")}</Link>
     </div>
     <div className="grid gap-4 md:grid-cols-2" data-guide="page:phala:examples">{DEMO_EXAMPLES.map((sample, index) => <Card key={sample.id} className={example === sample.id ? "ring-1 ring-positive/50" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
