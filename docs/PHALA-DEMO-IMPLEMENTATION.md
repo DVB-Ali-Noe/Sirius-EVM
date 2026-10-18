@@ -589,3 +589,35 @@ Coût : solde 10,085743 → 10,074990 USD à 18:02:30 UTC, soit **0,010753 USD**
 `children` devient optionnel dans `SignInCta` ; sans libellé, le bouton affiche « Se connecter » (« Sign in »). `PhalaDemo` rend `<SignInCta />` et la clé « Connecter mon wallet testnet » est retirée de `phala-en.ts`. Rendu inchangé pour l’utilisateur.
 
 Vérifié : test i18n `english.test.ts` 7/7, `pnpm test:phala-demo` 28/28, typage, lint, 6/6 scénarios Playwright Phala (dont « Connect operator wallet » sur `/operator`).
+
+### Page d'attestation en chaîne de confiance — avant, 18 octobre 2026
+
+`/phala/attestation` (PR #106) listait quatre contrôles « Passed » et des mesures brutes. Le MRTD venait de `SIRIUS_EXPECTED_MRTD`, pas de la quote. L'état indisponible affirmait « machine éteinte », alors que `readDemoAttestation` renvoie `null` aussi quand la preuve est refusée. Rien ne reliait le hash Compose à l'image runner ni au commit. La commande de revérification n'était pas donnée.
+
+### Page d'attestation en chaîne de confiance — après, 18 octobre 2026
+
+PR [#110](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/110). Quatre maillons, chacun avec sa valeur, ce qu'il prouve et un état réel :
+
+- Puce Intel : signature, TCB `UpToDate`.
+- Machine : MRTD lu dans la quote.
+- Code : hash Compose → image → commit.
+- Connexion : certificat dans `report_data`. Chaîne KMS, clé d'ingestion et signataire en lignes secondaires, « annoncés sur le canal attesté et comparés aux pins ».
+
+La page ajoute aussi un résumé en tête, l'encadré « prouve / ne prouve pas » et un bloc « Verify it yourself » (`dcap-qvl verify --hex`, CLI v0.7.0). L'état indisponible devient « éteinte ou non vérifiable ».
+
+Lien Compose → image (`resolveCodeRelease`, `src/lib/phala-demo/attestation.ts`) :
+
+- **Prouvé** : `composes/<hash>.json` existe et le SHA-256 de ses octets exacts égale le hash attesté. L'image est celle du service `runner` du `docker_compose_file`.
+- **Déclaré** : le hash figure seulement dans `DECLARED_RELEASES`. Image et commit sont affichés en texte, sans lien (dépôt et GHCR privés).
+- **Non répertorié** : seul le hash Compose est affiché.
+
+`docker_compose_hash` n'est pas utilisé, car il n'est pas dans la quote. Table actuelle : `61581af7…950a` → `sirius-runner@sha256:78839668…6eff4`, commit `712fbb2`. `composes/` est vide. `next.config.ts` trace `composes/*.json` pour la page et l'API.
+
+Procédure :
+
+1. À chaque nouvelle image CVM, ajouter l'entrée dans la table.
+2. À la session suivante, récupérer `phala cvms attestation --json` → `tcb_info.app_compose`, vérifier que son SHA-256 égale le `compose_hash` attesté, puis l'ajouter tel quel par une PR de suivi.
+
+L'écart RTMR0–2 / `os-image-hash` / `app-id` / `key-provider` est suivi dans l'issue [#112](https://github.com/DVB-Ali-Noe/Sirius-EVM/issues/112), sans correctif. Reportés : colonne `composeHash` sur `TrainingJob`, `app_compose` exposé par le runner, preuve image → commit si le dépôt devient public. Alias `demo.sirius-data.tech` non déplacé.
+
+Vérifié : `pnpm test:phala-demo` 38/38 (10 nouveaux), typage, ESLint hors `experiments/`, build. Rendu navigateur bureau et mobile des vues déclarée, prouvée, non répertoriée et éteinte, sur une page d'aperçu supprimée ensuite. Aucune quote actuelle revérifiée de bout en bout : CVM éteinte.
