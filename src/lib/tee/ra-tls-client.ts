@@ -36,6 +36,7 @@ interface BufferedRequestOptions {
 
 interface AttestedTransport {
   agent: Agent;
+  attestedAt: number;
   certificateSha256: string;
   expiresAt: number;
   origin: string;
@@ -181,10 +182,12 @@ async function attestTransport(baseUrl: URL): Promise<AttestedTransport> {
     minVersion: "TLSv1.3",
     rejectUnauthorized: true,
   });
+  const attestedAt = Date.now();
   return {
     agent,
+    attestedAt,
     certificateSha256,
-    expiresAt: Date.now() + ATTESTATION_CACHE_MS,
+    expiresAt: attestedAt + ATTESTATION_CACHE_MS,
     origin: baseUrl.origin,
   };
 }
@@ -208,6 +211,11 @@ async function transportFor(baseUrl: URL): Promise<AttestedTransport> {
   } finally {
     if (pendingTransport?.promise === promise) pendingTransport = null;
   }
+}
+
+/** Heure de la dernière vérification complète du runner joignable à cette origine, si elle est encore valable. */
+export function runnerAttestedAt(url: URL): number | null {
+  return cachedTransport?.origin === url.origin && cachedTransport.expiresAt > Date.now() ? cachedTransport.attestedAt : null;
 }
 
 export async function attestedRunnerFetch(

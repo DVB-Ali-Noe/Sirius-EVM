@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { AttestationUnavailable, AttestationView } from "@/components/phala-demo/AttestationView";
+import { AttestationBusy, AttestationUnavailable, AttestationView } from "@/components/phala-demo/AttestationView";
 import { attestationLimiter, readDemoAttestation } from "@/lib/phala-demo/attestation";
 import { requestClientKey } from "@/lib/http/rate-limit";
 
@@ -14,8 +14,14 @@ const HEX = /^[0-9a-f]{96}$/i;
 
 export default async function PhalaAttestationPage() {
   if (process.env.SIRIUS_PHALA_DEMO !== "true") notFound();
-  const key = requestClientKey(new Request("https://sirius.invalid/phala/attestation", { headers: await headers() }));
-  const attestation = attestationLimiter.consume(key) ? await readDemoAttestation() : null;
+  let key: string | null;
+  try {
+    key = requestClientKey(new Request("https://sirius.invalid/phala/attestation", { headers: await headers() }));
+  } catch {
+    return <AttestationBusy />;
+  }
+  if (!attestationLimiter.consume(key)) return <AttestationBusy />;
+  const attestation = await readDemoAttestation();
   if (!attestation) return <AttestationUnavailable />;
   const { evidence } = attestation;
   // Le transport n'est ouvert qu'avec un MRTD égal à la valeur épinglée : c'est celle affichée.

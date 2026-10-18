@@ -70,7 +70,7 @@ export function AttestationView(props: AttestationViewProps) {
           <span aria-hidden className="inline-block size-2 rounded-full bg-positive" /> Attestation verified
         </p>
         <p className="text-sm text-muted">
-          Last checked {formatDate(props.checkedAt)}. The check is renewed at least every five minutes while the demo is open.
+          Checked by this server on {formatDate(props.checkedAt)}. Training requests are refused unless this check is less than five minutes old.
         </p>
       </Card>
 
@@ -144,6 +144,19 @@ export function AttestationUnavailable() {
           Go to Phala training
         </Link>
       </Card>
+    </Page>
+  );
+}
+
+export function AttestationBusy() {
+  return (
+    <Page width="narrow">
+      <PageHeader
+        back={{ href: "/phala", label: "Back to training" }}
+        eyebrow="Phala · runner attestation"
+        title="Too many checks right now"
+        description="This page is limited to a few views per minute. Try again in a minute."
+      />
     </Page>
   );
 }
