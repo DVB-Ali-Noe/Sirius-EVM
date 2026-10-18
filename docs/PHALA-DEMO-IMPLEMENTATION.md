@@ -621,3 +621,9 @@ Procédure :
 L'écart RTMR0–2 / `os-image-hash` / `app-id` / `key-provider` est suivi dans l'issue [#112](https://github.com/DVB-Ali-Noe/Sirius-EVM/issues/112), sans correctif. Reportés : colonne `composeHash` sur `TrainingJob`, `app_compose` exposé par le runner, preuve image → commit si le dépôt devient public. Alias `demo.sirius-data.tech` non déplacé.
 
 Vérifié : `pnpm test:phala-demo` 38/38 (10 nouveaux), typage, ESLint hors `experiments/`, build. Rendu navigateur bureau et mobile des vues déclarée, prouvée, non répertoriée et éteinte, sur une page d'aperçu supprimée ensuite. Aucune quote actuelle revérifiée de bout en bout : CVM éteinte.
+
+### Compose publié : image prouvée — 18 octobre 2026
+
+Avant : `composes/` vide, la page affichait l'image et le commit « déclarés ». Session ouverte par Noé à 20:16 UTC uniquement pour cette lecture (aucun entraînement). `phala cvms attestation --json` → `tcb_info.app_compose` : 23 765 octets, SHA-256 `61581af7…950a`, égal au hash Compose attesté et épinglé ; image du service `runner` `sirius-runner@sha256:78839668…6eff4` ; aucune valeur secrète (les variables d'environnement sont chiffrées à part, seuls leurs noms figurent dans `allowed_envs`).
+
+Après : fichier versionné tel quel dans `src/lib/phala-demo/composes/61581af7….json`, protégé par `-text` dans `.gitattributes` pour que Git n'en modifie pas les octets. `resolveCodeRelease` renvoie `proven` avec cette image et le commit `712fbb2` : la page passe de « déclaré » à « Image : prouvée par le hash Compose ». Le commit reste « déclaré » (dépôt privé).
