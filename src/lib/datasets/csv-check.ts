@@ -7,7 +7,7 @@ import {
   MIN_ROWS_PER_PARAMETER,
   MIN_TRAINING_ROWS,
 } from "@/lib/tee/train";
-import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
+import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import type { ModelId } from "@/lib/models/registry";
 import type { Translate } from "@/lib/copy/disclaimers";
 import { formatCount, formatLimitBytes } from "@/lib/copy/numbers";
@@ -46,7 +46,8 @@ export type CsvRejection =
   | { kind: "compute-budget" }
   | { kind: "logistic-target"; target: string }
   | { kind: "binary-target"; target: string }
-  | { kind: "held-out-classes"; target: string };
+  | { kind: "held-out-classes"; target: string }
+  | { kind: "trees-too-few-rows" };
 
 export interface CsvSummary {
   /** Lignes de données, en-tête exclu. */
@@ -122,7 +123,8 @@ export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
   summary.features = featureIdx.map((column) => header[column]);
   const parameterCount = featureIdx.length + 1;
   const trees = modelId === "gradient_boosted_trees";
-  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER, trees ? GBDT_MIN_ROWS : 0);
+  if (trees && rows.length < GBDT_MIN_ROWS) return { ok: false, reason: { kind: "trees-too-few-rows" }, summary };
+  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER);
   if (rows.length < requiredRows) {
     return { ok: false, reason: { kind: "too-few-rows", rows: rows.length, minRows: requiredRows }, summary };
   }
@@ -206,5 +208,7 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       return t("Les arbres boostés mettent une ligne sur cinq de côté pour le test : les deux parties doivent contenir les classes 0 et 1 de « {target} ».", {
         target: reason.target,
       });
+    case "trees-too-few-rows":
+      return t(GBDT_TOO_FEW_ROWS_MESSAGE);
   }
 }

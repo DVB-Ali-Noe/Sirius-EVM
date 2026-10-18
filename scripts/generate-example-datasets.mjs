@@ -113,12 +113,12 @@ function creditDefaultRows() {
 
 /**
  * Risque à seuils, en U et à interactions (jeunes et seniors, endettement au-delà de 45 %,
- * petits revenus très empruntés) : le cas où des arbres battent une logistique. 12 000 lignes :
- * avec des feuilles d'au moins 1 000 lignes, quelques milliers ne permettent que des coupes proches de la médiane.
+ * petits revenus très empruntés) : le cas où des arbres battent une logistique. 13 000 lignes, soit
+ * 10 400 d'entraînement : sous 10 000 lignes, le profil arbres refuse le fichier.
  */
 function creditRiskRows() {
   const rows = ["age_years,income_k_eur,debt_ratio_pct,utilization_pct,late_payments,loan_to_income_pct,defaulted"];
-  for (let index = 0; index < 12_000; index++) {
+  for (let index = 0; index < 13_000; index++) {
     const age = clamp(Math.round(42 + normal() * 12), 19, 75);
     const income = clamp(50 + 0.6 * (age - 42) + normal() * 16, 15, 150);
     const debtRatio = clamp(36 + normal() * 16, 2, 95);
@@ -164,7 +164,7 @@ async function main() {
   ]);
   console.log(`Dataset synthétique écrit : ${regressionOutput} (8760 lignes)`);
   console.log(`Dataset synthétique écrit : ${classificationOutput} (600 lignes)`);
-  console.log(`Dataset synthétique écrit : ${treesOutput} (12000 lignes)`);
+  console.log(`Dataset synthétique écrit : ${treesOutput} (13000 lignes)`);
 }
 
 main().catch((error) => {

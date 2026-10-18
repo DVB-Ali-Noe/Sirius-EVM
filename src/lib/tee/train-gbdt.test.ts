@@ -88,7 +88,7 @@ test("sur un risque à seuils, les arbres battent la logistique sur le jeu de te
   // La métrique held-out livrée annonce la même qualité que le jeu de test séparé, à l'aléa près.
   assert.ok(Math.abs(trees.metrics.heldOutAuc - treesAuc) < 0.03);
   assert.ok(trees.metrics.trainAuc >= trees.metrics.heldOutAuc - 0.02);
-  assert.equal(trees.metrics.n, 9_600);
+  assert.equal(trees.metrics.n, 10_400);
 });
 
 test("même fichier, même modèle livré, octet pour octet", () => {
@@ -129,8 +129,8 @@ test("chaque feuille regroupe au moins 1 000 lignes d'entraînement, y compris a
 });
 
 test("les lignes mises de côté ne servent jamais à l'entraînement", () => {
-  const csv = thresholdCsv(6_000);
-  const flipped = thresholdCsv(6_000, 4, (row, risk) => (isHeldOut(row) ? (risk ? "0" : "1") : risk ? "1" : "0"));
+  const csv = thresholdCsv(GBDT_MIN_ROWS);
+  const flipped = thresholdCsv(GBDT_MIN_ROWS, 4, (row, risk) => (isHeldOut(row) ? (risk ? "0" : "1") : risk ? "1" : "0"));
   const model = trainGradientBoostedTrees(csv);
   const other = trainGradientBoostedTrees(flipped);
   assert.deepEqual(other.trees, model.trees);
@@ -140,8 +140,9 @@ test("les lignes mises de côté ne servent jamais à l'entraînement", () => {
 });
 
 test("refuse les fichiers hors profil avant tout calcul", () => {
-  assert.throws(() => trainGradientBoostedTrees(thresholdCsv(GBDT_MIN_ROWS - 1)), (error) =>
-    error instanceof DatasetValidationError && /min 2500 lignes/.test(error.message));
+  assert.throws(() => trainGradientBoostedTrees(thresholdCsv(9_999)), (error) =>
+    error instanceof DatasetValidationError && /au moins 10 000 lignes ; utilise la régression logistique/.test(error.message));
+  assert.equal(trainGradientBoostedTrees(thresholdCsv(10_000)).metrics.n, 10_000);
   assert.throws(() => trainGradientBoostedTrees(thresholdCsv(GBDT_MIN_ROWS, 4, (row) => String(row % 3))), DatasetValidationError);
   assert.throws(() => trainGradientBoostedTrees(thresholdCsv(GBDT_MIN_ROWS, 4, (row) => (isHeldOut(row) ? "1" : String(row % 2)))),
     (error) => error instanceof DatasetValidationError && /séparation/.test(error.message));

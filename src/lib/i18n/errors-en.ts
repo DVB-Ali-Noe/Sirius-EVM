@@ -30,6 +30,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Calcul échoué : remboursement crédité après retenue des frais consommés": "Training failed: refund credited after deducting consumed execution fees",
   "Consommation incertaine : remboursement à échéance": "Uncertain consumption: refund available at expiry",
   "Contrats du reaper incompatibles : escrow v5, v6 ou v7 et registre dataset v4 ou v5 lié requis": "Reaper requires escrow v5, v6 or v7 and its linked dataset registry v4 or v5",
+  "Les arbres boostés demandent au moins 10 000 lignes ; utilise la régression logistique pour ce fichier.": "Boosted trees need at least 10,000 rows; use logistic regression for this file.",
   "Contrats EVM incompatibles avec la version de facturation configurée": "EVM contracts do not match the configured billing version",
   "Devis compute absent du prêt": "Compute quote is missing from the loan",
   "Devis compute expiré": "Compute quote has expired",

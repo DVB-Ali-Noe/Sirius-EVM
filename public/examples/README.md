@@ -83,11 +83,11 @@ profils qui se chevauchent et une part d'aléa : les métriques restent bonnes s
 Défaut de crédit synthétique à seuils, en U et à interactions : âge (jeunes et
 seniors plus risqués), endettement au-delà de 45 %, petits revenus très
 empruntés, utilisation saturée et retards. Une logistique ne représente pas ces
-effets ; les arbres boostés, oui (AUC de test d'environ 0,71 contre 0,65).
+effets ; les arbres boostés, oui (AUC de test d'environ 0,71 contre 0,66).
 
-Le jeu contient 9 600 lignes d'entraînement et 2 400 de test. Le profil exige au
-moins 2 500 lignes et des feuilles d'au moins 1 000 lignes : en dessous de
-quelques milliers de lignes, les coupes restent proches de la médiane. Le profil
+Le jeu contient 10 400 lignes d'entraînement et 2 600 de test. Le profil exige au
+moins 10 000 lignes et des feuilles d'au moins 1 000 lignes : en dessous, les
+coupes restent proches de la médiane et la logistique fait mieux. Le profil
 n'est proposé que lorsque `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` contient
 `gradient_boosted_trees`.
 

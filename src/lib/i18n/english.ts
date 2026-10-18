@@ -129,7 +129,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Classe prédite": "Predicted class",
   "Profil du dataset verrouillé : {model}": "Dataset profile locked: {model}",
   "— 480 lignes d’entraînement, jeu de test séparé.": "— 480 training rows, separate test set.",
-  "— 9 600 lignes d’entraînement, jeu de test séparé.": "— 9,600 training rows, separate test set.",
+  "— 10 400 lignes d’entraînement, jeu de test séparé.": "— 10,400 training rows, separate test set.",
   "test USDC": "test USDC",
   "{eth} ETH pour le gas": "{eth} ETH for gas",
   "{eth} ETH — plus assez pour payer le gas": "{eth} ETH — not enough left for gas",

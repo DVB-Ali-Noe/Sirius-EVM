@@ -19,8 +19,13 @@ export const GBDT_BINS = 64;
 export const GBDT_MIN_LEAF_ROWS = 1_000;
 /** Une ligne sur cinq (index % 5 === 4) est mise de côté pour les métriques « held-out ». */
 export const GBDT_HOLDOUT_EVERY = 5;
-/** Plus petit fichier dont la partie entraînement (4 lignes sur 5) permet une coupe en deux feuilles de 1 000. */
-export const GBDT_MIN_ROWS = 2_500;
+/**
+ * Avec des feuilles d'au moins 1 000 lignes, un petit fichier ne permet que des coupes proches
+ * de la médiane : sous 10 000 lignes, les arbres font moins bien que la logistique.
+ */
+export const GBDT_MIN_ROWS = 10_000;
+/** Même texte dans le navigateur et dans l'enclave ; à garder aligné sur `GBDT_MIN_ROWS`. */
+export const GBDT_TOO_FEW_ROWS_MESSAGE = "Les arbres boostés demandent au moins 10 000 lignes ; utilise la régression logistique pour ce fichier.";
 /** Budget : lignes × variables × profondeur × arbres. 31 variables passent jusqu'à 32 258 lignes. */
 export const GBDT_MAX_OPERATIONS = 300_000_000;
 export const THRESHOLD_SIG_FIGS = 3;

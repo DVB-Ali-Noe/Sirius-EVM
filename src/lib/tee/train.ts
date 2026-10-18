@@ -1,5 +1,5 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
-import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
+import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
@@ -54,8 +54,13 @@ interface TrainingColumns {
   featureIdx: number[];
 }
 
-/** `minRows` : plancher propre au profil, en plus de celui qui dépend du nombre de paramètres. */
-export function trainingColumns(csv: Buffer, target: string | undefined, deadline: number, minRows = 0): TrainingColumns {
+/** `profileFloor` : plancher propre au profil, vérifié avant le plancher générique et avec son propre message. */
+export function trainingColumns(
+  csv: Buffer,
+  target: string | undefined,
+  deadline: number,
+  profileFloor?: { rows: number; message: string },
+): TrainingColumns {
   const table = parseCsv(csv.toString("utf-8"));
   assertWithinDeadline(deadline);
   if (table.length < 2) throw new DatasetValidationError("dataset insuffisant");
@@ -74,7 +79,8 @@ export function trainingColumns(csv: Buffer, target: string | undefined, deadlin
   if (!numeric.includes(targetIdx)) throw new DatasetValidationError("colonne cible non numérique");
   const featureIdx = numeric.filter((column) => column !== targetIdx);
   const parameterCount = featureIdx.length + 1;
-  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER, minRows);
+  if (profileFloor && rows.length < profileFloor.rows) throw new DatasetValidationError(profileFloor.message);
+  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER);
   if (rows.length < requiredRows) {
     throw new DatasetValidationError(`dataset trop petit pour préserver la confidentialité (min ${requiredRows} lignes)`);
   }
@@ -110,11 +116,13 @@ export function assertGbdtDataset(rows: string[][], targetIdx: number, featureCo
   }
 }
 
+export const GBDT_ROW_FLOOR = { rows: GBDT_MIN_ROWS, message: GBDT_TOO_FEW_ROWS_MESSAGE };
+
 /** Contrôle d'ingestion ; renvoie les volumes publiables pour éviter de relire le fichier. */
 export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): DatasetMetrics {
   const deadline = performance.now() + trainingTimeoutMs();
   const trees = selection.modelId === "gradient_boosted_trees";
-  const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_MIN_ROWS : 0);
+  const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
   if (trees) {
     assertGbdtDataset(rows, targetIdx, featureIdx.length);
     return { rowCount: rows.length, columnCount: header.length };

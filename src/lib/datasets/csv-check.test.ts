@@ -6,7 +6,7 @@ import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_COLUMNS, MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { DatasetValidationError, MAX_HEADER_CHARS, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS, validateTrainingDataset } from "@/lib/tee/train";
 import { selectionForModelId, type ModelId } from "@/lib/models/registry";
-import { GBDT_MAX_DEPTH, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TREES, isHeldOut } from "@/lib/models/gbdt";
+import { GBDT_MAX_DEPTH, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, GBDT_TREES, isHeldOut } from "@/lib/models/gbdt";
 import { EN_MESSAGES, translateEnglish as t } from "@/lib/i18n/english";
 import { checkFileSize, csvRejectionText, inspectCsv, type CsvRejection } from "./csv-check";
 
@@ -67,8 +67,9 @@ test("un fichier accepté par le navigateur l'est par l'enclave, et inversement,
     { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "Infinity" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "Infinity refusé" },
     { text: `x,y\r\n${Array.from({ length: 150 }, (_, i) => `${i},${i}`).join("\r\n")}\r\n`, modelId: "linear_regression", accepted: true, label: "CRLF" },
     { text: `"x","y"\n${Array.from({ length: 150 }, (_, i) => `"${i}","${i}"`).join("\n")}`, modelId: "linear_regression", accepted: true, label: "guillemets, sans retour final" },
-    { text: csv(GBDT_MIN_ROWS, 2, binary), modelId: "gradient_boosted_trees", accepted: true, label: "arbres au minimum de lignes" },
-    { text: csv(GBDT_MIN_ROWS - 1, 2, binary), modelId: "gradient_boosted_trees", accepted: false, label: "arbres sous le minimum de lignes" },
+    { text: csv(10_000, 2, binary), modelId: "gradient_boosted_trees", accepted: true, label: "arbres : 10 000 lignes acceptées" },
+    { text: csv(9_999, 2, binary), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : 9 999 lignes refusées" },
+    { text: csv(9_999, 2, binary), modelId: "logistic_regression", accepted: true, label: "logistique : 9 999 lignes acceptées" },
     { text: csv(GBDT_BUDGET_ROWS, 31, binary), modelId: "gradient_boosted_trees", accepted: true, label: "arbres à la limite du budget" },
     { text: csv(GBDT_BUDGET_ROWS + 1, 31, binary), modelId: "gradient_boosted_trees", accepted: false, label: "arbres au-dessus du budget" },
     { text: csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), modelId: "gradient_boosted_trees", accepted: false, label: "arbres classes 1/2" },
@@ -94,7 +95,8 @@ test("la raison du refus correspond à celle de l'enclave", () => {
     [csv(200, 2).replace("x0,x1,y", `x0,x1,${"y".repeat(MAX_HEADER_CHARS + 1)}`), "linear_regression", "invalid-header", /en-têtes/],
     ["x,y\n", "linear_regression", "no-data-rows", /insuffisant/],
     [csv(MAX_CSV_ROWS, 1), "linear_regression", "too-many-rows", /trop de lignes/],
-    [csv(GBDT_MIN_ROWS - 1, 2, binary), "gradient_boosted_trees", "too-few-rows", /min 2500 lignes/],
+    [csv(9_999, 2, binary), "gradient_boosted_trees", "trees-too-few-rows", /^Les arbres boostés demandent au moins 10 000 lignes ; utilise la régression logistique pour ce fichier\.$/],
+    [csv(50, 2, binary), "gradient_boosted_trees", "trees-too-few-rows", /au moins 10 000 lignes/],
     [csv(GBDT_BUDGET_ROWS + 1, 31, binary), "gradient_boosted_trees", "compute-budget", /budget de calcul/],
     [csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), "gradient_boosted_trees", "binary-target", /strictement 0 ou 1/],
     [csv(GBDT_MIN_ROWS, 2, heldOutZero), "gradient_boosted_trees", "held-out-classes", /séparation entraînement \/ test/],
@@ -139,7 +141,7 @@ test("les jeux d'exemple proposés par le formulaire passent le contrôle du nav
   const examples: Array<[string, ModelId, string, number]> = [
     ["public/examples/regression/housing-prices-train.csv", "linear_regression", "price_eur", 112],
     ["public/examples/classification/credit-default-train.csv", "logistic_regression", "defaulted", 480],
-    ["public/examples/classification/credit-risk-train.csv", "gradient_boosted_trees", "defaulted", 9600],
+    ["public/examples/classification/credit-risk-train.csv", "gradient_boosted_trees", "defaulted", 10_400],
   ];
   for (const [path, modelId, target, rows] of examples) {
     const text = readFileSync(join(process.cwd(), path), "utf8");
@@ -177,6 +179,7 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
     { kind: "logistic-target", target: "<b>y</b>" },
     { kind: "binary-target", target: "y" },
     { kind: "held-out-classes", target: "y" },
+    { kind: "trees-too-few-rows" },
   ];
   for (const reason of reasons) {
     const text = csvRejectionText(reason, t);
@@ -188,6 +191,9 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
   assert.equal(csvRejectionText({ kind: "too-many-rows", maxRows: MAX_CSV_ROWS }, t), "Too many rows: at most 50,000 rows, header included.");
   assert.equal(csvRejectionText({ kind: "file-too-large", sizeBytes: MAX_DATASET_BYTES + 1, maxBytes: MAX_DATASET_BYTES }, t), "File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB.");
   assert.equal(csvRejectionText({ kind: "logistic-target", target: "y" }, t), "For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
+  assert.equal(csvRejectionText({ kind: "trees-too-few-rows" }, t), "Boosted trees need at least 10,000 rows; use logistic regression for this file.");
+  // Le texte du plancher, écrit en dur pour la traduction, suit la constante du profil.
+  assert.ok(GBDT_TOO_FEW_ROWS_MESSAGE.includes(` ${String(GBDT_MIN_ROWS).replace(/\B(?=(\d{3})+$)/g, " ")} lignes`));
   // Les clés françaises des raisons sont toutes traduites (le test d'anglais vérifie les appels `t()`).
   assert.ok(Object.hasOwn(EN_MESSAGES, "Budget de calcul dépassé : réduis le nombre de lignes ou de variables."));
 });

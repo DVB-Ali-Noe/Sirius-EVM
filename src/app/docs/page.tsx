@@ -139,8 +139,8 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Régression logistique binaire": "Binary logistic regression",
   "Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.": "Target strictly encoded as 0 and 1, with both classes present. Metrics: accuracy, precision, recall, and F1.",
   "Arbres boostés binaires": "Binary gradient-boosted trees",
-  "Cible 0/1, au moins 2 500 lignes. Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.":
-    "0/1 target, at least 2,500 rows. Depth 2, leaves of at least 1,000 rows, no randomness. One row in five is held out: held-out AUC, accuracy, precision, recall and F1, plus the training AUC.",
+  "Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.":
+    "0/1 target, at least 10,000 rows (otherwise, logistic regression). Depth 2, leaves of at least 1,000 rows, no randomness. One row in five is held out: held-out AUC, accuracy, precision, recall and F1, plus the training AUC.",
   "Exemple d’entraînement par arbres boostés": "Gradient-boosted trees training example",
   "Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.": "The CSV must have unique headers. Its last numeric column is the target; other numeric columns are features, up to 31. At least 100 rows and 10 rows per parameter, including the bias, are required.",
   "Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "Delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
@@ -261,7 +261,7 @@ export default function DocsPage() {
             {[
               [d("Régression linéaire"), "linear_regression", d("Cible numérique continue. Métriques : R², RMSE et MAE.")],
               [d("Régression logistique binaire"), "logistic_regression", d("Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.")],
-              ...(trees ? [[d("Arbres boostés binaires"), "gradient_boosted_trees", d("Cible 0/1, au moins 2 500 lignes. Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.")]] : []),
+              ...(trees ? [[d("Arbres boostés binaires"), "gradient_boosted_trees", d("Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.")]] : []),
             ].map(([name, model, description]) => (
               <div key={model} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]">
                 <h3 className="font-semibold text-foreground">{name}</h3>
