@@ -190,9 +190,8 @@ interface EgressProfile {
   minRowsPerParameter: number;
   minLeafRows?: number;
   maxInfluencePerDistinctRow: number;
-  maxDuplicateShare: number;
   maxGeneralizationGap: number;
-  maxAucGap?: number;           // trainAuc − heldOutAuc
+  maxAucGap?: number;           // trainAuc − heldOutAuc ; inactif tant que non calibré (annexe B)
   maxMembershipAuc: number;
   significantDigits: number;
   rowCountRounding: number;     // n publié arrondi à ce pas
@@ -234,27 +233,27 @@ Règles déterministes et action par défaut. **Les valeurs sont provisoires et 
 |---|---|---|---|
 | Lignes par paramètre | `rows / parameters` | ≥ 10 (existant) | Refuser |
 | Taille minimale des feuilles | plus petite feuille réelle, pas le réglage demandé | ≥ 1 000 lignes (#111) | Refuser |
-| Influence par ligne distincte | poids d’une ligne répétée | k ≤ 2 | Toujours appliqué dans l’enclave |
-| Doublons | part des lignes répétées | signalée ; refus au-delà de 20 % | Signaler au fournisseur, puis refuser |
-| Écart d’AUC | `trainAuc − heldOutAuc` | ≤ 0,02 | Refuser |
-| Écart de perte | `holdoutLoss − trainLoss`, relatif | ≤ 5 % | Dégrader (régularisation plus forte) puis refuser |
-| Appartenance | AUC des pertes entraînement contre test | ≤ 0,55 | Refuser |
-| Arrondi | chiffres significatifs ; `n` arrondi et métriques held-out pour les nouveaux profils | 6 chiffres ; `n` à la centaine | Toujours appliqué |
+| Influence par ligne distincte | poids d’une ligne répétée | k ≤ 2 (provisoire) | Toujours appliqué dans l’enclave |
+| Doublons | lignes répétées, multiplicité maximale | — | **Signaler au fournisseur** dans le rapport de qualité ; aucun refus automatique (doublons légitimes, comme dans la #111) |
+| Écart d’AUC | `trainAuc − heldOutAuc` | **Non applicable tant que l’annexe B ne l’a pas calibré** | Refuser, une fois activé. Condition d’activation : les jeux d’exemple de la #111 passent. Le test de la #111 ne borne l’écart que dans un sens (`trainAuc ≥ heldOutAuc − 0,02`) ; un plafond à 0,02 pourrait refuser les arbres sur leurs propres exemples. |
+| Écart de perte | `holdoutLoss − trainLoss`, relatif | ≤ 5 % (provisoire) | Dégrader (régularisation plus forte) puis refuser |
+| Appartenance | AUC des pertes entraînement contre test | ≤ 0,55 (provisoire) | Refuser |
+| Arrondi | chiffres significatifs ; `n` arrondi et métriques held-out pour les nouveaux profils seulement | 6 chiffres ; `n` à la centaine (provisoire) | Toujours appliqué |
 | Taille maximale | octets du livrable | 256 Kio (existant) | Refuser |
 | Quota (API) | appels par client et par modèle | à fixer avec le prix (§1.2) | Refuser l’appel |
 
-Le détail des contrôles va au fournisseur ; l’acheteur reçoit un refus générique. Un refus après calcul est un échec au sens de D-23 : dataset et compute non consommé remboursés. Les contrôles qui ne dépendent que du fichier (lignes par paramètre, doublons) sont donc faits **à l’import**, avant tout devis.
+Le détail des contrôles va au fournisseur ; l’acheteur reçoit un refus générique. Un refus après calcul est un échec au sens de D-23 : dataset et compute non consommé remboursés. Les contrôles qui ne dépendent que du fichier (lignes par paramètre) sont donc faits **à l’import**, avant tout devis ; le décompte des doublons y est seulement affiché.
 
 Place dans le code : la politique remplace l’appel direct à `gateModel` dans `sealTrainedModel` (`core.ts:160`) ; `gateModel` en devient la partie « arrondi, structure et taille ». L’entraînement renvoie `{ model, diagnostics }` à travers le worker (`train-worker.ts`). Le futur `/predict` appelle `gatePrediction`. Ces fichiers changent avec la PR #111 : seules les interfaces ci-dessus sont proposées.
 
-**Mesurable en moins de 15 s sur un vCPU**, pour 30 000 lignes : la tranche de test (20 %, tirage déterministe dérivé du Merkle root et du job) et l’entraînement sur les 80 % restants coûtent moins que l’entraînement actuel ; l’évaluation, les doublons (une empreinte par ligne), l’AUC d’appartenance par les pertes et l’inspection des feuilles sont linéaires et se comptent en dizaines de millisecondes. **Hors budget** : attaques par modèles fantômes (LiRA), canaris injectés, extraction adaptative ; elles restent des audits hors ligne. Une absence de fuite mesurée ne prouve pas l’absence de fuite (M07 et M10).
+**Mesurable en moins de 15 s sur un vCPU**, pour 30 000 lignes : la tranche de test suit la #111 (une ligne sur cinq selon l’index de ligne, `index % 5 === 4`, jamais utilisée pour l’entraînement ; tout changement de méthode impose une nouvelle version de profil) et l’entraînement sur les 80 % restants coûte moins que l’entraînement complet ; l’évaluation, les doublons (une empreinte par ligne), l’AUC d’appartenance par les pertes et l’inspection des feuilles sont linéaires et se comptent en dizaines de millisecondes. **Hors budget** : attaques par modèles fantômes (LiRA), canaris injectés, extraction adaptative ; elles restent des audits hors ligne. Une absence de fuite mesurée ne prouve pas l’absence de fuite (M07 et M10).
 
 ### 2.4 Plan par étapes
 
 | Étape | Contenu | Risque | Dépend de |
 |---|---|---|---|
 | E1 | Rapport de qualité à l’import, côté navigateur et enclave, sans modifier le fichier : colonnes ignorées, constantes, manquants, décompte des doublons, colonne qui recopie la cible | Faible | **Démarre après la fusion de la #111** (`csv-check.ts` change) |
-| E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, seuil `trainAuc − heldOutAuc`, AUC d’appartenance ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | Fusion #111 (`train.ts`, `output-gate.ts`) ; seuils provisoires puis calibration (annexe B) |
+| E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, AUC d’appartenance ; seuil `trainAuc − heldOutAuc` seulement une fois calibré ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | Fusion #111 (`train.ts`, `output-gate.ts`) ; seuils provisoires puis calibration (annexe B) |
 | E3 | Préparation intégrée au modèle (imputation, normalisation, encodage) | Moyen (nouvelle version de profil) | Profil des arbres ou version suivante |
 | E4 | Prototype `/predict` en staging (§1.6), pendant les sessions manuelles | Moyen | E2, fusion #111 |
 | E5 | Crédits prépayés et rémunération par appel | Élevé (contrat) | Décision commerciale, revue Solidity |
@@ -283,7 +282,7 @@ E1 est l’incrément le plus utile et le moins risqué : il ne change ni ce qui
 3. Quotas et prix par appel : niveaux exacts, à partir des ~2 400 appels de clonage par usage normal.
 4. Crédits prépayés : nouveau contrat ou extension de v7, période de règlement, part du fournisseur.
 5. Fonctionnement continu de la CVM : décision séparée avec le business plan.
-6. Plafond d’influence *k* et seuil de doublons : à mesurer avec le banc canaris de la #111 avant de les imposer.
+6. Plafond d’influence *k* : à mesurer avec le banc canaris de la #111 avant de l’imposer.
 
 ## Annexe A — Prototype jetable
 
@@ -626,6 +625,6 @@ Références : F. Tramèr, F. Zhang, A. Juels, M. Reiter, T. Ristenpart, « Stea
 
 Non réalisée à la date de cette note : les valeurs du §2.3 sont provisoires. Protocole prévu, sur Taïwan, Give Me Some Credit et l’exemple `credit-risk` de la #111, avec le découpage déterministe des arbres (une ligne sur cinq mise de côté) :
 
-1. Relever, pour chaque profil, `trainAuc − heldOutAuc`, l’écart de perte relatif et l’AUC d’appartenance par la perte sur le modèle normal.
+1. Relever, pour chaque profil, `trainAuc − heldOutAuc` (signé), l’écart de perte relatif et l’AUC d’appartenance par la perte sur le modèle normal, y compris sur les jeux d’exemple de la #111.
 2. Rejouer le banc canaris de la #111 (lignes atypiques ×1 et ×5) avec et sans plafond d’influence *k* = 1, 2, 4, et mesurer l’effet sur l’AUC held-out.
-3. Fixer chaque seuil juste au-dessus des valeurs des modèles normaux et sous celles des modèles qui restituent les canaris ; reporter ici les tableaux et la commande.
+3. Fixer chaque seuil juste au-dessus des valeurs des modèles normaux et sous celles des modèles qui restituent les canaris ; reporter ici les tableaux et la commande. Le seuil d’écart d’AUC ne s’active que si tous les jeux d’exemple de la #111 passent.
