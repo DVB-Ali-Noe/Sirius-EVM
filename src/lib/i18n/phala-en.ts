@@ -88,7 +88,6 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Colonne à prédire": "Target column",
   "Au moins 100 lignes ; colonnes prédictives numériques. La classification attend une cible 0/1. Les limites du profil sont vérifiées avant calcul.": "At least 100 rows; numeric feature columns. Classification expects a 0/1 target. Profile limits are checked before training.",
   "Entraîner avec Phala": "Train with Phala",
-  "Connecter mon wallet testnet": "Connect my testnet wallet",
   "Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.": "Compute is free. Your wallet confirms the dataset’s testnet title; no data purchase is required.",
   "Mes résultats": "My results",
   "Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.": "After the demo closes, retrieve your models from this same browser. Download them to keep a copy elsewhere.",

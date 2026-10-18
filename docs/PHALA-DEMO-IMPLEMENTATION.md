@@ -579,3 +579,13 @@ Self-train avec un autre wallet : `capacity-30000x23.csv` (30 000 lignes, 24 col
 **Durée POST → GET : 5,74 s**, du même ordre que la régression linéaire et loin du délai de 15 s. Résultat affiché : `n = 30000`, f1, recall, accuracy et precision = 1 (CSV synthétique à cible séparable ; ce n’est pas une mesure de qualité). Aucune 503 ni 422. Pendant la session, `/phala/attestation` affichait « Attestation verified » sur `phala.sirius-data.tech` et sur `demo.sirius-data.tech`.
 
 Coût : solde 10,085743 → 10,074990 USD à 18:02:30 UTC, soit **0,010753 USD** pour environ 9 min de CVM, sous le plafond de 0,30 USD et 1 h. Délai de 15 s et heap de 128 Mio conservés ; aucun réglage modifié.
+
+### Libellé mort « Connecter mon wallet testnet » — avant, 18 octobre 2026
+
+`PhalaDemo` ne rend `SignInCta` qu’une fois le wallet connecté. Or `SignInCta` n’affiche son libellé (`children`) que sans wallet connecté, sinon « Sign in ». Le libellé « Connecter mon wallet testnet » et sa clé dans `phala-en.ts` ne servaient donc plus. Le prop reste utile ailleurs : `/operator` (« Connect operator wallet », affiché avant connexion) et `/wallet`.
+
+### Libellé mort — après, 18 octobre 2026
+
+`children` devient optionnel dans `SignInCta` ; sans libellé, le bouton affiche « Se connecter » (« Sign in »). `PhalaDemo` rend `<SignInCta />` et la clé « Connecter mon wallet testnet » est retirée de `phala-en.ts`. Rendu inchangé pour l’utilisateur.
+
+Vérifié : test i18n `english.test.ts` 7/7, `pnpm test:phala-demo` 28/28, typage, lint, 6/6 scénarios Playwright Phala (dont « Connect operator wallet » sur `/operator`).
