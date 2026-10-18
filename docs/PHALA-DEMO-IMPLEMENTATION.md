@@ -536,3 +536,23 @@ Cause : le test était devenu faux, pas le code. Depuis les PR #54 et #55 (`582d
 Le scénario devient « menu de choix du wallet puis signature, sans perdre l’exemple choisi ». Il suit le parcours réel : « Connect » dans la page → « Test Wallet » dans le menu → aucune signature tant que l’utilisateur n’a pas cliqué → « Sign in » → une signature exactement → « Train with Phala » actif, `housing.csv` conservé. Aucune attente assouplie ni délai allongé ; code applicatif inchangé.
 
 Vérifié : 6/6 scénarios `playwright.phala.config.ts`, typage, lint, `pnpm test:phala-demo` 28/28. Le lint local ignore `experiments/`, dossier non suivi copié depuis le dépôt principal à la création du worktree et absent de la CI.
+
+Fusionné dans staging le 18 octobre (PR [#107](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/107), commit `0bf7fea`), pipeline staging verte sur les 7 jobs.
+
+### Adresse démo figée — avant déplacement, 18 octobre 2026
+
+`demo.sirius-data.tech` est un alias posé sur un déploiement figé du projet Vercel `sirius-evm-staging` (PR #51), pas un domaine du projet. **Ancienne cible, pour retour arrière :** `sirius-evm-staging-hftbdgjta-byezzaali-gmailcoms-projects.vercel.app`. Relevé curl avant : `/phala` 200, `/phala/attestation` 307 vers `/phala` (page absente de ce déploiement), `/dashboard` 307 vers `/phala`, `/api/loans` 404.
+
+Nouvelle cible retenue : dernier déploiement Production de staging, `sirius-evm-staging-kp3g34898-byezzaali-gmailcoms-projects.vercel.app` (créé à 19:46 CEST). Selon `vercel api /v13/deployments`, `githubCommitSha` = `0bf7fea` (fusion de #107), qui contient donc #105, #106 et #107.
+
+### Adresse démo figée — après déplacement, 18 octobre 2026
+
+`vercel alias set sirius-evm-staging-kp3g34898-byezzaali-gmailcoms-projects.vercel.app demo.sirius-data.tech --scope byezzaali-gmailcoms-projects` : succès. L’alias vise une URL de déploiement précise, pas le domaine du projet : les prochaines fusions dans staging ne le déplacent pas. `vercel alias ls` confirme la cible `kp3g34898`.
+
+Relevé curl après : `/phala` 200 ; `/phala/attestation` 200 avec « Attestation not available right now » (CVM arrêtée) ; `/dashboard` 307 vers `/phala` ; `/api/loans` 404.
+
+Retour arrière : `vercel alias set sirius-evm-staging-hftbdgjta-byezzaali-gmailcoms-projects.vercel.app demo.sirius-data.tech --scope byezzaali-gmailcoms-projects`.
+
+### Mesure logistique 30 000 lignes sur la CVM staging — avant, 18 octobre 2026
+
+Créneau confirmé par Noé. Plafond : 0,30 USD et 1 h. Coût annoncé : environ 0,06 USD/h (tdx.small à 0,058 USD/h, plus le disque). Noé ouvre et ferme la session depuis `/operator` et entraîne avec un autre wallet ; Claude ne démarre rien. État à 17:49:52 UTC : solde 10,085743 USD, CVM `sirius-phala-production` et `sirius-mainnet` `stopped`, session `phase=closed`, contrôleur VPS `active` (révision 34, 0 opération). Suivi en lecture : `/api/phala-demo/session`, `/phala/attestation`, `vercel logs` filtré sur `/api/datasets` et `/api/train`.
