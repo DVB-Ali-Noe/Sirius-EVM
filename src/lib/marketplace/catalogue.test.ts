@@ -116,10 +116,11 @@ test("catalogue : statistiques, frais du dernier devis et prix total", async () 
   assert.deepEqual(result.computeFees, {
     linear_regression: { kind: "quoted", atomic: "3000000" },
     logistic_regression: { kind: "quoted", atomic: "3000000" },
+    gradient_boosted_trees: { kind: "quoted", atomic: "3000000" },
   });
   // Un devis par profil et par version, d'un prêt réellement verrouillé (jamais un devis abandonné),
   // borné dans le temps, et jamais sa date dans la réponse.
-  assert.deepEqual(calls.loanFindFirst.map((call) => call.where), ["linear_regression", "logistic_regression"].map((modelId) => ({
+  assert.deepEqual(calls.loanFindFirst.map((call) => call.where), ["linear_regression", "logistic_regression", "gradient_boosted_trees"].map((modelId) => ({
     modelId,
     modelVersion: "1.0.0",
     computeAmountUsdcAtomic: { not: null },

@@ -4,7 +4,7 @@ import { publishedTariff } from "@/lib/datasets/tariff-server";
 import { createCatalogueSnapshotCache, loadCatalogue } from "@/lib/marketplace/catalogue";
 import { DEFAULT_MARKETPLACE_QUERY, foldSearchText, MAX_SEARCH_TERMS } from "@/lib/marketplace/query";
 import { marketplaceDeps } from "@/lib/marketplace/server";
-import { MODEL_REGISTRY, type ModelId } from "@/lib/models/registry";
+import { MODEL_REGISTRY, isModelOffered, type ModelId } from "@/lib/models/registry";
 import { readProtocolStatus } from "@/lib/sirius/protocol-status";
 import type { AssistantToolSource, ListDatasetsInput, ProtocolStatusSummary } from "./tools";
 
@@ -33,9 +33,10 @@ function protocolStatus(): ProtocolStatusSummary {
     tariff: tariff
       ? {
         version: tariff.version,
-        computeFeeByProfile: Object.fromEntries(
-          (Object.keys(tariff.computeFeeAtomic) as ModelId[]).map((id) => [MODEL_REGISTRY[id].label, amount(tariff.computeFeeAtomic[id])]),
-        ),
+        computeFeeByProfile: Object.fromEntries((Object.keys(tariff.computeFeeAtomic) as ModelId[]).flatMap((id) => {
+          const fee = tariff.computeFeeAtomic[id];
+          return fee !== undefined && isModelOffered(id) ? [[MODEL_REGISTRY[id].label, amount(fee)]] : [];
+        })),
         minimumProviderPrice: amount(tariff.minimumProviderAtomic),
       }
       : null,

@@ -1,6 +1,6 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
-import { modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
+import { isModelOffered, modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
 import {
   ESCROW_CHALLENGE_DAYS,
   MAX_DESCRIPTION_LENGTH,
@@ -66,7 +66,7 @@ export function parseCreateDatasetRequest(body: unknown): ParsedCreateDatasetReq
   const trainingConsent = parseTrainingConsent(input.trainingConsent);
   if (trainingConsent === null) return { ok: false, status: 400, error: "Consentement invalide" };
   const model = modelSelectionForId(input.modelId);
-  if (!model) return { ok: false, status: 400, error: "Profil d’entraînement obligatoire" };
+  if (!model || !isModelOffered(model.modelId)) return { ok: false, status: 400, error: "Profil d’entraînement obligatoire" };
 
   const description = typeof input.description === "string" ? input.description.trim() : undefined;
   return {

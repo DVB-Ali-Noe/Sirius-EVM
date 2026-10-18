@@ -51,7 +51,7 @@ test("sans facturation v7, les frais de calcul sont nuls : l'emprunteur paie exa
   const tariff = legacyTariff(18, "1000000000000000");
   assert.ok(tariff);
   assert.equal(tariff.version, "legacy-v6");
-  assert.deepEqual(tariff.computeFeeAtomic, { linear_regression: "0", logistic_regression: "0" });
+  assert.deepEqual(tariff.computeFeeAtomic, { linear_regression: "0", logistic_regression: "0", gradient_boosted_trees: "0" });
   const breakdown = providerPriceBreakdown(tariff, "linear_regression", "20000000000000000000");
   assert.ok(breakdown.ok);
   assert.equal(breakdown.total, BigInt("20000000000000000000"));
@@ -72,6 +72,14 @@ test("la décomposition affichée est la somme exacte et signale la part sous le
   assert.ok(below.ok && below.belowMinimum);
   assert.equal(providerPriceBreakdown(tariff, "linear_regression", "12.5").ok, false);
   assert.equal(providerPriceBreakdown(tariff, "linear_regression", "").ok, false);
+});
+
+test("un profil sans tarif dans la politique n'a pas de frais affichés et ne peut pas être publié", () => {
+  const tariff = tariffFromPolicy(policy(), scope) as PublishedTariff;
+  assert.equal(Object.hasOwn(tariff.computeFeeAtomic, "gradient_boosted_trees"), false);
+  assert.deepEqual(providerPriceBreakdown(tariff, "gradient_boosted_trees", "20000000"), { ok: false, reason: "invalid-amount" });
+  const priced = policy({ profiles: { ...policy().profiles, gradient_boosted_trees: { computeAmount: "4000000", maxFailureFee: "1000000", executionRateAtomicPerMs: "100", maxExecutionMs: 15000 } } });
+  assert.equal(tariffFromPolicy(priced, scope)?.computeFeeAtomic.gradient_boosted_trees, "4000000");
 });
 
 test("le tarif serveur suit la politique de facturation du runner, ou annonce son indisponibilité", async () => {

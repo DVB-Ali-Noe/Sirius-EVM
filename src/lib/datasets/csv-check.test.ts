@@ -6,6 +6,7 @@ import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_COLUMNS, MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { DatasetValidationError, MAX_HEADER_CHARS, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS, validateTrainingDataset } from "@/lib/tee/train";
 import { selectionForModelId, type ModelId } from "@/lib/models/registry";
+import { GBDT_MAX_DEPTH, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TREES, isHeldOut } from "@/lib/models/gbdt";
 import { EN_MESSAGES, translateEnglish as t } from "@/lib/i18n/english";
 import { checkFileSize, csvRejectionText, inspectCsv, type CsvRejection } from "./csv-check";
 
@@ -18,6 +19,9 @@ function csv(rows: number, features: number, target: (row: number) => string = (
 }
 
 const binary = (row: number) => String(row % 2);
+/** Classes présentes dans le fichier, mais la partie test (une ligne sur cinq) n'a que des 0. */
+const heldOutZero = (row: number) => (isHeldOut(row) ? "0" : String(row % 2));
+const GBDT_BUDGET_ROWS = Math.floor(GBDT_MAX_OPERATIONS / (31 * GBDT_MAX_DEPTH * GBDT_TREES));
 
 /** Verdict de l'enclave sur le même texte : `null` si accepté, sinon le message du refus. */
 function enclaveVerdict(text: string, modelId: ModelId): string | null {
@@ -63,6 +67,13 @@ test("un fichier accepté par le navigateur l'est par l'enclave, et inversement,
     { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "Infinity" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "Infinity refusé" },
     { text: `x,y\r\n${Array.from({ length: 150 }, (_, i) => `${i},${i}`).join("\r\n")}\r\n`, modelId: "linear_regression", accepted: true, label: "CRLF" },
     { text: `"x","y"\n${Array.from({ length: 150 }, (_, i) => `"${i}","${i}"`).join("\n")}`, modelId: "linear_regression", accepted: true, label: "guillemets, sans retour final" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary), modelId: "gradient_boosted_trees", accepted: true, label: "arbres au minimum de lignes" },
+    { text: csv(GBDT_MIN_ROWS - 1, 2, binary), modelId: "gradient_boosted_trees", accepted: false, label: "arbres sous le minimum de lignes" },
+    { text: csv(GBDT_BUDGET_ROWS, 31, binary), modelId: "gradient_boosted_trees", accepted: true, label: "arbres à la limite du budget" },
+    { text: csv(GBDT_BUDGET_ROWS + 1, 31, binary), modelId: "gradient_boosted_trees", accepted: false, label: "arbres au-dessus du budget" },
+    { text: csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), modelId: "gradient_boosted_trees", accepted: false, label: "arbres classes 1/2" },
+    { text: csv(GBDT_MIN_ROWS, 2, () => "0"), modelId: "gradient_boosted_trees", accepted: false, label: "arbres une seule classe" },
+    { text: csv(GBDT_MIN_ROWS, 2, heldOutZero), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : partie test sans classe 1" },
   ];
   for (const { text, modelId, accepted, label } of cases) {
     const verdict = enclaveVerdict(text, modelId);
@@ -83,6 +94,10 @@ test("la raison du refus correspond à celle de l'enclave", () => {
     [csv(200, 2).replace("x0,x1,y", `x0,x1,${"y".repeat(MAX_HEADER_CHARS + 1)}`), "linear_regression", "invalid-header", /en-têtes/],
     ["x,y\n", "linear_regression", "no-data-rows", /insuffisant/],
     [csv(MAX_CSV_ROWS, 1), "linear_regression", "too-many-rows", /trop de lignes/],
+    [csv(GBDT_MIN_ROWS - 1, 2, binary), "gradient_boosted_trees", "too-few-rows", /min 2500 lignes/],
+    [csv(GBDT_BUDGET_ROWS + 1, 31, binary), "gradient_boosted_trees", "compute-budget", /budget de calcul/],
+    [csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), "gradient_boosted_trees", "binary-target", /strictement 0 ou 1/],
+    [csv(GBDT_MIN_ROWS, 2, heldOutZero), "gradient_boosted_trees", "held-out-classes", /séparation entraînement \/ test/],
   ];
   for (const [text, modelId, kind, pattern] of expectations) {
     const inspection = inspectCsv(text, modelId);
@@ -124,6 +139,7 @@ test("les jeux d'exemple proposés par le formulaire passent le contrôle du nav
   const examples: Array<[string, ModelId, string, number]> = [
     ["public/examples/regression/housing-prices-train.csv", "linear_regression", "price_eur", 112],
     ["public/examples/classification/credit-default-train.csv", "logistic_regression", "defaulted", 480],
+    ["public/examples/classification/credit-risk-train.csv", "gradient_boosted_trees", "defaulted", 9600],
   ];
   for (const [path, modelId, target, rows] of examples) {
     const text = readFileSync(join(process.cwd(), path), "utf8");
@@ -159,6 +175,8 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
     { kind: "too-few-rows", rows: 99, minRows: MIN_TRAINING_ROWS },
     { kind: "compute-budget" },
     { kind: "logistic-target", target: "<b>y</b>" },
+    { kind: "binary-target", target: "y" },
+    { kind: "held-out-classes", target: "y" },
   ];
   for (const reason of reasons) {
     const text = csvRejectionText(reason, t);

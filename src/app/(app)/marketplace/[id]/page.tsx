@@ -135,7 +135,7 @@ export default function MarketplaceListingPage() {
             <dl className="mt-3 space-y-2 text-sm">
               <Fact label={t("Modèle")} value={modelDisplayName(model)} />
               <Fact label={t("Ce qu’il fait")} value={MODEL_REGISTRY[model.modelId].description} />
-              <Fact label={t("Ce que vous recevez")} value={t("Le modèle entraîné : ses coefficients et ses métriques de qualité.")} />
+              <Fact label={t("Ce que vous recevez")} value={model.modelId === "gradient_boosted_trees" ? t("Le modèle entraîné : ses arbres et ses métriques de qualité.") : t("Le modèle entraîné : ses coefficients et ses métriques de qualité.")} />
             </dl>
           ) : (
             <p className="mt-3 text-sm text-negative">{t("Profil d’entraînement manquant")}</p>

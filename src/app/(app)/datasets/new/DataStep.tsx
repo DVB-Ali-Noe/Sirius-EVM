@@ -30,6 +30,7 @@ interface DataStepProps {
 const EXAMPLES: Record<ModelId, { path: string; hint: string }> = {
   linear_regression: { path: "/examples/regression/housing-prices-train.csv", hint: "— 112 lignes d’entraînement, jeu de test séparé." },
   logistic_regression: { path: "/examples/classification/credit-default-train.csv", hint: "— 480 lignes d’entraînement, jeu de test séparé." },
+  gradient_boosted_trees: { path: "/examples/classification/credit-risk-train.csv", hint: "— 9 600 lignes d’entraînement, jeu de test séparé." },
 };
 
 export function exampleDatasetPath(modelId: ModelId): string {

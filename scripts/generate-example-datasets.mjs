@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const regressionOutput = resolve(root, "public/examples/regression/energy-demand.csv");
 const classificationOutput = resolve(root, "public/examples/classification/credit-default.csv");
+const treesOutput = resolve(root, "public/examples/classification/credit-risk.csv");
 
 let state = 42;
 function random() {
@@ -110,6 +111,42 @@ function creditDefaultRows() {
   return rows;
 }
 
+/**
+ * Risque à seuils, en U et à interactions (jeunes et seniors, endettement au-delà de 45 %,
+ * petits revenus très empruntés) : le cas où des arbres battent une logistique. 12 000 lignes :
+ * avec des feuilles d'au moins 1 000 lignes, quelques milliers ne permettent que des coupes proches de la médiane.
+ */
+function creditRiskRows() {
+  const rows = ["age_years,income_k_eur,debt_ratio_pct,utilization_pct,late_payments,loan_to_income_pct,defaulted"];
+  for (let index = 0; index < 12_000; index++) {
+    const age = clamp(Math.round(42 + normal() * 12), 19, 75);
+    const income = clamp(50 + 0.6 * (age - 42) + normal() * 16, 15, 150);
+    const debtRatio = clamp(36 + normal() * 16, 2, 95);
+    const utilization = clamp(45 + 0.4 * (debtRatio - 36) + normal() * 22, 1, 100);
+    const latePayments = clamp(Math.round(Math.abs(normal()) * 1.3 + (utilization > 85 ? 1 : 0)), 0, 8);
+    const loanToIncome = clamp(120 + normal() * 60, 10, 400);
+    const risk =
+      -2.4 +
+      (age < 30 || age > 60 ? 1.2 : 0) +
+      (debtRatio > 45 ? 1 : 0) +
+      (income < 40 && loanToIncome > 150 ? 1.2 : 0) +
+      (utilization > 75 ? 0.8 : 0) +
+      0.3 * latePayments +
+      normal() * 0.3;
+    const defaulted = Number(random() < sigmoid(risk));
+    rows.push([
+      age,
+      income.toFixed(2),
+      debtRatio.toFixed(2),
+      utilization.toFixed(2),
+      latePayments,
+      loanToIncome.toFixed(1),
+      defaulted,
+    ].join(","));
+  }
+  return rows;
+}
+
 async function writeDataset(output, rows) {
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, `${rows.join("\n")}\n`);
@@ -118,12 +155,16 @@ async function writeDataset(output, rows) {
 async function main() {
   const energyRows = energyDemandRows();
   const classificationRows = creditDefaultRows();
+  // Tiré après les deux autres : le générateur partagé laisse leurs fichiers inchangés.
+  const treesRows = creditRiskRows();
   await Promise.all([
     writeDataset(regressionOutput, energyRows),
     writeDataset(classificationOutput, classificationRows),
+    writeDataset(treesOutput, treesRows),
   ]);
   console.log(`Dataset synthétique écrit : ${regressionOutput} (8760 lignes)`);
   console.log(`Dataset synthétique écrit : ${classificationOutput} (600 lignes)`);
+  console.log(`Dataset synthétique écrit : ${treesOutput} (12000 lignes)`);
 }
 
 main().catch((error) => {

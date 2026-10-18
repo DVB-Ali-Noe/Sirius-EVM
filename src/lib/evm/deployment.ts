@@ -8,7 +8,8 @@ import { getPublicClient } from "./client";
 import { billingEnabled } from "@/lib/billing/config";
 import { resolveServerNetwork } from "./networks";
 
-const DATASET_VERSION = "sirius-dataset-v4";
+/** v5 garde l'interface de v4 et ajoute la liste de profils extensible par l'administrateur. */
+const DATASET_VERSIONS = ["sirius-dataset-v4", "sirius-dataset-v5"];
 const CACHE_MS = 60_000;
 let verifiedAt = 0;
 let verifiedKey = "";
@@ -28,12 +29,12 @@ async function verifyDeployment(allowPreviousEscrow = false): Promise<void> {
     if (
       (escrowVersion !== (billingEnabled() ? "sirius-escrow-usdc-v7" : "sirius-escrow-usdc-v6")
         && !(allowPreviousEscrow && ["sirius-escrow-usdc-v5", "sirius-escrow-usdc-v6", "sirius-escrow-usdc-v7"].includes(escrowVersion))) ||
-      datasetVersion !== DATASET_VERSION ||
+      !DATASET_VERSIONS.includes(datasetVersion) ||
       !addressesEqual(linkedDatasets, datasets) ||
       !addressesEqual(linkedEscrow, escrow)
     ) {
       throw new AppError(allowPreviousEscrow
-        ? "Contrats du reaper incompatibles : escrow v5, v6 ou v7 et registre dataset v4 lié requis"
+        ? "Contrats du reaper incompatibles : escrow v5, v6 ou v7 et registre dataset v4 ou v5 lié requis"
         : "Contrats EVM incompatibles avec la version de facturation configurée", 503);
     }
   } catch (error) {

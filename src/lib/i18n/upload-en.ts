@@ -64,6 +64,10 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
     "Compute budget exceeded: reduce the number of rows or features.",
   "Pour la régression logistique, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":
     "For logistic regression, the target column “{target}” must contain only 0 and 1, with both classes present.",
+  "Pour les arbres boostés, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":
+    "For boosted trees, the target column “{target}” must contain only 0 and 1, with both classes present.",
+  "Les arbres boostés mettent une ligne sur cinq de côté pour le test : les deux parties doivent contenir les classes 0 et 1 de « {target} ».":
+    "Boosted trees hold out one row in five for testing: both parts must contain classes 0 and 1 of “{target}”.",
 
   // Transition de sécurisation
   "Sécurisation sur ton appareil": "Securing on your device",

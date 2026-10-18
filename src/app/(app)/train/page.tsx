@@ -638,8 +638,8 @@ function TrainPageContent() {
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                     <Field label={t("Modèle (CID)")} value={j.modelCid ? truncate(j.modelCid) : "—"} mono />
                     <Field
-                      label={j.modelId === "linear_regression" ? "R²" : "Accuracy"}
-                      value={j.modelId === "linear_regression" ? (j.metrics?.r2?.toFixed(4) ?? "—") : (j.metrics?.accuracy?.toFixed(4) ?? "—")}
+                      label={j.modelId === "linear_regression" ? "R²" : j.modelId === "gradient_boosted_trees" ? "Held-out AUC" : "Accuracy"}
+                      value={(j.metrics?.[j.modelId === "linear_regression" ? "r2" : j.modelId === "gradient_boosted_trees" ? "heldOutAuc" : "accuracy"])?.toFixed(4) ?? "—"}
                     />
                   </dl>
                   {delivered[j.id] && (
@@ -963,13 +963,14 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
         <Field label={t("Version")} value={model.version ?? "—"} mono />
         <Field label={t("Cible")} value={model.target} />
         <Field label={t("Features")} value={model.features.join(", ")} />
-        {model.algo === "linear_regression" ? (
+        {model.algo === "linear_regression" && (
           <>
             <Field label="R²" value={model.metrics.r2.toFixed(6)} />
             <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
             <Field label="MAE" value={model.metrics.mae?.toFixed(6) ?? "—"} />
           </>
-        ) : (
+        )}
+        {model.algo === "logistic_regression" && (
           <>
             <Field label="Accuracy" value={model.metrics.accuracy.toFixed(6)} />
             <Field label="Precision" value={model.metrics.precision.toFixed(6)} />
@@ -977,11 +978,30 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
             <Field label="F1" value={model.metrics.f1.toFixed(6)} />
           </>
         )}
+        {model.algo === "gradient_boosted_trees" && (
+          <>
+            <Field label="Held-out AUC" value={model.metrics.heldOutAuc.toFixed(6)} />
+            <Field label="Held-out accuracy" value={model.metrics.heldOutAccuracy.toFixed(6)} />
+            <Field label="Held-out precision" value={model.metrics.heldOutPrecision.toFixed(6)} />
+            <Field label="Held-out recall" value={model.metrics.heldOutRecall.toFixed(6)} />
+            <Field label="Held-out F1" value={model.metrics.heldOutF1.toFixed(6)} />
+            <Field label="Train AUC" value={model.metrics.trainAuc.toFixed(6)} />
+          </>
+        )}
         <Field label="n" value={String(model.metrics.n)} />
       </dl>
       <div className="mt-2 text-xs text-muted">
-        <span className="font-medium text-foreground">{t("Coefficients")}</span>
-        <code className="ml-2 break-all font-mono">[{model.coefficients.join(", ")}]</code>
+        {model.algo === "gradient_boosted_trees" ? (
+          <>
+            <span className="font-medium text-foreground">{t("Arbres")}</span>
+            <code className="ml-2 font-mono">{model.trees.length}</code>
+          </>
+        ) : (
+          <>
+            <span className="font-medium text-foreground">{t("Coefficients")}</span>
+            <code className="ml-2 break-all font-mono">[{model.coefficients.join(", ")}]</code>
+          </>
+        )}
       </div>
       <details className="mt-3 rounded-lg border border-border bg-surface/30 p-3">
         <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Évaluer sur un CSV de test")}</summary>
@@ -1012,8 +1032,9 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
             <Field label={t("Lignes de test")} value={String(evaluation.n)} />
           </dl>
         )}
-        {evaluation?.algo === "logistic_regression" && (
+        {(evaluation?.algo === "logistic_regression" || evaluation?.algo === "gradient_boosted_trees") && (
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-5">
+            {evaluation.algo === "gradient_boosted_trees" && <Field label="AUC" value={evaluation.auc?.toFixed(6) ?? "—"} />}
             <Field label="Accuracy" value={evaluation.accuracy.toFixed(6)} />
             <Field label="Precision" value={evaluation.precision.toFixed(6)} />
             <Field label="Recall" value={evaluation.recall.toFixed(6)} />
@@ -1050,7 +1071,7 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
             {t("Prédiction")} <span className="font-medium text-foreground">{prediction.value.toFixed(6)} {model.target}</span>
           </p>
         )}
-        {prediction?.algo === "logistic_regression" && (
+        {prediction && prediction.algo !== "linear_regression" && (
           <p className="mt-2 text-xs text-muted">
             {t("Probabilité (classe 1)")} <span className="font-medium text-foreground">{prediction.probability.toFixed(6)}</span>
             <span className="ml-3">{t("Classe prédite")} <span className="font-medium text-foreground">{prediction.label}</span></span>

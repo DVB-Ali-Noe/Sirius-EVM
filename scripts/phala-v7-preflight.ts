@@ -114,7 +114,7 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
       client.readContract({ address: contracts.kyb, abi: siriuskybregistryAbi, functionName: "isKybValid",
         args: ["0x000000000000000000000000000000000000dEaD"], blockNumber }),
     ]);
-    if (version !== "sirius-escrow-usdc-v7" || datasetVersion !== "sirius-dataset-v4"
+    if (version !== "sirius-escrow-usdc-v7" || !["sirius-dataset-v4", "sirius-dataset-v5"].includes(datasetVersion)
       || authorizer.toLowerCase() !== config.runner || token.toLowerCase() !== config.usdc || kyb.toLowerCase() !== contracts.kyb
       || datasets.toLowerCase() !== contracts.datasets || datasetKyb.toLowerCase() !== contracts.kyb
       || linkedEscrow.toLowerCase() !== contracts.escrow || openKyb !== (config.network === "testnet")) {

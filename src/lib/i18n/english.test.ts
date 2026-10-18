@@ -77,7 +77,8 @@ test("chaque traduction conserve les paramètres de sa clé", () => {
 });
 
 test("les noms publics des modèles sont anglais sans modifier leurs identifiants", () => {
-  assert.deepEqual(Object.keys(MODEL_REGISTRY), ["linear_regression", "logistic_regression"]);
+  assert.deepEqual(Object.keys(MODEL_REGISTRY), ["linear_regression", "logistic_regression", "gradient_boosted_trees"]);
+  assert.equal(modelDisplayName(selectionForModelId("gradient_boosted_trees")), "Binary gradient-boosted trees v1.0.0");
   assert.equal(modelDisplayName(selectionForModelId("linear_regression")), "Linear regression v1.0.0");
   assert.equal(modelDisplayName(selectionForModelId("logistic_regression")), "Binary logistic regression v1.0.0");
   assert.equal(MODEL_REGISTRY.linear_regression.description, "Predicts a continuous numeric value.");

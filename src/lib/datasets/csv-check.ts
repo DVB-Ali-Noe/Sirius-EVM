@@ -7,6 +7,7 @@ import {
   MIN_ROWS_PER_PARAMETER,
   MIN_TRAINING_ROWS,
 } from "@/lib/tee/train";
+import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import type { ModelId } from "@/lib/models/registry";
 import type { Translate } from "@/lib/copy/disclaimers";
 import { formatCount, formatLimitBytes } from "@/lib/copy/numbers";
@@ -43,7 +44,9 @@ export type CsvRejection =
   | { kind: "too-many-features"; found: number; maxFeatures: number }
   | { kind: "too-few-rows"; rows: number; minRows: number }
   | { kind: "compute-budget" }
-  | { kind: "logistic-target"; target: string };
+  | { kind: "logistic-target"; target: string }
+  | { kind: "binary-target"; target: string }
+  | { kind: "held-out-classes"; target: string };
 
 export interface CsvSummary {
   /** Lignes de données, en-tête exclu. */
@@ -118,9 +121,23 @@ export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
   summary.target = header[targetIdx];
   summary.features = featureIdx.map((column) => header[column]);
   const parameterCount = featureIdx.length + 1;
-  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER);
+  const trees = modelId === "gradient_boosted_trees";
+  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER, trees ? GBDT_MIN_ROWS : 0);
   if (rows.length < requiredRows) {
     return { ok: false, reason: { kind: "too-few-rows", rows: rows.length, minRows: requiredRows }, summary };
+  }
+  if (trees) {
+    if (gbdtOperations(rows.length, featureIdx.length) > GBDT_MAX_OPERATIONS) return { ok: false, reason: { kind: "compute-budget" }, summary };
+    const target = header[targetIdx];
+    if (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1") ||
+      !rows.some((row) => row[targetIdx] === "0") || !rows.some((row) => row[targetIdx] === "1")) {
+      return { ok: false, reason: { kind: "binary-target", target }, summary };
+    }
+    const sides = [false, true].map((heldOut) => rows.filter((_, row) => isHeldOut(row) === heldOut));
+    if (!sides.every((side) => side.some((row) => row[targetIdx] === "0") && side.some((row) => row[targetIdx] === "1"))) {
+      return { ok: false, reason: { kind: "held-out-classes", target }, summary };
+    }
+    return { ok: true, summary: summary as CsvSummary };
   }
   const logistic = modelId === "logistic_regression";
   const operations = rows.length * parameterCount * (logistic ? LOGISTIC_ITERATIONS : parameterCount);
@@ -179,6 +196,14 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       return t("Budget de calcul dépassé : réduis le nombre de lignes ou de variables.");
     case "logistic-target":
       return t("Pour la régression logistique, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.", {
+        target: reason.target,
+      });
+    case "binary-target":
+      return t("Pour les arbres boostés, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.", {
+        target: reason.target,
+      });
+    case "held-out-classes":
+      return t("Les arbres boostés mettent une ligne sur cinq de côté pour le test : les deux parties doivent contenir les classes 0 et 1 de « {target} ».", {
         target: reason.target,
       });
   }

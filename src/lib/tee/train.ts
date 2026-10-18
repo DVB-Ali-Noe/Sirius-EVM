@@ -1,7 +1,8 @@
-import { MODEL_REGISTRY, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
+import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
+import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
-export type TrainedModel = LinearRegressionModel | LogisticRegressionModel;
+export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
 const RIDGE = 1e-8;
 export const MAX_TRAINING_FEATURES = 31;
@@ -34,7 +35,7 @@ function numericColumns(header: string[], rows: string[][]): number[] {
   return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
 }
 
-function assertWithinDeadline(deadline: number): void {
+export function assertWithinDeadline(deadline: number): void {
   if (performance.now() > deadline) throw new Error("budget de calcul dépassé");
 }
 
@@ -53,7 +54,8 @@ interface TrainingColumns {
   featureIdx: number[];
 }
 
-function trainingColumns(csv: Buffer, target: string | undefined, deadline: number): TrainingColumns {
+/** `minRows` : plancher propre au profil, en plus de celui qui dépend du nombre de paramètres. */
+export function trainingColumns(csv: Buffer, target: string | undefined, deadline: number, minRows = 0): TrainingColumns {
   const table = parseCsv(csv.toString("utf-8"));
   assertWithinDeadline(deadline);
   if (table.length < 2) throw new DatasetValidationError("dataset insuffisant");
@@ -72,7 +74,7 @@ function trainingColumns(csv: Buffer, target: string | undefined, deadline: numb
   if (!numeric.includes(targetIdx)) throw new DatasetValidationError("colonne cible non numérique");
   const featureIdx = numeric.filter((column) => column !== targetIdx);
   const parameterCount = featureIdx.length + 1;
-  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER);
+  const requiredRows = Math.max(MIN_TRAINING_ROWS, parameterCount * MIN_ROWS_PER_PARAMETER, minRows);
   if (rows.length < requiredRows) {
     throw new DatasetValidationError(`dataset trop petit pour préserver la confidentialité (min ${requiredRows} lignes)`);
   }
@@ -86,10 +88,37 @@ function assertTrainingBudget(rows: number, parameters: number, logistic: boolea
   }
 }
 
+/**
+ * Contrôles du profil arbres après ceux des colonnes, dans l'ordre que `csv-check.ts` reproduit :
+ * budget, cible 0/1 avec les deux classes, puis les deux classes de chaque côté de la séparation.
+ */
+export function assertGbdtDataset(rows: string[][], targetIdx: number, featureCount: number): void {
+  if (gbdtOperations(rows.length, featureCount) > GBDT_MAX_OPERATIONS) {
+    throw new DatasetValidationError("budget de calcul dépassé : réduis le nombre de lignes ou de features");
+  }
+  const seen = [[false, false], [false, false]];
+  for (let row = 0; row < rows.length; row++) {
+    const value = rows[row][targetIdx];
+    if (value !== "0" && value !== "1") throw new DatasetValidationError("la cible des arbres boostés doit être strictement 0 ou 1");
+    seen[isHeldOut(row) ? 1 : 0][value === "1" ? 1 : 0] = true;
+  }
+  if ((!seen[0][0] && !seen[1][0]) || (!seen[0][1] && !seen[1][1])) {
+    throw new DatasetValidationError("la cible des arbres boostés doit contenir les classes 0 et 1");
+  }
+  if (!seen.every(([zero, one]) => zero && one)) {
+    throw new DatasetValidationError("chaque partie de la séparation entraînement / test doit contenir les classes 0 et 1");
+  }
+}
+
 /** Contrôle d'ingestion ; renvoie les volumes publiables pour éviter de relire le fichier. */
 export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): DatasetMetrics {
   const deadline = performance.now() + trainingTimeoutMs();
-  const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline);
+  const trees = selection.modelId === "gradient_boosted_trees";
+  const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_MIN_ROWS : 0);
+  if (trees) {
+    assertGbdtDataset(rows, targetIdx, featureIdx.length);
+    return { rowCount: rows.length, columnCount: header.length };
+  }
   assertTrainingBudget(rows.length, featureIdx.length + 1, selection.modelId === "logistic_regression");
   if (
     selection.modelId === "logistic_regression" &&

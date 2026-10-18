@@ -143,7 +143,7 @@ export function PricingStep({
         )}
       </div>
 
-      {tariff ? (
+      {tariff && tariff.computeFeeAtomic[modelId] !== undefined ? (
         <div className="flex flex-col gap-2">
           {providerAtomic !== null ? (
             <PriceBreakdown

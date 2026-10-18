@@ -1,5 +1,6 @@
 import { MODEL_REGISTRY, parseDeliveredModel, type DeliveredModel, type ModelId, type ModelSelection } from "@/lib/models/registry";
 import { trainLinearRegression, trainLogisticRegression } from "./train";
+import { trainGradientBoostedTrees } from "./train-gbdt";
 
 interface TrainingModelDefinition {
   id: ModelId;
@@ -27,6 +28,11 @@ export const TRAINING_MODEL_REGISTRY = {
     ...MODEL_REGISTRY.logistic_regression,
     train: trainLogisticRegression,
     validate: (model) => validatesModel("logistic_regression", model),
+  },
+  gradient_boosted_trees: {
+    ...MODEL_REGISTRY.gradient_boosted_trees,
+    train: trainGradientBoostedTrees,
+    validate: (model) => validatesModel("gradient_boosted_trees", model),
   },
 } satisfies Record<ModelId, TrainingModelDefinition>;
 
