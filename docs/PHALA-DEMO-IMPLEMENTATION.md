@@ -524,3 +524,15 @@ Budget accordé : 0,50 USD et 2 h. Solde avant : 10,11 USD. Depuis le VPS (clé 
 Deux self-trains de 30 000 lignes × 23 variables (CSV synthétique de 2 760 083 octets) en régression linéaire, à 15:48 et 15:53 UTC : import 200, entraînement 201, environ 5 s entre l’appel `/api/train` et l’affichage du résultat (téléchargement IPFS, worker et envoi du modèle compris), `n = 30000`, aucune 503 ni arrêt du worker. Le cas logistique (144 M d’opérations) n’a pas été mesuré : quota de 4 opérations par wallet atteint ; quatre tentatives refusées en 429. Délai de 15 s et heap de 128 Mio conservés. Session fermée et CVM `stopped` vérifiées à 16:03 UTC ; solde 10,09 USD.
 
 Constats d’interface : le refus 429 s’affichait en haut de la page, hors écran ; chaque refus laissait un brouillon vide ; le lien « Runner attestation » ouvrait un JSON brut. Corrigés dans la PR [#106](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/106) : erreur sous le bouton d’entraînement, suppression du brouillon sur tout refus 4xx du runner, page `/phala/attestation` (contrôles passés, mesures, lecture sans jargon, état « runner éteint », téléchargement de la preuve brute ; autorisée sur l’adresse démo).
+
+### Test navigateur « un seul bouton » — avant correctif, 18 octobre 2026
+
+Sur `origin/staging` (`54cbf37`), `pnpm exec playwright test -c playwright.phala.config.ts --retries=0 -g "un seul bouton"` échoue : `e2e/phala/demo.spec.ts:99` attend le bouton « Connect my testnet wallet » pendant 30 s ; les 5 autres scénarios passent. L’instantané de page montre à la place le bouton « Connect » du menu de choix du wallet.
+
+Cause : le test était devenu faux, pas le code. Depuis les PR #54 et #55 (`582d552`, `675a99c`, 4 octobre), sans wallet connecté, `/phala` affiche `ConnectButton` (menu Google/extensions EIP-6963) au lieu de `SignInCta`. Ce choix est consigné dans `docs/passage-mainnet/12-test-phala.md`. `SignInCta` n’est plus rendu qu’une fois le wallet connecté et affiche alors « Sign in » : le libellé « Connect my testnet wallet » n’apparaît plus jamais. Le parcours compte donc deux gestes, choisir le wallet puis signer.
+
+### Test navigateur — après correctif, 18 octobre 2026
+
+Le scénario devient « menu de choix du wallet puis signature, sans perdre l’exemple choisi ». Il suit le parcours réel : « Connect » dans la page → « Test Wallet » dans le menu → aucune signature tant que l’utilisateur n’a pas cliqué → « Sign in » → une signature exactement → « Train with Phala » actif, `housing.csv` conservé. Aucune attente assouplie ni délai allongé ; code applicatif inchangé.
+
+Vérifié : 6/6 scénarios `playwright.phala.config.ts`, typage, lint, `pnpm test:phala-demo` 28/28. Le lint local ignore `experiments/`, dossier non suivi copié depuis le dépôt principal à la création du worktree et absent de la CI.
