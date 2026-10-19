@@ -135,4 +135,34 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Le serveur a renvoyé un autre prix": "The server returned a different price",
   "Le serveur a renvoyé une autre taille de fichier": "The server returned a different file size",
   "Le serveur a renvoyé d’autres termes de publication": "The server returned different publication terms",
+
+  // Rapport de qualité à l'import (E1), calculé et gardé dans le navigateur
+  "Rapport de qualité": "Quality report",
+  "Cible différente de la dernière colonne : à vérifier": "Target differs from the last column: please check",
+  "La dernière colonne, {expected}, contient des cellules vides ou non numériques : l’entraînement l’écarte et prendra {actual} comme cible.":
+    "The last column, {expected}, has empty or non-numeric cells: training drops it and will use {actual} as the target.",
+  "Aucun signalement.": "Nothing to report.",
+  "Variables qui semblent recopier la cible : à vérifier": "Variables that seem to copy the target: please check",
+  "identique": "identical",
+  "inverse (1 − cible)": "inverse (1 − target)",
+  "corrélation {value}": "correlation {value}",
+  "Une variable qui contient la réponse donne un modèle trompeur. Retire-la si elle n’est pas connue au moment de prédire.":
+    "A variable that contains the answer gives a misleading model. Remove it if it is not known at prediction time.",
+  "Colonnes écartées par l’entraînement : à vérifier": "Columns dropped by training: please check",
+  "{missing} vides, {invalid} non numériques": "{missing} empty, {invalid} non-numeric",
+  "Une seule cellule vide ou non numérique écarte toute la colonne. Complète-les pour l’utiliser.":
+    "A single empty or non-numeric cell drops the whole column. Fill them in to use it.",
+  "Colonnes constantes : à vérifier": "Constant columns: please check",
+  "Une seule valeur sur tout le fichier : la colonne n’apporte aucune information.": "A single value across the whole file: the column carries no information.",
+  "Lignes en double : à vérifier": "Duplicate rows: please check",
+  "{rows} lignes ont au moins un double sur les colonnes d’entraînement ; une même ligne revient jusqu’à {max} fois.":
+    "{rows} rows have at least one duplicate on the training columns; a single row appears up to {max} times.",
+  "Les doublons peuvent être légitimes. Une ligne répétée pèse davantage et se mémorise plus facilement.":
+    "Duplicates can be legitimate. A repeated row weighs more and is memorized more easily.",
+  "Classes déséquilibrées : à vérifier": "Imbalanced classes: please check",
+  "{zeros} lignes à 0, {ones} lignes à 1 : la classe minoritaire fait {share} % du fichier.":
+    "{zeros} rows at 0, {ones} rows at 1: the minority class is {share}% of the file.",
+  "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
+  "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré. Le fichier publié n’est pas modifié.":
+    "This report stays in your browser: it is neither sent nor saved. The published file is not modified.",
 };
