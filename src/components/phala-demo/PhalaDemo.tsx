@@ -10,9 +10,7 @@ import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
-import { tableWithTargetLast } from "@/lib/phala-demo/csv";
-import { isNumericCell } from "@/lib/datasets/csv-check";
-import { qualityReport } from "@/lib/datasets/quality";
+import { demoQualityReport } from "@/lib/phala-demo/csv";
 import { QualityReportPanel } from "@/components/datasets/QualityReportPanel";
 import { trainDemoFile } from "@/lib/phala-demo/training-client";
 import { openDemoDelivery } from "@/lib/phala-demo/delivery-client";
@@ -41,15 +39,7 @@ export function PhalaDemo() {
 function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>> }) {
   const { locale, t } = useLocale();
   const { file, example, columns, rows, table, target, model } = draft;
-  // Rapport sur le fichier tel que l'enclave le recevra (cible choisie en dernier). Une cible non
-  // numérique est refusée par `csvWithTargetLast` : on l'annonce, sans le « changement de cible » d'E1.
-  const quality = useMemo(() => {
-    const index = columns.indexOf(target);
-    if (!file || index < 0) return null;
-    const report = qualityReport(tableWithTargetLast(table, target));
-    const invalidTarget = table.slice(1).filter((row) => !isNumericCell(row[index] ?? "")).length;
-    return report && { report: { ...report, targetShift: null }, invalidTarget };
-  }, [file, table, columns, target]);
+  const quality = useMemo(() => (file ? demoQualityReport(table, target) : null), [file, table, target]);
   const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
   const connected = useWalletStore((state) => state.connected);

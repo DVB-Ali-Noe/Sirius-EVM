@@ -1,4 +1,5 @@
 import { isNumericCell } from "@/lib/datasets/csv-check";
+import { qualityReport, type QualityReport } from "@/lib/datasets/quality";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 
@@ -13,6 +14,28 @@ export function tableWithTargetLast(table: string[][], target: string): string[]
   if (index < 0) return table;
   const order = [...header.keys()].filter((column) => column !== index).concat(index);
   return table.map((row) => order.map((column) => row[column] ?? ""));
+}
+
+/**
+ * Rapport de qualité de `/phala`, sur le fichier tel que l'enclave le recevra (cible choisie en dernier).
+ * Une cible non numérique est refusée par `csvWithTargetLast` : elle est annoncée par `invalidTarget`,
+ * sans le « changement de cible » d'E1 ni une seconde mention parmi les colonnes écartées ou texte.
+ */
+export function demoQualityReport(table: string[][], target: string): { report: QualityReport; invalidTarget: number } | null {
+  const index = table[0]?.indexOf(target) ?? -1;
+  if (index < 0) return null;
+  const report = qualityReport(tableWithTargetLast(table, target));
+  if (!report) return null;
+  const invalidTarget = table.slice(1).filter((row) => !isNumericCell(row[index] ?? "")).length;
+  return {
+    report: {
+      ...report,
+      targetShift: null,
+      excluded: report.excluded.filter(({ column }) => column !== target),
+      textColumns: report.textColumns.filter((column) => column !== target),
+    },
+    invalidTarget,
+  };
 }
 
 export function csvWithTargetLast(text: string, target: string): Uint8Array<ArrayBuffer> {

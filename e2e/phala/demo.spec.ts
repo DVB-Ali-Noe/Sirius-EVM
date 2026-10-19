@@ -78,6 +78,7 @@ test("rapport de qualité sur la cible choisie : fuite signalée, cible non num�
   await page.getByLabel("Target column").selectOption("last");
   await expect(page.getByText("Non-numeric target column: please check")).toBeVisible();
   await expect(page.getByText("Target differs from the last column: please check")).toHaveCount(0);
+  await expect(page.getByText("Columns dropped by training: please check")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
 });
 

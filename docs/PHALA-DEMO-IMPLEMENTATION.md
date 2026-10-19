@@ -728,3 +728,13 @@ Après :
 - Plan : les commandes VPS et CLI Phala sont exécutées par l'agent principal ; Noé ouvre et ferme la session dans `/operator` et donne les accords.
 
 Rien de déployé.
+
+### Rapport de qualité sur `/phala` — avant, 19 octobre 2026
+
+`/phala` n'affichait aucun rapport de qualité ; la colonne à prédire est choisie par l'utilisateur, une fuite de la cible (cas du 18 octobre) passait inaperçue. `csvWithTargetLast` acceptait une cible au-delà de 10¹² que l'enclave refusait ensuite, après consommation d'une opération de quota.
+
+### Rapport de qualité sur `/phala` — après, 19 octobre 2026
+
+PR [#118](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/118). `demoQualityReport` (`src/lib/phala-demo/csv.ts`) applique `quality.ts`, inchangé, au tableau réordonné par `tableWithTargetLast`, le même que le fichier envoyé à l'enclave. Une cible non numérique est annoncée en jaune au-dessus du rapport (« l'entraînement sera refusé »), sans « cible qui change » ni seconde mention parmi les colonnes écartées ; le bouton reste actif, `csvWithTargetLast` refuse comme avant. `csvWithTargetLast` applique désormais à la cible la règle numérique de l'enclave (`isNumericCell`, borne 10¹²) ; une cellule faite d'espaces, lue 0 par l'enclave, n'y est plus refusée. `QualityReportPanel` déplacé vers `src/components/datasets/`. Navigateur seulement : rien d'envoyé ni stocké.
+
+Vérifié : `pnpm test` 1 090/1 090, `test:phala-demo` 42/42, typage, ESLint, build, e2e Phala en local 7/7 (ce fichier ne tourne pas en CI), captures locales (exemple propre, fuite, cible non numérique).
