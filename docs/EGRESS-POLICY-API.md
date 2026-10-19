@@ -190,7 +190,7 @@ interface EgressProfile {
   minRowsPerParameter: number;
   minLeafRows?: number;
   maxInfluencePerDistinctRow: number;
-  maxGeneralizationGap: number;
+  maxGeneralizationGap?: number; // écart de perte relatif ; inactif tant que non calibré (annexe B)
   maxAucGap?: number;           // trainAuc − heldOutAuc ; inactif tant que non calibré (annexe B)
   maxMembershipAuc: number;
   significantDigits: number;
@@ -236,7 +236,7 @@ Règles déterministes et action par défaut. **Les valeurs sont provisoires et 
 | Influence par ligne distincte | poids d’une ligne répétée | k ≤ 2 (provisoire) | Toujours appliqué dans l’enclave |
 | Doublons | lignes répétées, multiplicité maximale | — | **Signaler au fournisseur** dans le rapport de qualité ; aucun refus automatique (doublons légitimes, comme dans la #111) |
 | Écart d’AUC | `trainAuc − heldOutAuc` | **Non applicable tant que l’annexe B ne l’a pas calibré** | Refuser, une fois activé. Condition d’activation : les jeux d’exemple de la #111 passent. Le test de la #111 ne borne l’écart que dans un sens (`trainAuc ≥ heldOutAuc − 0,02`) ; un plafond à 0,02 pourrait refuser les arbres sur leurs propres exemples. |
-| Écart de perte | `holdoutLoss − trainLoss`, relatif | ≤ 5 % (provisoire) | Dégrader (régularisation plus forte) puis refuser |
+| Écart de perte | `holdoutLoss − trainLoss`, relatif | **Non applicable tant que l’annexe B ne l’a pas calibré** | Dégrader (régularisation plus forte) puis refuser, une fois activé. Condition d’activation : les jeux d’exemple de la #111 passent. |
 | Appartenance | AUC des pertes entraînement contre test | ≤ 0,55 (provisoire) | Refuser |
 | Arrondi | chiffres significatifs ; `n` arrondi et métriques held-out pour les nouveaux profils seulement | 6 chiffres ; `n` à la centaine (provisoire) | Toujours appliqué |
 | Taille maximale | octets du livrable | 256 Kio (existant) | Refuser |
@@ -627,4 +627,4 @@ Non réalisée à la date de cette note : les valeurs du §2.3 sont provisoires.
 
 1. Relever, pour chaque profil, `trainAuc − heldOutAuc` (signé), l’écart de perte relatif et l’AUC d’appartenance par la perte sur le modèle normal, y compris sur les jeux d’exemple de la #111.
 2. Rejouer le banc canaris de la #111 (lignes atypiques ×1 et ×5) avec et sans plafond d’influence *k* = 1, 2, 4, et mesurer l’effet sur l’AUC held-out.
-3. Fixer chaque seuil juste au-dessus des valeurs des modèles normaux et sous celles des modèles qui restituent les canaris ; reporter ici les tableaux et la commande. Le seuil d’écart d’AUC ne s’active que si tous les jeux d’exemple de la #111 passent.
+3. Fixer chaque seuil juste au-dessus des valeurs des modèles normaux et sous celles des modèles qui restituent les canaris ; reporter ici les tableaux et la commande. Les seuils d’écart d’AUC et d’écart de perte ne s’activent que si tous les jeux d’exemple de la #111 passent.
