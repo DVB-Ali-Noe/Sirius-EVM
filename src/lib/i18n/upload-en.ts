@@ -165,4 +165,11 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
   "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.":
     "This report stays in your browser: it is neither sent nor saved, and it does not modify your file.",
+  "Cellules faites d’espaces, lues comme 0 : à vérifier": "Cells made only of spaces, read as 0: please check",
+  "{count} cellules": "{count} cells",
+  "Une cellule qui ne contient que des espaces compte comme la valeur 0, pas comme une valeur manquante.":
+    "A cell containing only spaces counts as the value 0, not as a missing value.",
+  "Valeurs lues comme des nombres en base 16, 2 ou 8 : à vérifier": "Values read as base 16, 2 or 8 numbers: please check",
+  "Une valeur préfixée 0x, 0b ou 0o est lue en hexadécimal, binaire ou octal : 0x10 vaut 16.":
+    "A value prefixed with 0x, 0b or 0o is read as hexadecimal, binary or octal: 0x10 equals 16.",
 };

@@ -63,6 +63,16 @@ test("cible non numérique sur /phala : annoncée une seule fois, ni « cible qu
   assert.equal(demoQualityReport(table, "absente"), null);
 });
 
+test("cible choisie sur /phala : ses cellules d'espaces, acceptées et lues 0, sont signalées", () => {
+  const text = `score,a,b\n${Array.from({ length: 200 }, (_, row) => `${row === 3 ? "  " : row === 8 ? "0x1" : row % 7},${(row * 37) % 101},${(row * 53) % 97}`).join("\n")}`;
+  const result = demoQualityReport(parseCsv(text), "score");
+  assert.equal(result?.invalidTarget, 0);
+  assert.deepEqual(result?.report.blankAsZero, [{ column: "score", cells: 1 }]);
+  assert.deepEqual(result?.report.prefixedNumbers, [{ column: "score", cells: 1 }]);
+  // Même lecture que l'enclave : aucun refus ajouté par le navigateur.
+  assert.doesNotThrow(() => csvWithTargetLast(text, "score"));
+});
+
 test("les exemples de /phala, avec leur cible, ne déclenchent ni fuite ni cible non numérique", () => {
   for (const sample of DEMO_EXAMPLES) {
     const table = parseCsv(readFileSync(join(process.cwd(), "public", sample.path), "utf8"));
