@@ -7,31 +7,36 @@ import { hasQualitySignal, type QualityReport } from "@/lib/datasets/quality";
 
 const COLUMN_CLASS = "rounded-full border border-border px-2 py-0.5 font-mono wrap-anywhere";
 
+/** Cible qui change en silence : affichée au-dessus du résultat du contrôle, qui passe alors en ton avertissement. */
+export function TargetShiftWarning({ shift }: { shift: NonNullable<QualityReport["targetShift"]> }) {
+  const { t } = useLocale();
+  return (
+    <div role="alert" className="mt-2 rounded-lg border border-yellow-400/40 bg-yellow-400/10 p-3 text-xs text-foreground/90">
+      <p className="font-medium text-yellow-400">{t("Cible différente de la dernière colonne : à vérifier")}</p>
+      <p className="mt-1">
+        {t("La dernière colonne, {expected}, contient des cellules vides ou non numériques : l’entraînement l’écarte et prendra {actual} comme cible.", {
+          expected: shift.expected,
+          actual: shift.actual,
+        })}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Rapport de qualité (E1) : signalements « à vérifier », jamais des refus. Il reste dans la page :
  * aucun envoi, aucun stockage. Noms de colonnes et comptes seulement, jamais de valeur de cellule.
+ * Le changement de cible est affiché à part, au-dessus du résultat du contrôle (`TargetShiftWarning`).
  */
 export function QualityReportPanel({ report }: { report: QualityReport }) {
   const { t } = useLocale();
   const titleId = useId();
-  const { targetShift, excluded, textColumns, constant, duplicates, targetCopies, classBalance } = report;
+  const { excluded, textColumns, constant, duplicates, targetCopies, classBalance } = report;
   const signals = hasQualitySignal(report);
 
   return (
     <section aria-labelledby={titleId} className="mt-2 rounded-lg border border-border bg-surface/30 p-3 text-xs text-foreground/90">
       <h3 id={titleId} className="font-medium text-foreground">{t("Rapport de qualité")}</h3>
-
-      {targetShift && (
-        <div role="alert" className="mt-2 rounded-lg border border-yellow-400/40 bg-yellow-400/10 p-2.5">
-          <p className="font-medium text-yellow-400">{t("Cible différente de la dernière colonne : à vérifier")}</p>
-          <p className="mt-1">
-            {t("La dernière colonne, {expected}, contient des cellules vides ou non numériques : l’entraînement l’écarte et prendra {actual} comme cible.", {
-              expected: targetShift.expected,
-              actual: targetShift.actual,
-            })}
-          </p>
-        </div>
-      )}
 
       {!signals && <p className="mt-2 text-muted">{t("Aucun signalement.")}</p>}
 
