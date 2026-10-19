@@ -112,7 +112,7 @@ export function QualityReportPanel({ report }: { report: QualityReport }) {
         )}
       </ul>
 
-      <p className="mt-3 text-muted">{t("Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré. Le fichier publié n’est pas modifié.")}</p>
+      <p className="mt-3 text-muted">{t("Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.")}</p>
     </section>
   );
 }

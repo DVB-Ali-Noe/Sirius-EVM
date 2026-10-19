@@ -67,6 +67,21 @@ test("CSV personnel : cible explicite et interface mobile sans débordement", as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("rapport de qualité sur la cible choisie : fuite signalée, cible non numérique annoncée, bouton actif", async ({ page }) => {
+  await mock(page, "open"); await page.goto("/phala"); await connect(page);
+  const rows = Array.from({ length: 120 }, (_, row) => `${row % 2},${row % 2},${(row * 37) % 101},${row === 5 ? "" : (row * 53) % 97}`);
+  await page.getByLabel("Your CSV · 3 MB maximum").setInputFiles({ name: "leak.csv", mimeType: "text/csv", buffer: Buffer.from(`y,copy,noise,last\n${rows.join("\n")}`) });
+  await page.getByLabel("Target column").selectOption("y");
+  await expect(page.getByText("Variables that seem to copy the target: please check")).toBeVisible();
+  await expect(page.getByText("copy · identical")).toBeVisible();
+  await expect(page.getByText("Non-numeric target column: please check")).toHaveCount(0);
+  await page.getByLabel("Target column").selectOption("last");
+  await expect(page.getByText("Non-numeric target column: please check")).toBeVisible();
+  await expect(page.getByText("Target differs from the last column: please check")).toHaveCount(0);
+  await expect(page.getByText("Columns dropped by training: please check")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
+});
+
 test("accès opérateur non listé : visiteur refusé même avec un code", async ({ page }) => {
   await mock(page); await operatorController(page, "operator-code-123", false);
   await page.goto("/operator");

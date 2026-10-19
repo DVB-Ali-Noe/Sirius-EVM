@@ -7,7 +7,7 @@ import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import { csvRejectionText, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
 import type { QualityReport } from "@/lib/datasets/quality";
-import { QualityReportPanel, TargetShiftWarning } from "./QualityReportPanel";
+import { QualityReportPanel, TargetShiftWarning } from "@/components/datasets/QualityReportPanel";
 import { DATASET_CATEGORIES, DATASET_CATEGORY_LABEL_KEYS, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from "@/lib/datasets/publication";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, type DataValues, type LoadedFile } from "./wizard-types";
