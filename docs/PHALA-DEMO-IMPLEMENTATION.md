@@ -627,3 +627,15 @@ Vérifié : `pnpm test:phala-demo` 38/38 (10 nouveaux), typage, ESLint hors `exp
 Avant : `composes/` vide, la page affichait l'image et le commit « déclarés ». Session ouverte par Noé à 20:16 UTC uniquement pour cette lecture (aucun entraînement). `phala cvms attestation --json` → `tcb_info.app_compose` : 23 765 octets, SHA-256 `61581af7…950a`, égal au hash Compose attesté et épinglé ; image du service `runner` `sirius-runner@sha256:78839668…6eff4` ; aucune valeur secrète (les variables d'environnement sont chiffrées à part, seuls leurs noms figurent dans `allowed_envs`).
 
 Après : fichier versionné tel quel dans `src/lib/phala-demo/composes/61581af7….json`, protégé par `-text` dans `.gitattributes` pour que Git n'en modifie pas les octets. `resolveCodeRelease` renvoie `proven` avec cette image et le commit `712fbb2` : la page passe de « déclaré » à « Image : prouvée par le hash Compose ». Le commit reste « déclaré » (dépôt privé).
+
+### Politique de sortie et API sur modèles privés — avant, 19 octobre 2026
+
+Seule barrière de sortie : `gateModel` (`src/lib/tee/output-gate.ts`), arrondi et taille. Aucune route de prédiction ; aucune règle commune aux modèles livrés et à une future API ; décision du 14 octobre écartant les modèles à servir depuis l’enclave. Linéaire et logistique v1 livrent `n` exact et des métriques mesurées sur l’entraînement ; les arbres de la #111 livrent des métriques held-out et `trainAuc`.
+
+### Politique de sortie et API sur modèles privés — après, 19 octobre 2026
+
+PR [#115](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/115), documentation seule : note [`EGRESS-POLICY-API.md`](EGRESS-POLICY-API.md) et décision D-27 (décision seule en sortie, politique de sortie unique dans l’enclave, dataset jamais modifié et préparation dans le modèle, API réservée aux modèles dangereux à livrer). Aucun changement dans `src/` ni `contracts/`, aucune session Phala.
+
+Mesuré par un prototype jetable hors dépôt (logistique à 23 variables, synthétique, 20 tirages) : la probabilité exacte reconstruit les poids en 24 requêtes ; la décision seule donne 74 % d’accord équilibré à 24 requêtes, mais environ 2 400 appels d’usage normal clonent le modèle (99,3 %). Débit estimé sur 1 vCPU à partir de mesures M2 : 390 à 1 550 réponses signées EIP-712 par seconde, à confirmer sur la CVM.
+
+Seuils provisoires : AUC d’appartenance ≤ 0,55, plafond d’influence k = 2, `n` arrondi à la centaine pour les nouveaux profils ; doublons seulement signalés ; écarts `trainAuc − heldOutAuc` et de perte non applicables avant calibration (annexe B), qui doit laisser passer les exemples de la #111. Tranche de test alignée sur la #111 (une ligne sur cinq selon l’index). Restent : calibration, quotas et prix, crédits prépayés (proposition), CVM continue (décision séparée), prototype `/predict` après la fusion de la #111.
