@@ -99,4 +99,8 @@ test("le déploiement peut réutiliser un KYB existant et n'ajoute que des profi
     assert.throws(() => deploymentPlan({ ...base, SIRIUS_DATASET_TRAINING_PROFILES: profiles }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DATASET_TRAINING_PROFILES/, profiles);
   }
   assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: `0x${"0".repeat(40)}` }, TESTNET_CHAIN_ID, deployer), /non nulle/);
+  assert.equal(fresh.estimateDatasets, null);
+  const registry = "0x99EA98be5c439809a918115764bcabf089ef4be5";
+  assert.equal(deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: registry }, TESTNET_CHAIN_ID, deployer).estimateDatasets, registry.toLowerCase());
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: "0x99ea" }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DEPLOY_ESTIMATE_DATASETS/);
 });

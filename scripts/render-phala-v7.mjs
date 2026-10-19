@@ -26,7 +26,7 @@ function optInModels(value) {
 }
 
 export function renderPhalaV7(mode, image, origin, optIn) {
-  if (!["bootstrap", "init", "active", "wallets", "billing", "demo-init", "demo-active", "demo-billing"].includes(mode)
+  if (!["bootstrap", "init", "active", "wallets", "billing", "demo-init", "demo-active", "demo-billing", "demo-budget", "demo-renewal"].includes(mode)
     || !/^ghcr\.io\/dvb-ali-noe\/sirius-runner@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("Mode ou digest immuable invalide");
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const demo = mode.startsWith("demo-");
@@ -40,7 +40,11 @@ export function renderPhalaV7(mode, image, origin, optIn) {
   const files = ["compose.yaml", active ? "compose.v7.yaml" : "compose.bootstrap-v7.yaml"];
   if (mode === "init" || mode === "demo-init") files.push("compose.init-v7.yaml");
   if (mode === "wallets") files.push("compose.trial-wallets.yaml");
-  if (mode === "billing" || mode === "demo-billing") files.push("compose.billing-update.yaml");
+  if (["billing", "demo-billing", "demo-renewal"].includes(mode)) files.push("compose.billing-update.yaml");
+  // Prolongation du budget sponsorisé : démonstration seulement. `demo-renewal` enchaîne le tarif
+  // après une prolongation réussie, le tarif ne pouvant survivre au budget.
+  if (mode === "demo-budget" || mode === "demo-renewal") files.push("compose.budget-renewal.yaml");
+  if (mode === "demo-renewal") files.push("compose.renewal-order.yaml");
   if (demo) files.push("compose.demo.yaml");
   const args = ["compose", ...files.flatMap((name) => ["-f", resolve(root, "deploy/phala", name)]),
     "config", "--no-interpolate", "--no-env-resolution", "--format", "json"];

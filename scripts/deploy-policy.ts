@@ -39,6 +39,11 @@ export interface DeploymentPlan {
    * identifiants séparés par des virgules). Linéaire et logistique sont présents dès la construction.
    */
   trainingProfiles: ModelId[];
+  /**
+   * Registre de datasets déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`) servant de référence à
+   * l'estimation de l'escrow en simulation ; jamais utilisé pour un vrai déploiement.
+   */
+  estimateDatasets: string | null;
 }
 
 function address(env: Env, name: string): string | undefined {
@@ -111,5 +116,6 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
     mustBeContracts,
     existingKyb,
     trainingProfiles: trainingProfiles as ModelId[],
+    estimateDatasets: address(env, "SIRIUS_DEPLOY_ESTIMATE_DATASETS") ?? null,
   };
 }

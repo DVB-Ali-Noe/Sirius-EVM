@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createPublicClient, createWalletClient, encodeDeployData, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
+import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS, USDC_DECIMALS_BY_NETWORK, type EvmNetwork } from "../../src/lib/evm/networks";
 import { MODEL_REGISTRY, selectionForModelId, trainingProfileHash, type ModelId } from "../../src/lib/models/registry";
 import { deploymentPlan } from "../../scripts/deploy-policy";
+import { estimateDeploymentGas, type EstimateClient } from "./deploy-estimate";
 
 /**
  * Déploie les contrats Sirius sur Robinhood Chain.
@@ -199,23 +200,17 @@ async function main() {
   const addedProfiles = plan.trainingProfiles.map((id) => ({ id, hash: trainingProfileHash(selectionForModelId(id)) }));
 
   if (plan.dryRun) {
-    // Estimation lue sur le RPC (eth_estimateGas, aucune signature) : les arguments du constructeur
-    // de l'escrow pointent sur une adresse provisoire, la taille du code restant la même.
-    const gasPrice = await publicClient.getGasPrice();
-    const placeholder = (plan.existingKyb ?? account.address) as Hex;
-    const estimates: [string, bigint][] = [];
-    if (!plan.existingKyb) {
-      const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
-      estimates.push([kybName, await publicClient.estimateGas({ account: account.address,
-        data: encodeDeployData({ ...artifact(kybName), args: kybOuvert ? [] : [admin, verifier] } as never) })]);
+    if (!plan.estimateDatasets) {
+      throw new Error("SIRIUS_DEPLOY_ESTIMATE_DATASETS requis en simulation : registre de datasets déjà déployé servant de référence à l'estimation de l'escrow");
     }
-    estimates.push(["SiriusDatasetRegistry", await publicClient.estimateGas({ account: account.address,
-      data: encodeDeployData({ ...artifact("SiriusDatasetRegistry"), args: [placeholder, account.address] } as never) })]);
-    estimates.push([escrowContract, await publicClient.estimateGas({ account: account.address,
-      data: encodeDeployData({ ...artifact(escrowContract), args: [usdc, placeholder, account.address, lockAuthorizer] } as never) })]);
-    // Liaison et ajout de profil : ~48 000 et ~46 000 gas mesurés sur Hardhat, majorés ici.
-    estimates.push(["bindEscrow", 60_000n]);
-    for (const { id } of addedProfiles) estimates.push([`addTrainingProfile(${id})`, 60_000n]);
+    const gasPrice = await publicClient.getGasPrice();
+    const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
+    const estimates = await estimateDeploymentGas(publicClient as unknown as EstimateClient, {
+      account: account.address, artifact,
+      kyb: plan.existingKyb ? { existing: plan.existingKyb as Hex } : { deploy: kybName, args: kybOuvert ? [] : [admin, verifier] },
+      referenceDatasets: plan.estimateDatasets as Hex, escrowContract, usdc, lockAuthorizer,
+      addedProfiles: addedProfiles.map(({ id }) => id),
+    });
     const total = estimates.reduce((sum, [, gas]) => sum + gas, 0n);
     console.log("");
     console.log("Exécution à blanc : toutes les vérifications sont passées, aucune transaction envoyée.");

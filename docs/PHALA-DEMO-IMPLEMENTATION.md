@@ -677,4 +677,28 @@ PR brouillon `feat/gbdt-phase2` : code et procédure seulement, **rien de déplo
 - **Mesure** : CSV synthétique de 30 000 lignes, sous 3 Mio, et métriques de référence locales que la CVM doit reproduire à l'identique.
 - **Docs** : `BILLING-INTEGRATION.md` (profils obligatoires et facultatifs, échec sûr, outil de mise à jour).
 
-Gas estimé : ≈ 3,71 M, soit ≈ 0,000037 ETH testnet. Session Phala prévue : ≤ 30 min, ≈ 0,03 USD. Point bloquant possible : la politique budgétaire sponsorisée (≤ 31 jours après son relevé de fin septembre) peut expirer avant la session.
+Gas estimé : ≈ 3,71 M, soit ≈ 0,000037 ETH testnet. Session Phala prévue : ≤ 30 min, ≈ 0,03 USD.
+
+### Arbres boostés, corrections après relecture de la #116 — avant, 19 octobre 2026
+
+Relecture par deux agents (sécurité/opérations, exactitude) :
+- La simulation de `deploy.ts` échouait toujours, car l'escrow était estimé avec le déployeur comme registre (`InvalidRegistry`).
+- Le budget et le tarif du volume démo expirent le 2026-10-26 à 14:12 UTC (relevé de Noé), sans outil de prolongation.
+- `check.canQuote` ignorait la marge de 3 jours, alors que le dernier devis possible est le 2026-10-23 à 14:07 UTC.
+- L'outil de tarif lisait la validité dans la copie d'installation, laissait un `.next` bloquant après une erreur et acceptait un changement de prix silencieux.
+- Le plan omettait la pause des titres v4, le gel des fusions, l'alias `demo.sirius-data.tech` et le couplage image/adresses du retour arrière.
+
+### Arbres boostés, corrections après relecture de la #116 — après, 19 octobre 2026
+
+- **Prolongation du budget** : `renewSponsoredBudgetPolicy` et `scripts/renew-runner-budget-policy.ts`, modes `demo-budget` et `demo-renewal` (tarif enchaîné après succès). Une transaction SQLite dans `ledger.sqlite` ; seuls `validUntil` et `sponsored.observedAtMs` changent ; historique dans `sponsored_policy_changes` ; rejeu sans effet.
+- **Fenêtre de devis** : `canQuote` intègre 3 jours + 300 s ; le rapport expose `quotesUntilMs` et `quoteWindowClosed` ; la supervision lève `quote-window-closed`.
+- **Simulation** : `contracts/scripts/deploy-estimate.ts` estime l'escrow contre un registre déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`). Sortie réelle en lecture seule : 3 731 970 gas, 0,0000373197 ETH.
+- **Tarif** :
+  - validité lue dans le registre réel ;
+  - `.next` jeté à la relance ;
+  - prix installés modifiables seulement avec `RUNNER_BILLING_ALLOW_PROFILE_CHANGES=true` ;
+  - octets écrits tels quels, SHA-256 publié dans `/operations/budget`.
+- **Référence** : métriques épinglées dans `gbdt-benchmark-csv.test.mjs`.
+- **Plan** : `GBDT-PHASE2.md` réécrit, avec deux sessions (A prolongation avant le 26 octobre, B arbres), étapes manquantes et retour arrière corrigé. Aucune entrée `RETIRED_ENCLAVES` nécessaire.
+
+Toujours rien de déployé ni de dépensé.

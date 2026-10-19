@@ -92,6 +92,23 @@ test("la mise à jour du tarif est une maintenance ponctuelle, hors réseau, sur
   }
 });
 
+test("la prolongation du budget vise le seul volume de démonstration et précède le tarif", () => {
+  for (const mode of ["demo-budget", "demo-renewal"]) {
+    const model = renderPhalaV7(mode, image);
+    const renew = model.services["renew-budget-policy"];
+    assert.equal(renew.restart, "no");
+    assert.equal(renew.network_mode, "none");
+    assert.equal(renew.environment.RUNNER_BUDGET_RENEWAL, "${RUNNER_BUDGET_RENEWAL:?Prolongation approuvée requise}");
+    assert.ok(renew.volumes.every((volume) => volume.source === "runner_budget"));
+    assert.equal(model.volumes.runner_budget.name, "sirius_phala_demo_budget");
+    assert.equal(model.services.runner.environment.RUNNER_BOOTSTRAP_ONLY, "true");
+  }
+  assert.ok(!Object.hasOwn(renderPhalaV7("demo-budget", image).services, "update-billing-policy"));
+  const renewal = renderPhalaV7("demo-renewal", image);
+  assert.deepEqual(renewal.services["update-billing-policy"].depends_on,
+    { "renew-budget-policy": { condition: "service_completed_successfully", required: true } });
+});
+
 test("l'interrupteur des profils facultatifs est écrit en clair dans le seul Compose actif", () => {
   assert.deepEqual(OPT_IN_MODELS, Object.values(MODEL_REGISTRY).filter((model) => model.optIn).map((model) => model.id));
   const demo = renderPhalaV7("demo-active", image, undefined, "gradient_boosted_trees");

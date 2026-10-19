@@ -1,17 +1,21 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { AppError } from "@/lib/app-error";
 import { runnerBudget } from "./budget";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 
 /**
- * Tarif lu par ce runner : version et profils seulement, sans montants. Permet de vérifier une
- * mise à jour du volume (`update-runner-billing-policy`) sans journaux publics.
+ * Tarif lu par ce runner : version, profils et SHA-256 des octets du fichier, sans montants.
+ * Permet de vérifier une mise à jour du volume (`update-runner-billing-policy`) sans journaux
+ * publics : l'empreinte est celle du JSON approuvé.
  */
-function tariffSummary(): { version: string; profiles: string[] } | "unavailable" | null {
+function tariffSummary(): { version: string; profiles: string[]; sha256: string } | "unavailable" | null {
   if (!billingEnabled()) return null;
   try {
     const policy = billingPolicy();
-    return { version: policy.tariffVersion, profiles: Object.keys(policy.profiles).sort() };
+    const file = process.env.RUNNER_BILLING_POLICY_FILE;
+    const bytes = file ? readFileSync(file) : Buffer.from(process.env.SIRIUS_BILLING_POLICY_JSON ?? "");
+    return { version: policy.tariffVersion, profiles: Object.keys(policy.profiles).sort(), sha256: createHash("sha256").update(bytes).digest("hex") };
   } catch {
     return "unavailable";
   }
