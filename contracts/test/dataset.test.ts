@@ -10,6 +10,7 @@ const CID_HASH = cidHash(CID);
 const MERKLE_ROOT = keccak256(toHex("merkle-root-du-dataset"));
 const TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:linear_regression:1.0.0"));
 const LOGISTIC_TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:logistic_regression:1.0.0"));
+const GBDT_TRAINING_PROFILE = keccak256(toHex("sirius.training-profile.v1:gradient_boosted_trees:1.0.0"));
 const SIZE = 1_250_000n;
 const ZERO_HASH = `0x${"00".repeat(32)}` as Hex;
 
@@ -243,6 +244,75 @@ describe("SiriusDatasetRegistry", () => {
       expect(inputs).to.deep.equal(["datasetIdHash", "cidHash", "merkleRoot", "sizeBytes", "trainingProfile"]);
       expect(inputs).to.not.include("name");
       expect(inputs).to.not.include("description");
+    });
+  });
+
+  describe("allowlist des profils d'entraînement", () => {
+    it("active linéaire et logistique au déploiement, pas les arbres boostés", async () => {
+      const ctx = await loadFixture(fixture);
+      expect(await ctx.registry.read.VERSION()).to.equal("sirius-dataset-v5");
+      expect(await ctx.registry.read.isSupportedTrainingProfile([TRAINING_PROFILE])).to.equal(true);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([LOGISTIC_TRAINING_PROFILE])).to.equal(true);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(false);
+      expect(await ctx.registry.read.LINEAR_REGRESSION_V1_PROFILE()).to.equal(TRAINING_PROFILE);
+      expect(await ctx.registry.read.LOGISTIC_REGRESSION_V1_PROFILE()).to.equal(LOGISTIC_TRAINING_PROFILE);
+
+      const events = await ctx.registry.getEvents.TrainingProfileAdded({}, { fromBlock: 0n });
+      expect(events.map((event) => event.args.profile)).to.deep.equal([TRAINING_PROFILE, LOGISTIC_TRAINING_PROFILE]);
+    });
+
+    it("réserve l'ajout à l'admin et refuse le profil nul", async () => {
+      const ctx = await loadFixture(fixture);
+      await expect(
+        ctx.registry.write.addTrainingProfile([GBDT_TRAINING_PROFILE], { account: ctx.other.account }),
+      ).to.be.rejectedWith("NotAdmin");
+      await expect(
+        ctx.registry.write.addTrainingProfile([ZERO_HASH], { account: ctx.admin.account }),
+      ).to.be.rejectedWith("InvalidTrainingProfile");
+      expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(false);
+    });
+
+    it("émet un seul événement et reste idempotent", async () => {
+      const ctx = await loadFixture(fixture);
+      const publicClient = await hre.viem.getPublicClient();
+      const fromBlock = (await publicClient.getBlockNumber()) + 1n;
+
+      await ctx.registry.write.addTrainingProfile([GBDT_TRAINING_PROFILE], { account: ctx.admin.account });
+      await ctx.registry.write.addTrainingProfile([GBDT_TRAINING_PROFILE], { account: ctx.admin.account });
+      await ctx.registry.write.addTrainingProfile([TRAINING_PROFILE], { account: ctx.admin.account });
+
+      const events = await ctx.registry.getEvents.TrainingProfileAdded({}, { fromBlock });
+      expect(events.map((event) => event.args.profile)).to.deep.equal([GBDT_TRAINING_PROFILE]);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(true);
+    });
+
+    it("n'expose aucune fonction de retrait", async () => {
+      const ctx = await loadFixture(fixture);
+      await ctx.registry.write.addTrainingProfile([GBDT_TRAINING_PROFILE], { account: ctx.admin.account });
+      const writes = ctx.registry.abi
+        .filter((entry) => entry.type === "function" && entry.stateMutability !== "view" && entry.stateMutability !== "pure")
+        .map((entry) => ("name" in entry ? entry.name : ""))
+        .sort();
+
+      expect(writes).to.deep.equal(["addTrainingProfile", "bindEscrow", "destroy", "mint"]);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(true);
+      expect(await ctx.registry.read.isSupportedTrainingProfile([TRAINING_PROFILE])).to.equal(true);
+    });
+
+    it("refuse un mint sous profil non activé puis l'accepte après ajout", async () => {
+      const ctx = await loadFixture(fixture);
+      await grantKyb(ctx, ctx.provider);
+
+      await expect(mintDataset(ctx, "ds-gbdt", GBDT_TRAINING_PROFILE)).to.be.rejectedWith("InvalidTrainingProfile");
+      await ctx.registry.write.addTrainingProfile([GBDT_TRAINING_PROFILE], { account: ctx.admin.account });
+      await mintDataset(ctx, "ds-gbdt", GBDT_TRAINING_PROFILE);
+
+      const id = await onChainId(ctx, "ds-gbdt");
+      const dataset = await ctx.registry.read.getDataset([id]);
+      expect(dataset.trainingProfile).to.equal(GBDT_TRAINING_PROFILE);
+      expect(
+        await ctx.registry.read.isLiveForProviderAndProfile([id, ctx.provider.account.address, GBDT_TRAINING_PROFILE]),
+      ).to.equal(true);
     });
   });
 });

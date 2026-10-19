@@ -1,3 +1,10 @@
+import { GBDT_TREES, isGbdtNode, type GbdtNode } from "./gbdt";
+
+/**
+ * `optIn` : profil proposé seulement s'il figure dans `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`
+ * (identifiants séparés par des virgules). Il faut que le registre on-chain accepte le profil,
+ * que l'image du runner sache l'entraîner et que le tarif le couvre ; sinon le mint échoue.
+ */
 export const MODEL_REGISTRY = {
   linear_regression: {
     id: "linear_regression",
@@ -5,6 +12,7 @@ export const MODEL_REGISTRY = {
     label: "Linear regression",
     description: "Predicts a continuous numeric value.",
     metrics: ["R²", "RMSE", "MAE"],
+    optIn: false,
   },
   logistic_regression: {
     id: "logistic_regression",
@@ -12,6 +20,15 @@ export const MODEL_REGISTRY = {
     label: "Binary logistic regression",
     description: "Classifies a target strictly encoded as 0 or 1.",
     metrics: ["Accuracy", "Precision", "Recall", "F1", "Probability"],
+    optIn: false,
+  },
+  gradient_boosted_trees: {
+    id: "gradient_boosted_trees",
+    version: "1.0.0",
+    label: "Binary gradient-boosted trees",
+    description: "Classifies a 0/1 target with shallow boosted trees, scored on a held-out fifth of the rows.",
+    metrics: ["Held-out AUC", "Held-out accuracy", "Held-out precision", "Held-out recall", "Held-out F1", "Train AUC", "Probability"],
+    optIn: true,
   },
 } as const;
 
@@ -42,7 +59,26 @@ export interface LogisticRegressionModel {
   metrics: { accuracy: number; precision: number; recall: number; f1: number; n: number };
 }
 
-export type DeliveredModel = LinearRegressionModel | LogisticRegressionModel;
+export interface GradientBoostedTreesModel {
+  algo: "gradient_boosted_trees";
+  version: typeof MODEL_REGISTRY.gradient_boosted_trees.version;
+  target: string;
+  features: string[];
+  /** Log-odds initial ; la probabilité de la classe 1 est sigmoid(baseScore + somme des feuilles atteintes). */
+  baseScore: number;
+  trees: GbdtNode[];
+  metrics: {
+    heldOutAuc: number;
+    heldOutAccuracy: number;
+    heldOutPrecision: number;
+    heldOutRecall: number;
+    heldOutF1: number;
+    trainAuc: number;
+    n: number;
+  };
+}
+
+export type DeliveredModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
 export interface HistoricalLinearRegressionModel extends Omit<LinearRegressionModel, "version" | "metrics"> {
   version?: never;
@@ -56,7 +92,16 @@ export const DEFAULT_MODEL_SELECTION: ModelSelection = {
   modelVersion: MODEL_REGISTRY.linear_regression.version,
 };
 
-export const MODEL_OPTIONS = Object.values(MODEL_REGISTRY);
+/**
+ * Profil proposé à la publication et accepté par le runner pour un nouvel usage. Les
+ * enregistrements existants se lisent toujours avec `modelSelection`, quel que soit cet état.
+ */
+export function isModelOffered(modelId: ModelId, optInModels = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS): boolean {
+  if (!MODEL_REGISTRY[modelId].optIn) return true;
+  return (optInModels ?? "").split(",").some((id) => id.trim() === modelId);
+}
+
+export const MODEL_OPTIONS = Object.values(MODEL_REGISTRY).filter((model) => isModelOffered(model.id));
 
 export function selectionForModelId(modelId: ModelId): ModelSelection {
   return { modelId, modelVersion: MODEL_REGISTRY[modelId].version } as ModelSelection;
@@ -90,7 +135,7 @@ function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
-function isModelBase(value: Record<string, unknown>): boolean {
+function hasTargetAndFeatures(value: Record<string, unknown>): value is Record<string, unknown> & { features: string[] } {
   return (
     typeof value.target === "string" &&
     value.target.length > 0 &&
@@ -98,11 +143,21 @@ function isModelBase(value: Record<string, unknown>): boolean {
     value.features.length > 0 &&
     value.features.length <= 31 &&
     value.features.every((feature) => typeof feature === "string" && feature.length > 0) &&
-    new Set(value.features).size === value.features.length &&
+    new Set(value.features).size === value.features.length
+  );
+}
+
+function isModelBase(value: Record<string, unknown>): boolean {
+  return (
+    hasTargetAndFeatures(value) &&
     Array.isArray(value.coefficients) &&
     value.coefficients.length === value.features.length + 1 &&
     value.coefficients.every(isFiniteNumber)
   );
+}
+
+function isProbabilityMetric(value: unknown): boolean {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
 }
 
 function exactMetrics(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
@@ -113,6 +168,24 @@ function exactMetrics(value: unknown, keys: readonly string[]): value is Record<
 export function parseDeliveredModel(value: unknown): DeliveredModel {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Modèle déchiffré invalide");
   const model = value as Record<string, unknown>;
+  if (model.algo === "gradient_boosted_trees") {
+    const metrics = model.metrics;
+    if (
+      exactMetrics(model, ["algo", "version", "target", "features", "baseScore", "trees", "metrics"]) &&
+      model.version === MODEL_REGISTRY.gradient_boosted_trees.version &&
+      hasTargetAndFeatures(model) &&
+      isFiniteNumber(model.baseScore) &&
+      Array.isArray(model.trees) && model.trees.length > 0 && model.trees.length <= GBDT_TREES &&
+      model.trees.every((tree) => isGbdtNode(tree, model.features.length)) &&
+      exactMetrics(metrics, ["heldOutAuc", "heldOutAccuracy", "heldOutPrecision", "heldOutRecall", "heldOutF1", "trainAuc", "n"]) &&
+      [metrics.heldOutAuc, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall, metrics.heldOutF1, metrics.trainAuc]
+        .every(isProbabilityMetric) &&
+      isCount(metrics.n)
+    ) {
+      return model as unknown as GradientBoostedTreesModel;
+    }
+    throw new Error("Modèle déchiffré invalide");
+  }
   if (
     Object.keys(model).length !== 6 ||
     !["algo", "version", "target", "features", "coefficients", "metrics"].every((key) => key in model) ||
@@ -139,10 +212,7 @@ export function parseDeliveredModel(value: unknown): DeliveredModel {
     model.algo === "logistic_regression" &&
     model.version === MODEL_REGISTRY.logistic_regression.version &&
     exactMetrics(model.metrics, ["accuracy", "precision", "recall", "f1", "n"]) &&
-    isFiniteNumber(model.metrics.accuracy) && model.metrics.accuracy >= 0 && model.metrics.accuracy <= 1 &&
-    isFiniteNumber(model.metrics.precision) && model.metrics.precision >= 0 && model.metrics.precision <= 1 &&
-    isFiniteNumber(model.metrics.recall) && model.metrics.recall >= 0 && model.metrics.recall <= 1 &&
-    isFiniteNumber(model.metrics.f1) && model.metrics.f1 >= 0 && model.metrics.f1 <= 1 &&
+    [model.metrics.accuracy, model.metrics.precision, model.metrics.recall, model.metrics.f1].every(isProbabilityMetric) &&
     isCount(model.metrics.n)
   ) {
     return model as unknown as LogisticRegressionModel;

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { isModelOffered } from "@/lib/models/registry";
 import { DocSection, DocsShell, HERO_PRIMARY, HERO_SECONDARY, Hint } from "./DocsShell";
 import { EscrowLifecycleDiagram, FairExchangeDiagram, OverviewDiagram } from "./diagrams";
 
@@ -137,8 +138,13 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Cible numérique continue. Métriques : R², RMSE et MAE.": "Continuous numeric target. Metrics: R², RMSE, and MAE.",
   "Régression logistique binaire": "Binary logistic regression",
   "Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.": "Target strictly encoded as 0 and 1, with both classes present. Metrics: accuracy, precision, recall, and F1.",
+  "Arbres boostés binaires": "Binary gradient-boosted trees",
+  "Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.":
+    "0/1 target, at least 10,000 rows (otherwise, logistic regression). Depth 2, leaves of at least 1,000 rows, no randomness. One row in five is held out: held-out AUC, accuracy, precision, recall and F1, plus the training AUC.",
+  "Exemple d’entraînement par arbres boostés": "Gradient-boosted trees training example",
   "Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.": "The CSV must have unique headers. Its last numeric column is the target; other numeric columns are features, up to 31. At least 100 rows and 10 rows per parameter, including the bias, are required.",
-  "Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "Delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
+  "Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For linear and logistic regression, delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
+  "Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’AUC d’entraînement est livrée à côté : un écart important signale une mémorisation.": "For boosted trees, delivered metrics are computed on one row in five held out from training; the training AUC is delivered alongside: a large gap signals memorization.",
   "Exemple d’entraînement linéaire": "Linear training example",
   "Exemple d’entraînement logistique": "Logistic training example",
   "Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.": "An incompatible profile is rejected before the stablecoin is locked. To change the profile, upload the dataset again. Self-training on your own data also respects this profile, without a loan.",
@@ -197,6 +203,7 @@ const strong = "text-foreground";
 export default function DocsPage() {
   const { locale, t } = useLocale();
   const d: Translate = (value) => locale === "en" ? DOCUMENTATION_EN[value] ?? value : value;
+  const trees = isModelOffered("gradient_boosted_trees");
 
   return (
     <DocsShell
@@ -255,6 +262,7 @@ export default function DocsPage() {
             {[
               [d("Régression linéaire"), "linear_regression", d("Cible numérique continue. Métriques : R², RMSE et MAE.")],
               [d("Régression logistique binaire"), "logistic_regression", d("Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.")],
+              ...(trees ? [[d("Arbres boostés binaires"), "gradient_boosted_trees", d("Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’AUC d’entraînement.")]] : []),
             ].map(([name, model, description]) => (
               <div key={model} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]">
                 <h3 className="font-semibold text-foreground">{name}</h3>
@@ -265,10 +273,12 @@ export default function DocsPage() {
           </div>
           <p>{d("Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.")}</p>
           <p>{d("Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.")}</p>
-          <p>{d("Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          <p>{d("Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          {trees && <p>{d("Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’AUC d’entraînement est livrée à côté : un écart important signale une mémorisation.")}</p>}
           <ul className="ml-5 list-disc space-y-2">
             <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>
             <li><a href="/examples/classification/credit-default-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement logistique")}</a></li>
+            {trees && <li><a href="/examples/classification/credit-risk-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement par arbres boostés")}</a></li>}
           </ul>
         </DocSection>
 

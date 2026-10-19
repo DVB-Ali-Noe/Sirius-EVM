@@ -193,6 +193,19 @@ export const siriusdatasetregistryAbi = [
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "profile",
+        "type": "bytes32"
+      }
+    ],
+    "name": "TrainingProfileAdded",
+    "type": "event"
+  },
+  {
     "inputs": [],
     "name": "DATASET_ID_DOMAIN",
     "outputs": [
@@ -255,6 +268,19 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "profile",
+        "type": "bytes32"
+      }
+    ],
+    "name": "addTrainingProfile",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -483,7 +509,7 @@ export const siriusdatasetregistryAbi = [
         "type": "bool"
       }
     ],
-    "stateMutability": "pure",
+    "stateMutability": "view",
     "type": "function"
   },
   {

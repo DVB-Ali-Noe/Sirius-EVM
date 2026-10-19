@@ -9,6 +9,16 @@ export function billingEnabled(): boolean {
   return version === "7";
 }
 
+export interface ComputeProfileTariff {
+  computeAmount: string;
+  maxFailureFee: string;
+  executionRateAtomicPerMs: string;
+  maxExecutionMs: number;
+}
+
+/** Profils exigés dans toute politique. Les autres sont facultatifs : absents, leurs devis sont refusés. */
+const REQUIRED_PROFILES = ["linear_regression", "logistic_regression"] as const;
+
 export interface BillingPolicy {
   version: 1;
   tariffVersion: string;
@@ -19,12 +29,12 @@ export interface BillingPolicy {
   usdcDecimals: number;
   computeRecipient: string;
   minimumComputeAmount: string;
-  profiles: Record<ModelId, {
-    computeAmount: string;
-    maxFailureFee: string;
-    executionRateAtomicPerMs: string;
-    maxExecutionMs: number;
-  }>;
+  /**
+   * Un profil ajouté après coup reste facultatif : les politiques déjà installées dans les
+   * volumes du runner restent valides sans réinitialisation, et ce profil n'est simplement
+   * pas facturable tant que l'opérateur ne l'a pas tarifé.
+   */
+  profiles: Record<(typeof REQUIRED_PROFILES)[number], ComputeProfileTariff> & Partial<Record<ModelId, ComputeProfileTariff>>;
 }
 
 export function validateBillingPolicy(value: unknown): BillingPolicy {
@@ -37,8 +47,8 @@ export function validateBillingPolicy(value: unknown): BillingPolicy {
       || !/^0x[0-9a-f]{40}$/.test(p.usdc) || !/^0x[0-9a-f]{40}$/.test(p.computeRecipient)
       || !Number.isInteger(p.usdcDecimals) || p.usdcDecimals < 3 || p.usdcDecimals > 30
       || !amount(p.minimumComputeAmount) || BigInt(p.minimumComputeAmount) <= BigInt(0)) throw new Error();
-    for (const id of ["linear_regression", "logistic_regression"] as const) {
-      const profile = p.profiles[id];
+    for (const id of new Set<string>([...REQUIRED_PROFILES, ...Object.keys(p.profiles)])) {
+      const profile = p.profiles[id as ModelId];
       if (!profile || ![profile.computeAmount, profile.maxFailureFee, profile.executionRateAtomicPerMs].every(amount)
         || !Number.isSafeInteger(profile.maxExecutionMs) || profile.maxExecutionMs < 1000 || profile.maxExecutionMs > 30000) throw new Error();
     }

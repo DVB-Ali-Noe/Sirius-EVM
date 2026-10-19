@@ -12,7 +12,8 @@ examples/
 │   ├── energy-demand-*.csv
 │   └── bike-sharing-demand-*.csv
 ├── classification/
-│   └── credit-default-*.csv
+│   ├── credit-default-*.csv
+│   └── credit-risk-*.csv
 └── benchmarks/
 ```
 
@@ -75,6 +76,21 @@ Le jeu contient 480 lignes d'entraînement et 120 lignes de test. Il combine des
 profils qui se chevauchent et une part d'aléa : les métriques restent bonnes sans
 être parfaites, comme dans un cas de scoring réaliste.
 
+## Arbres boostés binaires
+
+### `classification/credit-risk-train.csv` et `classification/credit-risk-test.csv`
+
+Défaut de crédit synthétique à seuils, en U et à interactions : âge (jeunes et
+seniors plus risqués), endettement au-delà de 45 %, petits revenus très
+empruntés, utilisation saturée et retards. Une logistique ne représente pas ces
+effets ; les arbres boostés, oui (AUC de test d'environ 0,71 contre 0,66).
+
+Le jeu contient 10 400 lignes d'entraînement et 2 600 de test. Le profil exige au
+moins 10 000 lignes et des feuilles d'au moins 1 000 lignes : en dessous, les
+coupes restent proches de la médiane et la logistique fait mieux. Le profil
+n'est proposé que lorsque `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` contient
+`gradient_boosted_trees`.
+
 ## Évaluer un modèle livré
 
 Les métriques d'entraînement sont informatives : elles portent sur les lignes
@@ -84,6 +100,9 @@ navigateur.
 
 - Régression linéaire : R², RMSE, MAE et valeur prédite.
 - Régression logistique : accuracy, precision, recall, F1, classe et probabilité.
+- Arbres boostés : AUC, accuracy, precision, recall, F1, classe et probabilité.
+  Le modèle livré porte déjà ces métriques sur une ligne sur cinq mise de côté
+  (« held-out »), plus l'AUC d'entraînement.
 
 ## Benchmarks réalistes
 

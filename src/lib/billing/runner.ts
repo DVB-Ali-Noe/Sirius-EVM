@@ -87,6 +87,7 @@ export async function prepareComputeQuote(input: {
     throw new AppError("Token ou précision du tarif incohérent", 503);
   }
   const profile = policy.profiles[input.dataset.modelId];
+  if (!profile) throw new AppError("Tarif compute absent, invalide ou périmé", 503);
   const minimum = BigInt(policy.minimumComputeAmount);
   const configured = BigInt(profile.computeAmount);
   const expiresAt = Math.min(input.authorizationDeadline, Math.floor(Date.now() / 1000) + 300, Math.floor(policy.validUntil / 1000));

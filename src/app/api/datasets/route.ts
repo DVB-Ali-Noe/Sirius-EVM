@@ -8,6 +8,9 @@ import { reputationsForAddresses } from "@/lib/sirius/reputation";
 import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { parseCreateDatasetRequest } from "@/lib/datasets/create-request";
 import { createDatasetDraft } from "@/lib/datasets/draft";
+import { billingEnabled } from "@/lib/billing/config";
+import { publishedTariff } from "@/lib/datasets/tariff-server";
+import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 
 export const runtime = "nodejs";
 
@@ -89,8 +92,10 @@ async function listerDatasets(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
-    const parsed = parseCreateDatasetRequest(await readJson(req));
+    const parsed = parseCreateDatasetRequest(await readJson(req), { v7: billingEnabled(), tariff: publishedTariff() });
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    // Avant tout scellement : les contrats doivent être compatibles et accepter le profil au mint.
+    await requireCurrentEvmDeployment();
     const upload = await createDatasetDraft(parsed.value, session.address);
     return NextResponse.json(upload, { status: 201 });
   } catch (err) {

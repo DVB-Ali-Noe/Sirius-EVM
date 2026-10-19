@@ -4,7 +4,7 @@ import { presentVerification, type VerificationOutcome } from "../certificate/pr
 import type { CertificateRecord } from "../certificate/resolve";
 import type { CatalogueResponse, DetailResponse } from "../marketplace/catalogue";
 import type { PublicDetail, PublicListing } from "../marketplace/listing";
-import { MODEL_REGISTRY } from "../models/registry";
+import { MODEL_OPTIONS, MODEL_REGISTRY } from "../models/registry";
 import type { ProtocolStatusSummary } from "../assistant/tools";
 import {
   AGENT_MAX_DESCRIPTION_CHARS,
@@ -57,6 +57,7 @@ function catalogue(items: PublicListing[]): CatalogueResponse {
     computeFees: {
       linear_regression: { kind: "quoted", atomic: "7000000" },
       logistic_regression: { kind: "unknown", atomic: null },
+      gradient_boosted_trees: { kind: "unknown", atomic: null },
     },
     kybAvailable: true,
   };
@@ -213,7 +214,7 @@ test("sans devis récent, les frais viennent du tarif publié, en jeton de test 
   const search = searchDatasetsResult(
     {
       ...catalogue([listing({ priceKind: "providerReceives", priceAtomic: "10000000", providerPriceAtomic: "10000000" })]),
-      computeFees: { linear_regression: { kind: "unknown", atomic: null }, logistic_regression: { kind: "unknown", atomic: null } },
+      computeFees: { linear_regression: { kind: "unknown", atomic: null }, logistic_regression: { kind: "unknown", atomic: null }, gradient_boosted_trees: { kind: "unknown", atomic: null } },
     },
     testnet,
     ORIGIN,
@@ -243,7 +244,7 @@ test("les profils d'entraînement sont ceux du registre", () => {
   const result = listTrainingProfilesResult();
   assert.deepEqual(
     result.profiles.map((profile) => profile.id),
-    Object.keys(MODEL_REGISTRY),
+    MODEL_OPTIONS.map((entry) => entry.id),
   );
   assert.deepEqual(result.profiles[1].metrics, [...MODEL_REGISTRY.logistic_regression.metrics]);
   assert.match(result.delivery, /raw rows never leave the enclave/);

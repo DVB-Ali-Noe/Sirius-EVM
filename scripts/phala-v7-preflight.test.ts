@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { keccak256, type PublicClient } from "viem";
 import { checkMainnetV7, checkTestnetV7, MAINNET_STABLECOIN, MAINNET_USDC, mainnetV7Configuration, testnetV7Configuration } from "./phala-v7-preflight";
+import { selectionForModelId, trainingProfileHash } from "../src/lib/models/registry";
+
+const BASE_PROFILES: string[] = [trainingProfileHash(selectionForModelId("linear_regression")), trainingProfileHash(selectionForModelId("logistic_regression"))];
+const TREES_PROFILE = trainingProfileHash(selectionForModelId("gradient_boosted_trees"));
 
 /** Ancien USDC natif de Robinhood Chain mainnet, refusé depuis le passage à USDG. */
 const LEGACY_USDC = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
@@ -23,7 +27,8 @@ function fixture() {
   Object.assign(process.env, environment());
   const config = testnetV7Configuration(environment());
   const state = { chainId: 46630, runnerWei: BigInt(1), decimals: 18, code: "0x1234", version: "sirius-escrow-usdc-v7",
-    authorizer: config.runner, datasetEscrow: config.contracts!.escrow, missingFinality: false, missingHistory: false, reorg: false, stableReads: 0 };
+    authorizer: config.runner, datasetEscrow: config.contracts!.escrow, missingFinality: false, missingHistory: false, reorg: false, stableReads: 0,
+    datasetVersion: "sirius-dataset-v4", profiles: BASE_PROFILES };
   const readBlocks: bigint[] = [];
   const stableHash = `0x${"12".repeat(32)}`;
   const client = {
@@ -40,12 +45,15 @@ function fixture() {
     getBalance: async ({ address: account, blockNumber }: { address: string; blockNumber: bigint }) => {
       readBlocks.push(blockNumber); return account === config.runner ? state.runnerWei : BigInt(100);
     },
-    readContract: async ({ address: contract, functionName, blockNumber }: { address: string; functionName: string; blockNumber: bigint }) => {
+    readContract: async ({ address: contract, functionName, blockNumber, args }: { address: string; functionName: string; blockNumber: bigint; args?: unknown[] }) => {
       if (state.missingHistory) throw new Error("historical state is not available");
       readBlocks.push(blockNumber);
       if (contract === config.usdc) return functionName === "decimals" ? state.decimals : BigInt(20);
       if (contract === config.contracts!.kyb) return true;
-      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v4", kyb: config.contracts!.kyb, escrow: state.datasetEscrow }[functionName];
+      if (contract === config.contracts!.datasets) {
+        if (functionName === "isSupportedTrainingProfile") return state.profiles.includes(args?.[0] as string);
+        return { VERSION: state.datasetVersion, kyb: config.contracts!.kyb, escrow: state.datasetEscrow }[functionName];
+      }
       return { VERSION: state.version, lockAuthorizer: state.authorizer, usdc: config.usdc, kyb: config.contracts!.kyb, datasets: config.contracts!.datasets }[functionName];
     },
   } as unknown as PublicClient;
@@ -102,6 +110,21 @@ test("le préflight B bloque un token divergent, un ancien escrow, un autre sign
   }
 });
 
+test("le préflight B exige que le registre v4 ou v5 accepte chaque profil proposé, arbres compris une fois activés", async () => {
+  const trees = testnetV7Configuration({ ...environment(), NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "gradient_boosted_trees" });
+  for (const datasetVersion of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+    const { client, config, state } = fixture();
+    state.datasetVersion = datasetVersion;
+    assert.equal((await checkTestnetV7(client, config)).chainChecksPassed, true, datasetVersion);
+    await assert.rejects(checkTestnetV7(client, trees), /profil d’entraînement proposé/, datasetVersion);
+  }
+  const { client, state } = fixture();
+  Object.assign(state, { datasetVersion: "sirius-dataset-v5", profiles: [...BASE_PROFILES, TREES_PROFILE] });
+  assert.equal((await checkTestnetV7(client, trees)).chainChecksPassed, true);
+  state.datasetVersion = "sirius-dataset-v6";
+  await assert.rejects(checkTestnetV7(client, trees), /Versions/);
+});
+
 const mainnetEnvironment = () => ({ ...environment(), EVM_NETWORK: "mainnet", SIRIUS_KYB_MODE: "strict",
   SIRIUS_USDC_ADDRESS: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", SIRIUS_COMPUTE_RECIPIENT: address(7), SIRIUS_KYB_ADMIN: address(7) });
 
@@ -144,7 +167,7 @@ function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin
     readContract: async ({ address: contract, functionName }: { address: string; functionName: string }) => {
       if (contract === config.usdc) return functionName === "decimals" ? (overrides.decimals ?? 6) : BigInt(0);
       if (contract === config.contracts!.kyb) return functionName === "admin" ? (overrides.admin ?? config.kybAdmin) : (overrides.openKyb ?? false);
-      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v4", kyb: config.contracts!.kyb, escrow: config.contracts!.escrow }[functionName];
+      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v5", kyb: config.contracts!.kyb, escrow: config.contracts!.escrow, isSupportedTrainingProfile: true }[functionName];
       return { VERSION: "sirius-escrow-usdc-v7", lockAuthorizer: config.runner, usdc: config.usdc, kyb: config.contracts!.kyb, datasets: config.contracts!.datasets }[functionName];
     },
   } as unknown as PublicClient;

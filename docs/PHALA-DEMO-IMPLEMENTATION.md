@@ -639,3 +639,25 @@ PR [#115](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/115), documentation seu
 Mesuré par un prototype jetable hors dépôt (logistique à 23 variables, synthétique, 20 tirages) : la probabilité exacte reconstruit les poids en 24 requêtes ; la décision seule donne 74 % d’accord équilibré à 24 requêtes, mais environ 2 400 appels d’usage normal clonent le modèle (99,3 %). Débit estimé sur 1 vCPU à partir de mesures M2 : 390 à 1 550 réponses signées EIP-712 par seconde, à confirmer sur la CVM.
 
 Seuils provisoires : AUC d’appartenance ≤ 0,55, plafond d’influence k = 2, `n` arrondi à la centaine pour les nouveaux profils ; doublons seulement signalés ; écarts `trainAuc − heldOutAuc` et de perte non applicables avant calibration (annexe B), qui doit laisser passer les exemples de la #111. Tranche de test alignée sur la #111 (une ligne sur cinq selon l’index). Restent : calibration, quotas et prix, crédits prépayés (proposition), CVM continue (décision séparée), prototype `/predict` après la fusion de la #111.
+
+### Profil arbres boostés, phase 1 — avant, 19 octobre 2026
+
+Deux profils seulement : régression linéaire et logistique. `SiriusDatasetRegistry` v4 les codait en dur (`isSupportedTrainingProfile` `pure`), le tarif exigeait exactement ces deux profils, et le contrôle de sortie ne connaissait que des coefficients. Sur Taïwan (24 000 / 6 000), la logistique atteint une AUC de test de 0,727.
+
+### Profil arbres boostés, phase 1 — après, 19 octobre 2026
+
+PR [#111](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/111), **interrupteur coupé** : rien n'est déployé, et le profil n'est proposé nulle part tant que `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` ne contient pas `gradient_boosted_trees`.
+
+- **Profil `gradient_boosted_trees` v1** : 150 arbres, profondeur 2, feuilles d'au moins 1 000 lignes, sans aléa ; minimum 10 000 lignes. Une ligne sur cinq est mise de côté : les métriques livrées sont « held-out », avec `trainAuc` à côté.
+- **Seuils** : milieux entre valeurs voisines, arrondis à 3 chiffres significatifs. Un audit repasse les lignes dans le modèle livré.
+- **Contrôle de sortie** : refuse tout arbre hors profil ou tout champ ajouté.
+- **Registre v5** (code et tests Hardhat) : liste de profils gérée par l'administrateur, à laquelle on ne peut qu'ajouter.
+- **Contrôles applicatifs** : le contrôle de déploiement et le pré-vol vérifient que chaque profil proposé est accepté on-chain.
+- **Tarif** : un profil facultatif sans tarif est refusé par `/api/datasets` en v7. Les politiques déjà installées dans les volumes restent valides.
+
+Mesures (Mac, worker de 128 Mio) :
+- 30 000 lignes en 0,8 s, comme la logistique. Pire cas au budget en 0,93 s ; moins de 40 Mio de tas.
+- AUC de test sur Taïwan : 0,786, contre 0,787 pour scikit-learn au même réglage.
+- Canaris : 22 % contre 13 % pour une ligne répétée 5 fois. Signal transmis au chantier C.
+
+Vérifié : `pnpm test` 1 083/1 083, `test:phala-demo` 38/38, `test:operations`, `contracts:test` 85, `test:billing`, typage, ESLint hors `experiments/`, build, CI de la PR (e2e et PostgreSQL compris). Aucune mesure sur la CVM : estimation d'environ 6 s de bout en bout à partir de la logistique (5,74 s).

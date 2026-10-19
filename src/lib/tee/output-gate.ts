@@ -1,4 +1,5 @@
 import "server-only";
+import { GBDT_TREES, LEAF_SIG_FIGS, THRESHOLD_SIG_FIGS, isGbdtNode, roundSig, type GbdtNode } from "@/lib/models/gbdt";
 import type { TrainedModel } from "./train";
 
 // Output-gate (D-18) : borne ce qui peut sortir du calcul confidentiel. Le canal
@@ -10,10 +11,15 @@ const MAX_MODEL_BYTES = 256 * 1024; // plafond de la sortie → borne l'info tot
 // autre couche) : borne l'allocation avant sérialisation quel que soit le producteur.
 const MAX_COEFFICIENTS = 10_000;
 
-/** Arrondit à `sig` chiffres significatifs : tue les bits de poids faible, à toute échelle. */
-function toSigFigs(x: number, sig: number): number {
-  if (!Number.isFinite(x) || x === 0) return 0;
-  return Number(x.toPrecision(sig));
+/**
+ * Arbres : seuils à 3 chiffres (la grille de l'entraînement, donc sans effet sur les feuilles
+ * auditées), feuilles à 4 chiffres. Nœuds reconstruits champ par champ : aucun compte, gain ou
+ * hessien ne peut sortir, même si un producteur en ajoutait.
+ */
+function quantizeNode(node: GbdtNode): GbdtNode {
+  return "feature" in node
+    ? { feature: node.feature, threshold: roundSig(node.threshold, THRESHOLD_SIG_FIGS), left: quantizeNode(node.left), right: quantizeNode(node.right) }
+    : { value: roundSig(node.value, LEAF_SIG_FIGS) };
 }
 
 /**
@@ -22,21 +28,40 @@ function toSigFigs(x: number, sig: number): number {
  * où cacher un canal annexe). Un modèle déjà quantifié repasse à l'identique (idempotent).
  */
 export function quantizeModel<T extends TrainedModel>(model: T): T {
+  if (model.algo === "gradient_boosted_trees") {
+    return {
+      algo: model.algo,
+      version: model.version,
+      target: model.target,
+      features: model.features,
+      baseScore: roundSig(model.baseScore, LEAF_SIG_FIGS),
+      trees: model.trees.map(quantizeNode),
+      metrics: {
+        heldOutAuc: roundSig(model.metrics.heldOutAuc, SIG_FIGS),
+        heldOutAccuracy: roundSig(model.metrics.heldOutAccuracy, SIG_FIGS),
+        heldOutPrecision: roundSig(model.metrics.heldOutPrecision, SIG_FIGS),
+        heldOutRecall: roundSig(model.metrics.heldOutRecall, SIG_FIGS),
+        heldOutF1: roundSig(model.metrics.heldOutF1, SIG_FIGS),
+        trainAuc: roundSig(model.metrics.trainAuc, SIG_FIGS),
+        n: model.metrics.n,
+      },
+    } as T;
+  }
   const base = {
     algo: model.algo,
     version: model.version,
     target: model.target,
     features: model.features,
-    coefficients: model.coefficients.map((coefficient) => toSigFigs(coefficient, SIG_FIGS)),
+    coefficients: model.coefficients.map((coefficient) => roundSig(coefficient, SIG_FIGS)),
   };
   if (model.algo === "linear_regression") {
     return {
       ...base,
       algo: "linear_regression",
       metrics: {
-        r2: toSigFigs(model.metrics.r2, SIG_FIGS),
-        rmse: toSigFigs(model.metrics.rmse, SIG_FIGS),
-        mae: toSigFigs(model.metrics.mae, SIG_FIGS),
+        r2: roundSig(model.metrics.r2, SIG_FIGS),
+        rmse: roundSig(model.metrics.rmse, SIG_FIGS),
+        mae: roundSig(model.metrics.mae, SIG_FIGS),
         n: model.metrics.n,
       },
     } as T;
@@ -45,10 +70,10 @@ export function quantizeModel<T extends TrainedModel>(model: T): T {
     ...base,
     algo: "logistic_regression",
     metrics: {
-      accuracy: toSigFigs(model.metrics.accuracy, SIG_FIGS),
-      precision: toSigFigs(model.metrics.precision, SIG_FIGS),
-      recall: toSigFigs(model.metrics.recall, SIG_FIGS),
-      f1: toSigFigs(model.metrics.f1, SIG_FIGS),
+      accuracy: roundSig(model.metrics.accuracy, SIG_FIGS),
+      precision: roundSig(model.metrics.precision, SIG_FIGS),
+      recall: roundSig(model.metrics.recall, SIG_FIGS),
+      f1: roundSig(model.metrics.f1, SIG_FIGS),
       n: model.metrics.n,
     },
   } as T;
@@ -60,11 +85,15 @@ export function quantizeModel<T extends TrainedModel>(model: T): T {
  * chiffrer (= exactement la sérialisation de ce modèle). Lève si un plafond est dépassé.
  */
 export function gateModel<T extends TrainedModel>(model: T): { model: T; buffer: Buffer } {
-  const gated = quantizeModel(model);
-  // Pré-check bon marché avant de matérialiser le JSON (borne l'allocation, anti-DoS).
-  if (gated.coefficients.length > MAX_COEFFICIENTS) {
-    throw new Error(`Trop de poids (${gated.coefficients.length} > ${MAX_COEFFICIENTS}) — borné par l'output-gate`);
+  // Pré-check bon marché avant de quantifier et matérialiser le JSON (borne l'allocation, anti-DoS).
+  if (model.algo === "gradient_boosted_trees") {
+    if (model.trees.length > GBDT_TREES || !model.trees.every((tree) => isGbdtNode(tree, model.features.length))) {
+      throw new Error("Arbres hors profil — bornés par l'output-gate");
+    }
+  } else if (model.coefficients.length > MAX_COEFFICIENTS) {
+    throw new Error(`Trop de poids (${model.coefficients.length} > ${MAX_COEFFICIENTS}) — borné par l'output-gate`);
   }
+  const gated = quantizeModel(model);
   const buffer = Buffer.from(JSON.stringify(gated));
   if (buffer.length > MAX_MODEL_BYTES) {
     throw new Error(`Sortie trop volumineuse (${buffer.length} > ${MAX_MODEL_BYTES} o) — bornée par l'output-gate`);

@@ -20,7 +20,7 @@ import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { canonicalSubject } from "@/lib/subject";
-import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { isModelOffered, modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
@@ -127,9 +127,10 @@ function datasetRef(body: Record<string, unknown>): DatasetRef {
   };
 }
 
+/** Un profil facultatif reste refusé tant que l'image ne l'active pas (`NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`). */
 function trainingModel(body: Record<string, unknown>): ModelSelection {
   const selection = modelSelection(body.modelId, body.modelVersion);
-  if (!selection) throw new AppError("Modèle ou version non autorisé", 400);
+  if (!selection || !isModelOffered(selection.modelId)) throw new AppError("Modèle ou version non autorisé", 400);
   return selection;
 }
 

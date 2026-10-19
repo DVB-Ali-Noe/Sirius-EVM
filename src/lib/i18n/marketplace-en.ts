@@ -68,6 +68,7 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Ce qu’il fait": "What it does",
   "Ce que vous recevez": "What you receive",
   "Le modèle entraîné : ses coefficients et ses métriques de qualité.": "The trained model: its coefficients and quality metrics.",
+  "Le modèle entraîné : ses arbres et ses métriques de qualité.": "The trained model: its trees and quality metrics.",
   "Statistiques publiques": "Public statistics",
   "Publication": "Published",
   "Emprunts réglés au fournisseur": "Loans settled to the provider",

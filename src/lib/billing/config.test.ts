@@ -34,3 +34,16 @@ test("un tarif absent, invalide, périmé ou trop volumineux est refusé", () =>
   assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), validUntil: Date.now() - 1 }) }), /Tarif compute/);
   assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()) + " ".repeat(16_384) }), /Tarif compute/);
 });
+
+test("une politique installée avant le profil arbres reste valide ; un profil arbres présent doit être complet", () => {
+  const installed = billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()) });
+  assert.equal(installed.profiles.gradient_boosted_trees, undefined);
+  const priced = { ...policy(), profiles: { ...policy().profiles, gradient_boosted_trees: profile } };
+  assert.equal(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(priced) }).profiles.gradient_boosted_trees?.computeAmount, "3000000");
+  for (const broken of [{ ...profile, maxExecutionMs: 30_001 }, { ...profile, computeAmount: "1e6" }]) {
+    const invalid = { ...policy(), profiles: { ...policy().profiles, gradient_boosted_trees: broken } };
+    assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(invalid) }), /Tarif compute/);
+  }
+  const withoutLogistic = { ...policy(), profiles: { linear_regression: profile } };
+  assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(withoutLogistic) }), /Tarif compute/);
+});

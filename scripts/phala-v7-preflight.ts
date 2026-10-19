@@ -5,6 +5,7 @@ import { siriusescrowv7Abi } from "../src/lib/evm/abi/siriusescrowv7";
 import { siriusdatasetregistryAbi } from "../src/lib/evm/abi/siriusdatasetregistry";
 import { siriuskybregistryAbi } from "../src/lib/evm/abi/siriuskybregistry";
 import { MAINNET_STABLECOIN_ADDRESS } from "../src/lib/evm/stablecoin";
+import { MODEL_REGISTRY, isModelOffered, selectionForModelId, trainingProfileHash, type ModelId } from "../src/lib/models/registry";
 
 /**
  * USDG (Paxos) sur Robinhood Chain mainnet, 6 décimales, en minuscules pour les
@@ -70,7 +71,11 @@ function v7Configuration(env: Record<string, string | undefined>, network: Netwo
     if (kybAdmin !== computeRecipient) throw new Error("La trésorerie et l’administration KYB doivent être le même compte de gouvernance");
     if ([runner, deployer].includes(kybAdmin)) throw new Error("Le compte de gouvernance doit rester distinct du runner et du déployeur");
   }
-  return { network, ...NETWORKS[network], usdc, usdcCodeHash: usdcCodeHash.toLowerCase() as Hex, deployer, runner, computeRecipient, kybAdmin, contracts };
+  // Profils que l'instance proposera avec cet environnement : le registre doit tous les accepter au mint.
+  const trainingProfiles = (Object.keys(MODEL_REGISTRY) as ModelId[])
+    .filter((id) => isModelOffered(id, env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS))
+    .map((id) => trainingProfileHash(selectionForModelId(id)));
+  return { network, ...NETWORKS[network], usdc, usdcCodeHash: usdcCodeHash.toLowerCase() as Hex, deployer, runner, computeRecipient, kybAdmin, contracts, trainingProfiles };
 }
 
 export const checkTestnetV7 = checkV7;
@@ -114,12 +119,15 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
       client.readContract({ address: contracts.kyb, abi: siriuskybregistryAbi, functionName: "isKybValid",
         args: ["0x000000000000000000000000000000000000dEaD"], blockNumber }),
     ]);
-    if (version !== "sirius-escrow-usdc-v7" || datasetVersion !== "sirius-dataset-v4"
+    if (version !== "sirius-escrow-usdc-v7" || !["sirius-dataset-v4", "sirius-dataset-v5"].includes(datasetVersion)
       || authorizer.toLowerCase() !== config.runner || token.toLowerCase() !== config.usdc || kyb.toLowerCase() !== contracts.kyb
       || datasets.toLowerCase() !== contracts.datasets || datasetKyb.toLowerCase() !== contracts.kyb
       || linkedEscrow.toLowerCase() !== contracts.escrow || openKyb !== (config.network === "testnet")) {
       throw new Error("Versions, liaisons ou mode KYB des contrats incompatibles avec ce réseau");
     }
+    const supported = await Promise.all(config.trainingProfiles.map((profile) =>
+      client.readContract({ ...datasetRead, functionName: "isSupportedTrainingProfile", args: [profile] })));
+    if (!supported.every(Boolean)) throw new Error("Registre dataset : un profil d’entraînement proposé n’est pas accepté on-chain");
     if (config.kybAdmin) {
       const admin = await client.readContract({ address: contracts.kyb, abi: siriuskybregistryAbi, functionName: "admin", blockNumber });
       if (admin.toLowerCase() !== config.kybAdmin) throw new Error("Administration KYB hors du compte de gouvernance");

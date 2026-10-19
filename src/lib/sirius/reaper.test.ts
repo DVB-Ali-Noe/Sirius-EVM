@@ -111,6 +111,7 @@ test("le préflight v6 bloque les prêts et locks historiques même après les m
     if (functionName === "VERSION") return address.toLowerCase() === PROVIDER ? "sirius-dataset-v4" : "sirius-escrow-usdc-v6";
     if (functionName === "datasets") return PROVIDER;
     if (functionName === "escrow") return ESCROW;
+    if (functionName === "isSupportedTrainingProfile") return true;
     if (functionName === "accounting") return [locked, BigInt(0), locked, BigInt(0)];
     throw new Error(functionName);
   });
