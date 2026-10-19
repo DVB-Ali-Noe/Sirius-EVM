@@ -661,3 +661,20 @@ Mesures (Mac, worker de 128 Mio) :
 - Canaris : 22 % contre 13 % pour une ligne répétée 5 fois. Signal transmis au chantier C.
 
 Vérifié : `pnpm test` 1 083/1 083, `test:phala-demo` 38/38, `test:operations`, `contracts:test` 85, `test:billing`, typage, ESLint hors `experiments/`, build, CI de la PR (e2e et PostgreSQL compris). Aucune mesure sur la CVM : estimation d'environ 6 s de bout en bout à partir de la logistique (5,74 s).
+
+### Arbres boostés, préparation de la phase 2 — avant, 19 octobre 2026
+
+Arbres codés mais inutilisables de bout en bout : registre testnet v4 limité à deux profils, image runner `78839668…6eff4` antérieure à la #111, aucun outil pour ajouter un tarif à un volume CVM déjà initialisé (`initialize-runner-volume` refuse un volume existant, `ops:tariffs` ne connaît que deux profils), `deploy.ts` redéploie toujours un KYB, et le pré-vol ne lit pas l'admin du registre. Lecture seule du 19 octobre : escrow v7 vierge (`accounting` = 0, aucun événement), 8 titres v4, déployeur à 0,00787 ETH testnet.
+
+### Arbres boostés, préparation de la phase 2 — après, 19 octobre 2026
+
+PR brouillon `feat/gbdt-phase2` : code et procédure seulement, **rien de déployé ni dépensé**. Procédure, variables, session et retour arrière : [GBDT-PHASE2.md](GBDT-PHASE2.md).
+
+- **`deploy.ts`** : réutilisation d'un KYB existant (`SIRIUS_KYB_EXISTING_ADDRESS`, mode vérifié on-chain) ; ajout de profils facultatifs après la liaison (`SIRIUS_DATASET_TRAINING_PROFILES`), avec vérification que chaque profil est accepté au mint. La simulation estime le gas sur le RPC et refuse sous trois fois l'estimation. Commentaire sur l'administrateur corrigé.
+- **Pré-vol** : lecture de `admin()` du registre ; signalement si ce n'est pas le déployeur (testnet) ou la gouvernance (mainnet).
+- **Tarif sur un volume existant** : `update-runner-billing-policy` et modes de rendu `billing` / `demo-billing` (service ponctuel sans réseau). Le rapport de supervision expose la version et les profils du tarif lu, sans montants. `ops:tariffs` accepte le profil facultatif arbres.
+- **Compose** : `--opt-in-models` écrit l'interrupteur en clair dans le seul Compose actif.
+- **Mesure** : CSV synthétique de 30 000 lignes, sous 3 Mio, et métriques de référence locales que la CVM doit reproduire à l'identique.
+- **Docs** : `BILLING-INTEGRATION.md` (profils obligatoires et facultatifs, échec sûr, outil de mise à jour).
+
+Gas estimé : ≈ 3,71 M, soit ≈ 0,000037 ETH testnet. Session Phala prévue : ≤ 30 min, ≈ 0,03 USD. Point bloquant possible : la politique budgétaire sponsorisée (≤ 31 jours après son relevé de fin septembre) peut expirer avant la session.

@@ -28,7 +28,7 @@ function fixture() {
   const config = testnetV7Configuration(environment());
   const state = { chainId: 46630, runnerWei: BigInt(1), decimals: 18, code: "0x1234", version: "sirius-escrow-usdc-v7",
     authorizer: config.runner, datasetEscrow: config.contracts!.escrow, missingFinality: false, missingHistory: false, reorg: false, stableReads: 0,
-    datasetVersion: "sirius-dataset-v4", profiles: BASE_PROFILES };
+    datasetVersion: "sirius-dataset-v4", profiles: BASE_PROFILES, datasetAdmin: config.deployer as string };
   const readBlocks: bigint[] = [];
   const stableHash = `0x${"12".repeat(32)}`;
   const client = {
@@ -52,7 +52,7 @@ function fixture() {
       if (contract === config.contracts!.kyb) return true;
       if (contract === config.contracts!.datasets) {
         if (functionName === "isSupportedTrainingProfile") return state.profiles.includes(args?.[0] as string);
-        return { VERSION: state.datasetVersion, kyb: config.contracts!.kyb, escrow: state.datasetEscrow }[functionName];
+        return { VERSION: state.datasetVersion, kyb: config.contracts!.kyb, escrow: state.datasetEscrow, admin: state.datasetAdmin }[functionName];
       }
       return { VERSION: state.version, lockAuthorizer: state.authorizer, usdc: config.usdc, kyb: config.contracts!.kyb, datasets: config.contracts!.datasets }[functionName];
     },
@@ -154,7 +154,7 @@ test("le préflight mainnet exige KYB strict, l'USDG de Paxos et un compte de go
   }
 });
 
-function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin?: string } = {}) {
+function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin?: string; datasetAdmin?: string } = {}) {
   Object.assign(process.env, mainnetEnvironment());
   const config = mainnetV7Configuration(mainnetEnvironment());
   const stableHash = `0x${"12".repeat(32)}`;
@@ -167,7 +167,8 @@ function mainnetFixture(overrides: { decimals?: number; openKyb?: boolean; admin
     readContract: async ({ address: contract, functionName }: { address: string; functionName: string }) => {
       if (contract === config.usdc) return functionName === "decimals" ? (overrides.decimals ?? 6) : BigInt(0);
       if (contract === config.contracts!.kyb) return functionName === "admin" ? (overrides.admin ?? config.kybAdmin) : (overrides.openKyb ?? false);
-      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v5", kyb: config.contracts!.kyb, escrow: config.contracts!.escrow, isSupportedTrainingProfile: true }[functionName];
+      if (contract === config.contracts!.datasets) return { VERSION: "sirius-dataset-v5", kyb: config.contracts!.kyb, escrow: config.contracts!.escrow,
+        isSupportedTrainingProfile: true, admin: overrides.datasetAdmin ?? config.kybAdmin }[functionName];
       return { VERSION: "sirius-escrow-usdc-v7", lockAuthorizer: config.runner, usdc: config.usdc, kyb: config.contracts!.kyb, datasets: config.contracts!.datasets }[functionName];
     },
   } as unknown as PublicClient;
@@ -184,4 +185,17 @@ test("le préflight mainnet refuse 18 décimales, un registre KYB ouvert ou un a
     const { client, config } = mainnetFixture(overrides);
     await assert.rejects(checkMainnetV7(client, config));
   }
+});
+
+test("le préflight lit l'admin du registre : déployeur sur testnet, gouvernance exigée sur mainnet", async () => {
+  const { client, config, state } = fixture();
+  assert.equal((await checkTestnetV7(client, config)).datasetAdmin, config.deployer);
+  state.datasetAdmin = address(9);
+  const testnet = await checkTestnetV7(client, config);
+  assert.equal(testnet.chainChecksPassed, false);
+  assert.deepEqual(testnet.issues, ["datasets.admin_not_deployer"]);
+  const mainnet = mainnetFixture({ datasetAdmin: address(2) });
+  const report = await checkMainnetV7(mainnet.client, mainnet.config);
+  assert.equal(report.chainChecksPassed, false, "une clé de déploiement n'administre pas le registre mainnet");
+  assert.deepEqual(report.issues, ["datasets.admin_not_governance"]);
 });
