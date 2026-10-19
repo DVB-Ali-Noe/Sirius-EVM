@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { CardTitle, SectionTitle } from "@/components/ui/Heading";
@@ -10,6 +10,10 @@ import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
+import { tableWithTargetLast } from "@/lib/phala-demo/csv";
+import { isNumericCell } from "@/lib/datasets/csv-check";
+import { qualityReport } from "@/lib/datasets/quality";
+import { QualityReportPanel } from "@/components/datasets/QualityReportPanel";
 import { trainDemoFile } from "@/lib/phala-demo/training-client";
 import { openDemoDelivery } from "@/lib/phala-demo/delivery-client";
 import { parseCsv } from "@/lib/sirius/metrics";
@@ -19,8 +23,9 @@ import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
 interface Job { id: string; status: string; metrics: Record<string, number> | null; deliveryPublicKey: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
-interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; target: string; model: ModelId }
-const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, target: "", model: "linear_regression" };
+/** `table` : le fichier lu, gardé dans la page pour le rapport de qualité ; jamais envoyé ni stocké. */
+interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; table: string[][]; target: string; model: ModelId }
+const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: "linear_regression" };
 const button = "rounded-xl bg-accent px-5 py-3 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40";
 const selectedButton = "rounded-xl border border-positive/50 px-5 py-3 font-medium text-positive disabled:cursor-not-allowed disabled:opacity-40";
 const field = "w-full rounded-xl border border-border bg-background p-3 text-foreground";
@@ -35,7 +40,16 @@ export function PhalaDemo() {
 
 function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>> }) {
   const { locale, t } = useLocale();
-  const { file, example, columns, rows, target, model } = draft;
+  const { file, example, columns, rows, table, target, model } = draft;
+  // Rapport sur le fichier tel que l'enclave le recevra (cible choisie en dernier). Une cible non
+  // numérique est refusée par `csvWithTargetLast` : on l'annonce, sans le « changement de cible » d'E1.
+  const quality = useMemo(() => {
+    const index = columns.indexOf(target);
+    if (!file || index < 0) return null;
+    const report = qualityReport(tableWithTargetLast(table, target));
+    const invalidTarget = table.slice(1).filter((row) => !isNumericCell(row[index] ?? "")).length;
+    return report && { report: { ...report, targetShift: null }, invalidTarget };
+  }, [file, table, columns, target]);
   const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
   const connected = useWalletStore((state) => state.connected);
@@ -85,9 +99,10 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   async function selectFile(selected: File, sample?: (typeof DEMO_EXAMPLES)[number]) {
     setDraft((current) => ({ ...EMPTY_DRAFT, model: current.model })); setError("");
     if (!selected.size || selected.size > MAX_DATASET_BYTES) throw new Error("CSV vide ou trop volumineux (max 3 Mo)");
-    const [header, ...lines] = parseCsv(await selected.text());
+    const table = parseCsv(await selected.text());
+    const [header, ...lines] = table;
     if (!header?.length || header.some((name) => !name.trim()) || new Set(header).size !== header.length) throw new Error("En-têtes CSV absents ou dupliqués");
-    setDraft((current) => ({ file: selected, example: sample?.id ?? null, columns: header, rows: lines.length,
+    setDraft((current) => ({ file: selected, example: sample?.id ?? null, columns: header, rows: lines.length, table,
       target: sample?.target ?? header[header.length - 1], model: sample?.modelId ?? current.model }));
   }
 
@@ -161,6 +176,11 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         <label className="space-y-2 text-sm"><span>{t("Colonne à prédire")}</span><select className={field} value={target} disabled={busy || !file} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))}>
           {columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label></div>
       <p className="mt-4 text-sm text-muted">{t("Au moins 100 lignes ; colonnes prédictives numériques. La classification attend une cible 0/1. Les limites du profil sont vérifiées avant calcul.")}</p>
+      {quality && quality.invalidTarget > 0 && <div role="alert" className="mt-4 rounded-lg border border-yellow-400/40 bg-yellow-400/10 p-3 text-xs text-foreground/90">
+        <p className="font-medium text-yellow-400">{t("Colonne à prédire non numérique : à vérifier")}</p>
+        <p className="mt-1">{t("La colonne à prédire, {column}, contient {count} cellules vides ou non numériques : l’entraînement sera refusé. Choisis une autre colonne ou complète-les.", { column: target, count: quality.invalidTarget })}</p>
+      </div>}
+      {quality && <QualityReportPanel report={quality.report} />}
       <div className="mt-6">{authenticated ? <button className={button} disabled={!available || busy || !file || !target} onClick={() => void train()}>{t("Entraîner avec Phala")}</button>
         // Sans wallet connecté : le menu de choix (Google, MetaMask, Phantom…) plutôt que
         // `window.ethereum`, que la dernière extension installée s'approprie.

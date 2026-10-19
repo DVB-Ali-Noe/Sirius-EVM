@@ -163,6 +163,6 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "{zeros} lignes à 0, {ones} lignes à 1 : la classe minoritaire fait {share} % du fichier.":
     "{zeros} rows at 0, {ones} rows at 1: the minority class is {share}% of the file.",
   "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
-  "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré. Le fichier publié n’est pas modifié.":
-    "This report stays in your browser: it is neither sent nor saved. The published file is not modified.",
+  "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.":
+    "This report stays in your browser: it is neither sent nor saved, and it does not modify your file.",
 };

@@ -19,7 +19,10 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Origine HTTPS du contrôleur invalide": "Invalid controller HTTPS origin",
   "Colonne cible absente": "Target column missing",
   "En-têtes CSV invalides": "Invalid CSV headers",
-  "La colonne à prédire doit être numérique sur chaque ligne": "The target column must contain a finite number on every row",
+  "La colonne à prédire doit être numérique sur chaque ligne": "The target column must contain a number on every row",
+  "Colonne à prédire non numérique : à vérifier": "Non-numeric target column: please check",
+  "La colonne à prédire, {column}, contient {count} cellules vides ou non numériques : l’entraînement sera refusé. Choisis une autre colonne ou complète-les.":
+    "The target column, {column}, has {count} empty or non-numeric cells: training will be refused. Choose another column or fill them in.",
   "Nombre de colonnes CSV incohérent": "Inconsistent CSV column count",
   "Clé locale absente : utilise le navigateur ayant lancé cet entraînement": "Local key missing: use the browser that started this training",
   "Enregistrement de clé interrompu": "Key storage interrupted",
