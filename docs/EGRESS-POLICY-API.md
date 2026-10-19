@@ -252,7 +252,7 @@ Place dans le code : la politique remplace l’appel direct à `gateModel` dans 
 
 | Étape | Contenu | Risque | Dépend de |
 |---|---|---|---|
-| E1 | Rapport de qualité à l’import, côté navigateur et enclave, sans modifier le fichier : colonnes ignorées, constantes, manquants, décompte des doublons, colonne qui recopie la cible | Faible | **Démarre après la fusion de la #111** (`csv-check.ts` change) |
+| E1 | Rapport de qualité à l’import, dans le navigateur, sans modifier le fichier : cible qui change, colonnes écartées et leurs cellules manquantes, constantes, doublons, colonne qui recopie la cible, déséquilibre | Faible | **Livré** (PR E1, après la #111) |
 | E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, AUC d’appartenance ; seuil `trainAuc − heldOutAuc` seulement une fois calibré ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | Fusion #111 (`train.ts`, `output-gate.ts`) ; seuils provisoires puis calibration (annexe B) |
 | E3 | Préparation intégrée au modèle (imputation, normalisation, encodage) | Moyen (nouvelle version de profil) | Profil des arbres ou version suivante |
 | E4 | Prototype `/predict` en staging (§1.6), pendant les sessions manuelles | Moyen | E2, fusion #111 |
@@ -261,6 +261,8 @@ Place dans le code : la politique remplace l’appel direct à `gateModel` dans 
 | — | Modèle type Kev servi | Élevé (GPU) | Hors périmètre |
 
 E1 est l’incrément le plus utile et le moins risqué : il ne change ni ce qui sort de l’enclave ni les contrats.
+
+**E1, choix de la v1 : rapport dans le navigateur seulement.** Il est calculé sur le fichier en clair avant chiffrement et n’est ni envoyé, ni stocké, ni publié. Le recalculer dans l’enclave obligerait à le renvoyer par Next et, pour qu’il serve à l’acheteur, à le publier ; or `Dataset.metrics` est public (marketplace, page de preuve) et `publicDatasetMetrics` (`src/lib/sirius/metrics.ts`) n’en garde volontairement que `rowCount` et `columnCount`. Un décompte de doublons ou une liste de colonnes défectueuses renseignerait sur les données. Le fournisseur peut modifier ce rapport dans son navigateur : il n’a aucune valeur de preuve, la validation qui fait foi reste celle du runner. E2 calculera les doublons dans l’enclave comme diagnostic interne, jamais publié. Seuils provisoires : \|r\| ≥ 0,98 ou identité (cible, 1 − cible) pour la fuite de la cible, classe minoritaire < 10 %. Messages « à vérifier », aucun refus ajouté. La page `/phala` le recevra dans une PR séparée.
 
 ## Décisions
 

@@ -6,6 +6,8 @@ import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import { csvRejectionText, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
+import type { QualityReport } from "@/lib/datasets/quality";
+import { QualityReportPanel, TargetShiftWarning } from "./QualityReportPanel";
 import { DATASET_CATEGORIES, DATASET_CATEGORY_LABEL_KEYS, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from "@/lib/datasets/publication";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, type DataValues, type LoadedFile } from "./wizard-types";
@@ -19,6 +21,8 @@ interface DataStepProps {
   fileRejection: CsvRejection | null;
   /** Contrôle du contenu, recalculé quand le profil change. */
   inspection: CsvInspection | null;
+  /** Rapport de qualité du fichier lu, y compris refusé ; reste dans la page. */
+  quality: QualityReport | null;
   readingFile: boolean;
   onFileSelected: (file: File | null) => void;
   onLoadExample: () => void;
@@ -44,6 +48,7 @@ export function DataStep({
   file,
   fileRejection,
   inspection,
+  quality,
   readingFile,
   onFileSelected,
   onLoadExample,
@@ -57,6 +62,8 @@ export function DataStep({
   const [dragging, setDragging] = useState(false);
   const rejection = fileRejection ?? (inspection && !inspection.ok ? inspection.reason : null);
   const summary = inspection?.ok ? inspection.summary : null;
+  // Fichier accepté mais cible changée : pas de vert suivi d'un avertissement, le résultat passe en ton avertissement.
+  const targetShift = quality?.targetShift ?? null;
 
   function handleDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -111,12 +118,13 @@ export function DataStep({
                 <span className="text-muted"> · {formatBytes(file.sizeBytes)}</span>
               </p>
             )}
+            {!readingFile && targetShift && <TargetShiftWarning shift={targetShift} />}
             {!readingFile && rejection && (
               <p role="alert" className="mt-1 text-negative">{csvRejectionText(rejection, t)}</p>
             )}
             {!readingFile && summary && (
-              <div className="mt-2 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-foreground/90">
-                <p className="font-medium text-positive">{t("Fichier accepté par le contrôle du navigateur.")}</p>
+              <div className={`mt-2 rounded-lg border p-3 text-xs text-foreground/90 ${targetShift ? "border-yellow-400/40 bg-yellow-400/5" : "border-positive/30 bg-positive/5"}`}>
+                <p className={`font-medium ${targetShift ? "text-yellow-400" : "text-positive"}`}>{t("Fichier accepté par le contrôle du navigateur.")}</p>
                 <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
                   <div className="min-w-0">
                     <dt className="text-muted">{t("Lignes de données")}</dt>
@@ -150,6 +158,7 @@ export function DataStep({
                 </details>
               </div>
             )}
+            {!readingFile && quality && <QualityReportPanel report={quality} />}
           </div>
           <p className="text-xs text-muted">
             {t("Pas de données sous la main ?")}{" "}
