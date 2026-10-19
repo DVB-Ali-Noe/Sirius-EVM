@@ -6,6 +6,8 @@ import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import { csvRejectionText, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
+import type { QualityReport } from "@/lib/datasets/quality";
+import { QualityReportPanel } from "./QualityReportPanel";
 import { DATASET_CATEGORIES, DATASET_CATEGORY_LABEL_KEYS, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from "@/lib/datasets/publication";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, type DataValues, type LoadedFile } from "./wizard-types";
@@ -19,6 +21,8 @@ interface DataStepProps {
   fileRejection: CsvRejection | null;
   /** Contrôle du contenu, recalculé quand le profil change. */
   inspection: CsvInspection | null;
+  /** Rapport de qualité du fichier lu, y compris refusé ; reste dans la page. */
+  quality: QualityReport | null;
   readingFile: boolean;
   onFileSelected: (file: File | null) => void;
   onLoadExample: () => void;
@@ -44,6 +48,7 @@ export function DataStep({
   file,
   fileRejection,
   inspection,
+  quality,
   readingFile,
   onFileSelected,
   onLoadExample,
@@ -150,6 +155,7 @@ export function DataStep({
                 </details>
               </div>
             )}
+            {!readingFile && quality && <QualityReportPanel report={quality} />}
           </div>
           <p className="text-xs text-muted">
             {t("Pas de données sous la main ?")}{" "}

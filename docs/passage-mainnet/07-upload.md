@@ -23,6 +23,7 @@ Publier un dataset en deux écrans clairs, en sachant exactement ce qu'on va gag
 
 - **Fichier** : glisser-déposer un CSV. Limites du code local affichées avant le dépôt : 3 Mio, 50 000 lignes CSV au plus (en-tête compris), au moins 100 lignes de données, colonnes numériques, 31 variables explicatives au maximum. Le budget de calcul de 200 millions d’opérations et la taille peuvent refuser un fichier sous ce plafond de lignes.
 - Contrôle immédiat dans le navigateur : nombre de lignes et de colonnes, colonnes numériques détectées. Un fichier refusé l'est avec la raison exacte.
+- **Rapport de qualité** (`src/lib/datasets/quality.ts`), affiché aussi pour un fichier refusé : cible différente de la dernière colonne (en premier, avec les deux noms), variables qui semblent recopier la cible (identité, 1 − cible, |r| ≥ 0,98), colonnes écartées par l'entraînement avec leurs cellules vides ou non numériques, colonnes constantes, lignes en double sur les colonnes d'entraînement, classes déséquilibrées (minoritaire < 10 %), colonnes texte ignorées. Seuils provisoires. Ce sont des signalements « à vérifier », jamais des refus. Calculé dans le navigateur, il n'est ni envoyé, ni enregistré, ni publié ; le fichier et son Merkle root ne changent pas.
 - **Nom**, **description**.
 - **Catégorie**, nouvelle, obligatoire, liste fixe pour les filtres de la marketplace ([08](08-marketplace.md)) : Finance, Santé, Commerce, Industrie, Mobilité, Énergie, Marketing, Autre.
 - **Modèle d'entraînement** : régression linéaire ou logistique, avec la colonne cible.

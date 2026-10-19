@@ -76,7 +76,7 @@ export function checkFileSize(sizeBytes: number): CsvRejection | null {
 
 // Même expression que `isNum` dans train.ts : `Number()` accepte les espaces et l'hexadécimal,
 // refuse la chaîne vide (sinon 0) et l'infini ; la borne absolue écarte les valeurs géantes.
-function isNumeric(value: string): boolean {
+export function isNumericCell(value: string): boolean {
   const number = Number(value);
   return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
 }
@@ -89,13 +89,24 @@ function parseRejection(error: unknown): CsvRejection {
   return { kind: "unreadable" };
 }
 
-export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
-  let table: string[][];
+export type CsvTable = { ok: true; table: string[][] } | { ok: false; reason: CsvRejection };
+
+/** Lecture unique du fichier : le contrôle du profil et le rapport de qualité partagent le même tableau. */
+export function readCsvTable(text: string): CsvTable {
   try {
-    table = parseCsv(text);
+    return { ok: true, table: parseCsv(text) };
   } catch (error) {
-    return { ok: false, reason: parseRejection(error), summary: {} };
+    return { ok: false, reason: parseRejection(error) };
   }
+}
+
+export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
+  return inspectCsvTable(readCsvTable(text), modelId);
+}
+
+export function inspectCsvTable(read: CsvTable, modelId: ModelId): CsvInspection {
+  if (!read.ok) return { ok: false, reason: read.reason, summary: {} };
+  const { table } = read;
   if (table.length < 2) return { ok: false, reason: { kind: "no-data-rows" }, summary: { rowCount: Math.max(0, table.length - 1) } };
 
   const [header, ...rows] = table;
@@ -105,7 +116,7 @@ export function inspectCsv(text: string, modelId: ModelId): CsvInspection {
   }
   const numericIndexes = header
     .map((_, column) => column)
-    .filter((column) => rows.every((row) => isNumeric(row[column] ?? "")));
+    .filter((column) => rows.every((row) => isNumericCell(row[column] ?? "")));
   summary.numericColumns = numericIndexes.map((column) => header[column]);
   if (numericIndexes.length < 2) {
     return { ok: false, reason: { kind: "too-few-numeric-columns", found: numericIndexes.length }, summary };

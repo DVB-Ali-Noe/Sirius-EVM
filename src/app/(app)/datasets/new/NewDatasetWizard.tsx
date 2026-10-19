@@ -9,7 +9,8 @@ import { ensureVerifiedFor } from "@/components/onboarding/onboarding-store";
 import { createInFlightGuard } from "@/lib/onboarding/steps";
 import type { TokenInfo } from "@/components/datasets/price";
 import { messageOf } from "@/lib/errors-client";
-import { checkFileSize, inspectCsv, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
+import { checkFileSize, inspectCsvTable, readCsvTable, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
+import { qualityReport } from "@/lib/datasets/quality";
 import { parseProviderPrice } from "@/lib/datasets/price-input";
 import { DEFAULT_LISTING_DURATION_DAYS, type ListingDurationDays } from "@/lib/datasets/publication";
 import { providerPriceBreakdown, type PublishedTariff } from "@/lib/datasets/tariff";
@@ -86,10 +87,13 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     if (phase !== "securing") panelRef.current?.focus();
   }, [phase]);
 
+  const table = useMemo(() => (file ? readCsvTable(file.text) : null), [file]);
   const inspection: CsvInspection | null = useMemo(
-    () => (file ? inspectCsv(file.text, values.modelId) : null),
-    [file, values.modelId],
+    () => (table ? inspectCsvTable(table, values.modelId) : null),
+    [table, values.modelId],
   );
+  // Indépendant du profil : calculé une fois par fichier, gardé en mémoire de la page.
+  const quality = useMemo(() => (table?.ok ? qualityReport(table.table) : null), [table]);
   const summary = inspection?.ok ? inspection.summary : null;
   const canContinue = !!file && !fileRejection && !!summary && values.name.trim() !== "" && values.category !== "" && !readingFile;
 
@@ -291,6 +295,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             file={file}
             fileRejection={fileRejection}
             inspection={inspection}
+            quality={fileRejection ? null : quality}
             readingFile={readingFile}
             onFileSelected={readFile}
             onLoadExample={loadExample}
