@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderPhalaV7 } from "./render-phala-v7.mjs";
+import { OPT_IN_MODELS, renderPhalaV7 } from "./render-phala-v7.mjs";
+import { MODEL_REGISTRY } from "../src/lib/models/registry";
 
 const image = `ghcr.io/dvb-ali-noe/sirius-runner@sha256:${"12".repeat(32)}`;
 
@@ -74,4 +75,49 @@ test("la production reçoit son origine explicitement, jamais celle du staging p
     assert.throws(() => renderPhalaV7("active", image, origin), /Origine/, origin);
   }
   assert.throws(() => renderPhalaV7("demo-active", image, "https://sirius-data.tech"), /Origine/, "la démonstration garde son origine chiffrée");
+});
+
+test("la mise à jour du tarif est une maintenance ponctuelle, hors réseau, sur le volume budget seul", () => {
+  for (const [mode, origin] of [["billing", "https://sirius-evm-staging.vercel.app"], ["demo-billing", undefined]]) {
+    const model = renderPhalaV7(mode, image, origin);
+    const update = model.services["update-billing-policy"];
+    assert.equal(update.restart, "no");
+    assert.equal(update.network_mode, "none");
+    assert.equal(update.environment.RUNNER_VOLUME_ACTION, "update-billing-policy");
+    assert.equal(update.environment.RUNNER_UPDATED_BILLING_POLICY, "${RUNNER_UPDATED_BILLING_POLICY:?Tarif approuvé requis}");
+    assert.ok(update.volumes.every((volume) => volume.source === "runner_budget"));
+    assert.ok(!Object.hasOwn(update.environment, "RUNNER_TRANSPORT_SECRET"));
+    assert.equal(model.services.runner.environment.RUNNER_BOOTSTRAP_ONLY, "true", "le runner ne sert rien pendant la mise à jour");
+    if (mode === "demo-billing") assert.equal(model.volumes.runner_budget.name, "sirius_phala_demo_budget");
+  }
+});
+
+test("la prolongation du budget vise le seul volume de démonstration et précède le tarif", () => {
+  for (const mode of ["demo-budget", "demo-renewal"]) {
+    const model = renderPhalaV7(mode, image);
+    const renew = model.services["renew-budget-policy"];
+    assert.equal(renew.restart, "no");
+    assert.equal(renew.network_mode, "none");
+    assert.equal(renew.environment.RUNNER_BUDGET_RENEWAL, "${RUNNER_BUDGET_RENEWAL:?Prolongation approuvée requise}");
+    assert.ok(renew.volumes.every((volume) => volume.source === "runner_budget"));
+    assert.equal(model.volumes.runner_budget.name, "sirius_phala_demo_budget");
+    assert.equal(model.services.runner.environment.RUNNER_BOOTSTRAP_ONLY, "true");
+  }
+  assert.ok(!Object.hasOwn(renderPhalaV7("demo-budget", image).services, "update-billing-policy"));
+  const renewal = renderPhalaV7("demo-renewal", image);
+  assert.deepEqual(renewal.services["update-billing-policy"].depends_on,
+    { "renew-budget-policy": { condition: "service_completed_successfully", required: true } });
+});
+
+test("l'interrupteur des profils facultatifs est écrit en clair dans le seul Compose actif", () => {
+  assert.deepEqual(OPT_IN_MODELS, Object.values(MODEL_REGISTRY).filter((model) => model.optIn).map((model) => model.id));
+  const demo = renderPhalaV7("demo-active", image, undefined, "gradient_boosted_trees");
+  assert.equal(demo.services.runner.environment.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS, "gradient_boosted_trees");
+  const staging = renderPhalaV7("active", image, "https://sirius-evm-staging.vercel.app", " gradient_boosted_trees ");
+  assert.equal(staging.services.runner.environment.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS, "gradient_boosted_trees");
+  assert.ok(!Object.hasOwn(renderPhalaV7("demo-active", image).services.runner.environment, "NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS"), "coupé par défaut");
+  for (const value of ["linear_regression", "unknown", "gradient_boosted_trees,gradient_boosted_trees", "${NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS}"]) {
+    assert.throws(() => renderPhalaV7("demo-active", image, undefined, value), /facultatif/, value);
+  }
+  for (const mode of ["demo-billing", "demo-init"]) assert.throws(() => renderPhalaV7(mode, image, undefined, "gradient_boosted_trees"), /Compose actif/);
 });

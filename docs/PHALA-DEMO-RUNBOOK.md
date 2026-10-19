@@ -57,6 +57,15 @@ pnpm phala:compose-v7 demo-active ghcr.io/dvb-ali-noe/sirius-runner@sha256:DIGES
 
 Le digest doit contenir 64 caractères hexadécimaux. Le rendu conserve les références de secrets chiffrés ; ne pas interpoler les valeurs sur le poste avant téléversement. Les volumes `sirius_phala_demo_budget` et `sirius_phala_demo_replay` sont indépendants des volumes historiques. Ne pas les supprimer pour débloquer une erreur.
 
+Maintenance d'un volume déjà initialisé, sans réinitialisation (détails : [GBDT-PHASE2.md](GBDT-PHASE2.md)) :
+
+- `demo-budget` prolonge la politique sponsorisée dans `ledger.sqlite` (`RUNNER_BUDGET_RENEWAL={"validUntil":…,"observedAtMs":…}`, au plus 31 jours après le relevé). Elle exige aussi `EVM_NETWORK` et `SIRIUS_LOCK_AUTHORIZER`.
+- `demo-billing` remplace le tarif (`RUNNER_UPDATED_BILLING_POLICY`). Elle exige aussi `EVM_NETWORK`, `SIRIUS_USDC_ADDRESS` et `SIRIUS_COMPUTE_RECIPIENT`.
+- `demo-renewal` enchaîne les deux, le tarif n'étant remplacé qu'après une prolongation réussie.
+- `demo-active --opt-in-models=gradient_boosted_trees` écrit l'interrupteur en clair dans le Compose actif. Absent par défaut.
+
+Retirer les variables de maintenance de l'environnement chiffré avant de repasser au Compose actif. Le résultat se vérifie sans journaux dans `/operations/budget` : `check.expired`, `check.quotesUntilMs`, `tariff.version`, `tariff.profiles` et `tariff.sha256`.
+
 Ajouter `RUNNER_DEMO_CONTROL_SECRET`, distinct du transport et du monitoring. La session est stockée à `/var/lib/sirius-runner/budget/demo-sessions.sqlite`. L’initialisation v7 exige une politique budget **sponsored** et une politique de tarification v7 valide ; cette dernière maintient la compatibilité de configuration, les opérations de prêts étant refusées dans ce mode dédié. Les politiques doivent désigner les contrats/signataire réels, et les volumes doivent être vides avant leur première initialisation.
 
 Dans le budget : racine `earnedMarginUsdMicros="0"`, `cashUsdMicros="0"`, aucun `trial`. `sponsored` contient le financement ci-dessous, `origin` exacte et `observedAtMs`. Les prix positifs `costsUsdMicros` et `fixedReserveUsdMicros` restent obligatoires. Provisionner assez d’opérations pour ingestion + scellement + entraînement ; **scellement et entraînement comptent chacun comme une opération de session**. Les quotas historiques Next (3 entraînements/wallet/heure, 30 globaux/heure, un calcul à la fois) restent aussi applicables.

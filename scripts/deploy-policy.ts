@@ -4,6 +4,7 @@
  */
 
 import { MAINNET_STABLECOIN_ADDRESS, MAINNET_STABLECOIN_SYMBOL } from "../src/lib/evm/stablecoin";
+import { MODEL_REGISTRY, type ModelId } from "../src/lib/models/registry";
 
 export const MAINNET_CHAIN_ID = 4663;
 export const TESTNET_CHAIN_ID = 46630;
@@ -27,6 +28,22 @@ export interface DeploymentPlan {
   dryRun: boolean;
   /** Adresses à vérifier on-chain comme contrats (Safe) avant tout envoi. */
   mustBeContracts: string[];
+  /**
+   * Registre KYB existant à réutiliser (`SIRIUS_KYB_EXISTING_ADDRESS`) au lieu d'en déployer un :
+   * les attestations et les adresses publiques KYB restent valides. Son mode (ouvert/strict) est
+   * vérifié on-chain par le script avant toute transaction.
+   */
+  existingKyb: string | null;
+  /**
+   * Profils facultatifs à accepter au mint juste après la liaison (`SIRIUS_DATASET_TRAINING_PROFILES`,
+   * identifiants séparés par des virgules). Linéaire et logistique sont présents dès la construction.
+   */
+  trainingProfiles: ModelId[];
+  /**
+   * Registre de datasets déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`) servant de référence à
+   * l'estimation de l'escrow en simulation ; jamais utilisé pour un vrai déploiement.
+   */
+  estimateDatasets: string | null;
 }
 
 function address(env: Env, name: string): string | undefined {
@@ -81,6 +98,14 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
       throw new Error("SIRIUS_KYB_ADMIN et SIRIUS_KYB_VERIFIER doivent être distinctes. Pour un déploiement jetable : SIRIUS_ALLOW_SHARED_ROLES=true");
     }
   }
+  const existingKyb = address(env, "SIRIUS_KYB_EXISTING_ADDRESS") ?? null;
+  const trainingProfiles = (env.SIRIUS_DATASET_TRAINING_PROFILES ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+  for (const id of trainingProfiles) {
+    if (!Object.hasOwn(MODEL_REGISTRY, id) || !MODEL_REGISTRY[id as ModelId].optIn) {
+      throw new Error("SIRIUS_DATASET_TRAINING_PROFILES : seuls des profils facultatifs connus peuvent être ajoutés");
+    }
+  }
+  if (new Set(trainingProfiles).size !== trainingProfiles.length) throw new Error("SIRIUS_DATASET_TRAINING_PROFILES : profil en double");
 
   return {
     billingVersion,
@@ -89,5 +114,8 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
     sharedRoles,
     dryRun: env.SIRIUS_DEPLOY_DRY_RUN === "true",
     mustBeContracts,
+    existingKyb,
+    trainingProfiles: trainingProfiles as ModelId[],
+    estimateDatasets: address(env, "SIRIUS_DEPLOY_ESTIMATE_DATASETS") ?? null,
   };
 }

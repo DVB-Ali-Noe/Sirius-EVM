@@ -662,6 +662,47 @@ Mesures (Mac, worker de 128 Mio) :
 
 Vérifié : `pnpm test` 1 083/1 083, `test:phala-demo` 38/38, `test:operations`, `contracts:test` 85, `test:billing`, typage, ESLint hors `experiments/`, build, CI de la PR (e2e et PostgreSQL compris). Aucune mesure sur la CVM : estimation d'environ 6 s de bout en bout à partir de la logistique (5,74 s).
 
+### Arbres boostés, préparation de la phase 2 — avant, 19 octobre 2026
+
+Arbres codés mais inutilisables de bout en bout : registre testnet v4 limité à deux profils, image runner `78839668…6eff4` antérieure à la #111, aucun outil pour ajouter un tarif à un volume CVM déjà initialisé (`initialize-runner-volume` refuse un volume existant, `ops:tariffs` ne connaît que deux profils), `deploy.ts` redéploie toujours un KYB, et le pré-vol ne lit pas l'admin du registre. Lecture seule du 19 octobre : escrow v7 vierge (`accounting` = 0, aucun événement), 8 titres v4, déployeur à 0,00787 ETH testnet.
+
+### Arbres boostés, préparation de la phase 2 — après, 19 octobre 2026
+
+PR brouillon `feat/gbdt-phase2` : code et procédure seulement, **rien de déployé ni dépensé**. Procédure, variables, session et retour arrière : [GBDT-PHASE2.md](GBDT-PHASE2.md).
+
+- **`deploy.ts`** : réutilisation d'un KYB existant (`SIRIUS_KYB_EXISTING_ADDRESS`, mode vérifié on-chain) ; ajout de profils facultatifs après la liaison (`SIRIUS_DATASET_TRAINING_PROFILES`), avec vérification que chaque profil est accepté au mint. La simulation estime le gas sur le RPC et refuse sous trois fois l'estimation. Commentaire sur l'administrateur corrigé.
+- **Pré-vol** : lecture de `admin()` du registre ; signalement si ce n'est pas le déployeur (testnet) ou la gouvernance (mainnet).
+- **Tarif sur un volume existant** : `update-runner-billing-policy` et modes de rendu `billing` / `demo-billing` (service ponctuel sans réseau). Le rapport de supervision expose la version et les profils du tarif lu, sans montants. `ops:tariffs` accepte le profil facultatif arbres.
+- **Compose** : `--opt-in-models` écrit l'interrupteur en clair dans le seul Compose actif.
+- **Mesure** : CSV synthétique de 30 000 lignes, sous 3 Mio, et métriques de référence locales que la CVM doit reproduire à l'identique.
+- **Docs** : `BILLING-INTEGRATION.md` (profils obligatoires et facultatifs, échec sûr, outil de mise à jour).
+
+Gas estimé : ≈ 3,71 M, soit ≈ 0,000037 ETH testnet. Session Phala prévue : ≤ 30 min, ≈ 0,03 USD.
+
+### Arbres boostés, corrections après relecture de la #116 — avant, 19 octobre 2026
+
+Relecture par deux agents (sécurité/opérations, exactitude) :
+- La simulation de `deploy.ts` échouait toujours, car l'escrow était estimé avec le déployeur comme registre (`InvalidRegistry`).
+- Le budget et le tarif du volume démo expirent le 2026-10-26 à 14:12 UTC (relevé de Noé), sans outil de prolongation.
+- `check.canQuote` ignorait la marge de 3 jours, alors que le dernier devis possible est le 2026-10-23 à 14:07 UTC.
+- L'outil de tarif lisait la validité dans la copie d'installation, laissait un `.next` bloquant après une erreur et acceptait un changement de prix silencieux.
+- Le plan omettait la pause des titres v4, le gel des fusions, l'alias `demo.sirius-data.tech` et le couplage image/adresses du retour arrière.
+
+### Arbres boostés, corrections après relecture de la #116 — après, 19 octobre 2026
+
+- **Prolongation du budget** : `renewSponsoredBudgetPolicy` et `scripts/renew-runner-budget-policy.ts`, modes `demo-budget` et `demo-renewal` (tarif enchaîné après succès). Une transaction SQLite dans `ledger.sqlite` ; seuls `validUntil` et `sponsored.observedAtMs` changent ; historique dans `sponsored_policy_changes` ; rejeu sans effet.
+- **Fenêtre de devis** : `canQuote` intègre 3 jours + 300 s ; le rapport expose `quotesUntilMs` et `quoteWindowClosed` ; la supervision lève `quote-window-closed`.
+- **Simulation** : `contracts/scripts/deploy-estimate.ts` estime l'escrow contre un registre déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`). Sortie réelle en lecture seule : 3 731 970 gas, 0,0000373197 ETH.
+- **Tarif** :
+  - validité lue dans le registre réel ;
+  - `.next` jeté à la relance ;
+  - prix installés modifiables seulement avec `RUNNER_BILLING_ALLOW_PROFILE_CHANGES=true` ;
+  - octets écrits tels quels, SHA-256 publié dans `/operations/budget`.
+- **Référence** : métriques épinglées dans `gbdt-benchmark-csv.test.mjs`.
+- **Plan** : `GBDT-PHASE2.md` réécrit, avec deux sessions (A prolongation avant le 26 octobre, B arbres), étapes manquantes et retour arrière corrigé. Aucune entrée `RETIRED_ENCLAVES` nécessaire.
+
+Toujours rien de déployé ni de dépensé.
+
 ### Rapport de qualité à l'import (E1) — avant, 19 octobre 2026
 
 `/datasets/new` affichait seulement lignes, colonnes, colonnes numériques et cible. `numericColumns` (`src/lib/tee/train.ts`) écarte en silence toute colonne dont une seule cellule est vide ou non numérique ; si c'est la dernière, une autre colonne devient la cible sans autre signal que son nom. Rien ne signalait une variable qui recopie la cible, les constantes, les doublons ni le déséquilibre des classes.
@@ -671,3 +712,19 @@ Vérifié : `pnpm test` 1 083/1 083, `test:phala-demo` 38/38, `test:operations`,
 PR [#117](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/117). `src/lib/datasets/quality.ts` calcule dans le navigateur, avant chiffrement, un rapport montré au fournisseur seul : jamais envoyé, stocké ni publié ; fichier et Merkle root inchangés ; aucun refus ajouté. Cible qui change : avertissement au-dessus du résultat du contrôle, qui passe alors en ton avertissement. Puis, dans le rapport : variable qui recopie la cible (identité, 1 − cible, \|r\| ≥ 0,98, provisoire), colonnes écartées avec leurs cellules vides ou non numériques, constantes, doublons sur les colonnes d'entraînement (clé `\u0000`, sans hachage), classe minoritaire < 10 % (provisoire), colonnes texte ignorées. Affiché aussi pour un fichier refusé. `/phala` non modifié (PR séparée prévue).
 
 Mesuré sur M2 (Node, V8) : 149 ms de plus pour 49 999 × 31 (3,10 Mo), 28 à 30 Mo de tas alloué au pire sous 3 Mo ; pas de Web Worker. Vérifié : `pnpm test` 1 090/1 090 (7 nouveaux), typage, ESLint des fichiers touchés, build, captures locales (propre, fuite, refusé, cible qui change), aucune requête réseau pendant la lecture du fichier.
+
+### Arbres boostés, rejeu sans console — avant/après, 19 octobre 2026
+
+Avant :
+- Rejouer `demo-renewal`, ou redémarrer la CVM dessus, faisait échouer l'outil de tarif (« Nouvelle version de tarif requise », sortie 1) alors que le tarif était déjà en place.
+- Un tarif identique, écrit avec un autre ordre de clés, était compté comme un changement de prix.
+- Un échec du checkpoint SQLite après un `COMMIT` réussi affichait « Rien n'a été modifié ».
+
+Après :
+- Des octets identiques au fichier installé donnent « déjà appliqué », une sortie 0 et aucune écriture.
+- Les profils sont comparés avec leurs clés triées.
+- Le checkpoint est sorti du chemin d'échec.
+- Docs : le relevé du financement doit couvrir le plafond ; le `sha256` se calcule sans saut de ligne final ; `canQuote` suppose un délai de 3 jours.
+- Plan : les commandes VPS et CLI Phala sont exécutées par l'agent principal ; Noé ouvre et ferme la session dans `/operator` et donne les accords.
+
+Rien de déployé.

@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS, USDC_DECIMALS_BY_NETWORK, type EvmNetwork } from "../../src/lib/evm/networks";
+import { MODEL_REGISTRY, selectionForModelId, trainingProfileHash, type ModelId } from "../../src/lib/models/registry";
 import { deploymentPlan } from "../../scripts/deploy-policy";
+import { estimateDeploymentGas, type EstimateClient } from "./deploy-estimate";
 
 /**
  * Déploie les contrats Sirius sur Robinhood Chain.
@@ -178,12 +180,45 @@ async function main() {
     if (!code || code === "0x") throw new Error(`L'admin KYB ${governed} doit être un contrat (Safe), pas une clé`);
   }
 
+  // Réutilisation d'un registre KYB : son mode doit être celui demandé, avant toute transaction.
+  if (plan.existingKyb) {
+    const existing = plan.existingKyb as Hex;
+    const code = await publicClient.getBytecode({ address: existing });
+    if (!code || code === "0x") throw new Error("SIRIUS_KYB_EXISTING_ADDRESS ne contient aucun contrat");
+    const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
+    const acceptsAnyone = await publicClient.readContract({
+      address: existing, abi: artifact(kybName).abi, functionName: "isKybValid",
+      args: ["0x000000000000000000000000000000000000dEaD"],
+    });
+    if (acceptsAnyone !== kybOuvert) throw new Error("Le registre KYB existant n'est pas dans le mode demandé (SIRIUS_KYB_MODE)");
+    if (!kybOuvert) {
+      const version = await publicClient.readContract({ address: existing, abi: artifact(kybName).abi, functionName: "VERSION" });
+      if (version !== "sirius-kyb-v3") throw new Error("Le registre KYB existant n'est pas en v3");
+    }
+    console.log(`KYB réutilisé : ${existing} (${kybOuvert ? "ouvert" : "strict v3"})`);
+  }
+  const addedProfiles = plan.trainingProfiles.map((id) => ({ id, hash: trainingProfileHash(selectionForModelId(id)) }));
+
   if (plan.dryRun) {
+    if (!plan.estimateDatasets) {
+      throw new Error("SIRIUS_DEPLOY_ESTIMATE_DATASETS requis en simulation : registre de datasets déjà déployé servant de référence à l'estimation de l'escrow");
+    }
+    const gasPrice = await publicClient.getGasPrice();
+    const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
+    const estimates = await estimateDeploymentGas(publicClient as unknown as EstimateClient, {
+      account: account.address, artifact,
+      kyb: plan.existingKyb ? { existing: plan.existingKyb as Hex } : { deploy: kybName, args: kybOuvert ? [] : [admin, verifier] },
+      referenceDatasets: plan.estimateDatasets as Hex, escrowContract, usdc, lockAuthorizer,
+      addedProfiles: addedProfiles.map(({ id }) => id),
+    });
+    const total = estimates.reduce((sum, [, gas]) => sum + gas, 0n);
     console.log("");
     console.log("Exécution à blanc : toutes les vérifications sont passées, aucune transaction envoyée.");
-    console.log(`contrats      : ${kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry"}, SiriusDatasetRegistry, ${escrowContract}`);
+    for (const [name, gas] of estimates) console.log(`  ${name.padEnd(42)} ${gas.toLocaleString("fr-FR")} gas`);
+    console.log(`gas estimé    : ${total.toLocaleString("fr-FR")} à ${gasPrice} wei, soit ${formatEther(total * gasPrice)} ETH (solde ${formatEther(balance)} ETH)`);
     console.log(`signataire    : ${lockAuthorizer}`);
-    if (!kybOuvert) console.log(`admin KYB     : ${admin}\nvérificateur  : ${verifier}`);
+    if (!kybOuvert && !plan.existingKyb) console.log(`admin KYB     : ${admin}\nvérificateur  : ${verifier}`);
+    if (total * gasPrice * 3n > balance) throw new Error("Solde insuffisant pour trois fois le gas estimé : alimenter le compte avant le déploiement");
     return;
   }
 
@@ -216,10 +251,14 @@ async function main() {
   }
 
   console.log("");
-  const kyb = kybOuvert
-    ? await deploy("SiriusOpenKybRegistry")
-    : await deploy("SiriusKybRegistry", [admin, verifier]);
-  // Ce rôle ne sert qu'à la liaison unique ; le déployeur effectue la transaction.
+  const kyb = plan.existingKyb
+    ? plan.existingKyb as Hex
+    : kybOuvert
+      ? await deploy("SiriusOpenKybRegistry")
+      : await deploy("SiriusKybRegistry", [admin, verifier]);
+  // L'admin du registre est immuable : il lie l'escrow une seule fois et peut ensuite ajouter des
+  // profils, jamais en retirer. Testnet : la clé du déployeur. Mainnet : une multisig sera exigée
+  // avant toute mise en service (le pré-vol lit admin()).
   const datasets = await deploy("SiriusDatasetRegistry", [kyb, account.address]);
   const escrow = await deploy(escrowContract, [usdc, kyb, datasets, lockAuthorizer]);
   const bindEscrowHash = await walletClient.writeContract({
@@ -232,6 +271,16 @@ async function main() {
   const bindEscrowReceipt = await publicClient.waitForTransactionReceipt({ hash: bindEscrowHash, confirmations: 1 });
   if (bindEscrowReceipt.status !== "success") throw new Error("Liaison DatasetRegistry → SiriusEscrow rejetée");
   totalGas += bindEscrowReceipt.gasUsed;
+
+  for (const { id, hash: profile } of addedProfiles) {
+    const hash = await walletClient.writeContract({
+      address: datasets, abi: artifact("SiriusDatasetRegistry").abi, functionName: "addTrainingProfile", args: [profile], account,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+    if (receipt.status !== "success") throw new Error(`Ajout du profil ${id} rejeté (tx ${hash})`);
+    totalGas += receipt.gasUsed;
+    console.log(`profil ajouté ${id.padEnd(24)} (${receipt.gasUsed.toLocaleString("fr-FR")} gas, tx ${hash})`);
+  }
 
   console.log("");
   console.log(`gas total     : ${totalGas.toLocaleString("fr-FR")}`);
@@ -318,6 +367,15 @@ async function main() {
   })) as Hex;
   if (linkedEscrow.toLowerCase() !== escrow.toLowerCase()) {
     throw new Error("SiriusDatasetRegistry ne référence pas le contrat escrow déployé");
+  }
+  // Linéaire et logistique dès la construction, puis les profils ajoutés : tous acceptés au mint.
+  const expectedProfiles = (Object.keys(MODEL_REGISTRY) as ModelId[])
+    .filter((id) => !MODEL_REGISTRY[id].optIn || plan.trainingProfiles.includes(id));
+  for (const id of expectedProfiles) {
+    const supported = await publicClient.readContract({
+      address: datasets, abi: datasetAbi, functionName: "isSupportedTrainingProfile", args: [trainingProfileHash(selectionForModelId(id))],
+    });
+    if (!supported) throw new Error(`Le registre dataset n'accepte pas le profil ${id}`);
   }
 
   const explorer = chain.blockExplorers?.default.url;

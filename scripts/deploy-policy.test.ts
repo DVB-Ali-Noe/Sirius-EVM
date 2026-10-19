@@ -85,3 +85,22 @@ test("le testnet garde ses raccourcis assumés et n'impose aucun jeton", () => {
   assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_ADMIN: safe, SIRIUS_KYB_VERIFIER: safe }, TESTNET_CHAIN_ID, deployer), /distinctes/);
   assert.throws(() => deploymentPlan(base, 1, deployer), /Réseau inattendu/);
 });
+
+test("le déploiement peut réutiliser un KYB existant et n'ajoute que des profils facultatifs connus", () => {
+  const base = { SIRIUS_USDC_ADDRESS: `0x${"34".repeat(20)}`, SIRIUS_LOCK_AUTHORIZER: enclave, SIRIUS_KYB_MODE: "open", SIRIUS_BILLING_VERSION: "7" };
+  const fresh = deploymentPlan(base, TESTNET_CHAIN_ID, deployer);
+  assert.equal(fresh.existingKyb, null);
+  assert.deepEqual(fresh.trainingProfiles, []);
+  const kyb = "0xC6Ef861119C097d135C85ff0988014d52cc78c64";
+  const reuse = deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: kyb, SIRIUS_DATASET_TRAINING_PROFILES: " gradient_boosted_trees " }, TESTNET_CHAIN_ID, deployer);
+  assert.equal(reuse.existingKyb, kyb.toLowerCase());
+  assert.deepEqual(reuse.trainingProfiles, ["gradient_boosted_trees"]);
+  for (const profiles of ["linear_regression", "unknown_model", "gradient_boosted_trees,gradient_boosted_trees", "__proto__"]) {
+    assert.throws(() => deploymentPlan({ ...base, SIRIUS_DATASET_TRAINING_PROFILES: profiles }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DATASET_TRAINING_PROFILES/, profiles);
+  }
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: `0x${"0".repeat(40)}` }, TESTNET_CHAIN_ID, deployer), /non nulle/);
+  assert.equal(fresh.estimateDatasets, null);
+  const registry = "0x99EA98be5c439809a918115764bcabf089ef4be5";
+  assert.equal(deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: registry }, TESTNET_CHAIN_ID, deployer).estimateDatasets, registry.toLowerCase());
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: "0x99ea" }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DEPLOY_ESTIMATE_DATASETS/);
+});

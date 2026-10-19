@@ -101,6 +101,7 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
   if (deployerWei === BigInt(0)) issues.push("deployer.native_balance_zero");
   if (runnerWei === BigInt(0)) issues.push("runner.native_balance_zero");
   const contracts = config.contracts;
+  let datasetAdmin: string | null = null;
   if (!contracts) issues.push("contracts.not_configured");
   else {
     const code = await Promise.all(Object.values(contracts).map((address) => client.getBytecode({ address, blockNumber })));
@@ -132,6 +133,12 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
       const admin = await client.readContract({ address: contracts.kyb, abi: siriuskybregistryAbi, functionName: "admin", blockNumber });
       if (admin.toLowerCase() !== config.kybAdmin) throw new Error("Administration KYB hors du compte de gouvernance");
     }
+    // L'admin du registre (immuable) peut ajouter des profils. Testnet : le compte de déploiement.
+    // Mainnet : le compte de gouvernance, pas une clé de déploiement ; signalé sans bloquer la lecture.
+    datasetAdmin = (await client.readContract({ ...datasetRead, functionName: "admin" })).toLowerCase();
+    if (config.network === "mainnet" ? datasetAdmin !== config.kybAdmin : datasetAdmin !== config.deployer) {
+      issues.push(config.network === "mainnet" ? "datasets.admin_not_governance" : "datasets.admin_not_deployer");
+    }
   }
   const canonical = await client.getBlock({ blockNumber });
   if (canonical.hash !== stable.hash) throw new Error("Bloc finalisé modifié pendant le préflight");
@@ -142,7 +149,7 @@ export async function checkV7(client: PublicClient, config: ReturnType<typeof te
     balances: { blockNumber: String(blockNumber), deployer: { address: config.deployer, wei: String(deployerWei) },
       runner: { address: config.runner, wei: String(runnerWei) },
       computeRecipient: { address: config.computeRecipient, usdcAtomic: String(computeUsdc) } },
-    usdc: { address: config.usdc, decimals, codeHash: config.usdcCodeHash }, contracts,
+    usdc: { address: config.usdc, decimals, codeHash: config.usdcCodeHash }, contracts, datasetAdmin,
     remainingProofs: ["gas_estimates_and_funded_limits", "approved_accounting_and_tariffs", "external_stop_supervisor",
       "restored_runner_volumes", "active_hardware_attestation", "application_migration_and_two_wallet_flow"],
   };

@@ -1,6 +1,25 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { AppError } from "@/lib/app-error";
 import { runnerBudget } from "./budget";
+import { billingEnabled, billingPolicy } from "@/lib/billing/config";
+
+/**
+ * Tarif lu par ce runner : version, profils et SHA-256 des octets du fichier, sans montants.
+ * Permet de vérifier une mise à jour du volume (`update-runner-billing-policy`) sans journaux
+ * publics : l'empreinte est celle du JSON approuvé.
+ */
+function tariffSummary(): { version: string; profiles: string[]; sha256: string } | "unavailable" | null {
+  if (!billingEnabled()) return null;
+  try {
+    const policy = billingPolicy();
+    const file = process.env.RUNNER_BILLING_POLICY_FILE;
+    const bytes = file ? readFileSync(file) : Buffer.from(process.env.SIRIUS_BILLING_POLICY_JSON ?? "");
+    return { version: policy.tariffVersion, profiles: Object.keys(policy.profiles).sort(), sha256: createHash("sha256").update(bytes).digest("hex") };
+  } catch {
+    return "unavailable";
+  }
+}
 
 export function monitoringAuthorized(header: string | string[] | undefined): boolean {
   const secret = process.env.RUNNER_MONITOR_SECRET;
@@ -16,5 +35,6 @@ export function runnerBudgetReport() {
     version: 1, observedAtMs: Date.now(), chainId: ledger.policy.chainId, wallet: ledger.policy.wallet,
     funding: ledger.policy.sponsored ? `sirius-sponsored-${ledger.policy.sponsored.funding}` : ledger.policy.trial ? "phala-trial-credits" : "earned-margin",
     check: JSON.parse(JSON.stringify(ledger.diagnostics(), (_key, value) => typeof value === "bigint" ? String(value) : value)),
+    tariff: tariffSummary(),
   };
 }

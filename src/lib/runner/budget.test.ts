@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
-import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
+import { BudgetLedger, initializeBudgetLedger, QUOTE_RESERVATION_MARGIN_MS, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
 import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
 import { classifySendError, sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { assertAbandonable, parseTransactionsCommand } from "../../../scripts/runner-transactions";
@@ -80,6 +80,19 @@ function trialPolicy(p: BudgetPolicy): void {
   p.trial = { provider: "phala", creditsUsdMicros: "10000", ceilingUsdMicros: "200", observedAtMs: Date.now(),
     escrow: `0x${"34".repeat(20)}`, wallets: [`0x${"56".repeat(20)}`] };
 }
+
+test("les devis s'arrêtent avant la fin de politique, de la marge de réservation (délai + durée du devis)", () => {
+  const now = Date.now();
+  const { ledger } = fixture((p) => {
+    p.validUntil = now + QUOTE_RESERVATION_MARGIN_MS + 60_000;
+    p.earnedMarginUsdMicros = p.cashUsdMicros = "10000";
+  });
+  const open = ledger.diagnostics(now);
+  assert.equal(open.canQuote, true);
+  assert.equal(open.quotesUntilMs, now + 60_000);
+  const closed = ledger.diagnostics(now + 60_000);
+  assert.deepEqual([closed.canQuote, closed.quoteWindowClosed, closed.expired], [false, true, false]);
+});
 
 test("les crédits d’essai financent une enveloppe persistante sans fabriquer de marge", () => {
   const { ledger, open } = fixture(trialPolicy);

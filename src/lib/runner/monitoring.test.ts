@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, test } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -51,4 +52,19 @@ test("la supervision reste accessible sans budget disponible, sans autoriser de 
   assert.equal(report.body.check.allocatedUsd, "0");
   assert.equal(report.body.policy, undefined);
   assert.doesNotMatch(JSON.stringify(report.body), /synthetic-monitor|wrappedKey|modelKey|preimage/);
+  assert.equal(report.body.tariff, null, "sans facturation v7, aucun tarif");
+
+  // Facturation v7 : version, profils et empreinte du tarif lu dans le volume, jamais les montants.
+  process.env.SIRIUS_BILLING_VERSION = "7";
+  process.env.RUNNER_BILLING_POLICY_FILE = join(root, "billing-policy.json");
+  assert.equal((await request("GET", `Bearer ${secret}`)).body.tariff, "unavailable");
+  const profile = { computeAmount: "7000000", maxFailureFee: "1", executionRateAtomicPerMs: "1", maxExecutionMs: 15000 };
+  const tariff = JSON.stringify({ version: 1, tariffVersion: "tarif-monitor", costReference: "synthetic",
+    validUntil: Date.now() + 60_000, chainId: 46630, usdc: `0x${"56".repeat(20)}`, usdcDecimals: 18, computeRecipient: `0x${"78".repeat(20)}`,
+    minimumComputeAmount: "1", profiles: { logistic_regression: profile, linear_regression: profile, gradient_boosted_trees: profile } });
+  writeFileSync(process.env.RUNNER_BILLING_POLICY_FILE, tariff);
+  const billed = await request("GET", `Bearer ${secret}`);
+  assert.deepEqual(billed.body.tariff, { version: "tarif-monitor", profiles: ["gradient_boosted_trees", "linear_regression", "logistic_regression"],
+    sha256: createHash("sha256").update(tariff).digest("hex") });
+  assert.doesNotMatch(JSON.stringify(billed.body), /7000000/);
 });
