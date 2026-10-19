@@ -29,9 +29,10 @@ Empreintes de profil : linéaire `0xa38a…3190`, logistique `0x0b89…c6cc`, ar
 - La demande ne contient que `{"validUntil": …, "observedAtMs": …}`. Tout autre champ est refusé : le financement et les plafonds ne changent que par la commande opérateur existante.
 - Refus : échéance raccourcie ou passée, plus de 31 jours après le relevé, relevé antérieur au relevé en vigueur, autre réseau ou autre wallet, financement non sponsorisé.
 - Reprise : une coupure avant la validation laisse l'ancienne politique ; après la validation, rejouer la même demande répond « déjà appliquée » sans rien réécrire.
-- `observedAtMs` = date du relevé du financement (crédits Phala) que Noé refait avant la session. Exemple : relevé le 24 octobre → fin possible au plus tard le 24 novembre.
+- `observedAtMs` = date du relevé du financement (crédits Phala), refait avant la session. Ce relevé doit **confirmer que les crédits couvrent toujours le plafond** sponsorisé (`ceilingUsdMicros`) ; sinon, ne pas prolonger et passer d'abord par la commande opérateur de financement. Exemple : relevé le 24 octobre → fin possible au plus tard le 24 novembre.
+- Le checkpoint SQLite après validation est hors du chemin d'échec : un checkpoint manqué n'annonce pas « rien n'a été modifié » à tort.
 
-Le tarif est ensuite prolongé jusqu'à la même date au plus : l'outil de tarif lit désormais la validité dans le registre réel, pas dans la copie `budget-policy.json` de l'installation. En mode `demo-renewal`, le tarif n'est remplacé qu'après une prolongation réussie (`depends_on: service_completed_successfully`).
+Le tarif est ensuite prolongé jusqu'à la même date au plus : l'outil de tarif lit désormais la validité dans le registre réel, pas dans la copie `budget-policy.json` de l'installation. En mode `demo-renewal`, le tarif n'est remplacé qu'après une prolongation réussie (`depends_on: service_completed_successfully`). Rejouer `demo-renewal` (ou redémarrer la CVM dessus) est sans effet : les deux outils répondent « déjà appliqué » et sortent en 0. Le `tariff.sha256` attendu se calcule sur la valeur exacte de `RUNNER_UPDATED_BILLING_POLICY`, sans saut de ligne final (`printf %s`). `canQuote` suppose le délai de contestation standard de 3 jours : un devis à délai plus long serait refusé malgré `canQuote` vrai.
 
 ## 3. Contrats
 
@@ -66,7 +67,7 @@ Recommandation : **session A (prolongation) seule, avant le 26 octobre ; session
 
 ## 5. Ordre exact
 
-`Moi` = cet agent (code, docs, lectures, rendus). `Noé` = signatures, Vercel, Phala, approbations. `Agent VPS` = l'agent qui a accès à `162.19.66.80`.
+`Moi` = cet agent (code, docs, lectures, rendus). `Noé` = approbations, ouverture et fermeture de session dans `/operator`. `Agent principal` = l'agent qui a accès à `162.19.66.80` et à la CLI Phala. Décision de Noé (19 octobre) : tout ce qui passe par le VPS ou la CLI Phala (A2, A4, A5, B5–B6, B8, B10, partie commandes de B11) est exécuté par l'agent principal, après l'accord de Noé ; les mentions « Noé » et « Agent VPS » de ces lignes désignent alors l'agent principal pour les commandes.
 
 ### Préparation commune
 

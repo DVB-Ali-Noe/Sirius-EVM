@@ -206,6 +206,7 @@ export function renewSponsoredBudgetPolicy(
   const db = database(path);
   try {
     db.exec("BEGIN IMMEDIATE");
+    let result: { status: "renewed"; previous: BudgetPolicy; next: BudgetPolicy };
     try {
       const current = validateBudgetPolicy(JSON.parse(String(db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
       if (current.chainId !== chainId || current.wallet !== wallet.toLowerCase()) throw new AppError("Budget lié à un autre réseau ou wallet", 409);
@@ -222,12 +223,15 @@ export function renewSponsoredBudgetPolicy(
         .run(actor, now, JSON.stringify(current), JSON.stringify(next));
       db.prepare("UPDATE budget SET policy = ? WHERE id = 1").run(JSON.stringify(next));
       db.exec("COMMIT");
-      db.exec("PRAGMA wal_checkpoint(FULL)");
-      return { status: "renewed", previous: current, next };
+      result = { status: "renewed", previous: current, next };
     } catch (error) {
       try { db.exec("ROLLBACK"); } catch { /* transaction déjà close */ }
       throw error;
     }
+    // Validé : un checkpoint manqué ne défait rien (WAL durable, synchronous = FULL) et ne doit
+    // pas faire annoncer un échec ; il sera repris au prochain checkpoint du runner.
+    try { db.exec("PRAGMA wal_checkpoint(FULL)"); } catch { /* reporté */ }
+    return result;
   } finally {
     db.close();
   }

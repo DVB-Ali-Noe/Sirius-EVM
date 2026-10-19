@@ -45,7 +45,8 @@ test("ajoute le tarif arbres à un volume déjà initialisé sans toucher au reg
   assert.equal(result.previousTariffVersion, "installed-v1");
   assert.equal(readFileSync(join(directory, "billing-policy.json"), "utf8"), json(withTrees), "octets fournis écrits tels quels");
   assert.equal(result.sha256, createHash("sha256").update(json(withTrees)).digest("hex"));
-  assert.deepEqual(JSON.parse(readFileSync(result.backup, "utf8")), billing);
+  assert.deepEqual(JSON.parse(readFileSync(join(directory, "billing-policy.previous-1000.json"), "utf8")), billing);
+  assert.equal(result.backup, join(directory, "billing-policy.previous-1000.json"));
   for (const file of ["billing-policy.json", "billing-policy.previous-1000.json"]) assert.equal(statSync(join(directory, file)).mode & 0o077, 0);
   assert.ok(readFileSync(join(directory, "ledger.sqlite")).equals(ledgerBefore), "registre budgétaire inchangé");
   const ledger = new BudgetLedger(join(directory, "ledger.sqlite"), budget.chainId, budget.wallet);
@@ -78,6 +79,32 @@ test("un prix installé ne change qu'avec l'option explicite", (t) => {
   assert.deepEqual(read(directory), billing);
   const result = updateRunnerBillingPolicy(directory, json(repriced), testnet, { allowProfileChanges: true });
   assert.deepEqual(result.changedProfiles, ["logistic_regression"]);
+});
+
+test("un tarif identique écrit dans un autre ordre de clés n'est pas un changement de prix", (t) => {
+  const { withTrees, directory } = installedVolume(t);
+  const reordered = { maxExecutionMs: profile.maxExecutionMs, executionRateAtomicPerMs: profile.executionRateAtomicPerMs,
+    maxFailureFee: profile.maxFailureFee, computeAmount: profile.computeAmount };
+  const value = { ...withTrees, profiles: { linear_regression: reordered, logistic_regression: reordered, gradient_boosted_trees: profile } };
+  const result = updateRunnerBillingPolicy(directory, json(value), testnet);
+  assert.deepEqual([result.status, result.changedProfiles, result.addedProfiles], ["updated", [], ["gradient_boosted_trees"]]);
+});
+
+test("rejouer exactement le tarif installé répond « déjà appliqué » sans rien réécrire", async (t) => {
+  const { billing, withTrees, directory } = installedVolume(t);
+  updateRunnerBillingPolicy(directory, json(withTrees), testnet, { now: 1_000 });
+  const files = readdirSync(directory).sort();
+  const replay = updateRunnerBillingPolicy(directory, json(withTrees), testnet, { now: 2_000 });
+  assert.deepEqual([replay.status, replay.backup, replay.sha256], ["already-applied", null, createHash("sha256").update(json(withTrees)).digest("hex")]);
+  assert.deepEqual(readdirSync(directory).sort(), files, "aucune sauvegarde ni fichier préparé de plus");
+  // Mêmes champs, octets différents : vraie modification, la même version reste refusée.
+  assert.throws(() => updateRunnerBillingPolicy(directory, JSON.stringify(withTrees, null, 1), testnet), /Nouvelle version/);
+  // Commande rejouée par `demo-renewal` ou un redémarrage de la CVM : sortie 0.
+  const env = { PATH: process.env.PATH, NODE_ENV: "production" as const, RUNNER_VOLUME_ACTION: "update-billing-policy", EVM_NETWORK: "testnet",
+    SIRIUS_USDC_ADDRESS: billing.usdc, SIRIUS_COMPUTE_RECIPIENT: billing.computeRecipient, RUNNER_UPDATED_BILLING_POLICY: json(withTrees) };
+  const result = await promisify(execFile)(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/update-runner-billing-policy.ts", directory], { env, timeout: 10000 });
+  assert.match(result.stdout, /déjà appliqué/);
+  assert.deepEqual(readdirSync(directory).sort(), files);
 });
 
 test("un fichier préparé par une tentative interrompue ne bloque pas la relance", (t) => {

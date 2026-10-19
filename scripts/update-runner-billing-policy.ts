@@ -6,13 +6,20 @@ import { readBudgetPolicy } from "../src/lib/runner/budget-ledger";
 import { runnerVolumeNetwork, type RunnerVolumeNetwork } from "./initialize-runner-volume";
 
 export interface BillingPolicyUpdate {
+  /** `already-applied` : le fichier installé a déjà exactement ces octets (rejeu, redémarrage). */
+  status: "updated" | "already-applied";
   previousTariffVersion: string;
   tariffVersion: string;
   addedProfiles: string[];
   changedProfiles: string[];
-  backup: string;
+  backup: string | null;
   /** SHA-256 des octets écrits, égal à celui du JSON fourni et publié par `/operations/budget`. */
   sha256: string;
+}
+
+/** Profil sous forme canonique (clés triées) : l'ordre d'écriture ne vaut pas changement de prix. */
+function canonicalProfile(profile: object | undefined): string {
+  return profile ? JSON.stringify(profile, Object.keys(profile).sort()) : "";
 }
 
 /**
@@ -31,7 +38,13 @@ export function updateRunnerBillingPolicy(
 ): BillingPolicyUpdate {
   if (!isAbsolute(budgetDirectory) || !lstatSync(budgetDirectory).isDirectory()) throw new Error("Volume budget existant requis");
   const path = join(budgetDirectory, "billing-policy.json");
-  const current = JSON.parse(readFileSync(path, "utf8")) as BillingPolicy;
+  const installed = readFileSync(path, "utf8");
+  const current = JSON.parse(installed) as BillingPolicy;
+  const sha256 = createHash("sha256").update(nextJson).digest("hex");
+  if (installed === nextJson) {
+    return { status: "already-applied", previousTariffVersion: current.tariffVersion, tariffVersion: current.tariffVersion,
+      addedProfiles: [], changedProfiles: [], backup: null, sha256 };
+  }
   const budget = readBudgetPolicy(join(budgetDirectory, "ledger.sqlite"));
   const next = validateBillingPolicy(JSON.parse(nextJson));
   if (next.chainId !== target.chainId || next.usdcDecimals !== target.usdcDecimals
@@ -52,7 +65,7 @@ export function updateRunnerBillingPolicy(
   const profileIds = Object.keys(next.profiles) as (keyof BillingPolicy["profiles"])[];
   const addedProfiles = profileIds.filter((id) => !Object.hasOwn(current.profiles ?? {}, id));
   const changedProfiles = profileIds.filter((id) => Object.hasOwn(current.profiles ?? {}, id)
-    && JSON.stringify(current.profiles[id]) !== JSON.stringify(next.profiles[id]));
+    && canonicalProfile(current.profiles[id]) !== canonicalProfile(next.profiles[id]));
   if ((changedProfiles.length || next.minimumComputeAmount !== current.minimumComputeAmount) && !allowProfileChanges) {
     throw new Error("Prix d'un profil installé modifié : option explicite requise");
   }
@@ -75,10 +88,7 @@ export function updateRunnerBillingPolicy(
   }
   const directory = openSync(budgetDirectory, "r");
   try { fsyncSync(directory); } finally { closeSync(directory); }
-  return {
-    previousTariffVersion: current.tariffVersion, tariffVersion: next.tariffVersion, addedProfiles, changedProfiles, backup,
-    sha256: createHash("sha256").update(nextJson).digest("hex"),
-  };
+  return { status: "updated", previousTariffVersion: current.tariffVersion, tariffVersion: next.tariffVersion, addedProfiles, changedProfiles, backup, sha256 };
 }
 
 if (process.argv[1]?.endsWith("/update-runner-billing-policy.ts")) {
@@ -91,7 +101,9 @@ if (process.argv[1]?.endsWith("/update-runner-billing-policy.ts")) {
       || next.computeRecipient !== process.env.SIRIUS_COMPUTE_RECIPIENT?.trim().toLowerCase()) throw new Error();
     const result = updateRunnerBillingPolicy(process.argv[2], nextJson, target,
       { allowProfileChanges: process.env.RUNNER_BILLING_ALLOW_PROFILE_CHANGES === "true" });
-    console.log(`Tarif ${result.previousTariffVersion} → ${result.tariffVersion} (sha256 ${result.sha256}) ; profils ajoutés : ${result.addedProfiles.join(", ") || "aucun"} ; modifiés : ${result.changedProfiles.join(", ") || "aucun"}. Ancien tarif conservé. Réactiver le runner avec le Compose actif.`);
+    console.log(result.status === "already-applied"
+      ? `Tarif ${result.tariffVersion} (sha256 ${result.sha256}) déjà appliqué : rien n'a été réécrit.`
+      : `Tarif ${result.previousTariffVersion} → ${result.tariffVersion} (sha256 ${result.sha256}) ; profils ajoutés : ${result.addedProfiles.join(", ") || "aucun"} ; modifiés : ${result.changedProfiles.join(", ") || "aucun"}. Ancien tarif conservé. Réactiver le runner avec le Compose actif.`);
   } catch {
     console.error("Mise à jour du tarif refusée : contrôler le volume, la chaîne, le jeton, la trésorerie, les profils et la validité du budget. Rien n'a été remplacé ; ne pas réinitialiser le volume.");
     process.exitCode = 1;

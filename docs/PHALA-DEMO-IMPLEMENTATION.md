@@ -702,6 +702,7 @@ Relecture par deux agents (sécurité/opérations, exactitude) :
 - **Plan** : `GBDT-PHASE2.md` réécrit, avec deux sessions (A prolongation avant le 26 octobre, B arbres), étapes manquantes et retour arrière corrigé. Aucune entrée `RETIRED_ENCLAVES` nécessaire.
 
 Toujours rien de déployé ni de dépensé.
+
 ### Rapport de qualité à l'import (E1) — avant, 19 octobre 2026
 
 `/datasets/new` affichait seulement lignes, colonnes, colonnes numériques et cible. `numericColumns` (`src/lib/tee/train.ts`) écarte en silence toute colonne dont une seule cellule est vide ou non numérique ; si c'est la dernière, une autre colonne devient la cible sans autre signal que son nom. Rien ne signalait une variable qui recopie la cible, les constantes, les doublons ni le déséquilibre des classes.
@@ -711,3 +712,19 @@ Toujours rien de déployé ni de dépensé.
 PR [#117](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/117). `src/lib/datasets/quality.ts` calcule dans le navigateur, avant chiffrement, un rapport montré au fournisseur seul : jamais envoyé, stocké ni publié ; fichier et Merkle root inchangés ; aucun refus ajouté. Cible qui change : avertissement au-dessus du résultat du contrôle, qui passe alors en ton avertissement. Puis, dans le rapport : variable qui recopie la cible (identité, 1 − cible, \|r\| ≥ 0,98, provisoire), colonnes écartées avec leurs cellules vides ou non numériques, constantes, doublons sur les colonnes d'entraînement (clé `\u0000`, sans hachage), classe minoritaire < 10 % (provisoire), colonnes texte ignorées. Affiché aussi pour un fichier refusé. `/phala` non modifié (PR séparée prévue).
 
 Mesuré sur M2 (Node, V8) : 149 ms de plus pour 49 999 × 31 (3,10 Mo), 28 à 30 Mo de tas alloué au pire sous 3 Mo ; pas de Web Worker. Vérifié : `pnpm test` 1 090/1 090 (7 nouveaux), typage, ESLint des fichiers touchés, build, captures locales (propre, fuite, refusé, cible qui change), aucune requête réseau pendant la lecture du fichier.
+
+### Arbres boostés, rejeu sans console — avant/après, 19 octobre 2026
+
+Avant :
+- Rejouer `demo-renewal`, ou redémarrer la CVM dessus, faisait échouer l'outil de tarif (« Nouvelle version de tarif requise », sortie 1) alors que le tarif était déjà en place.
+- Un tarif identique, écrit avec un autre ordre de clés, était compté comme un changement de prix.
+- Un échec du checkpoint SQLite après un `COMMIT` réussi affichait « Rien n'a été modifié ».
+
+Après :
+- Des octets identiques au fichier installé donnent « déjà appliqué », une sortie 0 et aucune écriture.
+- Les profils sont comparés avec leurs clés triées.
+- Le checkpoint est sorti du chemin d'échec.
+- Docs : le relevé du financement doit couvrir le plafond ; le `sha256` se calcule sans saut de ligne final ; `canQuote` suppose un délai de 3 jours.
+- Plan : les commandes VPS et CLI Phala sont exécutées par l'agent principal ; Noé ouvre et ferme la session dans `/operator` et donne les accords.
+
+Rien de déployé.
