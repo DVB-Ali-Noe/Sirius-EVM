@@ -738,3 +738,13 @@ Rien de déployé.
 PR [#118](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/118). `demoQualityReport` (`src/lib/phala-demo/csv.ts`) applique `quality.ts`, inchangé, au tableau réordonné par `tableWithTargetLast`, le même que le fichier envoyé à l'enclave. Une cible non numérique est annoncée en jaune au-dessus du rapport (« l'entraînement sera refusé »), sans « cible qui change » ni seconde mention parmi les colonnes écartées ; le bouton reste actif, `csvWithTargetLast` refuse comme avant. `csvWithTargetLast` applique désormais à la cible la règle numérique de l'enclave (`isNumericCell`, borne 10¹²) ; une cellule faite d'espaces, lue 0 par l'enclave, n'y est plus refusée. `QualityReportPanel` déplacé vers `src/components/datasets/`. Navigateur seulement : rien d'envoyé ni stocké.
 
 Vérifié : `pnpm test` 1 090/1 090, `test:phala-demo` 42/42, typage, ESLint, build, e2e Phala en local 7/7 (ce fichier ne tourne pas en CI), captures locales (exemple propre, fuite, cible non numérique).
+
+### Conversions silencieuses de `Number()` dans le rapport de qualité — avant, 19 octobre 2026
+
+La règle numérique de l'enclave (`Number()`) lit sans erreur une cellule faite d'espaces comme 0, et une valeur préfixée 0x/0b/0o en base 16/2/8. Le rapport de qualité ne le signalait pas : un « vide » saisi avec un espace devenait un vrai zéro.
+
+### Conversions silencieuses de `Number()` dans le rapport de qualité — après, 19 octobre 2026
+
+PR [#119](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/119). `quality.ts` compte, dans les colonnes numériques ou écartées, les cellules faites d'espaces et les valeurs préfixées 0x/0X, 0b/0B, 0o/0O ; deux signalements « à vérifier », avec colonne et compte, sur `/datasets/new` et `/phala` (cible choisie comprise). Notation scientifique et signe + non signalés. Navigateur seulement, aucun refus ; `isNumericCell`, `csvWithTargetLast` et l'enclave inchangés.
+
+Vérifié : `pnpm test` 1 112/1 112, `test:phala-demo` 43/43, typage, ESLint, build, e2e Phala en local 7/7 (hors CI), capture locale, CI de la PR.

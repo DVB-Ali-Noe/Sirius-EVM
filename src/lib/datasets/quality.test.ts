@@ -104,7 +104,7 @@ test("déséquilibre de classes : signalé sous le seuil provisoire, cible 0/1 u
   assert.equal(report(HEADER, rows(400, (row) => [...clean(row).slice(0, 3), String(row % 7)])).classBalance, null);
 });
 
-test("aucun jeu d'exemple publié ne déclenche de signalement de fuite ni de changement de cible", () => {
+test("aucun jeu d'exemple publié ne déclenche de fuite, de changement de cible ni de conversion silencieuse", () => {
   const root = join(process.cwd(), "public/examples");
   for (const folder of readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
     for (const file of readdirSync(join(root, folder.name)).filter((name) => name.endsWith(".csv"))) {
@@ -115,6 +115,22 @@ test("aucun jeu d'exemple publié ne déclenche de signalement de fuite ni de ch
       assert.ok(result, path);
       assert.deepEqual(result.targetCopies, [], path);
       assert.equal(result.targetShift, null, path);
+      assert.deepEqual(result.blankAsZero, [], path);
+      assert.deepEqual(result.prefixedNumbers, [], path);
     }
   }
+});
+
+test("conversions silencieuses de Number() : espaces lus 0 et nombres préfixés, sans le signe ni la notation scientifique", () => {
+  const special: Record<number, string> = { 1: " ", 2: "\t", 3: " 5 ", 4: "0x10", 5: " 0b101 ", 6: "0o7", 7: "0X1F", 8: "1e3", 9: "+5", 10: "2.5E-4", 11: "" };
+  const body = rows(400, (row) => [String(row), special[row] ?? String((row * 37) % 101), String(row % 2)]);
+  const result = report(["id", "a", "y"], body);
+  assert.deepEqual(result.blankAsZero, [{ column: "a", cells: 2 }]);
+  assert.deepEqual(result.prefixedNumbers, [{ column: "a", cells: 4 }]);
+  // La cellule vide reste une valeur manquante, et écarte la colonne comme dans l'enclave.
+  assert.deepEqual(result.excluded, [{ column: "a", missing: 1, invalid: 0 }]);
+  assert.ok(hasQualitySignal(report(["a", "y"], rows(400, (row) => [row === 0 ? " " : String(row), String(row % 2)]))));
+  // Une colonne texte n'est pas concernée : ses quelques nombres préfixés ne sont pas lus par l'entraînement.
+  const text = report(["note", "a", "y"], rows(400, (row) => [row === 0 ? "0x10" : `t${row}`, String(row), String(row % 2)]));
+  assert.deepEqual(text.prefixedNumbers, []);
 });
