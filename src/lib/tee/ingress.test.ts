@@ -4,6 +4,8 @@ import { encryptDatasetForRunner } from "./ingress-client";
 import { datasetIngressPublicKey, decryptDatasetIngress } from "./ingress";
 import { sealDatasetEnvelope } from "./core";
 import { MAX_DATASET_BYTES } from "./contract";
+import { AppError } from "@/lib/app-error";
+import { MAX_CSV_COLUMNS, MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 
 before(() => {
   process.env.TEE_MODE = "stub";
@@ -44,6 +46,56 @@ test("refuse une taille déclarée différente avant tout upload IPFS", async ()
   await assert.rejects(
     () => sealDatasetEnvelope("dataset-1", envelope, content.byteLength + 1, { modelId: "linear_regression", modelVersion: "1.0.0" }),
     /taille du fichier ne correspond pas/,
+  );
+});
+
+for (const { name, csv } of [
+  {
+    name: "colonnes",
+    csv: `${Array.from({ length: MAX_CSV_COLUMNS + 1 }, (_, index) => `column${index}`).join(",")}\n`,
+  },
+  {
+    name: "lignes",
+    csv: `feature,target\n${"1,2\n".repeat(MAX_CSV_ROWS)}`,
+  },
+  {
+    name: "cellule",
+    csv: `feature,target\n${"1".repeat(10_001)},2\n`,
+  },
+]) {
+  test(`une limite CSV de ${name} dans une enveloppe chiffrée renvoie 400 avant IPFS`, async (t) => {
+    const upload = t.mock.method(globalThis, "fetch", async () => {
+      throw new Error("aucun upload IPFS attendu");
+    });
+    const content = new TextEncoder().encode(csv);
+    const datasetId = `dataset-limit-${name}`;
+    const envelope = await encryptDatasetForRunner(content.buffer, datasetId, datasetIngressPublicKey());
+
+    await assert.rejects(
+      () => sealDatasetEnvelope(datasetId, envelope, content.byteLength, { modelId: "linear_regression", modelVersion: "1.0.0" }),
+      (error: unknown) => {
+        assert.ok(error instanceof AppError);
+        assert.equal(error.status, 400);
+        return true;
+      },
+    );
+    assert.equal(upload.mock.callCount(), 0);
+  });
+}
+
+test("une exception technique de validation ne devient pas une erreur client", async (t) => {
+  const content = new TextEncoder().encode("feature,target\n1,2\n");
+  const envelope = await encryptDatasetForRunner(content.buffer, "dataset-technical", datasetIngressPublicKey());
+  const failure = new Error("horloge indisponible");
+  t.mock.method(performance, "now", () => { throw failure; });
+
+  await assert.rejects(
+    () => sealDatasetEnvelope("dataset-technical", envelope, content.byteLength, { modelId: "linear_regression", modelVersion: "1.0.0" }),
+    (error: unknown) => {
+      assert.equal(error, failure);
+      assert.equal(error instanceof AppError, false);
+      return true;
+    },
   );
 });
 

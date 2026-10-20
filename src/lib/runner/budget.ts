@@ -7,6 +7,7 @@ import { BudgetLedger, type BudgetKind, type BudgetPolicy, type WorkflowBudget }
 import { countsAsRunnerFailure, releasesReservation } from "./failure-policy";
 
 const workflowContext = new AsyncLocalStorage<WorkflowBudget>();
+const failureContext = new AsyncLocalStorage<Set<unknown>>();
 export const currentWorkflowBudget = () => workflowContext.getStore();
 export function withWorkflowBudget<T>(scope: WorkflowBudget, action: () => Promise<T>): Promise<T> {
   return workflowContext.run(scope, action);
@@ -77,22 +78,31 @@ export async function runBudgetedOperation<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   if (!ledger) return action();
-  const reservation = ledger.reserve(id, fingerprint, kind, currentWorkflowBudget());
-  if (!reservation.fresh) {
-    if (reservation.operation.state === "succeeded" && reservation.operation.result !== null) {
-      return JSON.parse(reservation.operation.result) as T;
+  // Chaque requête (ou job autonome) possède son compteur ; ses wrappers imbriqués
+  // partagent les erreurs déjà comptées, jamais les requêtes concurrentes ou suivantes.
+  const parentFailures = kind === "request" ? undefined : failureContext.getStore();
+  const countedFailures = parentFailures ?? new Set<unknown>();
+  const execute = async () => {
+    const reservation = ledger.reserve(id, fingerprint, kind, currentWorkflowBudget());
+    if (!reservation.fresh) {
+      if (reservation.operation.state === "succeeded" && reservation.operation.result !== null) {
+        return JSON.parse(reservation.operation.result) as T;
+      }
+      throw new AppError("Opération runner déjà engagée : réconciliation requise", 409);
     }
-    throw new AppError("Opération runner déjà engagée : réconciliation requise", 503);
-  }
-  try {
-    const result = await action();
-    ledger.finish(id, fingerprint, true, kind === "training" ? JSON.stringify(result) : null);
-    return result;
-  } catch (error) {
-    if (releasesReservation(error) && ledger.releaseReservation(id, fingerprint)) throw error;
-    ledger.finish(id, fingerprint, false, null, countsAsRunnerFailure(error));
-    throw error;
-  }
+    try {
+      const result = await action();
+      ledger.finish(id, fingerprint, true, kind === "training" ? JSON.stringify(result) : null);
+      return result;
+    } catch (error) {
+      if (releasesReservation(error) && ledger.releaseReservation(id, fingerprint)) throw error;
+      const countFailure = countsAsRunnerFailure(error) && !countedFailures.has(error);
+      ledger.finish(id, fingerprint, false, null, countFailure);
+      if (countFailure) countedFailures.add(error);
+      throw error;
+    }
+  };
+  return parentFailures ? execute() : failureContext.run(countedFailures, execute);
 }
 
 export function budgetRunnerRequest<T>(action: () => Promise<T>): Promise<T> {

@@ -7,6 +7,8 @@ export const MAX_CSV_ROWS = 50_000;
 export const MAX_CSV_COLUMNS = 64;
 const MAX_CELL_CHARS = 10_000;
 
+export class CsvValidationError extends Error {}
+
 /**
  * Parser CSV conforme RFC 4180 (guillemets, échappements "", CRLF). Les caractères ordinaires
  * sont copiés par tranches : une concaténation caractère par caractère construit des chaînes
@@ -20,18 +22,18 @@ export function parseCsv(text: string): string[][] {
   let segment = 0;
 
   const pushField = () => {
-    if (field.length > MAX_CELL_CHARS) throw new Error("cellule CSV trop volumineuse");
-    if (row.length >= MAX_CSV_COLUMNS) throw new Error(`trop de colonnes CSV (max ${MAX_CSV_COLUMNS})`);
+    if (field.length > MAX_CELL_CHARS) throw new CsvValidationError("cellule CSV trop volumineuse");
+    if (row.length >= MAX_CSV_COLUMNS) throw new CsvValidationError(`trop de colonnes CSV (max ${MAX_CSV_COLUMNS})`);
     row.push(field);
     field = "";
   };
   const pushRow = () => {
-    if (rows.length >= MAX_CSV_ROWS) throw new Error(`trop de lignes CSV (max ${MAX_CSV_ROWS})`);
+    if (rows.length >= MAX_CSV_ROWS) throw new CsvValidationError(`trop de lignes CSV (max ${MAX_CSV_ROWS})`);
     rows.push(row);
     row = [];
   };
   const append = (value: string) => {
-    if (field.length + value.length > MAX_CELL_CHARS) throw new Error("cellule CSV trop volumineuse");
+    if (field.length + value.length > MAX_CELL_CHARS) throw new CsvValidationError("cellule CSV trop volumineuse");
     field += value;
   };
   const flush = (end: number) => {

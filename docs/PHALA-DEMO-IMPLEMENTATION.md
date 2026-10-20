@@ -748,3 +748,13 @@ La règle numérique de l'enclave (`Number()`) lit sans erreur une cellule faite
 PR [#119](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/119). `quality.ts` compte, dans les colonnes numériques ou écartées, les cellules faites d'espaces et les valeurs préfixées 0x/0X, 0b/0B, 0o/0O ; deux signalements « à vérifier », avec colonne et compte, sur `/datasets/new` et `/phala` (cible choisie comprise). Notation scientifique et signe + non signalés. Navigateur seulement, aucun refus ; `isNumericCell`, `csvWithTargetLast` et l'enclave inchangés.
 
 Vérifié : `pnpm test` 1 112/1 112, `test:phala-demo` 43/43, typage, ESLint, build, e2e Phala en local 7/7 (hors CI), capture locale, CI de la PR.
+
+### Coupe-circuit et CSV invalides — avant/après, 20 octobre 2026
+
+Avant : les limites du parseur CSV levaient une erreur technique ; un dépôt de 65 colonnes comptait deux pannes dans les enveloppes budgétaires imbriquées. Reproduction locale avec un registre SQLite et un seuil de cinq : compteurs 2, 4, 6, puis refus d'une requête légitime. Une reprise de scellement sans résultat conservé renvoyait aussi 503 et pouvait alimenter le coupe-circuit.
+
+Après : les limites CSV lèvent `CsvValidationError`, convertie en 400 uniquement à l'ingestion chiffrée. Les autres exceptions techniques et l'opacité des erreurs d'entraînement privé sont conservées. Le budget déduplique une erreur propagée dans le contexte asynchrone de sa requête ; des requêtes distinctes comptent chacune leurs pannes. Une opération déjà engagée sans résultat récupérable renvoie 409 sans relancer le calcul ; le rejeu du résultat d'entraînement reste inchangé.
+
+Vérifié localement : 93 tests ciblés budget, métriques, ingestion et sécurité HTTP réussis. Smoke sur les fonctions réelles de chiffrement navigateur, ingestion et registre SQLite : trois CSV de 65 colonnes renvoient 400, zéro panne comptée, coupe-circuit fermé, puis une requête légitime réussit. Fichiers temporaires nettoyés ; aucune donnée réelle ni appel Phala. Ce correctif précède la session staging arbres et ne constitue pas encore une publication d'image ni un déploiement matériel. Les autres constats d'audit restent hors de ce correctif.
+
+Typage (`tsc --noEmit`) et ESLint ciblé réussis. Artefacts de contrats testnet recompilés (10 fichiers Solidity) pour la préparation de la bascule ; aucune transaction envoyée.
