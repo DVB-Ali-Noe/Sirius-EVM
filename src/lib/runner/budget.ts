@@ -95,7 +95,11 @@ export async function runBudgetedOperation<T>(
       ledger.finish(id, fingerprint, true, kind === "training" ? JSON.stringify(result) : null);
       return result;
     } catch (error) {
-      if (releasesReservation(error) && ledger.releaseReservation(id, fingerprint)) throw error;
+      // Une requête refusée à l'appelant (grant, format, quota) rend son coût : sinon chaque refus
+      // gratuit pour l'attaquant consommait le budget sponsorisé. Les jobs imbriqués déjà engagés
+      // (scellement, entraînement) gardent leur propre coût.
+      const refund = releasesReservation(error) || (kind === "request" && !countsAsRunnerFailure(error));
+      if (refund && ledger.releaseReservation(id, fingerprint)) throw error;
       const countFailure = countsAsRunnerFailure(error) && !countedFailures.has(error);
       ledger.finish(id, fingerprint, false, null, countFailure);
       if (countFailure) countedFailures.add(error);

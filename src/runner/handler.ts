@@ -25,7 +25,7 @@ import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
-import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, withWorkflowBudget } from "@/lib/runner/budget";
+import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, runnerBudget, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
@@ -173,9 +173,20 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
   }
 }
 
+/**
+ * Clé publique d'ingestion et re-livraison d'une clé self-train déjà calculée : aucun calcul ni
+ * stockage, donc aucun coût sponsorisé. Les facturer laissait n'importe quel visiteur épuiser le
+ * budget de la démonstration en boucle. Le registre reste exigé (production, Phala, mainnet).
+ */
+const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
+
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
   if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
+  if (UNCHARGED_OPS.has(op)) {
+    runnerBudget();
+    return executeRunnerOp(op, body);
+  }
   return budgetRunnerRequest(() => executeRunnerOp(op, body));
 }
 
