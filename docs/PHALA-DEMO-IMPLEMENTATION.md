@@ -760,3 +760,19 @@ Vérifié localement : 93 tests ciblés budget, métriques, ingestion et sécuri
 Typage (`tsc --noEmit`) et ESLint ciblé réussis. Artefacts de contrats testnet recompilés (10 fichiers Solidity) pour la préparation de la bascule ; aucune transaction envoyée.
 
 Vérification après maintien du statut 503 pour les reprises : 72 tests budget réussis, typage et lint ciblé réussis. Smoke chiffré rejoué avec trois reprises supplémentaires : aucun recalcul, zéro nouvelle panne et zéro coût de requête supplémentaire.
+
+### Session staging arbres et renouvellement — avant/après, 20 octobre 2026
+
+Avant : contrats testnet sans profil arbres (registre v4 `0x99ea…`, escrow `0x5f9d…`), interrupteur `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` absent, budget démo à 14 USD expirant le 26 octobre, runner sur `sirius-runner@sha256:78839668…` (Compose `61581af7…`), reaper staging resté sur la configuration v6 (`0xc51e…`, `0x4075…`), copie `/opt/sirius-ops` antérieure au registre v5.
+
+Après (session unique décidée par Noé, CVM allumée de 09:26:45 à 09:57 UTC environ) :
+- Contrats testnet : `SiriusDatasetRegistry` v5 `0xd9e0189094d8d7e78e1ba67475c29b2c6af62606`, `SiriusEscrowV7` `0x035c374db960ede406398708501ecbbb2fdc31ea`, KYB ouvert réutilisé, profil `gradient_boosted_trees` ajouté (tx `0x38f0055b…423f`), 3 674 630 gas. Préflight `phala:check-v7` au bloc finalisé 139 311 255 : `chainChecksPassed: true`, aucun écart ; admin du registre = clé de déploiement (testnet).
+- Image `sirius-runner@sha256:5a63e9dd…1c06` (fusion `fdeb29f`, correctif coupe-circuit #121). Maintenance `demo-renewal` puis Compose actif avec l'interrupteur arbres. Attestation active : quote `UpToDate`, MRTD, chaîne KMS, empreinte d'ingestion et signataire inchangés ; Compose `0c3f6f87…dcd6`, égal au SHA-256 de `tcb_info.app_compose`, publié dans `composes/` et déclaré dans `DECLARED_RELEASES`.
+- Budget : relevé Phala T1 = 2026-10-20 09:26:02 UTC (9,720117 USD), prolongation jusqu'au 2026-11-20 09:26 UTC ; tarif `demo-trees-2026-10-20` (arbres = logistique), SHA-256 `e2a0bce0…6349` vérifié dans `/operations/budget`. Activer a appliqué 9 USD de crédits et de plafond avant ouverture ; quotas 20 / 4 / 1 inchangés.
+- Base staging : les 10 titres actifs (8 sur `0x99ea…`, 2 sur `0x4075…`) passés en `SUSPENDED` dans une transaction vérifiant 10 lignes ; 0 prêt ouvert.
+- Vercel staging : adresses v5, escrows historiques complets, tarif, interrupteur et pin Compose mis à jour, front reconstruit (`n8jmpm272`). `demo.sirius-data.tech` déplacé sur ce déploiement (retour possible vers `dtdfr75f9`).
+- VPS : pins et adresses du contrôleur et du moniteur mis à jour ; `/opt/sirius-ops` remplacé par `src`/`scripts` de `fdeb29f` (sauvegardes `*.bak-trees-*`), sans quoi le contrôleur refusait le registre v5. Reaper staging basculé dans `.env.vps` (adresses v5, v7 et configuration runner attestée exigée par le reaper v7) : passe saine.
+
+Recette matérielle, wallet de test neuf, CSV `d25689ca…2c33` (30 000 lignes, 23 variables), profil arbres : `heldOutAuc` 0,841841, `trainAuc` 0,847003, `heldOutAccuracy` 0,778667, identiques aux références locales à l'arrondi affiché ; 32 s du clic au résultat, dont la transaction de titre testnet. Le self-train exige un peu d'ETH testnet pour ce titre (0,0005 ETH versé au wallet de test). Une tentative a échoué en 503 « Confidential runner unavailable » (erreur réseau ou attestation côté Next, sans échec compté) ; la suivante a réussi ; cause non établie. Une tentative antérieure avait échoué faute de transaction gérée par le wallet de test : une opération du quota consommée.
+
+Fermeture par Noé depuis `/operator` ; CVM `stopped` vérifiée à 09:57 UTC, contrôleur `closed` (révision 45). Coût estimé ≈ 0,03–0,06 USD selon l'arrondi horaire ; solde relevé juste après : 9,720117 USD, débit pas encore visible. Restent : cause de la 503 ponctuelle, mise à jour reproductible de `/opt/sirius-ops`, et alignement de PR #120 sur ce qui a été exécuté.
