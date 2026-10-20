@@ -748,3 +748,16 @@ La règle numérique de l'enclave (`Number()`) lit sans erreur une cellule faite
 PR [#119](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/119). `quality.ts` compte, dans les colonnes numériques ou écartées, les cellules faites d'espaces et les valeurs préfixées 0x/0X, 0b/0B, 0o/0O ; deux signalements « à vérifier », avec colonne et compte, sur `/datasets/new` et `/phala` (cible choisie comprise). Notation scientifique et signe + non signalés. Navigateur seulement, aucun refus ; `isNumericCell`, `csvWithTargetLast` et l'enclave inchangés.
 
 Vérifié : `pnpm test` 1 112/1 112, `test:phala-demo` 43/43, typage, ESLint, build, e2e Phala en local 7/7 (hors CI), capture locale, CI de la PR.
+
+### Préparation des sessions arbres — avant/après, 20 octobre 2026
+
+Avant : le plan annonçait 8 lignes à suspendre, sans les 2 titres de l'ancien registre ; il ne détaillait ni le passage du plafond sponsorisé de 14 à 9 USD, ni l'effet du relevé financier sur Activer. La source effective des adresses du reaper et la portée du compteur de 20 opérations restaient ambiguës.
+
+Après :
+- `docs/GBDT-PHASE2.md` intègre les lectures transmises : dry run B2 sur staging `e1b9cfb`, 3 731 970 gas ; inventaire sans prêt ouvert, 10 titres actifs et 10 jobs `DONE` ; environnement chiffré et rendus Compose contrôlés, digest publié après #116.
+- Plafond décidé de 9 USD, crédits seuls, quotas 20 / 4 / 1 conservés. Ordre explicite : fichier financier au relevé T1 du jour, prolongation à T1 + 31 jours sans admission, contrôle des engagements, puis `configure` à 9 USD avant `open`. Le registre conserve transitoirement 14 USD, session fermée. Un fichier resté au relevé de septembre bloque Activer.
+- Reaper : bascule en B11 via `/opt/sirius-staging/.env.vps`, pas via les variables GitHub ; la pipeline ne remplace que l'image. Escrows historiques conservés dans les lectures autorisées. B10 attend 10 lignes, dont les 2 titres déjà inutilisables de `0x4075…`.
+- Compteur d'opérations par révision d'ouverture, budget USD cumulatif ; méthodes de lecture précisées. Aucun déploiement coché comme réalisé.
+- `scripts/renew-runner-budget-policy.test.ts` exerce les deux ordres financement/prolongation au même relevé sur un vrai registre SQLite temporaire, le rejet d'un relevé trop ancien, d'un plafond inférieur aux engagements, d'une prolongation reculant le relevé, et le rejeu idempotent.
+
+Vérifié localement : `pnpm test` 1 113/1 113 ; `test:operations` 90 réussis, 1 ignoré faute de `SIRIUS_TEST_DATABASE_URL` ; `test:phala-demo` 43/43 ; `tsc --noEmit`, ESLint (hors `experiments/**`) et build réussis. Aucun comportement applicatif modifié ; pas de nouvelle recette navigateur ou matérielle Phala. Seuls le plan, ce journal et le test sont destinés à la PR draft vers staging ; aucune fusion, transaction on-chain ni modification de configuration distante.

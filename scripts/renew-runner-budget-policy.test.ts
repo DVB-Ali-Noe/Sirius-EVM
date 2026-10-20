@@ -162,6 +162,44 @@ test("reprise après coupure : rien d'appliqué si la transaction est interrompu
   assert.equal(history(path), 1);
 });
 
+test("plafond baissé par la commande opérateur et prolongation au même relevé : enchaînement sans conflit", (t) => {
+  // Situation du 20 octobre : 14 USD de crédits et de plafond, relevé de fin septembre ; décision : 9 USD.
+  const fourteen = (p: BudgetPolicy) => { p.sponsored = { ...p.sponsored!, creditsUsdMicros: "14000000", ceilingUsdMicros: "14000000" }; };
+  const lowered = { funding: "credits" as const, creditsUsdMicros: "9000000", cashUsdMicros: "0", ceilingUsdMicros: "9000000",
+    maxOperations: 6, maxOperationsPerWallet: 2, maxConcurrent: 1 };
+  const reading = Date.now() - 1000;
+
+  // Ordre du plan : prolongation en maintenance, puis « Activer » applique le financement du fichier.
+  const { path, policy } = sponsoredVolume(t, fourteen);
+  const settle = new BudgetLedger(path, policy.chainId, wallet);
+  try { settle.finish("training:3", "fp-3", true, "ok"); } finally { settle.close(); }
+  renewSponsoredBudgetPolicy(path, 46630, wallet, { validUntil: reading + 31 * DAY, observedAtMs: reading }, RENEWAL_ACTOR);
+  const ledger = new BudgetLedger(path, policy.chainId, wallet);
+  try {
+    const engaged = ledger.snapshot().allocatedUsd + BigInt(policy.fixedReserveUsdMicros);
+    // Un fichier de financement resté au relevé de septembre ferait échouer « Activer » (plus de 31 jours).
+    assert.throws(() => ledger.configureSponsored(lowered, policy.sponsored!.observedAtMs, wallet), /sponsorisé invalide/);
+    // Un plafond sous les dépenses déjà engagées est refusé.
+    const tooLow = String(engaged - BigInt(1));
+    assert.throws(() => ledger.configureSponsored({ ...lowered, creditsUsdMicros: tooLow, ceilingUsdMicros: tooLow }, reading, wallet), /engagements/);
+    ledger.configureSponsored(lowered, reading, wallet);
+    assert.deepEqual([ledger.policy.sponsored!.ceilingUsdMicros, ledger.policy.sponsored!.observedAtMs, ledger.policy.validUntil],
+      ["9000000", reading, reading + 31 * DAY]);
+  } finally { ledger.close(); }
+  // Rejouer la maintenance après « Activer » ne défait rien.
+  assert.equal(renewSponsoredBudgetPolicy(path, 46630, wallet, { validUntil: reading + 31 * DAY, observedAtMs: reading }, RENEWAL_ACTOR).status, "already-applied");
+
+  // Ordre inverse (financement d'abord, runner encore valide) : la prolongation au même relevé passe, pas à un relevé antérieur.
+  const other = sponsoredVolume(t, fourteen);
+  const first = new BudgetLedger(other.path, policy.chainId, wallet);
+  try {
+    first.finish("training:3", "fp-3", true, "ok");
+    first.configureSponsored(lowered, reading, wallet);
+  } finally { first.close(); }
+  assert.throws(() => renewSponsoredBudgetPolicy(other.path, 46630, wallet, { validUntil: reading + 31 * DAY, observedAtMs: reading - 1 }, RENEWAL_ACTOR), /antérieur/);
+  assert.equal(renewSponsoredBudgetPolicy(other.path, 46630, wallet, { validUntil: reading + 31 * DAY, observedAtMs: reading }, RENEWAL_ACTOR).status, "renewed");
+});
+
 test("la commande exige son action, le réseau, le signataire et une demande approuvée", async (t) => {
   const { path, policy } = sponsoredVolume(t);
   const renewal = JSON.stringify({ validUntil: policy.validUntil + DAY, observedAtMs: Date.now() - 1000 });
