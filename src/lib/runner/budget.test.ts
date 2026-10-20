@@ -274,14 +274,14 @@ test("une reprise concurrente, interrompue ou échouée ne redémarre pas le cal
   ledger.reserve("crash", "scope", "training");
   const unexpected = async () => { assert.fail("compute relancé"); };
   await assert.rejects(runBudgetedOperation(open(), "training", "crash", "scope", unexpected),
-    (error: unknown) => error instanceof AppError && error.status === 409 && /réconciliation/.test(error.message));
+    (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
   await assert.rejects(runBudgetedOperation(ledger, "training", "failed", "scope", async () => { throw new Error("CPU timeout"); }), /CPU timeout/);
   await assert.rejects(runBudgetedOperation(open(), "training", "failed", "scope", unexpected),
-    (error: unknown) => error instanceof AppError && error.status === 409 && /réconciliation/.test(error.message));
+    (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
 });
 
 for (const state of ["reserved", "succeeded", "failed"] as const) {
-  test(`un scellement ${state} refuse les reprises en 409 sans calcul ni nouvel échec`, async () => {
+  test(`un scellement ${state} refuse les reprises temporairement sans recalcul, nouveau coût ou nouvelle panne`, async () => {
     const { ledger, open } = fixture();
     let calls = 0;
     const action = async () => {
@@ -296,13 +296,13 @@ for (const state of ["reserved", "succeeded", "failed"] as const) {
     for (let attempt = 0; attempt < 5; attempt++) {
       await assert.rejects(runBudgetedOperation(open(), "request", `retry-${attempt}`, "request-v1",
         () => runBudgetedOperation(open(), "seal", "seal", "scope", action)),
-      (error: unknown) => error instanceof AppError && error.status === 409 && /réconciliation/.test(error.message));
-      assert.equal(ledger.find(`retry-${attempt}`, "request-v1")?.state, "failed");
+      (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
+      assert.equal(ledger.find(`retry-${attempt}`, "request-v1"), null);
       assert.equal(ledger.find("seal", "scope")?.state, state);
       assert.equal(ledger.snapshot().failures, before.failures);
     }
     assert.equal(calls, state === "reserved" ? 0 : 1, "aucun scellement n’est rejoué");
-    assert.deepEqual(open().snapshot(), { ...before, allocatedUsd: before.allocatedUsd + BigInt(5) });
+    assert.deepEqual(open().snapshot(), before);
   });
 }
 

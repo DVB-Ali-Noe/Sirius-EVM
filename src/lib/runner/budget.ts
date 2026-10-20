@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { AppError } from "@/lib/app-error";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { BudgetLedger, type BudgetKind, type BudgetPolicy, type WorkflowBudget } from "./budget-ledger";
-import { countsAsRunnerFailure, releasesReservation } from "./failure-policy";
+import { countsAsRunnerFailure, releasesReservation, RunnerRetryLater } from "./failure-policy";
 
 const workflowContext = new AsyncLocalStorage<WorkflowBudget>();
 const failureContext = new AsyncLocalStorage<Set<unknown>>();
@@ -88,7 +88,7 @@ export async function runBudgetedOperation<T>(
       if (reservation.operation.state === "succeeded" && reservation.operation.result !== null) {
         return JSON.parse(reservation.operation.result) as T;
       }
-      throw new AppError("Opération runner déjà engagée : réconciliation requise", 409);
+      throw new RunnerRetryLater("Opération runner déjà engagée : réconciliation requise");
     }
     try {
       const result = await action();
