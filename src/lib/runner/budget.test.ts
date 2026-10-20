@@ -412,7 +412,7 @@ test("un timeout estimateGas puis une reprise règlent le prêt sans épuiser le
   assert.throws(() => ledger.reserve("third", "third", "transaction", workflow), /épuisé/, "les deux transactions du devis restent les seules");
 });
 
-test("trois CSV invalides et vingt grants forgés laissent le coupe-circuit fermé", async () => {
+test("trois CSV invalides et vingt grants forgés laissent le coupe-circuit fermé et ne coûtent que les scellements", async () => {
   const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; p.maxActive = 32; });
   for (let i = 0; i < 3; i++) {
     await assert.rejects(runBudgetedOperation(ledger, "request", `csv-request-${i}`, "request-v1",
@@ -420,13 +420,14 @@ test("trois CSV invalides et vingt grants forgés laissent le coupe-circuit ferm
         async () => { throw new AppError("Dataset inexploitable pour ce modèle", 422); })),
     (error: unknown) => error instanceof AppError && error.status === 422);
     assert.equal(ledger.snapshot().failures, 0);
-    assert.equal(ledger.find(`csv-request-${i}`, "request-v1")?.state, "failed");
+    assert.equal(ledger.find(`csv-request-${i}`, "request-v1"), null, "la requête refusée rend son coût");
   }
   for (let i = 0; i < 20; i++) {
     await assert.rejects(runBudgetedOperation(ledger, "request", `grant-${i}`, "request-v1",
       async () => { throw new AppError("Signature de grant invalide", 401); }), /grant/);
   }
   assert.equal(open().snapshot().failures, 0);
+  assert.equal(open().snapshot().allocatedUsd, BigInt(150), "seuls les trois scellements engagés restent consommés");
   assert.equal(ledger.find("csv-0", "csv")?.state, "failed", "l’opération reste close et son coût consommé");
   assert.doesNotThrow(() => open().reserve("next", "next", "request"));
   await assert.rejects(runBudgetedOperation(ledger, "request", "rpc", "request-v1", async () => { throw new Error("RPC down"); }));
