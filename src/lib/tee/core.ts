@@ -12,7 +12,7 @@ import {
   type EncryptedPayload,
 } from "@/lib/crypto/encryption";
 import { buildMerkleTree, verifyRoot, DEFAULT_CHUNK_SIZE } from "@/lib/crypto/merkle";
-import { computeMetrics, type DatasetMetrics } from "@/lib/sirius/metrics";
+import { computeMetrics, CsvValidationError, type DatasetMetrics } from "@/lib/sirius/metrics";
 import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainSelectedModel } from "./model-registry";
 import { DatasetValidationError, trainingTimeoutMs, validateTrainingDataset, type TrainedModel } from "./train";
@@ -135,7 +135,7 @@ export async function sealDatasetEnvelope(
   try {
     metrics = validateTrainingDataset(content, model);
   } catch (error) {
-    if (error instanceof DatasetValidationError) throw new AppError(error.message, 400);
+    if (error instanceof DatasetValidationError || error instanceof CsvValidationError) throw new AppError(error.message, 400);
     throw error;
   }
   return sealDataset(datasetId, content, metrics);
