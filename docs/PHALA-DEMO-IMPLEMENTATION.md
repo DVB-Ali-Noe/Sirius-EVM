@@ -761,3 +761,11 @@ Après :
 - `scripts/renew-runner-budget-policy.test.ts` exerce les deux ordres financement/prolongation au même relevé sur un vrai registre SQLite temporaire, le rejet d'un relevé trop ancien, d'un plafond inférieur aux engagements, d'une prolongation reculant le relevé, et le rejeu idempotent.
 
 Vérifié localement : `pnpm test` 1 113/1 113 ; `test:operations` 90 réussis, 1 ignoré faute de `SIRIUS_TEST_DATABASE_URL` ; `test:phala-demo` 43/43 ; `tsc --noEmit`, ESLint (hors `experiments/**`) et build réussis. Aucun comportement applicatif modifié ; pas de nouvelle recette navigateur ou matérielle Phala. Seuls le plan, ce journal et le test sont destinés à la PR draft vers staging ; aucune fusion, transaction on-chain ni modification de configuration distante.
+
+### Session unique arbres — correction du déroulé, 20 octobre 2026
+
+Avant : le §4 recommandait deux sessions et imposait un renouvellement avant le 26 octobre ; A et B comportaient deux ouvertures, deux arrêts et deux changements d'alias.
+
+Après : décision de session unique reportée dans les §2, §4, §5, §7–9 de `GBDT-PHASE2.md`. Préparation des contrats et configurations, renouvellement en maintenance fermée, contrôles, configuration à 9 USD avant admission, validation arbres, fermeture avec drainage et arrêt vérifié, puis changement d'alias unique. Les étapes A6–A8 intermédiaires sont supprimées ; les identifiants restants et les critères de sortie sont conservés. Toute divergence interrompt la procédure sans bascule d'alias. Le 26 octobre reste une échéance de disponibilité, pas une limite d'utilisation de l'outil : une politique expirée peut être renouvelée.
+
+Vérification locale ciblée : `scripts/renew-runner-budget-policy.test.ts`, 7/7 réussis, dont politique déjà expirée et enchaînement financement/prolongation. Documentation seule modifiée ; PR #120 maintenue en brouillon, sans fusion ni opération sur l'infrastructure distante.

@@ -2,7 +2,7 @@
 
 État du 20 octobre 2026 : **préparation seulement**. Cette PR doc/outillage est destinée à staging en brouillon, sans fusion sans accord de Noé. Aucun contrat, aucune variable distante, aucun volume et aucune CVM ne sont modifiés par cette préparation. Phase 1 fusionnée (#111), outillage de renouvellement fusionné (#116), interrupteur `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` coupé partout.
 
-Objectif : d'abord prolonger le budget de la démonstration avant son échéance, ensuite rendre `gradient_boosted_trees` utilisable de bout en bout sur la CVM staging/démo (app `8e14a57b42bfeff1e3cb806a5a042c313874c79c`), testnet 46630. Jamais `main`, le projet Vercel `sirius-evm` ni la CVM `sirius-mainnet`.
+Objectif : dans une session unique, renouveler le budget en maintenance fermée puis rendre `gradient_boosted_trees` utilisable de bout en bout sur la CVM staging/démo (app `8e14a57b42bfeff1e3cb806a5a042c313874c79c`), testnet 46630. Jamais `main`, le projet Vercel `sirius-evm` ni la CVM `sirius-mainnet`.
 
 ## 1. État lu (lecture seule)
 
@@ -26,13 +26,13 @@ Empreintes de profil : linéaire `0xa38a…3190`, logistique `0x0b89…c6cc`, ar
 ## 2. Échéance du budget
 
 - **2026-10-23 à 14:07 UTC** : dernier devis possible. Un devis réserve son flux jusqu'à `expiresAt + 3 jours` (`reserveWorkflow`, `budget-ledger.ts`), borné par la politique. `check.canQuote` intègre désormais cette marge (3 jours + 300 s) et le rapport expose `quotesUntilMs` et `quoteWindowClosed`. La CVM de démonstration refuse les prêts : cette limite ne bloque pas le self-train.
-- **2026-10-26 à 14:12 UTC** : budget et tarif expirent. Le runner refuse alors de démarrer (`src/runner/config.ts`), et `/phala` est hors service.
+- **2026-10-26 à 14:12 UTC** : budget et tarif expirent. Le runner refuse alors de démarrer (`src/runner/config.ts`), et `/phala` est hors service jusqu'au renouvellement. **Aucune obligation de renouveler avant cette date** : l'outil accepte une politique déjà expirée ; la maintenance renouvelle le budget puis le tarif avant le démarrage du runner.
 
 **Outil de prolongation** (`scripts/renew-runner-budget-policy.ts`, mode `demo-budget` ou `demo-renewal`) :
 - Il agit dans le registre réel (`ledger.sqlite`), en une transaction SQLite. Seuls `validUntil` et `sponsored.observedAtMs` changent, et le changement est journalisé dans `sponsored_policy_changes`.
 - Il ne touche ni aux compteurs, ni aux réservations, ni aux flux, ni à l'anti-rejeu (volume budget seul monté, sans réseau).
 - La demande ne contient que `{"validUntil": …, "observedAtMs": …}`. Tout autre champ est refusé : le financement et les plafonds ne changent que par la commande opérateur existante.
-- Refus : échéance raccourcie ou passée, plus de 31 jours après le relevé, relevé antérieur au relevé en vigueur, autre réseau ou autre wallet, financement non sponsorisé.
+- Refus : nouvelle échéance raccourcie ou passée, plus de 31 jours après le relevé, relevé antérieur au relevé en vigueur, autre réseau ou autre wallet, financement non sponsorisé. L'expiration de l'ancienne politique n'est pas un refus.
 - Reprise : une coupure avant la validation laisse l'ancienne politique ; après la validation, rejouer la même demande répond « déjà appliquée » sans rien réécrire.
 - `observedAtMs` = date du relevé des crédits Phala refait le jour de la session. Le relevé doit couvrir le nouveau plafond de 9 USD ; suivre l'ordre ci-dessous, sans admission sous le plafond historique de 14 USD.
 - Le checkpoint SQLite après validation est hors du chemin d'échec : un checkpoint manqué n'annonce pas « rien n'a été modifié » à tort.
@@ -47,7 +47,7 @@ Ordre de maintenance retenu : préparer le financement à 9 USD, prolonger hors 
 2. Préparer le fichier privé désigné par `PHALA_DEMO_FUNDING_FILE` sur le VPS (0600) avec `funding: "credits"`, `creditsUsdMicros: "9000000"`, `cashUsdMicros: "0"`, `ceilingUsdMicros: "9000000"`, `maxOperations: 20`, `maxOperationsPerWallet: 4`, `maxConcurrent: 1`, `observedAtMs: T1` (nombre en millisecondes).
 3. Dans A2, fixer `RUNNER_BUDGET_RENEWAL` à `{"validUntil": T1 + 31 jours en millisecondes, "observedAtMs": T1}` (remplacer les expressions par des nombres JSON). Tarif : échéance au plus égale à celle-ci. A4 applique `demo-renewal`, puis `demo-active`, **sans ouvrir la session**.
 4. En A5, lire le registre réel via le rapport runner-monitor `/operations/budget` : `check.allocatedUsd + fixedReserveUsdMicros ≤ 9000000` ; avec le plafond historique de 14 USD inchangé, cela équivaut à `check.remainingUsd ≥ 5000000`. Vérifier aussi l'absence d'opérations réservées ; les réconcilier avant `configure`, qui les refuse.
-5. En A6, Activer fait exécuter par le contrôleur `configure` depuis le fichier, **puis** `open`. Vérifier le plafond 9 USD et les quotas avant le self-train. Un échec de configuration bloque l'ouverture ; ne pas contourner ce refus.
+5. En B11, après A5, Activer fait exécuter par le contrôleur `configure` depuis le fichier, **puis** `open`. Vérifier le plafond 9 USD et les quotas avant le self-train arbres. Un échec de configuration bloque l'ouverture ; ne pas contourner ce refus.
 
 Le fichier doit porter **le même T1 que la prolongation** (ou un relevé ultérieur réel encore valide). Conserver le relevé de septembre ferait dépasser `validUntil − observedAtMs ≤ 31 jours` et bloquerait Activer. `configureSponsored` vérifie les engagements et cette fenêtre ; la prolongation interdit de reculer le relevé. Les deux ordres avec le même T1 sont couverts par `scripts/renew-runner-budget-policy.test.ts`, ainsi que le fichier périmé, le plafond insuffisant et le rejeu. Baisser effectivement le registre avant de prolonger demanderait un démarrage supplémentaire avec l'ancienne politique encore valide ; cet ordre n'est pas nécessaire sans admission intermédiaire.
 
@@ -79,14 +79,14 @@ La simulation précédente estimait l'escrow avec le déployeur comme registre :
 
 **`RETIRED_ENCLAVES`** : aucune entrée nécessaire. La liste ne sert qu'aux certificats de prêts réglés ; l'escrow v7 testnet n'a émis aucun événement, donc aucun certificat ne se réclame du Compose `61581af7…`.
 
-## 4. Deux sessions, pas une
+## 4. Une seule session
 
-Recommandation : **session A (prolongation) seule, avant le 26 octobre ; session B (arbres) ensuite.**
+Décision : **une fenêtre unique de maintenance et de validation arbres**, même si l'ancienne politique a déjà expiré. Préparer les contrats, l'inventaire, les configurations et les rendus avant de démarrer la CVM ; aucune admission pendant la maintenance.
 
-- A est contrainte par une date ; B dépend du déploiement des contrats, de l'inventaire, de la mise en pause des titres, de Vercel et du gel des fusions. Les regrouper ferait dépendre l'échéance de la tâche la plus fragile.
-- Un échec de B se rattrape en revenant à l'état de A ; un échec dans une session combinée mêlerait deux causes possibles.
-- Coût : ≈ 0,03 USD par session de 30 minutes (0,060780 USD/h relevé le 25 septembre), soit ≈ 0,06 USD pour les deux.
-- Combiner reste possible seulement si tous les prérequis de B sont faits avant le 25 octobre. Il faudrait alors valider A (rapport de supervision) avant de continuer, avec arrêt si quelque chose diverge.
+- Ordre : prérequis B1–B10 → renouvellement fermé A4 → contrôles A5 et bascule du reaper → configuration à 9 USD puis ouverture B11 → validation arbres → fermeture et arrêt vérifié → alias unique B12.
+- Aucun self-train, arrêt ou changement d'alias intermédiaire à la fin de A. A et B désignent des étapes du même déroulé, pas deux sessions.
+- Tout contrôle divergent bloque la suite : ne pas ouvrir, ou fermer si déjà ouvert, confirmer l'arrêt et analyser hors session. Aucun changement d'alias sur un parcours non validé.
+- Coût indicatif : ≈ 0,03 USD pour une fenêtre de 30 minutes (0,060780 USD/h relevé le 25 septembre), hors disque conservé ; pas une autorisation de dépense.
 
 ## 5. Ordre exact
 
@@ -99,20 +99,21 @@ Recommandation : **session A (prolongation) seule, avant le 26 octobre ; session
 | 1 | Noé | Outillage #116 déjà fusionné, pipeline 39301902225 verte ; conserver le digest du §1. Cette PR doc/outillage reste draft jusqu'à approbation | Aucun nouveau déploiement requis pour les corrections documentaires |
 | 2 | Noé | Plafond 9 USD décidé ; approuver le tarif arbres (= logistique) et l'échéance T1 + 31 jours ; refaire le relevé le jour de la session | Relevé couvrant 9 USD, fichier privé préparé selon §2 A |
 
-### Session A — prolongation (avant le 2026-10-26 14:12 UTC, viser le 24)
+Ordre d'exécution, malgré les identifiants historiques conservés : préparation commune → B1–B7 → gel B9/A3 → B8, B10 et A1–A2 → A4–A5 → B11 → B12 → B13. Avant toute modification, conserver le déploiement actuellement servi par l'alias et les configurations associées comme cible de retour. Le gel dure jusqu'à B12.
+
+### A — maintenance fermée de la session unique
 
 | # | Qui | Action | Contrôle de sortie |
 |---|---|---|---|
 | A1 | Moi | Rendus déjà contrôlés avec le digest du §1 : `demo-active` sans option ne diffère du Compose actif que par l'image ; `--opt-in-models` ajoute l'interrupteur ; `demo-renewal` enchaîne renouvellement sans réseau, tarif (`service_completed_successfully`), puis runner | Préparation seulement, pas un déploiement ; fichiers 0600 |
-| A2 | Agent principal | Préparer le financement privé à 9 USD et T1 (§2 A), puis l'environnement chiffré actuel + `RUNNER_BUDGET_RENEWAL` + `RUNNER_UPDATED_BILLING_POLICY` (mêmes profils, arbres si approuvés, nouvelle version, échéance ≤ T1 + 31 jours). Les quatre noms requis ont été confirmés : `EVM_NETWORK`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, `SIRIUS_COMPUTE_RECIPIENT` ; adresses actuelles `0x99ea…` / `0x5f9d…` / `0xc6ef…` | Même T1 dans le fichier et la demande ; SHA-256 du tarif noté |
-| A3 | Noé | Gel des fusions vers staging jusqu'à la fin de A4–A6 | Annoncé |
-| A4 | Noé | `phala cvms update` avec `demo-renewal`, puis avec `demo-active` et l'environnement sans les deux variables de maintenance | CVM démarrée |
-| A5 | Noé/Agent VPS | Attestation : quote `UpToDate`, SHA-256 de `tcb_info.app_compose` lu (pas supposé), image = digest de l'étape 1 ; pins mis à jour (contrôleur, moniteur, `SIRIUS_EXPECTED_COMPOSE_HASH` Vercel staging et instance `/phala`), puis rebuild ; rapport `/operations/budget` : `check.expired` faux, `quotesUntilMs` = nouvelle échéance − 3 j − 300 s, `tariff.sha256` = celui de A2 | Tout concorde |
-| A6 | Noé | Après les contrôles de financement de A5 : Activer applique 9 USD puis ouvre ; vérifier plafond et compteurs (§2 A/C), lancer un self-train linéaire court sur `/phala`, puis fermer par le contrôleur | Arrêt confirmé par l'API Phala, coût relevé |
-| A7 | Moi | PR de suivi : `DECLARED_RELEASES`, `composes/<hash>.json` depuis `tcb_info.app_compose`, journal | CI verte |
-| A8 | Noé | `vercel alias set demo.sirius-data.tech <nouveau déploiement>` ; noter l'ancien déploiement comme cible de retour | Alias vérifié |
+| A2 | Agent principal | Préparer le financement privé à 9 USD et T1 (§2 A), puis l'environnement chiffré aux nouvelles adresses B3 + `RUNNER_BUDGET_RENEWAL` + `RUNNER_UPDATED_BILLING_POLICY` (profils existants et arbres approuvés, nouvelle version, échéance ≤ T1 + 31 jours). Vérifier `EVM_NETWORK`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, `SIRIUS_COMPUTE_RECIPIENT` | Même T1 dans le fichier et la demande ; SHA-256 du tarif noté |
+| A3 | Noé | Même gel que B9, avant B8 et jusqu'à B12 | Annoncé |
+| A4 | Agent principal | Session fermée : `phala cvms update` avec `demo-renewal`, puis `demo-active --opt-in-models=gradient_boosted_trees` et l'environnement sans les deux variables de maintenance | Renouvellement budget puis tarif réussis, même si l'ancienne politique était expirée ; runner démarré, aucune admission |
+| A5 | Agent principal | Attestation : quote `UpToDate`, SHA-256 de `tcb_info.app_compose` lu, image = digest du §1 ; pins mis à jour (contrôleur, moniteur, Vercel staging et instance `/phala`), puis rebuild. Rapport `/operations/budget` : `check.expired` faux, `quotesUntilMs` = nouvelle échéance − 3 j − 300 s, `tariff.sha256` = A2 et profil arbres présent ; engagements compatibles avec 9 USD, aucune réservation (§2 A) | Tout concorde avant B11 ; sinon interrompre, arrêter et analyser hors session |
 
-### Session B — arbres (après A)
+A6–A8 supprimées : pas d'ouverture linéaire, de fermeture, de PR ou d'alias intermédiaire. Validation, arrêt, alias et preuve de livraison sont regroupés en B11–B13.
+
+### B — prérequis, validation et clôture de la même session
 
 | # | Qui | Action | Contrôle de sortie |
 |---|---|---|---|
@@ -122,12 +123,12 @@ Recommandation : **session A (prolongation) seule, avant le 26 octobre ; session
 | B4 | Moi | Relecture on-chain : versions, liaisons, `isSupportedTrainingProfile` × 3, `admin()`, `accounting()` = 0 | Rapport dans la PR de suivi |
 | B5 | Noé/Agent VPS | `pnpm phala:check-v7` avec les nouvelles adresses et l'interrupteur | `chainChecksPassed: true` |
 | B6 | Agent VPS | `pnpm contracts:check-upgrade` dans l'environnement **staging explicite** du VPS (le script charge le `.env` du répertoire courant, jamais depuis le poste de Noé) | « Préflight … validé » |
-| B7 | Moi | Rendre `demo-active --opt-in-models=gradient_boosted_trees` (et `demo-billing` si le tarif arbres n'a pas été posé en A) | Fichiers 0600 |
-| B8 | Noé | Préparer l'environnement chiffré (nouvelles adresses) et, dans Vercel (staging et instance `/phala`), toutes les variables du §7 sauf `SIRIUS_EXPECTED_COMPOSE_HASH`, sans rebuild. Pour `demo-billing` : vérifier `EVM_NETWORK`, `SIRIUS_USDC_ADDRESS`, `SIRIUS_COMPUTE_RECIPIENT` | Noms vérifiés |
+| B7 | Moi | Rendre `demo-renewal` et `demo-active --opt-in-models=gradient_boosted_trees` pour A4 ; le tarif arbres est posé pendant le renouvellement | Fichiers 0600, digest du §1 |
+| B8 | Agent principal | Préparer l'environnement chiffré aux nouvelles adresses et, dans Vercel (staging et instance `/phala`), les variables du §7 sauf `SIRIUS_EXPECTED_COMPOSE_HASH`, sans rebuild ; compléter avec A2 | Noms vérifiés, session fermée |
 | B9 | Noé | **Gel des fusions vers staging de B8 à la fin de B12** : une fusion relance la pipeline, qui reconstruit Vercel et le reaper avec d'autres variables | Annoncé |
 | B10 | Agent VPS | Après accord de Noé : passer en `SUSPENDED` les titres actifs de l'inventaire (§6), y compris ceux de `0x4075…`, **avant** le rebuild Vercel | **10 lignes attendues**, sinon annuler la transaction et réconcilier l'inventaire |
-| B11 | Noé | Session Phala (§8) ; reaper basculé (§7) dans la même fenêtre que Next, juste après le rebuild | Mesures et arrêt confirmé |
-| B12 | Noé | `vercel alias set demo.sirius-data.tech <nouveau déploiement>` ; cible de retour = déploiement noté en A8 | Alias vérifié |
+| B11 | Agent principal / Noé | Après A4–A5 : basculer le reaper (§7) juste après le rebuild, contrôler sa configuration ; Noé active (`configure` à 9 USD avant `open`), vérifie plafond et quotas, valide les arbres (§8), puis ferme | Résultat et métriques conformes ; drainage terminé, arrêt confirmé par l'API Phala, coût relevé |
+| B12 | Agent principal | Seulement après validation et arrêt vérifié de B11 : **unique** `vercel alias set demo.sirius-data.tech <nouveau déploiement>` ; cible de retour = déploiement conservé avant la procédure | Alias vérifié ; aucune bascule si un contrôle a divergé |
 | B13 | Moi | PR de suivi : `DECLARED_RELEASES`, `composes/<hash>.json`, mesures, journal | CI verte |
 
 ## 6. Inventaire staging
@@ -158,7 +159,7 @@ Lecture on-chain : l'escrow `0x5f9d…` ne doit rien et n'a jamais émis d'évé
 |---|---|---|
 | Vercel staging et instance `/phala` | `SIRIUS_DATASET_ADDRESS`, `NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS`, `NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS`, `SIRIUS_LEGACY_ESCROW_ADDRESSES` (+ ancien escrow), `SIRIUS_BILLING_POLICY_JSON` (avec arbres), `SIRIUS_EXPECTED_COMPOSE_HASH`, `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS=gradient_boosted_trees` | `SIRIUS_KYB_ADDRESS`, `NEXT_PUBLIC_SIRIUS_KYB_ADDRESS`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, MRTD, chaîne KMS, empreinte d'ingestion |
 | Reaper staging, `/opt/sirius-staging/.env.vps`, en B11 | `SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS` (nouvelles adresses B3), `SIRIUS_LEGACY_ESCROW_ADDRESSES`, `SIRIUS_BILLING_VERSION=7`, `SIRIUS_EXPECTED_COMPOSE_HASH` | Vérifier aussi KYB, USDC, signataire, URL runner et pins ; ne pas supposer l'alignement de cette ancienne configuration v6 |
-| Contrôleur (`/etc/sirius/operations/phala-demo-controller.env`) et moniteur (`runner-monitor.env`) | `SIRIUS_EXPECTED_COMPOSE_HASH` (en A et en B) | les autres pins |
+| Contrôleur (`/etc/sirius/operations/phala-demo-controller.env`) et moniteur (`runner-monitor.env`) | `SIRIUS_EXPECTED_COMPOSE_HASH` du Compose actif final, en A5 | les autres pins |
 | Runner (environnement chiffré Phala) | B : `SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`. Maintenance seulement, puis retirées : `RUNNER_BUDGET_RENEWAL`, `RUNNER_UPDATED_BILLING_POLICY`, `RUNNER_BILLING_ALLOW_PROFILE_CHANGES` (si un prix installé change) | `SIRIUS_KYB_ADDRESS`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, `SIRIUS_COMPUTE_RECIPIENT`, secrets |
 | GitHub environnement `staging` | Aucune variable GitHub ne bascule les adresses du reaper dans la pipeline actuelle | `SIRIUS_MIGRATION_ESCROW_ADDRESSES` ne sert qu'au préflight d'une ancienne migration, déjà appliquée sur staging |
 
@@ -170,25 +171,26 @@ La pipeline `.github/workflows/pipeline.yml` ne réécrit dans `.env.vps` que `S
 
 En B11, dans la fenêtre du rebuild Next et avant toute activation, l'agent principal sauvegarde la configuration privée et modifie `/opt/sirius-staging/.env.vps` avec les noms ci-dessus, puis exécute depuis ce répertoire `docker compose -p sirius-staging --env-file .env.vps up --detach`. `SIRIUS_LEGACY_ESCROW_ADDRESSES` doit conserver les adresses complètes vérifiées de `0xc51e…`, `0x5f9d…`, `0x2634…` et `0xede8…` (les abréviations de ce document ne sont pas des valeurs de configuration), dans Next et le reaper. Contrôler la configuration effective du conteneur et ses journaux de démarrage sans exposer les secrets. Les prochains déploiements conservent ces adresses ; seul un autre mécanisme externe, non établi ici, pourrait les réécrire.
 
-## 8. Tarif arbres et session B
+## 8. Tarif arbres et validation dans la session unique
 
 Proposition : profil `gradient_boosted_trees` **identique au profil logistique** de la politique installée, avec une nouvelle `tariffVersion`. Écart de calcul local à 30 000 lignes : 931 ms (pire cas au budget) pour les arbres contre 282 ms pour la logistique, très en dessous des `maxExecutionMs` ; non calibré sur Phala. L'outil refuse toute modification d'un prix déjà installé sans `RUNNER_BILLING_ALLOW_PROFILE_CHANGES=true`, écrit les octets fournis tels quels et publie leur SHA-256 dans `/operations/budget`. Next : même JSON dans `SIRIUS_BILLING_POLICY_JSON`, sur staging **et** sur l'instance `/phala`.
 
-Session B, ≤ 30 min. **Elle teste le self-train (plafond de 15 s), pas le chemin facturé** (devis, verrouillage, règlement), que la démonstration refuse.
+Fenêtre unique, maintenance comprise, ≤ 30 min. **Elle teste le self-train (plafond de 15 s), pas le chemin facturé** (devis, verrouillage, règlement), que la démonstration refuse. Le déroulé ci-dessous détaille A4–A5 puis B11–B12, sans les exécuter une seconde fois.
 
 | Minute | Action |
 |---|---|
-| 0 | Noé : relevé solde/coût Phala ; `phala cvms update` avec `demo-active --opt-in-models` et l'environnement chiffré aux nouvelles adresses (précédé de `demo-billing` si le tarif arbres n'a pas été posé en A) |
-| ≈ 5 | Noé/Agent VPS : attestation ; SHA-256 de `tcb_info.app_compose` lu ; pins mis à jour (contrôleur, moniteur, Vercel) ; rebuild de l'instance `/phala` et de staging ; reaper basculé ; rapport `/operations/budget` : `tariff.profiles` contient `gradient_boosted_trees`, `check.expired` faux |
-| ≈ 12 | Noé : quota restant lu, **wallet neuf** ; `/operator` → Activer. CSV `node scripts/operations/gbdt-benchmark-csv.mjs <fichier>` (30 000 lignes, 23 variables, 2 060 908 octets, sha256 `d25689ca…2c33`), profil arbres, un seul self-train |
+| 0 | Agent principal : relevé solde/coût Phala T1 et fichier à 9 USD préparés ; A4 applique `demo-renewal` puis `demo-active --opt-in-models` aux nouvelles adresses, session fermée |
+| ≈ 5 | Agent principal : contrôles A5 (attestation, budget renouvelé, tarif arbres et SHA-256, engagements), pins, rebuild, puis bascule et contrôle du reaper en B11 ; aucune admission |
+| ≈ 12 | Noé : `/operator` → Activer, qui configure les 9 USD avant d'ouvrir ; vérifier plafond et quotas, **wallet neuf**. CSV `node scripts/operations/gbdt-benchmark-csv.mjs <fichier>` (30 000 lignes, 23 variables, 2 060 908 octets, sha256 `d25689ca…2c33`), profil arbres, un seul self-train |
 | ≈ 18 | Relevés : durée de bout en bout ; métriques livrées **identiques** à la référence (test `gbdt-benchmark-csv.test.mjs`) : `heldOutAuc` 0,8418414855712508, `trainAuc` 0,8470032294457094, `heldOutAccuracy` 0,7786666666666666. Mémoire : non mesurable directement (`public_sysinfo` et `public_logs` désactivés). Preuve retenue : aucun arrêt du worker (128 Mio) ni du conteneur (768 Mio), plus le résultat identique |
 | ≤ 30 | Noé : fermeture par le contrôleur (drainage), arrêt confirmé par l'API Phala, coût relevé |
+| Après arrêt vérifié | Agent principal : B12 change l'alias une seule fois, uniquement si tous les contrôles et la validation arbres ont réussi |
 
-Arrêt immédiat si l'attestation ou le tarif ne correspondent pas, ou si la session dépasse 30 minutes : fermeture normale, puis analyse hors session.
+Interrompre la procédure au premier contrôle divergent (inventaire, contrats, attestation, tarif, financement, reaper, quotas ou résultat), ou si la fenêtre dépasse 30 minutes : aucune admission supplémentaire, fermeture normale avec drainage, arrêt confirmé par l'API Phala, puis analyse hors session. Ne pas changer l'alias. Une maintenance interrompue ne vaut pas validation et ne justifie aucun contournement.
 
 ## 9. Retour arrière
 
-- **Image, Compose et adresses vont ensemble.** L'ancienne image `78839668…6eff4` n'accepte que `sirius-dataset-v4` (`src/lib/evm/deployment.ts` au commit `712fbb2`). Revenir à l'image impose donc de revenir aussi aux anciennes adresses : Vercel (staging et instance `/phala`), reaper et environnement chiffré du runner, puis rebuild et `vercel alias set demo.sirius-data.tech <déploiement noté en A8>`.
+- **Image, Compose et adresses vont ensemble.** L'ancienne image `78839668…6eff4` n'accepte que `sirius-dataset-v4` (`src/lib/evm/deployment.ts` au commit `712fbb2`). Revenir à l'image impose donc de revenir aussi aux anciennes adresses : Vercel (staging et instance `/phala`), reaper et environnement chiffré du runner, puis rebuild. Si l'alias a déjà été basculé en B12, le restaurer vers le déploiement conservé avant la procédure ; sinon le laisser inchangé.
 - **Redéploiement** : `composes/61581af7…950a.json` avec l'ancien environnement chiffré. Le hash doit être **relu** dans `tcb_info.app_compose` de l'attestation, puis les pins remis à cette valeur ; ne pas le supposer.
 - **Volume** : la prolongation du budget et le tarif restent lisibles par l'ancienne image (même format de politique ; elle ne valide que linéaire et logistique et ignore un profil en plus). L'ancien tarif reste dans le volume (`billing-policy.previous-*.json`). On ne raccourcit jamais une prolongation : il suffit de ne plus ouvrir de session.
 - **Contrats** : les anciens sont immuables et intacts. Les titres v5 passent en `SUSPENDED`. Un prêt ouvert sur le nouvel escrow doit être réglé ou remboursé avant, sinon cet escrow reste dans `SIRIUS_LEGACY_ESCROW_ADDRESSES`.
