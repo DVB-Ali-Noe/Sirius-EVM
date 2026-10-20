@@ -35,6 +35,10 @@ export const DECLARED_RELEASES: Readonly<Record<string, { image: string; commit:
     image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:5a63e9dd15f52cfcd00efdd1326be161f3ebdc5f1aac7b96f291555fa46e1c06",
     commit: "fdeb29f",
   },
+  "2fdc091929e9080f3dba0730404858fe0fb9aa7e26c60c61c97d58b887b323d3": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:76fb0001f0a5142ad63ed23ea04823b6e627038484129e3bb1227ac57ee4c914",
+    commit: "c408221",
+  },
 };
 
 /**
