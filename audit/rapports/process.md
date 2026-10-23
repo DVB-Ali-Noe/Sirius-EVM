@@ -77,9 +77,9 @@ Remarques factuelles :
   des comptes humains : GitHub ne permet pas de distinguer une action de l'agent d'une action de la personne.
 - Le seul commentaire de discussion humain de la période est celui de `CHAAIISE` sur #117 (capture d'écran
   décrite) et la note de fermeture de #120.
-- Avant la période (PR #91 à #103), les fusions dans `staging` étaient faites par `alibenyezza` ; de #105 à #124,
-  toutes sont faites par `CHAAIISE`. Dans les deux cas, auteur et personne qui fusionne n'ont pas été comparés pour
-  les PR antérieures : **NON VÉRIFIÉ** hors période.
+- Juste avant la période, les fusions de #91, #92, #96, #97, #99, #101 et #103 dans `staging` portent le nom
+  `alibenyezza` (commit de fusion). De #105 à #124, toutes portent `CHAAIISE`. Les auteurs des PR antérieures à #105
+  n'ont pas été relevés : **NON VÉRIFIÉ** hors période.
 
 ## 3. PR marquées « brouillon » ou « ne pas fusionner »
 
@@ -109,6 +109,58 @@ Faits :
 - Si l'accord a été donné ailleurs (oral, messagerie) : **NON VÉRIFIÉ**.
 
 ## 4. Pipeline : jobs qui tournent sur staging, jobs sautés
+
+Un seul workflow : `.github/workflows/pipeline.yml`. Déclencheurs : `push` sur `main` et `staging`, et
+`pull_request` (toutes branches) (`pipeline.yml:29-32`).
+
+| Job (nom affiché) | Dépend de | Sur une PR | Sur un push `staging` | Pourquoi |
+|---|---|---|---|---|
+| `verify` (Vérification) | — | **tourne** | tourne | aucune condition (`pipeline.yml:46`) |
+| `cible` (Cible) | — | **sauté** | tourne | `if: github.event_name == 'push'` (`pipeline.yml:137`) |
+| `image` (Images) | verify, cible | **sauté** | tourne | dépend de `cible`, sauté sur PR (`pipeline.yml:172`) |
+| `migrate` (Migrations) | verify, cible | **sauté** | tourne | idem (`pipeline.yml:233`) |
+| `vercel` (Front Vercel) | verify, cible, migrate | **sauté** | tourne | idem (`pipeline.yml:263`) |
+| `vps` (Reaper sur le VPS) | cible, image, migrate | **sauté** | tourne | idem (`pipeline.yml:336`) |
+| `fumee` (Fumée) | cible, vercel | **sauté** | tourne | idem (`pipeline.yml:409`) |
+
+Contenu de `Vérification` (`pipeline.yml:79-133`) : installation figée, `pnpm audit:deps` (niveau `moderate`),
+génération des jeux synthétiques, `tsc --noEmit`, `pnpm lint`, `pnpm test`, `pnpm test:phala-demo`,
+`pnpm test:operations`, `pnpm test:postgres` (PostgreSQL 17 en service), `pnpm contracts:test`, `pnpm test:billing`,
+typage v7, `pnpm build`, Playwright (`pnpm test:e2e`).
+
+Ce que la pipeline ne fait pas, ou ne vérifie pas :
+
+- **Scénarios e2e de `/phala`** : `playwright.config.ts:16` les exclut (`testIgnore: "**/phala/**"`) ; ils ne
+  tournent qu'avec `playwright.phala.config.ts`, qui n'est appelé nulle part dans la CI. Les PR #118 et #119 le
+  disent (« Ce fichier e2e ne tourne pas en CI »). Les résultats e2e Phala annoncés dans les PR sont donc locaux.
+- **Image runner sur la CVM Phala** : construite et publiée par `Images` après fusion, mais jamais déployée par la
+  pipeline (`pipeline.yml:23-25`, `209-213`, `226-229`). Le déploiement sur la CVM est manuel, par choix documenté.
+- **Contrats** : jamais déployés par la pipeline (`pipeline.yml:23-25`), par choix documenté.
+- **Hôte de démonstration** (`demo.sirius-data.tech`) : alias posé sur un déploiement Vercel figé
+  (`scripts/deployment-target.mjs:19`, `docs/PHALA-DEMO-IMPLEMENTATION.md:544`). Un push vert sur `staging` ne le
+  met pas à jour ; le déplacement de l'alias est manuel (#108, #116, #122).
+- **Images construites seulement après fusion** : `image` est sauté sur une PR. Une modification du runner ne peut
+  donc être essayée sur la CVM qu'une fois fusionnée dans `staging`. La PR #105 listait « Avant fusion : déployer
+  l'image staging, attester le nouveau hash, mesurer 30 000 lignes sur tdx.small » ; la mesure sur la CVM est
+  rapportée ensuite par #106 et #108, après la fusion.
+- **Pas de filtre de chemins** : une PR de documentation seule (#108, #115, #122, #124) déclenche après fusion la
+  reconstruction des images, les migrations, le redéploiement Vercel et le redémarrage du reaper staging.
+- **`Fumée`** vérifie seulement un HTTP 200 sur l'URL publique de la cible et les challenges de connexion
+  (`pipeline.yml:418-434`).
+
+Autres points de la pipeline, relevés au passage :
+
+- Permissions du jeton : défaut du dépôt en lecture (`default_workflow_permissions: read`), les Actions ne peuvent
+  pas approuver de PR (`can_approve_pull_request_reviews: false`). `image` élève à `packages: write`, `vps` à
+  `packages: read`.
+- Les actions tierces sont épinglées par étiquette (`actions/checkout@v4`, `docker/login-action@v3`,
+  `docker/build-push-action@v6`…), pas par empreinte de commit.
+- `pipeline.yml:292-293` écrit en clair l'identifiant d'organisation Vercel dans le workflow, puis l'affiche dans le
+  journal (`cat .vercel/project.json`). Le commentaire `pipeline.yml:279-283` dit que ce n'est pas un secret.
+- `pipeline.yml:19-21` affirme qu'« une cible ne peut pas atteindre les identifiants de l'autre ». Ce n'est vrai que
+  pour les secrets d'environnement : le dépôt a aussi 9 secrets **au niveau du dépôt** (voir PRO-04).
+- Les 18 runs `push` sur `staging` de la période sont en succès (7/7 jobs). Le dernier échec de la pipeline sur
+  `staging` remonte au 8 octobre (fusion de #88), hors période.
 
 ## 5. Informations d'exploitation dans `docs/`
 
