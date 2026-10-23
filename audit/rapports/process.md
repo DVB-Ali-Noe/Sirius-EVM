@@ -164,6 +164,44 @@ Autres points de la pipeline, relevés au passage :
 
 ## 5. Informations d'exploitation dans `docs/`
 
+Les valeurs ne sont **pas** recopiées. Les lignes ont été trouvées par motifs puis classées une à une avec les
+valeurs masquées. `docs/` n'est pas servi par le site : aucun fichier de `src/` ni `next.config.ts` ne lit `docs/`.
+L'exposition se limite donc aux personnes et aux outils (agents IA compris) qui lisent le dépôt, et à tous si le
+dépôt redevient public (hypothèse évoquée dans la PR #110).
+
+| Type d'information | Fichier:ligne |
+|---|---|
+| **Adresse IP publique du VPS** (même adresse partout) | `docs/DEPLOYMENT.md:7`, `docs/GBDT-PHASE2.md:70`, `docs/OPERATIONS-ACCOUNTING.md:85`, `docs/PHALA-DEMO-RUNBOOK.md:77`, `docs/PHALA-TRIAL-CREDITS.md:59`, `docs/PHALA-V7-STAGING.md:22`, `docs/VPS-MIGRATION.md:5`, `docs/VPS-MIGRATION.md:65`, `docs/VPS-MIGRATION.md:112`, `docs/passage-mainnet/19-mise-en-production.md:28`, `:51`, `:266` |
+| **Valeur d'un secret GitHub écrite en clair** (valeur attendue de `VPS_HOST`) | `docs/VPS-MIGRATION.md:112` |
+| **Format complet attendu du secret `VPS_KNOWN_HOSTS`** (avec l'adresse) | `docs/VPS-MIGRATION.md:65` |
+| **Empreinte de clé d'hôte SSH du VPS** et comptes système vérifiés | `docs/VPS-MIGRATION.md:5` |
+| **Compte SSH « utilisateur@adresse »** du serveur de production | `docs/passage-mainnet/19-mise-en-production.md:51`, `:266` |
+| **Comptes système, dossiers et projets Compose du VPS** (staging et production) | `docs/passage-mainnet/19-mise-en-production.md:28`, `:267`, `:280`, `:304`, `:403` ; `docs/VPS-MIGRATION.md:10`, `:35`, `:62`, `:71-73`, `:91`, `:96`, `:100`, `:131`, `:133`, `:137` ; `docs/PHALA-DEMO-RUNBOOK.md:69`, `:77`, `:79` ; `docs/PHALA-TRIAL-CREDITS.md:39`, `:48`, `:50-52`, `:57`, `:59` ; `docs/PHALA.md:101`, `:159` ; `docs/DEPLOYMENT.md:42`, `:85-86`, `:188` ; `docs/MAINNET-RUNBOOKS.md:33-34`, `:74` ; `docs/OPERATIONS-PREPARATION.md:119` ; `docs/GBDT-PHASE2.md:138` ; `docs/PHALA-DEMO-IMPLEMENTATION.md:301`, `:442`, `:448`, `:766`, `:774`, `:778` ; `docs/PHALA-V7-STAGING.md:23` ; `docs/passage-mainnet/20-finalite-rapide.md:98` ; `docs/passage-mainnet/AUDIT-2026-10-05.md:43`, `:191`, `:351` ; `docs/passage-mainnet/audit.md:1408`, `:1428` |
+| **Chemin et nom du fichier d'environnement du serveur** (`.env.vps` et variantes) | 42 lignes, dont `docs/DEPLOYMENT.md:40-48`, `:142`, `:188` ; `docs/VPS-MIGRATION.md:10`, `:12`, `:79`, `:85`, `:91`, `:97` ; `docs/passage-mainnet/19-mise-en-production.md:267-306`, `:403`, `:490-492`, `:550` ; `docs/MAINNET-RUNBOOKS.md:74-76` ; `docs/PHALA-DEMO-IMPLEMENTATION.md:377`, `:428`, `:774` ; `docs/passage-mainnet/AUDIT-2026-10-05.md:43-45`, `:191`, `:203`, `:351` ; `docs/PHALA.md:74` ; `docs/PHALA-V7-STAGING.md:21` ; `docs/GBDT-PHASE2.md:112` ; `docs/DEMO.md:108` ; `docs/PHALA-DEMO-RESTE-A-FAIRE.md:154` ; `docs/passage-mainnet/20-finalite-rapide.md:98`, `:120` |
+| **État de sécurité du serveur** (port ouvert, pare-feu, port d'écoute interne d'un service, watchdog désactivé, anciens services non arrêtés) | `docs/PHALA-DEMO-RUNBOOK.md:83`, `docs/OPERATIONS-ACCOUNTING.md:85` |
+| **Identifiant de projet Vercel** | `docs/PHALA.md:101`, `docs/passage-mainnet/19-mise-en-production.md:26` |
+| **Nom d'équipe Vercel dérivé d'une adresse e-mail personnelle**, dans des URL de déploiement | `docs/AUDIT-STAGING-2026-09-12.md:92`, `docs/DEPLOYMENT.md:91`, `:93`, `docs/PHALA-DEMO-IMPLEMENTATION.md:544`, `:546`, `:550`, `:554`, `docs/PHALA.md:101`, `docs/passage-mainnet/19-mise-en-production.md:25` (et hors `docs/` : `scripts/deployment-target.mjs:20`) |
+| **URL de déploiement Vercel figé** (cible de retour arrière de l'hôte de démonstration) | `docs/PHALA-DEMO-IMPLEMENTATION.md:544`, `:546`, `:550`, `:554` |
+| **Adresse e-mail personnelle** (autre que l'adresse de contact publique de l'application) | `docs/PHALA-INTEGRATION-BRIEF.md:220` |
+| **Compte déployeur et trésorerie testnet** : adresse, nom de la variable de clé privée présente dans un `.env` local, solde relevé | `docs/PHALA.md:51` |
+| **Chemin local privé** d'un poste (prototypes hors dépôt) | `docs/EGRESS-POLICY-API.md:291` |
+| **Organisation des accès** : qui (personne ou agent) a accès au VPS et à la CLI Phala | `docs/GBDT-PHASE2.md:70`, `docs/passage-mainnet/19-mise-en-production.md:51` |
+
+Classés comme **non sensibles** après examen (pas des constats) :
+
+- 18 lignes contenant une valeur hexadécimale de 64 caractères : ce sont des empreintes de bytecode (code hash
+  USDC/USDG) ou des hachages de transaction, publics par nature (`docs/PHALA-V7-STAGING.md:28-31`,
+  `docs/MAINNET-RUNBOOKS.md:132`, etc.). Aucune clé privée trouvée.
+- Les 2 URL de RPC repérées sont des RPC publics ou des liens de documentation, sans clé
+  (`docs/PHALA-V7-STAGING.md:54`, `docs/passage-mainnet/19-mise-en-production.md:534`).
+- Les ports `127.0.0.1:5432` de `docs/passage-mainnet/audit.md` décrivent la base PostgreSQL locale des tests.
+- L'adresse de contact publique de l'application (16 lignes, la même que dans `src/lib/copy/disclaimers.ts`).
+- Les motifs `phala@1.x` et `pnpm@…` sont des versions de paquets, pas des adresses e-mail.
+- Aucun jeton d'accès (`ghp_`, `gho_`, `sk-`, `AKIA`, JWT) trouvé dans `docs/`.
+
+Hors `docs/` mais lié : le texte de la PR #120 cite le chemin du fichier d'environnement staging sur le VPS, et
+celui de la PR #117 un chemin local privé. Les textes de PR sont visibles par toute personne ayant accès au dépôt.
+
 ## 6. Règles de relecture et de protection compatibles GitHub Free, dépôt privé, deux fondateurs
 
 ## 7. Constats
