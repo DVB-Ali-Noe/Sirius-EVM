@@ -1,0 +1,15 @@
+gmsc/gbdt graine 1/10 : perte 0.508 LiRA 0.520 (145 s)
+gmsc/gbdt graine 2/10 : perte 0.503 LiRA 0.514 (175 s)
+gmsc/gbdt graine 3/10 : perte 0.504 LiRA 0.512 (189 s)
+gmsc/gbdt graine 4/10 : perte 0.501 LiRA 0.515 (176 s)
+gmsc/gbdt graine 5/10 : perte 0.497 LiRA 0.514 (194 s)
+gmsc/gbdt graine 6/10 : perte 0.503 LiRA 0.517 (206 s)
+gmsc/gbdt graine 7/10 : perte 0.503 LiRA 0.517 (198 s)
+gmsc/gbdt graine 8/10 : perte 0.504 LiRA 0.515 (212 s)
+gmsc/gbdt graine 9/10 : perte 0.507 LiRA 0.524 (182 s)
+gmsc/gbdt graine 10/10 : perte 0.497 LiRA 0.521 (151 s)
+| Modèle | Jeu | Graines | Membres / non-membres | AUC perte [IC t] | AUC LiRA [IC t] | TPR@1 % FPR (perte / LiRA) | TPR@0,1 % (LiRA) | AUC E2 (perte, train / écart) | AUC held-out | train − held |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gbdt | gmsc | 10 | 15000 / 15000 | 0.5026 [0.4999; 0.5054] | 0.5168 [0.5142; 0.5194] | 0.0107 / 0.0117 | 0.0014 | 0.5032 [0.4989; 0.5076] | 0.8191 | 0.0156 [0.0069; 0.0242] |
+Résultats : C:\Users\byezz\Desktop\hackathon\Sirius\Sirius-EVM\.claude\worktrees\agent-a63c7eca0b6aebbbe\audit\confiden
+tialite\results\membership-gmsc-gbdt.json

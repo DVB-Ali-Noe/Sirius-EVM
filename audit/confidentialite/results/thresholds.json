@@ -1,0 +1,4696 @@
+{
+  "generatedAt": "2026-10-23T00:20:53.931Z",
+  "missing": [],
+  "datasets": {
+    "taiwan": {
+      "summary": {
+        "thresholds": 119,
+        "equalsPresentAll": 51,
+        "equalsPresentTrain": 47,
+        "neighbourHeldByAtMost5Rows": 83,
+        "neighbourHeldBy1Row": 58,
+        "rare": [
+          {
+            "feature": "x19",
+            "threshold": 1620,
+            "below": 1619,
+            "belowCount": 1,
+            "above": 1620,
+            "aboveCount": 6,
+            "share": 0.40636666666666665
+          },
+          {
+            "feature": "x8",
+            "threshold": 0.5,
+            "below": 0,
+            "belowCount": 15764,
+            "above": 1,
+            "aboveCount": 4,
+            "share": 0.8595666666666667
+          },
+          {
+            "feature": "x20",
+            "threshold": 877,
+            "below": 876,
+            "belowCount": 3,
+            "above": 877,
+            "aboveCount": 1,
+            "share": 0.31216666666666665
+          },
+          {
+            "feature": "x21",
+            "threshold": 1280,
+            "below": 1279,
+            "belowCount": 2,
+            "above": 1280,
+            "aboveCount": 7,
+            "share": 0.4698333333333333
+          },
+          {
+            "feature": "x9",
+            "threshold": 1.5,
+            "below": 1,
+            "belowCount": 2,
+            "above": 2,
+            "aboveCount": 3159,
+            "share": 0.8830666666666667
+          },
+          {
+            "feature": "x8",
+            "threshold": 1.5,
+            "below": 1,
+            "belowCount": 4,
+            "above": 2,
+            "aboveCount": 3819,
+            "share": 0.8597
+          },
+          {
+            "feature": "x18",
+            "threshold": 2000,
+            "below": 1999,
+            "belowCount": 1,
+            "above": 2000,
+            "aboveCount": 1363,
+            "share": 0.43506666666666666
+          },
+          {
+            "feature": "x20",
+            "threshold": 624,
+            "below": 623,
+            "belowCount": 3,
+            "above": 624,
+            "aboveCount": 3,
+            "share": 0.2808
+          },
+          {
+            "feature": "x12",
+            "threshold": 36100,
+            "below": 36098,
+            "belowCount": 1,
+            "above": 36106,
+            "aboveCount": 1,
+            "share": 0.5956333333333333
+          },
+          {
+            "feature": "x23",
+            "threshold": 875,
+            "below": 874,
+            "belowCount": 5,
+            "above": 875,
+            "aboveCount": 3,
+            "share": 0.3762
+          },
+          {
+            "feature": "x21",
+            "threshold": 2050,
+            "below": 2049,
+            "belowCount": 4,
+            "above": 2050,
+            "aboveCount": 3,
+            "share": 0.5949666666666666
+          },
+          {
+            "feature": "x12",
+            "threshold": 15500,
+            "below": 15499,
+            "belowCount": 1,
+            "above": 15502,
+            "aboveCount": 2,
+            "share": 0.4224333333333333
+          },
+          {
+            "feature": "x17",
+            "threshold": 40100,
+            "below": 40068,
+            "belowCount": 1,
+            "above": 40103,
+            "aboveCount": 1,
+            "share": 0.7041
+          },
+          {
+            "feature": "x20",
+            "threshold": 390,
+            "below": 389,
+            "belowCount": 1,
+            "above": 390,
+            "aboveCount": 207,
+            "share": 0.24396666666666667
+          },
+          {
+            "feature": "x12",
+            "threshold": 22600,
+            "below": 22599,
+            "belowCount": 1,
+            "above": 22604,
+            "aboveCount": 1,
+            "share": 0.5018666666666667
+          },
+          {
+            "feature": "x18",
+            "threshold": 4400,
+            "below": 4398,
+            "belowCount": 2,
+            "above": 4400,
+            "aboveCount": 28,
+            "share": 0.7028666666666666
+          },
+          {
+            "feature": "x18",
+            "threshold": 419,
+            "below": 418,
+            "belowCount": 1,
+            "above": 419,
+            "aboveCount": 3,
+            "share": 0.21793333333333334
+          },
+          {
+            "feature": "x18",
+            "threshold": 4800,
+            "below": 4796,
+            "belowCount": 1,
+            "above": 4800,
+            "aboveCount": 18,
+            "share": 0.7189333333333333
+          },
+          {
+            "feature": "x13",
+            "threshold": 159000,
+            "below": 158956,
+            "belowCount": 1,
+            "above": 159008,
+            "aboveCount": 1,
+            "share": 0.923
+          },
+          {
+            "feature": "x19",
+            "threshold": 5000,
+            "below": 4996,
+            "belowCount": 1,
+            "above": 5000,
+            "aboveCount": 717,
+            "share": 0.7346333333333334
+          },
+          {
+            "feature": "x19",
+            "threshold": 12700,
+            "below": 12694,
+            "belowCount": 1,
+            "above": 12700,
+            "aboveCount": 1,
+            "share": 0.9207666666666666
+          },
+          {
+            "feature": "x19",
+            "threshold": 15100,
+            "below": 15094,
+            "belowCount": 1,
+            "above": 15100,
+            "aboveCount": 1,
+            "share": 0.9368
+          },
+          {
+            "feature": "x12",
+            "threshold": 20600,
+            "below": 20596,
+            "belowCount": 1,
+            "above": 20604,
+            "aboveCount": 1,
+            "share": 0.48633333333333334
+          },
+          {
+            "feature": "x22",
+            "threshold": 673,
+            "below": 672,
+            "belowCount": 4,
+            "above": 673,
+            "aboveCount": 3,
+            "share": 0.32936666666666664
+          },
+          {
+            "feature": "x19",
+            "threshold": 20000,
+            "below": 19948,
+            "belowCount": 1,
+            "above": 20000,
+            "aboveCount": 80,
+            "share": 0.9523333333333334
+          },
+          {
+            "feature": "x22",
+            "threshold": 13500,
+            "below": 13497,
+            "belowCount": 1,
+            "above": 13500,
+            "aboveCount": 5,
+            "share": 0.9385333333333333
+          },
+          {
+            "feature": "x12",
+            "threshold": 1210,
+            "below": 1208,
+            "belowCount": 2,
+            "above": 1210,
+            "aboveCount": 2,
+            "share": 0.172
+          },
+          {
+            "feature": "x12",
+            "threshold": 16800,
+            "below": 16794,
+            "belowCount": 1,
+            "above": 16801,
+            "aboveCount": 1,
+            "share": 0.43856666666666666
+          },
+          {
+            "feature": "x13",
+            "threshold": 201000,
+            "below": 200959,
+            "belowCount": 1,
+            "above": 201007,
+            "aboveCount": 1,
+            "share": 0.9541666666666667
+          },
+          {
+            "feature": "x12",
+            "threshold": 8750,
+            "below": 8748,
+            "belowCount": 2,
+            "above": 8751,
+            "aboveCount": 1,
+            "share": 0.3439333333333333
+          },
+          {
+            "feature": "x20",
+            "threshold": 4510,
+            "below": 4508,
+            "belowCount": 1,
+            "above": 4510,
+            "aboveCount": 1,
+            "share": 0.7501333333333333
+          },
+          {
+            "feature": "x14",
+            "threshold": 172000,
+            "below": 171997,
+            "belowCount": 1,
+            "above": 172045,
+            "aboveCount": 1,
+            "share": 0.9391
+          },
+          {
+            "feature": "x21",
+            "threshold": 32,
+            "below": 31,
+            "belowCount": 2,
+            "above": 33,
+            "aboveCount": 6,
+            "share": 0.22143333333333334
+          },
+          {
+            "feature": "x13",
+            "threshold": 150,
+            "below": 149,
+            "belowCount": 1,
+            "above": 150,
+            "aboveCount": 20,
+            "share": 0.1104
+          },
+          {
+            "feature": "x12",
+            "threshold": 149000,
+            "below": 148959,
+            "belowCount": 1,
+            "above": 149069,
+            "aboveCount": 1,
+            "share": 0.9074666666666666
+          },
+          {
+            "feature": "x18",
+            "threshold": 8460,
+            "below": 8455,
+            "belowCount": 1,
+            "above": 8470,
+            "aboveCount": 1,
+            "share": 0.8595333333333334
+          },
+          {
+            "feature": "x21",
+            "threshold": 2260,
+            "below": 2258,
+            "belowCount": 1,
+            "above": 2260,
+            "aboveCount": 1,
+            "share": 0.6104
+          },
+          {
+            "feature": "x17",
+            "threshold": 12600,
+            "below": 12599,
+            "belowCount": 1,
+            "above": 12600,
+            "aboveCount": 1,
+            "share": 0.45366666666666666
+          },
+          {
+            "feature": "x13",
+            "threshold": 64100,
+            "below": 64081,
+            "belowCount": 1,
+            "above": 64105,
+            "aboveCount": 1,
+            "share": 0.7502333333333333
+          },
+          {
+            "feature": "x15",
+            "threshold": 128000,
+            "below": 127814,
+            "belowCount": 1,
+            "above": 128016,
+            "aboveCount": 1,
+            "share": 0.9064333333333333
+          },
+          {
+            "feature": "x18",
+            "threshold": 1760,
+            "below": 1759,
+            "belowCount": 4,
+            "above": 1760,
+            "aboveCount": 2,
+            "share": 0.405
+          },
+          {
+            "feature": "x13",
+            "threshold": 7200,
+            "below": 7199,
+            "belowCount": 2,
+            "above": 7202,
+            "aboveCount": 1,
+            "share": 0.3277333333333333
+          },
+          {
+            "feature": "x15",
+            "threshold": 11800,
+            "below": 11797,
+            "belowCount": 1,
+            "above": 11804,
+            "aboveCount": 1,
+            "share": 0.40696666666666664
+          },
+          {
+            "feature": "x15",
+            "threshold": 70100,
+            "below": 70091,
+            "belowCount": 1,
+            "above": 70101,
+            "aboveCount": 2,
+            "share": 0.7983333333333333
+          },
+          {
+            "feature": "x12",
+            "threshold": 6760,
+            "below": 6759,
+            "belowCount": 1,
+            "above": 6760,
+            "aboveCount": 1,
+            "share": 0.3122333333333333
+          },
+          {
+            "feature": "x18",
+            "threshold": 7050,
+            "below": 7048,
+            "belowCount": 1,
+            "above": 7050,
+            "aboveCount": 1,
+            "share": 0.8285333333333333
+          },
+          {
+            "feature": "x12",
+            "threshold": 113000,
+            "below": 112987,
+            "belowCount": 1,
+            "above": 113003,
+            "aboveCount": 1,
+            "share": 0.8603666666666666
+          },
+          {
+            "feature": "x14",
+            "threshold": 60700,
+            "below": 60661,
+            "belowCount": 1,
+            "above": 60702,
+            "aboveCount": 1,
+            "share": 0.7518333333333334
+          },
+          {
+            "feature": "x16",
+            "threshold": 6510,
+            "below": 6509,
+            "belowCount": 1,
+            "above": 6510,
+            "aboveCount": 1,
+            "share": 0.34553333333333336
+          },
+          {
+            "feature": "x21",
+            "threshold": 17900,
+            "below": 17884,
+            "belowCount": 1,
+            "above": 17907,
+            "aboveCount": 1,
+            "share": 0.9538
+          },
+          {
+            "feature": "x20",
+            "threshold": 2020,
+            "below": 2019,
+            "belowCount": 3,
+            "above": 2020,
+            "aboveCount": 8,
+            "share": 0.5623333333333334
+          },
+          {
+            "feature": "x15",
+            "threshold": 289,
+            "below": 286,
+            "belowCount": 1,
+            "above": 290,
+            "aboveCount": 2,
+            "share": 0.1406
+          },
+          {
+            "feature": "x12",
+            "threshold": 96500,
+            "below": 96491,
+            "belowCount": 1,
+            "above": 96509,
+            "aboveCount": 1,
+            "share": 0.8289666666666666
+          },
+          {
+            "feature": "x18",
+            "threshold": 3220,
+            "below": 3219,
+            "belowCount": 2,
+            "above": 3220,
+            "aboveCount": 3,
+            "share": 0.6245666666666667
+          },
+          {
+            "feature": "x16",
+            "threshold": 395,
+            "below": 394,
+            "belowCount": 1,
+            "above": 396,
+            "aboveCount": 47,
+            "share": 0.1731
+          },
+          {
+            "feature": "x17",
+            "threshold": 168000,
+            "below": 167983,
+            "belowCount": 1,
+            "above": 168013,
+            "aboveCount": 1,
+            "share": 0.9541
+          },
+          {
+            "feature": "x20",
+            "threshold": 5800,
+            "below": 5799,
+            "belowCount": 1,
+            "above": 5800,
+            "aboveCount": 20,
+            "share": 0.8133
+          },
+          {
+            "feature": "x15",
+            "threshold": 141000,
+            "below": 140984,
+            "belowCount": 1,
+            "above": 141000,
+            "aboveCount": 1,
+            "share": 0.9227333333333333
+          },
+          {
+            "feature": "x12",
+            "threshold": 192,
+            "below": 191,
+            "belowCount": 3,
+            "above": 193,
+            "aboveCount": 3,
+            "share": 0.0942
+          },
+          {
+            "feature": "x23",
+            "threshold": 10000,
+            "below": 9998,
+            "belowCount": 1,
+            "above": 10000,
+            "aboveCount": 356,
+            "share": 0.9024333333333333
+          },
+          {
+            "feature": "x18",
+            "threshold": 5900,
+            "below": 5899,
+            "belowCount": 1,
+            "above": 5900,
+            "aboveCount": 12,
+            "share": 0.7816
+          },
+          {
+            "feature": "x21",
+            "threshold": 2990,
+            "below": 2987,
+            "belowCount": 1,
+            "above": 2990,
+            "aboveCount": 1,
+            "share": 0.6570333333333334
+          },
+          {
+            "feature": "x13",
+            "threshold": 322,
+            "below": 321,
+            "belowCount": 1,
+            "above": 322,
+            "aboveCount": 1,
+            "share": 0.1265
+          },
+          {
+            "feature": "x18",
+            "threshold": 1600,
+            "below": 1599,
+            "belowCount": 3,
+            "above": 1600,
+            "aboveCount": 174,
+            "share": 0.37393333333333334
+          },
+          {
+            "feature": "x13",
+            "threshold": 1570,
+            "below": 1567,
+            "belowCount": 1,
+            "above": 1570,
+            "aboveCount": 4,
+            "share": 0.20453333333333334
+          },
+          {
+            "feature": "x13",
+            "threshold": 2000,
+            "below": 1999,
+            "belowCount": 3,
+            "above": 2000,
+            "aboveCount": 12,
+            "share": 0.21996666666666667
+          },
+          {
+            "feature": "x18",
+            "threshold": 1500,
+            "below": 1499,
+            "belowCount": 3,
+            "above": 1500,
+            "aboveCount": 507,
+            "share": 0.34286666666666665
+          },
+          {
+            "feature": "x19",
+            "threshold": 2270,
+            "below": 2269,
+            "belowCount": 2,
+            "above": 2270,
+            "aboveCount": 2,
+            "share": 0.5323
+          },
+          {
+            "feature": "x23",
+            "threshold": 780,
+            "below": 779,
+            "belowCount": 3,
+            "above": 780,
+            "aboveCount": 91,
+            "share": 0.3591666666666667
+          },
+          {
+            "feature": "x14",
+            "threshold": 33100,
+            "below": 33086,
+            "belowCount": 1,
+            "above": 33101,
+            "aboveCount": 1,
+            "share": 0.6099
+          },
+          {
+            "feature": "x19",
+            "threshold": 4000,
+            "below": 3998,
+            "belowCount": 2,
+            "above": 4000,
+            "aboveCount": 410,
+            "share": 0.6824333333333333
+          },
+          {
+            "feature": "x17",
+            "threshold": 24900,
+            "below": 24899,
+            "belowCount": 1,
+            "above": 24900,
+            "aboveCount": 1,
+            "share": 0.5947
+          },
+          {
+            "feature": "x19",
+            "threshold": 37.5,
+            "below": 37,
+            "belowCount": 2,
+            "above": 38,
+            "aboveCount": 1,
+            "share": 0.18736666666666665
+          },
+          {
+            "feature": "x20",
+            "threshold": 1200,
+            "below": 1199,
+            "belowCount": 3,
+            "above": 1200,
+            "aboveCount": 243,
+            "share": 0.3911
+          },
+          {
+            "feature": "x20",
+            "threshold": 5000,
+            "below": 4997,
+            "belowCount": 1,
+            "above": 5000,
+            "aboveCount": 721,
+            "share": 0.7618
+          },
+          {
+            "feature": "x14",
+            "threshold": 2180,
+            "below": 2179,
+            "belowCount": 2,
+            "above": 2180,
+            "aboveCount": 1,
+            "share": 0.23436666666666667
+          },
+          {
+            "feature": "x13",
+            "threshold": 10400,
+            "below": 10399,
+            "belowCount": 1,
+            "above": 10400,
+            "aboveCount": 7,
+            "share": 0.3741
+          },
+          {
+            "feature": "x18",
+            "threshold": 164,
+            "below": 162,
+            "belowCount": 4,
+            "above": 165,
+            "aboveCount": 15,
+            "share": 0.18703333333333333
+          },
+          {
+            "feature": "x14",
+            "threshold": 25900,
+            "below": 25895,
+            "belowCount": 1,
+            "above": 25900,
+            "aboveCount": 1,
+            "share": 0.5475666666666666
+          },
+          {
+            "feature": "x22",
+            "threshold": 500,
+            "below": 499,
+            "belowCount": 3,
+            "above": 500,
+            "aboveCount": 250,
+            "share": 0.2955333333333333
+          },
+          {
+            "feature": "x12",
+            "threshold": 929,
+            "below": 928,
+            "belowCount": 2,
+            "above": 929,
+            "aboveCount": 5,
+            "share": 0.15706666666666666
+          },
+          {
+            "feature": "x20",
+            "threshold": 8260,
+            "below": 8256,
+            "belowCount": 1,
+            "above": 8267,
+            "aboveCount": 1,
+            "share": 0.8757333333333334
+          },
+          {
+            "feature": "x15",
+            "threshold": 54800,
+            "below": 54794,
+            "belowCount": 1,
+            "above": 54804,
+            "aboveCount": 1,
+            "share": 0.7510333333333333
+          }
+        ]
+      },
+      "findings": [
+        {
+          "feature": "x6",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 3688,
+          "above": 2,
+          "aboveCount": 2667,
+          "rowsAtOrBelowShare": 0.8956666666666667
+        },
+        {
+          "feature": "x7",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 28,
+          "above": 2,
+          "aboveCount": 3927,
+          "rowsAtOrBelowShare": 0.853
+        },
+        {
+          "feature": "x10",
+          "threshold": 1,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 16947,
+          "above": 2,
+          "aboveCount": 2626,
+          "rowsAtOrBelowShare": 0.9010666666666667
+        },
+        {
+          "feature": "x6",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 14737,
+          "above": 1,
+          "aboveCount": 3688,
+          "rowsAtOrBelowShare": 0.7727333333333334
+        },
+        {
+          "feature": "x19",
+          "threshold": 1620,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1619,
+          "belowCount": 1,
+          "above": 1620,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.40636666666666665
+        },
+        {
+          "feature": "x8",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 15764,
+          "above": 1,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.8595666666666667
+        },
+        {
+          "feature": "x20",
+          "threshold": 877,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 876,
+          "belowCount": 3,
+          "above": 877,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.31216666666666665
+        },
+        {
+          "feature": "x21",
+          "threshold": 1280,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1279,
+          "belowCount": 2,
+          "above": 1280,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.4698333333333333
+        },
+        {
+          "feature": "x7",
+          "threshold": -0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -1,
+          "belowCount": 6050,
+          "above": 0,
+          "aboveCount": 15730,
+          "rowsAtOrBelowShare": 0.3277333333333333
+        },
+        {
+          "feature": "x1",
+          "threshold": 75000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 70000,
+          "belowCount": 731,
+          "above": 80000,
+          "aboveCount": 1567,
+          "rowsAtOrBelowShare": 0.30773333333333336
+        },
+        {
+          "feature": "x11",
+          "threshold": 1,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 16286,
+          "above": 2,
+          "aboveCount": 2766,
+          "rowsAtOrBelowShare": 0.8973666666666666
+        },
+        {
+          "feature": "x9",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 2,
+          "above": 2,
+          "aboveCount": 3159,
+          "rowsAtOrBelowShare": 0.8830666666666667
+        },
+        {
+          "feature": "x8",
+          "threshold": -0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -1,
+          "belowCount": 5938,
+          "above": 0,
+          "aboveCount": 15764,
+          "rowsAtOrBelowShare": 0.3341
+        },
+        {
+          "feature": "x8",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 4,
+          "above": 2,
+          "aboveCount": 3819,
+          "rowsAtOrBelowShare": 0.8597
+        },
+        {
+          "feature": "x18",
+          "threshold": 2000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1999,
+          "belowCount": 1,
+          "above": 2000,
+          "aboveCount": 1363,
+          "rowsAtOrBelowShare": 0.43506666666666666
+        },
+        {
+          "feature": "x19",
+          "threshold": 2010,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2009,
+          "belowCount": 10,
+          "above": 2010,
+          "aboveCount": 17,
+          "rowsAtOrBelowShare": 0.5001666666666666
+        },
+        {
+          "feature": "x20",
+          "threshold": 624,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 623,
+          "belowCount": 3,
+          "above": 624,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.2808
+        },
+        {
+          "feature": "x12",
+          "threshold": 36100,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 36098,
+          "belowCount": 1,
+          "above": 36106,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5956333333333333
+        },
+        {
+          "feature": "x23",
+          "threshold": 875,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 874,
+          "belowCount": 5,
+          "above": 875,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.3762
+        },
+        {
+          "feature": "x21",
+          "threshold": 2050,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2049,
+          "belowCount": 4,
+          "above": 2050,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.5949666666666666
+        },
+        {
+          "feature": "x12",
+          "threshold": 15500,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 15499,
+          "belowCount": 1,
+          "above": 15502,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.4224333333333333
+        },
+        {
+          "feature": "x1",
+          "threshold": 145000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 140000,
+          "belowCount": 749,
+          "above": 150000,
+          "aboveCount": 1110,
+          "rowsAtOrBelowShare": 0.5096666666666667
+        },
+        {
+          "feature": "x17",
+          "threshold": 40100,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 40068,
+          "belowCount": 1,
+          "above": 40103,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7041
+        },
+        {
+          "feature": "x20",
+          "threshold": 390,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 389,
+          "belowCount": 1,
+          "above": 390,
+          "aboveCount": 207,
+          "rowsAtOrBelowShare": 0.24396666666666667
+        },
+        {
+          "feature": "x12",
+          "threshold": 22600,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 22599,
+          "belowCount": 1,
+          "above": 22604,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5018666666666667
+        },
+        {
+          "feature": "x4",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 13659,
+          "above": 2,
+          "aboveCount": 15964,
+          "rowsAtOrBelowShare": 0.4571
+        },
+        {
+          "feature": "x18",
+          "threshold": 4400,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4398,
+          "belowCount": 2,
+          "above": 4400,
+          "aboveCount": 28,
+          "rowsAtOrBelowShare": 0.7028666666666666
+        },
+        {
+          "feature": "x20",
+          "threshold": 7.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 7,
+          "belowCount": 18,
+          "above": 8,
+          "aboveCount": 10,
+          "rowsAtOrBelowShare": 0.20263333333333333
+        },
+        {
+          "feature": "x18",
+          "threshold": 419,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 418,
+          "belowCount": 1,
+          "above": 419,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.21793333333333334
+        },
+        {
+          "feature": "x5",
+          "threshold": 35.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 35,
+          "belowCount": 1113,
+          "above": 36,
+          "aboveCount": 1108,
+          "rowsAtOrBelowShare": 0.5603
+        },
+        {
+          "feature": "x1",
+          "threshold": 45000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 40000,
+          "belowCount": 230,
+          "above": 50000,
+          "aboveCount": 3365,
+          "rowsAtOrBelowShare": 0.1437
+        },
+        {
+          "feature": "x18",
+          "threshold": 4800,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4796,
+          "belowCount": 1,
+          "above": 4800,
+          "aboveCount": 18,
+          "rowsAtOrBelowShare": 0.7189333333333333
+        },
+        {
+          "feature": "x13",
+          "threshold": 159000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 158956,
+          "belowCount": 1,
+          "above": 159008,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.923
+        },
+        {
+          "feature": "x19",
+          "threshold": 5000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4996,
+          "belowCount": 1,
+          "above": 5000,
+          "aboveCount": 717,
+          "rowsAtOrBelowShare": 0.7346333333333334
+        },
+        {
+          "feature": "x19",
+          "threshold": 12700,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": false,
+          "below": 12694,
+          "belowCount": 1,
+          "above": 12700,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9207666666666666
+        },
+        {
+          "feature": "x19",
+          "threshold": 15100,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 15094,
+          "belowCount": 1,
+          "above": 15100,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9368
+        },
+        {
+          "feature": "x12",
+          "threshold": 20600,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 20596,
+          "belowCount": 1,
+          "above": 20604,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.48633333333333334
+        },
+        {
+          "feature": "x22",
+          "threshold": 673,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 672,
+          "belowCount": 4,
+          "above": 673,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.32936666666666664
+        },
+        {
+          "feature": "x19",
+          "threshold": 20000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 19948,
+          "belowCount": 1,
+          "above": 20000,
+          "aboveCount": 80,
+          "rowsAtOrBelowShare": 0.9523333333333334
+        },
+        {
+          "feature": "x22",
+          "threshold": 13500,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 13497,
+          "belowCount": 1,
+          "above": 13500,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.9385333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 1210,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1208,
+          "belowCount": 2,
+          "above": 1210,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.172
+        },
+        {
+          "feature": "x12",
+          "threshold": 16800,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 16794,
+          "belowCount": 1,
+          "above": 16801,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.43856666666666666
+        },
+        {
+          "feature": "x13",
+          "threshold": 201000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 200959,
+          "belowCount": 1,
+          "above": 201007,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9541666666666667
+        },
+        {
+          "feature": "x12",
+          "threshold": 8750,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 8748,
+          "belowCount": 2,
+          "above": 8751,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.3439333333333333
+        },
+        {
+          "feature": "x20",
+          "threshold": 4510,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": false,
+          "below": 4508,
+          "belowCount": 1,
+          "above": 4510,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7501333333333333
+        },
+        {
+          "feature": "x2",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 11888,
+          "above": 2,
+          "aboveCount": 18112,
+          "rowsAtOrBelowShare": 0.39626666666666666
+        },
+        {
+          "feature": "x14",
+          "threshold": 172000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 171997,
+          "belowCount": 1,
+          "above": 172045,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9391
+        },
+        {
+          "feature": "x1",
+          "threshold": 25000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 20000,
+          "belowCount": 1976,
+          "above": 30000,
+          "aboveCount": 1610,
+          "rowsAtOrBelowShare": 0.08236666666666667
+        },
+        {
+          "feature": "x5",
+          "threshold": 48.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 48,
+          "belowCount": 466,
+          "above": 49,
+          "aboveCount": 452,
+          "rowsAtOrBelowShare": 0.8956
+        },
+        {
+          "feature": "x21",
+          "threshold": 32,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 31,
+          "belowCount": 2,
+          "above": 33,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.22143333333333334
+        },
+        {
+          "feature": "x1",
+          "threshold": 215000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 210000,
+          "belowCount": 730,
+          "above": 220000,
+          "aboveCount": 469,
+          "rowsAtOrBelowShare": 0.7036
+        },
+        {
+          "feature": "x13",
+          "threshold": 150,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 149,
+          "belowCount": 1,
+          "above": 150,
+          "aboveCount": 20,
+          "rowsAtOrBelowShare": 0.1104
+        },
+        {
+          "feature": "x1",
+          "threshold": 245000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 240000,
+          "belowCount": 619,
+          "above": 250000,
+          "aboveCount": 350,
+          "rowsAtOrBelowShare": 0.7644333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 149000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 148959,
+          "belowCount": 1,
+          "above": 149069,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9074666666666666
+        },
+        {
+          "feature": "x18",
+          "threshold": 8460,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 8455,
+          "belowCount": 1,
+          "above": 8470,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8595333333333334
+        },
+        {
+          "feature": "x21",
+          "threshold": 2260,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": false,
+          "below": 2258,
+          "belowCount": 1,
+          "above": 2260,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6104
+        },
+        {
+          "feature": "x17",
+          "threshold": 12600,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 12599,
+          "belowCount": 1,
+          "above": 12600,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.45366666666666666
+        },
+        {
+          "feature": "x13",
+          "threshold": 64100,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 64081,
+          "belowCount": 1,
+          "above": 64105,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7502333333333333
+        },
+        {
+          "feature": "x1",
+          "threshold": 205000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 200000,
+          "belowCount": 1528,
+          "above": 210000,
+          "aboveCount": 730,
+          "rowsAtOrBelowShare": 0.6792666666666667
+        },
+        {
+          "feature": "x15",
+          "threshold": 128000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 127814,
+          "belowCount": 1,
+          "above": 128016,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9064333333333333
+        },
+        {
+          "feature": "x6",
+          "threshold": -0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -1,
+          "belowCount": 5686,
+          "above": 0,
+          "aboveCount": 14737,
+          "rowsAtOrBelowShare": 0.2815
+        },
+        {
+          "feature": "x11",
+          "threshold": -1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -2,
+          "belowCount": 4895,
+          "above": -1,
+          "aboveCount": 5740,
+          "rowsAtOrBelowShare": 0.16316666666666665
+        },
+        {
+          "feature": "x18",
+          "threshold": 1760,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1759,
+          "belowCount": 4,
+          "above": 1760,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.405
+        },
+        {
+          "feature": "x5",
+          "threshold": 45.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 45,
+          "belowCount": 617,
+          "above": 46,
+          "aboveCount": 570,
+          "rowsAtOrBelowShare": 0.8443666666666667
+        },
+        {
+          "feature": "x13",
+          "threshold": 7200,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 7199,
+          "belowCount": 2,
+          "above": 7202,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.3277333333333333
+        },
+        {
+          "feature": "x21",
+          "threshold": 500,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 499,
+          "belowCount": 8,
+          "above": 500,
+          "aboveCount": 258,
+          "rowsAtOrBelowShare": 0.2925
+        },
+        {
+          "feature": "x15",
+          "threshold": 11800,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 11797,
+          "belowCount": 1,
+          "above": 11804,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.40696666666666664
+        },
+        {
+          "feature": "x15",
+          "threshold": 70100,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 70091,
+          "belowCount": 1,
+          "above": 70101,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.7983333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 6760,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 6759,
+          "belowCount": 1,
+          "above": 6760,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.3122333333333333
+        },
+        {
+          "feature": "x18",
+          "threshold": 7050,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 7048,
+          "belowCount": 1,
+          "above": 7050,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8285333333333333
+        },
+        {
+          "feature": "x9",
+          "threshold": -1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -2,
+          "belowCount": 4348,
+          "above": -1,
+          "aboveCount": 5687,
+          "rowsAtOrBelowShare": 0.14493333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 113000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 112987,
+          "belowCount": 1,
+          "above": 113003,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8603666666666666
+        },
+        {
+          "feature": "x14",
+          "threshold": 60700,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 60661,
+          "belowCount": 1,
+          "above": 60702,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7518333333333334
+        },
+        {
+          "feature": "x1",
+          "threshold": 135000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 130000,
+          "belowCount": 729,
+          "above": 140000,
+          "aboveCount": 749,
+          "rowsAtOrBelowShare": 0.4847
+        },
+        {
+          "feature": "x16",
+          "threshold": 6510,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 6509,
+          "belowCount": 1,
+          "above": 6510,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.34553333333333336
+        },
+        {
+          "feature": "x5",
+          "threshold": 32.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 32,
+          "belowCount": 1158,
+          "above": 33,
+          "aboveCount": 1146,
+          "rowsAtOrBelowShare": 0.44626666666666664
+        },
+        {
+          "feature": "x21",
+          "threshold": 17900,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 17884,
+          "belowCount": 1,
+          "above": 17907,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9538
+        },
+        {
+          "feature": "x20",
+          "threshold": 2020,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2019,
+          "belowCount": 3,
+          "above": 2020,
+          "aboveCount": 8,
+          "rowsAtOrBelowShare": 0.5623333333333334
+        },
+        {
+          "feature": "x15",
+          "threshold": 289,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 286,
+          "belowCount": 1,
+          "above": 290,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.1406
+        },
+        {
+          "feature": "x1",
+          "threshold": 95000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 90000,
+          "belowCount": 651,
+          "above": 100000,
+          "aboveCount": 1048,
+          "rowsAtOrBelowShare": 0.38166666666666665
+        },
+        {
+          "feature": "x3",
+          "threshold": 2.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 2,
+          "belowCount": 14030,
+          "above": 3,
+          "aboveCount": 4917,
+          "rowsAtOrBelowShare": 0.8209666666666666
+        },
+        {
+          "feature": "x12",
+          "threshold": 96500,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 96491,
+          "belowCount": 1,
+          "above": 96509,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8289666666666666
+        },
+        {
+          "feature": "x18",
+          "threshold": 3220,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 3219,
+          "belowCount": 2,
+          "above": 3220,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.6245666666666667
+        },
+        {
+          "feature": "x1",
+          "threshold": 125000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 120000,
+          "belowCount": 726,
+          "above": 130000,
+          "aboveCount": 729,
+          "rowsAtOrBelowShare": 0.4604
+        },
+        {
+          "feature": "x16",
+          "threshold": 395,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 394,
+          "belowCount": 1,
+          "above": 396,
+          "aboveCount": 47,
+          "rowsAtOrBelowShare": 0.1731
+        },
+        {
+          "feature": "x17",
+          "threshold": 168000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 167983,
+          "belowCount": 1,
+          "above": 168013,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9541
+        },
+        {
+          "feature": "x20",
+          "threshold": 5800,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 5799,
+          "belowCount": 1,
+          "above": 5800,
+          "aboveCount": 20,
+          "rowsAtOrBelowShare": 0.8133
+        },
+        {
+          "feature": "x15",
+          "threshold": 141000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 140984,
+          "belowCount": 1,
+          "above": 141000,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9227333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 192,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 191,
+          "belowCount": 3,
+          "above": 193,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.0942
+        },
+        {
+          "feature": "x8",
+          "threshold": -1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -2,
+          "belowCount": 4085,
+          "above": -1,
+          "aboveCount": 5938,
+          "rowsAtOrBelowShare": 0.13616666666666666
+        },
+        {
+          "feature": "x10",
+          "threshold": -1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": -2,
+          "belowCount": 4546,
+          "above": -1,
+          "aboveCount": 5539,
+          "rowsAtOrBelowShare": 0.15153333333333333
+        },
+        {
+          "feature": "x23",
+          "threshold": 10000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 9998,
+          "belowCount": 1,
+          "above": 10000,
+          "aboveCount": 356,
+          "rowsAtOrBelowShare": 0.9024333333333333
+        },
+        {
+          "feature": "x18",
+          "threshold": 5900,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 5899,
+          "belowCount": 1,
+          "above": 5900,
+          "aboveCount": 12,
+          "rowsAtOrBelowShare": 0.7816
+        },
+        {
+          "feature": "x21",
+          "threshold": 2990,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2987,
+          "belowCount": 1,
+          "above": 2990,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6570333333333334
+        },
+        {
+          "feature": "x3",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 10585,
+          "above": 2,
+          "aboveCount": 14030,
+          "rowsAtOrBelowShare": 0.3533
+        },
+        {
+          "feature": "x13",
+          "threshold": 322,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 321,
+          "belowCount": 1,
+          "above": 322,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.1265
+        },
+        {
+          "feature": "x18",
+          "threshold": 1600,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1599,
+          "belowCount": 3,
+          "above": 1600,
+          "aboveCount": 174,
+          "rowsAtOrBelowShare": 0.37393333333333334
+        },
+        {
+          "feature": "x13",
+          "threshold": 1570,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1567,
+          "belowCount": 1,
+          "above": 1570,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.20453333333333334
+        },
+        {
+          "feature": "x13",
+          "threshold": 2000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1999,
+          "belowCount": 3,
+          "above": 2000,
+          "aboveCount": 12,
+          "rowsAtOrBelowShare": 0.21996666666666667
+        },
+        {
+          "feature": "x1",
+          "threshold": 155000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 150000,
+          "belowCount": 1110,
+          "above": 160000,
+          "aboveCount": 694,
+          "rowsAtOrBelowShare": 0.5466666666666666
+        },
+        {
+          "feature": "x1",
+          "threshold": 255000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 250000,
+          "belowCount": 350,
+          "above": 260000,
+          "aboveCount": 521,
+          "rowsAtOrBelowShare": 0.7761
+        },
+        {
+          "feature": "x18",
+          "threshold": 1500,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1499,
+          "belowCount": 3,
+          "above": 1500,
+          "aboveCount": 507,
+          "rowsAtOrBelowShare": 0.34286666666666665
+        },
+        {
+          "feature": "x19",
+          "threshold": 2270,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2269,
+          "belowCount": 2,
+          "above": 2270,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.5323
+        },
+        {
+          "feature": "x23",
+          "threshold": 780,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 779,
+          "belowCount": 3,
+          "above": 780,
+          "aboveCount": 91,
+          "rowsAtOrBelowShare": 0.3591666666666667
+        },
+        {
+          "feature": "x14",
+          "threshold": 33100,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 33086,
+          "belowCount": 1,
+          "above": 33101,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6099
+        },
+        {
+          "feature": "x19",
+          "threshold": 4000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 3998,
+          "belowCount": 2,
+          "above": 4000,
+          "aboveCount": 410,
+          "rowsAtOrBelowShare": 0.6824333333333333
+        },
+        {
+          "feature": "x17",
+          "threshold": 24900,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": false,
+          "below": 24899,
+          "belowCount": 1,
+          "above": 24900,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5947
+        },
+        {
+          "feature": "x19",
+          "threshold": 37.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 37,
+          "belowCount": 2,
+          "above": 38,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.18736666666666665
+        },
+        {
+          "feature": "x20",
+          "threshold": 1200,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1199,
+          "belowCount": 3,
+          "above": 1200,
+          "aboveCount": 243,
+          "rowsAtOrBelowShare": 0.3911
+        },
+        {
+          "feature": "x20",
+          "threshold": 5000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4997,
+          "belowCount": 1,
+          "above": 5000,
+          "aboveCount": 721,
+          "rowsAtOrBelowShare": 0.7618
+        },
+        {
+          "feature": "x14",
+          "threshold": 2180,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 2179,
+          "belowCount": 2,
+          "above": 2180,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.23436666666666667
+        },
+        {
+          "feature": "x1",
+          "threshold": 355000,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 350000,
+          "belowCount": 231,
+          "above": 360000,
+          "aboveCount": 881,
+          "rowsAtOrBelowShare": 0.8881
+        },
+        {
+          "feature": "x13",
+          "threshold": 10400,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 10399,
+          "belowCount": 1,
+          "above": 10400,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.3741
+        },
+        {
+          "feature": "x18",
+          "threshold": 164,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 162,
+          "belowCount": 4,
+          "above": 165,
+          "aboveCount": 15,
+          "rowsAtOrBelowShare": 0.18703333333333333
+        },
+        {
+          "feature": "x14",
+          "threshold": 25900,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 25895,
+          "belowCount": 1,
+          "above": 25900,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5475666666666666
+        },
+        {
+          "feature": "x22",
+          "threshold": 500,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 499,
+          "belowCount": 3,
+          "above": 500,
+          "aboveCount": 250,
+          "rowsAtOrBelowShare": 0.2955333333333333
+        },
+        {
+          "feature": "x12",
+          "threshold": 929,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 928,
+          "belowCount": 2,
+          "above": 929,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.15706666666666666
+        },
+        {
+          "feature": "x20",
+          "threshold": 8260,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 8256,
+          "belowCount": 1,
+          "above": 8267,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8757333333333334
+        },
+        {
+          "feature": "x15",
+          "threshold": 54800,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 54794,
+          "belowCount": 1,
+          "above": 54804,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7510333333333333
+        }
+      ]
+    },
+    "gmsc": {
+      "summary": {
+        "thresholds": 83,
+        "equalsPresentAll": 12,
+        "equalsPresentTrain": 12,
+        "neighbourHeldByAtMost5Rows": 49,
+        "neighbourHeldBy1Row": 42,
+        "rare": [
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.613,
+            "below": 0.61289785,
+            "belowCount": 1,
+            "above": 0.613025034,
+            "aboveCount": 1,
+            "share": 0.7648666666666667
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.783,
+            "below": 0.782770335,
+            "belowCount": 1,
+            "above": 0.783053034,
+            "aboveCount": 1,
+            "share": 0.8267666666666666
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.443,
+            "below": 0.442938807,
+            "belowCount": 1,
+            "above": 0.443007924,
+            "aboveCount": 1,
+            "share": 0.6868333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.385,
+            "below": 0.384977693,
+            "belowCount": 1,
+            "above": 0.385089784,
+            "aboveCount": 1,
+            "share": 0.6556
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.31,
+            "below": 0.309974169,
+            "belowCount": 1,
+            "above": 0.310101875,
+            "aboveCount": 1,
+            "share": 0.6089
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.137,
+            "below": 0.136994044,
+            "belowCount": 1,
+            "above": 0.137020809,
+            "aboveCount": 1,
+            "share": 0.4542333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.229,
+            "below": 0.228941292,
+            "belowCount": 1,
+            "above": 0.229045187,
+            "aboveCount": 1,
+            "share": 0.5463333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.827,
+            "below": 0.826948541,
+            "belowCount": 1,
+            "above": 0.827001847,
+            "aboveCount": 1,
+            "share": 0.8424666666666667
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.113,
+            "below": 0.112998954,
+            "belowCount": 1,
+            "above": 0.113006052,
+            "aboveCount": 1,
+            "share": 0.42263333333333336
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.917,
+            "below": 0.916903206,
+            "belowCount": 1,
+            "above": 0.917041479,
+            "aboveCount": 1,
+            "share": 0.8743666666666666
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.542,
+            "below": 0.541818964,
+            "belowCount": 1,
+            "above": 0.542007072,
+            "aboveCount": 1,
+            "share": 0.7948333333333333
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.318,
+            "below": 0.317976867,
+            "belowCount": 1,
+            "above": 0.318007663,
+            "aboveCount": 1,
+            "share": 0.5301333333333333
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.563,
+            "below": 0.56299496,
+            "belowCount": 1,
+            "above": 0.563067018,
+            "aboveCount": 1,
+            "share": 0.8102
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.124,
+            "below": 0.123995724,
+            "belowCount": 1,
+            "above": 0.12400254,
+            "aboveCount": 1,
+            "share": 0.4377
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.521,
+            "below": 0.520895821,
+            "belowCount": 1,
+            "above": 0.521072606,
+            "aboveCount": 1,
+            "share": 0.7793333333333333
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.734,
+            "below": 0.733861291,
+            "belowCount": 1,
+            "above": 0.73402418,
+            "aboveCount": 1,
+            "share": 0.8899333333333334
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.368,
+            "below": 0.36794539,
+            "belowCount": 1,
+            "above": 0.368033752,
+            "aboveCount": 1,
+            "share": 0.6082
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.0933,
+            "below": 0.093264594,
+            "belowCount": 1,
+            "above": 0.093312597,
+            "aboveCount": 1,
+            "share": 0.391
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 5350,
+            "below": 5349,
+            "belowCount": 1,
+            "above": 5350,
+            "aboveCount": 10,
+            "share": 0.5006
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 1200,
+            "below": 1199,
+            "belowCount": 1,
+            "above": 1200,
+            "aboveCount": 94,
+            "share": 0.04446666666666667
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 3250,
+            "below": 3247,
+            "belowCount": 3,
+            "above": 3250,
+            "aboveCount": 35,
+            "share": 0.23483333333333334
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 5600,
+            "below": 5599,
+            "belowCount": 2,
+            "above": 5600,
+            "aboveCount": 93,
+            "share": 0.5281333333333333
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 3500,
+            "below": 3499,
+            "belowCount": 2,
+            "above": 3500,
+            "aboveCount": 328,
+            "share": 0.2622333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.359,
+            "below": 0.358867508,
+            "belowCount": 1,
+            "above": 0.359021689,
+            "aboveCount": 1,
+            "share": 0.6400333333333333
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.059,
+            "below": 0.058996895,
+            "belowCount": 1,
+            "above": 0.059010774,
+            "aboveCount": 1,
+            "share": 0.13983333333333334
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.877,
+            "below": 0.876911872,
+            "belowCount": 1,
+            "above": 0.877061469,
+            "aboveCount": 1,
+            "share": 0.9215
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.502,
+            "below": 0.501982161,
+            "belowCount": 1,
+            "above": 0.502026479,
+            "aboveCount": 1,
+            "share": 0.7631666666666667
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 9000,
+            "below": 8999,
+            "belowCount": 4,
+            "above": 9000,
+            "aboveCount": 194,
+            "share": 0.7914333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.335,
+            "below": 0.334907874,
+            "belowCount": 1,
+            "above": 0.335009116,
+            "aboveCount": 1,
+            "share": 0.6247333333333334
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.28,
+            "below": 0.279970216,
+            "belowCount": 1,
+            "above": 0.280089989,
+            "aboveCount": 1,
+            "share": 0.46796666666666664
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.145,
+            "below": 0.144967053,
+            "belowCount": 1,
+            "above": 0.145013123,
+            "aboveCount": 1,
+            "share": 0.2492
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 4850,
+            "below": 4849,
+            "belowCount": 1,
+            "above": 4850,
+            "aboveCount": 15,
+            "share": 0.4381
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.984,
+            "below": 0.983468871,
+            "belowCount": 1,
+            "above": 0.984503874,
+            "aboveCount": 1,
+            "share": 0.9370666666666667
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 4570,
+            "below": 4569,
+            "belowCount": 1,
+            "above": 4570,
+            "aboveCount": 2,
+            "share": 0.408
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.379,
+            "below": 0.378990483,
+            "belowCount": 1,
+            "above": 0.379009164,
+            "aboveCount": 1,
+            "share": 0.6236666666666667
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.00161,
+            "below": 0.001602393,
+            "belowCount": 1,
+            "above": 0.00161063,
+            "aboveCount": 1,
+            "share": 0.07893333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.0397,
+            "below": 0.039684388,
+            "belowCount": 1,
+            "above": 0.039711002,
+            "aboveCount": 1,
+            "share": 0.2656
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 2000,
+            "below": 1998,
+            "belowCount": 1,
+            "above": 2000,
+            "aboveCount": 260,
+            "share": 0.0927
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 10000,
+            "below": 9999,
+            "belowCount": 3,
+            "above": 10000,
+            "aboveCount": 376,
+            "share": 0.8356
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.0189,
+            "below": 0.018890555,
+            "belowCount": 1,
+            "above": 0.01894685,
+            "aboveCount": 1,
+            "share": 0.09343333333333333
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.134,
+            "below": 0.133946421,
+            "belowCount": 1,
+            "above": 0.134054954,
+            "aboveCount": 1,
+            "share": 0.23303333333333334
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.123,
+            "below": 0.122986335,
+            "belowCount": 1,
+            "above": 0.123042506,
+            "aboveCount": 1,
+            "share": 0.21796666666666667
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 9750,
+            "below": 9749,
+            "belowCount": 2,
+            "above": 9750,
+            "aboveCount": 22,
+            "share": 0.8275
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.167,
+            "below": 0.1669913,
+            "belowCount": 1,
+            "above": 0.167001204,
+            "aboveCount": 1,
+            "share": 0.2818333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.00382,
+            "below": 0.003812812,
+            "belowCount": 1,
+            "above": 0.003822453,
+            "aboveCount": 1,
+            "share": 0.0944
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.194,
+            "below": 0.193935587,
+            "belowCount": 1,
+            "above": 0.194043565,
+            "aboveCount": 1,
+            "share": 0.5147333333333334
+          },
+          {
+            "feature": "DebtRatio",
+            "threshold": 0.347,
+            "below": 0.346985323,
+            "belowCount": 1,
+            "above": 0.347034645,
+            "aboveCount": 1,
+            "share": 0.5772333333333334
+          },
+          {
+            "feature": "MonthlyIncome",
+            "threshold": 6000,
+            "below": 5999,
+            "belowCount": 4,
+            "above": 6000,
+            "aboveCount": 468,
+            "share": 0.5637333333333333
+          },
+          {
+            "feature": "RevolvingUtilizationOfUnsecuredLines",
+            "threshold": 0.149,
+            "below": 0.148967536,
+            "belowCount": 1,
+            "above": 0.149004711,
+            "aboveCount": 1,
+            "share": 0.4694
+          }
+        ]
+      },
+      "findings": [
+        {
+          "feature": "NumberOfTimes90DaysLate",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 28304,
+          "above": 1,
+          "aboveCount": 1125,
+          "rowsAtOrBelowShare": 0.9434666666666667
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.613,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.61289785,
+          "belowCount": 1,
+          "above": 0.613025034,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7648666666666667
+        },
+        {
+          "feature": "NumberOfTime30-59DaysPastDueNotWorse",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 25038,
+          "above": 1,
+          "aboveCount": 3276,
+          "rowsAtOrBelowShare": 0.8346
+        },
+        {
+          "feature": "NumberOfTime60-89DaysPastDueNotWorse",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 28441,
+          "above": 1,
+          "aboveCount": 1196,
+          "rowsAtOrBelowShare": 0.9480333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.783,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.782770335,
+          "belowCount": 1,
+          "above": 0.783053034,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8267666666666666
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.443,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.442938807,
+          "belowCount": 1,
+          "above": 0.443007924,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6868333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.385,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.384977693,
+          "belowCount": 1,
+          "above": 0.385089784,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6556
+        },
+        {
+          "feature": "NumberOfTime30-59DaysPastDueNotWorse",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 3276,
+          "above": 2,
+          "aboveCount": 958,
+          "rowsAtOrBelowShare": 0.9438
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.31,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.309974169,
+          "belowCount": 1,
+          "above": 0.310101875,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6089
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.137,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.136994044,
+          "belowCount": 1,
+          "above": 0.137020809,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.4542333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.229,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.228941292,
+          "belowCount": 1,
+          "above": 0.229045187,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5463333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.827,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.826948541,
+          "belowCount": 1,
+          "above": 0.827001847,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8424666666666667
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.113,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.112998954,
+          "belowCount": 1,
+          "above": 0.113006052,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.42263333333333336
+        },
+        {
+          "feature": "age",
+          "threshold": 59.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 59,
+          "belowCount": 639,
+          "above": 60,
+          "aboveCount": 605,
+          "rowsAtOrBelowShare": 0.7031
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.917,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.916903206,
+          "belowCount": 1,
+          "above": 0.917041479,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8743666666666666
+        },
+        {
+          "feature": "age",
+          "threshold": 52.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 52,
+          "belowCount": 711,
+          "above": 53,
+          "aboveCount": 761,
+          "rowsAtOrBelowShare": 0.5395666666666666
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.542,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.541818964,
+          "belowCount": 1,
+          "above": 0.542007072,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7948333333333333
+        },
+        {
+          "feature": "NumberOfDependents",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 6148,
+          "above": 2,
+          "aboveCount": 4463,
+          "rowsAtOrBelowShare": 0.7505666666666667
+        },
+        {
+          "feature": "age",
+          "threshold": 50.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 50,
+          "belowCount": 782,
+          "above": 51,
+          "aboveCount": 744,
+          "rowsAtOrBelowShare": 0.49106666666666665
+        },
+        {
+          "feature": "age",
+          "threshold": 43.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 43,
+          "belowCount": 711,
+          "above": 44,
+          "aboveCount": 690,
+          "rowsAtOrBelowShare": 0.3126333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.318,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.317976867,
+          "belowCount": 1,
+          "above": 0.318007663,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5301333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.563,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.56299496,
+          "belowCount": 1,
+          "above": 0.563067018,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8102
+        },
+        {
+          "feature": "NumberRealEstateLoansOrLines",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 10755,
+          "above": 1,
+          "aboveCount": 10434,
+          "rowsAtOrBelowShare": 0.3585
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 11.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 11,
+          "belowCount": 1699,
+          "above": 12,
+          "aboveCount": 1471,
+          "rowsAtOrBelowShare": 0.7512666666666666
+        },
+        {
+          "feature": "age",
+          "threshold": 61.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 61,
+          "belowCount": 714,
+          "above": 62,
+          "aboveCount": 670,
+          "rowsAtOrBelowShare": 0.7470666666666667
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.124,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.123995724,
+          "belowCount": 1,
+          "above": 0.12400254,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.4377
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.521,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.520895821,
+          "belowCount": 1,
+          "above": 0.521072606,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7793333333333333
+        },
+        {
+          "feature": "NumberRealEstateLoansOrLines",
+          "threshold": 2.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 2,
+          "belowCount": 6697,
+          "above": 3,
+          "aboveCount": 1320,
+          "rowsAtOrBelowShare": 0.9295333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.734,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.733861291,
+          "belowCount": 1,
+          "above": 0.73402418,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8899333333333334
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 14.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 14,
+          "belowCount": 1037,
+          "above": 15,
+          "aboveCount": 783,
+          "rowsAtOrBelowShare": 0.8739333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.368,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.36794539,
+          "belowCount": 1,
+          "above": 0.368033752,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6082
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 5.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 5,
+          "belowCount": 2535,
+          "above": 6,
+          "aboveCount": 2718,
+          "rowsAtOrBelowShare": 0.28273333333333334
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 9.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 9,
+          "belowCount": 2348,
+          "above": 10,
+          "aboveCount": 2006,
+          "rowsAtOrBelowShare": 0.6277666666666667
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 13.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 13,
+          "belowCount": 1172,
+          "above": 14,
+          "aboveCount": 1037,
+          "rowsAtOrBelowShare": 0.8393666666666667
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.0933,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.093264594,
+          "belowCount": 1,
+          "above": 0.093312597,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.391
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 5350,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 5349,
+          "belowCount": 1,
+          "above": 5350,
+          "aboveCount": 10,
+          "rowsAtOrBelowShare": 0.5006
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 1200,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1199,
+          "belowCount": 1,
+          "above": 1200,
+          "aboveCount": 94,
+          "rowsAtOrBelowShare": 0.04446666666666667
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 12.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 12,
+          "belowCount": 1471,
+          "above": 13,
+          "aboveCount": 1172,
+          "rowsAtOrBelowShare": 0.8003
+        },
+        {
+          "feature": "age",
+          "threshold": 30.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 30,
+          "belowCount": 423,
+          "above": 31,
+          "aboveCount": 438,
+          "rowsAtOrBelowShare": 0.0735
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 3250,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 3247,
+          "belowCount": 3,
+          "above": 3250,
+          "aboveCount": 35,
+          "rowsAtOrBelowShare": 0.23483333333333334
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 5600,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 5599,
+          "belowCount": 2,
+          "above": 5600,
+          "aboveCount": 93,
+          "rowsAtOrBelowShare": 0.5281333333333333
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 3500,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 3499,
+          "belowCount": 2,
+          "above": 3500,
+          "aboveCount": 328,
+          "rowsAtOrBelowShare": 0.2622333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.359,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.358867508,
+          "belowCount": 1,
+          "above": 0.359021689,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6400333333333333
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 8.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 8,
+          "belowCount": 2558,
+          "above": 9,
+          "aboveCount": 2348,
+          "rowsAtOrBelowShare": 0.5495
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.059,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.058996895,
+          "belowCount": 1,
+          "above": 0.059010774,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.13983333333333334
+        },
+        {
+          "feature": "age",
+          "threshold": 46.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 46,
+          "belowCount": 792,
+          "above": 47,
+          "aboveCount": 816,
+          "rowsAtOrBelowShare": 0.38516666666666666
+        },
+        {
+          "feature": "NumberOfDependents",
+          "threshold": 2.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 2,
+          "belowCount": 4463,
+          "above": 3,
+          "aboveCount": 2161,
+          "rowsAtOrBelowShare": 0.8993333333333333
+        },
+        {
+          "feature": "age",
+          "threshold": 37.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 37,
+          "belowCount": 521,
+          "above": 38,
+          "aboveCount": 526,
+          "rowsAtOrBelowShare": 0.185
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.877,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.876911872,
+          "belowCount": 1,
+          "above": 0.877061469,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9215
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.502,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.501982161,
+          "belowCount": 1,
+          "above": 0.502026479,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7631666666666667
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 9000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 8999,
+          "belowCount": 4,
+          "above": 9000,
+          "aboveCount": 194,
+          "rowsAtOrBelowShare": 0.7914333333333333
+        },
+        {
+          "feature": "age",
+          "threshold": 63.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 63,
+          "belowCount": 699,
+          "above": 64,
+          "aboveCount": 617,
+          "rowsAtOrBelowShare": 0.7927
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 2.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 2,
+          "belowCount": 1149,
+          "above": 3,
+          "aboveCount": 1649,
+          "rowsAtOrBelowShare": 0.0716
+        },
+        {
+          "feature": "age",
+          "threshold": 31.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 31,
+          "belowCount": 438,
+          "above": 32,
+          "aboveCount": 449,
+          "rowsAtOrBelowShare": 0.0881
+        },
+        {
+          "feature": "NumberOfOpenCreditLinesAndLoans",
+          "threshold": 4.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 4,
+          "belowCount": 2150,
+          "above": 5,
+          "aboveCount": 2535,
+          "rowsAtOrBelowShare": 0.19823333333333334
+        },
+        {
+          "feature": "age",
+          "threshold": 69.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 69,
+          "belowCount": 358,
+          "above": 70,
+          "aboveCount": 315,
+          "rowsAtOrBelowShare": 0.8884333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.335,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.334907874,
+          "belowCount": 1,
+          "above": 0.335009116,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6247333333333334
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.28,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.279970216,
+          "belowCount": 1,
+          "above": 0.280089989,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.46796666666666664
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.145,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.144967053,
+          "belowCount": 1,
+          "above": 0.145013123,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.2492
+        },
+        {
+          "feature": "age",
+          "threshold": 70.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 70,
+          "belowCount": 315,
+          "above": 71,
+          "aboveCount": 311,
+          "rowsAtOrBelowShare": 0.8989333333333334
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 4850,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4849,
+          "belowCount": 1,
+          "above": 4850,
+          "aboveCount": 15,
+          "rowsAtOrBelowShare": 0.4381
+        },
+        {
+          "feature": "age",
+          "threshold": 74.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 74,
+          "belowCount": 265,
+          "above": 75,
+          "aboveCount": 223,
+          "rowsAtOrBelowShare": 0.9372666666666667
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.984,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.983468871,
+          "belowCount": 1,
+          "above": 0.984503874,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.9370666666666667
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 4570,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 4569,
+          "belowCount": 1,
+          "above": 4570,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.408
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.379,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.378990483,
+          "belowCount": 1,
+          "above": 0.379009164,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6236666666666667
+        },
+        {
+          "feature": "age",
+          "threshold": 72.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 72,
+          "belowCount": 288,
+          "above": 73,
+          "aboveCount": 286,
+          "rowsAtOrBelowShare": 0.9189
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.00161,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.001602393,
+          "belowCount": 1,
+          "above": 0.00161063,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.07893333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.0397,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.039684388,
+          "belowCount": 1,
+          "above": 0.039711002,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.2656
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 2000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 1998,
+          "belowCount": 1,
+          "above": 2000,
+          "aboveCount": 260,
+          "rowsAtOrBelowShare": 0.0927
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 10000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 9999,
+          "belowCount": 3,
+          "above": 10000,
+          "aboveCount": 376,
+          "rowsAtOrBelowShare": 0.8356
+        },
+        {
+          "feature": "age",
+          "threshold": 29.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 29,
+          "belowCount": 363,
+          "above": 30,
+          "aboveCount": 423,
+          "rowsAtOrBelowShare": 0.0594
+        },
+        {
+          "feature": "NumberOfDependents",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 16369,
+          "above": 1,
+          "aboveCount": 6148,
+          "rowsAtOrBelowShare": 0.5456333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.0189,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.018890555,
+          "belowCount": 1,
+          "above": 0.01894685,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.09343333333333333
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.134,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.133946421,
+          "belowCount": 1,
+          "above": 0.134054954,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.23303333333333334
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.123,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.122986335,
+          "belowCount": 1,
+          "above": 0.123042506,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.21796666666666667
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 9750,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 9749,
+          "belowCount": 2,
+          "above": 9750,
+          "aboveCount": 22,
+          "rowsAtOrBelowShare": 0.8275
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.167,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.1669913,
+          "belowCount": 1,
+          "above": 0.167001204,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.2818333333333333
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.00382,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.003812812,
+          "belowCount": 1,
+          "above": 0.003822453,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.0944
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.194,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.193935587,
+          "belowCount": 1,
+          "above": 0.194043565,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5147333333333334
+        },
+        {
+          "feature": "DebtRatio",
+          "threshold": 0.347,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.346985323,
+          "belowCount": 1,
+          "above": 0.347034645,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5772333333333334
+        },
+        {
+          "feature": "MonthlyIncome",
+          "threshold": 6000,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 5999,
+          "belowCount": 4,
+          "above": 6000,
+          "aboveCount": 468,
+          "rowsAtOrBelowShare": 0.5637333333333333
+        },
+        {
+          "feature": "age",
+          "threshold": 48.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 48,
+          "belowCount": 786,
+          "above": 49,
+          "aboveCount": 793,
+          "rowsAtOrBelowShare": 0.43856666666666666
+        },
+        {
+          "feature": "RevolvingUtilizationOfUnsecuredLines",
+          "threshold": 0.149,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0.148967536,
+          "belowCount": 1,
+          "above": 0.149004711,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.4694
+        }
+      ]
+    },
+    "credit-risk": {
+      "summary": {
+        "thresholds": 76,
+        "equalsPresentAll": 56,
+        "equalsPresentTrain": 56,
+        "neighbourHeldByAtMost5Rows": 45,
+        "neighbourHeldBy1Row": 19,
+        "rare": [
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 44.8,
+            "below": 44.79,
+            "belowCount": 3,
+            "above": 44.8,
+            "aboveCount": 4,
+            "share": 0.7043076923076923
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 60.8,
+            "below": 60.79,
+            "belowCount": 2,
+            "above": 60.8,
+            "aboveCount": 3,
+            "share": 0.7549230769230769
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 71.3,
+            "below": 71.29,
+            "belowCount": 1,
+            "above": 71.3,
+            "aboveCount": 1,
+            "share": 0.8755384615384615
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 59.6,
+            "below": 59.58,
+            "belowCount": 2,
+            "above": 59.6,
+            "aboveCount": 1,
+            "share": 0.739
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 73.3,
+            "below": 73.28,
+            "belowCount": 1,
+            "above": 73.3,
+            "aboveCount": 3,
+            "share": 0.891
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 44,
+            "below": 43.99,
+            "belowCount": 1,
+            "above": 44,
+            "aboveCount": 2,
+            "share": 0.6863076923076923
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 46.4,
+            "below": 46.39,
+            "belowCount": 1,
+            "above": 46.4,
+            "aboveCount": 4,
+            "share": 0.42184615384615387
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 39.5,
+            "below": 39.49,
+            "belowCount": 5,
+            "above": 39.5,
+            "aboveCount": 3,
+            "share": 0.281
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 42.7,
+            "below": 42.69,
+            "belowCount": 4,
+            "above": 42.7,
+            "aboveCount": 6,
+            "share": 0.6561538461538462
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 42,
+            "below": 41.99,
+            "belowCount": 6,
+            "above": 42,
+            "aboveCount": 1,
+            "share": 0.6422307692307693
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 64.1,
+            "below": 64.09,
+            "belowCount": 2,
+            "above": 64.1,
+            "aboveCount": 1,
+            "share": 0.799
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 50.7,
+            "below": 50.69,
+            "belowCount": 1,
+            "above": 50.7,
+            "aboveCount": 2,
+            "share": 0.5189230769230769
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 68.3,
+            "below": 68.29,
+            "belowCount": 2,
+            "above": 68.32,
+            "aboveCount": 1,
+            "share": 0.8454615384615385
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 50.6,
+            "below": 50.59,
+            "belowCount": 3,
+            "above": 50.6,
+            "aboveCount": 3,
+            "share": 0.8128461538461539
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 39.9,
+            "below": 39.89,
+            "belowCount": 2,
+            "above": 39.9,
+            "aboveCount": 4,
+            "share": 0.5934615384615385
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 36.9,
+            "below": 36.89,
+            "belowCount": 2,
+            "above": 36.9,
+            "aboveCount": 3,
+            "share": 0.234
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 31.8,
+            "below": 31.79,
+            "belowCount": 2,
+            "above": 31.8,
+            "aboveCount": 5,
+            "share": 0.3916923076923077
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 128,
+            "below": 127.9,
+            "belowCount": 10,
+            "above": 128,
+            "aboveCount": 3,
+            "share": 0.5470769230769231
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 53.9,
+            "below": 53.89,
+            "belowCount": 4,
+            "above": 53.9,
+            "aboveCount": 5,
+            "share": 0.5946923076923077
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 161,
+            "below": 160.9,
+            "belowCount": 8,
+            "above": 161,
+            "aboveCount": 5,
+            "share": 0.7514615384615385
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 153,
+            "below": 152.9,
+            "belowCount": 9,
+            "above": 153,
+            "aboveCount": 5,
+            "share": 0.7045384615384616
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 21,
+            "below": 20.99,
+            "belowCount": 3,
+            "above": 21,
+            "aboveCount": 4,
+            "share": 0.14246153846153847
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 32.5,
+            "below": 32.49,
+            "belowCount": 4,
+            "above": 32.5,
+            "aboveCount": 3,
+            "share": 0.4077692307692308
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 51.5,
+            "below": 51.49,
+            "belowCount": 2,
+            "above": 51.51,
+            "aboveCount": 2,
+            "share": 0.829
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 33.7,
+            "below": 33.69,
+            "belowCount": 8,
+            "above": 33.7,
+            "aboveCount": 5,
+            "share": 0.43984615384615383
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 138,
+            "below": 137.9,
+            "belowCount": 5,
+            "above": 138,
+            "aboveCount": 7,
+            "share": 0.6116153846153846
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 44.3,
+            "below": 44.29,
+            "belowCount": 1,
+            "above": 44.3,
+            "aboveCount": 3,
+            "share": 0.3763846153846154
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 58.2,
+            "below": 58.19,
+            "belowCount": 1,
+            "above": 58.21,
+            "aboveCount": 2,
+            "share": 0.6867692307692308
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 62.8,
+            "below": 62.79,
+            "belowCount": 1,
+            "above": 62.8,
+            "aboveCount": 4,
+            "share": 0.7665384615384615
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 17.3,
+            "below": 17.28,
+            "belowCount": 1,
+            "above": 17.3,
+            "aboveCount": 1,
+            "share": 0.11046153846153846
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 59.8,
+            "below": 59.7,
+            "belowCount": 5,
+            "above": 59.8,
+            "aboveCount": 6,
+            "share": 0.15692307692307692
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 47.9,
+            "below": 47.89,
+            "belowCount": 1,
+            "above": 47.9,
+            "aboveCount": 3,
+            "share": 0.5508461538461539
+          },
+          {
+            "feature": "loan_to_income_pct",
+            "threshold": 180,
+            "below": 179.9,
+            "belowCount": 5,
+            "above": 180,
+            "aboveCount": 3,
+            "share": 0.8428461538461538
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 40.3,
+            "below": 40.29,
+            "belowCount": 1,
+            "above": 40.3,
+            "aboveCount": 3,
+            "share": 0.296
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 49.6,
+            "below": 49.59,
+            "belowCount": 1,
+            "above": 49.61,
+            "aboveCount": 1,
+            "share": 0.7958461538461539
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 46.3,
+            "below": 46.29,
+            "belowCount": 3,
+            "above": 46.3,
+            "aboveCount": 4,
+            "share": 0.5220769230769231
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 61.8,
+            "below": 61.79,
+            "belowCount": 5,
+            "above": 61.8,
+            "aboveCount": 3,
+            "share": 0.7505384615384615
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 35.5,
+            "below": 35.49,
+            "belowCount": 5,
+            "above": 35.5,
+            "aboveCount": 6,
+            "share": 0.4836923076923077
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 71.9,
+            "below": 71.89,
+            "belowCount": 2,
+            "above": 71.9,
+            "aboveCount": 3,
+            "share": 0.892
+          },
+          {
+            "feature": "debt_ratio_pct",
+            "threshold": 37.4,
+            "below": 37.39,
+            "belowCount": 3,
+            "above": 37.4,
+            "aboveCount": 3,
+            "share": 0.5321538461538462
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 52.6,
+            "below": 52.59,
+            "belowCount": 4,
+            "above": 52.6,
+            "aboveCount": 5,
+            "share": 0.6316153846153846
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 50,
+            "below": 49.99,
+            "belowCount": 1,
+            "above": 50,
+            "aboveCount": 1,
+            "share": 0.5027692307692307
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 31.9,
+            "below": 31.89,
+            "belowCount": 1,
+            "above": 31.9,
+            "aboveCount": 1,
+            "share": 0.15753846153846154
+          },
+          {
+            "feature": "income_k_eur",
+            "threshold": 44.9,
+            "below": 44.89,
+            "belowCount": 3,
+            "above": 44.9,
+            "aboveCount": 5,
+            "share": 0.39015384615384613
+          },
+          {
+            "feature": "utilization_pct",
+            "threshold": 35,
+            "below": 34.99,
+            "belowCount": 1,
+            "above": 35,
+            "aboveCount": 2,
+            "share": 0.3316923076923077
+          }
+        ]
+      },
+      "findings": [
+        {
+          "feature": "age_years",
+          "threshold": 29.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 29,
+          "belowCount": 257,
+          "above": 30,
+          "aboveCount": 264,
+          "rowsAtOrBelowShare": 0.14915384615384616
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 44.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 44.79,
+          "belowCount": 3,
+          "above": 44.8,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.7043076923076923
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 60.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 60.79,
+          "belowCount": 2,
+          "above": 60.8,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.7549230769230769
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 71.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 71.29,
+          "belowCount": 1,
+          "above": 71.3,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8755384615384615
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 156,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 155.9,
+          "belowCount": 6,
+          "above": 156,
+          "aboveCount": 11,
+          "rowsAtOrBelowShare": 0.722
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 59.6,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 59.58,
+          "belowCount": 2,
+          "above": 59.6,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.739
+        },
+        {
+          "feature": "age_years",
+          "threshold": 57.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 57,
+          "belowCount": 204,
+          "above": 58,
+          "aboveCount": 178,
+          "rowsAtOrBelowShare": 0.8983076923076924
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 73.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 73.28,
+          "belowCount": 1,
+          "above": 73.3,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.891
+        },
+        {
+          "feature": "late_payments",
+          "threshold": 1.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 1,
+          "belowCount": 5813,
+          "above": 2,
+          "aboveCount": 2720,
+          "rowsAtOrBelowShare": 0.7325384615384616
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 44,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 43.99,
+          "belowCount": 1,
+          "above": 44,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.6863076923076923
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 46.4,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 46.39,
+          "belowCount": 1,
+          "above": 46.4,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.42184615384615387
+        },
+        {
+          "feature": "age_years",
+          "threshold": 37.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 37,
+          "belowCount": 428,
+          "above": 38,
+          "aboveCount": 412,
+          "rowsAtOrBelowShare": 0.35246153846153844
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 39.5,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 39.49,
+          "belowCount": 5,
+          "above": 39.5,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.281
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 145,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 144.9,
+          "belowCount": 10,
+          "above": 145,
+          "aboveCount": 9,
+          "rowsAtOrBelowShare": 0.6579230769230769
+        },
+        {
+          "feature": "age_years",
+          "threshold": 56.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 56,
+          "belowCount": 203,
+          "above": 57,
+          "aboveCount": 204,
+          "rowsAtOrBelowShare": 0.8826153846153846
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 42.7,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 42.69,
+          "belowCount": 4,
+          "above": 42.7,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.6561538461538462
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 42,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 41.99,
+          "belowCount": 6,
+          "above": 42,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.6422307692307693
+        },
+        {
+          "feature": "age_years",
+          "threshold": 27.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 27,
+          "belowCount": 181,
+          "above": 28,
+          "aboveCount": 225,
+          "rowsAtOrBelowShare": 0.11207692307692307
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 147,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 146.9,
+          "belowCount": 9,
+          "above": 147,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.6703076923076923
+        },
+        {
+          "feature": "age_years",
+          "threshold": 39.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 39,
+          "belowCount": 413,
+          "above": 40,
+          "aboveCount": 424,
+          "rowsAtOrBelowShare": 0.4159230769230769
+        },
+        {
+          "feature": "late_payments",
+          "threshold": 0.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 0,
+          "belowCount": 3710,
+          "above": 1,
+          "aboveCount": 5813,
+          "rowsAtOrBelowShare": 0.2853846153846154
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 140,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 139.9,
+          "belowCount": 13,
+          "above": 140,
+          "aboveCount": 9,
+          "rowsAtOrBelowShare": 0.6244615384615385
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 64.1,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 64.09,
+          "belowCount": 2,
+          "above": 64.1,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.799
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 50.7,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 50.69,
+          "belowCount": 1,
+          "above": 50.7,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.5189230769230769
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 131,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 130.9,
+          "belowCount": 16,
+          "above": 131,
+          "aboveCount": 11,
+          "rowsAtOrBelowShare": 0.5662307692307692
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 143,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 142.9,
+          "belowCount": 14,
+          "above": 143,
+          "aboveCount": 15,
+          "rowsAtOrBelowShare": 0.6457692307692308
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 68.3,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 68.29,
+          "belowCount": 2,
+          "above": 68.32,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.8454615384615385
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 50.6,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 50.59,
+          "belowCount": 3,
+          "above": 50.6,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.8128461538461539
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 98.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 98.7,
+          "belowCount": 8,
+          "above": 98.8,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.358
+        },
+        {
+          "feature": "age_years",
+          "threshold": 32.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 32,
+          "belowCount": 322,
+          "above": 33,
+          "aboveCount": 279,
+          "rowsAtOrBelowShare": 0.21623076923076923
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 39.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 39.89,
+          "belowCount": 2,
+          "above": 39.9,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.5934615384615385
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 36.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 36.89,
+          "belowCount": 2,
+          "above": 36.9,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.234
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 31.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 31.79,
+          "belowCount": 2,
+          "above": 31.8,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.3916923076923077
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 170,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 169.9,
+          "belowCount": 9,
+          "above": 170,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.7968461538461539
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 128,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 127.9,
+          "belowCount": 10,
+          "above": 128,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.5470769230769231
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 53.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 53.89,
+          "belowCount": 4,
+          "above": 53.9,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.5946923076923077
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 161,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 160.9,
+          "belowCount": 8,
+          "above": 161,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.7514615384615385
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 153,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 152.9,
+          "belowCount": 9,
+          "above": 153,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.7045384615384616
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 21,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 20.99,
+          "belowCount": 3,
+          "above": 21,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.14246153846153847
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 32.5,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 32.49,
+          "belowCount": 4,
+          "above": 32.5,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.4077692307692308
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 51.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 51.49,
+          "belowCount": 2,
+          "above": 51.51,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.829
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 33.7,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 33.69,
+          "belowCount": 8,
+          "above": 33.7,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.43984615384615383
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 138,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 137.9,
+          "belowCount": 5,
+          "above": 138,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.6116153846153846
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 158,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 157.9,
+          "belowCount": 6,
+          "above": 158,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.7335384615384616
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 44.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 44.29,
+          "belowCount": 1,
+          "above": 44.3,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.3763846153846154
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 58.2,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 58.19,
+          "belowCount": 1,
+          "above": 58.21,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.6867692307692308
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 133,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 132.9,
+          "belowCount": 8,
+          "above": 133,
+          "aboveCount": 9,
+          "rowsAtOrBelowShare": 0.5795384615384616
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 62.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 62.79,
+          "belowCount": 1,
+          "above": 62.8,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.7665384615384615
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 17.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 17.28,
+          "belowCount": 1,
+          "above": 17.3,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.11046153846153846
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 59.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 59.7,
+          "belowCount": 5,
+          "above": 59.8,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.15692307692307692
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 47.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 47.89,
+          "belowCount": 1,
+          "above": 47.9,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.5508461538461539
+        },
+        {
+          "feature": "age_years",
+          "threshold": 50.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 50,
+          "belowCount": 361,
+          "above": 51,
+          "aboveCount": 352,
+          "rowsAtOrBelowShare": 0.7547692307692307
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 180,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 179.9,
+          "belowCount": 5,
+          "above": 180,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.8428461538461538
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 104,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 103.9,
+          "belowCount": 10,
+          "above": 104,
+          "aboveCount": 11,
+          "rowsAtOrBelowShare": 0.39
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 40.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 40.29,
+          "belowCount": 1,
+          "above": 40.3,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.296
+        },
+        {
+          "feature": "age_years",
+          "threshold": 51.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 51,
+          "belowCount": 352,
+          "above": 52,
+          "aboveCount": 311,
+          "rowsAtOrBelowShare": 0.7818461538461539
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 49.6,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 49.59,
+          "belowCount": 1,
+          "above": 49.61,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.7958461538461539
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 46.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 46.29,
+          "belowCount": 3,
+          "above": 46.3,
+          "aboveCount": 4,
+          "rowsAtOrBelowShare": 0.5220769230769231
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 61.8,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 61.79,
+          "belowCount": 5,
+          "above": 61.8,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.7505384615384615
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 35.5,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 35.49,
+          "belowCount": 5,
+          "above": 35.5,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.4836923076923077
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 71.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 71.89,
+          "belowCount": 2,
+          "above": 71.9,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.892
+        },
+        {
+          "feature": "age_years",
+          "threshold": 38.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 38,
+          "belowCount": 412,
+          "above": 39,
+          "aboveCount": 413,
+          "rowsAtOrBelowShare": 0.3841538461538462
+        },
+        {
+          "feature": "debt_ratio_pct",
+          "threshold": 37.4,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 37.39,
+          "belowCount": 3,
+          "above": 37.4,
+          "aboveCount": 3,
+          "rowsAtOrBelowShare": 0.5321538461538462
+        },
+        {
+          "feature": "age_years",
+          "threshold": 55.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 55,
+          "belowCount": 243,
+          "above": 56,
+          "aboveCount": 203,
+          "rowsAtOrBelowShare": 0.867
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 52.6,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 52.59,
+          "belowCount": 4,
+          "above": 52.6,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.6316153846153846
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 109,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 108.9,
+          "belowCount": 8,
+          "above": 109,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.4230769230769231
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 50,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 49.99,
+          "belowCount": 1,
+          "above": 50,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.5027692307692307
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 125,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 124.9,
+          "belowCount": 10,
+          "above": 125,
+          "aboveCount": 6,
+          "rowsAtOrBelowShare": 0.531
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 123,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 122.9,
+          "belowCount": 6,
+          "above": 123,
+          "aboveCount": 9,
+          "rowsAtOrBelowShare": 0.5163076923076924
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 31.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 31.89,
+          "belowCount": 1,
+          "above": 31.9,
+          "aboveCount": 1,
+          "rowsAtOrBelowShare": 0.15753846153846154
+        },
+        {
+          "feature": "age_years",
+          "threshold": 42.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 42,
+          "belowCount": 395,
+          "above": 43,
+          "aboveCount": 439,
+          "rowsAtOrBelowShare": 0.5138461538461538
+        },
+        {
+          "feature": "income_k_eur",
+          "threshold": 44.9,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 44.89,
+          "belowCount": 3,
+          "above": 44.9,
+          "aboveCount": 5,
+          "rowsAtOrBelowShare": 0.39015384615384613
+        },
+        {
+          "feature": "age_years",
+          "threshold": 43.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 43,
+          "belowCount": 439,
+          "above": 44,
+          "aboveCount": 404,
+          "rowsAtOrBelowShare": 0.5476153846153846
+        },
+        {
+          "feature": "utilization_pct",
+          "threshold": 35,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 34.99,
+          "belowCount": 1,
+          "above": 35,
+          "aboveCount": 2,
+          "rowsAtOrBelowShare": 0.3316923076923077
+        },
+        {
+          "feature": "loan_to_income_pct",
+          "threshold": 96.3,
+          "equalsPresentAll": true,
+          "equalsPresentTrain": true,
+          "below": 96.2,
+          "belowCount": 8,
+          "above": 96.3,
+          "aboveCount": 7,
+          "rowsAtOrBelowShare": 0.34307692307692306
+        },
+        {
+          "feature": "age_years",
+          "threshold": 30.5,
+          "equalsPresentAll": false,
+          "equalsPresentTrain": false,
+          "below": 30,
+          "belowCount": 264,
+          "above": 31,
+          "aboveCount": 286,
+          "rowsAtOrBelowShare": 0.16946153846153847
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,59 @@
+taiwan différence essai 1/10 : AUC 0.655
+taiwan différence essai 2/10 : AUC 0.730
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+budget de calcul dépassé (contention CPU), nouvel essai 3/5
+taiwan différence essai 3/10 : AUC 0.505
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+taiwan différence essai 4/10 : AUC 0.635
+taiwan différence essai 5/10 : AUC 0.507
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+taiwan différence essai 6/10 : AUC 0.403
+taiwan différence essai 7/10 : AUC 0.465
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+taiwan différence essai 8/10 : AUC 0.575
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+budget de calcul dépassé (contention CPU), nouvel essai 3/5
+budget de calcul dépassé (contention CPU), nouvel essai 4/5
+budget de calcul dépassé (contention CPU), nouvel essai 2/5
+taiwan différence essai 9/10 : AUC 0.637
+taiwan différence essai 10/10 : AUC 0.640
+## taiwan
+- métriques livrées : {"heldOutAuc":0.786757,"heldOutAccuracy":0.822167,"heldOutPrecision":0.70317,"heldOutRecall":0.361749,"heldOutF1":0.477729,"trainAuc":0.788766,"n":30000} ; baseScore -1.264
+- (a) trainAuc : 400 retraits d'une ligne ; la valeur publiée (6 chiffres) change dans 97.0 % des cas, arrondie à 3 décimales dans 0.0 % ; |Δ| médian 9.70e-6, max 1.31e-4, pas d'arrondi 1e-6
+- (b) matrice de confusion held-out (6000 lignes) : 1 solution(s) compatible(s) {"tp":488,"fp":206,"fn":861,"tn":4445} ; positifs held-out possibles : 1349
+- (c) baseScore -1.264 (5287 positifs / 18713 négatifs) change après 3 ligne(s) positive(s) ou 10 négative(s) ajoutée(s)
+- (d) différence v1/v2 (+20 lignes, 10 essais) : AUC par essai 0.575 [0.502; 0.648], groupée 0.583 [0.528; 0.641] ; arbres modifiés 100 % ; confiance en hausse : ajoutées 63 %, non ajoutées 50 %
+gmsc différence essai 1/10 : AUC 0.395
+gmsc différence essai 2/10 : AUC 0.557
+gmsc différence essai 3/10 : AUC 0.693
+gmsc différence essai 4/10 : AUC 0.455
+gmsc différence essai 5/10 : AUC 0.590
+gmsc différence essai 6/10 : AUC 0.463
+gmsc différence essai 7/10 : AUC 0.580
+gmsc différence essai 8/10 : AUC 0.547
+gmsc différence essai 9/10 : AUC 0.637
+gmsc différence essai 10/10 : AUC 0.672
+## gmsc
+- métriques livrées : {"heldOutAuc":0.868569,"heldOutAccuracy":0.928,"heldOutPrecision":0.626984,"heldOutRecall":0.170259,"heldOutF1":0.267797,"trainAuc":0.856443,"n":30000} ; baseScore -2.628
+- (a) trainAuc : 400 retraits d'une ligne ; la valeur publiée (6 chiffres) change dans 96.0 % des cas, arrondie à 3 décimales dans 1.5 % ; |Δ| médian 5.42e-6, max 4.86e-4, pas d'arrondi 1e-6
+- (b) matrice de confusion held-out (6000 lignes) : 1 solution(s) compatible(s) {"tp":79,"fp":47,"fn":385,"tn":5489} ; positifs held-out possibles : 464
+- (c) baseScore -2.628 (1616 positifs / 22384 négatifs) change après 2 ligne(s) positive(s) ou 3 négative(s) ajoutée(s)
+- (d) différence v1/v2 (+20 lignes, 10 essais) : AUC par essai 0.559 [0.489; 0.629], groupée 0.565 [0.513; 0.618] ; arbres modifiés 100 % ; confiance en hausse : ajoutées 51 %, non ajoutées 44 %
+credit-risk différence essai 1/10 : AUC 0.465
+credit-risk différence essai 2/10 : AUC 0.627
+credit-risk différence essai 3/10 : AUC 0.665
+credit-risk différence essai 4/10 : AUC 0.453
+credit-risk différence essai 5/10 : AUC 0.618
+credit-risk différence essai 6/10 : AUC 0.688
+credit-risk différence essai 7/10 : AUC 0.532
+credit-risk différence essai 8/10 : AUC 0.547
+credit-risk différence essai 9/10 : AUC 0.772
+credit-risk différence essai 10/10 : AUC 0.598
+## credit-risk
+- métriques livrées : {"heldOutAuc":0.716932,"heldOutAccuracy":0.776923,"heldOutPrecision":0.576471,"heldOutRecall":0.161716,"heldOutF1":0.252577,"trainAuc":0.72828,"n":13000} ; baseScore -1.17
+- (a) trainAuc : 400 retraits d'une ligne ; la valeur publiée (6 chiffres) change dans 100.0 % des cas, arrondie à 3 décimales dans 1.8 % ; |Δ| médian 2.62e-5, max 2.84e-4, pas d'arrondi 1e-6
+- (b) matrice de confusion held-out (2600 lignes) : 1 solution(s) compatible(s) {"tp":98,"fp":72,"fn":508,"tn":1922} ; positifs held-out possibles : 606
+- (c) baseScore -1.17 (2464 positifs / 7936 négatifs) change après 1 ligne(s) positive(s) ou 7 négative(s) ajoutée(s)
+- (d) différence v1/v2 (+20 lignes, 10 essais) : AUC par essai 0.597 [0.525; 0.668], groupée 0.595 [0.543; 0.650] ; arbres modifiés 100 % ; confiance en hausse : ajoutées 69 %, non ajoutées 55 %
+Résultats : C:\Users\byezz\Desktop\hackathon\Sirius\Sirius-EVM\.claude\worktrees\agent-a63c7eca0b6aebbbe\audit\confiden
+tialite\results\metadata.json

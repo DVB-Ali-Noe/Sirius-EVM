@@ -1,0 +1,15 @@
+taiwan/gbdt graine 1/10 : perte 0.500 LiRA 0.528 (264 s)
+taiwan/gbdt graine 2/10 : perte 0.499 LiRA 0.528 (315 s)
+taiwan/gbdt graine 3/10 : perte 0.501 LiRA 0.532 (315 s)
+taiwan/gbdt graine 4/10 : perte 0.505 LiRA 0.528 (343 s)
+taiwan/gbdt graine 5/10 : perte 0.500 LiRA 0.532 (353 s)
+taiwan/gbdt graine 6/10 : perte 0.506 LiRA 0.534 (252 s)
+taiwan/gbdt graine 7/10 : perte 0.502 LiRA 0.534 (230 s)
+taiwan/gbdt graine 8/10 : perte 0.502 LiRA 0.532 (99 s)
+taiwan/gbdt graine 9/10 : perte 0.502 LiRA 0.528 (100 s)
+taiwan/gbdt graine 10/10 : perte 0.502 LiRA 0.534 (88 s)
+| Modèle | Jeu | Graines | Membres / non-membres | AUC perte [IC t] | AUC LiRA [IC t] | TPR@1 % FPR (perte / LiRA) | TPR@0,1 % (LiRA) | AUC E2 (perte, train / écart) | AUC held-out | train − held |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gbdt | taiwan | 10 | 15000 / 15000 | 0.5021 [0.5005; 0.5036] | 0.5310 [0.5292; 0.5327] | 0.0099 / 0.0132 | 0.0017 | 0.5028 [0.4996; 0.5061] | 0.7808 | 0.0117 [0.0067; 0.0167] |
+Résultats : C:\Users\byezz\Desktop\hackathon\Sirius\Sirius-EVM\.claude\worktrees\agent-a63c7eca0b6aebbbe\audit\confiden
+tialite\results\membership-taiwan-gbdt.json

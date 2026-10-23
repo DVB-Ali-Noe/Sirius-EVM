@@ -1,0 +1,37 @@
+taiwan/logistic graine 1/10 : perte 0.497 LiRA 0.506 (76 s)
+taiwan/logistic graine 2/10 : perte 0.497 LiRA 0.509 (92 s)
+taiwan/logistic graine 3/10 : perte 0.501 LiRA 0.508 (92 s)
+taiwan/logistic graine 4/10 : perte 0.505 LiRA 0.504 (117 s)
+taiwan/logistic graine 5/10 : perte 0.496 LiRA 0.508 (104 s)
+taiwan/logistic graine 6/10 : perte 0.503 LiRA 0.513 (103 s)
+taiwan/logistic graine 7/10 : perte 0.504 LiRA 0.513 (102 s)
+taiwan/logistic graine 8/10 : perte 0.499 LiRA 0.513 (121 s)
+taiwan/logistic graine 9/10 : perte 0.502 LiRA 0.508 (97 s)
+taiwan/logistic graine 10/10 : perte 0.501 LiRA 0.504 (117 s)
+gmsc/logistic graine 1/10 : perte 0.506 LiRA 0.503 (100 s)
+gmsc/logistic graine 2/10 : perte 0.503 LiRA 0.501 (89 s)
+gmsc/logistic graine 3/10 : perte 0.502 LiRA 0.511 (94 s)
+gmsc/logistic graine 4/10 : perte 0.501 LiRA 0.505 (92 s)
+gmsc/logistic graine 5/10 : perte 0.492 LiRA 0.501 (105 s)
+gmsc/logistic graine 6/10 : perte 0.499 LiRA 0.497 (103 s)
+gmsc/logistic graine 7/10 : perte 0.501 LiRA 0.500 (70 s)
+gmsc/logistic graine 8/10 : perte 0.502 LiRA 0.503 (69 s)
+gmsc/logistic graine 9/10 : perte 0.502 LiRA 0.506 (71 s)
+gmsc/logistic graine 10/10 : perte 0.498 LiRA 0.507 (77 s)
+credit-risk/logistic graine 1/10 : perte 0.502 LiRA 0.504 (24 s)
+credit-risk/logistic graine 2/10 : perte 0.499 LiRA 0.509 (26 s)
+credit-risk/logistic graine 3/10 : perte 0.502 LiRA 0.511 (21 s)
+credit-risk/logistic graine 4/10 : perte 0.499 LiRA 0.506 (18 s)
+credit-risk/logistic graine 5/10 : perte 0.492 LiRA 0.509 (18 s)
+credit-risk/logistic graine 6/10 : perte 0.500 LiRA 0.507 (22 s)
+credit-risk/logistic graine 7/10 : perte 0.498 LiRA 0.502 (18 s)
+credit-risk/logistic graine 8/10 : perte 0.506 LiRA 0.496 (14 s)
+credit-risk/logistic graine 9/10 : perte 0.492 LiRA 0.504 (18 s)
+credit-risk/logistic graine 10/10 : perte 0.497 LiRA 0.510 (18 s)
+| Modèle | Jeu | Graines | Membres / non-membres | AUC perte [IC t] | AUC LiRA [IC t] | TPR@1 % FPR (perte / LiRA) | TPR@0,1 % (LiRA) | AUC E2 (perte, train / écart) | AUC held-out | train − held |
+|---|---|---|---|---|---|---|---|---|---|---|
+| logistic | taiwan | 10 | 15000 / 15000 | 0.5004 [0.4982; 0.5026] | 0.5086 [0.5062; 0.5110] | 0.0099 / 0.0109 | 0.0010 | 0.4997 [0.4951; 0.5042] | — | — [—; —] |
+| logistic | gmsc | 10 | 15000 / 15000 | 0.5007 [0.4981; 0.5033] | 0.5034 [0.5005; 0.5062] | 0.0104 / 0.0107 | 0.0011 | 0.5010 [0.4974; 0.5046] | — | — [—; —] |
+| logistic | credit-risk | 10 | 6500 / 6500 | 0.4988 [0.4957; 0.5019] | 0.5056 [0.5025; 0.5088] | 0.0100 / 0.0112 | 0.0010 | 0.5016 [0.4989; 0.5043] | — | — [—; —] |
+Résultats : C:\Users\byezz\Desktop\hackathon\Sirius\Sirius-EVM\.claude\worktrees\agent-a63c7eca0b6aebbbe\audit\confiden
+tialite\results\membership-logistic.json

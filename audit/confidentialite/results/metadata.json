@@ -1,0 +1,192 @@
+{
+  "generatedAt": "2026-10-23T00:53:24.895Z",
+  "missing": [],
+  "datasets": {
+    "taiwan": {
+      "metrics": {
+        "heldOutAuc": 0.786757,
+        "heldOutAccuracy": 0.822167,
+        "heldOutPrecision": 0.70317,
+        "heldOutRecall": 0.361749,
+        "heldOutF1": 0.477729,
+        "trainAuc": 0.788766,
+        "n": 30000
+      },
+      "baseScoreDelivered": -1.264,
+      "sensitivity": {
+        "trainRows": 24000,
+        "publishedTrainAuc": 0.788766,
+        "sampledRemovals": 400,
+        "changesPublishedValue6SigFigs": 0.97,
+        "changesValueRoundedTo3Decimals": 0,
+        "medianAbsDelta": 0.000009701712479714963,
+        "maxAbsDelta": 0.00013138480104535333,
+        "roundingStep6SigFigs": 0.000001
+      },
+      "confusion": {
+        "heldOutRows": 6000,
+        "solutions": 1,
+        "first": {
+          "tp": 488,
+          "fp": 206,
+          "fn": 861,
+          "tn": 4445
+        },
+        "positivesHeldOut": [
+          1349
+        ]
+      },
+      "baseScore": {
+        "positives": 5287,
+        "negatives": 18713,
+        "baseScore": -1.264,
+        "rowsAddedBeforeChange": {
+          "positive": 3,
+          "negative": 10
+        }
+      },
+      "differencing": {
+        "trials": 10,
+        "addedPerTrial": 20,
+        "perTrialAuc": {
+          "mean": 0.5752499999999999,
+          "low": 0.502354098501699,
+          "high": 0.6481459014983009,
+          "n": 10
+        },
+        "pooledAuc": {
+          "auc": 0.58305,
+          "low": 0.528425,
+          "high": 0.641075
+        },
+        "changedTreesShare": 1,
+        "includedPositiveShift": 0.625,
+        "excludedPositiveShift": 0.5
+      }
+    },
+    "gmsc": {
+      "metrics": {
+        "heldOutAuc": 0.868569,
+        "heldOutAccuracy": 0.928,
+        "heldOutPrecision": 0.626984,
+        "heldOutRecall": 0.170259,
+        "heldOutF1": 0.267797,
+        "trainAuc": 0.856443,
+        "n": 30000
+      },
+      "baseScoreDelivered": -2.628,
+      "sensitivity": {
+        "trainRows": 24000,
+        "publishedTrainAuc": 0.856443,
+        "sampledRemovals": 400,
+        "changesPublishedValue6SigFigs": 0.96,
+        "changesValueRoundedTo3Decimals": 0.015,
+        "medianAbsDelta": 0.000005418366845311162,
+        "maxAbsDelta": 0.00048550630396404504,
+        "roundingStep6SigFigs": 0.000001
+      },
+      "confusion": {
+        "heldOutRows": 6000,
+        "solutions": 1,
+        "first": {
+          "tp": 79,
+          "fp": 47,
+          "fn": 385,
+          "tn": 5489
+        },
+        "positivesHeldOut": [
+          464
+        ]
+      },
+      "baseScore": {
+        "positives": 1616,
+        "negatives": 22384,
+        "baseScore": -2.628,
+        "rowsAddedBeforeChange": {
+          "positive": 2,
+          "negative": 3
+        }
+      },
+      "differencing": {
+        "trials": 10,
+        "addedPerTrial": 20,
+        "perTrialAuc": {
+          "mean": 0.559,
+          "low": 0.48931004334195644,
+          "high": 0.6286899566580437,
+          "n": 10
+        },
+        "pooledAuc": {
+          "auc": 0.565125,
+          "low": 0.51265,
+          "high": 0.618
+        },
+        "changedTreesShare": 1,
+        "includedPositiveShift": 0.505,
+        "excludedPositiveShift": 0.44
+      }
+    },
+    "credit-risk": {
+      "metrics": {
+        "heldOutAuc": 0.716932,
+        "heldOutAccuracy": 0.776923,
+        "heldOutPrecision": 0.576471,
+        "heldOutRecall": 0.161716,
+        "heldOutF1": 0.252577,
+        "trainAuc": 0.72828,
+        "n": 13000
+      },
+      "baseScoreDelivered": -1.17,
+      "sensitivity": {
+        "trainRows": 10400,
+        "publishedTrainAuc": 0.72828,
+        "sampledRemovals": 400,
+        "changesPublishedValue6SigFigs": 1,
+        "changesValueRoundedTo3Decimals": 0.0175,
+        "medianAbsDelta": 0.00002621328187757399,
+        "maxAbsDelta": 0.0002840236447926303,
+        "roundingStep6SigFigs": 0.000001
+      },
+      "confusion": {
+        "heldOutRows": 2600,
+        "solutions": 1,
+        "first": {
+          "tp": 98,
+          "fp": 72,
+          "fn": 508,
+          "tn": 1922
+        },
+        "positivesHeldOut": [
+          606
+        ]
+      },
+      "baseScore": {
+        "positives": 2464,
+        "negatives": 7936,
+        "baseScore": -1.17,
+        "rowsAddedBeforeChange": {
+          "positive": 1,
+          "negative": 7
+        }
+      },
+      "differencing": {
+        "trials": 10,
+        "addedPerTrial": 20,
+        "perTrialAuc": {
+          "mean": 0.5965,
+          "low": 0.5250179765325576,
+          "high": 0.6679820234674425,
+          "n": 10
+        },
+        "pooledAuc": {
+          "auc": 0.5954,
+          "low": 0.5427,
+          "high": 0.6497
+        },
+        "changedTreesShare": 1,
+        "includedPositiveShift": 0.69,
+        "excludedPositiveShift": 0.545
+      }
+    }
+  }
+}
