@@ -1,0 +1,44 @@
+[
+ {
+  "dataset": "taiwan",
+  "rows": 3000,
+  "treesExternalAuc": 0.6506062695088517,
+  "logisticExternalAuc": 0.7189830388067578,
+  "treesShown": 0.685023
+ },
+ {
+  "dataset": "taiwan",
+  "rows": 5000,
+  "treesExternalAuc": 0.6956006225434975,
+  "logisticExternalAuc": 0.7190025530952475,
+  "treesShown": 0.715723
+ },
+ {
+  "dataset": "taiwan",
+  "rows": 8000,
+  "treesExternalAuc": 0.7611849276043094,
+  "logisticExternalAuc": 0.7187721076156468,
+  "treesShown": 0.776867
+ },
+ {
+  "dataset": "credit",
+  "rows": 3000,
+  "treesExternalAuc": 0.6230992444259027,
+  "logisticExternalAuc": 0.649939584975046,
+  "treesShown": 0.670139
+ },
+ {
+  "dataset": "credit",
+  "rows": 5000,
+  "treesExternalAuc": 0.6845300452726403,
+  "logisticExternalAuc": 0.6484550132109582,
+  "treesShown": 0.677716
+ },
+ {
+  "dataset": "credit",
+  "rows": 8000,
+  "treesExternalAuc": 0.7020896490984101,
+  "logisticExternalAuc": 0.6462170305474436,
+  "treesShown": 0.702977
+ }
+]

@@ -377,6 +377,87 @@
      "grant_oraclePer1000": 153.0
     }
    }
+  },
+  {
+   "case": "temporel-rupture",
+   "rows": 20000,
+   "positiveRate": 0.42815,
+   "featuresTrees": 4,
+   "treesMs": 640,
+   "shownHeldOutAuc": 0.73409,
+   "trainAuc": 0.742871,
+   "heldOut": {
+    "trees": {
+     "auc": 0.7340897532755386,
+     "brier": 0.2035590757463042,
+     "logLoss": 0.5942238751161492,
+     "cal_ece": 0.02100764555723084,
+     "cal_slope": 0.9831121472783868,
+     "cal_intercept": -0.08605924629386955,
+     "cal_meanPredicted": 0.43006649118253576,
+     "cal_observedRate": 0.41325,
+     "grant_granted": 392,
+     "grant_grantedRate": 0.098,
+     "grant_defaultsGranted": 57,
+     "grant_gain": 10.0,
+     "grant_gainPer1000": 2.5,
+     "grant_gainIfGrantAllPer1000": -295.9,
+     "grant_oraclePer1000": 117.35000000000001
+    },
+    "logistic": {
+     "auc": 0.7252225814525295,
+     "brier": 0.20715172497691653,
+     "logLoss": 0.6024544416165104,
+     "cal_ece": 0.04152059552343004,
+     "cal_slope": 1.0914345234972231,
+     "cal_intercept": -0.06565233968201498,
+     "cal_meanPredicted": 0.43155794237080125,
+     "cal_observedRate": 0.41325,
+     "grant_granted": 237,
+     "grant_grantedRate": 0.05925,
+     "grant_defaultsGranted": 35,
+     "grant_gain": 5.400000000000006,
+     "grant_gainPer1000": 1.3500000000000014,
+     "grant_gainIfGrantAllPer1000": -295.9,
+     "grant_oraclePer1000": 117.35000000000001
+    }
+   },
+   "future": {
+    "trees": {
+     "auc": 0.6797325269623746,
+     "brier": 0.2134232376439123,
+     "logLoss": 0.6149070650005842,
+     "cal_ece": 0.11905180661082204,
+     "cal_slope": 0.7338469996480073,
+     "cal_intercept": -0.6329987725661976,
+     "cal_meanPredicted": 0.429251806610822,
+     "cal_observedRate": 0.3102,
+     "grant_granted": 494,
+     "grant_grantedRate": 0.0988,
+     "grant_defaultsGranted": 59,
+     "grant_gain": 28.0,
+     "grant_gainPer1000": 5.6,
+     "grant_gainIfGrantAllPer1000": -172.23999999999998,
+     "grant_oraclePer1000": 137.96000000000004
+    },
+    "logistic": {
+     "auc": 0.6874820891094495,
+     "brier": 0.20797836158199198,
+     "logLoss": 0.6036445473359149,
+     "cal_ece": 0.1186813749521481,
+     "cal_slope": 0.8949018898660746,
+     "cal_intercept": -0.5989219139412142,
+     "cal_meanPredicted": 0.42888137495214806,
+     "cal_observedRate": 0.3102,
+     "grant_granted": 309,
+     "grant_grantedRate": 0.0618,
+     "grant_defaultsGranted": 38,
+     "grant_gain": 16.200000000000003,
+     "grant_gainPer1000": 3.2400000000000007,
+     "grant_gainIfGrantAllPer1000": -172.23999999999998,
+     "grant_oraclePer1000": 137.96000000000004
+    }
+   }
   }
  ],
  "refusal9999": "arbres Sirius : Les arbres boostés demandent au moins 10 000 lignes ; utilise la régression logistique pour ce fichier. (C:\\Users\\byezz\\Desktop\\hackathon\\Sirius\\Sirius-EVM\\.claude\\worktrees\\agent-ab062a9bfb8157d15\\audit\\exactitude\\.data\\q7\\taiwan-9999.csv)"

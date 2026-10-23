@@ -13,14 +13,14 @@ REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "audit" / "exactitude" / ".data"
 
 
-def run_sirius(train_csv: Path, out_json: Path, test_csv: Path | None = None, skip_logistic: bool = False, timeout: int = 900) -> dict:
+def run_sirius(train_csv: Path, out_json: Path, test_csv: Path | None = None, skip_logistic: bool = False, timeout: int = 900, preload: str | None = None) -> dict:
     env = dict(os.environ)
     env["NODE_OPTIONS"] = "--conditions=react-server"
     env["RUNNER_TRAINING_TIMEOUT_MS"] = env.get("RUNNER_TRAINING_TIMEOUT_MS", "30000")
     env["AUDIT_SLOW_CLOCK"] = env.get("AUDIT_SLOW_CLOCK", "10")  # poste partagé : voir sirius-run.ts
     if skip_logistic:
         env["AUDIT_SKIP_LOGISTIC"] = "1"
-    command = [shutil.which("node") or "node", "--import", "tsx", "audit/exactitude/sirius-run.ts", str(train_csv), str(out_json)]
+    command = [shutil.which("node") or "node", *(["--require", preload] if preload else []), "--import", "tsx", "audit/exactitude/sirius-run.ts", str(train_csv), str(out_json)]
     if test_csv is not None:
         command.append(str(test_csv))
     done = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True, timeout=timeout, encoding="utf-8")

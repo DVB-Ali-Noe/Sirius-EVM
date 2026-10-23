@@ -1,6 +1,7 @@
 """Q7 (cas difficiles) : arbres Sirius contre régression logistique Sirius.
 
-Usage : python -I audit/exactitude/q7_hard_cases.py
+Usage : python -I audit/exactitude/q7_hard_cases.py            (tous les cas)
+        python -I audit/exactitude/q7_hard_cases.py temporel-rupture   (ajoute le cas de rupture au JSON existant)
 
 Cas (graines fixes) :
 - lineaire : relation purement linéaire en logit, 6 variables gaussiennes, 20 000 lignes (synthétique).
@@ -8,6 +9,7 @@ Cas (graines fixes) :
 - colonne-bruitee : Taïwan + une colonne de bruit pur à queue lourde (Cauchy × 10⁶, bornée à ±10¹²).
 - temporel : 25 000 lignes synthétiques triées dans le temps, relation qui dérive ; le fournisseur publie les 80 %
   les plus anciens (split Sirius entrelacé), on évalue sur les 20 % les plus récents (test « futur »).
+- temporel-rupture : même idée, mais le seuil de risque se déplace avec le temps (le futur est plus dur).
 - taiwan-10000 / credit-risk-10000 : exactement 10 000 lignes (plancher du profil) ; 9 999 lignes doivent être refusées.
 Mesures sur les lignes held-out du split Sirius (et sur le test futur pour « temporel ») : AUC, Brier, ECE,
 pente de calibration, gain de la règle d'octroi (accorder si P(défaut) < 1/6 ; +0,2 / −1).
@@ -64,6 +66,18 @@ def temporal(rng: np.random.Generator) -> pd.DataFrame:
     return frame
 
 
+def temporal_break(rng: np.random.Generator) -> pd.DataFrame:
+    """Rupture : le seuil de risque sur x0 se déplace de −0,5 à +1,0 avec le temps (le passé n'annonce pas le futur)."""
+    rows = 25_000
+    t = np.sort(rng.random(rows))
+    x = rng.normal(size=(rows, 4))
+    logit = -1.2 + 1.8 * (x[:, 0] > -0.5 + 1.5 * t) + 0.6 * x[:, 1]
+    y = (rng.random(rows) < 1 / (1 + np.exp(-logit))).astype(int)
+    frame = pd.DataFrame(np.round(x, 4), columns=[f"x{i}" for i in range(4)])
+    frame["default"] = y
+    return frame
+
+
 def evaluate(name: str, frame: pd.DataFrame, test: pd.DataFrame | None = None) -> dict:
     path = DATA / "q7" / f"{name}.csv"
     write_csv(frame, path)
@@ -92,6 +106,15 @@ def evaluate(name: str, frame: pd.DataFrame, test: pd.DataFrame | None = None) -
 
 
 def main() -> None:
+    if sys.argv[1:] == ["temporel-rupture"]:
+        series = temporal_break(np.random.default_rng(6))
+        cut = int(0.8 * len(series))
+        result = evaluate("temporel-rupture", series.iloc[:cut].reset_index(drop=True), series.iloc[cut:].reset_index(drop=True))
+        target = REPO / "audit" / "exactitude" / "resultats" / "q7-cas-difficiles.json"
+        data = json.loads(target.read_text(encoding="utf-8"))
+        data["cases"] = [case for case in data["cases"] if case["case"] != "temporel-rupture"] + [result]
+        target.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        return
     taiwan = pd.read_csv(DATA / "taiwan.csv")
     credit = pd.read_csv(DATA / "credit-risk.csv")
     results = [

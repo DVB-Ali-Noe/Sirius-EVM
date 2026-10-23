@@ -1,0 +1,65 @@
+{
+ "credit-risk": {
+  "siriusLogisticAuc": 0.6576048276843732,
+  "convergedLogisticAuc": 0.6577372381169913,
+  "converged": {
+   "auc": 0.6577372381169913,
+   "brier": 0.16730615744024493,
+   "logLoss": 0.513654210506176,
+   "cal_ece": 0.022405909432788192,
+   "cal_slope": 1.0944226129129824,
+   "cal_intercept": 0.08779071867865684,
+   "cal_meanPredicted": 0.23584811443493284,
+   "cal_observedRate": 0.23307692307692307,
+   "grant_granted": 678,
+   "grant_grantedRate": 0.26076923076923075,
+   "grant_defaultsGranted": 88,
+   "grant_gain": 30.0,
+   "grant_gainPer1000": 11.538461538461538,
+   "grant_gainIfGrantAllPer1000": -79.6923076923077,
+   "grant_oraclePer1000": 153.3846153846154
+  }
+ },
+ "taiwan": {
+  "siriusLogisticAuc": 0.7264654818886044,
+  "convergedLogisticAuc": 0.7287953410467216,
+  "converged": {
+   "auc": 0.7287953410467216,
+   "brier": 0.14476664126177718,
+   "logLoss": 0.4644003416814878,
+   "cal_ece": 0.05540490882663622,
+   "cal_slope": 1.0579574503597016,
+   "cal_intercept": 0.10329912360290434,
+   "cal_meanPredicted": 0.2192474968099998,
+   "cal_observedRate": 0.22483333333333333,
+   "grant_granted": 2413,
+   "grant_grantedRate": 0.4021666666666667,
+   "grant_defaultsGranted": 316,
+   "grant_gain": 103.40000000000003,
+   "grant_gainPer1000": 17.233333333333338,
+   "grant_gainIfGrantAllPer1000": -69.8,
+   "grant_oraclePer1000": 155.03333333333333
+  }
+ },
+ "gmsc": {
+  "siriusLogisticAuc": 0.6562964757631959,
+  "convergedLogisticAuc": 0.6726546543106287,
+  "converged": {
+   "auc": 0.6726546543106287,
+   "brier": 0.05646771093366675,
+   "logLoss": 0.2229624171558131,
+   "cal_ece": 0.015509684648956693,
+   "cal_slope": 0.9161940708094685,
+   "cal_intercept": -0.23332449916233833,
+   "cal_meanPredicted": 0.066273229344155,
+   "cal_observedRate": 0.06475,
+   "grant_granted": 7711,
+   "grant_grantedRate": 0.963875,
+   "grant_defaultsGranted": 411,
+   "grant_gain": 1049.0,
+   "grant_gainPer1000": 131.125,
+   "grant_gainIfGrantAllPer1000": 122.30000000000001,
+   "grant_oraclePer1000": 187.05
+  }
+ }
+}
