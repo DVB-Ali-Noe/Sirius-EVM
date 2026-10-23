@@ -33,6 +33,8 @@ test("même fichier : même buffer livré dans 5 entraînements successifs du m�
   const csv = readFileSync(reference);
   const hashes = new Set(Array.from({ length: 5 }, () => sha(deliver(csv))));
   assert.equal(hashes.size, 1);
+  // Empreinte relevée avec l'horloge normale (profile-version.test.ts) : ralentir l'horloge du délai ne change pas le modèle.
+  assert.equal([...hashes][0], "94c88d033420be3bf80afca4d4428d51f08b82be64d4eacb04d9fe5f6a81c865");
 });
 
 test("même fichier : même buffer dans deux processus Node distincts", () => {
