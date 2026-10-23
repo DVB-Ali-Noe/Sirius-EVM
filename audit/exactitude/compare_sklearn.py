@@ -6,6 +6,9 @@ Prérequis : `sirius-run.ts` a produit <sortie_sirius.json> sur le même CSV.
 Même séparation que Sirius (index % 5 == 4 → held-out), mêmes colonnes que le modèle Sirius.
 """
 
+import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")  # poste partagé : évite la sur-souscription des threads OpenMP
 import json
 import sys
 import warnings

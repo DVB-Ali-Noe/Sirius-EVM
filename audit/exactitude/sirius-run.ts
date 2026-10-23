@@ -9,6 +9,7 @@
  * - Logistique « actuelle » : `trainLogisticRegression` entraînée sur les seules lignes d'entraînement
  *   du split Sirius (index % 5 !== 4), pour la comparer aux arbres sur les mêmes lignes held-out.
  * - Si `test.csv` est donné, les deux modèles sont aussi évalués sur ce fichier externe.
+ * - `AUDIT_SKIP_LOGISTIC=1` saute la logistique (expériences qui ne portent que sur les arbres).
  * Aucun réseau, aucune clé : calcul pur.
  */
 import { createHash } from "node:crypto";
@@ -20,6 +21,17 @@ import { isHeldOut } from "@/lib/models/gbdt";
 import { parseDeliveredModel, type DeliveredModel } from "@/lib/models/registry";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { predictModel } from "@/lib/train/evaluation-client";
+
+// `AUDIT_SLOW_CLOCK=N` : l'horloge vue par le délai d'entraînement avance N fois moins vite. Sur un poste partagé
+// et chargé, cela évite l'abandon « budget de calcul dépassé » ; le modèle n'en dépend pas (le temps ne sert
+// qu'à abandonner). Les durées affichées restent en temps réel (Date.now).
+const slow = Number(process.env.AUDIT_SLOW_CLOCK ?? 1);
+if (slow > 1) {
+  const now = performance.now.bind(performance);
+  const origin = now();
+  performance.now = () => origin + (now() - origin) / slow;
+}
+const realNow = () => Date.now();
 
 const [trainPath, outPath, testPath] = process.argv.slice(2);
 if (!trainPath || !outPath) throw new Error("usage : sirius-run.ts <train.csv> <sortie.json> [test.csv]");
@@ -38,11 +50,11 @@ function probabilities(model: DeliveredModel, table: string[][], columns: string
 }
 
 const result: Record<string, unknown> = { file: trainPath, rows: rows.length };
-const started = performance.now();
+const started = realNow();
 let trees: DeliveredModel | null = null;
 try {
   const gated = gateModel(trainGradientBoostedTrees(csv));
-  result.treesMs = Math.round(performance.now() - started);
+  result.treesMs = Math.round(realNow() - started);
   result.sha256 = createHash("sha256").update(gated.buffer).digest("hex");
   result.bytes = gated.buffer.length;
   trees = parseDeliveredModel(JSON.parse(gated.buffer.toString("utf8")));
@@ -53,7 +65,7 @@ try {
   result.treeCount = trees.trees.length;
 } catch (error) {
   result.treesError = String(error instanceof Error ? error.message : error);
-  result.treesMs = Math.round(performance.now() - started);
+  result.treesMs = Math.round(realNow() - started);
 }
 
 const target = trees?.target ?? header[header.length - 1];
@@ -64,11 +76,11 @@ result.heldOutY = heldOutTable.map((row) => Number(row[targetIndex]));
 result.trainY = trainTable.map((row) => Number(row[targetIndex]));
 
 let logistic: DeliveredModel | null = null;
-const logisticStarted = performance.now();
-try {
+const logisticStarted = realNow();
+if (process.env.AUDIT_SKIP_LOGISTIC !== "1") try {
   const trainCsv = Buffer.from([header, ...trainTable].map((row) => row.join(",")).join("\n"));
   logistic = parseDeliveredModel(JSON.parse(gateModel(trainLogisticRegression(trainCsv, target)).buffer.toString("utf8")));
-  result.logisticMs = Math.round(performance.now() - logisticStarted);
+  result.logisticMs = Math.round(realNow() - logisticStarted);
   result.logisticFeatures = logistic.features;
   result.logisticMetricsInSample = logistic.metrics;
 } catch (error) {
