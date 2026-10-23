@@ -1,0 +1,73 @@
+{
+  "dataset": "gmsc.csv",
+  "rows": 40000,
+  "featuresUsedBySirius": 8,
+  "featuresInFile": 10,
+  "positiveRate": 0.0656,
+  "siriusHeldOutAucReported": 0.869507,
+  "siriusTrainAucReported": 0.863415,
+  "siriusHeldOutAucRecomputedSklearn": 0.8695071517846177,
+  "sklearnHeldOutAuc": 0.8699346901030943,
+  "sklearnTrainAuc": 0.8635592277265077,
+  "sklearnTrees": 150,
+  "siriusTreesMs": 2991,
+  "gapSiriusMinusSklearn": -0.00042769010309429145,
+  "droppedColumns": [
+    "MonthlyIncome",
+    "NumberOfDependents"
+  ],
+  "sklearnHeldOutAucAllColumns": 0.868653881284194,
+  "q7": {
+    "trees": {
+      "auc": 0.8695071517846177,
+      "brier": 0.04790546511803347,
+      "logLoss": 0.17308895974413452,
+      "cal_ece": 0.00730210262645095,
+      "cal_slope": 1.0537215837709815,
+      "cal_intercept": 0.06758575071107831,
+      "cal_meanPredicted": 0.06648684810939971,
+      "cal_observedRate": 0.06475,
+      "grant_granted": 7240,
+      "grant_grantedRate": 0.905,
+      "grant_defaultsGranted": 235,
+      "grant_gain": 1166.0,
+      "grant_gainPer1000": 145.75,
+      "grant_gainIfGrantAllPer1000": 122.30000000000001,
+      "grant_oraclePer1000": 187.05
+    },
+    "sklearnHgb": {
+      "auc": 0.8699346901030943,
+      "brier": 0.04796065964902155,
+      "logLoss": 0.17313316080602054,
+      "cal_ece": 0.00848196530867341,
+      "cal_slope": 1.0511023300209845,
+      "cal_intercept": 0.06109065499837549,
+      "cal_meanPredicted": 0.06654855350983024,
+      "cal_observedRate": 0.06475,
+      "grant_granted": 7246,
+      "grant_grantedRate": 0.90575,
+      "grant_defaultsGranted": 237,
+      "grant_gain": 1164.8000000000002,
+      "grant_gainPer1000": 145.60000000000002,
+      "grant_gainIfGrantAllPer1000": 122.30000000000001,
+      "grant_oraclePer1000": 187.05
+    },
+    "logistic": {
+      "auc": 0.6562964757631959,
+      "brier": 0.06030584601097431,
+      "logLoss": 0.23887930303214158,
+      "cal_ece": 0.029508195393775388,
+      "cal_slope": 1.5815923206992808,
+      "cal_intercept": 0.8823721500872365,
+      "cal_meanPredicted": 0.09425819539377539,
+      "cal_observedRate": 0.06475,
+      "grant_granted": 7984,
+      "grant_grantedRate": 0.998,
+      "grant_defaultsGranted": 510,
+      "grant_gain": 984.8000000000002,
+      "grant_gainPer1000": 123.10000000000002,
+      "grant_gainIfGrantAllPer1000": 122.30000000000001,
+      "grant_oraclePer1000": 187.05
+    }
+  }
+}
