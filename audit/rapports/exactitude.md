@@ -57,7 +57,30 @@ python -I audit/exactitude/compare_sklearn.py audit/exactitude/.data/taiwan.csv 
 
 ### Q2. Prédictions du navigateur contre modèle livré
 
-(à remplir)
+**Réponse : oui. Écart maximal 1,1 × 10⁻¹⁶ (un ulp) sur 83 000 lignes, aucune étiquette différente (critère 1e-6 respecté).**
+
+Test : `audit/exactitude/tests/browser-vs-enclave.test.ts`. Pour chaque jeu, le modèle sorti de
+`trainGradientBoostedTrees` (avant output-gate) est parcouru par une implémentation indépendante ; le même modèle
+passe ensuite par `gateModel` → JSON → `parseDeliveredModel` → `predictModel` (code du navigateur).
+
+| Jeu | Lignes comparées | Écart max de probabilité | Étiquettes 0/1 différentes | Écart max métriques held-out (navigateur vs livrées) |
+|---|---|---|---|---|
+| credit-risk.csv | 13 000 | 1,1 × 10⁻¹⁶ | 0 | 4,1 × 10⁻⁷ (précision) |
+| Taïwan | 30 000 | 1,1 × 10⁻¹⁶ | 0 | 4,4 × 10⁻⁷ (rappel) |
+| GMSC (40 000) | 40 000 | 1,1 × 10⁻¹⁶ | 0 | 4,3 × 10⁻⁷ (F1) |
+
+- L'output-gate ne modifie ni les seuils ni les feuilles (déjà arrondis pendant l'entraînement) : `deepEqual` exact.
+- Les écarts de métriques (< 5 × 10⁻⁷) viennent uniquement de l'arrondi à 6 chiffres significatifs des métriques
+  livrées ; ils restent sous 1e-6.
+- Une valeur exactement égale au seuil part à droite des deux côtés ; « 1e3 », « 1000 » et « 1000.0 » donnent le même
+  résultat.
+- Limite : seul le moteur JavaScript V8 (Node 22) a été testé. Dans un autre navigateur (Firefox, Safari),
+  `Math.exp` peut différer d'un ulp ; cela reste très loin de 1e-6, mais n'a pas été mesuré (NON VÉRIFIÉ).
+
+Reproduire :
+```
+NODE_OPTIONS="--conditions=react-server" node --import tsx --test audit/exactitude/tests/browser-vs-enclave.test.ts
+```
 
 ### Q3. Doublons et split fixe
 
