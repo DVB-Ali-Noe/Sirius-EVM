@@ -72,7 +72,7 @@ def evaluate(name: str, frame: pd.DataFrame, test: pd.DataFrame | None = None) -
         test_path = DATA / "q7" / f"{name}-test.csv"
         write_csv(test, test_path)
     out = run_sirius(path, path.with_suffix(".json"), test_path)
-    result = {"case": name, "rows": len(frame), "positiveRate": float(frame["default"].mean()),
+    result = {"case": name, "rows": len(frame), "positiveRate": float(frame[frame.columns[-1]].mean()),
               "featuresTrees": len(out["features"]), "treesMs": out.get("treesMs"),
               "shownHeldOutAuc": out["treesMetrics"]["heldOutAuc"], "trainAuc": out["treesMetrics"]["trainAuc"],
               "heldOut": {"trees": summary(out["heldOutY"], out["treesHeldOut"])}}

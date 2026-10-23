@@ -84,7 +84,41 @@ NODE_OPTIONS="--conditions=react-server" node --import tsx --test audit/exactitu
 
 ### Q3. Doublons et split fixe
 
-(à remplir)
+**Réponse : avec le profil actuel, le gonflement est négligeable : +0,001 d'AUC au plus en moyenne (max +0,003),
+même avec 20 % de doublons. Ce n'est pas le split qui protège, c'est la bride du modèle : un modèle qui mémorise
+gonflerait de +0,013 (5 %) à +0,065 (20 %).**
+
+Protocole (`audit/exactitude/q3_duplicates.py`, puis `q3_paired.py`) sur Taïwan, 4 graines :
+6 000 lignes tirées au hasard forment un test externe propre ; les 24 000 autres forment le fichier, auquel on
+ajoute 5 % ou 20 % de copies exactes, soit dispersées au hasard, soit juste après l'original (export ou
+jointure qui répète des lignes). Sirius s'entraîne avec son split `index % 5 === 4`.
+
+Deux mesures du gonflement :
+- **appariée** (même modèle, mêmes lignes) : AUC held-out affichée − AUC des seules lignes held-out sans copie
+  dans l'entraînement. Peu bruitée.
+- **externe** : AUC affichée − AUC sur le test externe propre. Bruitée (écart type ≈ 0,01 entre graines).
+
+| Doublons | Placement | Lignes held-out ayant une copie dans l'entraînement | Gonflement apparié Sirius (moyenne / max) | Gonflement externe Sirius (moyenne ± écart type) | Gonflement externe modèle qui mémorise* |
+|---|---|---|---|---|---|
+| 0 % | — | 0,14 % (doublons naturels de Taïwan) | −0,0002 / −0,0000 | −0,0003 ± 0,011 | +0,001 ± 0,016 |
+| 5 % | dispersés | 7,9 % | +0,0010 / +0,0030 | +0,0000 ± 0,010 | +0,014 ± 0,009 |
+| 20 % | dispersés | 26,7 % | +0,0009 / +0,0012 | +0,0045 ± 0,008 | +0,053 ± 0,007 |
+| 5 % | adjacents | 9,8 % | −0,0006 / +0,0023 | +0,0043 ± 0,011 | +0,024 ± 0,015 |
+| 20 % | adjacents | 33,8 % | −0,0016 / +0,0018 | +0,0014 ± 0,014 | +0,065 ± 0,013 |
+
+\* scikit-learn HGB sans bride (profondeur libre, 63 feuilles, 1 ligne par feuille, 100 arbres) sur le même split.
+
+Lecture : avec 20 % de doublons adjacents, un tiers des lignes « jamais vues » ont en réalité leur copie exacte
+dans l'entraînement. La phrase de la documentation « jamais utilisée pour l'entraînement » est vraie pour la
+ligne, pas pour son contenu (EXA-07). Aujourd'hui sans effet mesurable grâce aux feuilles d'au moins 1 000 lignes ;
+le jour où le profil s'assouplit (v2 plus profonde), l'AUC affichée deviendra optimiste de plusieurs points.
+
+Reproduire :
+```
+python -I audit/exactitude/q3_duplicates.py 4
+python -I audit/exactitude/q3_paired.py
+```
+Résultats bruts : `audit/exactitude/resultats/q3-doublons.json`.
 
 ### Q4. Contrôle trainAuc >= heldOutAuc − 0,02
 
