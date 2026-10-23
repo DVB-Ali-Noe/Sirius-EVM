@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m03_quantile.py
 resultats: experiments/model-zoo/results/m03_quantile.json
 note: 4/10
+livraison: modèle livré
+decision: retenu
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M01 Arbres boostés]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Retenu comme option de catalogue, en version linéaire uniquement.
 
 ## Ce que c'est
 

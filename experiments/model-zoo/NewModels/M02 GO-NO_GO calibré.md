@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m02_calibrated_go_no_go.py
 resultats: experiments/model-zoo/results/m02_calibrated_go_no_go.json
 note: 5/10
+livraison: modèle livré
+decision: retenu
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M01 Arbres boostés]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Retenu, comme étape de recalibrage côté borrower proposée en option sur chaque prêt, pas comme modèle à part.
 
 ## Ce que c'est
 

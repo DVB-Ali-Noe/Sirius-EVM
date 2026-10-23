@@ -96,7 +96,7 @@ Le registre strict v3 signe `verifierEpoch` sous le domaine EIP-712 version `2`.
 
 ## D-20 — Budget à l’ingestion
 
-Le plafond de 20 millions d’opérations est partagé par validation et entraînement. Un fichier qui le dépasse est refusé avant scellement. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
+En septembre, le plafond de 20 millions d’opérations était partagé par validation et entraînement. Le 17 octobre, le code local le porte à 200 millions sans modifier la règle de refus avant scellement ; la mesure sur la CVM staging reste à faire. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
 
 ## D-21 — Phala unique en production, sans sélecteur VPS
 

@@ -21,7 +21,7 @@ Publier un dataset en deux écrans clairs, en sachant exactement ce qu'on va gag
 
 ## Étape 1 — La donnée
 
-- **Fichier** : glisser-déposer un CSV. Limites affichées avant le dépôt : 3 Mio, 20 000 lignes au plus, au moins 100 lignes, colonnes numériques, 31 variables explicatives au maximum.
+- **Fichier** : glisser-déposer un CSV. Limites du code local affichées avant le dépôt : 3 Mio, 50 000 lignes CSV au plus (en-tête compris), au moins 100 lignes de données, colonnes numériques, 31 variables explicatives au maximum. Le budget de calcul de 200 millions d’opérations et la taille peuvent refuser un fichier sous ce plafond de lignes.
 - Contrôle immédiat dans le navigateur : nombre de lignes et de colonnes, colonnes numériques détectées. Un fichier refusé l'est avec la raison exacte.
 - **Nom**, **description**.
 - **Catégorie**, nouvelle, obligatoire, liste fixe pour les filtres de la marketplace ([08](08-marketplace.md)) : Finance, Santé, Commerce, Industrie, Mobilité, Énergie, Marketing, Autre.

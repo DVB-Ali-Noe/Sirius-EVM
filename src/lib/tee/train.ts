@@ -5,7 +5,7 @@ export type TrainedModel = LinearRegressionModel | LogisticRegressionModel;
 
 const RIDGE = 1e-8;
 export const MAX_TRAINING_FEATURES = 31;
-export const MAX_TRAINING_OPERATIONS = 20_000_000;
+export const MAX_TRAINING_OPERATIONS = 200_000_000;
 const MAX_ABS_VALUE = 1e12;
 const DEFAULT_TRAINING_TIMEOUT_MS = 15_000;
 export const MIN_TRAINING_ROWS = 100;

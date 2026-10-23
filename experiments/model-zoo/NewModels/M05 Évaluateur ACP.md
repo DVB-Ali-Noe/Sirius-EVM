@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m05_acp_evaluator.py
 resultats: experiments/model-zoo/results/m05_acp_evaluator.json
 note: 3/10
+livraison: modèle livré
+decision: échec
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Échec. Les données ACP sont publiques, la valeur repose sur des signaux privés supposés, et le rôle d'évaluateur est inactif. Abandonné.
 
 ## Ce que c'est
 

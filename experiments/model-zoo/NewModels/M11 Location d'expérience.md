@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/agent-experience-lending/lend.py
 resultats: experiments/agent-experience-lending/runs/summary.md
 note: 6/10
+livraison: modèle livré
+decision: échec
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[Location d'expérience entre agents]]", "[[M09 Modèle coopératif multi-agents]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Description complète : [[Location d'expérience entre agents]]
+
+> **Décision du 14 octobre 2026** : Échec sur données réelles : aucun gain mesurable sur Binance. À ne rouvrir qu'avec de vraies données d'agent, un horizon à la minute et plusieurs années de test.
 
 ## Ce que c'est
 

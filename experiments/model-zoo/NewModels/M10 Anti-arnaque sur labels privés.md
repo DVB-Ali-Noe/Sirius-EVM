@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m10_scam_private_labels.py
 resultats: experiments/model-zoo/results/m10_scam_private_labels.json
 note: 7/10
+livraison: service depuis l'enclave
+decision: écarté
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M04 Isolation Forest]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Écarté : la liste secrète fuit même avec des arbres bridés, donc le modèle devrait être servi depuis l'enclave. Hors périmètre, malgré une valeur mesurée sur données réelles.
 
 ## Ce que c'est
 

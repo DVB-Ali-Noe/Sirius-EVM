@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m01_gbdt_credit.py
 resultats: experiments/model-zoo/results/m01_gbdt_credit.json
 note: 8/10
+livraison: modèle livré
+decision: retenu
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Retenu. Modèle livré au borrower, à construire en premier, avec le profil strict et la déduplication.
 
 ## Ce que c'est
 

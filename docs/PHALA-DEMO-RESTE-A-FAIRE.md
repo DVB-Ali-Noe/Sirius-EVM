@@ -155,6 +155,12 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 - [ ] Activer, vérifier le journal de démarrage et un premier retrait réel. Le bouton manuel doit rester fonctionnel.
 - [ ] Mesurer le coût réel par retrait et le reporter dans le business plan.
 
+## Capacité CSV et calcul — code local du 17 octobre 2026
+
+- [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester le worker à 30 000 lignes et le refus au-delà du budget.
+- [ ] Mesurer sur la CVM staging un CSV représentatif de 30 000 lignes, temps, mémoire et marge sur le délai signé de 15 s. Ne porter le heap de 128 à 256 Mio ou le délai à 30 s qu’après cette mesure et vérification des autres jobs/coûts.
+- [ ] Déployer en staging après créneau et coût approuvés, attester la nouvelle image et rejouer le parcours réel ; publier les mesures dans une PR sur demande Git explicite. La mise en production reste une opération distincte avec rotation du compose hash et validation des clés.
+
 ## Suites produit différées
 
 - [ ] Uploads plus volumineux et reprise d’envoi.

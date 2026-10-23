@@ -7,10 +7,14 @@ tags: [sirius, kev, llm, fine-tuning, confidentialite, dp-sgd]
 date: 2026-10-13
 source: experiments/kev-decision-tune/runs-gpu/ (runs du 12 octobre, pas relancés ici)
 note: 5/10
+livraison: service depuis l'enclave
+decision: écarté
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[Résultats GPU, mémorisation, confidentialité différentielle et CFPB]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Détail complet : [[Résultats GPU, mémorisation, confidentialité différentielle et CFPB]]
+
+> **Décision du 14 octobre 2026** : Écarté : l'adaptateur ne peut pas être livré sans risque, donc le modèle devrait être servi depuis l'enclave. Hors périmètre.
 
 ## Ce que c'est
 

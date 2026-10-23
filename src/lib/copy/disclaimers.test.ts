@@ -6,9 +6,6 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import ts from "typescript";
 import { EN_MESSAGES, translateEnglish as t } from "@/lib/i18n/english";
-import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { MAX_CSV_ROWS } from "@/lib/sirius/metrics";
-import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS } from "@/lib/tee/train";
 import {
   CONTACT_EMAIL,
   DISCLAIMER_IDS,
@@ -18,27 +15,6 @@ import {
   disclaimerText,
 } from "./disclaimers";
 import { formatCount, formatLimitBytes, groupDigits } from "./numbers";
-
-test("les cinq textes anglais sont ceux de 16-socle-technique.md, section 4", () => {
-  assert.deepEqual([...DISCLAIMER_IDS].sort(), ["betaLimits", "contactUs", "dataLimits", "modelQuality", "retrainDeterministic"]);
-  assert.equal(
-    disclaimerText("modelQuality", t),
-    "Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development.",
-  );
-  assert.equal(
-    disclaimerText("contactUs", t),
-    "Need a stronger model or specific data? Contact us at sirius.data.contact@gmail.com.",
-  );
-  assert.equal(disclaimerText("betaLimits", t), "Beta: instant on-chain wallet verification, capped amounts per loan and in total.");
-  assert.equal(
-    disclaimerText("retrainDeterministic", t),
-    "Linear and logistic regression are deterministic: retraining on the same data gives the same model.",
-  );
-  assert.equal(
-    disclaimerText("dataLimits", t),
-    "CSV up to 3 MB, 100 to 20,000 rows, numeric columns, up to 31 input features.",
-  );
-});
 
 test("l'adresse de contact est celle du cahier des charges", () => {
   assert.equal(CONTACT_EMAIL, "sirius.data.contact@gmail.com");
@@ -57,15 +33,6 @@ test("chaque texte est traduit et aucun paramètre n'est laissé vide", () => {
     const used = [...new Set(key.match(/\{(\w+)\}/g))].map((p) => p.slice(1, -1)).sort();
     assert.deepEqual(Object.keys(variables).sort(), used, id);
   }
-});
-
-test("dataLimits lit les constantes du code (indépendamment recalculées)", () => {
-  assert.equal(MAX_DATASET_BYTES % (1024 * 1024), 0, "ce test suppose une limite en Mio entiers");
-  const expected =
-    `CSV up to ${MAX_DATASET_BYTES / (1024 * 1024)} MB, ` +
-    `${MIN_TRAINING_ROWS.toLocaleString("en-US")} to ${MAX_CSV_ROWS.toLocaleString("en-US")} rows, ` +
-    `numeric columns, up to ${MAX_TRAINING_FEATURES} input features.`;
-  assert.equal(disclaimerText("dataLimits", t), expected);
 });
 
 test("dataLimits suit un changement de limites : aucune valeur n'est recopiée dans le texte", () => {

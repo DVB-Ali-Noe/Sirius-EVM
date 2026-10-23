@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m06_learning_to_rank.py
 resultats: experiments/model-zoo/results/m06_learning_to_rank.json
 note: 4/10
+livraison: modèle livré
+decision: échec
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M05 Évaluateur ACP]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Échec. Le gain vient du générateur, aucun provider n'a intérêt à louer, et c'est la plus forte fuite des modèles bridés. Abandonné.
 
 ## Ce que c'est
 

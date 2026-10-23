@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m08_alt_data_signals.py
 resultats: experiments/model-zoo/results/m08_alt_data_signals.json
 note: 4/10
+livraison: service depuis l'enclave
+decision: écarté
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Écarté : sans le flux de données du vendeur, un modèle livré ne vaut rien, donc il faudrait un service de signaux depuis l'enclave. Hors périmètre, et marché déjà existant.
 
 ## Ce que c'est
 

@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m04_isolation_forest.py
 resultats: experiments/model-zoo/results/m04_isolation_forest.json
 note: 2/10
+livraison: modèle livré
+decision: échec
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M10 Anti-arnaque sur labels privés]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]]
+
+> **Décision du 14 octobre 2026** : Échec. Faible sur données réelles (AUC 0,61), et le fichier livré isole des individus. Abandonné.
 
 ## Ce que c'est
 

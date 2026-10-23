@@ -81,6 +81,16 @@ Sources principales : whitepaper Virtuals, dépôt GitHub ACP, Delphi Digital, C
 
 **Verdict** : le cas le mieux prouvé est le plus classique, le scoring tabulaire B2B (crédit), sur lequel portent déjà les entretiens prévus. Pour Virtuals, la piste la plus défendable est l'anti-arnaque en service de scores. La location d'expérience reste à valider avec de vraies données d'agent.
 
+### Décision de Noé du 14 octobre 2026
+
+Tout ce qui devrait être servi depuis l'enclave est écarté : M07, M08, M10.
+
+- **Retenus**, en prêt de modèle : M01, M02 (étape de recalibrage en option), M03 (version linéaire).
+- **En attente** : M09, conditionné à de vraies données d'agent.
+- **Échecs** : M04, M05, M06 et M11 (aucun gain sur Binance).
+
+Chaque rapport porte désormais `livraison` et `decision` dans son en-tête, ainsi qu'un encadré de décision.
+
 ## 7. Enseignements transversaux
 
 1. **Brider les arbres améliore à la fois la qualité et la confidentialité**, dans tous les cas supervisés. Les arbres libres sont pires sur les deux plans.

@@ -23,6 +23,19 @@ Le protocole commun est dans [[Méthode de test]]. Les modèles de décision Kev
 
 **Ce que le réel a appris sur le synthétique** : il prédisait bien les **fuites** (mêmes ordres de grandeur), mais mal la **valeur**. Il était trop optimiste sur le trading (où j'avais mis le signal moi-même) et trop pessimiste sur le crédit.
 
+## Décision du 14 octobre 2026
+
+On écarte tout ce qui devrait être servi depuis l'enclave. Sirius reste sur le **prêt de modèle** : le borrower repart avec le modèle et s'en sert avec ses propres données.
+
+| Décision | Modèles | Pourquoi |
+|---|---|---|
+| **Retenus** | [[M01 Arbres boostés]], [[M02 GO-NO_GO calibré]] (recalibrage en option), [[M03 Régression quantile]] (version linéaire) | Livrables sans fuite mesurable, et une valeur prouvée sur données réelles pour M01 |
+| **En attente** | [[M09 Modèle coopératif multi-agents]] | Dépend de vraies données d'agent ; faille du copieur à corriger |
+| **Écartés, service depuis l'enclave** | [[M07 Modèle de décision type Kev]], [[M08 Signaux sur données alternatives]], [[M10 Anti-arnaque sur labels privés]] | Trop risqués à livrer, ou inutiles sans le flux du provider |
+| **Échecs** | [[M04 Isolation Forest]], [[M05 Évaluateur ACP]], [[M06 Learning-to-rank]], [[M11 Location d'expérience]] | Pas de valeur prouvée : faible sur réel (M04), données publiques (M05), gain fabriqué par le générateur (M06), aucun gain sur Binance (M11) |
+
+Conséquence : la piste Virtuals la plus solide (M10) sort du périmètre. Côté crypto-natif, il ne reste que M09, en attente.
+
 ## Classement
 
 | Rang | Modèle | Note | Testé sur réel | Qualité | Extraction (version recommandée) | Verdict en une ligne |

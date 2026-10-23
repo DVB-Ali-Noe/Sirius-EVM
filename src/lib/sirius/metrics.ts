@@ -3,7 +3,7 @@ export interface DatasetMetrics {
   columnCount: number;
 }
 
-export const MAX_CSV_ROWS = 20_000;
+export const MAX_CSV_ROWS = 50_000;
 export const MAX_CSV_COLUMNS = 64;
 const MAX_CELL_CHARS = 10_000;
 

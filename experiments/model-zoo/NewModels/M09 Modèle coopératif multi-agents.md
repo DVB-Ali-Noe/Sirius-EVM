@@ -8,10 +8,14 @@ date: 2026-10-13
 script: experiments/model-zoo/m09_cooperative.py
 resultats: experiments/model-zoo/results/m09_cooperative.json
 note: 7/10
+livraison: modèle livré
+decision: conditionnel
 liens: ["[[00 Nouveaux modèles]]", "[[Méthode de test]]", "[[M11 Location d'expérience]]", "[[Location d'expérience entre agents]]"]
 ---
 
 Retour : [[00 Nouveaux modèles]] · Protocole : [[Méthode de test]] · Expérience de base : [[Location d'expérience entre agents]]
+
+> **Décision du 14 octobre 2026** : En attente. Il dépend de M11 et de vraies données d'agent, et la faille du copieur doit être corrigée avant tout paiement.
 
 ## Ce que c'est
 
