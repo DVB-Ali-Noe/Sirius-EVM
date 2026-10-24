@@ -18,7 +18,7 @@ import {
   thresholdBetween,
   type GbdtNode,
 } from "@/lib/models/gbdt";
-import { DatasetValidationError, GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumns, trainingTimeoutMs } from "./train";
+import { DatasetValidationError, GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingClockMs, trainingColumns, trainingTimeoutMs } from "./train";
 
 /**
  * Arbres boostés stricts (profil `gradient_boosted_trees` v1.1), perte logistique, déterministes.
@@ -53,7 +53,7 @@ import { DatasetValidationError, GBDT_ROW_FLOOR, assertGbdtDataset, assertWithin
  *   les arrondit (3 décimales, écart d'AUC à 2 décimales, `n` à 2 chiffres).
  */
 export function trainGradientBoostedTrees(csv: Buffer, target?: string): GradientBoostedTreesModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline, GBDT_ROW_FLOOR);
   assertGbdtDataset(header, rows, targetIdx, featureIdx);
 

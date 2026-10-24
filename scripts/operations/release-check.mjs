@@ -78,6 +78,14 @@ export function checkReleaseEnvironments(next, reaper, runner, network = "testne
       if (value(env) !== value(runner)) issues.push(`divergence.${key}`);
     }
   }
+  // Profils facultatifs (audit REP-07) : Next fige NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS au build, le
+  // runner le lit dans son Compose attesté (`--opt-in-models`), et rien ne les compare à
+  // l'exécution. Même règle que la finalité rapide : seule la direction nuisible est refusée, un
+  // Next qui propose un profil que l'enclave refuse (publication et devis en échec). Next coupé
+  // pendant que le Compose garde le profil est l'étape intermédiaire du retour arrière : autorisé.
+  const optInModels = (env) => new Set((env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
+  const runnerModels = optInModels(runner);
+  if ([...optInModels(next)].some((id) => !runnerModels.has(id))) issues.push("next.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS.runner-disabled");
   for (const role of ["next", "reaper"]) {
     requireValue(role, "SIRIUS_REQUIRE_PHALA", /^true$/);
     for (const [key, size] of Object.entries(MEASURES)) requireValue(role, key, new RegExp(`^[a-f0-9]{${size}}$`, "i"));

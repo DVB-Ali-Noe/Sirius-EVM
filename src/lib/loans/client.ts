@@ -1,7 +1,7 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { SETTLEMENT_FINALITY_PENDING } from "./settlement-status";
+import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_QUEUED } from "./settlement-status";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -155,17 +155,38 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
   return retrieveLoanKey(input.loanId, body.runnerReceipt);
 }
 
-async function settleLoan(loanId: string, runnerReceipt: string): Promise<void> {
-  const authorization = await issueRunnerGrant("settle-loan", { loanId }, [loanId, runnerReceipt]);
-  const response = await fetch(`/api/loans/${loanId}/settle`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorization }),
-  });
-  const body = await response.json() as { error?: string; pending?: boolean };
-  // Le serveur annonce l'attente selon le palier du prêt (secondes ou quart d'heure) ; sans message, l'attente longue.
-  if (response.status === 202 && body.pending) throw new Error(typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING);
-  if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");
+/**
+ * Attentes avant de redemander un règlement refusé parce qu'un autre occupe le wallet du runner
+ * (`SETTLEMENT_QUEUED`, audit PAR-02). Chaque essai porte une nouvelle autorisation : le runner
+ * refuse le rejeu d'un grant. Au-delà, le message s'affiche et le reaper reprend le prêt.
+ */
+export const SETTLEMENT_QUEUED_RETRY_MS = [2_000, 4_000, 8_000] as const;
+
+export async function settleLoan(
+  loanId: string,
+  runnerReceipt: string,
+  {
+    wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    grant = issueRunnerGrant,
+  }: { wait?: (ms: number) => Promise<void>; grant?: typeof issueRunnerGrant } = {},
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    const authorization = await grant("settle-loan", { loanId }, [loanId, runnerReceipt]);
+    const response = await fetch(`/api/loans/${loanId}/settle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ authorization }),
+    });
+    const body = await response.json() as { error?: string; pending?: boolean };
+    // Le serveur annonce l'attente selon le palier du prêt (secondes ou quart d'heure) ; sans message, l'attente longue.
+    if (response.status === 202 && body.pending) throw new Error(typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING);
+    if (response.status === 503 && body.error === SETTLEMENT_QUEUED && attempt < SETTLEMENT_QUEUED_RETRY_MS.length) {
+      await wait(SETTLEMENT_QUEUED_RETRY_MS[attempt]);
+      continue;
+    }
+    if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");
+    return;
+  }
 }
 
 export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {

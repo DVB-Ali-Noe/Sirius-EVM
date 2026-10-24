@@ -85,6 +85,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Réservations runner en attente de réconciliation": "Runner reservations await reconciliation",
   "Résultat runner trop volumineux": "Runner result is too large",
   "Transaction du wallet runner encore incertaine": "A runner wallet transaction remains unconfirmed",
+  "Un autre règlement est en cours sur le runner : réessaie dans un instant, le tien sera aussi repris automatiquement": "Another settlement is in progress on the runner: try again in a moment; yours will also be resumed automatically",
   "Intention runner interrompue : réconciliation manuelle requise": "Runner intent was interrupted: manual reconciliation is required",
   "Règlement on-chain rejeté : aucune relance automatique": "On-chain settlement reverted: automatic retries are disabled",
   "Règlement refusé avant envoi : vérifier budget et réseau": "Settlement blocked before submission: check budget and network",

@@ -25,6 +25,7 @@ import {
   type GbdtNode,
 } from "@/lib/models/gbdt";
 import { MODEL_OPTIONS, isModelOffered, modelSelection, parseDeliveredModel, type GradientBoostedTreesModel } from "@/lib/models/registry";
+import { gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { predictModel } from "@/lib/train/evaluation-client";
 
@@ -93,6 +94,8 @@ test("sur un risque à seuils, les arbres battent la logistique sur le jeu de te
   // La métrique held-out livrée annonce la même qualité que le jeu de test séparé, à l'aléa près.
   assert.ok(Math.abs(trees.metrics.heldOutAuc - treesAuc) < 0.03);
   assert.ok(trees.metrics.aucGap >= -0.02);
+  // Écart train / held-out jugé dans les deux sens, en erreurs types du held-out (audit EXA-01).
+  assert.equal(gbdtGapVerdict(trees.metrics), "ok");
   // 10 400 lignes publiées à 2 chiffres significatifs.
   assert.equal(trees.metrics.n, 10_000);
 });

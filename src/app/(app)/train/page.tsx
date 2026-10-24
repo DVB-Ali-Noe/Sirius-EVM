@@ -51,6 +51,7 @@ import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResp
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
 import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
+import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
 import { resolveClientNetwork } from "@/lib/evm/networks";
@@ -920,6 +921,8 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
   const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
   const [prediction, setPrediction] = useState<ReturnType<typeof predictModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Écart train / held-out jugé dans les deux sens, depuis les seules métriques livrées (audit EXA-01).
+  const gapVerdict = model.algo === "gradient_boosted_trees" ? gbdtGapVerdict(model.metrics) : null;
 
   async function evaluate() {
     if (!testFile) {
@@ -990,6 +993,9 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
         )}
         <Field label="n" value={String(model.metrics.n)} />
       </dl>
+      {gapVerdict && gapVerdict !== "ok" && (
+        <p role="status" className="mt-2 text-xs text-negative">{t(GAP_WARNINGS[gapVerdict])}</p>
+      )}
       <div className="mt-2 text-xs text-muted">
         {model.algo === "gradient_boosted_trees" ? (
           <>
