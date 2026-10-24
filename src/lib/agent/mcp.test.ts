@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CatalogueResponse } from "../marketplace/catalogue";
 import type { MarketplaceQuery } from "../marketplace/query";
-import { createSiriusMcpHandler, MCP_MAX_REQUEST_BYTES, rejectMcpRequest } from "./mcp";
+import { createSiriusMcpHandler, MCP_MAX_REQUEST_BYTES, MCP_MAX_TOOL_INPUT_ELEMENTS, rejectMcpRequest } from "./mcp";
 import { AGENT_TOOL_NAMES, type AgentToolSource } from "./tools";
 
 const ORIGIN = "https://sirius-data.tech";
@@ -207,6 +207,45 @@ test("un corps trop gros est refusé avant d'être lu", async () => {
     }),
   );
   assert.equal(response.status, 413);
+});
+
+test("des arguments trop nombreux sont refusés avant le schéma et avant toute lecture", async () => {
+  const { handler, calls } = fixture();
+  // `query` plus des champs inconnus, que le schéma ignorerait : seule la borne du SDK compte.
+  const call = (fields: number) =>
+    handler
+      .fetch(
+        legacyRequest("tools/call", {
+          name: "search_datasets",
+          arguments: { query: "energie", ...Object.fromEntries(Array.from({ length: fields - 1 }, (_, index) => [`pad${index}`, 0])) },
+        }),
+      )
+      .then(rpc);
+  const refused = await call(MCP_MAX_TOOL_INPUT_ELEMENTS + 1);
+  assert.equal(refused.result!.isError, true);
+  assert.deepEqual(calls.catalogue, []);
+  // À la borne, le même appel est servi.
+  const served = await call(MCP_MAX_TOOL_INPUT_ELEMENTS);
+  assert.equal(served.result!.isError, undefined);
+  assert.equal(calls.catalogue.length, 1);
+});
+
+test("un même gestionnaire sert des appels simultanés de même id sans mélanger les réponses", async () => {
+  // GHSA-jm63-cq47-j5jp : un serveur partagé routait les réponses par id JSON-RPC seul. Ici chaque
+  // appel a son propre serveur : deux clients qui numérotent tous deux depuis 1 restent séparés.
+  const { handler } = fixture({
+    catalogue: async (query) => {
+      const term = query.terms[0];
+      await new Promise((resolve) => setTimeout(resolve, term === "lent" ? 30 : 0));
+      const catalogue = emptyCatalogue();
+      return { ...catalogue, items: [{ ...catalogue.items[0], name: `dataset ${term}` }] };
+    },
+  });
+  const search = (query: string) =>
+    handler.fetch(legacyRequest("tools/call", { name: "search_datasets", arguments: { query } }, 1)).then(rpc);
+  const [slow, fast] = await Promise.all([search("lent"), search("rapide")]);
+  assert.deepEqual(slow.result!.structuredContent!.datasets!.map((dataset) => dataset.name), ["dataset lent"]);
+  assert.deepEqual(fast.result!.structuredContent!.datasets!.map((dataset) => dataset.name), ["dataset rapide"]);
 });
 
 test("Origin : absent ou celui du site passe, tout autre est refusé", () => {

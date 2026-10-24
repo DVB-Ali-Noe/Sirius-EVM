@@ -30,6 +30,12 @@ export const MCP_SERVER_NAME = "sirius";
 export const MCP_SERVER_VERSION = "1.0.0";
 /** Corps de requête maximal : un appel d'outil de ce serveur tient en quelques centaines d'octets. */
 export const MCP_MAX_REQUEST_BYTES = 64 * 1024;
+/**
+ * Éléments de tableau et champs d'objet au plus dans les arguments d'un appel d'outil, comptés par
+ * le SDK avant la validation du schéma (GHSA-46jr-4wx8-v453 : sans borne, un corps sous la limite
+ * d'octets suffit à épuiser la mémoire). Les entrées de ces outils tiennent en cinq champs.
+ */
+export const MCP_MAX_TOOL_INPUT_ELEMENTS = 64;
 /** Les listes (outils, découverte) ne changent qu'au déploiement : un client peut les garder une heure. */
 const LIST_CACHE_TTL_MS = 60 * 60_000;
 
@@ -68,6 +74,7 @@ export function createSiriusMcpServer(source: AgentToolSource, origin: string): 
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION, title: "Sirius" },
     {
       instructions: MCP_INSTRUCTIONS,
+      maxToolInputElements: MCP_MAX_TOOL_INPUT_ELEMENTS,
       cacheHints: {
         "tools/list": { ttlMs: LIST_CACHE_TTL_MS, cacheScope: "public" },
         "server/discover": { ttlMs: LIST_CACHE_TTL_MS, cacheScope: "public" },
