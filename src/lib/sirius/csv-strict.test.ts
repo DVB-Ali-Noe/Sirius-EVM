@@ -1,6 +1,7 @@
 /**
- * Parseur CSV strict, partagé par le navigateur, l'ingestion et l'enclave (audit robustesse
- * ROB-03 à ROB-06, exactitude EXA-04). Cas repris de `audit/robustesse/strict-csv.test.ts`.
+ * Parseur CSV et règle numérique stricts, partagés par le navigateur, l'ingestion et l'enclave
+ * (audit robustesse ROB-01 à ROB-06, exactitude EXA-03 et EXA-04). Cas repris de
+ * `audit/robustesse/strict-csv.test.ts`.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -9,8 +10,10 @@ import { test } from "node:test";
 import { inspectCsv, csvRejectionText } from "@/lib/datasets/csv-check";
 import { translateEnglish } from "@/lib/i18n/english";
 import { selectionForModelId, type ModelId } from "@/lib/models/registry";
-import { trainLinearRegression, validateTrainingDataset } from "@/lib/tee/train";
-import { CsvValidationError, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "./metrics";
+import { evaluateModelCsv } from "@/lib/train/evaluation-client";
+import { trainGradientBoostedTrees } from "@/lib/tee/train-gbdt";
+import { trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "@/lib/tee/train";
+import { CsvValidationError, isNumericCell, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "./metrics";
 
 const CREDIT_RISK = readFileSync(joinPath(process.cwd(), "public/examples/classification/credit-risk.csv"), "utf8");
 // Fins de ligne normalisées : la copie de travail peut être en CRLF (core.autocrlf).
@@ -131,5 +134,70 @@ test("navigateur et enclave refusent le même fichier, avec la ligne fautive dan
         return true;
       });
     }
+  }
+});
+
+test("ROB-01 / ROB-02 : isNumericCell n'accepte que l'écriture décimale d'un tableur", () => {
+  const accepted = ["0", "-0", "+1", "1.5", ".5", "5.", "1e3", "-2.5E-4", "1e12", "-1e12", "1000000000000", "007", " 5", "5 ", "\t5\t", "1e-400"];
+  const refused = [
+    "", " ", "  ", "\t", "0x1A", "0X1a", "0b101", "0o17", "NaN", "Infinity", "-Infinity", "1e300", "1000000000001",
+    "1_000", "1,5", "1 000", "﻿5", " 7", "5 ", "\n5", "1e12.5", "--1", "e5", ".", "+", "1e", "١",
+  ];
+  for (const cell of accepted) assert.equal(isNumericCell(cell), true, JSON.stringify(cell));
+  for (const cell of refused) assert.equal(isNumericCell(cell), false, JSON.stringify(cell));
+  // Une cellule acceptée garde exactement la valeur que lisait `Number()` : aucun modèle valide ne change.
+  for (const cell of accepted) assert.ok(Number.isFinite(Number(cell)));
+});
+
+/** Fichier de régression 0/1 assez grand pour les trois profils, avec une colonne remplaçable en tête. */
+function binaryFile(first: (row: number) => string, rows = 10_000): string {
+  const lines = ["first,a,b,y"];
+  for (let row = 0; row < rows; row++) {
+    const a = (row * 37) % 101;
+    const b = (row * 53) % 97;
+    lines.push(`${first(row)},${a},${b},${(a + b + (row % 7) * 9) % 100 < 45 ? 1 : 0}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+test("ROB-02 : un identifiant hexadécimal n'est plus une variable, dans aucun profil", () => {
+  const hex = Buffer.from(binaryFile((row) => `0x${((row * 2_654_435_761) >>> 8).toString(16)}`));
+  const without = Buffer.from(binaryFile(() => "ref"));
+  for (const train of [trainLinearRegression, trainLogisticRegression, trainGradientBoostedTrees]) {
+    const model = train(hex);
+    assert.deepEqual(model.features, ["a", "b"]);
+    assert.deepEqual(model, train(without), "même modèle que si la colonne était du texte");
+  }
+});
+
+test("ROB-01 : une cellule d'espaces compte comme vide (colonne écartée), plus comme un 0", () => {
+  const spaces = Buffer.from(binaryFile((row) => (row % 10 === 0 ? " " : String(row % 13))));
+  const empty = Buffer.from(binaryFile((row) => (row % 10 === 0 ? "" : String(row % 13))));
+  for (const train of [trainLinearRegression, trainLogisticRegression, trainGradientBoostedTrees]) {
+    const model = train(spaces);
+    assert.ok(!model.features.includes("first"));
+    assert.deepEqual(model, train(empty));
+  }
+  // Le navigateur décrit la même colonne écartée et la même cible que l'enclave.
+  const browser = inspectCsv(spaces.toString(), "gradient_boosted_trees");
+  assert.ok(browser.ok);
+  assert.deepEqual(browser.summary.features, ["a", "b"]);
+});
+
+test("des espaces autour d'un nombre ne changent rien : même modèle qu'avec les nombres nus", () => {
+  const bare = binaryFile((row) => String(row % 13));
+  const padded = bare.split("\n").map((line, row) => (row === 0 || !line ? line : line.split(",").map((cell, column) => (column < 3 ? ` ${cell}\t` : cell)).join(","))).join("\n");
+  for (const train of [trainLinearRegression, trainLogisticRegression, trainGradientBoostedTrees]) {
+    assert.deepEqual(train(Buffer.from(padded)), train(Buffer.from(bare)));
+  }
+});
+
+test("l'évaluation du navigateur lit les nombres comme l'enclave : 0x et espaces refusés", () => {
+  const model = trainLogisticRegression(Buffer.from(binaryFile((row) => String(row % 13), 300)));
+  const test = binaryFile((row) => String(row % 13), 40);
+  assert.equal(evaluateModelCsv(model, test).n, 40);
+  for (const cell of ["0x10", " ", " 7"]) {
+    const broken = test.replace(/\n(\d+),/, `\n${cell},`);
+    assert.throws(() => evaluateModelCsv(model, broken), /Valeur invalide dans la colonne « first »/, JSON.stringify(cell));
   }
 });

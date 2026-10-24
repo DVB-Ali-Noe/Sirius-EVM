@@ -161,6 +161,8 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
     "A variable that contains the answer gives a misleading model. Remove it if it is not known at prediction time.",
   "Colonnes écartées par l’entraînement : à vérifier": "Columns dropped by training: please check",
   "{missing} vides, {invalid} non numériques": "{missing} empty, {invalid} non-numeric",
+  "Un nombre s’écrit en décimal avec un point (12.5, -3, 1e6) : une cellule faite d’espaces compte comme vide, une valeur 0x, 0b ou 0o n’est pas un nombre.":
+    "A number is written in decimal with a dot (12.5, -3, 1e6): a cell made only of spaces counts as empty, and a 0x, 0b or 0o value is not a number.",
   "Une seule cellule vide ou non numérique écarte toute la colonne. Complète-les pour l’utiliser.":
     "A single empty or non-numeric cell drops the whole column. Fill them in to use it.",
   "Colonnes constantes : à vérifier": "Constant columns: please check",
@@ -176,11 +178,4 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
   "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.":
     "This report stays in your browser: it is neither sent nor saved, and it does not modify your file.",
-  "Cellules faites d’espaces, lues comme 0 : à vérifier": "Cells made only of spaces, read as 0: please check",
-  "{count} cellules": "{count} cells",
-  "Une cellule qui ne contient que des espaces compte comme la valeur 0, pas comme une valeur manquante.":
-    "A cell containing only spaces counts as the value 0, not as a missing value.",
-  "Valeurs lues comme des nombres en base 16, 2 ou 8 : à vérifier": "Values read as base 16, 2 or 8 numbers: please check",
-  "Une valeur préfixée 0x, 0b ou 0o est lue en hexadécimal, binaire ou octal : 0x10 vaut 16.":
-    "A value prefixed with 0x, 0b or 0o is read as hexadecimal, binary or octal: 0x10 equals 16.",
 };

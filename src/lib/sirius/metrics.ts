@@ -6,6 +6,32 @@ export interface DatasetMetrics {
 export const MAX_CSV_ROWS = 50_000;
 export const MAX_CSV_COLUMNS = 64;
 const MAX_CELL_CHARS = 10_000;
+/** Plus grande valeur absolue d'une cellule numérique : au-delà, la colonne n'entre pas dans l'entraînement. */
+export const MAX_ABS_CELL_VALUE = 1e12;
+
+/**
+ * Écriture décimale usuelle d'un tableur : signe, partie entière et/ou décimale avec un point,
+ * exposant facultatif, espaces ou tabulations autour tolérés.
+ */
+const DECIMAL_CELL = /^[ \t]*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[ \t]*$/;
+
+/**
+ * Règle numérique unique de l'enclave, de l'ingestion et du navigateur (audit ROB-01, ROB-02).
+ * `Number()` seul lisait une cellule faite d'espaces comme 0 et acceptait l'hexadécimal (`0x1A`),
+ * le binaire (`0b101`), l'octal (`0o17`), l'espace insécable et le BOM : ces cellules ne sont plus
+ * des nombres (une cellule d'espaces compte comme vide). Pour toute cellule acceptée, la valeur lue
+ * reste `Number(value)`, inchangée.
+ */
+export function isNumericCell(value: string): boolean {
+  if (!DECIMAL_CELL.test(value)) return false;
+  const number = Number(value);
+  return Number.isFinite(number) && Math.abs(number) <= MAX_ABS_CELL_VALUE;
+}
+
+/** Cellule vide ou faite seulement d'espaces : une valeur manquante. */
+export function isBlankCell(value: string): boolean {
+  return value.trim() === "";
+}
 
 /**
  * Défaut de forme du fichier, situé sur une ligne physique (1 = en-tête) : message précis côté

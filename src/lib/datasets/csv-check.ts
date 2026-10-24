@@ -1,5 +1,5 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { CsvValidationError, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "@/lib/sirius/metrics";
+import { CsvValidationError, isNumericCell, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "@/lib/sirius/metrics";
 import {
   MAX_HEADER_CHARS,
   MAX_TRAINING_FEATURES,
@@ -18,17 +18,16 @@ import { formatBytes } from "@/lib/format";
  *
  * Il reproduit, dans le même ordre, les contrôles que l'enclave applique au scellement
  * (`validateTrainingDataset`, src/lib/tee/train.ts) : même parseur (`parseCsv`), mêmes
- * constantes importées, même détection des colonnes numériques, même cible (la dernière
- * colonne numérique). Un fichier refusé ici l'aurait été par l'enclave, avec la même
- * raison ; un fichier accepté ici peut encore être refusé par l'enclave (le contrôle du
+ * constantes importées, même détection des colonnes numériques (`isNumericCell`), même cible
+ * (la dernière colonne numérique). Un fichier refusé ici l'aurait été par l'enclave, avec la
+ * même raison ; un fichier accepté ici peut encore être refusé par l'enclave (le contrôle du
  * navigateur n'est qu'un confort), jamais l'inverse.
  *
- * Deux constantes privées de `train.ts` sont reproduites ici, faute d'export :
- * `MAX_ABS_VALUE` et `LOGISTIC_ITERATIONS`. `csv-check.test.ts` rejoue
- * `validateTrainingDataset` sur les fichiers à la frontière pour détecter toute dérive.
+ * Une constante privée de `train.ts` est reproduite ici, faute d'export : `LOGISTIC_ITERATIONS`.
+ * `csv-check.test.ts` rejoue `validateTrainingDataset` sur les fichiers à la frontière pour
+ * détecter toute dérive.
  */
 
-const MAX_ABS_VALUE = 1e12;
 const LOGISTIC_ITERATIONS = 200;
 
 export type CsvRejection =
@@ -75,12 +74,8 @@ export function checkFileSize(sizeBytes: number): CsvRejection | null {
   return null;
 }
 
-// Même expression que `isNum` dans train.ts : `Number()` accepte les espaces et l'hexadécimal,
-// refuse la chaîne vide (sinon 0) et l'infini ; la borne absolue écarte les valeurs géantes.
-export function isNumericCell(value: string): boolean {
-  const number = Number(value);
-  return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
-}
+// Règle numérique de l'enclave, importée telle quelle (src/lib/sirius/metrics.ts).
+export { isNumericCell };
 
 function parseRejection(error: unknown): CsvRejection {
   if (error instanceof CsvValidationError && error.problem) return { kind: "malformed", problem: error.problem };

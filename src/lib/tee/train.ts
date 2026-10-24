@@ -1,6 +1,6 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
 import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
-import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
+import { isNumericCell, parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
@@ -9,7 +9,6 @@ export const MAX_TRAINING_FEATURES = 31;
 /** Les noms de colonnes sortent dans le modèle : bornés pour rester sous le plafond de l'output-gate. */
 export const MAX_HEADER_CHARS = 128;
 export const MAX_TRAINING_OPERATIONS = 200_000_000;
-const MAX_ABS_VALUE = 1e12;
 const DEFAULT_TRAINING_TIMEOUT_MS = 15_000;
 export const MIN_TRAINING_ROWS = 100;
 export const MIN_ROWS_PER_PARAMETER = 10;
@@ -26,13 +25,8 @@ const LOGISTIC_L2 = 0.01;
  */
 export class DatasetValidationError extends Error {}
 
-function isNum(value: string): boolean {
-  const number = Number(value);
-  return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
-}
-
 function numericColumns(header: string[], rows: string[][]): number[] {
-  return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
+  return header.map((_, column) => column).filter((column) => rows.every((row) => isNumericCell(row[column] ?? "")));
 }
 
 export function assertWithinDeadline(deadline: number): void {

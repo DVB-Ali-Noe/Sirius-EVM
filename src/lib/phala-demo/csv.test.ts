@@ -64,14 +64,15 @@ test("cible non numérique sur /phala : annoncée une seule fois, ni « cible qu
   assert.equal(demoQualityReport(table, "absente"), null);
 });
 
-test("cible choisie sur /phala : ses cellules d'espaces, acceptées et lues 0, sont signalées", () => {
+test("cible choisie sur /phala : cellules d'espaces et 0x refusées avant envoi, comme l'enclave les refuserait", () => {
   const text = `score,a,b\n${Array.from({ length: 200 }, (_, row) => `${row === 3 ? "  " : row === 8 ? "0x1" : row % 7},${(row * 37) % 101},${(row * 53) % 97}`).join("\n")}`;
   const result = demoQualityReport(parseCsv(text), "score");
-  assert.equal(result?.invalidTarget, 0);
-  assert.deepEqual(result?.report.blankAsZero, [{ column: "score", cells: 1 }]);
-  assert.deepEqual(result?.report.prefixedNumbers, [{ column: "score", cells: 1 }]);
-  // Même lecture que l'enclave : aucun refus ajouté par le navigateur.
-  assert.doesNotThrow(() => csvWithTargetLast(text, "score"));
+  assert.equal(result?.invalidTarget, 2);
+  assert.throws(() => csvWithTargetLast(text, "score"), /numérique/);
+  // Espaces autour d'un nombre : toujours un nombre, même valeur.
+  const padded = text.replace("\n  ,", "\n 3 ,").replace("\n0x1,", "\n1,");
+  assert.equal(demoQualityReport(parseCsv(padded), "score")?.invalidTarget, 0);
+  assert.doesNotThrow(() => csvWithTargetLast(padded, "score"));
 });
 
 test("les exemples de /phala, avec leur cible, ne déclenchent ni fuite ni cible non numérique", () => {
