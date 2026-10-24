@@ -35,8 +35,34 @@ function numericColumns(header: string[], rows: string[][]): number[] {
   return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
 }
 
+type CpuUsage = () => { user: number; system: number };
+
+/**
+ * Horloge du délai d'entraînement, en millisecondes (audit EXA-05). Temps CPU du thread courant
+ * (`process.threadCpuUsage`, Node ≥ 23.9) quand il existe : un fichier qui passe au repos passe
+ * aussi quand la machine est chargée par d'autres calculs, puisque le temps où le thread attend
+ * le processeur ne compte plus. Sinon, temps réel, comme avant.
+ *
+ * Le modèle ne dépend jamais de cette horloge, seulement la réussite. La limite principale reste
+ * le budget en opérations, déterministe (`MAX_TRAINING_OPERATIONS`, `GBDT_MAX_OPERATIONS`). Dans
+ * l'enclave, la limite d'exécution du worker (`AbortSignal.timeout`, `maxExecutionMs` du devis
+ * signé, facturé à la milliseconde) reste en temps réel : c'est elle le filet large.
+ */
+export function trainingClock(
+  threadCpuUsage: CpuUsage | undefined = (process as unknown as { threadCpuUsage?: CpuUsage }).threadCpuUsage?.bind(process),
+): () => number {
+  if (!threadCpuUsage) return () => performance.now();
+  return () => {
+    const { user, system } = threadCpuUsage();
+    return (user + system) / 1_000;
+  };
+}
+
+/** Lecture de l'horloge du délai : `trainingClockMs() + trainingTimeoutMs()` donne une échéance. */
+export const trainingClockMs = trainingClock();
+
 export function assertWithinDeadline(deadline: number): void {
-  if (performance.now() > deadline) throw new Error("budget de calcul dépassé");
+  if (trainingClockMs() > deadline) throw new Error("budget de calcul dépassé");
 }
 
 export function trainingTimeoutMs(): number {
@@ -120,7 +146,7 @@ export const GBDT_ROW_FLOOR = { rows: GBDT_MIN_ROWS, message: GBDT_TOO_FEW_ROWS_
 
 /** Contrôle d'ingestion ; renvoie les volumes publiables pour éviter de relire le fichier. */
 export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): DatasetMetrics {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const trees = selection.modelId === "gradient_boosted_trees";
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
   if (trees) {
@@ -167,7 +193,7 @@ function invert(matrix: number[][], deadline: number): number[][] {
 }
 
 export function trainLinearRegression(csv: Buffer, target?: string): LinearRegressionModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   const parameterCount = featureIdx.length + 1;
   assertTrainingBudget(rows.length, parameterCount, false);
@@ -228,7 +254,7 @@ function sigmoid(value: number): number {
 }
 
 export function trainLogisticRegression(csv: Buffer, target?: string): LogisticRegressionModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   if (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1")) {
     throw new DatasetValidationError("la cible de la régression logistique doit être strictement 0 ou 1");

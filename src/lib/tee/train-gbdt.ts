@@ -15,7 +15,7 @@ import {
   sigmoid,
   type GbdtNode,
 } from "@/lib/models/gbdt";
-import { GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumns, trainingTimeoutMs } from "./train";
+import { GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingClockMs, trainingColumns, trainingTimeoutMs } from "./train";
 
 /**
  * Arbres boostés stricts (profil `gradient_boosted_trees` v1), perte logistique, déterministes.
@@ -38,7 +38,7 @@ import { GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumn
  *   variable puis le plus petit seuil.
  */
 export function trainGradientBoostedTrees(csv: Buffer, target?: string): GradientBoostedTreesModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline, GBDT_ROW_FLOOR);
   assertGbdtDataset(rows, targetIdx, featureIdx.length);
 
