@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "@/lib/app-error";
-import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
+import { RunnerFinalityPending, settlementQueuedError } from "@/lib/runner/failure-policy";
 import { isRecordedQuoteHardwareValid } from "@/lib/tee/quote";
 
 const SOURCE = readFileSync(join(process.cwd(), "src", "lib", "sirius", "settle.ts"), "utf8");
@@ -187,7 +187,7 @@ function settlementFixture(
     } } },
     "@/lib/evm/escrow": { reconcileLoanEscrow: async () => resolution },
     "@/lib/evm/client": {}, "@/lib/evm/finality": {},
-    "@/lib/runner/failure-policy": { RunnerFinalityPending },
+    "@/lib/runner/failure-policy": { RunnerFinalityPending, settlementQueuedError },
     "@/lib/tee/runner-client": { settleLoanInRunner: runner },
     "./model-storage": {}, "@/lib/models/registry": {}, "@/lib/runner/delivery": {},
     "@/lib/tee/attestation": {
