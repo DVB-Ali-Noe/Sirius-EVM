@@ -120,6 +120,10 @@ export const EN_MESSAGES: Record<string, string> = {
   "Réimporte ce dataset avec un profil d’entraînement": "Upload this dataset again with a training profile",
   "Modèle ou version non autorisé": "Model or version not allowed",
   "Profil d’entraînement facultatif non activé sur ce runner": "Optional training profile not enabled on this runner",
+  "Écart anormal : l’AUC held-out dépasse l’AUC d’entraînement au-delà de l’aléa (3 erreurs types). Vérifie l’ordre des lignes et l’absence de fuite de la cible.":
+    "Abnormal gap: the held-out AUC exceeds the training AUC beyond sampling noise (3 standard errors). Check the row order and that the target does not leak.",
+  "Écart anormal : l’AUC d’entraînement dépasse l’AUC held-out de plus de 0,02 + 3 erreurs types. Le modèle mémorise peut-être ses lignes d’entraînement : fie-toi aux métriques held-out.":
+    "Abnormal gap: the training AUC exceeds the held-out AUC by more than 0.02 + 3 standard errors. The model may be memorizing its training rows: rely on the held-out metrics.",
   "Le job TEE est déjà en cours. Actualise dans quelques secondes.": "The TEE job is already running. Refresh in a few seconds.",
   "Publie le titre EVM d’un dataset finalisé avant de l’entraîner.": "Publish the EVM title of a finalized dataset before training it.",
   "TEE en cours…": "TEE working…",
