@@ -1,6 +1,6 @@
 /**
  * Audit EXA-01 : l'ancien contrôle à un sens (`trainAuc >= heldOutAuc - 0.02`) laisse passer un
- * held-out corrompu et une mémorisation ; le contrôle à deux sens les attrape, sans fausse alerte
+ * held-out corrompu et un surapprentissage ; le contrôle à deux sens les attrape, sans fausse alerte
  * sur un écart dans l'aléa. Repris de `audit/exactitude/tests/two-sided-gap.test.ts`.
  */
 import assert from "node:assert/strict";
@@ -48,13 +48,13 @@ test("held-out corrompu (étiquettes inversées) : l'ancien contrôle passe, le 
   assert.ok(metrics.heldOutAuc < 0.35, String(metrics.heldOutAuc));
   const trainAuc = metrics.heldOutAuc + metrics.aucGap;
   assert.ok(oneSided(trainAuc, metrics.heldOutAuc), "l'ancien contrôle ne voit rien");
-  assert.equal(twoSidedGapCheck(trainAuc, metrics.heldOutAuc, positives, negatives).verdict, "memorization");
-  assert.equal(gbdtGapVerdict(metrics), "memorization");
+  assert.equal(twoSidedGapCheck(trainAuc, metrics.heldOutAuc, positives, negatives).verdict, "overfitting");
+  assert.equal(gbdtGapVerdict(metrics), "overfitting");
 });
 
-test("mémorisation (train 0,99, held-out 0,75) et held-out trop beau : seul le bon sens signale", () => {
-  assert.ok(oneSided(0.99, 0.75), "l'ancien contrôle accepte une mémorisation flagrante");
-  assert.equal(twoSidedGapCheck(0.99, 0.75, 450, 1550).verdict, "memorization");
+test("surapprentissage (train 0,99, held-out 0,75) et held-out trop beau : seul le bon sens signale", () => {
+  assert.ok(oneSided(0.99, 0.75), "l'ancien contrôle accepte un surapprentissage flagrant");
+  assert.equal(twoSidedGapCheck(0.99, 0.75, 450, 1550).verdict, "overfitting");
   assert.equal(oneSided(0.74, 0.8), false);
   assert.equal(twoSidedGapCheck(0.74, 0.8, 450, 1550).verdict, "held_out_too_good");
 });

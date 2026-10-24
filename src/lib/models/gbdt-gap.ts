@@ -4,21 +4,25 @@
  * le format du modèle livré.
  *
  * L'ancien contrôle (`trainAuc >= heldOutAuc - 0.02`, test seulement) n'avait qu'un sens et une
- * marge fixe : il laissait passer une mémorisation (train 0,998 / held-out 0,754) et un held-out
+ * marge fixe : il laissait passer un surapprentissage flagrant (train 0,998 / held-out 0,754) et un held-out
  * corrompu, et alertait à tort quand le held-out était meilleur par pur hasard. Les marges sont ici
  * en erreurs types de l'AUC held-out (Hanley et McNeil, 1982), donc suivent la taille du held-out :
  * - held-out trop beau (fuite, split inversé, erreur de lignes) : heldOutAuc − trainAuc > 3·SE ;
- * - mémorisation : trainAuc − heldOutAuc > 0,02 + 3·SE (0,02 absorbe l'optimisme normal du train).
+ * - surapprentissage : trainAuc − heldOutAuc > 0,02 + 3·SE (0,02 absorbe l'optimisme normal du train).
  *
  * Mesuré sur 36 tirages légitimes (credit-risk, Taïwan, GMSC) : aucune fausse alerte ; 3
- * mémorisations sur 3 et le held-out corrompu sont signalés.
+ * surapprentissages flagrants sur 3 et le held-out corrompu sont signalés.
+ *
+ * C'est un contrôle de qualité du modèle, pas de confidentialité : l'audit du 23 octobre (CONF-02,
+ * docs/EGRESS-POLICY-API.md) montre que l'écart d'AUC ne distingue pas un modèle qui mémorise des
+ * lignes précises (canaris) d'un modèle normal. Les messages ne parlent donc pas de mémorisation.
  */
 import { GBDT_HOLDOUT_EVERY } from "./gbdt";
 
 export const GAP_SIGMAS = 3;
-export const MEMORIZATION_MARGIN = 0.02;
+export const OVERFITTING_MARGIN = 0.02;
 
-export type GapVerdict = "ok" | "held_out_too_good" | "memorization";
+export type GapVerdict = "ok" | "held_out_too_good" | "overfitting";
 
 /** Erreur type de Hanley et McNeil pour une AUC mesurée sur `positives` et `negatives` lignes. */
 export function aucStandardError(auc: number, positives: number, negatives: number): number {
@@ -31,7 +35,7 @@ export function aucStandardError(auc: number, positives: number, negatives: numb
 export function twoSidedGapCheck(trainAuc: number, heldOutAuc: number, positives: number, negatives: number): { verdict: GapVerdict; se: number } {
   const se = aucStandardError(heldOutAuc, positives, negatives);
   if (heldOutAuc - trainAuc > GAP_SIGMAS * se) return { verdict: "held_out_too_good", se };
-  if (trainAuc - heldOutAuc > MEMORIZATION_MARGIN + GAP_SIGMAS * se) return { verdict: "memorization", se };
+  if (trainAuc - heldOutAuc > OVERFITTING_MARGIN + GAP_SIGMAS * se) return { verdict: "overfitting", se };
   return { verdict: "ok", se };
 }
 
@@ -65,6 +69,6 @@ export function gbdtGapVerdict(metrics: {
 }
 
 export const GAP_WARNINGS: Record<Exclude<GapVerdict, "ok">, string> = {
-  held_out_too_good: "Écart anormal : l’AUC held-out dépasse l’AUC d’entraînement au-delà de l’aléa (3 erreurs types). Vérifie l’ordre des lignes et l’absence de fuite de la cible.",
-  memorization: "Écart anormal : l’AUC d’entraînement dépasse l’AUC held-out de plus de 0,02 + 3 erreurs types. Le modèle mémorise peut-être ses lignes d’entraînement : fie-toi aux métriques held-out.",
+  held_out_too_good: "Écart train / held-out anormal : l’AUC held-out dépasse l’AUC d’entraînement au-delà de l’aléa (3 erreurs types). Vérifie l’ordre des lignes et l’absence de fuite de la cible.",
+  overfitting: "Écart train / held-out anormal : l’AUC d’entraînement dépasse l’AUC held-out de plus de 0,02 + 3 erreurs types. Surapprentissage probable : fie-toi aux métriques held-out.",
 };
