@@ -18,7 +18,11 @@
 #
 # Les secrets ne sont pas choisis par le workflow : chaque job déclare son
 # `environment:` et GitHub résout `secrets.*` dans celui-là. Une cible ne peut donc
-# pas atteindre les identifiants de l'autre, même en cas d'erreur d'expression.
+# pas atteindre les identifiants de l'autre, même en cas d'erreur d'expression —
+# à condition qu'aucun secret du même nom n'existe au niveau du dépôt : GitHub le
+# servirait alors à toute branche, et à la place d'un secret d'environnement absent.
+# Au 23 octobre, 9 secrets sont encore au niveau du dépôt : à déplacer dans les
+# environnements (voir docs/PROCESS-RELECTURE.md).
 #
 # Ce que le pipeline ne fait PAS, volontairement : déployer les contrats, et mettre à
 # jour la CVM Phala. Ces deux gestes changent une identité que l'application épingle,
@@ -131,6 +135,12 @@ jobs:
       # production par `instrumentation-node.ts`.
       - name: Tests end-to-end
         run: pnpm test:e2e
+
+      # Le parcours /phala a sa propre configuration (serveur en mode démo Phala, port
+      # 3101) : `playwright.config.ts` l'exclut, et sans cette étape il n'était vérifié
+      # qu'en local (constat PRO-06 de l'audit du processus).
+      - name: Tests end-to-end Phala
+        run: pnpm exec playwright test -c playwright.phala.config.ts
 
   cible:
     name: Cible
@@ -290,7 +300,9 @@ jobs:
         run: |
           mkdir -p .vercel
           echo "{\"projectId\":\"${PROJET}\",\"orgId\":\"team_lgHr4F4CMq1B8wXtrRe1fbvz\"}" > .vercel/project.json
-          cat .vercel/project.json
+          # Le projet suffit pour savoir quelle cible est déployée ; l'identifiant
+          # d'équipe n'a pas besoin de figurer dans chaque journal.
+          echo "Projet Vercel : ${PROJET}"
 
       - name: Déployer
         env:
