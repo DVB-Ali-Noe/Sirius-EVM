@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { NextResponse } from "next/server";
 import * as errors from "../errors";
+import { MODEL_REGISTRY } from "../models/registry";
 import * as rate from "../http/rate-limit";
 import * as catalogue from "./catalogue";
 import * as query from "./query";
@@ -120,9 +121,9 @@ test("catalogue : statistiques, frais du dernier devis et prix total", async () 
   });
   // Un devis par profil et par version, d'un prêt réellement verrouillé (jamais un devis abandonné),
   // borné dans le temps, et jamais sa date dans la réponse.
-  assert.deepEqual(calls.loanFindFirst.map((call) => call.where), ["linear_regression", "logistic_regression", "gradient_boosted_trees"].map((modelId) => ({
+  assert.deepEqual(calls.loanFindFirst.map((call) => call.where), (["linear_regression", "logistic_regression", "gradient_boosted_trees"] as const).map((modelId) => ({
     modelId,
-    modelVersion: "1.0.0",
+    modelVersion: MODEL_REGISTRY[modelId].version,
     computeAmountUsdcAtomic: { not: null },
     evmLockTxHash: { not: null },
     // Un CANCELLED sans transaction de remboursement (lock annulé) n'est jamais lu.
