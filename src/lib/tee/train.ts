@@ -55,8 +55,16 @@ export function trainingClock(
 /** Lecture de l'horloge du délai : `trainingClockMs() + trainingTimeoutMs()` donne une échéance. */
 export const trainingClockMs = trainingClock();
 
+/** Délai interne épuisé : une limite du calcul, pas un défaut du fichier (audit ROB-07). */
+export class TrainingDeadlineExceeded extends Error {
+  constructor() {
+    super("budget de calcul dépassé");
+    this.name = "TrainingDeadlineExceeded";
+  }
+}
+
 export function assertWithinDeadline(deadline: number): void {
-  if (trainingClockMs() > deadline) throw new Error("budget de calcul dépassé");
+  if (trainingClockMs() > deadline) throw new TrainingDeadlineExceeded();
 }
 
 export function trainingTimeoutMs(): number {

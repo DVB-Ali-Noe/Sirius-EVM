@@ -31,7 +31,8 @@ export async function trainInWorker(selection: ModelSelection, csv: Buffer, sign
       signal.addEventListener("abort", exceeded, { once: true });
       worker.once("error", (error: NodeJS.ErrnoException) => (error.code === "ERR_WORKER_OUT_OF_MEMORY" ? exceeded() : fail()));
       worker.once("exit", fail);
-      worker.once("message", (message: { model?: unknown; invalidDataset?: unknown }) => {
+      worker.once("message", (message: { model?: unknown; invalidDataset?: unknown; limitExceeded?: unknown }) => {
+        if (message.limitExceeded === true) return exceeded();
         if (message.invalidDataset === true) return reject(new AppError(INVALID_DATASET_MESSAGE, 422));
         try { resolve(parseDeliveredModel(message.model)); } catch { fail(); }
       });

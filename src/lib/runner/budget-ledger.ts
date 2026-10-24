@@ -406,7 +406,10 @@ export class BudgetLedger {
       }
       if (!workflow) this.assertAdmission();
       const active = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE state = 'reserved'").get()?.n);
-      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
+      // Registre plein : un refus de capacité, pas une panne. `RunnerRetryLater` n'est pas compté par
+      // le coupe-circuit et rend la réservation de la requête parente (audit ROB-09) ; sinon
+      // `maxFailures` requêtes légitimes concurrentes fermaient le runner à tous.
+      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new RunnerRetryLater("Réservations runner en attente de réconciliation");
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
         // Une seule transaction en vol par wallet : les autres règlements attendent leur tour
         // sans compter d'échec ni consommer de crédit.
