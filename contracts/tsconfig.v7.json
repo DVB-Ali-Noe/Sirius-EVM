@@ -5,6 +5,7 @@
     "test/escrow-v7.test.ts",
     "test/helpers/billing.ts",
     "test/dataset-registry-v5.test.ts",
+    "test/deploy-script.test.ts",
     "scripts/export-abi.ts",
     "scripts/deploy.ts",
     "scripts/deploy-estimate.ts",
