@@ -192,6 +192,29 @@ test("des espaces autour d'un nombre ne changent rien : même modèle qu'avec le
   }
 });
 
+test("EXA-03 : cible incomplète refusée à l'ingestion par les trois profils, même motif dans le navigateur", () => {
+  // Une cellule vide dans la cible faisait prendre `b` pour cible ; les arbres refusaient avec un motif trompeur.
+  const text = binaryFile((row) => String(row % 13)).replace(/,(\d)\n/, ",\n");
+  for (const modelId of ["linear_regression", "logistic_regression", "gradient_boosted_trees"] as ModelId[]) {
+    const browser = inspectCsv(text, modelId);
+    assert.ok(!browser.ok);
+    assert.deepEqual(browser.reason, { kind: "incomplete-target", target: "y", missing: 1, invalid: 0 }, modelId);
+    assert.equal(
+      csvRejectionText(browser.reason, translateEnglish),
+      "The last column, “y”, is the target but contains 1 empty and 0 non-numeric cell(s). Fill them in, or put the column to predict last.",
+    );
+    assert.throws(() => validateTrainingDataset(Buffer.from(text), selectionForModelId(modelId)), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(translateEnglish(error.message), "The last column “y” is the target but is not fully numeric (1 empty cell(s), 0 non-numeric)");
+      return true;
+    });
+  }
+  // Une dernière colonne de texte reste admise : la cible est la dernière colonne numérique, comme avant.
+  const withNote = binaryFile((row) => String(row % 13)).replace("first,a,b,y\n", "first,a,b,y,note\n").replace(/(\d)\n/g, "$1,texte\n");
+  assert.ok(inspectCsv(withNote, "gradient_boosted_trees").ok);
+  assert.doesNotThrow(() => validateTrainingDataset(Buffer.from(withNote), selectionForModelId("gradient_boosted_trees")));
+});
+
 test("l'évaluation du navigateur lit les nombres comme l'enclave : 0x et espaces refusés", () => {
   const model = trainLogisticRegression(Buffer.from(binaryFile((row) => String(row % 13), 300)));
   const test = binaryFile((row) => String(row % 13), 40);

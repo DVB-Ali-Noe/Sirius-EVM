@@ -71,6 +71,8 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
     "Too many numeric features: {found}, maximum {max} in addition to the target.",
   "Pas assez de lignes : {rows}, minimum {min} pour ce nombre de variables.":
     "Not enough rows: {rows}, minimum {min} for this number of features.",
+  "La dernière colonne, « {target} », sert de cible mais contient {missing} cellule(s) vide(s) et {invalid} non numérique(s). Complète-la, ou place la colonne à prédire en dernier.":
+    "The last column, “{target}”, is the target but contains {missing} empty and {invalid} non-numeric cell(s). Fill them in, or put the column to predict last.",
   "Budget de calcul dépassé : réduis le nombre de lignes ou de variables.":
     "Compute budget exceeded: reduce the number of rows or features.",
   "Pour la régression logistique, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":

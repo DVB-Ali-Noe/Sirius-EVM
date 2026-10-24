@@ -1,5 +1,5 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { CsvValidationError, isNumericCell, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "@/lib/sirius/metrics";
+import { CsvValidationError, incompleteTarget, isNumericCell, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "@/lib/sirius/metrics";
 import {
   MAX_HEADER_CHARS,
   MAX_TRAINING_FEATURES,
@@ -43,6 +43,7 @@ export type CsvRejection =
   | { kind: "too-few-numeric-columns"; found: number }
   | { kind: "too-many-features"; found: number; maxFeatures: number }
   | { kind: "too-few-rows"; rows: number; minRows: number }
+  | { kind: "incomplete-target"; target: string; missing: number; invalid: number }
   | { kind: "compute-budget" }
   | { kind: "logistic-target"; target: string }
   | { kind: "binary-target"; target: string }
@@ -136,6 +137,8 @@ export function inspectCsvTable(read: CsvTable, modelId: ModelId): CsvInspection
   if (rows.length < requiredRows) {
     return { ok: false, reason: { kind: "too-few-rows", rows: rows.length, minRows: requiredRows }, summary };
   }
+  const incomplete = incompleteTarget(header, rows);
+  if (incomplete) return { ok: false, reason: { kind: "incomplete-target", ...incomplete }, summary };
   if (trees) {
     if (gbdtOperations(rows.length, featureIdx.length) > GBDT_MAX_OPERATIONS) return { ok: false, reason: { kind: "compute-budget" }, summary };
     const target = header[targetIdx];
@@ -203,6 +206,12 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       return t("Pas assez de lignes : {rows}, minimum {min} pour ce nombre de variables.", {
         rows: formatCount(reason.rows),
         min: formatCount(reason.minRows),
+      });
+    case "incomplete-target":
+      return t("La dernière colonne, « {target} », sert de cible mais contient {missing} cellule(s) vide(s) et {invalid} non numérique(s). Complète-la, ou place la colonne à prédire en dernier.", {
+        target: reason.target,
+        missing: formatCount(reason.missing),
+        invalid: formatCount(reason.invalid),
       });
     case "compute-budget":
       return t("Budget de calcul dépassé : réduis le nombre de lignes ou de variables.");

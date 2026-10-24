@@ -442,6 +442,10 @@ const DYNAMIC_MESSAGES_EN: readonly [RegExp, string][] = [
   [/^CSV invalide ligne (\d+) : ligne vide \(seules les lignes vides en fin de fichier sont admises\)$/, "Invalid CSV at line $1: blank line (only blank lines at the end of the file are allowed)"],
   [/^CSV invalide ligne (\d+) : (\d+) cellule\(s\) pour (\d+) colonne\(s\) dans l'en-tête$/, "Invalid CSV at line $1: $2 cell(s) for $3 column(s) in the header"],
   [/^trop de features numériques \(max (\d+)\)$/, "Too many numeric features (maximum $1)"],
+  [
+    /^la dernière colonne « (.*) » sert de cible mais n'est pas entièrement numérique \((\d+) cellule\(s\) vide\(s\), (\d+) non numérique\(s\)\)$/,
+    "The last column “$1” is the target but is not fully numeric ($2 empty cell(s), $3 non-numeric)",
+  ],
   [/^dataset trop petit pour préserver la confidentialité \(min (\d+) lignes\)$/, "Dataset too small to preserve privacy (minimum $1 rows)"],
   [/^Distributeur épuisé \(([^)]+) ETH\) — préviens l'équipe pour qu'elle le recharge$/, "Faucet depleted ($1 ETH) — contact the team to refill it"],
   [/^Intégrité Merkle invalide pour (.+)$/, "Invalid Merkle integrity for $1"],

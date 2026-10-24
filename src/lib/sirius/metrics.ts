@@ -33,6 +33,45 @@ export function isBlankCell(value: string): boolean {
   return value.trim() === "";
 }
 
+export interface ColumnCells {
+  /** Cellules vides ou faites d'espaces. */
+  missing: number;
+  /** Cellules non vides mais non numériques. */
+  invalid: number;
+  numeric: number;
+}
+
+export function columnCells(rows: string[][], column: number): ColumnCells {
+  const cells = { missing: 0, invalid: 0, numeric: 0 };
+  for (const row of rows) {
+    const cell = row[column] ?? "";
+    if (isBlankCell(cell)) cells.missing++;
+    else if (isNumericCell(cell)) cells.numeric++;
+    else cells.invalid++;
+  }
+  return cells;
+}
+
+/** Colonne majoritairement numérique : plus de nombres que de cellules non vides non numériques. */
+export function isMostlyNumeric(cells: ColumnCells): boolean {
+  return cells.numeric > cells.invalid;
+}
+
+/**
+ * La dernière colonne du fichier, cible attendue, est majoritairement numérique sans l'être
+ * entièrement (EXA-03) : quelques cellules vides ou invalides. L'entraînement l'écarterait et
+ * prendrait en silence une autre colonne pour cible ; l'ingestion refuse donc ce fichier. Une
+ * dernière colonne de texte (commentaire, libellé) n'est pas concernée : la cible reste alors la
+ * dernière colonne numérique. `null` si rien à signaler.
+ */
+export function incompleteTarget(header: string[], rows: string[][]): { target: string; missing: number; invalid: number } | null {
+  const last = header.length - 1;
+  if (last < 0) return null;
+  const cells = columnCells(rows, last);
+  if (cells.missing + cells.invalid === 0 || !isMostlyNumeric(cells)) return null;
+  return { target: header[last], missing: cells.missing, invalid: cells.invalid };
+}
+
 /**
  * Défaut de forme du fichier, situé sur une ligne physique (1 = en-tête) : message précis côté
  * navigateur (`csv-check.ts`) comme côté enclave (texte de l'erreur, 400 à l'ingestion).

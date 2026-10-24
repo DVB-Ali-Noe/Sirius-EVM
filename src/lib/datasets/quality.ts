@@ -1,4 +1,4 @@
-import { isBlankCell, isNumericCell } from "@/lib/sirius/metrics";
+import { columnCells, incompleteTarget, isMostlyNumeric } from "@/lib/sirius/metrics";
 
 /**
  * Rapport de qualité à l'import (E1, docs/EGRESS-POLICY-API.md) : calculé dans le navigateur sur
@@ -32,7 +32,10 @@ export interface TargetCopy {
 }
 
 export interface QualityReport {
-  /** La dernière colonne du fichier n'est pas utilisable : l'enclave prendra une autre cible. */
+  /**
+   * La dernière colonne du fichier est du texte : l'enclave prendra une autre cible. Une dernière
+   * colonne presque numérique n'en fait pas partie : l'ingestion la refuse (`incompleteTarget`).
+   */
   targetShift: { expected: string; actual: string } | null;
   /** Colonnes majoritairement numériques, écartées par l'entraînement à cause de quelques cellules. */
   excluded: ExcludedColumn[];
@@ -67,22 +70,20 @@ export function qualityReport(table: string[][]): QualityReport | null {
   const textColumns: string[] = [];
 
   for (let column = 0; column < header.length; column++) {
-    let missing = 0;
-    let invalid = 0;
-    for (const row of rows) {
-      const cell = row[column] ?? "";
-      if (isBlankCell(cell)) missing++;
-      else if (!isNumericCell(cell)) invalid++;
-    }
-    const valid = rows.length - missing - invalid;
+    const cells = columnCells(rows, column);
+    const { missing, invalid } = cells;
     if (missing + invalid === 0) numeric.push(column);
-    else if (valid > invalid) excluded.push({ column: header[column], missing, invalid });
+    else if (isMostlyNumeric(cells)) excluded.push({ column: header[column], missing, invalid });
     else textColumns.push(header[column]);
   }
 
   const lastColumn = header.length - 1;
   const targetIdx = numeric.length > 0 ? numeric[numeric.length - 1] : -1;
-  const targetShift = targetIdx >= 0 && targetIdx !== lastColumn ? { expected: header[lastColumn], actual: header[targetIdx] } : null;
+  // Une dernière colonne presque numérique est refusée à l'ingestion (`incompleteTarget`) : pas de
+  // « changement de cible » à annoncer. Seule une dernière colonne de texte laisse la cible glisser.
+  const targetShift = targetIdx >= 0 && targetIdx !== lastColumn && !incompleteTarget(header, rows)
+    ? { expected: header[lastColumn], actual: header[targetIdx] }
+    : null;
 
   const values = numeric.map((column) => Float64Array.from(rows, (row) => Number(row[column])));
 

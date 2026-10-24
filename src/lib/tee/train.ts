@@ -1,6 +1,6 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
 import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
-import { isNumericCell, parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
+import { incompleteTarget, isNumericCell, parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
@@ -117,6 +117,14 @@ export function validateTrainingDataset(csv: Buffer, selection: ModelSelection):
   const deadline = performance.now() + trainingTimeoutMs();
   const trees = selection.modelId === "gradient_boosted_trees";
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
+  // À l'ingestion seulement : un dataset déjà publié garde, à l'entraînement, la cible qu'il avait.
+  const incomplete = incompleteTarget(header, rows);
+  if (incomplete) {
+    throw new DatasetValidationError(
+      `la dernière colonne « ${incomplete.target} » sert de cible mais n'est pas entièrement numérique ` +
+        `(${incomplete.missing} cellule(s) vide(s), ${incomplete.invalid} non numérique(s))`,
+    );
+  }
   if (trees) {
     assertGbdtDataset(rows, targetIdx, featureIdx.length);
     return { rowCount: rows.length, columnCount: header.length };

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { trainingColumns } from "@/lib/tee/train";
+import { selectionForModelId } from "@/lib/models/registry";
+import { trainingColumns, validateTrainingDataset } from "@/lib/tee/train";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { inspectCsvTable, readCsvTable } from "./csv-check";
 import { MIN_MINORITY_CLASS_SHARE, TARGET_COPY_MIN_ABS_CORRELATION, hasQualitySignal, qualityReport } from "./quality";
@@ -27,15 +28,29 @@ test("un fichier propre ne déclenche aucun signalement ; un fichier sans ligne 
   assert.equal(qualityReport(parseCsv("a,y\n")), null);
 });
 
-test("une dernière colonne écartée fait changer la cible : signalé avec les deux noms, sans refus", () => {
-  const body = rows(400, (row) => [...clean(row).slice(0, 3), row === 7 ? "" : String(row % 2)]);
+test("EXA-03 : une dernière colonne presque numérique est refusée, au lieu de changer la cible en silence", () => {
+  const body = rows(400, (row) => [...clean(row).slice(0, 3), row === 7 ? "" : row === 9 ? "n/a" : String(row % 2)]);
   const result = report(HEADER, body);
-  assert.deepEqual(result.targetShift, { expected: "y", actual: "b" });
-  assert.deepEqual(result.excluded, [{ column: "y", missing: 1, invalid: 0 }]);
-  // L'enclave fait le même choix de cible et de variables.
-  const enclave = trainingColumns(Buffer.from([HEADER, ...body].map((line) => line.join(",")).join("\n")), undefined, Infinity);
+  assert.equal(result.targetShift, null);
+  assert.deepEqual(result.excluded, [{ column: "y", missing: 1, invalid: 1 }]);
+  const inspection = inspectCsvTable({ ok: true, table: [HEADER, ...body] }, "linear_regression");
+  assert.ok(!inspection.ok);
+  assert.deepEqual(inspection.reason, { kind: "incomplete-target", target: "y", missing: 1, invalid: 1 });
+  const csv = Buffer.from([HEADER, ...body].map((line) => line.join(",")).join("\n"));
+  assert.throws(() => validateTrainingDataset(csv, selectionForModelId("linear_regression")), /la dernière colonne « y » sert de cible .*\(1 cellule\(s\) vide\(s\), 1 non numérique\(s\)\)/);
+  // Hors ingestion, un dataset déjà publié garde sa lecture : même choix de cible et de variables qu'avant.
+  const enclave = trainingColumns(csv, undefined, Infinity);
   assert.equal(enclave.header[enclave.targetIdx], "b");
-  assert.ok(inspectCsvTable({ ok: true, table: [HEADER, ...body] }, "linear_regression").ok);
+});
+
+test("une dernière colonne de texte fait changer la cible : signalé avec les deux noms, sans refus", () => {
+  const body = rows(400, (row) => [...clean(row), `note ${row}`]);
+  const result = report([...HEADER, "commentaire"], body);
+  assert.deepEqual(result.targetShift, { expected: "commentaire", actual: "y" });
+  assert.deepEqual(result.textColumns, ["commentaire"]);
+  const inspection = inspectCsvTable({ ok: true, table: [[...HEADER, "commentaire"], ...body] }, "linear_regression");
+  assert.ok(inspection.ok);
+  assert.equal(inspection.summary.target, "y");
 });
 
 test("valeurs manquantes et invalides : comptées seulement pour une colonne qui serait numérique sans elles", () => {
