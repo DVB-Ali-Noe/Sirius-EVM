@@ -20,7 +20,8 @@ import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { canonicalSubject } from "@/lib/subject";
-import { isModelOffered, modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { assertLockedProfile, requestedTrainingProfile, type ProfileAdmission } from "@/lib/runner/profile-admission";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
 import { sealDatasetEnvelope } from "@/lib/tee/core";
@@ -115,7 +116,7 @@ function usdcAmount(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function datasetRef(body: Record<string, unknown>): DatasetRef {
+function datasetRef(body: Record<string, unknown>, admission: ProfileAdmission = "offered"): DatasetRef {
   return {
     datasetId: text(body, "datasetId"),
     cid: text(body, "cid", MAX_CID_LENGTH),
@@ -123,15 +124,13 @@ function datasetRef(body: Record<string, unknown>): DatasetRef {
     merkleRoot: text(body, "merkleRoot", 128),
     priceUsdcAtomic: usdcAmount(body, "priceUsdcAtomic"),
     challengeDays: boundedInteger(body, "challengeDays", 1, 30),
-    ...trainingModel(body),
+    ...trainingModel(body, admission),
   };
 }
 
-/** Un profil facultatif reste refusé tant que l'image ne l'active pas (`NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`). */
-function trainingModel(body: Record<string, unknown>): ModelSelection {
-  const selection = modelSelection(body.modelId, body.modelVersion);
-  if (!selection || !isModelOffered(selection.modelId)) throw new AppError("Modèle ou version non autorisé", 400);
-  return selection;
+/** Un profil facultatif reste refusé tant que l'image ne l'active pas, sauf pour un prêt déjà payé : voir profile-admission.ts. */
+function trainingModel(body: Record<string, unknown>, admission: ProfileAdmission = "offered"): ModelSelection {
+  return requestedTrainingProfile(body, admission);
 }
 
 function ingressEnvelope(body: Record<string, unknown>): DatasetIngressEnvelope {
@@ -266,7 +265,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
     }
 
     case "run-loan-job": {
-      const dataset = datasetRef(body);
+      // Prêt déjà payé : l'interrupteur des profils facultatifs est jugé après lecture du devis signé.
+      const dataset = datasetRef(body, "locked");
       const loanId = text(body, "loanId");
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
@@ -282,6 +282,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const { hashlock, preimage } = escrowLock(loanId, borrower);
       const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
+      assertLockedProfile(dataset, signedQuote);
       const candidateTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
       const loanScope = (finalityTier: FinalityTier) => assertLoanScope({
         loanKey,

@@ -119,6 +119,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Profil d’entraînement manquant": "Training profile missing",
   "Réimporte ce dataset avec un profil d’entraînement": "Upload this dataset again with a training profile",
   "Modèle ou version non autorisé": "Model or version not allowed",
+  "Profil d’entraînement facultatif non activé sur ce runner": "Optional training profile not enabled on this runner",
   "Le job TEE est déjà en cours. Actualise dans quelques secondes.": "The TEE job is already running. Refresh in a few seconds.",
   "Publie le titre EVM d’un dataset finalisé avant de l’entraîner.": "Publish the EVM title of a finalized dataset before training it.",
   "TEE en cours…": "TEE working…",
