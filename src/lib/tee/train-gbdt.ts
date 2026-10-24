@@ -1,81 +1,113 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel } from "@/lib/models/registry";
 import {
+  BASE_SCORE_SIG_FIGS,
   GBDT_BINS,
+  GBDT_INFLUENCE_CAP,
   GBDT_L2,
   GBDT_LEARNING_RATE,
   GBDT_MAX_DEPTH,
   GBDT_MIN_LEAF_ROWS,
+  GBDT_TOO_FEW_DISTINCT_ROWS_MESSAGE,
   GBDT_TREES,
   LEAF_SIG_FIGS,
-  THRESHOLD_SIG_FIGS,
   binaryAuc,
   gbdtScore,
   isHeldOut,
   roundSig,
   sigmoid,
+  thresholdBetween,
   type GbdtNode,
 } from "@/lib/models/gbdt";
-import { GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumns, trainingTimeoutMs } from "./train";
+import { DatasetValidationError, GBDT_ROW_FLOOR, assertGbdtDataset, assertWithinDeadline, trainingColumns, trainingTimeoutMs } from "./train";
 
 /**
- * Arbres boostés stricts (profil `gradient_boosted_trees` v1), perte logistique, déterministes.
+ * Arbres boostés stricts (profil `gradient_boosted_trees` v1.1), perte logistique, déterministes.
  *
  * - Séparation fixe : une ligne sur cinq sert aux métriques « held-out », jamais à l'entraînement.
- * - Les seuils candidats sont, pour chaque quantile de la partie entraînement, le milieu entre la
- *   valeur du quantile et la valeur distincte immédiatement inférieure : aucune valeur d'une ligne
- *   n'est publiée telle quelle. Ce milieu est arrondi à 3 chiffres significatifs avant
- *   l'entraînement : le modèle livré coupe exactement où l'entraînement a coupé.
- *   Limite de l'arrondi : sur des valeurs à beaucoup de chiffres (années, timestamps, montants au
- *   centime), 3 chiffres donnent un pas grossier (2 023 → 2 020, 1 718 000 000 → 1,72 × 10⁹) ;
- *   plusieurs quantiles se confondent, la variable offre peu de coupes, et le seuil arrondi peut
- *   retomber sur une valeur ronde présente dans les données. Recentrer ces colonnes (âge plutôt
- *   qu'année, durée plutôt que timestamp) avant publication.
+ * - Plafond d'influence k = 1 (CONF-01, CONF-07) : parmi les lignes d'entraînement, une seule
+ *   copie de chaque ligne distincte (variables + cible, comparées comme nombres) entre dans les
+ *   quantiles, les gradients, les feuilles et l'audit des feuilles ; les copies suivantes sont
+ *   ignorées (la première occurrence est gardée : résultat déterministe). Elles comptent dans
+ *   `n`, et le fichier n'est pas modifié (Merkle root inchangé). Mesuré par l'audit : sans
+ *   plafond, une ligne présente 20 fois était reconnue comme membre à AUC 0,72–0,81 ; k = 2
+ *   laissait 0,55 (p = 0,01) sur GMSC ; k = 1 ramène les trois jeux au bruit (0,47–0,52) sans
+ *   coût d'AUC held-out. Limite connue : des quasi-doublons (lignes distinctes à 10⁻³ près) ne
+ *   sont pas plafonnés.
+ * - Les seuils candidats sont, pour chaque quantile de la partie entraînement, un décimal
+ *   strictement compris entre la valeur du quantile et la valeur distincte immédiatement
+ *   inférieure (`thresholdBetween` : le plus court, 3 chiffres significatifs en général, 6 au
+ *   plus, sinon pas de coupe). Un seuil n'est donc jamais égal à une valeur d'une ligne
+ *   (CONF-03) ; il reste une statistique d'ordre : il dit qu'une valeur du fichier est juste
+ *   au-dessous et une autre juste au-dessus. Le modèle livré coupe exactement où l'entraînement
+ *   a coupé. Sur des valeurs à beaucoup de chiffres (années, timestamps, montants au centime),
+ *   3 chiffres donnent un pas grossier et plusieurs quantiles se confondent : la variable offre
+ *   peu de coupes. Recentrer ces colonnes (âge plutôt qu'année, durée plutôt que timestamp)
+ *   avant publication.
  * - Les feuilles sont arrondies à leur création et c'est la valeur arrondie qui met à jour les
  *   scores : métriques et modèle livré décrivent le même objet.
- * - Une coupe exige au moins `GBDT_MIN_LEAF_ROWS` lignes d'entraînement de chaque côté ; un
- *   audit final repasse les lignes dans le modèle livré et refuse toute feuille plus petite.
+ * - Une coupe exige au moins `GBDT_MIN_LEAF_ROWS` lignes d'entraînement distinctes de chaque
+ *   côté ; un audit final repasse les lignes dans le modèle livré et refuse toute feuille plus
+ *   petite.
  * - Ni comptes, ni gains, ni hessiens dans la sortie. Égalités départagées par la plus petite
- *   variable puis le plus petit seuil.
+ *   variable puis le plus petit seuil. Les métriques sont renvoyées brutes ; la porte de sortie
+ *   les arrondit (3 décimales, écart d'AUC à 2 décimales, `n` à 2 chiffres).
  */
 export function trainGradientBoostedTrees(csv: Buffer, target?: string): GradientBoostedTreesModel {
   const deadline = performance.now() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline, GBDT_ROW_FLOOR);
-  assertGbdtDataset(rows, targetIdx, featureIdx.length);
+  assertGbdtDataset(header, rows, targetIdx, featureIdx);
 
   const featureCount = featureIdx.length;
   const values = new Float64Array(rows.length * featureCount);
   const labels = new Uint8Array(rows.length);
   const trainRows: number[] = [];
   const heldOutRows: number[] = [];
+  const seen = new Map<string, number>();
   for (let row = 0; row < rows.length; row++) {
     if ((row & 1023) === 0) assertWithinDeadline(deadline);
     const cells = rows[row];
     for (let feature = 0; feature < featureCount; feature++) values[row * featureCount + feature] = Number(cells[featureIdx[feature]]);
     labels[row] = cells[targetIdx] === "1" ? 1 : 0;
-    (isHeldOut(row) ? heldOutRows : trainRows).push(row);
+    if (isHeldOut(row)) {
+      heldOutRows.push(row);
+      continue;
+    }
+    // Empreinte de la ligne telle que le modèle la voit (nombres, pas texte : « 1 » et « 1.0 » sont la même ligne).
+    const key = `${labels[row]}|${values.subarray(row * featureCount, (row + 1) * featureCount).join(",")}`;
+    const copies = (seen.get(key) ?? 0) + 1;
+    seen.set(key, copies);
+    if (copies <= GBDT_INFLUENCE_CAP) trainRows.push(row);
   }
   const n = trainRows.length;
+  if (n < GBDT_MIN_LEAF_ROWS) throw new DatasetValidationError(GBDT_TOO_FEW_DISTINCT_ROWS_MESSAGE);
 
+  // Seuils : quantiles de la partie entraînement (lignes distinctes), placés strictement entre deux
+  // valeurs voisines du fichier entier (tranche tenue à l'écart et copies écartées comprises) : un
+  // seuil n'égale jamais une valeur d'une ligne, quelle qu'elle soit. La partition des lignes
+  // d'entraînement ne dépend pas de la tranche : aucune valeur d'entraînement n'est dans l'intervalle.
   const edges: number[][] = [];
   const column = new Float64Array(n);
+  const fileColumn = new Float64Array(rows.length);
   for (let feature = 0; feature < featureCount; feature++) {
     assertWithinDeadline(deadline);
     for (let index = 0; index < n; index++) column[index] = values[trainRows[index] * featureCount + feature];
     column.sort();
+    for (let row = 0; row < rows.length; row++) fileColumn[row] = values[row * featureCount + feature];
+    fileColumn.sort();
     const featureEdges: number[] = [];
     for (let quantile = 1; quantile < GBDT_BINS; quantile++) {
       const upper = column[Math.floor((quantile * n) / GBDT_BINS)];
-      // Première occurrence de `upper` : la valeur distincte précédente est juste avant.
+      // Première occurrence de `upper` dans le fichier : la valeur distincte précédente est juste avant.
       let low = 0;
-      let high = n;
+      let high = fileColumn.length;
       while (low < high) {
         const middle = (low + high) >>> 1;
-        if (column[middle] < upper) low = middle + 1;
+        if (fileColumn[middle] < upper) low = middle + 1;
         else high = middle;
       }
       if (low === 0) continue;
-      const edge = roundSig((column[low - 1] + upper) / 2, THRESHOLD_SIG_FIGS);
-      if (edge > column[0] && (featureEdges.length === 0 || edge > featureEdges[featureEdges.length - 1])) featureEdges.push(edge);
+      const edge = thresholdBetween(fileColumn[low - 1], upper);
+      if (edge !== null && (featureEdges.length === 0 || edge > featureEdges[featureEdges.length - 1])) featureEdges.push(edge);
     }
     edges.push(featureEdges);
   }
@@ -100,7 +132,7 @@ export function trainGradientBoostedTrees(csv: Buffer, target?: string): Gradien
 
   let positives = 0;
   for (const row of trainRows) positives += labels[row];
-  const baseScore = roundSig(Math.log(positives / (n - positives)), LEAF_SIG_FIGS);
+  const baseScore = roundSig(Math.log(positives / (n - positives)), BASE_SCORE_SIG_FIGS);
   const scores = new Float64Array(n).fill(baseScore);
   const gradients = new Float64Array(n);
   const hessians = new Float64Array(n);
@@ -191,7 +223,8 @@ export function trainGradientBoostedTrees(csv: Buffer, target?: string): Gradien
     trees.push(grow(root, 0));
   }
 
-  // Audit sur le modèle livré, avec les vraies valeurs et les seuils publiés (et non les intervalles).
+  // Audit sur le modèle livré, avec les vraies valeurs et les seuils publiés (et non les intervalles),
+  // sur les lignes distinctes effectivement entraînées : une feuille doit en regrouper au moins 1 000.
   const leafCount = (node: GbdtNode): number => ("feature" in node ? leafCount(node.left) + leafCount(node.right) : 1);
   const leafCounts = new Int32Array(1 << (GBDT_MAX_DEPTH + 1));
   for (const tree of trees) {
@@ -246,7 +279,7 @@ export function trainGradientBoostedTrees(csv: Buffer, target?: string): Gradien
       heldOutPrecision: precision,
       heldOutRecall: recall,
       heldOutF1: precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall),
-      trainAuc,
+      aucGap: trainAuc - heldOutAuc,
       n: rows.length,
     },
   };

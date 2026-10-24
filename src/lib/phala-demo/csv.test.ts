@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { csvWithTargetLast, demoQualityReport, tableWithTargetLast } from "./csv";
 import { DEMO_EXAMPLES } from "./examples";
+import { selectionForModelId } from "../models/registry";
 import { trainSelectedModel } from "../tee/model-registry";
 import { gateModel } from "../tee/output-gate";
 import { DatasetValidationError, trainingColumns } from "../tee/train";
@@ -13,7 +14,7 @@ import { qualityReport } from "../datasets/quality";
 test("les deux exemples passent les vrais profils et la porte de sortie du runner", () => {
   for (const sample of DEMO_EXAMPLES) {
     const bytes = csvWithTargetLast(readFileSync(join(process.cwd(), "public", sample.path), "utf8"), sample.target);
-    const result = gateModel(trainSelectedModel({ modelId: sample.modelId, modelVersion: "1.0.0" }, Buffer.from(bytes))).model;
+    const result = gateModel(trainSelectedModel(selectionForModelId(sample.modelId), Buffer.from(bytes))).model;
     assert.equal(result.target, sample.target);
     assert.equal(result.algo, sample.modelId);
     assert.ok(result.metrics.n >= 100);

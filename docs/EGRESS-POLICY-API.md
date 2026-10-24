@@ -1,5 +1,7 @@
 # Politique de sortie de l’enclave et API sur modèles privés
 
+> **Mise à jour du 24 octobre 2026 : l’étape E2 est livrée en version minimale pour le profil arbres** (`gradient_boosted_trees` 1.1.0), calibrée sur l’audit confidentialité du 23 octobre (branche `audit/confidentialite`, rapport `audit/rapports/confidentialite.md`). Ce qui est codé et ce qui reste est au §2.5 ; les valeurs « provisoires » du §2.3 y sont remplacées. Le reste de la note (API, crédits, structure `EgressPolicy`) reste une étude.
+
 Note de décision du 19 octobre 2026. **Étude, pas une fonctionnalité** : rien n’est implémenté dans `src/` ni `contracts/`, aucune session Phala n’a été ouverte. Les chiffres viennent d’un prototype jetable hors du dépôt (annexe A), de mesures locales sur un Apple M2 et des mesures publiées dans la PR #111 (arbres boostés) ; la mesure réelle sur la CVM reste à faire. Les points tranchés par Noé le 19 octobre sont repris dans [D-27](DECISIONS.md#d-27--politique-de-sortie-unique-et-api-sur-modèles-privés) et marqués **Décidé** ci-dessous ; le reste est proposé.
 
 Cette note rouvre en partie la décision du 14 octobre sur les nouveaux modèles (notes d’expériences de la branche `exp/agent-experience-lending`, non fusionnées dans `staging`), qui écartait tout modèle à servir depuis l’enclave (M07 type Kev, M08, M10). Elle ne la remplace pas : elle décrit à quelles conditions un service deviendrait acceptable. Les renvois aux « notes d’expériences » ci-dessous désignent ces documents.
@@ -156,11 +158,11 @@ Aujourd’hui, `gateModel` (`src/lib/tee/output-gate.ts`) arrondit à 6 chiffres
 
 **Décidé — métriques sur tranche de test et `n` arrondi seulement pour les nouveaux profils ou nouvelles versions de profil.** Le format livré de linéaire et logistique v1 ne change pas.
 
-Signal mesuré par la PR #111 (canaris, 3 graines × 20, indicatif) : une ligne atypique présente **5 fois** est restituée par les arbres dans **22 %** des cas, contre **13 %** pour des lignes jamais vues ; présente une fois, 8 % contre 5 % ; la logistique reste à 5 % contre 2 %. Les doublons sont la fuite qui résiste au bridage. Pistes reprises de cette PR :
+Signal mesuré par la PR #111 (canaris, 3 graines × 20, indicatif) : une ligne atypique présente **5 fois** est restituée par les arbres dans **22 %** des cas, contre **13 %** pour des lignes jamais vues ; présente une fois, 8 % contre 5 % ; la logistique reste à 5 % contre 2 %. *Audit du 23 octobre (20 graines × 20 canaris, définition « probabilité ≥ 0,5 ») : ce « 22 % contre 13 % » à ×5 n’est pas reproduit (7,2 % contre 7,8 % sur Taïwan) ; le signal est dans le **score** (AUC canaris / témoins 0,59–0,62 à ×5, 0,72–0,81 à ×20), pas dans la décision à 0,5. Voir §2.5.* Les doublons sont la fuite qui résiste au bridage. Pistes reprises de cette PR :
 
-1. **Rapport de qualité** : décompte des lignes strictement identiques (lignes concernées, multiplicité maximale), montré au fournisseur, sans révéler les lignes.
-2. **Plafond d’influence par ligne distincte, dans l’enclave** : chaque ligne distincte pèse au plus *k* (par exemple 2) dans les gradients et les comptes de feuilles. Les doublons légitimes restent, sans retirer de données ni changer le Merkle root ; coût d’un hachage par ligne.
-3. **Seuil sur `trainAuc − heldOutAuc`** dans la politique de sortie.
+1. **Rapport de qualité** : décompte des lignes strictement identiques (lignes concernées, multiplicité maximale), montré au fournisseur, sans révéler les lignes. *Livré (E1).*
+2. **Plafond d’influence par ligne distincte, dans l’enclave** : chaque ligne distincte pèse au plus *k* dans les gradients et les comptes de feuilles. Les doublons légitimes restent, sans retirer de données ni changer le Merkle root ; coût d’un hachage par ligne. *Livré avec k = 1 (§2.5) : k = 2 ne suffisait pas.*
+3. **Seuil sur `trainAuc − heldOutAuc`** dans la politique de sortie. *Non retenu : 0,008–0,017 sur les trois jeux normaux et 0,017 avec des canaris ×20 mémorisés, indiscernables. L’écart est publié (`aucGap`), pas contrôlé.*
 
 **Décidé — une politique de sortie unique**, qui englobe `gateModel` et vaut pour les modèles livrés comme pour les réponses d’API :
 
@@ -227,20 +229,22 @@ interface ModelInspector<Model> {
 }
 ```
 
-Règles déterministes et action par défaut. **Les valeurs sont provisoires et volontairement prudentes** ; elles seront calibrées sur Taïwan, Give Me Some Credit et `credit-risk`, avec les mesures en annexe B.
+Règles déterministes et action par défaut. Les valeurs ci-dessous étaient provisoires le 19 octobre ; **la colonne « État » dit ce que l’audit du 23 octobre a mesuré et ce que le profil arbres 1.1.0 applique (§2.5)**.
 
-| Règle | Mesure | Valeur provisoire | Action si dépassée |
-|---|---|---|---|
-| Lignes par paramètre | `rows / parameters` | ≥ 10 (existant) | Refuser |
-| Taille minimale des feuilles | plus petite feuille réelle, pas le réglage demandé | ≥ 1 000 lignes (#111) | Refuser |
-| Influence par ligne distincte | poids d’une ligne répétée | k ≤ 2 (provisoire) | Toujours appliqué dans l’enclave |
-| Doublons | lignes répétées, multiplicité maximale | — | **Signaler au fournisseur** dans le rapport de qualité ; aucun refus automatique (doublons légitimes, comme dans la #111) |
-| Écart d’AUC | `trainAuc − heldOutAuc` | **Non applicable tant que l’annexe B ne l’a pas calibré** | Refuser, une fois activé. Condition d’activation : les jeux d’exemple de la #111 passent. Le test de la #111 ne borne l’écart que dans un sens (`trainAuc ≥ heldOutAuc − 0,02`) ; un plafond à 0,02 pourrait refuser les arbres sur leurs propres exemples. |
-| Écart de perte | `holdoutLoss − trainLoss`, relatif | **Non applicable tant que l’annexe B ne l’a pas calibré** | Dégrader (régularisation plus forte) puis refuser, une fois activé. Condition d’activation : les jeux d’exemple de la #111 passent. |
-| Appartenance | AUC des pertes entraînement contre test | ≤ 0,55 (provisoire) | Refuser |
-| Arrondi | chiffres significatifs ; `n` arrondi et métriques held-out pour les nouveaux profils seulement | 6 chiffres ; `n` à la centaine (provisoire) | Toujours appliqué |
-| Taille maximale | octets du livrable | 256 Kio (existant) | Refuser |
-| Quota (API) | appels par client et par modèle | à fixer avec le prix (§1.2) | Refuser l’appel |
+| Règle | Mesure | Valeur | Action si dépassée | État (24 octobre) |
+|---|---|---|---|---|
+| Lignes par paramètre | `rows / parameters` | ≥ 10 (existant) | Refuser | Codé (tous profils) |
+| Taille minimale des feuilles | plus petite feuille réelle, pas le réglage demandé | ≥ 1 000 lignes **distinctes** (#111, puis 1.1.0) | Refuser | Codé (arbres) |
+| Influence par ligne distincte | copies d’une même ligne (variables + cible) dans l’entraînement | **k = 1** | Toujours appliqué dans l’enclave | Codé (arbres 1.1.0). k ≤ 2 mesuré insuffisant (CONF-07) |
+| Doublons | lignes répétées, multiplicité maximale | — | **Signaler au fournisseur** dans le rapport de qualité (E1) ; refus seulement s’il reste moins de 1 000 lignes d’entraînement distinctes | Codé |
+| Seuils de coupe | position du seuil publié | strictement entre deux valeurs voisines du fichier, jamais égal à l’une d’elles ; 3 à 6 chiffres | Pas de coupe si aucun décimal assez court ne sépare les deux valeurs | Codé (arbres 1.1.0, CONF-03) |
+| Écart d’AUC | `trainAuc − heldOutAuc` | publié (`aucGap`, 2 décimales), **aucun seuil** | — | Mesuré 0,008–0,017 sur modèles normaux comme mémorisés : ne discrimine pas (CONF-02) |
+| Écart de perte | `holdoutLoss − trainLoss`, relatif | non applicable | — | Non codé, non calibré |
+| Appartenance | AUC des pertes entraînement contre test | — | — | **Abandonnée comme contrôle d’enclave** : 0,49–0,50 même avec des canaris ×20 mémorisés à 0,8 (CONF-02). Le critère « ≤ 0,55 » reste un critère d’audit hors ligne (LiRA, canaris). |
+| Arrondi | métriques et `n` publiés | arbres 1.1.0 : held-out à 3 décimales, `aucGap` à 2 décimales, `n` à 2 chiffres significatifs, `baseScore` à 3 chiffres ; linéaire et logistique v1 : 6 chiffres et `n` exact, inchangés | Toujours appliqué | Codé (`output-gate.ts`). La centaine pour `n` mesurée insuffisante (CONF-05) |
+| En-têtes publiés | noms des colonnes numériques (variables et cible) | `[A-Za-z0-9_]{1,64}` | Refuser à l’import, même message dans le navigateur et l’enclave | Codé (arbres 1.1.0, CONF-06) ; linéaire et logistique v1 gardent 128 caractères libres |
+| Taille maximale | octets du livrable | 256 Kio (existant) | Refuser | Codé |
+| Quota (API) | appels par client et par modèle | à fixer avec le prix (§1.2) | Refuser l’appel | Étude |
 
 Le détail des contrôles va au fournisseur ; l’acheteur reçoit un refus générique. Un refus après calcul est un échec au sens de D-23 : dataset et compute non consommé remboursés. Les contrôles qui ne dépendent que du fichier (lignes par paramètre) sont donc faits **à l’import**, avant tout devis ; le décompte des doublons y est seulement affiché.
 
@@ -253,7 +257,7 @@ Place dans le code : la politique remplace l’appel direct à `gateModel` dans 
 | Étape | Contenu | Risque | Dépend de |
 |---|---|---|---|
 | E1 | Rapport de qualité à l’import, dans le navigateur, sans modifier le fichier : cible qui change, colonnes écartées et leurs cellules manquantes, constantes, doublons, colonne qui recopie la cible, déséquilibre | Faible | **Livré** (PR E1, après la #111) |
-| E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, AUC d’appartenance ; seuil `trainAuc − heldOutAuc` seulement une fois calibré ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | Fusion #111 (`train.ts`, `output-gate.ts`) ; seuils provisoires puis calibration (annexe B) |
+| E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, AUC d’appartenance ; seuil `trainAuc − heldOutAuc` seulement une fois calibré ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | **Livré en version minimale le 24 octobre** (§2.5) : plafond k = 1, seuils, arrondis, en-têtes, banc de canaris en CI. Restent : la structure `EgressPolicy` / `TrainingDiagnostics` (verdict unique partagé avec l’API), le journal des doublons dans l’enclave ; l’AUC d’appartenance par la perte est abandonnée comme contrôle |
 | E3 | Préparation intégrée au modèle (imputation, normalisation, encodage) | Moyen (nouvelle version de profil) | Profil des arbres ou version suivante |
 | E4 | Prototype `/predict` en staging (§1.6), pendant les sessions manuelles | Moyen | E2, fusion #111 |
 | E5 | Crédits prépayés et rémunération par appel | Élevé (contrat) | Décision commerciale, revue Solidity |
@@ -263,6 +267,38 @@ Place dans le code : la politique remplace l’appel direct à `gateModel` dans 
 E1 est l’incrément le plus utile et le moins risqué : il ne change ni ce qui sort de l’enclave ni les contrats.
 
 **E1, choix de la v1 : rapport dans le navigateur seulement.** Il est calculé sur le fichier en clair avant chiffrement et n’est ni envoyé, ni stocké, ni publié. Le recalculer dans l’enclave obligerait à le renvoyer par Next et, pour qu’il serve à l’acheteur, à le publier ; or `Dataset.metrics` est public (marketplace, page de preuve) et `publicDatasetMetrics` (`src/lib/sirius/metrics.ts`) n’en garde volontairement que `rowCount` et `columnCount`. Un décompte de doublons ou une liste de colonnes défectueuses renseignerait sur les données. Le fournisseur peut modifier ce rapport dans son navigateur : il n’a aucune valeur de preuve, la validation qui fait foi reste celle du runner. E2 calculera les doublons dans l’enclave comme diagnostic interne, jamais publié. Seuils provisoires : \|r\| ≥ 0,98 ou identité (cible, 1 − cible) pour la fuite de la cible, classe minoritaire < 10 %. La règle numérique est celle de l’enclave (`isNumericCell`, `src/lib/sirius/metrics.ts`) : écriture décimale seulement ; une cellule faite d’espaces compte comme vide et une valeur préfixée 0x/0b/0o n’est pas un nombre (audit ROB-01, ROB-02 : `Number()` les lisait 0 ou en base 16/2/8). Messages « à vérifier », aucun refus ajouté par le rapport ; les refus de forme (parseur strict, cible presque numérique, EXA-03) viennent du contrôle du fichier, identique à celui de l’enclave. Sur `/phala`, le même rapport porte sur la colonne à prédire choisie (fichier réordonné comme celui envoyé à l’enclave) ; une cible non numérique y est annoncée comme refus de `csvWithTargetLast`, qui applique désormais la règle numérique de l’enclave (borne 10¹²).
+
+### 2.5 E2 minimale livrée pour les arbres (24 octobre 2026)
+
+Profil `gradient_boosted_trees` **1.1.0** (nouvelle empreinte on-chain, à ajouter au registre v5 avant toute session : [GBDT-PHASE2.md](GBDT-PHASE2.md)). Linéaire et logistique v1 ne changent pas (D-27). Code : `src/lib/models/gbdt.ts` (constantes, `thresholdBetween`), `src/lib/tee/train-gbdt.ts`, `src/lib/tee/output-gate.ts`, `src/lib/tee/train.ts` (`assertGbdtDataset`), `src/lib/datasets/csv-check.ts` ; tests `src/lib/tee/train-gbdt-confidentiality.test.ts` (dans `pnpm test`).
+
+| Constat | Correction | Mécanisme |
+|---|---|---|
+| CONF-01, CONF-07 (lignes répétées mémorisées ; k ≤ 2 insuffisant) | **Plafond d’influence k = 1** | Empreinte de chaque ligne d’entraînement (valeurs numériques des variables + cible) ; seule la première occurrence entre dans les quantiles, les gradients, les feuilles et l’audit des feuilles. Les copies comptent dans `n`, le fichier et son Merkle root ne changent pas. Choisi plutôt qu’une pondération 1/m des copies : même effet (une ligne distincte pèse exactement une ligne), aucun poids fractionnaire dans les histogrammes, résultat identique au fichier dédoublonné, donc vérifiable par un test octet pour octet. Refus propre s’il reste moins de 1 000 lignes distinctes. |
+| CONF-02 (l’AUC d’appartenance par la perte ne détecte rien) | Mesure **abandonnée** comme contrôle d’enclave | Remplacée par des contrôles structurels (ci-dessous) et par le banc de canaris en CI : AUC canaris / témoins sur le **score** du modèle livré, avec un contrôle positif (fuite connue) qui vérifie que le banc voit bien une fuite. |
+| CONF-03 (51 seuils sur 119 égaux à une valeur du fichier) | Seuils **strictement entre** deux valeurs voisines du fichier entier | `thresholdBetween(a, b)` : décimal le plus court du milieu (3 à 6 chiffres) strictement dans ]a ; b[, sinon pas de coupe ; voisins pris sur toutes les lignes (tranche tenue à l’écart et copies écartées comprises). La porte de sortie arrondit à 6 chiffres au plus (idempotent). Le seuil reste une statistique d’ordre : il encadre deux valeurs voisines (sur Taïwan, 61 seuils sur 121 encadrent encore une valeur portée par une seule ligne, à 0,5 % près) ; le refus des coupes dont les deux voisins sont rares n’est **pas** codé (il supprimerait toute coupe sur les colonnes continues). |
+| CONF-04 (`trainAuc` et held-out à 6 chiffres) | Métriques held-out à **3 décimales**, `trainAuc` remplacé par **`aucGap = trainAuc − heldOutAuc` à 2 décimales** | `output-gate.ts` ; `parseDeliveredModel` exige le nouveau jeu de métriques. |
+| CONF-05 (`n` exact, `baseScore` à 4 chiffres) | `n` à **2 chiffres significatifs**, `baseScore` à **3 chiffres** | `output-gate.ts` et entraînement (le `baseScore` arrondi est celui qui initialise les scores). L’attaque par différence entre deux versions d’un fichier (AUC 0,58 à ×1 avec deux modèles) n’est pas couverte : à traiter par une règle commerciale ou des feuilles à 3 chiffres (non mesuré). |
+| CONF-06 (128 caractères libres dans les noms de colonnes) | En-têtes publiés limités à **`[A-Za-z0-9_]{1,64}`** | Refus à l’import (`validateTrainingDataset`) et dans le navigateur (`inspectCsv`, raison `trees-header-charset`), même message. Seules les colonnes publiées (variables numériques et cible) sont concernées. |
+
+**Banc rejoué après correction** (scripts de l’audit, mêmes graines, 20 graines × 20 canaris par jeu ; en-têtes de GMSC ramenés à `[A-Za-z0-9_]` par le chargeur du banc). AUC d’appartenance canaris / témoins sur le score du modèle livré ; 0,5 = rien, p de Mann-Whitney.
+
+| Jeu | Cas | AUC canaris / témoins **avant** (1.0.0, audit) | **après** (1.1.0) | AUC held-out avant → après | Retrouvés canaris / témoins après |
+|---|---|---|---|---|---|
+| Taïwan | ×5 | 0,590 (p < 10⁻⁴) | 0,478 (p = 0,27) | 0,780 → 0,781 | 6,0 % / 8,0 % |
+| Taïwan | ×20 | **0,766** (p < 10⁻⁴) | 0,478 (p = 0,27) | 0,776 → 0,781 | 6,0 % / 8,0 % |
+| GMSC | ×5 | 0,624 (p < 10⁻⁴) | 0,523 (p = 0,27) | 0,854 → 0,855 | 0,0 % / 0,3 % |
+| GMSC | ×20 | **0,810** (p < 10⁻⁴) | 0,523 (p = 0,27) | 0,845 → 0,855 | 0,0 % / 0,3 % |
+| credit-risk | ×5 | 0,565 (p = 0,002) | 0,516 (p = 0,42) | 0,718 → 0,719 | 5,0 % / 6,5 % |
+| credit-risk | ×20 | **0,716** (p < 10⁻⁴) | 0,516 (p = 0,42) | 0,711 → 0,719 | 5,0 % / 6,5 % |
+
+Lecture : avec k = 1, ×5 et ×20 donnent exactement le même modèle que ×1 (les copies n’entrent pas), donc la même AUC, au niveau du bruit (p ≥ 0,27) ; l’AUC held-out est celle du modèle sans canari (×0 : 0,855 GMSC, 0,718 credit-risk). L’audit avait mesuré le plafond simulé k ≤ 1 à 0,474 / 0,523 / 0,517 : le plafond codé reproduit ces valeurs à 0,01 près (les seuils ont changé). Résultats bruts : `audit/confidentialite/results/canaries-after-e2-*.json` sur la branche de l’audit rejouée localement (non versionnés ici).
+
+Seuils (`thresholds.ts`, fichier entier) : seuils égaux à une valeur présente **0 / 121** (Taïwan, avant : 51 / 119), **0 / 87** (GMSC, avant : 12 / 83), **0 / 72** (credit-risk, avant : 56 / 76). Voisin porté par une seule ligne : 61, 43 et 14 seuils (avant : 58, 42, 19) : cette information d’ordre reste.
+
+Critère de recette en CI (`train-gbdt-confidentiality.test.ts`, `credit-risk.csv`, 4 graines × 50 canaris) : avec k = 1, le modèle entraîné avec des canaris ×20 a **les mêmes arbres** que celui entraîné avec les canaris ×1, et l’AUC canaris / témoins vaut 0,467 (z = −1,14, non significatif) ; le contrôle positif (quasi-doublons à 10⁻⁹ relatif, hors plafond par empreinte exacte) donne 0,664 (z = 5,7) : le banc voit une fuite quand il y en a une. Cette limite du plafond par empreinte (quasi-doublons) est documentée dans `train-gbdt.ts` et n’est pas couverte.
+
+Reste de E2, non livré : structure `EgressPolicy` / `TrainingDiagnostics` (verdict unique partagé avec l’API), décompte des doublons journalisé dans l’enclave, feuilles à 3 chiffres contre l’attaque par différence (à mesurer).
 
 ## Décisions
 
@@ -625,7 +661,7 @@ Références : F. Tramèr, F. Zhang, A. Juels, M. Reiter, T. Ristenpart, « Stea
 
 ## Annexe B — Calibration des seuils
 
-Non réalisée à la date de cette note : les valeurs du §2.3 sont provisoires. Protocole prévu, sur Taïwan, Give Me Some Credit et l’exemple `credit-risk` de la #111, avec le découpage déterministe des arbres (une ligne sur cinq mise de côté) :
+Réalisée pour l’essentiel par l’audit confidentialité du 23 octobre 2026 (`audit/confidentialite`, 20 graines × 20 canaris, LiRA à 16 modèles fantômes), puis rejouée le 24 octobre sur le profil 1.1.0 : résultats au §2.5. Protocole d’origine, sur Taïwan, Give Me Some Credit et l’exemple `credit-risk` de la #111, avec le découpage déterministe des arbres (une ligne sur cinq mise de côté) :
 
 1. Relever, pour chaque profil, `trainAuc − heldOutAuc` (signé), l’écart de perte relatif et l’AUC d’appartenance par la perte sur le modèle normal, y compris sur les jeux d’exemple de la #111.
 2. Rejouer le banc canaris de la #111 (lignes atypiques ×1 et ×5) avec et sans plafond d’influence *k* = 1, 2, 4, et mesurer l’effet sur l’AUC held-out.

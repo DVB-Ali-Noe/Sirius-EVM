@@ -22,12 +22,17 @@ export const MODEL_REGISTRY = {
     metrics: ["Accuracy", "Precision", "Recall", "F1", "Probability"],
     optIn: false,
   },
+  /**
+   * 1.1.0 (24 octobre 2026, E2 minimale) : plafond d'influence k = 1, seuils jamais sur une
+   * valeur du fichier, métriques arrondies, `trainAuc` remplacé par `aucGap`, `n` à 2 chiffres,
+   * en-têtes publiés restreints. La sortie change : nouvelle empreinte de profil on-chain.
+   */
   gradient_boosted_trees: {
     id: "gradient_boosted_trees",
-    version: "1.0.0",
+    version: "1.1.0",
     label: "Binary gradient-boosted trees",
     description: "Classifies a 0/1 target with shallow boosted trees, scored on a held-out fifth of the rows.",
-    metrics: ["Held-out AUC", "Held-out accuracy", "Held-out precision", "Held-out recall", "Held-out F1", "Train AUC", "Probability"],
+    metrics: ["Held-out AUC", "Held-out accuracy", "Held-out precision", "Held-out recall", "Held-out F1", "Train/held-out AUC gap", "Probability"],
     optIn: true,
   },
 } as const;
@@ -73,7 +78,9 @@ export interface GradientBoostedTreesModel {
     heldOutPrecision: number;
     heldOutRecall: number;
     heldOutF1: number;
-    trainAuc: number;
+    /** `trainAuc − heldOutAuc` : le sur-apprentissage, seule information utile du `trainAuc` brut. */
+    aucGap: number;
+    /** Lignes du fichier, en-tête exclu, publiées arrondies (jamais le compte exact). */
     n: number;
   };
 }
@@ -177,9 +184,9 @@ export function parseDeliveredModel(value: unknown): DeliveredModel {
       isFiniteNumber(model.baseScore) &&
       Array.isArray(model.trees) && model.trees.length > 0 && model.trees.length <= GBDT_TREES &&
       model.trees.every((tree) => isGbdtNode(tree, model.features.length)) &&
-      exactMetrics(metrics, ["heldOutAuc", "heldOutAccuracy", "heldOutPrecision", "heldOutRecall", "heldOutF1", "trainAuc", "n"]) &&
-      [metrics.heldOutAuc, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall, metrics.heldOutF1, metrics.trainAuc]
-        .every(isProbabilityMetric) &&
+      exactMetrics(metrics, ["heldOutAuc", "heldOutAccuracy", "heldOutPrecision", "heldOutRecall", "heldOutF1", "aucGap", "n"]) &&
+      [metrics.heldOutAuc, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall, metrics.heldOutF1].every(isProbabilityMetric) &&
+      isFiniteNumber(metrics.aucGap) && Math.abs(metrics.aucGap) <= 1 &&
       isCount(metrics.n)
     ) {
       return model as unknown as GradientBoostedTreesModel;
