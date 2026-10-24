@@ -1,5 +1,5 @@
 import "server-only";
-import { Quote, getCollateralAndVerify } from "@phala/dcap-qvl";
+import { PHALA_PCCS_URL, Quote, getCollateral, verify, type Collateral } from "@phala/dcap-qvl";
 import { isSimulator } from "./dstack";
 import {
   matchesPinnedHash,
@@ -38,6 +38,71 @@ export interface QuoteVerification {
   codeIdentityMatches: boolean | null;
   measurements: { mrTd: string; rtMr3: string; composeHash: string | null };
   tcbStatus?: string;
+  /**
+   * Cause d'une vérification matérielle sans succès, pour le diagnostic seulement (journaux) :
+   * collatérale Intel injoignable (réseau, PCCS lent) ou quote refusée par la vérification.
+   */
+  hardwareFailure?: HardwareFailure;
+}
+
+export type HardwareFailure = "collateral-unavailable" | "rejected";
+
+/** Une tentative de collatérale ne bloque jamais plus longtemps que ceci (audit ROB-11). */
+export const COLLATERAL_TIMEOUT_MS = 8_000;
+const COLLATERAL_ATTEMPTS = 2;
+const COLLATERAL_RETRY_DELAY_MS = 250;
+
+export interface HardwareVerifierIO {
+  getCollateral(quote: Buffer): Promise<Collateral>;
+  verify(quote: Buffer, collateral: Collateral, nowSecs: number): { status: string };
+  now(): number;
+  timeoutMs: number;
+  retryDelayMs: number;
+}
+
+const defaultHardwareIO: HardwareVerifierIO = {
+  getCollateral: (quote) => getCollateral(PHALA_PCCS_URL, quote),
+  verify: (quote, collateral, nowSecs) => verify(quote, collateral, nowSecs),
+  now: () => Date.now(),
+  timeoutMs: COLLATERAL_TIMEOUT_MS,
+  retryDelayMs: COLLATERAL_RETRY_DELAY_MS,
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("Collatérale Intel hors délai")), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Vérification matérielle d'une quote TDX contre la collatérale Intel (PCCS Phala, comme
+ * `getCollateralAndVerify` de dcap-qvl). `dcap-qvl` télécharge la collatérale par `fetch` sans délai
+ * ni nouvel essai : un PCCS lent bloquait la requête jusqu'à l'arrêt de la fonction, et un échec
+ * réseau passager devenait un « runner non authentifié » (audit ROB-11). Ici : délai borné par
+ * tentative, un seul nouvel essai, et la cause distingue réseau et refus. L'appel réseau abandonné
+ * ne peut pas être annulé (dcap-qvl ne prend pas de signal) ; il se termine en arrière-plan.
+ */
+export async function verifyQuoteHardware(
+  rawQuote: Buffer,
+  io: HardwareVerifierIO = defaultHardwareIO,
+): Promise<{ status: string } | { failure: HardwareFailure }> {
+  let collateral: Collateral | undefined;
+  for (let attempt = 1; attempt <= COLLATERAL_ATTEMPTS && !collateral; attempt++) {
+    try {
+      collateral = await withTimeout(io.getCollateral(rawQuote), io.timeoutMs);
+    } catch {
+      if (attempt < COLLATERAL_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, io.retryDelayMs));
+    }
+  }
+  if (!collateral) return { failure: "collateral-unavailable" };
+  try {
+    return { status: io.verify(rawQuote, collateral, Math.floor(io.now() / 1000)).status };
+  } catch {
+    return { failure: "rejected" };
+  }
 }
 
 /**
@@ -133,16 +198,15 @@ export async function verifyTdxQuote(
   if (opts.skipHardware ?? isSimulator()) {
     return { reportDataMatches, hardwareVerified: null, ...identity, measurements };
   }
-  try {
-    const verified = await getCollateralAndVerify(rawQuote);
-    return {
-      reportDataMatches,
-      hardwareVerified: isAcceptedTcbStatus(verified.status),
-      ...identity,
-      measurements,
-      tcbStatus: verified.status,
-    };
-  } catch {
-    return { reportDataMatches, hardwareVerified: false, ...identity, measurements };
+  const verified = await verifyQuoteHardware(rawQuote);
+  if ("failure" in verified) {
+    return { reportDataMatches, hardwareVerified: false, ...identity, measurements, hardwareFailure: verified.failure };
   }
+  return {
+    reportDataMatches,
+    hardwareVerified: isAcceptedTcbStatus(verified.status),
+    ...identity,
+    measurements,
+    tcbStatus: verified.status,
+  };
 }
