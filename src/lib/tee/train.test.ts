@@ -6,7 +6,7 @@ import { trainInWorker } from "./bounded-training";
 import { gateModel } from "./output-gate";
 import {
   DatasetValidationError, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS,
-  trainingClock, trainingClockMs, trainLinearRegression, trainLogisticRegression, validateTrainingDataset,
+  trainingClock, trainingClockMs, trainingClockSource, trainLinearRegression, trainLogisticRegression, validateTrainingDataset,
 } from "./train";
 import { trainSelectedModel } from "./model-registry";
 import { modelSelection } from "@/lib/models/registry";
@@ -193,21 +193,39 @@ test("entraîne 30 000 lignes en worker sans épuiser son délai ni sa mémoire"
   assert.ok(model.metrics.accuracy > 0.9);
 });
 
-test("EXA-05 : le délai d'entraînement se mesure en temps CPU du thread quand Node le fournit, sinon en temps réel", () => {
+test("EXA-05 : le délai d'entraînement se mesure en temps CPU du thread quand la source le fournit", () => {
   // Horloge CPU : microsecondes user + system, rendues en millisecondes.
   let cpu = { user: 2_000_000, system: 500_000 };
-  const clock = trainingClock(() => cpu);
+  const clock = trainingClock({ threadCpuUsage: () => cpu });
   assert.equal(clock(), 2_500);
   const deadline = clock() + 15_000;
   // Machine chargée : le temps réel avance, mais le thread n'a pas eu le processeur ; l'échéance n'est pas atteinte.
   assert.ok(clock() <= deadline);
   cpu = { user: 17_000_000, system: 600_000 };
   assert.ok(clock() > deadline);
-  // Sans horloge CPU par thread : temps réel, comme avant.
-  const wall = trainingClock(undefined);
+  // La méthode est appelée sur sa source, comme `process.threadCpuUsage` sur `process`.
+  const source = { calls: 0, threadCpuUsage(this: { calls: number }) { this.calls++; return { user: 1_000, system: 0 }; } };
+  assert.equal(trainingClock(source)(), 1);
+  assert.equal(source.calls, 1);
+});
+
+test("EXA-05 : sans threadCpuUsage, le délai se mesure en temps réel, comme avant", () => {
+  // Absence forcée par injection : vrai quelle que soit la version de Node qui exécute le test.
+  const wall = trainingClock({});
   const before = performance.now();
   const read = wall();
   assert.ok(read >= before && read <= performance.now());
+});
+
+test("EXA-05 : l'horloge du délai suit process.threadCpuUsage quand Node la fournit (Node 22.23 de la CI), sinon le temps réel", () => {
+  const nodeCpu = (process as unknown as { threadCpuUsage?: () => { user: number; system: number } }).threadCpuUsage;
+  const reference = typeof nodeCpu === "function"
+    ? () => { const { user, system } = nodeCpu.call(process); return (user + system) / 1_000; }
+    : () => performance.now();
+  assert.equal(typeof trainingClockSource.threadCpuUsage, typeof nodeCpu);
+  const before = reference();
+  const read = trainingClockMs();
+  assert.ok(read >= before && read <= reference(), `${read} hors de [${before}, …]`);
 });
 
 const hasThreadCpuClock = typeof (process as unknown as { threadCpuUsage?: unknown }).threadCpuUsage === "function";

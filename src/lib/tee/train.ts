@@ -31,29 +31,42 @@ function numericColumns(header: string[], rows: string[][]): number[] {
 
 type CpuUsage = () => { user: number; system: number };
 
+/** Source de l'horloge CPU : `threadCpuUsage` absente → temps réel. */
+export interface TrainingClockSource {
+  threadCpuUsage?: CpuUsage;
+}
+
 /**
  * Horloge du délai d'entraînement, en millisecondes (audit EXA-05). Temps CPU du thread courant
- * (`process.threadCpuUsage`, Node ≥ 23.9) quand il existe : un fichier qui passe au repos passe
- * aussi quand la machine est chargée par d'autres calculs, puisque le temps où le thread attend
- * le processeur ne compte plus. Sinon, temps réel, comme avant.
+ * (`process.threadCpuUsage`, présente dans Node 22.23 de la CI et de l'image, absente de Node
+ * 22.16) quand la source la fournit : un fichier qui passe au repos passe aussi quand la machine
+ * est chargée par d'autres calculs, puisque le temps où le thread attend le processeur ne compte
+ * plus. Sinon, temps réel, comme avant. La source est lue à chaque appel.
  *
  * Le modèle ne dépend jamais de cette horloge, seulement la réussite. La limite principale reste
  * le budget en opérations, déterministe (`MAX_TRAINING_OPERATIONS`, `GBDT_MAX_OPERATIONS`). Dans
  * l'enclave, la limite d'exécution du worker (`AbortSignal.timeout`, `maxExecutionMs` du devis
  * signé, facturé à la milliseconde) reste en temps réel : c'est elle le filet large.
  */
-export function trainingClock(
-  threadCpuUsage: CpuUsage | undefined = (process as unknown as { threadCpuUsage?: CpuUsage }).threadCpuUsage?.bind(process),
-): () => number {
-  if (!threadCpuUsage) return () => performance.now();
+export function trainingClock(source: TrainingClockSource): () => number {
   return () => {
-    const { user, system } = threadCpuUsage();
+    const cpu = source.threadCpuUsage;
+    if (typeof cpu !== "function") return performance.now();
+    const { user, system } = cpu.call(source);
     return (user + system) / 1_000;
   };
 }
 
+/**
+ * Source de l'horloge du délai : celle du processus. Point d'injection des tests, qui y
+ * remplacent `threadCpuUsage` sans toucher aux globales `process` ni `performance`.
+ */
+export const trainingClockSource: TrainingClockSource = {
+  threadCpuUsage: (process as unknown as TrainingClockSource).threadCpuUsage?.bind(process),
+};
+
 /** Lecture de l'horloge du délai : `trainingClockMs() + trainingTimeoutMs()` donne une échéance. */
-export const trainingClockMs = trainingClock();
+export const trainingClockMs = trainingClock(trainingClockSource);
 
 /** Délai interne épuisé : une limite du calcul, pas un défaut du fichier (audit ROB-07). */
 export class TrainingDeadlineExceeded extends Error {
