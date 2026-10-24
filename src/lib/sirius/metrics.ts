@@ -7,20 +7,82 @@ export const MAX_CSV_ROWS = 50_000;
 export const MAX_CSV_COLUMNS = 64;
 const MAX_CELL_CHARS = 10_000;
 
-export class CsvValidationError extends Error {}
+/**
+ * Défaut de forme du fichier, situé sur une ligne physique (1 = en-tête) : message précis côté
+ * navigateur (`csv-check.ts`) comme côté enclave (texte de l'erreur, 400 à l'ingestion).
+ */
+export type CsvSyntaxProblem =
+  | { kind: "lone-cr"; line: number }
+  | { kind: "quote-in-field"; line: number }
+  | { kind: "after-quote"; line: number }
+  | { kind: "unclosed-quote"; line: number }
+  | { kind: "blank-line"; line: number }
+  | { kind: "cell-count"; line: number; cells: number; columns: number };
+
+export class CsvValidationError extends Error {
+  constructor(message: string, readonly problem?: CsvSyntaxProblem) {
+    super(message);
+  }
+}
+
+function syntaxMessage(problem: CsvSyntaxProblem): string {
+  const where = `CSV invalide ligne ${problem.line} : `;
+  switch (problem.kind) {
+    case "lone-cr":
+      return `${where}retour chariot isolé (\\r sans \\n)`;
+    case "quote-in-field":
+      return `${where}guillemet au milieu d'une cellule non citée`;
+    case "after-quote":
+      return `${where}caractère après un guillemet fermant`;
+    case "unclosed-quote":
+      return `${where}guillemet jamais fermé`;
+    case "blank-line":
+      return `${where}ligne vide (seules les lignes vides en fin de fichier sont admises)`;
+    case "cell-count":
+      return `${where}${problem.cells} cellule(s) pour ${problem.columns} colonne(s) dans l'en-tête`;
+  }
+}
+
+/** États du parseur : début de cellule, cellule non citée, entre guillemets, juste après le guillemet fermant. */
+const FIELD_START = 0;
+const UNQUOTED = 1;
+const QUOTED = 2;
+const AFTER_QUOTE = 3;
 
 /**
- * Parser CSV conforme RFC 4180 (guillemets, échappements "", CRLF). Les caractères ordinaires
- * sont copiés par tranches : une concaténation caractère par caractère construit des chaînes
- * chaînées d'environ 30 octets par caractère, soit près de 100 Mo de tas pour 3 Mo de texte.
+ * Parseur CSV strict (RFC 4180), le même pour le navigateur, l'ingestion et l'enclave. Il refuse ce
+ * qu'il devrait sinon deviner (audit robustesse ROB-03 à ROB-06, exactitude EXA-04) :
+ * - un BOM UTF-8 initial (export « CSV UTF-8 » d'Excel) est retiré : il finissait dans le nom de la
+ *   première colonne, que l'évaluation du navigateur (`File.text()` retire le BOM) ne retrouvait plus ;
+ * - fins de ligne `\n` ou `\r\n` ; un `\r` isolé hors guillemets est refusé (il collait deux lignes) ;
+ * - un guillemet n'ouvre qu'une cellule entière : guillemet au milieu d'une cellule non citée,
+ *   caractère après le guillemet fermant et guillemet jamais fermé sont refusés ;
+ * - les lignes vides en fin de fichier sont ignorées, une ligne vide avant la fin est refusée ;
+ * - chaque ligne a exactement autant de cellules que l'en-tête (une ligne tronquée ou une virgule
+ *   décimale non citée décalait les colonnes, jusqu'à changer la cible).
+ * Un fichier qui respecte ces règles donne exactement le même tableau qu'avant ce durcissement.
+ *
+ * Les caractères ordinaires sont copiés par tranches : une concaténation caractère par caractère
+ * construit des chaînes chaînées d'environ 30 octets par caractère, soit près de 100 Mo de tas pour
+ * 3 Mo de texte.
  */
-export function parseCsv(text: string): string[][] {
+export function parseCsv(input: string): string[][] {
+  const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
-  let inQuotes = false;
   let segment = 0;
+  let state = FIELD_START;
+  // Ligne physique courante, ligne où commence l'enregistrement, ligne du guillemet ouvrant.
+  let line = 1;
+  let recordLine = 1;
+  let quoteLine = 1;
+  // Première ligne vide pas encore suivie d'une ligne de données (0 : aucune).
+  let blankLine = 0;
 
+  const fail = (problem: CsvSyntaxProblem): never => {
+    throw new CsvValidationError(syntaxMessage(problem), problem);
+  };
   const pushField = () => {
     if (field.length > MAX_CELL_CHARS) throw new CsvValidationError("cellule CSV trop volumineuse");
     if (row.length >= MAX_CSV_COLUMNS) throw new CsvValidationError(`trop de colonnes CSV (max ${MAX_CSV_COLUMNS})`);
@@ -28,7 +90,11 @@ export function parseCsv(text: string): string[][] {
     field = "";
   };
   const pushRow = () => {
+    if (blankLine) fail({ kind: "blank-line", line: blankLine });
     if (rows.length >= MAX_CSV_ROWS) throw new CsvValidationError(`trop de lignes CSV (max ${MAX_CSV_ROWS})`);
+    if (rows.length > 0 && row.length !== rows[0].length) {
+      fail({ kind: "cell-count", line: recordLine, cells: row.length, columns: rows[0].length });
+    }
     rows.push(row);
     row = [];
   };
@@ -42,28 +108,52 @@ export function parseCsv(text: string): string[][] {
 
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (inQuotes) {
+    if (state === QUOTED) {
+      if (c === "\n") line++;
       if (c !== '"') continue;
       flush(i);
       if (text[i + 1] === '"') {
         append('"');
         i++;
-      } else inQuotes = false;
+      } else state = AFTER_QUOTE;
       segment = i + 1;
-    } else if (c === '"' || c === "," || c === "\n" || c === "\r") {
-      flush(i);
-      segment = i + 1;
-      if (c === '"') inQuotes = true;
-      else if (c === ",") pushField();
-      else if (c === "\n") {
-        pushField();
-        pushRow();
-      }
+      continue;
     }
+    if (c === "," || c === "\n" || c === "\r") {
+      flush(i);
+      if (c === "\r") {
+        if (text[i + 1] !== "\n") fail({ kind: "lone-cr", line });
+        i++;
+      }
+      segment = i + 1;
+      if (c === ",") pushField();
+      else {
+        // Rien depuis la fin de ligne précédente : ligne vide, admise seulement en fin de fichier.
+        if (state === FIELD_START && row.length === 0) blankLine ||= line;
+        else {
+          pushField();
+          pushRow();
+        }
+        line++;
+        recordLine = line;
+      }
+      state = FIELD_START;
+      continue;
+    }
+    if (state === AFTER_QUOTE) fail({ kind: "after-quote", line });
+    if (c === '"') {
+      if (state === UNQUOTED) fail({ kind: "quote-in-field", line });
+      state = QUOTED;
+      quoteLine = line;
+      segment = i + 1;
+      continue;
+    }
+    state = UNQUOTED;
   }
+  if (state === QUOTED) fail({ kind: "unclosed-quote", line: quoteLine });
   flush(text.length);
 
-  if (field.length > 0 || row.length > 0) {
+  if (state !== FIELD_START || row.length > 0) {
     pushField();
     pushRow();
   }

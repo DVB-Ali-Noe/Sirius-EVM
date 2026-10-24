@@ -24,7 +24,8 @@ test("la cible choisie reste la cible ; aucune colonne texte ne lui est substitu
   assert.equal(new TextDecoder().decode(csvWithTargetLast('target,note,x\n2,"a,b",1', "target")), 'note,x,target\n"a,b",1,2');
   for (const input of ["x,target\n1,yes", "x,target\n1,", "x,target\n1,Infinity"]) assert.throws(() => csvWithTargetLast(input, "target"), /numérique/);
   assert.throws(() => csvWithTargetLast("x,x\n1,2", "x"), /En-têtes/);
-  assert.throws(() => csvWithTargetLast("x,target\n1,2,3", "target"), /colonnes/);
+  // Le parseur partagé refuse la ligne trop longue, avec son numéro (même refus que l'enclave).
+  assert.throws(() => csvWithTargetLast("x,target\n1,2,3", "target"), /ligne 2 : 3 cellule\(s\) pour 2 colonne\(s\)/);
 });
 
 test("la cible accepte les mêmes nombres que l'enclave : 1e12 passe, au-delà refusé avant tout envoi", () => {

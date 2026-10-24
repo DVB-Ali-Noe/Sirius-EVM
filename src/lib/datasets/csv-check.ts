@@ -1,5 +1,5 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv } from "@/lib/sirius/metrics";
+import { CsvValidationError, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "@/lib/sirius/metrics";
 import {
   MAX_HEADER_CHARS,
   MAX_TRAINING_FEATURES,
@@ -35,6 +35,7 @@ export type CsvRejection =
   | { kind: "empty-file" }
   | { kind: "file-too-large"; sizeBytes: number; maxBytes: number }
   | { kind: "unreadable" }
+  | { kind: "malformed"; problem: CsvSyntaxProblem }
   | { kind: "too-many-rows"; maxRows: number }
   | { kind: "too-many-columns"; maxColumns: number }
   | { kind: "cell-too-large" }
@@ -82,6 +83,7 @@ export function isNumericCell(value: string): boolean {
 }
 
 function parseRejection(error: unknown): CsvRejection {
+  if (error instanceof CsvValidationError && error.problem) return { kind: "malformed", problem: error.problem };
   const message = error instanceof Error ? error.message : "";
   if (message.includes("trop de lignes")) return { kind: "too-many-rows", maxRows: MAX_CSV_ROWS };
   if (message.includes("trop de colonnes")) return { kind: "too-many-columns", maxColumns: MAX_CSV_COLUMNS };
@@ -181,6 +183,8 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       });
     case "unreadable":
       return t("Fichier illisible : ce n’est pas un CSV valide.");
+    case "malformed":
+      return malformedText(reason.problem, t);
     case "too-many-rows":
       return t("Trop de lignes : au plus {max} lignes, en-tête compris.", { max: formatCount(reason.maxRows) });
     case "too-many-columns":
@@ -221,5 +225,28 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       });
     case "trees-too-few-rows":
       return t(GBDT_TOO_FEW_ROWS_MESSAGE);
+  }
+}
+
+/** Défaut de forme situé sur une ligne du fichier (1 = en-tête), comme dans un éditeur de texte. */
+function malformedText(problem: CsvSyntaxProblem, t: Translate): string {
+  const line = formatCount(problem.line);
+  switch (problem.kind) {
+    case "lone-cr":
+      return t("Ligne {line} : retour chariot isolé. Enregistre le fichier avec des fins de ligne standard (LF ou CRLF).", { line });
+    case "quote-in-field":
+      return t("Ligne {line} : guillemet au milieu d’une cellule. Une cellule qui contient un guillemet doit être entièrement entre guillemets, guillemet intérieur doublé (\"\").", { line });
+    case "after-quote":
+      return t("Ligne {line} : caractère après un guillemet fermant. Une cellule entre guillemets doit être suivie d’une virgule ou d’une fin de ligne.", { line });
+    case "unclosed-quote":
+      return t("Ligne {line} : guillemet ouvert jamais fermé.", { line });
+    case "blank-line":
+      return t("Ligne {line} : ligne vide. Seules les lignes vides en fin de fichier sont admises.", { line });
+    case "cell-count":
+      return t("Ligne {line} : {cells} cellule(s) pour {columns} colonne(s) dans l’en-tête. Chaque ligne doit avoir autant de cellules que l’en-tête ; une virgule décimale non citée, par exemple, ajoute une cellule.", {
+        line,
+        cells: formatCount(problem.cells),
+        columns: formatCount(problem.columns),
+      });
   }
 }

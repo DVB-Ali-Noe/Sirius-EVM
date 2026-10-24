@@ -52,6 +52,17 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Trop de lignes : au plus {max} lignes, en-tête compris.": "Too many rows: at most {max} rows, header included.",
   "Trop de colonnes : au plus {max}.": "Too many columns: at most {max}.",
   "Une cellule dépasse la taille autorisée.": "A cell exceeds the allowed size.",
+  "Ligne {line} : retour chariot isolé. Enregistre le fichier avec des fins de ligne standard (LF ou CRLF).":
+    "Line {line}: lone carriage return. Save the file with standard line endings (LF or CRLF).",
+  "Ligne {line} : guillemet au milieu d’une cellule. Une cellule qui contient un guillemet doit être entièrement entre guillemets, guillemet intérieur doublé (\"\").":
+    "Line {line}: quote in the middle of a cell. A cell containing a quote must be fully quoted, with the inner quote doubled (\"\").",
+  "Ligne {line} : caractère après un guillemet fermant. Une cellule entre guillemets doit être suivie d’une virgule ou d’une fin de ligne.":
+    "Line {line}: character after a closing quote. A quoted cell must be followed by a comma or a line ending.",
+  "Ligne {line} : guillemet ouvert jamais fermé.": "Line {line}: quote opened and never closed.",
+  "Ligne {line} : ligne vide. Seules les lignes vides en fin de fichier sont admises.":
+    "Line {line}: blank line. Only blank lines at the end of the file are allowed.",
+  "Ligne {line} : {cells} cellule(s) pour {columns} colonne(s) dans l’en-tête. Chaque ligne doit avoir autant de cellules que l’en-tête ; une virgule décimale non citée, par exemple, ajoute une cellule.":
+    "Line {line}: {cells} cell(s) for {columns} column(s) in the header. Every row must have as many cells as the header; an unquoted decimal comma, for example, adds a cell.",
   "Le fichier doit contenir un en-tête et au moins une ligne de données.": "The file must contain a header and at least one data row.",
   "En-tête invalide : chaque colonne doit avoir un nom unique de {max} caractères au plus.": "Invalid header: every column needs a unique name of at most {max} characters.",
   "Au moins deux colonnes entièrement numériques sont requises ({found} détectée(s)).":
