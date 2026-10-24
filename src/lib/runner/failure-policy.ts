@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/app-error";
+import { SETTLEMENT_QUEUED } from "@/lib/loans/settlement-status";
 
 /**
  * Transaction signée et diffusée, dont le reçu n'est pas encore finalisé. Ce n'est pas un
@@ -22,6 +23,16 @@ export class RunnerRetryLater extends AppError {
     super(message, 503);
     this.name = "RunnerRetryLater";
   }
+}
+
+/** Une seule transaction en vol par wallet runner : un second règlement simultané est refusé avec ce motif. */
+export const RUNNER_WALLET_BUSY = "Transaction du wallet runner encore incertaine";
+
+/** `RUNNER_WALLET_BUSY` revient de l'enclave en 503 ; il devient `SETTLEMENT_QUEUED`, toute autre erreur passe telle quelle. */
+export function settlementQueuedError(error: unknown): unknown {
+  return error instanceof AppError && error.status === 503 && error.message === RUNNER_WALLET_BUSY
+    ? new AppError(SETTLEMENT_QUEUED, 503)
+    : error;
 }
 
 /** Ni l'attente de finalité ni un refus avant signature ne doivent consommer de crédit. */

@@ -3,7 +3,7 @@ import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
 import { parseDemoPolicy, type DemoPolicy } from "@/lib/phala-demo/contract";
 import { ESCROW_CHALLENGE_DAYS } from "@/lib/datasets/publication";
-import { RunnerRetryLater } from "./failure-policy";
+import { RUNNER_WALLET_BUSY, RunnerRetryLater } from "./failure-policy";
 
 /** Durée de vie maximale d'un devis compute signé (`src/lib/billing/runner.ts`). */
 export const QUOTE_LIFETIME_SECONDS = 300;
@@ -410,7 +410,7 @@ export class BudgetLedger {
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
         // Une seule transaction en vol par wallet : les autres règlements attendent leur tour
         // sans compter d'échec ni consommer de crédit.
-        throw new RunnerRetryLater("Transaction du wallet runner encore incertaine");
+        throw new RunnerRetryLater(RUNNER_WALLET_BUSY);
       }
       const wei = kind === "transaction" ? BigInt(this.policy.gas.maxTransactionWei) : BigInt(0);
       const scale = BigInt("1000000000000000000");
