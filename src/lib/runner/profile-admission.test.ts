@@ -26,16 +26,16 @@ test("nouvel usage : un profil facultatif coupé est refusé avec un motif lisib
     assert.deepEqual(requestedTrainingProfile({ modelId: "logistic_regression", modelVersion: "1.0.0" }), selectionForModelId("logistic_regression"));
   });
   withOptIn("gradient_boosted_trees", () => {
-    assert.deepEqual(requestedTrainingProfile({ modelId: "gradient_boosted_trees", modelVersion: "1.0.0" }), trees);
+    assert.deepEqual(requestedTrainingProfile({ modelId: "gradient_boosted_trees", modelVersion: MODEL_REGISTRY.gradient_boosted_trees.version }), trees);
   });
 });
 
 test("PAR-01 : interrupteur coupé après le lock, le prêt payé sous devis signé pour ce profil s'exécute", () => {
   withOptIn(undefined, () => {
     // La lecture de la requête ne bloque plus le prêt verrouillé…
-    assert.deepEqual(requestedTrainingProfile({ modelId: "gradient_boosted_trees", modelVersion: "1.0.0" }, "locked"), trees);
+    assert.deepEqual(requestedTrainingProfile({ modelId: "gradient_boosted_trees", modelVersion: MODEL_REGISTRY.gradient_boosted_trees.version }, "locked"), trees);
     // … le devis signé par l'enclave pour ce profil suffit.
-    assert.doesNotThrow(() => assertLockedProfile(trees, quoteFor("gradient_boosted_trees", "1.0.0")));
+    assert.doesNotThrow(() => assertLockedProfile(trees, quoteFor("gradient_boosted_trees", MODEL_REGISTRY.gradient_boosted_trees.version)));
     // Sans devis (v6) ou avec un devis d'un autre profil : refus, comme avant.
     assert.throws(() => assertLockedProfile(trees, undefined), { message: OPT_IN_PROFILE_DISABLED });
     assert.throws(() => assertLockedProfile(trees, quoteFor("logistic_regression", "1.0.0")), { message: OPT_IN_PROFILE_DISABLED });

@@ -56,6 +56,33 @@ const PUBLISHED_PROFILES: Record<string, { constants: Constants; referenceModelS
       "credit-risk.csv": "f466532d8d7196b3e174dbf4f08274eb17a6f506f62d340958ace3d7fa2a61d2",
     },
   },
+  // 1.1.0 (24 octobre 2026, E2 minimale) : plafond d'influence k = 1, seuils strictement entre deux
+  // valeurs, métriques arrondies, `aucGap` à la place de `trainAuc`, `n` à 2 chiffres.
+  "1.1.0": {
+    constants: {
+      BASE_SCORE_SIG_FIGS: 3,
+      GBDT_AUC_GAP_DECIMALS: 2,
+      GBDT_BINS: 64,
+      GBDT_HOLDOUT_EVERY: 5,
+      GBDT_INFLUENCE_CAP: 1,
+      GBDT_L2: 1,
+      GBDT_LEARNING_RATE: 0.1,
+      GBDT_MAX_DEPTH: 2,
+      GBDT_MAX_OPERATIONS: 300_000_000,
+      GBDT_METRIC_DECIMALS: 3,
+      GBDT_MIN_LEAF_ROWS: 1_000,
+      GBDT_MIN_ROWS: 10_000,
+      GBDT_ROW_COUNT_SIG_FIGS: 2,
+      GBDT_TREES: 150,
+      LEAF_SIG_FIGS: 4,
+      THRESHOLD_MAX_SIG_FIGS: 6,
+      THRESHOLD_SIG_FIGS: 3,
+    },
+    referenceModelSha256: {
+      "credit-risk-train.csv": "e31cc07c939644eafaaa8ba0beaab9964d917efebcf44d2f9afca34d2a2a102d",
+      "credit-risk.csv": "f6538783b1890320cab25593c8dc9f9b988ae7fce3e1fdf6bae4d7850b4a0baf",
+    },
+  },
 };
 
 function exportedNumericConstants(module: Record<string, unknown>): Constants {

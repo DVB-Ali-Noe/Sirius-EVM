@@ -30,8 +30,13 @@ test("modèle normal : aucun signalement, et les effectifs held-out se retrouven
   const text = readFileSync(file, "utf8");
   const { metrics } = gateModel(trainGradientBoostedTrees(Buffer.from(text))).model;
   const { positives, negatives } = counts(text);
-  assert.equal(twoSidedGapCheck(metrics.trainAuc, metrics.heldOutAuc, positives, negatives).verdict, "ok");
-  assert.deepEqual(heldOutClassCounts(metrics.n, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall), { positives, negatives });
+  // Profil 1.1.0 : l'AUC d'entraînement se relit comme `heldOutAuc + aucGap`.
+  assert.equal(twoSidedGapCheck(metrics.heldOutAuc + metrics.aucGap, metrics.heldOutAuc, positives, negatives).verdict, "ok");
+  // Métriques livrées arrondies (3 décimales, `n` à 2 chiffres) : effectif retrouvé à 2 % près.
+  const estimated = heldOutClassCounts(metrics.n, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall);
+  assert.ok(estimated, "effectif held-out introuvable");
+  assert.ok(Math.abs(estimated.positives - positives) <= 0.02 * positives, `${estimated.positives} contre ${positives}`);
+  assert.ok(Math.abs(estimated.negatives - negatives) <= 0.02 * negatives, `${estimated.negatives} contre ${negatives}`);
   assert.equal(gbdtGapVerdict(metrics), "ok");
 });
 
@@ -41,8 +46,10 @@ test("held-out corrompu (étiquettes inversées) : l'ancien contrôle passe, le 
   const { metrics } = gateModel(trainGradientBoostedTrees(Buffer.from(flipped))).model;
   const { positives, negatives } = counts(flipped);
   assert.ok(metrics.heldOutAuc < 0.35, String(metrics.heldOutAuc));
-  assert.ok(oneSided(metrics.trainAuc, metrics.heldOutAuc), "l'ancien contrôle ne voit rien");
-  assert.equal(twoSidedGapCheck(metrics.trainAuc, metrics.heldOutAuc, positives, negatives).verdict, "memorization");
+  const trainAuc = metrics.heldOutAuc + metrics.aucGap;
+  assert.ok(oneSided(trainAuc, metrics.heldOutAuc), "l'ancien contrôle ne voit rien");
+  assert.equal(twoSidedGapCheck(trainAuc, metrics.heldOutAuc, positives, negatives).verdict, "memorization");
+  assert.equal(gbdtGapVerdict(metrics), "memorization");
 });
 
 test("mémorisation (train 0,99, held-out 0,75) et held-out trop beau : seul le bon sens signale", () => {
@@ -67,5 +74,5 @@ test("la marge suit la taille du held-out : 0,02 fixe est sous l'aléa à 10 000
 
 test("sans effectif retrouvable (précision ou rappel nuls), aucun verdict plutôt qu'un verdict faux", () => {
   assert.equal(heldOutClassCounts(10_000, 0.78, 0, 0), null);
-  assert.equal(gbdtGapVerdict({ trainAuc: 0.9, heldOutAuc: 0.5, heldOutAccuracy: 0.78, heldOutPrecision: 0, heldOutRecall: 0, n: 10_000 }), null);
+  assert.equal(gbdtGapVerdict({ heldOutAuc: 0.5, aucGap: 0.4, heldOutAccuracy: 0.78, heldOutPrecision: 0, heldOutRecall: 0, n: 10_000 }), null);
 });

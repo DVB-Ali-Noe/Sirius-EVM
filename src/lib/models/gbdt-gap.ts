@@ -36,9 +36,11 @@ export function twoSidedGapCheck(trainAuc: number, heldOutAuc: number, positives
 }
 
 /**
- * Le modèle livré ne donne pas le nombre de défauts du held-out ; on le retrouve à partir de n,
- * accuracy, précision et rappel (held-out = floor(n / 5) lignes). `null` si les métriques ne le
- * permettent pas (précision ou rappel nuls, effectif incohérent).
+ * Le modèle livré ne donne pas le nombre de défauts du held-out ; on l'estime à partir de n,
+ * accuracy, précision et rappel (held-out = floor(n / 5) lignes). Depuis le profil 1.1.0, `n`
+ * est publié à 2 chiffres significatifs et les métriques à 3 décimales : l'effectif retrouvé est
+ * approché, ce qui suffit à l'erreur type (elle varie en 1/√effectif). `null` si les métriques
+ * ne le permettent pas (précision ou rappel nuls, effectif incohérent).
  */
 export function heldOutClassCounts(n: number, accuracy: number, precision: number, recall: number): { positives: number; negatives: number } | null {
   const rows = Math.floor(n / GBDT_HOLDOUT_EVERY);
@@ -48,13 +50,18 @@ export function heldOutClassCounts(n: number, accuracy: number, precision: numbe
   return { positives, negatives: rows - positives };
 }
 
-/** Verdict depuis les seules métriques livrées ; `null` quand l'effectif held-out ne se retrouve pas. */
+/**
+ * Verdict depuis les seules métriques livrées ; `null` quand l'effectif held-out ne se retrouve pas.
+ * Le profil 1.1.0 ne livre plus `trainAuc` mais l'écart `aucGap = trainAuc − heldOutAuc`, arrondi à
+ * 2 décimales : l'AUC d'entraînement est relue comme `heldOutAuc + aucGap`, à 0,005 près, bien
+ * sous la marge de 3 erreurs types (≈ 0,04 pour 2 000 lignes held-out).
+ */
 export function gbdtGapVerdict(metrics: {
-  trainAuc: number; heldOutAuc: number; heldOutAccuracy: number; heldOutPrecision: number; heldOutRecall: number; n: number;
+  heldOutAuc: number; aucGap: number; heldOutAccuracy: number; heldOutPrecision: number; heldOutRecall: number; n: number;
 }): GapVerdict | null {
   const counts = heldOutClassCounts(metrics.n, metrics.heldOutAccuracy, metrics.heldOutPrecision, metrics.heldOutRecall);
   if (!counts) return null;
-  return twoSidedGapCheck(metrics.trainAuc, metrics.heldOutAuc, counts.positives, counts.negatives).verdict;
+  return twoSidedGapCheck(metrics.heldOutAuc + metrics.aucGap, metrics.heldOutAuc, counts.positives, counts.negatives).verdict;
 }
 
 export const GAP_WARNINGS: Record<Exclude<GapVerdict, "ok">, string> = {
