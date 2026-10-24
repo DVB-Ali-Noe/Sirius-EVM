@@ -368,6 +368,8 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Runner occupé par un autre entraînement": "Runner busy with another training job",
   "Runner production : HTTPS et TEE_MODE=phala obligatoires": "Production runner requires HTTPS and TEE_MODE=phala",
   "Runner saturé": "Runner at capacity",
+  "Trop d’opérations gratuites : réessayer dans quelques secondes": "Too many free operations: retry in a few seconds",
+  "Opérations gratuites suspendues : runner sous charge": "Free operations paused: runner under load",
   "Règlement de l’escrow confirmé mais état local incohérent": "Escrow settlement confirmed but local state is inconsistent",
   "Règlement de l’escrow échoué": "Escrow settlement failed",
   "Règlement déjà en cours": "Settlement already in progress",

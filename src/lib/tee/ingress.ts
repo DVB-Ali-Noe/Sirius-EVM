@@ -47,9 +47,28 @@ export function datasetIngressPublicKey(): DatasetIngressKey {
   }
   return {
     version: 1,
-    publicKey: ingressEcdh().getPublicKey(undefined, "uncompressed").toString("base64url"),
+    publicKey: cachedIngressPublicKey(),
     origin: origin ?? "http://localhost:3000",
   };
+}
+
+/**
+ * La clé publique d'ingestion ne dépend que de la master key : elle est dérivée une fois (HKDF,
+ * réduction modulo, multiplication scalaire P-256) puis resservie, au lieu d'être recalculée à
+ * chaque appel gratuit `dataset-ingress-key` (audit ROB-08). Le cache est indexé par l'empreinte de
+ * la master key, jamais par la clé elle-même : une autre master key (tests, simulateur) le renouvelle.
+ */
+let ingressPublicKeyCache: { masterKeySha256: string; publicKey: string } | null = null;
+
+function cachedIngressPublicKey(): string {
+  const masterKeySha256 = createHash("sha256").update(getMasterKey()).digest("hex");
+  if (ingressPublicKeyCache?.masterKeySha256 !== masterKeySha256) {
+    ingressPublicKeyCache = {
+      masterKeySha256,
+      publicKey: ingressEcdh().getPublicKey(undefined, "uncompressed").toString("base64url"),
+    };
+  }
+  return ingressPublicKeyCache.publicKey;
 }
 
 export function datasetIngressKeyFingerprint(): string {

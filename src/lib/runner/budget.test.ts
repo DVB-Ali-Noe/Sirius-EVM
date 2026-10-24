@@ -312,6 +312,34 @@ test("la limite globale de concurrence persiste après interruption", () => {
   assert.throws(() => open().reserve("new", "new", "request"), /réconciliation/);
 });
 
+test("ROB-09 : un registre plein refuse le job imbriqué sans compter de panne ni garder la réservation", async () => {
+  const { ledger } = fixture((p) => { p.maxActive = 8; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  // 7 requêtes en vol : la 8e passe sa propre réservation, son scellement trouve le registre plein.
+  const inflight = Array.from({ length: 7 }, (_, i) => runBudgetedOperation(ledger, "request", `request:busy-${i}`, "request-v1", () => gate));
+  await new Promise((resolve) => setImmediate(resolve));
+  const before = ledger.snapshot();
+  let sealed = false;
+  await assert.rejects(runBudgetedOperation(ledger, "request", "request:legit", "request-v1", () =>
+    runBudgetedOperation(ledger, "seal", "seal:legit", "fingerprint", async () => { sealed = true; return "scellé"; })), (error: unknown) => {
+    assert.ok(error instanceof RunnerRetryLater);
+    assert.match((error as Error).message, /Réservations runner en attente de réconciliation/);
+    return true;
+  });
+  assert.equal(sealed, false);
+  assert.equal(ledger.snapshot().failures, before.failures, "un refus de capacité n’est pas une panne");
+  assert.equal(ledger.find("request:legit", "request-v1"), null, "la réservation de la requête est rendue");
+  assert.equal(ledger.find("seal:legit", "fingerprint"), null);
+  assert.equal(ledger.snapshot().allocatedUsd, before.allocatedUsd);
+  release();
+  await Promise.all(inflight);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await runBudgetedOperation(ledger, "request", `request:after-${attempt}`, "request-v1", async () => "ok");
+  }
+  assert.equal(ledger.snapshot().failures, 0, "le coupe-circuit reste fermé");
+});
+
 test("le fingerprint est indépendant de l’ordre des champs et lié au contenu", () => {
   assert.equal(budgetFingerprint({ a: 1, b: { c: 2, d: 3 } }), budgetFingerprint({ b: { d: 3, c: 2 }, a: 1 }));
   assert.notEqual(budgetFingerprint({ a: 1 }), budgetFingerprint({ a: 2 }));

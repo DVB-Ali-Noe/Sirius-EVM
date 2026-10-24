@@ -174,11 +174,18 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 }
 
 /**
- * Clé publique d'ingestion et re-livraison d'une clé self-train déjà calculée : aucun calcul ni
- * stockage, donc aucun coût sponsorisé. Les facturer laissait n'importe quel visiteur épuiser le
- * budget de la démonstration en boucle. Le registre reste exigé (production, Phala, mainnet).
+ * Clé publique d'ingestion et re-livraison d'une clé self-train déjà calculée : aucun coût
+ * sponsorisé (pas de réservation dans le registre de budget). Les facturer laissait n'importe quel
+ * visiteur épuiser le budget de la démonstration en boucle. Le registre reste exigé (production,
+ * Phala, mainnet).
+ *
+ * Gratuites ne veut pas dire sans travail (audit ROB-08) : la capability est consommée dans
+ * l'anti-rejeu SQLite (écriture synchronisée) et `self-train-key` vérifie le reçu, la délégation
+ * secp256k1 et le grant P-256, consomme ce grant (seconde écriture) puis chiffre la livraison
+ * (ECDH). Leur débit, leur concurrence et un coupe-circuit sont donc bornés à part, dans le
+ * serveur (`free-ops-guard.ts`), sans prendre de place aux opérations payantes.
  */
-const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
+export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
