@@ -25,7 +25,8 @@ for n in $(seq 1 "$RUNS"); do
   docker buildx build --platform linux/amd64 --no-cache --provenance=false --sbom=false \
     --build-arg SOURCE_DATE_EPOCH -f "$SRC/Dockerfile.runner" \
     --output "type=oci,dest=$WORK/runner-$n.tar,rewrite-timestamp=true" "$SRC" > "$WORK/build-$n.log" 2>&1
-  tar -xOf "$WORK/runner-$n.tar" index.json \
+  # Chemin relatif : sous Windows, GNU tar lit « C:/… » comme un hôte distant.
+  (cd "$WORK" && tar -xOf "runner-$n.tar" index.json) \
     | node -e 'let s="";process.stdin.on("data",(c)=>{s+=c;}).on("end",()=>console.log(JSON.parse(s).manifests[0].digest))' \
     > "$WORK/digest-$n.txt"
   echo "build $n : $(cat "$WORK/digest-$n.txt")"
