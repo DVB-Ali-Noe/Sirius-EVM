@@ -4,6 +4,7 @@ import { encryptDatasetForRunner } from "./ingress-client";
 import { datasetIngressPublicKey, decryptDatasetIngress } from "./ingress";
 import { sealDatasetEnvelope } from "./core";
 import { MAX_DATASET_BYTES } from "./contract";
+import { trainingClockSource } from "./train";
 import { AppError } from "@/lib/app-error";
 import { MAX_CSV_COLUMNS, MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 
@@ -87,7 +88,11 @@ test("une exception technique de validation ne devient pas une erreur client", a
   const content = new TextEncoder().encode("feature,target\n1,2\n");
   const envelope = await encryptDatasetForRunner(content.buffer, "dataset-technical", datasetIngressPublicKey());
   const failure = new Error("horloge indisponible");
-  t.mock.method(performance, "now", () => { throw failure; });
+  // Panne injectée dans l'horloge du délai d'entraînement (temps CPU, EXA-05), première lecture
+  // de la validation : rien d'autre que cette source n'est modifié.
+  const previous = trainingClockSource.threadCpuUsage;
+  trainingClockSource.threadCpuUsage = () => { throw failure; };
+  t.after(() => { trainingClockSource.threadCpuUsage = previous; });
 
   await assert.rejects(
     () => sealDatasetEnvelope("dataset-technical", envelope, content.byteLength, { modelId: "linear_regression", modelVersion: "1.0.0" }),
