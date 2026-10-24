@@ -1,6 +1,6 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
 import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
-import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
+import { incompleteTarget, isNumericCell, parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
@@ -9,7 +9,6 @@ export const MAX_TRAINING_FEATURES = 31;
 /** Les noms de colonnes sortent dans le modèle : bornés pour rester sous le plafond de l'output-gate. */
 export const MAX_HEADER_CHARS = 128;
 export const MAX_TRAINING_OPERATIONS = 200_000_000;
-const MAX_ABS_VALUE = 1e12;
 const DEFAULT_TRAINING_TIMEOUT_MS = 15_000;
 export const MIN_TRAINING_ROWS = 100;
 export const MIN_ROWS_PER_PARAMETER = 10;
@@ -26,13 +25,8 @@ const LOGISTIC_L2 = 0.01;
  */
 export class DatasetValidationError extends Error {}
 
-function isNum(value: string): boolean {
-  const number = Number(value);
-  return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
-}
-
 function numericColumns(header: string[], rows: string[][]): number[] {
-  return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
+  return header.map((_, column) => column).filter((column) => rows.every((row) => isNumericCell(row[column] ?? "")));
 }
 
 export function assertWithinDeadline(deadline: number): void {
@@ -123,6 +117,14 @@ export function validateTrainingDataset(csv: Buffer, selection: ModelSelection):
   const deadline = performance.now() + trainingTimeoutMs();
   const trees = selection.modelId === "gradient_boosted_trees";
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
+  // À l'ingestion seulement : un dataset déjà publié garde, à l'entraînement, la cible qu'il avait.
+  const incomplete = incompleteTarget(header, rows);
+  if (incomplete) {
+    throw new DatasetValidationError(
+      `la dernière colonne « ${incomplete.target} » sert de cible mais n'est pas entièrement numérique ` +
+        `(${incomplete.missing} cellule(s) vide(s), ${incomplete.invalid} non numérique(s))`,
+    );
+  }
   if (trees) {
     assertGbdtDataset(rows, targetIdx, featureIdx.length);
     return { rowCount: rows.length, columnCount: header.length };

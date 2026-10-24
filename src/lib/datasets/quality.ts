@@ -1,12 +1,13 @@
-import { isNumericCell } from "./csv-check";
+import { columnCells, incompleteTarget, isMostlyNumeric } from "@/lib/sirius/metrics";
 
 /**
  * Rapport de qualité à l'import (E1, docs/EGRESS-POLICY-API.md) : calculé dans le navigateur sur
  * le fichier en clair, montré au seul fournisseur, jamais envoyé, stocké ni publié. Il signale,
  * il ne refuse rien et ne modifie pas le fichier (le Merkle root reste celui du fichier choisi).
  *
- * Les colonnes d'entraînement suivent la règle de l'enclave (`numericColumns`, src/lib/tee/train.ts) :
+ * Les colonnes d'entraînement suivent la règle de l'enclave (`isNumericCell`, src/lib/sirius/metrics.ts) :
  * une colonne compte si toutes ses cellules sont numériques ; la cible est la dernière d'entre elles.
+ * Une cellule faite d'espaces est une valeur manquante, un nombre préfixé (0x, 0b, 0o) n'est pas un nombre.
  * Coût linéaire : une passe par colonne, puis une passe par ligne sur les colonnes d'entraînement.
  */
 
@@ -17,9 +18,9 @@ export const MIN_MINORITY_CLASS_SHARE = 0.1;
 
 export interface ExcludedColumn {
   column: string;
-  /** Cellules vides ou absentes (ligne trop courte). */
+  /** Cellules vides ou faites seulement d'espaces. */
   missing: number;
-  /** Cellules non vides mais non numériques. */
+  /** Cellules non vides mais non numériques (texte, 0x1A, valeur au-delà de 1e12…). */
   invalid: number;
 }
 
@@ -30,19 +31,11 @@ export interface TargetCopy {
   correlation: number;
 }
 
-export interface ColumnCount {
-  column: string;
-  cells: number;
-}
-
-/**
- * `Number()` (règle de l'enclave, `isNum` dans train.ts) lit sans erreur un nombre préfixé 0x, 0b ou 0o
- * dans sa base, et une cellule faite d'espaces comme 0. Signe et notation scientifique restent légitimes.
- */
-const PREFIXED_NUMBER = /^\s*0[xXbBoO]/;
-
 export interface QualityReport {
-  /** La dernière colonne du fichier n'est pas utilisable : l'enclave prendra une autre cible. */
+  /**
+   * La dernière colonne du fichier est du texte : l'enclave prendra une autre cible. Une dernière
+   * colonne presque numérique n'en fait pas partie : l'ingestion la refuse (`incompleteTarget`).
+   */
   targetShift: { expected: string; actual: string } | null;
   /** Colonnes majoritairement numériques, écartées par l'entraînement à cause de quelques cellules. */
   excluded: ExcludedColumn[];
@@ -55,10 +48,6 @@ export interface QualityReport {
   targetCopies: TargetCopy[];
   /** Cible 0/1 uniquement. */
   classBalance: { zeros: number; ones: number; minorityShare: number; imbalanced: boolean } | null;
-  /** Cellules faites uniquement d'espaces, lues comme 0 (colonnes numériques ou écartées). */
-  blankAsZero: ColumnCount[];
-  /** Valeurs préfixées 0x / 0b / 0o, lues comme des nombres en base 16, 2 ou 8. */
-  prefixedNumbers: ColumnCount[];
 }
 
 export function hasQualitySignal(report: QualityReport): boolean {
@@ -68,9 +57,7 @@ export function hasQualitySignal(report: QualityReport): boolean {
     report.constant.length > 0 ||
     report.duplicates.rows > 0 ||
     report.targetCopies.length > 0 ||
-    report.classBalance?.imbalanced === true ||
-    report.blankAsZero.length > 0 ||
-    report.prefixedNumbers.length > 0
+    report.classBalance?.imbalanced === true
   );
 }
 
@@ -81,35 +68,22 @@ export function qualityReport(table: string[][]): QualityReport | null {
   const numeric: number[] = [];
   const excluded: ExcludedColumn[] = [];
   const textColumns: string[] = [];
-  const blankAsZero: ColumnCount[] = [];
-  const prefixedNumbers: ColumnCount[] = [];
 
   for (let column = 0; column < header.length; column++) {
-    let missing = 0;
-    let invalid = 0;
-    let blank = 0;
-    let prefixed = 0;
-    for (const row of rows) {
-      const cell = row[column] ?? "";
-      if (cell === "") missing++;
-      else if (!isNumericCell(cell)) invalid++;
-      else if (cell.trim() === "") blank++;
-      else if (PREFIXED_NUMBER.test(cell)) prefixed++;
-    }
-    const valid = rows.length - missing - invalid;
+    const cells = columnCells(rows, column);
+    const { missing, invalid } = cells;
     if (missing + invalid === 0) numeric.push(column);
-    else if (valid > invalid) excluded.push({ column: header[column], missing, invalid });
-    else {
-      textColumns.push(header[column]);
-      continue;
-    }
-    if (blank > 0) blankAsZero.push({ column: header[column], cells: blank });
-    if (prefixed > 0) prefixedNumbers.push({ column: header[column], cells: prefixed });
+    else if (isMostlyNumeric(cells)) excluded.push({ column: header[column], missing, invalid });
+    else textColumns.push(header[column]);
   }
 
   const lastColumn = header.length - 1;
   const targetIdx = numeric.length > 0 ? numeric[numeric.length - 1] : -1;
-  const targetShift = targetIdx >= 0 && targetIdx !== lastColumn ? { expected: header[lastColumn], actual: header[targetIdx] } : null;
+  // Une dernière colonne presque numérique est refusée à l'ingestion (`incompleteTarget`) : pas de
+  // « changement de cible » à annoncer. Seule une dernière colonne de texte laisse la cible glisser.
+  const targetShift = targetIdx >= 0 && targetIdx !== lastColumn && !incompleteTarget(header, rows)
+    ? { expected: header[lastColumn], actual: header[targetIdx] }
+    : null;
 
   const values = numeric.map((column) => Float64Array.from(rows, (row) => Number(row[column])));
 
@@ -159,7 +133,6 @@ export function qualityReport(table: string[][]): QualityReport | null {
 
   return {
     targetShift, excluded, textColumns, constant, duplicates: { rows: duplicateRows, maxRepeat }, targetCopies, classBalance,
-    blankAsZero, prefixedNumbers,
   };
 }
 
