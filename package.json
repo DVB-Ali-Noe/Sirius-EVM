@@ -26,6 +26,7 @@
     "contracts:attest-kyb": "node --import tsx contracts/scripts/attest-kyb.ts",
     "contracts:check-upgrade": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx scripts/check-escrow-upgrade.ts",
     "contracts:smoke": "node --import tsx contracts/scripts/smoke.ts",
+    "contracts:dataset-admin": "node --import tsx contracts/scripts/dataset-admin.ts",
     "datasets:fetch": "node scripts/fetch-example-datasets.mjs && node scripts/split-example-datasets.mjs",
     "datasets:generate": "node scripts/generate-example-datasets.mjs && node scripts/split-example-datasets.mjs",
     "datasets:split": "node scripts/split-example-datasets.mjs",

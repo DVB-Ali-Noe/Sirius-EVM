@@ -4,6 +4,11 @@
     "hardhat.config.ts",
     "test/escrow-v7.test.ts",
     "test/helpers/billing.ts",
-    "scripts/export-abi.ts"
+    "test/dataset-registry-v5.test.ts",
+    "scripts/export-abi.ts",
+    "scripts/deploy.ts",
+    "scripts/deploy-estimate.ts",
+    "scripts/dataset-binding.ts",
+    "scripts/dataset-admin.ts"
   ]
 }
