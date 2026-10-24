@@ -35,8 +35,16 @@ function numericColumns(header: string[], rows: string[][]): number[] {
   return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
 }
 
+/** Délai interne épuisé : une limite du calcul, pas un défaut du fichier (audit ROB-07). */
+export class TrainingDeadlineExceeded extends Error {
+  constructor() {
+    super("budget de calcul dépassé");
+    this.name = "TrainingDeadlineExceeded";
+  }
+}
+
 export function assertWithinDeadline(deadline: number): void {
-  if (performance.now() > deadline) throw new Error("budget de calcul dépassé");
+  if (performance.now() > deadline) throw new TrainingDeadlineExceeded();
 }
 
 export function trainingTimeoutMs(): number {
