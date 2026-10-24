@@ -7,7 +7,7 @@ import {
   MIN_ROWS_PER_PARAMETER,
   MIN_TRAINING_ROWS,
 } from "@/lib/tee/train";
-import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
+import { GBDT_HEADER_MESSAGE, GBDT_HEADER_PATTERN, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import type { ModelId } from "@/lib/models/registry";
 import type { Translate } from "@/lib/copy/disclaimers";
 import { formatCount, formatLimitBytes } from "@/lib/copy/numbers";
@@ -47,7 +47,9 @@ export type CsvRejection =
   | { kind: "logistic-target"; target: string }
   | { kind: "binary-target"; target: string }
   | { kind: "held-out-classes"; target: string }
-  | { kind: "trees-too-few-rows" };
+  | { kind: "trees-too-few-rows" }
+  /** Arbres : un nom de colonne publiée sort du jeu `[A-Za-z0-9_]{1,64}`. */
+  | { kind: "trees-header-charset"; column: string };
 
 export interface CsvSummary {
   /** Lignes de données, en-tête exclu. */
@@ -140,6 +142,9 @@ export function inspectCsvTable(read: CsvTable, modelId: ModelId): CsvInspection
     return { ok: false, reason: { kind: "too-few-rows", rows: rows.length, minRows: requiredRows }, summary };
   }
   if (trees) {
+    // Les noms des colonnes numériques sont publiés avec le modèle : même règle que `assertGbdtDataset`.
+    const published = [header[targetIdx], ...featureIdx.map((column) => header[column])].find((column) => !GBDT_HEADER_PATTERN.test(column));
+    if (published !== undefined) return { ok: false, reason: { kind: "trees-header-charset", column: published }, summary };
     if (gbdtOperations(rows.length, featureIdx.length) > GBDT_MAX_OPERATIONS) return { ok: false, reason: { kind: "compute-budget" }, summary };
     const target = header[targetIdx];
     if (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1") ||
@@ -221,5 +226,7 @@ export function csvRejectionText(reason: CsvRejection, t: Translate): string {
       });
     case "trees-too-few-rows":
       return t(GBDT_TOO_FEW_ROWS_MESSAGE);
+    case "trees-header-charset":
+      return `${t(GBDT_HEADER_MESSAGE)} ${t("Colonne refusée : « {column} ».", { column: reason.column })}`;
   }
 }

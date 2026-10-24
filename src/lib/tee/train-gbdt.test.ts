@@ -8,14 +8,19 @@ import { DatasetValidationError, trainLogisticRegression } from "./train";
 import { trainGradientBoostedTrees } from "./train-gbdt";
 import { parseCreateDatasetRequest } from "@/lib/datasets/create-request";
 import {
+  BASE_SCORE_SIG_FIGS,
+  GBDT_AUC_GAP_DECIMALS,
   GBDT_MAX_DEPTH,
+  GBDT_METRIC_DECIMALS,
   GBDT_MIN_LEAF_ROWS,
   GBDT_MIN_ROWS,
+  GBDT_ROW_COUNT_SIG_FIGS,
   GBDT_TREES,
   LEAF_SIG_FIGS,
-  THRESHOLD_SIG_FIGS,
+  THRESHOLD_MAX_SIG_FIGS,
   binaryAuc,
   isHeldOut,
+  roundDecimals,
   roundSig,
   type GbdtNode,
 } from "@/lib/models/gbdt";
@@ -87,8 +92,9 @@ test("sur un risque à seuils, les arbres battent la logistique sur le jeu de te
   assert.ok(treesAuc > logisticAuc + 0.03, `arbres ${treesAuc} contre logistique ${logisticAuc}`);
   // La métrique held-out livrée annonce la même qualité que le jeu de test séparé, à l'aléa près.
   assert.ok(Math.abs(trees.metrics.heldOutAuc - treesAuc) < 0.03);
-  assert.ok(trees.metrics.trainAuc >= trees.metrics.heldOutAuc - 0.02);
-  assert.equal(trees.metrics.n, 10_400);
+  assert.ok(trees.metrics.aucGap >= -0.02);
+  // 10 400 lignes publiées à 2 chiffres significatifs.
+  assert.equal(trees.metrics.n, 10_000);
 });
 
 test("même fichier, même modèle livré, octet pour octet", () => {
@@ -102,7 +108,14 @@ test("le modèle livré ne porte que le profil : arbres bornés, valeurs arrondi
   assert.deepEqual(Object.keys(model), ["algo", "version", "target", "features", "baseScore", "trees", "metrics"]);
   assert.ok(model.trees.length > 0 && model.trees.length <= GBDT_TREES);
   assert.ok(buffer.length < 256 * 1024);
-  assert.equal(roundSig(model.baseScore, LEAF_SIG_FIGS), model.baseScore);
+  assert.equal(roundSig(model.baseScore, BASE_SCORE_SIG_FIGS), model.baseScore);
+  // Métriques arrondies par la porte : 3 décimales, écart d'AUC à 2 décimales, `n` à 2 chiffres.
+  for (const metric of [model.metrics.heldOutAuc, model.metrics.heldOutAccuracy, model.metrics.heldOutPrecision, model.metrics.heldOutRecall, model.metrics.heldOutF1]) {
+    assert.equal(roundDecimals(metric, GBDT_METRIC_DECIMALS), metric);
+  }
+  assert.equal(roundDecimals(model.metrics.aucGap, GBDT_AUC_GAP_DECIMALS), model.metrics.aucGap);
+  assert.equal(roundSig(model.metrics.n, GBDT_ROW_COUNT_SIG_FIGS), model.metrics.n);
+  assert.deepEqual(Object.keys(model.metrics), ["heldOutAuc", "heldOutAccuracy", "heldOutPrecision", "heldOutRecall", "heldOutF1", "aucGap", "n"]);
   let splits = 0;
   for (const tree of model.trees) {
     walk(tree, 0, (node, depth) => {
@@ -110,7 +123,7 @@ test("le modèle livré ne porte que le profil : arbres bornés, valeurs arrondi
       if ("feature" in node) {
         splits++;
         assert.deepEqual(Object.keys(node), ["feature", "threshold", "left", "right"]);
-        assert.equal(roundSig(node.threshold, THRESHOLD_SIG_FIGS), node.threshold);
+        assert.equal(roundSig(node.threshold, THRESHOLD_MAX_SIG_FIGS), node.threshold);
       } else {
         assert.deepEqual(Object.keys(node), ["value"]);
         assert.equal(roundSig(node.value, LEAF_SIG_FIGS), node.value);
@@ -145,7 +158,8 @@ test("les lignes mises de côté ne servent jamais à l'entraînement", () => {
   const other = trainGradientBoostedTrees(flipped);
   assert.deepEqual(other.trees, model.trees);
   assert.equal(other.baseScore, model.baseScore);
-  assert.equal(other.metrics.trainAuc, model.metrics.trainAuc);
+  // Même AUC d'entraînement (`aucGap + heldOutAuc`), seule la tranche tenue à l'écart change.
+  assert.ok(Math.abs((other.metrics.aucGap + other.metrics.heldOutAuc) - (model.metrics.aucGap + model.metrics.heldOutAuc)) < 1e-12);
   assert.ok(model.metrics.heldOutAuc > 0.6 && other.metrics.heldOutAuc < 0.4);
 });
 
@@ -176,7 +190,7 @@ test("entraîne 30 000 lignes et 23 variables en worker sous le délai et la mé
   const csv = thresholdCsv(30_000, 23);
   assert.ok(csv.length < 3 * 1024 * 1024);
   const started = performance.now();
-  const model = await trainInWorker(modelSelection("gradient_boosted_trees", "1.0.0")!, csv, AbortSignal.timeout(15_000));
+  const model = await trainInWorker(modelSelection("gradient_boosted_trees", "1.1.0")!, csv, AbortSignal.timeout(15_000));
   assert.ok(performance.now() - started < 15_000);
   assert.equal(model.algo, "gradient_boosted_trees");
   assert.equal(model.metrics.n, 30_000);

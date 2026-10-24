@@ -1,5 +1,5 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
-import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
+import { GBDT_HEADER_MESSAGE, GBDT_HEADER_PATTERN, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
 import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
@@ -96,9 +96,16 @@ function assertTrainingBudget(rows: number, parameters: number, logistic: boolea
 
 /**
  * Contrôles du profil arbres après ceux des colonnes, dans l'ordre que `csv-check.ts` reproduit :
- * budget, cible 0/1 avec les deux classes, puis les deux classes de chaque côté de la séparation.
+ * en-têtes publiables, budget, cible 0/1 avec les deux classes, puis les deux classes de chaque
+ * côté de la séparation. Les noms des colonnes numériques sortent dans le modèle livré : pour
+ * les arbres (profil 1.1.0), aucun caractère libre n'y passe (CONF-06) ; linéaire et logistique
+ * v1 gardent la règle générale de `trainingColumns` (D-27 : leur format livré ne change pas).
  */
-export function assertGbdtDataset(rows: string[][], targetIdx: number, featureCount: number): void {
+export function assertGbdtDataset(header: string[], rows: string[][], targetIdx: number, featureIdx: number[]): void {
+  if (![targetIdx, ...featureIdx].every((column) => GBDT_HEADER_PATTERN.test(header[column]))) {
+    throw new DatasetValidationError(GBDT_HEADER_MESSAGE);
+  }
+  const featureCount = featureIdx.length;
   if (gbdtOperations(rows.length, featureCount) > GBDT_MAX_OPERATIONS) {
     throw new DatasetValidationError("budget de calcul dépassé : réduis le nombre de lignes ou de features");
   }
@@ -124,7 +131,7 @@ export function validateTrainingDataset(csv: Buffer, selection: ModelSelection):
   const trees = selection.modelId === "gradient_boosted_trees";
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
   if (trees) {
-    assertGbdtDataset(rows, targetIdx, featureIdx.length);
+    assertGbdtDataset(header, rows, targetIdx, featureIdx);
     return { rowCount: rows.length, columnCount: header.length };
   }
   assertTrainingBudget(rows.length, featureIdx.length + 1, selection.modelId === "logistic_regression");

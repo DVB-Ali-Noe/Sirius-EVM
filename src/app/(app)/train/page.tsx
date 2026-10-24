@@ -980,12 +980,12 @@ function ModelInspection({ model }: { model: DownloadedModel }) {
         )}
         {model.algo === "gradient_boosted_trees" && (
           <>
-            <Field label="Held-out AUC" value={model.metrics.heldOutAuc.toFixed(6)} />
-            <Field label="Held-out accuracy" value={model.metrics.heldOutAccuracy.toFixed(6)} />
-            <Field label="Held-out precision" value={model.metrics.heldOutPrecision.toFixed(6)} />
-            <Field label="Held-out recall" value={model.metrics.heldOutRecall.toFixed(6)} />
-            <Field label="Held-out F1" value={model.metrics.heldOutF1.toFixed(6)} />
-            <Field label="Train AUC" value={model.metrics.trainAuc.toFixed(6)} />
+            <Field label="Held-out AUC" value={model.metrics.heldOutAuc.toFixed(3)} />
+            <Field label="Held-out accuracy" value={model.metrics.heldOutAccuracy.toFixed(3)} />
+            <Field label="Held-out precision" value={model.metrics.heldOutPrecision.toFixed(3)} />
+            <Field label="Held-out recall" value={model.metrics.heldOutRecall.toFixed(3)} />
+            <Field label="Held-out F1" value={model.metrics.heldOutF1.toFixed(3)} />
+            <Field label="Train/held-out AUC gap" value={model.metrics.aucGap.toFixed(2)} />
           </>
         )}
         <Field label="n" value={String(model.metrics.n)} />
