@@ -103,7 +103,7 @@ test("le contrôle attrape une constante modifiée, ajoutée ou retirée, et un 
   assert.match(profileMismatch("1.0.0", { ...current, GBDT_TREES: 151 }, models)!, /GBDT_TREES: 150 → 151/);
   assert.match(profileMismatch("1.0.0", { ...current, GBDT_LEARNING_RATE: 0.05 }, models)!, /GBDT_LEARNING_RATE/);
   assert.match(profileMismatch("1.0.0", { ...current, GBDT_SUBSAMPLE: 0.8 }, models)!, /GBDT_SUBSAMPLE/);
-  const { GBDT_L2: _removed, ...withoutL2 } = current;
+  const withoutL2 = Object.fromEntries(Object.entries(current).filter(([key]) => key !== "GBDT_L2"));
   assert.match(profileMismatch("1.0.0", withoutL2, models)!, /GBDT_L2: 1 → undefined/);
   assert.match(profileMismatch("1.0.0", current, { "credit-risk.csv": "0".repeat(64) })!, /credit-risk\.csv changé/);
   assert.match(profileMismatch("1.0.1", current, models)!, /absente/);
