@@ -67,7 +67,7 @@ Recommandation : **session A (prolongation) seule, avant le 26 octobre ; session
 
 ## 5. Ordre exact
 
-`Moi` = cet agent (code, docs, lectures, rendus). `Noé` = approbations, ouverture et fermeture de session dans `/operator`. `Agent principal` = l'agent qui a accès à `162.19.66.80` et à la CLI Phala. Décision de Noé (19 octobre) : tout ce qui passe par le VPS ou la CLI Phala (A2, A4, A5, B5–B6, B8, B10, partie commandes de B11) est exécuté par l'agent principal, après l'accord de Noé ; les mentions « Noé » et « Agent VPS » de ces lignes désignent alors l'agent principal pour les commandes.
+`Moi` = cet agent (code, docs, lectures, rendus). `Noé` = approbations, ouverture et fermeture de session dans `/operator`. `Agent principal` = l'agent qui a accès à `<VPS_HOST>` et à la CLI Phala. Décision de Noé (19 octobre) : tout ce qui passe par le VPS ou la CLI Phala (A2, A4, A5, B5–B6, B8, B10, partie commandes de B11) est exécuté par l'agent principal, après l'accord de Noé ; les mentions « Noé » et « Agent VPS » de ces lignes désignent alors l'agent principal pour les commandes.
 
 ### Préparation commune
 
@@ -135,7 +135,7 @@ Lecture on-chain : l'escrow v7 ne doit rien et n'a jamais émis d'événement, d
 |---|---|---|
 | Vercel staging et instance `/phala` | `SIRIUS_DATASET_ADDRESS`, `NEXT_PUBLIC_SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS`, `NEXT_PUBLIC_SIRIUS_ESCROW_ADDRESS`, `SIRIUS_LEGACY_ESCROW_ADDRESSES` (+ ancien escrow), `SIRIUS_BILLING_POLICY_JSON` (avec arbres), `SIRIUS_EXPECTED_COMPOSE_HASH`, `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS=gradient_boosted_trees` | `SIRIUS_KYB_ADDRESS`, `NEXT_PUBLIC_SIRIUS_KYB_ADDRESS`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, MRTD, chaîne KMS, empreinte d'ingestion |
 | Reaper staging (VPS), basculé avec Next | `SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`, `SIRIUS_EXPECTED_COMPOSE_HASH` | idem |
-| Contrôleur (`/etc/sirius/operations/phala-demo-controller.env`) et moniteur (`runner-monitor.env`) | `SIRIUS_EXPECTED_COMPOSE_HASH` (en A et en B) | les autres pins |
+| Contrôleur (`<CONFIG_OPS>/phala-demo-controller.env`) et moniteur (`runner-monitor.env`) | `SIRIUS_EXPECTED_COMPOSE_HASH` (en A et en B) | les autres pins |
 | Runner (environnement chiffré Phala) | B : `SIRIUS_DATASET_ADDRESS`, `SIRIUS_ESCROW_ADDRESS`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`. Maintenance seulement, puis retirées : `RUNNER_BUDGET_RENEWAL`, `RUNNER_UPDATED_BILLING_POLICY`, `RUNNER_BILLING_ALLOW_PROFILE_CHANGES` (si un prix installé change) | `SIRIUS_KYB_ADDRESS`, `SIRIUS_LOCK_AUTHORIZER`, `SIRIUS_USDC_ADDRESS`, `SIRIUS_COMPUTE_RECIPIENT`, secrets |
 | GitHub environnement `staging` | `SIRIUS_MIGRATION_ESCROW_ADDRESSES` si la pipeline la porte (ancien + nouvel escrow) | — |
 

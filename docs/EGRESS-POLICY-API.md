@@ -288,7 +288,7 @@ E1 est l’incrément le plus utile et le moins risqué : il ne change ni ce qui
 
 ## Annexe A — Prototype jetable
 
-Emplacement : `~/sirius-private/egress-proto/` (hors du dépôt, Node 26, sans dépendance). `lib.mjs` et `attack.mjs` sont reproduits ci-dessous. Les autres scripts : `bench.mjs` (coûts en processus), `https-bench.mjs` (serveur HTTPS TLS 1.3, CPU serveur par appel, poignées de main sans reprise de session), `quota-bench.mjs` (compteur SQLite, mêmes réglages que le registre runner), `viem-sign.mjs` (signature EIP-712 avec le viem du dépôt, en lecture seule).
+Emplacement : un dossier privé sur le poste de l’auteur (hors du dépôt, Node 26, sans dépendance). `lib.mjs` et `attack.mjs` sont reproduits ci-dessous. Les autres scripts : `bench.mjs` (coûts en processus), `https-bench.mjs` (serveur HTTPS TLS 1.3, CPU serveur par appel, poignées de main sans reprise de session), `quota-bench.mjs` (compteur SQLite, mêmes réglages que le registre runner), `viem-sign.mjs` (signature EIP-712 avec le viem du dépôt, en lecture seule).
 
 **Méthode.** Population synthétique : 23 variables standardisées, corrélation commune 0,3. Victime : logistique aux poids tirés au hasard, constante −1,4, 19 % de décisions positives au seuil 0,5. L’attaquant possède une population de référence de même distribution (même modèle de menace que les notes d’expériences). Mesures sur 10 000 lignes de test, 20 tirages, médiane et 10e centile.
 

@@ -74,13 +74,13 @@ Le changement de Compose modifie les mesures : capturer et vérifier matérielle
 
 ### Contrôleur sur le nouveau VPS
 
-Hôte prévu : `162.19.66.80`, compte système `sirius-ops`, code `/opt/sirius-ops`. Le service `deploy/operations/sirius-phala-demo-controller.service` est préparé **sans timer**. Son redémarrage ne lance aucune commande CVM ; une commande interrompue exige une intervention opérateur.
+Hôte prévu : `<VPS_HOST>`, compte système `<COMPTE_OPS>`, code `<DOSSIER_OPS>`. Le service `deploy/operations/sirius-phala-demo-controller.service` est préparé **sans timer**. Son redémarrage ne lance aucune commande CVM ; une commande interrompue exige une intervention opérateur.
 
-Préparer un répertoire `/var/lib/sirius-ops/phala-demo` en 0700 appartenant à `sirius-ops`, et le fichier `/etc/sirius/operations/phala-demo-controller.env` en 0600. Modèle : `deploy/operations/phala-demo-controller.env.example`. Vérifier le chemin Node du serveur avant d’installer l’unité. Node 22.13+ et les dépendances de production sont nécessaires.
+Préparer un répertoire `<ETAT_OPS>/phala-demo` en 0700 appartenant à `<COMPTE_OPS>`, et le fichier `<CONFIG_OPS>/phala-demo-controller.env` en 0600. Modèle : `deploy/operations/phala-demo-controller.env.example`. Vérifier le chemin Node du serveur avant d’installer l’unité. Node 22.13+ et les dépendances de production sont nécessaires.
 
-Le profil Phala CLI 1.1.22 reste local au compte `sirius-ops`. Le service lance seulement `cvms get/start/stop` sur la CVM déclarée et contrôle son app ID. `PHALA_DEMO_CONTROLLER_SECRET` est partagé avec Next ; `RUNNER_DEMO_CONTROL_SECRET` est partagé avec le runner. Les pins attestés doivent être les mêmes que ceux de Next. Aucune clé fournisseur n’est envoyée au navigateur.
+Le profil Phala CLI 1.1.22 reste local au compte `<COMPTE_OPS>`. Le service lance seulement `cvms get/start/stop` sur la CVM déclarée et contrôle son app ID. `PHALA_DEMO_CONTROLLER_SECRET` est partagé avec Next ; `RUNNER_DEMO_CONTROL_SECRET` est partagé avec le runner. Les pins attestés doivent être les mêmes que ceux de Next. Aucune clé fournisseur n’est envoyée au navigateur.
 
-Le service écoute par défaut en HTTPS sur `127.0.0.1:4443`. Installer un accès HTTPS authentifié utilisable depuis Vercel (proxy ou écoute adaptée avec certificat valide). Configurer correctement pare-feu, renouvellement du certificat et droits de lecture ; le port 22 actuellement ouvert ne suffit pas. Préserver les reapers et les autres dossiers du VPS.
+Le service écoute par défaut en HTTPS sur `127.0.0.1:4443`. Installer un accès HTTPS authentifié utilisable depuis Vercel (proxy ou écoute adaptée avec certificat valide). Configurer correctement pare-feu, renouvellement du certificat et droits de lecture ; l’ouverture réseau actuelle du VPS ne suffit pas (état détaillé tenu hors dépôt). Préserver les reapers et les autres dossiers du VPS.
 
 Laisser les watchdogs historiques désactivés. Un collecteur de supervision en lecture seule peut rester périodique ; il ne doit pas commander d’arrêt.
 

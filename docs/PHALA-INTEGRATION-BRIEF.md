@@ -217,4 +217,4 @@ The runner is the trust boundary, and is treated as such.
 ## Contact
 
 **Ali Ben Yezza** — Co-founder, Sirius
-byezzaali@gmail.com
+sirius.data.contact@gmail.com

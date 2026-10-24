@@ -1,14 +1,16 @@
 # Migration du VPS Sirius — 25 septembre 2026
 
+> Les valeurs d’exploitation (adresse du VPS, comptes, dossiers, empreinte d’hôte) sont remplacées par des noms entre chevrons, comme `<VPS_HOST>`. Leur sens et l’endroit où trouver la vraie valeur : [PROCESS-RELECTURE.md](PROCESS-RELECTURE.md#valeurs-dexploitation-masquées).
+
 **Reprise au 26 septembre :** ce document conserve les preuves du transfert des reapers. Pour la suite, suivre la [checklist Phala](PHALA-DEMO-RESTE-A-FAIRE.md) : bascule globale v7 et nettoyage Neon différés, watchdog temporisé désactivé, contrôleur manuel à installer. Les procédures historiques ci-dessous ne réactivent pas ces opérations.
 
-Plan transmis par Noé, adapté au workflow et au lot B en cours. Nouvelle cible OVHcloud : **162.19.66.80**. **Ali a terminé les tranches 0 à 2**, confirmé par Noé. Les connexions par clé à `ubuntu` et `sirius-deploy` sont vérifiées, avec l’empreinte d’hôte `SHA256:o710R0oGhbHCvh6p/AhwLEjWrDbQfvK23jjRGIn+mz8`. Le relais est passé à Noé / intégration.
+Plan transmis par Noé, adapté au workflow et au lot B en cours. Nouvelle cible OVHcloud : **`<VPS_HOST>`**. **Ali a terminé les tranches 0 à 2**, confirmé par Noé. Les connexions par clé à `<COMPTE_ADMIN>` et `<VPS_USER>` sont vérifiées, avec l’empreinte d’hôte `<EMPREINTE_HOTE_SSH>`. Le relais est passé à Noé / intégration.
 
 ## État vérifié après le relais d’Ali
 
-- Docker Engine `29.8.1` et Compose `v5.5.1` sont disponibles. `sirius-deploy` appartient au groupe Docker et n’a pas de sudo ; `ubuntu` dispose du sudo nécessaire à l’installation systemd.
-- `/opt/sirius` et `/opt/sirius-staging` sont en `0750`, leurs `.env.vps` en `0600`, tous appartenant à `sirius-deploy`. `sirius-ops` et `/var/lib/sirius-ops` en `0700` sont présents.
-- Les clés dédiées à GitHub Actions staging et production ont été ajoutées au compte `sirius-deploy` ; leurs connexions sont vérifiées. La clé opérateur est conservée.
+- Docker Engine `29.8.1` et Compose `v5.5.1` sont disponibles. `<VPS_USER>` appartient au groupe Docker et n’a pas de sudo ; `<COMPTE_ADMIN>` dispose du sudo nécessaire à l’installation systemd.
+- `<DOSSIER_PROD>` et `<DOSSIER_STAGING>` sont en `0750`, leurs `.env.vps` en `0600`, tous appartenant à `<VPS_USER>`. `<COMPTE_OPS>` et `<ETAT_OPS>` en `0700` sont présents.
+- Les clés dédiées à GitHub Actions staging et production ont été ajoutées au compte `<VPS_USER>` ; leurs connexions sont vérifiées. La clé opérateur est conservée.
 - Les deux `.env.vps` copiés contiennent les configurations **historiques v6**, avec deux hôtes Neon distincts. La connexion staging peut être utilisée sur le VPS, sans demander de nouveau son mot de passe à Noé ni rapatrier le fichier historique sur son Mac.
 - Au premier contrôle, aucun conteneur ni fichier Compose n’était présent. Les deux reapers ont ensuite démarré ; les preuves de déploiement figurent ci-dessous.
 
@@ -32,14 +34,14 @@ Images worker conservées :
 
 Seul le job **« Reaper sur le VPS »** a été exécuté de nouveau. Les autres jobs gardent leurs dates historiques du 24 septembre pour staging et du 22 septembre pour production : aucun nouveau build Vercel ni migration PostgreSQL pendant ce transfert. Le frontend staging reste donc historique, malgré les variables v7 déjà préparées dans Vercel.
 
-Watchdog et collecteur de budget sont installés sous `sirius-ops` dans `/opt/sirius-ops`, avec Node `22.23.2`, pnpm `11.18.0` et Phala CLI `1.1.22`. Les unités systemd et le chargement du collecteur sont vérifiés. Le profil Phala authentifié a confirmé la CVM **arrêtée**, sans opération en cours. **Les deux timers restent désactivés et inactifs ; aucun `session.json` n’est créé.** La collecte attestée et l’arrêt automatique pendant une session active restent à tester depuis cet hôte.
+Watchdog et collecteur de budget sont installés sous `<COMPTE_OPS>` dans `<DOSSIER_OPS>`, avec Node `22.23.2`, pnpm `11.18.0` et Phala CLI `1.1.22`. Les unités systemd et le chargement du collecteur sont vérifiés. Le profil Phala authentifié a confirmé la CVM **arrêtée**, sans opération en cours. **Les deux timers restent désactivés et inactifs ; aucun `session.json` n’est créé.** La collecte attestée et l’arrêt automatique pendant une session active restent à tester depuis cet hôte.
 
 Les anciens reapers n’ont pas été arrêtés. La semaine d’observation avant retrait de leurs dossiers n’a donc pas commencé. La base staging n’a pas été vidée et les reapers restent en configuration v6 ; la suite est suivie dans [le lot B](PHALA-V7-STAGING.md).
 
 | Tranche | Preuve attendue |
 |---|---|
 | 0 — SSH et système | Connexion par clé testée, empreinte d’hôte transmise |
-| 1 — Docker et comptes | Docker fonctionne pour `sirius-deploy`, `sirius-ops` sans droits Docker |
+| 1 — Docker et comptes | Docker fonctionne pour `<VPS_USER>`, `<COMPTE_OPS>` sans droits Docker |
 | 2 — Configurations | Secrets historiques transférés directement ; configuration v7 à appliquer séparément |
 | 3 — Staging | Nouveau reaper vérifié avec la configuration historique |
 | 4 — Pipeline staging | Secrets staging basculés, job VPS réussi ; autres jobs historiques conservés |
@@ -54,7 +56,7 @@ Changer le mot de passe initial via la console ou une session authentifiée. Ins
 
 Autoriser SSH sur le port 22 avant d’activer le pare-feu ; configurer fail2ban et les mises à jour automatiques. Le reaper ne publie aucun port.
 
-La clé opérateur de Noé est `~/.ssh/sirius_vps.pub` sur son Mac. Les clés dédiées aux pipelines sont `~/.ssh/sirius_staging_actions_20260925.pub` et `~/.ssh/sirius_production_actions_20260925.pub` ; leurs parties privées sont enregistrées dans les secrets GitHub des environnements correspondants. La clé opérateur est autorisée pour `ubuntu` et `sirius-deploy`, les clés pipeline pour `sirius-deploy`.
+La clé opérateur de Noé est une clé dédiée, gardée sur son poste. Les pipelines ont chacune leur clé (staging et production, créées le 25 septembre) ; leurs parties privées sont enregistrées dans les secrets GitHub des environnements correspondants. La clé opérateur est autorisée pour `<COMPTE_ADMIN>` et `<VPS_USER>`, les clés pipeline pour `<VPS_USER>`.
 
 Depuis la console du nouveau serveur, relever :
 
@@ -62,21 +64,21 @@ Depuis la console du nouveau serveur, relever :
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 ```
 
-L’empreinte `SHA256:…` sert à vérifier l’identité. Le secret **`VPS_KNOWN_HOSTS` contient la ligne complète**, au format `162.19.66.80 ssh-ed25519 AAAA…`. Comparer sa clé à l’empreinte relevée via la console avant de la retenir ; `ssh-keyscan` seul ne prouve pas l’identité du serveur. [Documentation OpenSSH](https://man.openbsd.org/ssh-keyscan).
+L’empreinte `SHA256:…` sert à vérifier l’identité. Le secret **`VPS_KNOWN_HOSTS` contient la ligne complète**, au format `<VPS_HOST> ssh-ed25519 AAAA…`. Comparer sa clé à l’empreinte relevée via la console avant de la retenir ; `ssh-keyscan` seul ne prouve pas l’identité du serveur. [Documentation OpenSSH](https://man.openbsd.org/ssh-keyscan).
 
 ## 1 — Docker, utilisateurs et répertoires
 
-Installer Docker Engine et le plugin Compose depuis le dépôt officiel Docker. Ajouter `sirius-deploy` au groupe Docker, avec sa clé pipeline. Ce groupe donne des privilèges équivalents à root ; `sirius-ops` doit en rester exclu. [Documentation Docker](https://docs.docker.com/engine/install/linux-postinstall/).
+Installer Docker Engine et le plugin Compose depuis le dépôt officiel Docker. Ajouter `<VPS_USER>` au groupe Docker, avec sa clé pipeline. Ce groupe donne des privilèges équivalents à root ; `<COMPTE_OPS>` doit en rester exclu. [Documentation Docker](https://docs.docker.com/engine/install/linux-postinstall/).
 
-- `/opt/sirius` et `/opt/sirius-staging` : propriétaire `sirius-deploy`, mode `0750`.
-- `sirius-ops` : compte système sans droits Docker, répertoire personnel et état dans `/var/lib/sirius-ops`, mode `0700`.
-- `/opt/sirius-ops` : code et dépendances du superviseur, installés par l’administrateur, lisibles mais non modifiables par `sirius-ops` ; séparés des configurations du reaper.
+- `<DOSSIER_PROD>` et `<DOSSIER_STAGING>` : propriétaire `<VPS_USER>`, mode `0750`.
+- `<COMPTE_OPS>` : compte système sans droits Docker, répertoire personnel et état dans `<ETAT_OPS>`, mode `0700`.
+- `<DOSSIER_OPS>` : code et dépendances du superviseur, installés par l’administrateur, lisibles mais non modifiables par `<COMPTE_OPS>` ; séparés des configurations du reaper.
 
-Vérifier Docker sous `sirius-deploy` avec un conteneur de test supprimé à sa sortie (`--rm`). Vérifier ensuite qu’aucun conteneur de test ni port publié ne subsiste.
+Vérifier Docker sous `<VPS_USER>` avec un conteneur de test supprimé à sa sortie (`--rm`). Vérifier ensuite qu’aucun conteneur de test ni port publié ne subsiste.
 
 ## 2 — Configurations et remise à zéro staging
 
-L’opérateur qui connaît l’ancien VPS transfère les fichiers `.env.vps` directement entre serveurs, dans une connexion SSH dont les hôtes sont vérifiés. Aucun transit des fichiers historiques par un chat, un mail ou le poste local. Vérifier empreintes de fichiers et permissions, pas seulement leurs tailles : propriétaire `sirius-deploy`, mode `0600`. Conserver les anciennes configurations à leur emplacement pour la reprise de l’infrastructure.
+L’opérateur qui connaît l’ancien VPS transfère les fichiers `.env.vps` directement entre serveurs, dans une connexion SSH dont les hôtes sont vérifiés. Aucun transit des fichiers historiques par un chat, un mail ou le poste local. Vérifier empreintes de fichiers et permissions, pas seulement leurs tailles : propriétaire `<VPS_USER>`, mode `0600`. Conserver les anciennes configurations à leur emplacement pour la reprise de l’infrastructure.
 
 Le fichier **staging transféré conserve d’abord la configuration historique pour le transfert d’hébergement**. Lors de la deuxième opération, il doit recevoir v7, les nouveaux contrats, le RPC archive, le nouveau secret de transport, l’origine staging, `SIRIUS_REQUIRE_PHALA=true`, l’URL Phala et les mesures actives. Utiliser alors les valeurs préparées du lot B et vérifier leur cohérence avec Vercel. Le fichier production reste séparé et n’est jamais remplacé par celui de staging.
 
@@ -88,16 +90,16 @@ Ne pas importer la master key ni une clé privée de runner/déploiement dans le
 
 Pour le premier transfert, conserver l’image worker immuable du fichier copié et la configuration historique. Pour la bascule v7 suivante, utiliser une image worker issue du code v7 validé par la CI. Le digest du **runner Phala** ne désigne pas l’image **worker**.
 
-Copier `deploy/vps/compose.yaml` dans `/opt/sirius-staging`, configurer son digest dans `SIRIUS_WORKER_IMAGE` et authentifier `sirius-deploy` auprès de GHCR avec un accès en lecture. Ne pas afficher le fichier `.env.vps` ni une configuration Compose avec secrets interpolés.
+Copier `deploy/vps/compose.yaml` dans `<DOSSIER_STAGING>`, configurer son digest dans `SIRIUS_WORKER_IMAGE` et authentifier `<VPS_USER>` auprès de GHCR avec un accès en lecture. Ne pas afficher le fichier `.env.vps` ni une configuration Compose avec secrets interpolés.
 
 Le nom de projet est obligatoire : le Compose versionné porte `name: sirius` par défaut. Exécuter sur le nouveau VPS seulement, après les contrôles précédents :
 
 ```bash
-cd /opt/sirius-staging
+cd <DOSSIER_STAGING>
 docker compose -p sirius-staging --env-file .env.vps up --detach --pull always
 ```
 
-Exécuter `deploy/vps/check-reaper.sh /opt/sirius-staging sirius-staging`. Ce script prouve que le conteneur tourne et qu’une passe a abouti (`[reaper] passe ok`) dans les deux dernières minutes ; une passe qui lève ou dont tous les prêts restent en erreur écrit `passe échouée` et le fait échouer. Il ne prouve pas que chaque prêt a été réconcilié. Vérifier aussi le démarrage applicatif, l’accès Neon, le RPC et la cohérence runner/contrats, puis une réconciliation réelle lors du parcours de test.
+Exécuter `deploy/vps/check-reaper.sh <DOSSIER_STAGING> sirius-staging`. Ce script prouve que le conteneur tourne et qu’une passe a abouti (`[reaper] passe ok`) dans les deux dernières minutes ; une passe qui lève ou dont tous les prêts restent en erreur écrit `passe échouée` et le fait échouer. Il ne prouve pas que chaque prêt a été réconcilié. Vérifier aussi le démarrage applicatif, l’accès Neon, le RPC et la cohérence runner/contrats, puis une réconciliation réelle lors du parcours de test.
 
 Le code comporte des mises à jour conditionnelles contre les courses, mais le verrou `running` du reaper est propre à chaque processus. La coexistence retenue par Noé conserve **la même image et la même configuration historique** ; elle ne prouve pas l’absence de courses entre processus. Elle ne valide pas une coexistence avec v7 : lors de la remise à zéro et de la bascule v7, tous les anciens accès en écriture doivent être neutralisés.
 
@@ -109,8 +111,8 @@ Modifier uniquement l’environnement GitHub **`staging`** :
 
 | Secret | Nouvelle valeur |
 |---|---|
-| `VPS_HOST` | `162.19.66.80` |
-| `VPS_USER` | `sirius-deploy` |
+| `VPS_HOST` | Adresse du nouveau VPS (registre d’exploitation, hors dépôt) |
+| `VPS_USER` | Compte de déploiement du VPS (registre d’exploitation, hors dépôt) |
 | `VPS_SSH_KEY` | Clé privée dédiée au pipeline staging, fournie par fichier ou stdin |
 | `VPS_KNOWN_HOSTS` | Ligne complète de clé d’hôte vérifiée |
 
@@ -126,15 +128,15 @@ Noé autorise cette migration d’hébergement après staging. Conserver la conf
 
 ## 6 — Supervision et observation de l’ancien serveur
 
-Installer les unités versionnées du watchdog Phala et du collecteur de budget sous `sirius-ops`, **timers désactivés tant qu’aucune session n’est planifiée**. Leur installation peut précéder les tranches 3/4 et doit précéder tout prochain créneau Phala.
+Installer les unités versionnées du watchdog Phala et du collecteur de budget sous `<COMPTE_OPS>`, **timers désactivés tant qu’aucune session n’est planifiée**. Leur installation peut précéder les tranches 3/4 et doit précéder tout prochain créneau Phala.
 
-Le workflow dépose seulement le Compose et l’image worker ; il n’installe pas les scripts ni Node/pnpm sur l’hôte. Prévoir Node 22, pnpm, le code vérifié et ses dépendances dans `/opt/sirius-ops`, le profil CLI Phala sous le compte `sirius-ops`, et les fichiers privés sous `/etc/sirius/operations`. Les scripts exigent notamment `session.json` en `0600`, lisible par ce compte ; les rapports sont écrits en `0600` dans `/var/lib/sirius-ops`.
+Le workflow dépose seulement le Compose et l’image worker ; il n’installe pas les scripts ni Node/pnpm sur l’hôte. Prévoir Node 22, pnpm, le code vérifié et ses dépendances dans `<DOSSIER_OPS>`, le profil CLI Phala sous le compte `<COMPTE_OPS>`, et les fichiers privés sous `<CONFIG_OPS>`. Les scripts exigent notamment `session.json` en `0600`, lisible par ce compte ; les rapports sont écrits en `0600` dans `<ETAT_OPS>`.
 
-Les unités fournies ciblent encore `/opt/sirius`. À l’installation, remplacer via des surcharges systemd leurs `WorkingDirectory` et `ExecStart` par `/opt/sirius-ops` (réinitialiser `ExecStart` avant sa nouvelle valeur). Conserver les restrictions existantes, vérifier les chemins réels de Node/pnpm, les droits de lecture et la disponibilité du cache/profil CLI. Ne pas ajouter `sirius-ops` au groupe de déploiement pour contourner les droits.
+Les unités fournies ciblent encore `<DOSSIER_PROD>`. À l’installation, remplacer via des surcharges systemd leurs `WorkingDirectory` et `ExecStart` par `<DOSSIER_OPS>` (réinitialiser `ExecStart` avant sa nouvelle valeur). Conserver les restrictions existantes, vérifier les chemins réels de Node/pnpm, les droits de lecture et la disponibilité du cache/profil CLI. Ne pas ajouter `<COMPTE_OPS>` au groupe de déploiement pour contourner les droits.
 
 Contrôler la syntaxe des unités et leurs timers désactivés. Lors du prochain créneau autorisé : créer une session bornée, vérifier le profil Phala et l’identité CVM en lecture seule, activer le watchdog avant démarrage, vérifier le rapport attesté frais après activation et confirmer l’arrêt en fin de session. La présence de fichiers systemd ne prouve pas que la supervision fonctionne.
 
-Lorsque leur retrait sera repris, arrêter les anciens reapers puis commencer la semaine d’observation globale une fois **les deux reapers Sirius** arrêtés sur l’ancien VPS. Après sept jours sans besoin de retour, vérifier l’inventaire puis retirer seulement `/opt/sirius` et `/opt/sirius-staging` de l’ancien serveur. Les services partnersud restent en place ; aucune commande d’extinction ou suppression globale n’est prévue.
+Lorsque leur retrait sera repris, arrêter les anciens reapers puis commencer la semaine d’observation globale une fois **les deux reapers Sirius** arrêtés sur l’ancien VPS. Après sept jours sans besoin de retour, vérifier l’inventaire puis retirer seulement `<DOSSIER_PROD>` et `<DOSSIER_STAGING>` de l’ancien serveur. Les services partnersud restent en place ; aucune commande d’extinction ou suppression globale n’est prévue.
 
 ## Limite du retour arrière
 

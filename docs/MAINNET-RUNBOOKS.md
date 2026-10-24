@@ -71,7 +71,7 @@ pnpm runner:transactions abandon <id-operation> --actor=<prénom> --reason="<dia
 
 **Signes** : `check-reaper.sh` en erreur, aucune ligne `[reaper] passe ok` depuis plusieurs minutes, lignes `[reaper] passe échouée` répétées, prêts échus non remboursés.
 
-1. `docker compose -p sirius --env-file .env.vps logs --tail 100 reaper` dans `/opt/sirius`.
+1. `docker compose -p sirius --env-file .env.vps logs --tail 100 reaper` dans `<DOSSIER_PROD>`.
 2. Erreur de configuration au démarrage : corriger `.env.vps` (le reaper mainnet refuse une configuration incomplète).
 3. Redémarrer : `docker compose -p sirius --env-file .env.vps up -d reaper`, puis relancer `check-reaper.sh`.
 4. Contrôler les prêts échus restés verrouillés et déclencher les remboursements manquants.

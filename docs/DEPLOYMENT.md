@@ -1,10 +1,12 @@
 # Branches, déploiements et authentification
 
+> Les valeurs d’exploitation (adresse du VPS, comptes, dossiers, empreinte d’hôte) sont remplacées par des noms entre chevrons, comme `<VPS_HOST>`. Leur sens et l’endroit où trouver la vraie valeur : [PROCESS-RELECTURE.md](PROCESS-RELECTURE.md#valeurs-dexploitation-masquées).
+
 Guide actualisé le 23 septembre 2026. Les règles d'origines introduites le 12 septembre restent applicables ; la dernière revue concerne le code local. Une modification locale ne met pas à jour une instance déjà déployée et ne prouve pas l'état de sa configuration distante.
 
 **Priorité au 26 septembre :** suivre la [checklist Phala](PHALA-DEMO-RESTE-A-FAIRE.md) et le [runbook manuel](PHALA-DEMO-RUNBOOK.md). La bascule globale staging v7, le nettoyage Neon et les sessions temporisées décrits dans les notes historiques ci-dessous sont différés. Réconcilier les anciennes variables avant tout prochain déploiement staging ; préparer une cible Phala dédiée, sans fermeture programmée.
 
-**Transfert VPS vérifié le 25 septembre à 21:18 UTC :** les reapers staging et production tournent sur OVHcloud `162.19.66.80`, sous `sirius-deploy`, avec leurs images et configurations historiques v6. Les quatre secrets VPS de chaque environnement GitHub sont basculés ; les jobs VPS [staging](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36042451260/attempts/2) et [production](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/35789836029/attempts/2) ont réussi. Seuls ces jobs ont été relancés : aucun nouveau build Vercel ni migration PostgreSQL. Watchdog et collecteur sont installés sous `sirius-ops`, timers désactivés, Phala arrêtée. Noé a choisi de laisser les anciens reapers en place ; la remise à zéro et la bascule Phala/v7 attendent la neutralisation des anciens accès en écriture staging. Preuves et suite dans [VPS-MIGRATION.md](VPS-MIGRATION.md). Partnersud reste hors périmètre.
+**Transfert VPS vérifié le 25 septembre à 21:18 UTC :** les reapers staging et production tournent sur OVHcloud `<VPS_HOST>`, sous `<VPS_USER>`, avec leurs images et configurations historiques v6. Les quatre secrets VPS de chaque environnement GitHub sont basculés ; les jobs VPS [staging](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/36042451260/attempts/2) et [production](https://github.com/DVB-Ali-Noe/Sirius-EVM/actions/runs/35789836029/attempts/2) ont réussi. Seuls ces jobs ont été relancés : aucun nouveau build Vercel ni migration PostgreSQL. Watchdog et collecteur sont installés sous `<COMPTE_OPS>`, timers désactivés, Phala arrêtée. Noé a choisi de laisser les anciens reapers en place ; la remise à zéro et la bascule Phala/v7 attendent la neutralisation des anciens accès en écriture staging. Preuves et suite dans [VPS-MIGRATION.md](VPS-MIGRATION.md). Partnersud reste hors périmètre.
 
 Les corrections F1–F4 du 13 septembre sont documentées dans [ESCROW-V6.md](ESCROW-V6.md), désormais référence historique pour la migration. La prochaine évolution économique suit [v7](BILLING-INTEGRATION.md), après résolution des bloqueurs. Le choix automatique des origines ne déploie pas les contrats.
 
@@ -39,7 +41,7 @@ Les plus gros crédits passent d’abord. Chaque envoi est précédé d’une re
 1. Publier le code : le Compose déployé par le pipeline transmet les nouvelles variables.
 2. Générer une clé neuve, écrite directement dans `.env.vps` sans jamais s’afficher ; seule l’adresse à financer apparaît :
    ```bash
-   cd /opt/sirius-staging   # /opt/sirius pour la production
+   cd <DOSSIER_STAGING>   # <DOSSIER_PROD> pour la production
    IMAGE=$(sed -n 's/^SIRIUS_WORKER_IMAGE="\(.*\)"$/\1/p' .env.vps)
    { echo; docker run --rm --entrypoint node "$IMAGE" --input-type=module -e 'import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"; const key = generatePrivateKey(); console.error(`Adresse à financer : ${privateKeyToAccount(key).address}`); console.log(`SIRIUS_WITHDRAW_RELAYER_KEY=${key}`);'; } >> .env.vps
    ```
@@ -82,15 +84,15 @@ Le guide animé de première visite (`src/components/guide/`) se range dans une 
 
 | Branche | Environnement GitHub | Projet Vercel | Origine canonique | Compose / dossier VPS |
 |---|---|---|---|---|
-| `staging` | `staging` | `sirius-evm-staging` | `https://sirius-evm-staging.vercel.app` | `sirius-staging` / `/opt/sirius-staging` |
-| `main` | `production` | `sirius-evm` | `https://sirius-data.tech` | `sirius` / `/opt/sirius` |
+| `staging` | `staging` | `sirius-evm-staging` | `https://sirius-evm-staging.vercel.app` | `sirius-staging` / `<DOSSIER_STAGING>` |
+| `main` | `production` | `sirius-evm` | `https://sirius-data.tech` | `sirius` / `<DOSSIER_PROD>` |
 
 Alias explicitement autorisés pour **main** :
 
 - `https://sirius-evm.vercel.app` ;
-- `https://sirius-evm-byezzaali-gmailcoms-projects.vercel.app`.
+- `https://sirius-evm-<SCOPE_VERCEL>.vercel.app`.
 
-Alias explicitement autorisé pour **staging** : `https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app`.
+Alias explicitement autorisé pour **staging** : `https://sirius-evm-staging-<SCOPE_VERCEL>.vercel.app`.
 
 `sirius-evm.vercel.app` appartient à main, même si le dossier local est sur staging. Le navigateur ne connaît pas la branche ouverte dans l'éditeur. Les URL Vercel éphémères de chaque build ne sont pas implicitement autorisées. Aucun joker `*.vercel.app` n'est utilisé.
 
@@ -185,7 +187,7 @@ Le worker utilise désormais un contrôle de lecture dédié qui accepte l'escro
 
 `deploy/vps/check-reaper.sh` affiche l'état, le code de sortie, l'éventuel dépassement mémoire et le nombre de redémarrages du conteneur. En cas d'échec, il affiche les derniers logs du seul service `reaper` du projet ciblé. Il ne lit ni n'affiche la configuration des secrets. Ce contrôle exige aussi une ligne `[reaper] passe ok` récente : il vérifie que le processus tourne et qu'une passe vient d'aboutir, pas la réussite de toutes les réconciliations futures.
 
-Le fichier `/opt/sirius-staging/.env.vps` doit rester cohérent avec la configuration de l'application ; il n'a pas été consulté ni modifié pendant cette correction. Le correctif doit être publié pour reconstruire l'image worker et déployer son nouveau digest. Relancer uniquement l'ancien job VPS réutiliserait l'ancienne image.
+Le fichier `<DOSSIER_STAGING>/.env.vps` doit rester cohérent avec la configuration de l'application ; il n'a pas été consulté ni modifié pendant cette correction. Le correctif doit être publié pour reconstruire l'image worker et déployer son nouveau digest. Relancer uniquement l'ancien job VPS réutiliserait l'ancienne image.
 
 ### Contrôles locaux
 
