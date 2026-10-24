@@ -5,6 +5,7 @@ import { benchmarkCsv, BENCHMARK_ROWS } from "./gbdt-benchmark-csv.mjs";
 import { MAX_DATASET_BYTES } from "../../src/lib/tee/contract";
 import { inspectCsv } from "../../src/lib/datasets/csv-check";
 import { trainInWorker } from "../../src/lib/tee/bounded-training";
+import { gateModel } from "../../src/lib/tee/output-gate";
 import { modelSelection } from "../../src/lib/models/registry";
 
 /** Métriques livrées (après la porte de sortie) par le profil 1.1.0 sur le CSV de mesure, relevées le 24 octobre 2026. */
@@ -26,7 +27,10 @@ test("les métriques de référence de la session sont celles du runner local, �
   // Profil 1.0.0 (session staging du 20 octobre) : heldOutAuc 0.8418414855712508, trainAuc 0.8470032294457094,
   // heldOutAccuracy 0.7786666666666666, métriques brutes. Le profil 1.1.0 (E2 minimale) livre les métriques
   // arrondies et l'écart d'AUC à la place du trainAuc : la référence ci-dessous est celle de ce profil.
-  const model = await trainInWorker(modelSelection("gradient_boosted_trees", "1.1.0"), Buffer.from(benchmarkCsv()), AbortSignal.timeout(25_000));
+  // Le worker rend le modèle brut ; l'acheteur reçoit ce que la porte de sortie en garde
+  // (`sealTrainedModel` dans `core.ts`, sur tous les chemins de livraison) : on compare celui-là.
+  const trained = await trainInWorker(modelSelection("gradient_boosted_trees", "1.1.0"), Buffer.from(benchmarkCsv()), AbortSignal.timeout(25_000));
+  const { model } = gateModel(trained);
   assert.equal(model.algo, "gradient_boosted_trees");
   assert.deepEqual(
     { n: model.metrics.n, heldOutAuc: model.metrics.heldOutAuc, aucGap: model.metrics.aucGap, heldOutAccuracy: model.metrics.heldOutAccuracy },
