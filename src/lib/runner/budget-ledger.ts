@@ -3,7 +3,7 @@ import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
 import { parseDemoPolicy, type DemoPolicy } from "@/lib/phala-demo/contract";
 import { ESCROW_CHALLENGE_DAYS } from "@/lib/datasets/publication";
-import { RunnerRetryLater } from "./failure-policy";
+import { RUNNER_WALLET_BUSY, RunnerRetryLater } from "./failure-policy";
 
 /** Durée de vie maximale d'un devis compute signé (`src/lib/billing/runner.ts`). */
 export const QUOTE_LIFETIME_SECONDS = 300;
@@ -406,11 +406,14 @@ export class BudgetLedger {
       }
       if (!workflow) this.assertAdmission();
       const active = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE state = 'reserved'").get()?.n);
-      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
+      // Registre plein : un refus de capacité, pas une panne. `RunnerRetryLater` n'est pas compté par
+      // le coupe-circuit et rend la réservation de la requête parente (audit ROB-09) ; sinon
+      // `maxFailures` requêtes légitimes concurrentes fermaient le runner à tous.
+      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new RunnerRetryLater("Réservations runner en attente de réconciliation");
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
         // Une seule transaction en vol par wallet : les autres règlements attendent leur tour
         // sans compter d'échec ni consommer de crédit.
-        throw new RunnerRetryLater("Transaction du wallet runner encore incertaine");
+        throw new RunnerRetryLater(RUNNER_WALLET_BUSY);
       }
       const wei = kind === "transaction" ? BigInt(this.policy.gas.maxTransactionWei) : BigInt(0);
       const scale = BigInt("1000000000000000000");

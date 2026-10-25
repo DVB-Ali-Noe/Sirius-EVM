@@ -62,8 +62,13 @@ test("un fichier accepté par le navigateur l'est par l'enclave, et inversement,
     { text: `a,y\n${Array.from({ length: 150 }, (_, i) => `t${i},${i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "une seule colonne numérique" },
     { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "1e12" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: true, label: "borne 1e12 acceptée" },
     { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "1000000000001" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "au-delà de 1e12 : colonne non numérique" },
-    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "0x10" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: true, label: "hexadécimal lu comme nombre (Number())" },
-    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i}, ${i}`).join("\n")}\n`, modelId: "linear_regression", accepted: true, label: "espaces tolérés par Number()" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "0x10" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "hexadécimal : colonne non numérique (ROB-02)" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? " " : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "cellule d'espaces : vide, plus 0 (ROB-01)" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i}, ${i}`).join("\n")}\n`, modelId: "linear_regression", accepted: true, label: "espaces autour d'un nombre tolérés" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i}`).join("\n")}\n\n\n`, modelId: "linear_regression", accepted: true, label: "lignes vides finales ignorées (ROB-06)" },
+    { text: `﻿x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i}`).join("\n")}\n`, modelId: "linear_regression", accepted: true, label: "BOM retiré (ROB-05)" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i}${i === 9 ? "\r" : "\n"}`).join("")}`, modelId: "linear_regression", accepted: false, label: "\\r isolé (ROB-03)" },
+    { text: `x,y\n${Array.from({ length: 150 }, (_, i) => (i === 9 ? `${i}` : `${i},${i}`)).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "ligne tronquée (ROB-04)" },
     { text: `x,y\n${Array.from({ length: 150 }, (_, i) => `${i},${i === 3 ? "Infinity" : i}`).join("\n")}\n`, modelId: "linear_regression", accepted: false, label: "Infinity refusé" },
     { text: `x,y\r\n${Array.from({ length: 150 }, (_, i) => `${i},${i}`).join("\r\n")}\r\n`, modelId: "linear_regression", accepted: true, label: "CRLF" },
     { text: `"x","y"\n${Array.from({ length: 150 }, (_, i) => `"${i}","${i}"`).join("\n")}`, modelId: "linear_regression", accepted: true, label: "guillemets, sans retour final" },
@@ -75,6 +80,11 @@ test("un fichier accepté par le navigateur l'est par l'enclave, et inversement,
     { text: csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), modelId: "gradient_boosted_trees", accepted: false, label: "arbres classes 1/2" },
     { text: csv(GBDT_MIN_ROWS, 2, () => "0"), modelId: "gradient_boosted_trees", accepted: false, label: "arbres une seule classe" },
     { text: csv(GBDT_MIN_ROWS, 2, heldOutZero), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : partie test sans classe 1" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", "Revenu 2024,x1,y"), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : nom de colonne publiée avec espace" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", "revenu_€,x1,y"), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : nom de colonne publiée avec accent" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", `${"h".repeat(65)},x1,y`), modelId: "gradient_boosted_trees", accepted: false, label: "arbres : nom de colonne publiée de 65 caractères" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", `${"h".repeat(64)},x1,y`), modelId: "gradient_boosted_trees", accepted: true, label: "arbres : nom de colonne publiée de 64 caractères" },
+    { text: csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", "Revenu 2024,x1,y"), modelId: "logistic_regression", accepted: true, label: "logistique : nom de colonne libre inchangé" },
   ];
   for (const { text, modelId, accepted, label } of cases) {
     const verdict = enclaveVerdict(text, modelId);
@@ -100,6 +110,7 @@ test("la raison du refus correspond à celle de l'enclave", () => {
     [csv(GBDT_BUDGET_ROWS + 1, 31, binary), "gradient_boosted_trees", "compute-budget", /budget de calcul/],
     [csv(GBDT_MIN_ROWS, 2, (row) => (row % 2 ? "1" : "2")), "gradient_boosted_trees", "binary-target", /strictement 0 ou 1/],
     [csv(GBDT_MIN_ROWS, 2, heldOutZero), "gradient_boosted_trees", "held-out-classes", /séparation entraînement \/ test/],
+    [csv(GBDT_MIN_ROWS, 2, binary).replace("x0,x1,y", "Revenu 2024,x1,y"), "gradient_boosted_trees", "trees-header-charset", /noms des colonnes numériques sont publiés/],
   ];
   for (const [text, modelId, kind, pattern] of expectations) {
     const inspection = inspectCsv(text, modelId);
@@ -180,6 +191,7 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
     { kind: "binary-target", target: "y" },
     { kind: "held-out-classes", target: "y" },
     { kind: "trees-too-few-rows" },
+    { kind: "trees-header-charset", column: "Revenu 2024" },
   ];
   for (const reason of reasons) {
     const text = csvRejectionText(reason, t);
@@ -192,6 +204,8 @@ test("les limites affichées sont lues dans le code, et chaque raison a un texte
   assert.equal(csvRejectionText({ kind: "file-too-large", sizeBytes: MAX_DATASET_BYTES + 1, maxBytes: MAX_DATASET_BYTES }, t), "File too large: 3.0 MB (3,145,729 bytes), maximum 3 MB.");
   assert.equal(csvRejectionText({ kind: "logistic-target", target: "y" }, t), "For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
   assert.equal(csvRejectionText({ kind: "trees-too-few-rows" }, t), "Boosted trees need at least 10,000 rows; use logistic regression for this file.");
+  assert.equal(csvRejectionText({ kind: "trees-header-charset", column: "Revenu 2024" }, t),
+    "For boosted trees, the numeric column names are published with the model: unaccented letters, digits and “_” only, 64 characters at most. Rejected column: “Revenu 2024”.");
   // Le texte du plancher, écrit en dur pour la traduction, suit la constante du profil.
   assert.ok(GBDT_TOO_FEW_ROWS_MESSAGE.includes(` ${String(GBDT_MIN_ROWS).replace(/\B(?=(\d{3})+$)/g, " ")} lignes`));
   // Les clés françaises des raisons sont toutes traduites (le test d'anglais vérifie les appels `t()`).

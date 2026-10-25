@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { csvWithTargetLast, demoQualityReport, tableWithTargetLast } from "./csv";
 import { DEMO_EXAMPLES } from "./examples";
+import { selectionForModelId } from "../models/registry";
 import { trainSelectedModel } from "../tee/model-registry";
 import { gateModel } from "../tee/output-gate";
 import { DatasetValidationError, trainingColumns } from "../tee/train";
@@ -13,7 +14,7 @@ import { qualityReport } from "../datasets/quality";
 test("les deux exemples passent les vrais profils et la porte de sortie du runner", () => {
   for (const sample of DEMO_EXAMPLES) {
     const bytes = csvWithTargetLast(readFileSync(join(process.cwd(), "public", sample.path), "utf8"), sample.target);
-    const result = gateModel(trainSelectedModel({ modelId: sample.modelId, modelVersion: "1.0.0" }, Buffer.from(bytes))).model;
+    const result = gateModel(trainSelectedModel(selectionForModelId(sample.modelId), Buffer.from(bytes))).model;
     assert.equal(result.target, sample.target);
     assert.equal(result.algo, sample.modelId);
     assert.ok(result.metrics.n >= 100);
@@ -24,7 +25,8 @@ test("la cible choisie reste la cible ; aucune colonne texte ne lui est substitu
   assert.equal(new TextDecoder().decode(csvWithTargetLast('target,note,x\n2,"a,b",1', "target")), 'note,x,target\n"a,b",1,2');
   for (const input of ["x,target\n1,yes", "x,target\n1,", "x,target\n1,Infinity"]) assert.throws(() => csvWithTargetLast(input, "target"), /numérique/);
   assert.throws(() => csvWithTargetLast("x,x\n1,2", "x"), /En-têtes/);
-  assert.throws(() => csvWithTargetLast("x,target\n1,2,3", "target"), /colonnes/);
+  // Le parseur partagé refuse la ligne trop longue, avec son numéro (même refus que l'enclave).
+  assert.throws(() => csvWithTargetLast("x,target\n1,2,3", "target"), /ligne 2 : 3 cellule\(s\) pour 2 colonne\(s\)/);
 });
 
 test("la cible accepte les mêmes nombres que l'enclave : 1e12 passe, au-delà refusé avant tout envoi", () => {
@@ -63,14 +65,15 @@ test("cible non numérique sur /phala : annoncée une seule fois, ni « cible qu
   assert.equal(demoQualityReport(table, "absente"), null);
 });
 
-test("cible choisie sur /phala : ses cellules d'espaces, acceptées et lues 0, sont signalées", () => {
+test("cible choisie sur /phala : cellules d'espaces et 0x refusées avant envoi, comme l'enclave les refuserait", () => {
   const text = `score,a,b\n${Array.from({ length: 200 }, (_, row) => `${row === 3 ? "  " : row === 8 ? "0x1" : row % 7},${(row * 37) % 101},${(row * 53) % 97}`).join("\n")}`;
   const result = demoQualityReport(parseCsv(text), "score");
-  assert.equal(result?.invalidTarget, 0);
-  assert.deepEqual(result?.report.blankAsZero, [{ column: "score", cells: 1 }]);
-  assert.deepEqual(result?.report.prefixedNumbers, [{ column: "score", cells: 1 }]);
-  // Même lecture que l'enclave : aucun refus ajouté par le navigateur.
-  assert.doesNotThrow(() => csvWithTargetLast(text, "score"));
+  assert.equal(result?.invalidTarget, 2);
+  assert.throws(() => csvWithTargetLast(text, "score"), /numérique/);
+  // Espaces autour d'un nombre : toujours un nombre, même valeur.
+  const padded = text.replace("\n  ,", "\n 3 ,").replace("\n0x1,", "\n1,");
+  assert.equal(demoQualityReport(parseCsv(padded), "score")?.invalidTarget, 0);
+  assert.doesNotThrow(() => csvWithTargetLast(padded, "score"));
 });
 
 test("les exemples de /phala, avec leur cible, ne déclenchent ni fuite ni cible non numérique", () => {

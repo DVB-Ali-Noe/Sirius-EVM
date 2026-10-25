@@ -1,0 +1,155 @@
+# Garde de relecture croisée (constats PRO-01 et PRO-03 de l'audit du processus).
+#
+# Le dépôt est privé, en offre GitHub Free : la protection de branche n'existe pas, et ce
+# contrôle ne peut PAS bloquer le bouton de fusion. Il rend visible, et garde en trace, une PR
+# vers staging ou main qui n'est pas prête ou pas relue. Règles : docs/PROCESS-RELECTURE.md.
+#
+# Échoue si : la PR est en Draft ; son titre dit « brouillon », « draft », « WIP » ou « ne pas
+# fusionner » ; son texte dit « ne pas fusionner » ou « do not merge » ; une demande de
+# changements est en cours ; ou il manque l'approbation d'une autre personne que l'auteur sur
+# le dernier commit. Seule exception à l'approbation : une PR vers staging qui ne touche que
+# docs/ ou des fichiers *.md hors .github/.
+#
+# Aucun secret n'est lu : seul le jeton du workflow, en lecture sur la PR.
+
+name: relecture
+
+on:
+  pull_request:
+    branches: [main, staging]
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+  # Une approbation ne déclenche pas d'événement pull_request : le job « relance » rejoue
+  # alors la garde du dernier commit, pour qu'elle lise la nouvelle relecture.
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  garde:
+    name: Relecture croisée
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier statut, titre, texte et approbation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMERO: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # Tout est relu dans l'API, pas dans l'événement : un run relancé après une
+          # relecture voit ainsi le titre, le texte et les relectures du moment.
+          pr="$(gh api "repos/${REPO}/pulls/${NUMERO}")"
+          auteur="$(jq -r .user.login <<<"$pr")"
+          tete="$(jq -r .head.sha <<<"$pr")"
+          base="$(jq -r .base.ref <<<"$pr")"
+          draft="$(jq -r .draft <<<"$pr")"
+          titre="$(jq -r .title <<<"$pr")"
+          # Les commentaires HTML du modèle de PR ne s'affichent pas : ils ne comptent pas.
+          texte="$(jq -r '.body // ""' <<<"$pr" | perl -0pe 's/<!--.*?-->//gs')"
+          fichiers="$(gh api --paginate "repos/${REPO}/pulls/${NUMERO}/files" --jq '.[].filename')"
+          relectures="$(gh api --paginate "repos/${REPO}/pulls/${NUMERO}/reviews" \
+            --jq '.[] | {user: .user.login, type: .user.type, state: .state, commit: .commit_id}' | jq -s .)"
+
+          erreurs=()
+
+          if [ "$draft" = "true" ]; then
+            erreurs+=("La PR est en Draft. La passer en « Ready for review » quand l'accord est donné.")
+          fi
+          if grep -qiE '\bbrouillon\b|\bdraft\b|\bwip\b|ne pas fusionner|do not merge' <<<"$titre"; then
+            erreurs+=("Le titre annonce une PR pas prête. Utiliser le statut Draft, puis retirer le mot du titre.")
+          fi
+          if grep -qiE 'ne pas fusionner|ne pas merger|do not merge' <<<"$texte"; then
+            erreurs+=("Le texte dit de ne pas fusionner. Retirer la phrase une fois l'accord donné par une approbation.")
+          fi
+
+          doc_seule=true
+          while IFS= read -r fichier; do
+            [ -z "$fichier" ] && continue
+            case "$fichier" in
+              .github/*) doc_seule=false ;;
+              docs/*|*.md) ;;
+              *) doc_seule=false ;;
+            esac
+          done <<<"$fichiers"
+
+          # Dernière relecture décisive de chaque personne autre que l'auteur (l'API les
+          # rend dans l'ordre chronologique ; group_by de jq garde cet ordre).
+          etat="$(jq --arg a "$auteur" --arg h "$tete" '
+            [ .[] | select(.user != $a and .type != "Bot"
+                           and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")) ]
+            | group_by(.user) | map(last)
+            | { approuve: [ .[] | select(.state == "APPROVED" and .commit == $h) | .user ],
+                perime:   [ .[] | select(.state == "APPROVED" and .commit != $h) | .user ],
+                refuse:   [ .[] | select(.state == "CHANGES_REQUESTED") | .user ] }' <<<"$relectures")"
+          approuve="$(jq -r '.approuve | join(", ")' <<<"$etat")"
+          perime="$(jq -r '.perime | join(", ")' <<<"$etat")"
+          refuse="$(jq -r '.refuse | join(", ")' <<<"$etat")"
+
+          exigee=true
+          if [ "$base" = "staging" ] && [ "$doc_seule" = true ]; then exigee=false; fi
+
+          if [ -n "$refuse" ]; then
+            erreurs+=("Changements demandés par ${refuse}, pas encore levés.")
+          fi
+          if [ "$exigee" = true ] && [ -z "$approuve" ]; then
+            if [ -n "$perime" ]; then
+              erreurs+=("Approbation de ${perime} donnée sur un commit plus ancien : à renouveler sur ${tete:0:7}.")
+            else
+              erreurs+=("Aucune approbation d'une autre personne que l'auteur (${auteur}) sur le dernier commit.")
+            fi
+          fi
+
+          {
+            echo "### Relecture croisée — PR #${NUMERO} vers \`${base}\`"
+            echo ""
+            echo "- Auteur : ${auteur} ; dernier commit : ${tete:0:7}"
+            echo "- Documentation seule : ${doc_seule} ; approbation exigée : ${exigee}"
+            echo "- Approuvée sur le dernier commit par : ${approuve:-personne}"
+            echo ""
+            echo "Ce contrôle ne bloque pas la fusion (pas de protection de branche sur l'offre Free) : voir docs/PROCESS-RELECTURE.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${#erreurs[@]}" -gt 0 ]; then
+            for erreur in "${erreurs[@]}"; do
+              echo "::error::${erreur}"
+              echo "- ${erreur}" >> "$GITHUB_STEP_SUMMARY"
+            done
+            exit 1
+          fi
+          echo "Relecture croisée en ordre."
+
+  relance:
+    name: Relance de la garde
+    if: >-
+      github.event_name == 'pull_request_review'
+      && (github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'staging')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Relancer la garde du dernier commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TETE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/${REPO}/actions/workflows/relecture.yml/runs?event=pull_request&head_sha=${TETE}&per_page=1" \
+            --jq '.workflow_runs[0] // empty | "\(.id) \(.status)"')"
+          if [ -z "$run" ]; then
+            echo "Aucune garde à relancer pour ${TETE:0:7}."
+            exit 0
+          fi
+          read -r id statut <<<"$run"
+          if [ "$statut" != "completed" ]; then
+            echo "La garde ${id} tourne encore. Si elle a lu les relectures avant celle-ci, la relancer à la main."
+            exit 0
+          fi
+          gh run rerun "$id" -R "$REPO"
+          echo "Garde ${id} relancée."

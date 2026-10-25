@@ -44,9 +44,9 @@ export function csvWithTargetLast(text: string, target: string): Uint8Array<Arra
   if (!header || new Set(header).size !== header.length) throw new Error("En-têtes CSV invalides");
   const index = header.indexOf(target);
   if (index < 0) throw new Error("Colonne cible absente");
+  // `parseCsv` a déjà vérifié que chaque ligne a autant de cellules que l'en-tête.
   rows.forEach((row, rowIndex) => {
-    if (row.length !== header.length) throw new Error("Nombre de colonnes CSV incohérent");
-    // Même règle que l'enclave (`isNum`, src/lib/tee/train.ts) : un refus annoncé ici ne consomme pas de quota.
+    // Même règle que l'enclave (`isNumericCell`) : un refus annoncé ici ne consomme pas de quota.
     if (rowIndex > 0 && !isNumericCell(row[index])) throw new Error("La colonne à prédire doit être numérique sur chaque ligne");
   });
   const quote = (value: string) => /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;

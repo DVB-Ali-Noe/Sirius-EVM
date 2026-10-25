@@ -238,7 +238,7 @@ Mettre à jour les états P01–P09 et rendre la reprise autonome : distinguer d
 2. Créer base et configuration dédiées. Préserver la base historique ; réconcilier les variables déjà préparées dans staging avant tout prochain déploiement de cette branche.
 3. Préparer crédits disponibles, budget payé éventuel, réserve de disponibilité/disque/arrêt et coûts, puis affecter explicitement l’enveloppe. Les modes fonctionnent dans le code ; aucun montant n’a été approuvé implicitement.
 4. Préparer le troisième déploiement Vercel (pipeline actuelle limitée à main/staging), la nouvelle image et l’initialisation des volumes dédiés. Appliquer la migration avant de servir le nouveau client Prisma.
-5. Installer TLS et contrôleur sur le nouveau VPS sous `sirius-ops`, en préservant les reapers. Watchdog de fermeture temporelle toujours désactivé.
+5. Installer TLS et contrôleur sur le nouveau VPS sous `<COMPTE_OPS>`, en préservant les reapers. Watchdog de fermeture temporelle toujours désactivé.
 6. Après annonce du créneau/coût, vérifier réellement les nouvelles mesures Phala et les épingler. Faire les huit scénarios du runbook avec les wallets.
 7. Ouvrir publiquement seulement après cette répétition. P09 (runner VPS) reste distinct et différé ; ne pas annoncer que les reapers entraînent déjà les modèles.
 
@@ -292,13 +292,13 @@ La documentation et la fiche fournisseurs sont regroupées dans `docs(phala): do
 
 Décision D-26 appliquée : staging devient l’instance de démonstration. Objectif de cette passe : rendre le contrôleur joignable en HTTPS depuis Vercel, préparer sans les exécuter les fichiers privés du runner (`demo-init`, `demo-active`, politiques), aligner les variables Vercel restantes et consigner l’état de la checklist. Aucune commande de démarrage de CVM, aucune dépense Phala, aucune opération Git.
 
-Pré-requis vérifiés : pipeline staging verte sur `f509cb2` (migration `20260926000000_add_self_train_delivery` appliquée, image `sha256:8a10ab55…13f8e` publiée), CVM `e8a8b8cb…` arrêtée et `in_progress` faux, profil Phala `sirius` connecté sous `sirius-ops`, secrets de transport et Pinata absents des variables lisibles de Vercel (type sensible).
+Pré-requis vérifiés : pipeline staging verte sur `f509cb2` (migration `20260926000000_add_self_train_delivery` appliquée, image `sha256:8a10ab55…13f8e` publiée), CVM `e8a8b8cb…` arrêtée et `in_progress` faux, profil Phala `sirius` connecté sous `<COMPTE_OPS>`, secrets de transport et Pinata absents des variables lisibles de Vercel (type sensible).
 
 ### Contrôleur et préparation du runner — après modification, 26 septembre 2026
 
-Contrôleur : service `sirius-phala-demo-controller` activé et démarré sous `sirius-ops` ; `GET /session` répond 401 sans secret et 200 avec, en local et via `https://ctl.sirius-data.tech` (Caddy, certificat Let’s Encrypt valide jusqu’au 25 décembre 2026). Un redémarrage du service laisse la CVM arrêtée et l’état `closed`. Les six pins attestés restent des placeholders jusqu’à la recapture.
+Contrôleur : service `sirius-phala-demo-controller` activé et démarré sous `<COMPTE_OPS>` ; `GET /session` répond 401 sans secret et 200 avec, en local et via `https://ctl.sirius-data.tech` (Caddy, certificat Let’s Encrypt valide jusqu’au 25 décembre 2026). Un redémarrage du service laisse la CVM arrêtée et l’état `closed`. Les six pins attestés restent des placeholders jusqu’à la recapture.
 
-Runner : politiques `demo-budget-policy.json` (sponsorisé, crédits seuls, plafond 14 USD, réserve 4 USD, 20 opérations, 4 par wallet, 1 simultanée, origine `https://phala.sirius-data.tech`) et `demo-billing-policy.json` (tarif v7 de compatibilité, 7 USDC minimum, trésorerie attendue) générées hors Git et validées par l’initialiseur de volume sous Linux. Fichiers `runner.demo-init.env` et `runner.demo-active.env` assemblés sur le VPS dans `/var/lib/sirius-ops/phala-demo/runner/` (0700/0600) à partir du RPC archive et du secret de supervision du collecteur, du secret opérateur du contrôleur, d’un nouveau secret de transport et de l’accès Pinata vérifié. Les deux Compose rendus y sont copiés. Rien n’a été déployé sur la CVM.
+Runner : politiques `demo-budget-policy.json` (sponsorisé, crédits seuls, plafond 14 USD, réserve 4 USD, 20 opérations, 4 par wallet, 1 simultanée, origine `https://phala.sirius-data.tech`) et `demo-billing-policy.json` (tarif v7 de compatibilité, 7 USDC minimum, trésorerie attendue) générées hors Git et validées par l’initialiseur de volume sous Linux. Fichiers `runner.demo-init.env` et `runner.demo-active.env` assemblés sur le VPS dans `<ETAT_OPS>/phala-demo/runner/` (0700/0600) à partir du RPC archive et du secret de supervision du collecteur, du secret opérateur du contrôleur, d’un nouveau secret de transport et de l’accès Pinata vérifié. Les deux Compose rendus y sont copiés. Rien n’a été déployé sur la CVM.
 
 Vercel staging : `SIRIUS_PHALA_DEMO=true`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` renseignés ; `RUNNER_TRANSPORT_SECRET` remplacé par le nouveau secret partagé avec le futur runner (l’ancien n’était pas lisible). `SIRIUS_DEMO_OPERATORS` renseigné avec les deux opérateurs dans Next et le contrôleur, staging redéployé (`/`, `/phala`, `/phala/operator` en 200).
 
@@ -439,13 +439,13 @@ Fermeture envoyée au contrôleur (`close`, révision 2) : phase `closing` puis 
 
 Publication pendant la session fermée : PR #13 fusionnée (`e9dbbab`) — dates d’entraînement sur `/phala` et de publication sur la marketplace, migration additive `20260927000000_add_dataset_listed_at`.
 
-Anomalies notées pour la suite : (1) les tests du contrôleur échouent sur Windows par vérification de droits de dossier, sans lien avec le code ; (2) `verify-init` du raccourci VPS ne peut pas conclure tant que les logs conteneur de la CVM sont privés ; (3) la copie de code `/opt/sirius-ops` n’a pas `dotenv`, la capture d’attestation se fait depuis un poste avec dépendances complètes.
+Anomalies notées pour la suite : (1) les tests du contrôleur échouent sur Windows par vérification de droits de dossier, sans lien avec le code ; (2) `verify-init` du raccourci VPS ne peut pas conclure tant que les logs conteneur de la CVM sont privés ; (3) la copie de code `<DOSSIER_OPS>` n’a pas `dotenv`, la capture d’attestation se fait depuis un poste avec dépendances complètes.
 
 ### Deuxième session et annulation du démarrage — après exécution, 27 septembre 2026
 
 Réouverture depuis `/operator` après la fusion des dates (révision 4), fermeture par « Deactivate » (révision 5, CVM arrêtée), nouvelle ouverture (révision 6) puis fermeture par « Deactivate » (révision 7). Le bouton de fermeture fonctionne dès que l’état est `open`.
 
-Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes quand la CVM doit être rallumée, seul « Emergency stop » était cliquable. Un opérateur qui change d’avis devait passer par un bouton d’urgence alors qu’aucun calcul n’est encore admis. Correction fusionnée dans staging (`c06ca9a`) : un `close` reçu pendant l’ouverture est traité par le contrôleur comme une annulation, sur le chemin de l’urgence ; la console laisse « Deactivate » actif pendant l’ouverture et son texte d’aide le dit ; test ajouté, suite du contrôleur 7/7 sous Linux. La copie `/opt/sirius-ops` du VPS est mise à jour sur ce commit et le service redémarré ; état `closed` confirmé.
+Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes quand la CVM doit être rallumée, seul « Emergency stop » était cliquable. Un opérateur qui change d’avis devait passer par un bouton d’urgence alors qu’aucun calcul n’est encore admis. Correction fusionnée dans staging (`c06ca9a`) : un `close` reçu pendant l’ouverture est traité par le contrôleur comme une annulation, sur le chemin de l’urgence ; la console laisse « Deactivate » actif pendant l’ouverture et son texte d’aide le dit ; test ajouté, suite du contrôleur 7/7 sous Linux. La copie `<DOSSIER_OPS>` du VPS est mise à jour sur ce commit et le service redémarré ; état `closed` confirmé.
 
 Dates d’entraînement et de publication (`e9dbbab`) vérifiées sur l’instance servie : l’API des datasets renvoie `listedAt` (reprise de la dernière modification pour l’existant) et la carte marketplace l’affiche ; la date de fin d’entraînement apparaît sous chaque résultat de `/phala`.
 
@@ -541,17 +541,17 @@ Fusionné dans staging le 18 octobre (PR [#107](https://github.com/DVB-Ali-Noe/S
 
 ### Adresse démo figée — avant déplacement, 18 octobre 2026
 
-`demo.sirius-data.tech` est un alias posé sur un déploiement figé du projet Vercel `sirius-evm-staging` (PR #51), pas un domaine du projet. **Ancienne cible, pour retour arrière :** `sirius-evm-staging-hftbdgjta-byezzaali-gmailcoms-projects.vercel.app`. Relevé curl avant : `/phala` 200, `/phala/attestation` 307 vers `/phala` (page absente de ce déploiement), `/dashboard` 307 vers `/phala`, `/api/loans` 404.
+`demo.sirius-data.tech` est un alias posé sur un déploiement figé du projet Vercel `sirius-evm-staging` (PR #51), pas un domaine du projet. **Ancienne cible, pour retour arrière :** `sirius-evm-staging-hftbdgjta-<SCOPE_VERCEL>.vercel.app`. Relevé curl avant : `/phala` 200, `/phala/attestation` 307 vers `/phala` (page absente de ce déploiement), `/dashboard` 307 vers `/phala`, `/api/loans` 404.
 
-Nouvelle cible retenue : dernier déploiement Production de staging, `sirius-evm-staging-kp3g34898-byezzaali-gmailcoms-projects.vercel.app` (créé à 19:46 CEST). Selon `vercel api /v13/deployments`, `githubCommitSha` = `0bf7fea` (fusion de #107), qui contient donc #105, #106 et #107.
+Nouvelle cible retenue : dernier déploiement Production de staging, `sirius-evm-staging-kp3g34898-<SCOPE_VERCEL>.vercel.app` (créé à 19:46 CEST). Selon `vercel api /v13/deployments`, `githubCommitSha` = `0bf7fea` (fusion de #107), qui contient donc #105, #106 et #107.
 
 ### Adresse démo figée — après déplacement, 18 octobre 2026
 
-`vercel alias set sirius-evm-staging-kp3g34898-byezzaali-gmailcoms-projects.vercel.app demo.sirius-data.tech --scope byezzaali-gmailcoms-projects` : succès. L’alias vise une URL de déploiement précise, pas le domaine du projet : les prochaines fusions dans staging ne le déplacent pas. `vercel alias ls` confirme la cible `kp3g34898`.
+`vercel alias set sirius-evm-staging-kp3g34898-<SCOPE_VERCEL>.vercel.app demo.sirius-data.tech --scope <SCOPE_VERCEL>` : succès. L’alias vise une URL de déploiement précise, pas le domaine du projet : les prochaines fusions dans staging ne le déplacent pas. `vercel alias ls` confirme la cible `kp3g34898`.
 
 Relevé curl après : `/phala` 200 ; `/phala/attestation` 200 avec « Attestation not available right now » (CVM arrêtée) ; `/dashboard` 307 vers `/phala` ; `/api/loans` 404.
 
-Retour arrière : `vercel alias set sirius-evm-staging-hftbdgjta-byezzaali-gmailcoms-projects.vercel.app demo.sirius-data.tech --scope byezzaali-gmailcoms-projects`.
+Retour arrière : `vercel alias set sirius-evm-staging-hftbdgjta-<SCOPE_VERCEL>.vercel.app demo.sirius-data.tech --scope <SCOPE_VERCEL>`.
 
 ### Mesure logistique 30 000 lignes sur la CVM staging — avant, 18 octobre 2026
 
@@ -763,7 +763,7 @@ Vérification après maintien du statut 503 pour les reprises : 72 tests budget 
 
 ### Session staging arbres et renouvellement — avant/après, 20 octobre 2026
 
-Avant : contrats testnet sans profil arbres (registre v4 `0x99ea…`, escrow `0x5f9d…`), interrupteur `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` absent, budget démo à 14 USD expirant le 26 octobre, runner sur `sirius-runner@sha256:78839668…` (Compose `61581af7…`), reaper staging resté sur la configuration v6 (`0xc51e…`, `0x4075…`), copie `/opt/sirius-ops` antérieure au registre v5.
+Avant : contrats testnet sans profil arbres (registre v4 `0x99ea…`, escrow `0x5f9d…`), interrupteur `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` absent, budget démo à 14 USD expirant le 26 octobre, runner sur `sirius-runner@sha256:78839668…` (Compose `61581af7…`), reaper staging resté sur la configuration v6 (`0xc51e…`, `0x4075…`), copie `<DOSSIER_OPS>` antérieure au registre v5.
 
 Après (session unique décidée par Noé, CVM allumée de 09:26:45 à 09:57 UTC environ) :
 - Contrats testnet : `SiriusDatasetRegistry` v5 `0xd9e0189094d8d7e78e1ba67475c29b2c6af62606`, `SiriusEscrowV7` `0x035c374db960ede406398708501ecbbb2fdc31ea`, KYB ouvert réutilisé, profil `gradient_boosted_trees` ajouté (tx `0x38f0055b…423f`), 3 674 630 gas. Préflight `phala:check-v7` au bloc finalisé 139 311 255 : `chainChecksPassed: true`, aucun écart ; admin du registre = clé de déploiement (testnet).
@@ -771,11 +771,11 @@ Après (session unique décidée par Noé, CVM allumée de 09:26:45 à 09:57 UTC
 - Budget : relevé Phala T1 = 2026-10-20 09:26:02 UTC (9,720117 USD), prolongation jusqu'au 2026-11-20 09:26 UTC ; tarif `demo-trees-2026-10-20` (arbres = logistique), SHA-256 `e2a0bce0…6349` vérifié dans `/operations/budget`. Activer a appliqué 9 USD de crédits et de plafond avant ouverture ; quotas 20 / 4 / 1 inchangés.
 - Base staging : les 10 titres actifs (8 sur `0x99ea…`, 2 sur `0x4075…`) passés en `SUSPENDED` dans une transaction vérifiant 10 lignes ; 0 prêt ouvert.
 - Vercel staging : adresses v5, escrows historiques complets, tarif, interrupteur et pin Compose mis à jour, front reconstruit (`n8jmpm272`). `demo.sirius-data.tech` déplacé sur ce déploiement (retour possible vers `dtdfr75f9`).
-- VPS : pins et adresses du contrôleur et du moniteur mis à jour ; `/opt/sirius-ops` remplacé par `src`/`scripts` de `fdeb29f` (sauvegardes `*.bak-trees-*`), sans quoi le contrôleur refusait le registre v5. Reaper staging basculé dans `.env.vps` (adresses v5, v7 et configuration runner attestée exigée par le reaper v7) : passe saine.
+- VPS : pins et adresses du contrôleur et du moniteur mis à jour ; `<DOSSIER_OPS>` remplacé par `src`/`scripts` de `fdeb29f` (sauvegardes `*.bak-trees-*`), sans quoi le contrôleur refusait le registre v5. Reaper staging basculé dans `.env.vps` (adresses v5, v7 et configuration runner attestée exigée par le reaper v7) : passe saine.
 
 Recette matérielle, wallet de test neuf, CSV `d25689ca…2c33` (30 000 lignes, 23 variables), profil arbres : `heldOutAuc` 0,841841, `trainAuc` 0,847003, `heldOutAccuracy` 0,778667, identiques aux références locales à l'arrondi affiché ; 32 s du clic au résultat, dont la transaction de titre testnet. Le self-train exige un peu d'ETH testnet pour ce titre (0,0005 ETH versé au wallet de test). Une tentative a échoué en 503 « Confidential runner unavailable » (erreur réseau ou attestation côté Next, sans échec compté) ; la suivante a réussi ; cause non établie. Une tentative antérieure avait échoué faute de transaction gérée par le wallet de test : une opération du quota consommée.
 
-Fermeture par Noé depuis `/operator` ; CVM `stopped` vérifiée à 09:57 UTC, contrôleur `closed` (révision 45). Coût estimé ≈ 0,03–0,06 USD selon l'arrondi horaire ; solde relevé juste après : 9,720117 USD, débit pas encore visible. Restent : cause de la 503 ponctuelle, mise à jour reproductible de `/opt/sirius-ops`, et alignement de PR #120 sur ce qui a été exécuté.
+Fermeture par Noé depuis `/operator` ; CVM `stopped` vérifiée à 09:57 UTC, contrôleur `closed` (révision 45). Coût estimé ≈ 0,03–0,06 USD selon l'arrondi horaire ; solde relevé juste après : 9,720117 USD, débit pas encore visible. Restent : cause de la 503 ponctuelle, mise à jour reproductible de `<DOSSIER_OPS>`, et alignement de PR #120 sur ce qui a été exécuté.
 
 ### Budget sponsorisé et requêtes refusées — avant/après, 20 octobre 2026
 
@@ -786,3 +786,11 @@ Après : une requête refusée à l'appelant (4xx) rend son coût ; les jobs imb
 Vérifié localement : `pnpm test` 1 124/1 124, `test:phala-demo` 43/43, typage et ESLint ciblé réussis.
 
 Déploiement le 20 octobre, 12:04–12:07 UTC, sans ouverture de session : image `sirius-runner@sha256:76fb0001…c914` (fusion `c408221`), Compose actif arbres identique au précédent à l'image près. Attestation active : quote vérifiée, MRTD, chaîne KMS, empreinte d'ingestion et signataire inchangés ; Compose `2fdc0919…23d3`, égal au SHA-256 de `tcb_info.app_compose`, publié dans `composes/` et déclaré dans `DECLARED_RELEASES`. Pin mis à jour dans le contrôleur, le moniteur (rapport attesté réussi) et Vercel staging, front reconstruit. Budget relevé : 4,35 USD engagés, 0,65 USD disponibles avant la réserve de 4 USD sur le plafond de 9 USD, aucun échec nouveau. CVM arrêtée à 12:07 UTC. Le correctif est désormais actif à la prochaine ouverture ; la marge restante ne couvre que deux self-trains environ.
+
+### E2 minimale pour les arbres boostés — avant/après, 24 octobre 2026
+
+Avant (audit confidentialité du 23 octobre, branche `audit/confidentialite`) : les arbres `gradient_boosted_trees` 1.0.0 mémorisaient les lignes répétées (canari présent 20 fois reconnu comme membre à AUC 0,77 Taïwan, 0,81 GMSC, 0,72 credit-risk ; 0,59–0,62 dès 5 copies), 51 seuils sur 119 (Taïwan) étaient exactement une valeur du fichier, `trainAuc` à 6 chiffres changeait au retrait d'une seule ligne dans 97 % des cas, les cinq métriques held-out à 6 chiffres donnaient la matrice de confusion exacte, `n` sortait exact et les noms de colonnes (128 caractères libres) sortaient tels quels. La mesure « AUC d'appartenance par la perte » prévue pour E2 restait à 0,50 même devant cette fuite.
+
+Après (profil 1.1.0, [EGRESS-POLICY-API.md §2.5](EGRESS-POLICY-API.md)) : plafond d'influence k = 1 (une copie de chaque ligne distincte dans l'entraînement, `n` et Merkle root inchangés), seuils strictement entre deux valeurs voisines du fichier (0 seuil sur une valeur présente sur les trois jeux), métriques held-out à 3 décimales, `trainAuc` remplacé par `aucGap` à 2 décimales, `n` à 2 chiffres significatifs, `baseScore` à 3 chiffres, en-têtes publiés limités à `[A-Za-z0-9_]{1,64}` avec refus à l'import (enclave et navigateur). Banc de canaris réduit ajouté à `pnpm test` : canaris ×20 indiscernables des témoins avec k = 1 (mêmes arbres qu'avec ×1), contrôle positif sur des quasi-doublons. Linéaire et logistique v1 inchangées (D-27). Banc complet rejoué (20 graines × 20 canaris) : AUC d'appartenance des canaris ×20 ramenée de 0,766 à 0,478 (Taïwan), 0,810 à 0,523 (GMSC), 0,716 à 0,516 (credit-risk), toutes non significatives (p ≥ 0,27) ; AUC held-out inchangée (0,781 / 0,855 / 0,719) ; 0 seuil égal à une valeur du fichier sur les trois jeux (avant : 51 / 119, 12 / 83, 56 / 76).
+
+Conséquences opérationnelles : nouvelle empreinte de profil `0x4f19db62…0f07`, à ajouter au registre v5 testnet avant toute session arbres ; les titres et le modèle livré en 1.0.0 (démonstration du 20 octobre) ne sont plus acceptés. Référence du CSV de mesure en 1.1.0 : `heldOutAuc` 0,842, `aucGap` 0,01, `heldOutAccuracy` 0,779.

@@ -60,7 +60,7 @@ function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
     maxExecutionMs: 30000, maxDatasetBytes: 1_000_000, hashlock: hash(3), challengeDays: 7, tariffVersion: "tarif-test",
     expiresAt: Math.floor(Date.now() / 1000) + 300, failurePolicy: "consumed-execution-only", modelId: "linear_regression", modelVersion: "1.0.0",
     ...overrides,
-  };
+  } as ComputeQuote; // `overrides` élargit la version : les profils n'ont plus tous la même.
 }
 
 async function sign(q: ComputeQuote, signer = runner): Promise<SignedComputeQuote> {

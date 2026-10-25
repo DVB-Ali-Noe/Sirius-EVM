@@ -31,7 +31,7 @@ export function TargetShiftWarning({ shift }: { shift: NonNullable<QualityReport
 export function QualityReportPanel({ report }: { report: QualityReport }) {
   const { t } = useLocale();
   const titleId = useId();
-  const { excluded, textColumns, constant, duplicates, targetCopies, classBalance, blankAsZero, prefixedNumbers } = report;
+  const { excluded, textColumns, constant, duplicates, targetCopies, classBalance } = report;
   const signals = hasQualitySignal(report);
 
   return (
@@ -67,6 +67,7 @@ export function QualityReportPanel({ report }: { report: QualityReport }) {
               ))}
             </ul>
             <p className="mt-1 text-muted">{t("Une seule cellule vide ou non numérique écarte toute la colonne. Complète-les pour l’utiliser.")}</p>
+            <p className="mt-1 text-muted">{t("Un nombre s’écrit en décimal avec un point (12.5, -3, 1e6) : une cellule faite d’espaces compte comme vide, une valeur 0x, 0b ou 0o n’est pas un nombre.")}</p>
           </li>
         )}
         {constant.length > 0 && (
@@ -88,28 +89,6 @@ export function QualityReportPanel({ report }: { report: QualityReport }) {
               })}
             </p>
             <p className="mt-1 text-muted">{t("Les doublons peuvent être légitimes. Une ligne répétée pèse davantage et se mémorise plus facilement.")}</p>
-          </li>
-        )}
-        {blankAsZero.length > 0 && (
-          <li>
-            <p className="font-medium text-yellow-400">{t("Cellules faites d’espaces, lues comme 0 : à vérifier")}</p>
-            <ul className="mt-1 flex flex-col gap-1">
-              {blankAsZero.map(({ column, cells }) => (
-                <li key={column}><span className={COLUMN_CLASS}>{column}</span> {t("{count} cellules", { count: formatCount(cells) })}</li>
-              ))}
-            </ul>
-            <p className="mt-1 text-muted">{t("Une cellule qui ne contient que des espaces compte comme la valeur 0, pas comme une valeur manquante.")}</p>
-          </li>
-        )}
-        {prefixedNumbers.length > 0 && (
-          <li>
-            <p className="font-medium text-yellow-400">{t("Valeurs lues comme des nombres en base 16, 2 ou 8 : à vérifier")}</p>
-            <ul className="mt-1 flex flex-col gap-1">
-              {prefixedNumbers.map(({ column, cells }) => (
-                <li key={column}><span className={COLUMN_CLASS}>{column}</span> {t("{count} cellules", { count: formatCount(cells) })}</li>
-              ))}
-            </ul>
-            <p className="mt-1 text-muted">{t("Une valeur préfixée 0x, 0b ou 0o est lue en hexadécimal, binaire ou octal : 0x10 vaut 16.")}</p>
           </li>
         )}
         {classBalance?.imbalanced && (

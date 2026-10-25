@@ -1,6 +1,6 @@
 "use client";
 
-import { parseCsv } from "@/lib/sirius/metrics";
+import { isNumericCell, parseCsv } from "@/lib/sirius/metrics";
 import { binaryAuc, gbdtScore, sigmoid } from "@/lib/models/gbdt";
 import type {
   DownloadedModel,
@@ -41,12 +41,10 @@ export type ModelPrediction =
 
 const MIN_EVALUATION_ROWS = 20;
 
+/** Même règle numérique que l'entraînement dans l'enclave (`isNumericCell`). */
 function numberValue(value: string | undefined, column: string): number {
-  const number = Number(value);
-  if (value === undefined || value.trim() === "" || !Number.isFinite(number)) {
-    throw new Error(`Valeur invalide dans la colonne « ${column} »`);
-  }
-  return number;
+  if (value === undefined || !isNumericCell(value)) throw new Error(`Valeur invalide dans la colonne « ${column} »`);
+  return Number(value);
 }
 
 function binaryValue(value: string | undefined, column: string): 0 | 1 {

@@ -1,6 +1,6 @@
 import { MODEL_REGISTRY, type GradientBoostedTreesModel, type LinearRegressionModel, type LogisticRegressionModel, type ModelSelection } from "@/lib/models/registry";
-import { GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
-import { parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
+import { GBDT_HEADER_MESSAGE, GBDT_HEADER_PATTERN, GBDT_MAX_OPERATIONS, GBDT_MIN_ROWS, GBDT_TOO_FEW_ROWS_MESSAGE, gbdtOperations, isHeldOut } from "@/lib/models/gbdt";
+import { incompleteTarget, isNumericCell, parseCsv, type DatasetMetrics } from "@/lib/sirius/metrics";
 
 export type TrainedModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
@@ -9,7 +9,6 @@ export const MAX_TRAINING_FEATURES = 31;
 /** Les noms de colonnes sortent dans le modèle : bornés pour rester sous le plafond de l'output-gate. */
 export const MAX_HEADER_CHARS = 128;
 export const MAX_TRAINING_OPERATIONS = 200_000_000;
-const MAX_ABS_VALUE = 1e12;
 const DEFAULT_TRAINING_TIMEOUT_MS = 15_000;
 export const MIN_TRAINING_ROWS = 100;
 export const MIN_ROWS_PER_PARAMETER = 10;
@@ -26,17 +25,59 @@ const LOGISTIC_L2 = 0.01;
  */
 export class DatasetValidationError extends Error {}
 
-function isNum(value: string): boolean {
-  const number = Number(value);
-  return value !== "" && Number.isFinite(number) && Math.abs(number) <= MAX_ABS_VALUE;
+function numericColumns(header: string[], rows: string[][]): number[] {
+  return header.map((_, column) => column).filter((column) => rows.every((row) => isNumericCell(row[column] ?? "")));
 }
 
-function numericColumns(header: string[], rows: string[][]): number[] {
-  return header.map((_, column) => column).filter((column) => rows.every((row) => isNum(row[column] ?? "")));
+type CpuUsage = () => { user: number; system: number };
+
+/** Source de l'horloge CPU : `threadCpuUsage` absente → temps réel. */
+export interface TrainingClockSource {
+  threadCpuUsage?: CpuUsage;
+}
+
+/**
+ * Horloge du délai d'entraînement, en millisecondes (audit EXA-05). Temps CPU du thread courant
+ * (`process.threadCpuUsage`, présente dans Node 22.23 de la CI et de l'image, absente de Node
+ * 22.16) quand la source la fournit : un fichier qui passe au repos passe aussi quand la machine
+ * est chargée par d'autres calculs, puisque le temps où le thread attend le processeur ne compte
+ * plus. Sinon, temps réel, comme avant. La source est lue à chaque appel.
+ *
+ * Le modèle ne dépend jamais de cette horloge, seulement la réussite. La limite principale reste
+ * le budget en opérations, déterministe (`MAX_TRAINING_OPERATIONS`, `GBDT_MAX_OPERATIONS`). Dans
+ * l'enclave, la limite d'exécution du worker (`AbortSignal.timeout`, `maxExecutionMs` du devis
+ * signé, facturé à la milliseconde) reste en temps réel : c'est elle le filet large.
+ */
+export function trainingClock(source: TrainingClockSource): () => number {
+  return () => {
+    const cpu = source.threadCpuUsage;
+    if (typeof cpu !== "function") return performance.now();
+    const { user, system } = cpu.call(source);
+    return (user + system) / 1_000;
+  };
+}
+
+/**
+ * Source de l'horloge du délai : celle du processus. Point d'injection des tests, qui y
+ * remplacent `threadCpuUsage` sans toucher aux globales `process` ni `performance`.
+ */
+export const trainingClockSource: TrainingClockSource = {
+  threadCpuUsage: (process as unknown as TrainingClockSource).threadCpuUsage?.bind(process),
+};
+
+/** Lecture de l'horloge du délai : `trainingClockMs() + trainingTimeoutMs()` donne une échéance. */
+export const trainingClockMs = trainingClock(trainingClockSource);
+
+/** Délai interne épuisé : une limite du calcul, pas un défaut du fichier (audit ROB-07). */
+export class TrainingDeadlineExceeded extends Error {
+  constructor() {
+    super("budget de calcul dépassé");
+    this.name = "TrainingDeadlineExceeded";
+  }
 }
 
 export function assertWithinDeadline(deadline: number): void {
-  if (performance.now() > deadline) throw new Error("budget de calcul dépassé");
+  if (trainingClockMs() > deadline) throw new TrainingDeadlineExceeded();
 }
 
 export function trainingTimeoutMs(): number {
@@ -96,9 +137,16 @@ function assertTrainingBudget(rows: number, parameters: number, logistic: boolea
 
 /**
  * Contrôles du profil arbres après ceux des colonnes, dans l'ordre que `csv-check.ts` reproduit :
- * budget, cible 0/1 avec les deux classes, puis les deux classes de chaque côté de la séparation.
+ * en-têtes publiables, budget, cible 0/1 avec les deux classes, puis les deux classes de chaque
+ * côté de la séparation. Les noms des colonnes numériques sortent dans le modèle livré : pour
+ * les arbres (profil 1.1.0), aucun caractère libre n'y passe (CONF-06) ; linéaire et logistique
+ * v1 gardent la règle générale de `trainingColumns` (D-27 : leur format livré ne change pas).
  */
-export function assertGbdtDataset(rows: string[][], targetIdx: number, featureCount: number): void {
+export function assertGbdtDataset(header: string[], rows: string[][], targetIdx: number, featureIdx: number[]): void {
+  if (![targetIdx, ...featureIdx].every((column) => GBDT_HEADER_PATTERN.test(header[column]))) {
+    throw new DatasetValidationError(GBDT_HEADER_MESSAGE);
+  }
+  const featureCount = featureIdx.length;
   if (gbdtOperations(rows.length, featureCount) > GBDT_MAX_OPERATIONS) {
     throw new DatasetValidationError("budget de calcul dépassé : réduis le nombre de lignes ou de features");
   }
@@ -120,11 +168,19 @@ export const GBDT_ROW_FLOOR = { rows: GBDT_MIN_ROWS, message: GBDT_TOO_FEW_ROWS_
 
 /** Contrôle d'ingestion ; renvoie les volumes publiables pour éviter de relire le fichier. */
 export function validateTrainingDataset(csv: Buffer, selection: ModelSelection): DatasetMetrics {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const trees = selection.modelId === "gradient_boosted_trees";
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, undefined, deadline, trees ? GBDT_ROW_FLOOR : undefined);
+  // À l'ingestion seulement : un dataset déjà publié garde, à l'entraînement, la cible qu'il avait.
+  const incomplete = incompleteTarget(header, rows);
+  if (incomplete) {
+    throw new DatasetValidationError(
+      `la dernière colonne « ${incomplete.target} » sert de cible mais n'est pas entièrement numérique ` +
+        `(${incomplete.missing} cellule(s) vide(s), ${incomplete.invalid} non numérique(s))`,
+    );
+  }
   if (trees) {
-    assertGbdtDataset(rows, targetIdx, featureIdx.length);
+    assertGbdtDataset(header, rows, targetIdx, featureIdx);
     return { rowCount: rows.length, columnCount: header.length };
   }
   assertTrainingBudget(rows.length, featureIdx.length + 1, selection.modelId === "logistic_regression");
@@ -167,7 +223,7 @@ function invert(matrix: number[][], deadline: number): number[][] {
 }
 
 export function trainLinearRegression(csv: Buffer, target?: string): LinearRegressionModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   const parameterCount = featureIdx.length + 1;
   assertTrainingBudget(rows.length, parameterCount, false);
@@ -228,7 +284,7 @@ function sigmoid(value: number): number {
 }
 
 export function trainLogisticRegression(csv: Buffer, target?: string): LogisticRegressionModel {
-  const deadline = performance.now() + trainingTimeoutMs();
+  const deadline = trainingClockMs() + trainingTimeoutMs();
   const { header, rows, targetIdx, featureIdx } = trainingColumns(csv, target, deadline);
   if (!rows.every((row) => row[targetIdx] === "0" || row[targetIdx] === "1")) {
     throw new DatasetValidationError("la cible de la régression logistique doit être strictement 0 ou 1");

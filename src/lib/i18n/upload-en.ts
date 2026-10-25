@@ -52,6 +52,17 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Trop de lignes : au plus {max} lignes, en-tête compris.": "Too many rows: at most {max} rows, header included.",
   "Trop de colonnes : au plus {max}.": "Too many columns: at most {max}.",
   "Une cellule dépasse la taille autorisée.": "A cell exceeds the allowed size.",
+  "Ligne {line} : retour chariot isolé. Enregistre le fichier avec des fins de ligne standard (LF ou CRLF).":
+    "Line {line}: lone carriage return. Save the file with standard line endings (LF or CRLF).",
+  "Ligne {line} : guillemet au milieu d’une cellule. Une cellule qui contient un guillemet doit être entièrement entre guillemets, guillemet intérieur doublé (\"\").":
+    "Line {line}: quote in the middle of a cell. A cell containing a quote must be fully quoted, with the inner quote doubled (\"\").",
+  "Ligne {line} : caractère après un guillemet fermant. Une cellule entre guillemets doit être suivie d’une virgule ou d’une fin de ligne.":
+    "Line {line}: character after a closing quote. A quoted cell must be followed by a comma or a line ending.",
+  "Ligne {line} : guillemet ouvert jamais fermé.": "Line {line}: quote opened and never closed.",
+  "Ligne {line} : ligne vide. Seules les lignes vides en fin de fichier sont admises.":
+    "Line {line}: blank line. Only blank lines at the end of the file are allowed.",
+  "Ligne {line} : {cells} cellule(s) pour {columns} colonne(s) dans l’en-tête. Chaque ligne doit avoir autant de cellules que l’en-tête ; une virgule décimale non citée, par exemple, ajoute une cellule.":
+    "Line {line}: {cells} cell(s) for {columns} column(s) in the header. Every row must have as many cells as the header; an unquoted decimal comma, for example, adds a cell.",
   "Le fichier doit contenir un en-tête et au moins une ligne de données.": "The file must contain a header and at least one data row.",
   "En-tête invalide : chaque colonne doit avoir un nom unique de {max} caractères au plus.": "Invalid header: every column needs a unique name of at most {max} characters.",
   "Au moins deux colonnes entièrement numériques sont requises ({found} détectée(s)).":
@@ -60,6 +71,8 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
     "Too many numeric features: {found}, maximum {max} in addition to the target.",
   "Pas assez de lignes : {rows}, minimum {min} pour ce nombre de variables.":
     "Not enough rows: {rows}, minimum {min} for this number of features.",
+  "La dernière colonne, « {target} », sert de cible mais contient {missing} cellule(s) vide(s) et {invalid} non numérique(s). Complète-la, ou place la colonne à prédire en dernier.":
+    "The last column, “{target}”, is the target but contains {missing} empty and {invalid} non-numeric cell(s). Fill them in, or put the column to predict last.",
   "Budget de calcul dépassé : réduis le nombre de lignes ou de variables.":
     "Compute budget exceeded: reduce the number of rows or features.",
   "Pour la régression logistique, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":
@@ -150,6 +163,8 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
     "A variable that contains the answer gives a misleading model. Remove it if it is not known at prediction time.",
   "Colonnes écartées par l’entraînement : à vérifier": "Columns dropped by training: please check",
   "{missing} vides, {invalid} non numériques": "{missing} empty, {invalid} non-numeric",
+  "Un nombre s’écrit en décimal avec un point (12.5, -3, 1e6) : une cellule faite d’espaces compte comme vide, une valeur 0x, 0b ou 0o n’est pas un nombre.":
+    "A number is written in decimal with a dot (12.5, -3, 1e6): a cell made only of spaces counts as empty, and a 0x, 0b or 0o value is not a number.",
   "Une seule cellule vide ou non numérique écarte toute la colonne. Complète-les pour l’utiliser.":
     "A single empty or non-numeric cell drops the whole column. Fill them in to use it.",
   "Colonnes constantes : à vérifier": "Constant columns: please check",
@@ -165,11 +180,4 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
   "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.":
     "This report stays in your browser: it is neither sent nor saved, and it does not modify your file.",
-  "Cellules faites d’espaces, lues comme 0 : à vérifier": "Cells made only of spaces, read as 0: please check",
-  "{count} cellules": "{count} cells",
-  "Une cellule qui ne contient que des espaces compte comme la valeur 0, pas comme une valeur manquante.":
-    "A cell containing only spaces counts as the value 0, not as a missing value.",
-  "Valeurs lues comme des nombres en base 16, 2 ou 8 : à vérifier": "Values read as base 16, 2 or 8 numbers: please check",
-  "Une valeur préfixée 0x, 0b ou 0o est lue en hexadécimal, binaire ou octal : 0x10 vaut 16.":
-    "A value prefixed with 0x, 0b or 0o is read as hexadecimal, binary or octal: 0x10 equals 16.",
 };

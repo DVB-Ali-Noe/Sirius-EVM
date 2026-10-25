@@ -16,12 +16,21 @@ import type {
   RunnerReleaseEnvelope,
   RecoveredLoanResult,
 } from "./contract";
-import { attestedRunnerFetch } from "./ra-tls-client";
+import { attestedRunnerFetch, runnerFailureDiagnostic } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
 import type { SignedComputeQuote } from "@/lib/billing/quote";
 import type { FinalityTier } from "@/lib/evm/fast-finality";
 
 const RUNNER_TIMEOUT_MS = 60_000;
+
+/**
+ * Seules opérations qu'un nouvel essai peut rejouer après une connexion keep-alive périmée
+ * (ra-tls-client.ts, audit ROB-10) : lecture de la clé publique d'ingestion et re-livraison d'une
+ * clé self-train déjà calculée. Ni scellement, ni entraînement, ni verrou, ni règlement, ni
+ * livraison de prêt : une requête qui engage un calcul, un paiement ou un règlement n'est jamais
+ * renvoyée par le client.
+ */
+export const RETRYABLE_RUNNER_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
 
 /**
  * Palier demandé à l'enclave, transmis seulement quand il est rapide : un prêt à finalité complète
@@ -46,7 +55,9 @@ async function callRunner<T>(op: RunnerOperation, scope: RunnerScope, payload: o
       "x-sirius-runner-capability": issueRunnerCapability(op, scope),
     };
     const response = url.protocol === "https:"
-      ? await attestedRunnerFetch(url, { method: "POST", headers, body: JSON.stringify(payload), timeoutMs: RUNNER_TIMEOUT_MS })
+      ? await attestedRunnerFetch(url, {
+        method: "POST", headers, body: JSON.stringify(payload), timeoutMs: RUNNER_TIMEOUT_MS, idempotent: RETRYABLE_RUNNER_OPS.has(op),
+      })
       : await fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(RUNNER_TIMEOUT_MS) });
     const body = (await response.json().catch(() => ({}))) as { error?: unknown; state?: unknown; transactionHash?: unknown } & T;
     if (response.status === 202 && body.state === "pending-finality"
@@ -59,6 +70,9 @@ async function callRunner<T>(op: RunnerOperation, scope: RunnerScope, payload: o
     return body;
   } catch (error) {
     if (error instanceof AppError) throw error;
+    // Cause sans corps ni en-tête (code réseau, socket réutilisé, attestation) : distingue sur la
+    // vraie CVM keep-alive, PCCS et identité derrière la même 503 (audit ROB-10, ROB-11).
+    console.warn(`[runner-client] ${op} : runner injoignable, cause ${runnerFailureDiagnostic(error)}`);
     throw new AppError("Runner confidentiel indisponible", 503);
   }
 }

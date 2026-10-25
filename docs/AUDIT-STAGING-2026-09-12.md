@@ -89,7 +89,7 @@ La procédure et les pièges de changement de branche sont dans [DEPLOYMENT.md](
 Sur l'instance staging déjà publiée, une requête de challenge avec un corps vide et une origine identique à l'hôte retourne :
 
 - domaine `sirius-evm-staging.vercel.app` : **400 « Adresse invalide »**, donc le contrôle d'origine passe ;
-- alias `sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app` : **403 « Origine de requête non autorisée »**, donc l'ancienne configuration demeure active.
+- alias `sirius-evm-staging-<SCOPE_VERCEL>.vercel.app` : **403 « Origine de requête non autorisée »**, donc l'ancienne configuration demeure active.
 
 Ces sondes n'ont créé ni nonce valide ni session. Elles ne valident pas un login complet. Le smoke ajouté à la pipeline demandera, après déploiement, de vrais challenges temporaires sur tous les domaines de la cible.
 

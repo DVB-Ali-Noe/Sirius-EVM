@@ -4,6 +4,8 @@ La suite ordonnée des gestes qui font passer `sirius-data.tech` sur Robinhood C
 
 Références : [MAINNET-LAUNCH-PLAN.md](../MAINNET-LAUNCH-PLAN.md), [MAINNET-RUNBOOKS.md](../MAINNET-RUNBOOKS.md), [DEPLOYMENT.md](../DEPLOYMENT.md), [PHALA.md](../PHALA.md), [PHALA-V7-STAGING.md](../PHALA-V7-STAGING.md), [17-audit-et-lancement-restants.md](17-audit-et-lancement-restants.md).
 
+> Les valeurs d’exploitation (adresse du VPS, comptes, dossiers, empreinte d’hôte) sont remplacées par des noms entre chevrons, comme `<VPS_HOST>`. Leur sens et l’endroit où trouver la vraie valeur : [PROCESS-RELECTURE.md](../PROCESS-RELECTURE.md#valeurs-dexploitation-masquées).
+
 ## Règles
 
 - Aucune valeur secrète dans le chat, Git, la CI ou ce dossier. Ici, seulement des **noms** de variables.
@@ -22,10 +24,10 @@ Références : [MAINNET-LAUNCH-PLAN.md](../MAINNET-LAUNCH-PLAN.md), [MAINNET-RUN
 | Empreinte du proxy USDG (`SIRIUS_USDC_CODE_HASH`) | `0x864cc9ad53b338b82da1f7cab85ab0b3d5c8861acb422b6fec63cf36234f36a6` (relevée le 4 octobre) |
 | Vérificateur KYB (`SIRIUS_KYB_VERIFIER`) | `0xDf432930e4999eD8aeF94Ab72F6bE3D60F6e7455` |
 | Admin KYB et trésorerie (`SIRIUS_KYB_ADMIN` = `SIRIUS_COMPUTE_RECIPIENT`) | le Safe mainnet 2/3 (adresse à créer) |
-| Origine | `https://sirius-data.tech` ; alias `https://sirius-evm.vercel.app`, `https://sirius-evm-byezzaali-gmailcoms-projects.vercel.app` |
-| Projet Vercel | `sirius-evm` (`prj_gmEKctb6EJcsErIQqamKiZNaK5vZ`), environnement Production |
+| Origine | `https://sirius-data.tech` ; alias `https://sirius-evm.vercel.app`, `https://sirius-evm-<SCOPE_VERCEL>.vercel.app` |
+| Projet Vercel | `sirius-evm` (`<ID_PROJET_VERCEL_PROD>`), environnement Production |
 | Environnement GitHub | `production` |
-| VPS | `162.19.66.80`, compte `sirius-deploy`, dossier `/opt/sirius`, projet Compose `sirius` |
+| VPS | `<VPS_HOST>`, compte `<VPS_USER>`, dossier `<DOSSIER_PROD>`, projet Compose `sirius` |
 | Base Neon | projet `summer-sun-75471238`, branche `mainnet` `br-icy-band-b42mskv2`, déjà créée et migrée |
 | Plafonds de la bêta | `SIRIUS_MAX_LOAN_USDC=50`, `SIRIUS_MAX_EXPOSURE_USDC=500` ([plan](../MAINNET-LAUNCH-PLAN.md)) |
 | Finalité | `SIRIUS_EVM_FINALITY=finalized`, `SIRIUS_EVM_CONFIRMATIONS=1` ; le bloc `finalized` est environ 8 500 blocs (≈ 14 min) derrière la tête (relevé du 5 octobre). Palier rapide facultatif pour les petits prêts : [20-finalite-rapide.md](20-finalite-rapide.md) |
@@ -48,7 +50,7 @@ Rien ne commence tant qu'une ligne manque.
 | Projet Web3Auth de production (`sapphire_mainnet`) : `NEXT_PUBLIC_WEB3AUTH_CLIENT_ID` | Ali | Domaine `sirius-data.tech` autorisé dans le projet |
 | Clés MoonPay **live** (`pk_live_…` et `sk_live_…`), facultatives : sans elles le choix « carte » reste masqué | Ali | Paire live des deux côtés, ou absente des deux côtés |
 | Deux wallets d'équipe pour le premier prêt (fournisseur, emprunteur) avec un peu d'ETH mainnet ; l'emprunteur avec au moins 5 USDG (Relay depuis Base, ou virement) | Ali et Noé | Soldes sur l'explorateur |
-| Accès VPS `sirius-deploy@162.19.66.80` et droits d'approbation sur l'environnement GitHub `production` | Ali | Connexion SSH ; onglet Actions |
+| Accès VPS `<VPS_USER>@<VPS_HOST>` et droits d'approbation sur l'environnement GitHub `production` | Ali | Connexion SSH ; onglet Actions |
 | Staging figé : test complet sur testnet passé, second audit sans critique ni élevé ouvert, CI verte sur le dernier commit | Ali et Noé | Checklist de [00](00-PLAN-GLOBAL.md) |
 
 ## 2. Étapes, dans l'ordre
@@ -263,8 +265,8 @@ gh secret list --env production ; gh variable list --env production
 2. VPS, reaper de production :
 
 ```bash
-ssh sirius-deploy@162.19.66.80
-cd /opt/sirius && cp -p .env.vps .env.vps.avant-mainnet && chmod 600 .env.vps.avant-mainnet
+ssh <VPS_USER>@<VPS_HOST>
+cd <DOSSIER_PROD> && cp -p .env.vps .env.vps.avant-mainnet && chmod 600 .env.vps.avant-mainnet
 ```
 
 Éditer `.env.vps` avec la liste de la section 3.2 (garder la ligne `SIRIUS_WORKER_IMAGE=` : la pipeline la réécrit). `SIRIUS_LEGACY_ESCROW_ADDRESSES` vide, `SIRIUS_WITHDRAW_RELAYER_ENABLED=false`, aucun `PINATA_JWT`, aucune clé. Ne pas relancer le conteneur : la pipeline le fera avec la nouvelle image. Juste avant la fusion de l'étape 12, arrêter l'ancien reaper testnet : `docker compose -p sirius --env-file .env.vps stop reaper`.
@@ -301,7 +303,7 @@ gh run watch
 
 Après la fusion, la pipeline s'arrête sur les jobs liés à l'environnement `production` : onglet Actions → run → « Review deployments » → `production` → Approve. Les jobs Migrations (préflight EVM sur la base mainnet, puis `prisma migrate deploy`), Front Vercel (origines, `SIRIUS_REQUIRE_PHALA=true`, build, déploiement), Reaper VPS et Fumée s'enchaînent.
 
-**Vérifier** : `gh run watch` vert, **porte d'aperçu active** (le job Fumée passe avec elle : la racine répond 200 avec la page d'attente, et `/api/auth/challenge` est en liste blanche) ; `https://sirius-data.tech` affiche « Something's cooking » sans cookie et `curl -s https://sirius-data.tech/api/train` répond `503 {"error":"Sirius ouvre bientôt"}` ; chaque membre de l'équipe ouvre une fois `https://sirius-data.tech/preview?key=<SIRIUS_PREVIEW_KEY>` (clé collée dans la barre d'adresse, jamais dans le chat), est redirigé vers la racine et voit le site complet pendant **7 jours** (durée du cookie `sirius_preview` ; passé ce délai, rouvrir `/preview?key=…`). Le cookie est **propre au domaine** qui l'a posé : `sirius-data.tech`, `sirius-evm.vercel.app` et l'alias du projet sont trois cookies distincts, refaire `/preview?key=…` sur chaque adresse réellement utilisée (le navigateur ne partage pas non plus le cookie entre profils ni en navigation privée) ; `/status` affiche mainnet, USDG, plafonds 50 / 500 ; `node scripts/smoke-auth.mjs main` passe ; sur le VPS `bash deploy/vps/check-reaper.sh /opt/sirius sirius` trouve `[reaper] passe ok` ; logs Vercel sans `obligatoire en production`.
+**Vérifier** : `gh run watch` vert, **porte d'aperçu active** (le job Fumée passe avec elle : la racine répond 200 avec la page d'attente, et `/api/auth/challenge` est en liste blanche) ; `https://sirius-data.tech` affiche « Something's cooking » sans cookie et `curl -s https://sirius-data.tech/api/train` répond `503 {"error":"Sirius ouvre bientôt"}` ; chaque membre de l'équipe ouvre une fois `https://sirius-data.tech/preview?key=<SIRIUS_PREVIEW_KEY>` (clé collée dans la barre d'adresse, jamais dans le chat), est redirigé vers la racine et voit le site complet pendant **7 jours** (durée du cookie `sirius_preview` ; passé ce délai, rouvrir `/preview?key=…`). Le cookie est **propre au domaine** qui l'a posé : `sirius-data.tech`, `sirius-evm.vercel.app` et l'alias du projet sont trois cookies distincts, refaire `/preview?key=…` sur chaque adresse réellement utilisée (le navigateur ne partage pas non plus le cookie entre profils ni en navigation privée) ; `/status` affiche mainnet, USDG, plafonds 50 / 500 ; `node scripts/smoke-auth.mjs main` passe ; sur le VPS `bash deploy/vps/check-reaper.sh <DOSSIER_PROD> sirius` trouve `[reaper] passe ok` ; logs Vercel sans `obligatoire en production`.
 
 **Si ça échoue** : Migrations rouge → lire la dernière étape affichée du préflight (base d'une autre chaîne, pooler, quota Neon : [DEPLOYMENT.md](../DEPLOYMENT.md)) ; rien n'est déployé tant que ce job est rouge. Vercel rouge → variable manquante (étape 9). Reaper rouge → `.env.vps` (étape 10) ; relancer uniquement le job VPS après correction. Fumée rouge → origine ou DNS. `/preview?key=…` répond 404 à l'équipe → clé absente, trop courte ou différente de celle posée (étape 9) ; corriger la variable puis « Redeploy ». Une fusion ne se défait pas, mais un déploiement non approuvé ne se produit pas : on peut corriger sur staging, refusionner, puis approuver.
 
@@ -400,7 +402,7 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `SIRIUS_PREVIEW_GATE` | `true` du déploiement (étape 12) à l'ouverture (étape 12 bis), puis **absente** | décision | non (page d'attente ; `true` sans clé valide = site fermé à tous) | oui (commentée) |
 | `SIRIUS_PREVIEW_KEY` | 64 hex (`openssl rand -hex 32`), Sensitive, retirée avec l'interrupteur | `openssl` | avec `SIRIUS_PREVIEW_GATE=true` seulement | oui (commentée) |
 
-### 3.2 Reaper sur le VPS (`/opt/sirius/.env.vps`)
+### 3.2 Reaper sur le VPS (`<DOSSIER_PROD>/.env.vps`)
 
 | Variable | Valeur attendue | Obligatoire | `deploy/vps/.env.example` |
 |---|---|---|---|

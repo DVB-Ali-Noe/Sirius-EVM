@@ -26,6 +26,13 @@ export interface DeploymentEstimateInput {
   usdc: Address;
   lockAuthorizer: Address;
   addedProfiles: readonly string[];
+  /** Admin du registre à déployer ; le déployeur par défaut. Sans effet notable sur le coût. */
+  datasetAdmin?: Address;
+  /**
+   * Faux quand l'admin du registre est un Safe (mainnet) : `bindEscrow` et `addTrainingProfile`
+   * sont alors signés et payés par lui, pas par la clé de déploiement, et sortent de l'estimation.
+   */
+  adminCallsByDeployer?: boolean;
 }
 
 /** Estimations `eth_estimateGas`, sans signature ni transaction, dans l'ordre du déploiement. */
@@ -36,7 +43,7 @@ export async function estimateDeploymentGas(client: EstimateClient, input: Deplo
   if ("deploy" in input.kyb) estimates.push([input.kyb.deploy, await deployGas(input.kyb.deploy, input.kyb.args)]);
   // Le constructeur du registre ne refuse que l'adresse nulle : le déployeur tient lieu de KYB à venir.
   const registryKyb = "existing" in input.kyb ? input.kyb.existing : input.account;
-  estimates.push(["SiriusDatasetRegistry", await deployGas("SiriusDatasetRegistry", [registryKyb, input.account])]);
+  estimates.push(["SiriusDatasetRegistry", await deployGas("SiriusDatasetRegistry", [registryKyb, input.datasetAdmin ?? input.account])]);
   let referenceKyb: Address;
   try {
     referenceKyb = await client.readContract({ address: input.referenceDatasets, abi: registryKybAbi, functionName: "kyb" });
@@ -45,6 +52,7 @@ export async function estimateDeploymentGas(client: EstimateClient, input: Deplo
   }
   estimates.push([input.escrowContract,
     await deployGas(input.escrowContract, [input.usdc, referenceKyb, input.referenceDatasets, input.lockAuthorizer])]);
+  if (input.adminCallsByDeployer === false) return estimates;
   estimates.push(["bindEscrow", BIND_ESCROW_GAS]);
   for (const id of input.addedProfiles) estimates.push([`addTrainingProfile(${id})`, ADD_PROFILE_GAS]);
   return estimates;
