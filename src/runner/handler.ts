@@ -1,4 +1,10 @@
 import "server-only";
+import { keccak256, stringToHex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
+import { gbdtScore, GBDT_HEADER_PATTERN } from "@/lib/models/gbdt";
+import { loadServedModel } from "@/lib/tee/served-models";
+import { reservePrediction } from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
   escrowLock,
@@ -6,6 +12,7 @@ import {
   runEvmLoanJob,
   runBilledEvmLoanJob,
   runSelfTraining,
+  runServedTraining,
   selfTrainModelKey,
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
@@ -49,7 +56,7 @@ import {
 } from "@/lib/runner/delivery";
 import type { DatasetIngressEnvelope, DatasetRef } from "@/lib/tee/contract";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { checkDemoOperation, demoEnabled, demoGrantScope, withDemoAdmission } from "@/lib/phala-demo/runner-session";
+import { assertPredictEnabled, checkDemoOperation, demoEnabled, demoGrantScope, withDemoAdmission } from "@/lib/phala-demo/runner-session";
 import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
 import { fastFinalityPolicy } from "@/lib/evm/finality";
 import { enclaveFinalityTier, type FinalityTier } from "@/lib/evm/fast-finality";
@@ -167,6 +174,8 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       return { op, scope: { datasetId: text(body, "datasetId"), jobId: text(body, "jobId") } };
     case "self-train-key":
       return { op, scope: { jobId: text(body, "jobId") } };
+    case "predict":
+      return { op, scope: { jobId: text(body, "modelId") } };
     default:
       throw new AppError("Opération runner inconnue", 404);
   }
@@ -187,6 +196,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
+  if (op === "predict" || (op === "run-training" && body.served === true)) assertPredictEnabled();
   checkDemoOperation(op);
   if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
   if (UNCHARGED_OPS.has(op)) {
@@ -482,8 +492,17 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
     case "run-training": {
       const dataset = datasetRef(body);
       const jobId = text(body, "jobId");
-      const deliveryPublicKey = body.deliveryPublicKey === undefined ? undefined : text(body, "deliveryPublicKey", 200);
-      if (demoEnabled() && !deliveryPublicKey) throw new AppError("Clé de livraison requise pour la démonstration", 400);
+      if (body.served !== undefined && body.served !== true) throw new AppError("Mode de modèle invalide", 400);
+      const served = body.served === true;
+      if (served) {
+        assertPredictEnabled();
+        if (body.deliveryPublicKey !== undefined) throw new AppError("Clé de livraison interdite pour un modèle privé", 400);
+        if (dataset.modelId !== "gradient_boosted_trees" || dataset.modelVersion !== "1.1.0") {
+          throw new AppError("Profil de prédiction indisponible", 400);
+        }
+      }
+      const deliveryPublicKey = served || body.deliveryPublicKey === undefined ? undefined : text(body, "deliveryPublicKey", 200);
+      if (!served && demoEnabled() && !deliveryPublicKey) throw new AppError("Clé de livraison requise pour la démonstration", 400);
       if (deliveryPublicKey) validateDeliveryPublicKey(deliveryPublicKey);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
@@ -492,8 +511,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         ...demoScope,
         operation: op,
         datasetId: dataset.datasetId,
-        jobId,
-        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, ...(deliveryPublicKey ? [deliveryPublicKey] : [])],
+        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion,
+          ...(served ? ["served"] : deliveryPublicKey ? [deliveryPublicKey] : [])],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
         throw new AppError("Self-train réservé au propriétaire", 403);
@@ -505,6 +524,10 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         cid: dataset.cid,
         model: dataset,
       });
+      if (served) {
+        return withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, served: true },
+          () => runServedTraining({ ...dataset, jobId, owner: subject }), demoScope.demoSessionRevision);
+      }
       const result = await withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, deliveryPublicKey }, async () => {
         const trained = await runSelfTraining({ ...dataset, jobId, owner: subject });
         return { ...trained, ...(deliveryPublicKey ? { modelKeyEnvelope: encryptRunnerDelivery(
@@ -521,6 +544,58 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           modelId: dataset.modelId,
           modelVersion: dataset.modelVersion,
         }),
+      };
+    }
+
+    case "predict": {
+      const modelId = text(body, "modelId");
+      const features = body.features;
+      if (!features || typeof features !== "object" || Array.isArray(features)) {
+        throw new AppError("Variables de prédiction invalides", 400);
+      }
+      const entries = Object.entries(features);
+      if (entries.length < 1 || entries.length > 31 || entries.some(([name, value]) =>
+        !GBDT_HEADER_PATTERN.test(name) || typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1e9)) {
+        throw new AppError("Variables de prédiction invalides", 400);
+      }
+      const serialized = JSON.stringify(features);
+      if (Buffer.byteLength(serialized) > 4096) throw new AppError("Variables de prédiction trop volumineuses", 413);
+      const revision = assertPredictEnabled();
+      const { subject } = await verifyRunnerGrant(body.authorization, {
+        ...demoGrantScope(), operation: op, jobId: modelId, intentParts: [modelId, serialized],
+      });
+      if (assertPredictEnabled() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+      const served = loadServedModel(modelId);
+      if (!served) throw new AppError("Modèle privé introuvable", 404);
+      if (served.owner !== canonicalSubject(subject)) throw new AppError("Prédiction réservée au propriétaire", 403);
+      if (entries.length !== served.model.features.length ||
+        served.model.features.some((name) => !Object.hasOwn(features, name))) {
+        throw new AppError("Variables de prédiction hors modèle", 400);
+      }
+      const values = served.model.features.map((name) => (features as Record<string, number>)[name]);
+      const counter = reservePrediction(subject, modelId, revision);
+      const decision = (gbdtScore(served.model.baseScore, served.model.trees, values) >= 0 ? 1 : 0) as 0 | 1;
+      const account = privateKeyToAccount(`0x${deriveKey(getMasterKey(), "prediction:sign:v1").toString("hex")}`);
+      const domain = { name: "SiriusPrediction", version: "1", chainId: evmEscrowBinding().chainId };
+      const signedMessage = {
+        modelId, modelVersion: served.model.version, subject: canonicalSubject(subject) as `0x${string}`,
+        featuresHash: keccak256(stringToHex(serialized)), decision, counter: BigInt(counter),
+        sessionRevision: BigInt(revision),
+      };
+      const signature = await account.signTypedData({
+        domain, primaryType: "Prediction",
+        types: { Prediction: [
+          { name: "modelId", type: "string" }, { name: "modelVersion", type: "string" },
+          { name: "subject", type: "address" }, { name: "featuresHash", type: "bytes32" },
+          { name: "decision", type: "uint8" }, { name: "counter", type: "uint64" },
+          { name: "sessionRevision", type: "uint64" },
+        ] },
+        message: signedMessage,
+      });
+      if (assertPredictEnabled() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+      return {
+        modelId, modelVersion: served.model.version, decision, counter, signature, signer: account.address,
+        domain, signedMessage: { ...signedMessage, counter, sessionRevision: revision },
       };
     }
 

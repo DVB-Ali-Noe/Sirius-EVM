@@ -15,11 +15,11 @@ test.beforeAll(async () => {
   deliveryScript = result.outputFiles[0].text;
 });
 
-async function mock(page: Page, phase = "closed") {
+async function mock(page: Page, phase = "closed", predictEnabled = false) {
   await page.route("**/__delivery-test.js", (route) => route.fulfill({ contentType: "application/javascript", body: deliveryScript }));
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/phala-demo/session") return route.fulfill({ json: { phase, available: phase === "open", sessionRevision: 1 } });
+    if (path === "/api/phala-demo/session") return route.fulfill({ json: { phase, available: phase === "open", sessionRevision: 1, predictEnabled } });
     if (path === "/api/train") return route.fulfill({ json: [] });
     if (path === "/api/phala-demo/operator") return route.fulfill({ status: 403, json: { error: "Commande réservée aux opérateurs Sirius" } });
     return route.fulfill({ json: { authenticated: false, known: true } });
@@ -65,6 +65,20 @@ test("CSV personnel : cible explicite et interface mobile sans débordement", as
   await page.getByLabel("Target column").selectOption("target");
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("le choix d'un modèle privé dépend de la session et du profil GBDT", async ({ page }) => {
+  await mock(page, "open", true);
+  await page.goto("/phala");
+  const privateMode = page.getByRole("checkbox", { name: /Keep this model private inside Phala/ });
+  await expect(privateMode).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Model" }).selectOption("gradient_boosted_trees");
+  await expect(privateMode).toBeVisible();
+  await privateMode.check();
+  await page.getByRole("combobox", { name: "Model" }).selectOption("linear_regression");
+  await expect(privateMode).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Model" }).selectOption("gradient_boosted_trees");
+  await expect(privateMode).not.toBeChecked();
 });
 
 test("rapport de qualité sur la cible choisie : fuite signalée, cible non numérique annoncée, bouton actif", async ({ page }) => {

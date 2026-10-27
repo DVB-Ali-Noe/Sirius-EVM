@@ -13,6 +13,8 @@ import type {
   DatasetIngressKey,
   DatasetRef,
   RunnerDeliveryEnvelope,
+  ServedTrainingResult,
+  SignedPrediction,
   RunnerReleaseEnvelope,
   RecoveredLoanResult,
 } from "./contract";
@@ -175,12 +177,35 @@ export async function runSelfTrainingInRunner(
   datasetReceipt: string,
   authorization: RunnerGrant,
   deliveryPublicKey?: string,
-): Promise<AuthorizedTrainingResult> {
+  served?: false,
+): Promise<AuthorizedTrainingResult>;
+export async function runSelfTrainingInRunner(
+  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
+  datasetReceipt: string,
+  authorization: RunnerGrant,
+  deliveryPublicKey: undefined,
+  served: true,
+): Promise<ServedTrainingResult>;
+export async function runSelfTrainingInRunner(
+  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
+  datasetReceipt: string,
+  authorization: RunnerGrant,
+  deliveryPublicKey?: string,
+  served = false,
+): Promise<AuthorizedTrainingResult | ServedTrainingResult> {
   return dispatchRunner(
     "run-training",
     { datasetId: input.datasetId, jobId: input.jobId },
-    { ...input, datasetReceipt, authorization, ...(deliveryPublicKey ? { deliveryPublicKey } : {}) },
+    { ...input, datasetReceipt, authorization, ...(deliveryPublicKey ? { deliveryPublicKey } : {}), ...(served ? { served: true } : {}) },
   );
+}
+
+export async function predictInRunner(
+  modelId: string,
+  features: Record<string, number>,
+  authorization: RunnerGrant,
+): Promise<SignedPrediction> {
+  return dispatchRunner("predict", { jobId: modelId }, { modelId, features, authorization });
 }
 
 export async function selfTrainModelKeyInRunner(

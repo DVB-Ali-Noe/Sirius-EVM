@@ -38,6 +38,8 @@ import type {
   EvmEscrowLock,
 } from "./contract";
 import type { ModelSelection } from "@/lib/models/registry";
+import { loadServedModel, saveServedModel } from "./served-models";
+import { assertPredictEnabled } from "@/lib/phala-demo/runner-session";
 
 /**
  * Cœur confidentiel, sans accès à la base applicative : seul module qui touche la master key enclave,
@@ -229,6 +231,51 @@ export async function runSelfTraining(
   }, maxExecutionMs);
 }
 
+
+/** Le profil servi ne quitte jamais le volume privé du runner, y compris lors d'une reprise. */
+export async function runServedTraining(input: SelfTrainingInput): Promise<{ servedModelId: string; metrics: Record<string, number> }> {
+  assertPredictEnabled();
+  if (input.modelId !== "gradient_boosted_trees" || input.modelVersion !== "1.1.0") {
+    throw new AppError("Profil de prédiction indisponible", 400);
+  }
+  let persisted = false;
+  const result = await budgetRunnerJob("training", `served:${input.jobId}`, input, async () => {
+    const existing = loadServedModel(input.jobId);
+    if (existing) {
+      if (canonicalSubject(input.owner) !== existing.owner) throw new AppError("Modèle réservé au propriétaire", 403);
+      persisted = true;
+      return { servedModelId: input.jobId, metrics: existing.model.metrics };
+    }
+    const plaintext = await decryptDataset(input);
+    if (plaintext.length > MAX_DATASET_BYTES) throw new AppError("Taille du dataset invalide", 413);
+    let model: TrainedModel;
+    try {
+      model = await trainInWorker(input, plaintext, AbortSignal.timeout(trainingTimeoutMs()));
+    } catch (error) {
+      if (error instanceof TrainingLimitExceeded) throw new AppError(TRAINING_LIMIT_MESSAGE, 422);
+      throw error;
+    }
+    let gated: TrainedModel;
+    try {
+      ({ model: gated } = gateModel(model));
+    } catch {
+      throw new AppError(INVALID_DATASET_MESSAGE, 422);
+    }
+    if (gated.algo !== "gradient_boosted_trees" || gated.version !== "1.1.0") {
+      throw new AppError("Profil de prédiction indisponible", 422);
+    }
+    assertPredictEnabled();
+    saveServedModel(input.jobId, input.owner, gated);
+    persisted = true;
+    return { servedModelId: input.jobId, metrics: gated.metrics };
+  });
+  if (!persisted) {
+    const stored = loadServedModel(input.jobId);
+    if (!stored || stored.owner !== canonicalSubject(input.owner)) throw new AppError("Modèle privé indisponible", 503);
+    return { servedModelId: input.jobId, metrics: stored.model.metrics };
+  }
+  return { servedModelId: input.jobId, metrics: result.metrics };
+}
 
 // Dérive une clé de livraison (base64). PRIVÉ : jamais exposé avec un contexte libre (= oracle
 // universel sur la master key). Les seules clés dérivables de l'extérieur sont les livrables ↓.

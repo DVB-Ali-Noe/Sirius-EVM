@@ -1,8 +1,8 @@
 # Politique de sortie de l’enclave et API sur modèles privés
 
-> **Mise à jour du 24 octobre 2026 : l’étape E2 est livrée en version minimale pour le profil arbres** (`gradient_boosted_trees` 1.1.0), calibrée sur l’audit confidentialité du 23 octobre (branche `audit/confidentialite`, rapport `audit/rapports/confidentialite.md`). Ce qui est codé et ce qui reste est au §2.5 ; les valeurs « provisoires » du §2.3 y sont remplacées. Le reste de la note (API, crédits, structure `EgressPolicy`) reste une étude.
+> **Mise à jour du 27 octobre 2026 : prototype E4 implémenté localement, désactivé par défaut, non déployé.** E2 reste livré en version minimale pour le profil arbres (`gradient_boosted_trees` 1.1.0). La facturation par appel, la politique de sortie commune `EgressPolicy`, les quotas par entité juridique et l’accès des acheteurs restent hors de ce prototype.
 
-Note de décision du 19 octobre 2026. **Étude, pas une fonctionnalité** : rien n’est implémenté dans `src/` ni `contracts/`, aucune session Phala n’a été ouverte. Les chiffres viennent d’un prototype jetable hors du dépôt (annexe A), de mesures locales sur un Apple M2 et des mesures publiées dans la PR #111 (arbres boostés) ; la mesure réelle sur la CVM reste à faire. Les points tranchés par Noé le 19 octobre sont repris dans [D-27](DECISIONS.md#d-27--politique-de-sortie-unique-et-api-sur-modèles-privés) et marqués **Décidé** ci-dessous ; le reste est proposé.
+Note de décision du 19 octobre 2026. Les chiffres ci-dessous viennent d’un prototype jetable hors du dépôt (annexe A), de mesures locales sur Apple M2 et de mesures de la PR #111 ; le débit de la nouvelle API sur CVM n’a pas été mesuré. Les choix de Noé sont repris dans [D-27](DECISIONS.md#d-27--politique-de-sortie-unique-et-api-sur-modèles-privés) et marqués **Décidé** ; le reste est proposé.
 
 Cette note rouvre en partie la décision du 14 octobre sur les nouveaux modèles (notes d’expériences de la branche `exp/agent-experience-lending`, non fusionnées dans `staging`), qui écartait tout modèle à servir depuis l’enclave (M07 type Kev, M08, M10). Elle ne la remplace pas : elle décrit à quelles conditions un service deviendrait acceptable. Les renvois aux « notes d’expériences » ci-dessous désignent ces documents.
 
@@ -110,9 +110,9 @@ Coût fixe : environ 0,061 USD/h (0,058 de calcul + 0,0028 de disque), soit **44
 
 Modèle type Kev (langage) : GPU obligatoire, donc une CVM GPU confidentielle d’un autre ordre de prix. Hors de ce chiffrage.
 
-### 1.6 Découpage du prototype `POST /predict`, à lancer après la fusion des arbres boostés
+### 1.6 Découpage initial du prototype `POST /predict`
 
-Pas dans ce chantier : il toucherait `handler.ts` et `core.ts` pendant que le chantier GBDT (#111) change le moteur et le format des modèles. Découpage prévu, en staging seulement, actif uniquement pendant une session manuelle ouverte (D-25), derrière une variable désactivée par défaut (`SIRIUS_PREDICT_ENABLED`) :
+Le découpage suivant précédait l’implémentation du 27 octobre. Le prototype reste réservé au testnet et aux sessions manuelles ouvertes (D-25), derrière `SIRIUS_PREDICT_ENABLED=true` sur Next **et** le runner :
 
 | Élément | Emplacement | Contenu |
 |---|---|---|
@@ -123,6 +123,14 @@ Pas dans ce chantier : il toucherait `handler.ts` et `core.ts` pendant que le ch
 | Signature | `src/lib/evm/runner-account.ts` ou voisin | Compte dérivé `prediction:sign:v1`, signature EIP-712 de la réponse. |
 | Accès | `src/app/api/models/[id]/predict/route.ts` | Proxy Next, limité en débit, session wallet existante. L’accès direct d’un agent en RA-TLS viendra ensuite. |
 | Tests | à côté des fichiers touchés | Décision seule (aucun champ probabilité), quota durable après redémarrage, modèle inconnu, refus de la politique, signature vérifiable, et l’attaque de l’annexe A : 24 décisions donnent moins de 80 % d’accord équilibré. |
+
+**Implémentation locale E4 (27 octobre 2026).** Pour entraîner sans livrer, `/phala` propose « garder le modèle privé » uniquement pour `gradient_boosted_trees` v1.1.0 ; `POST /api/train` accepte `served: true` sans `deliveryPublicKey`. Le grant signé lie explicitement le mot `served`. Le runner entraîne dans son worker borné, applique `gateModel`, chiffre le modèle sous `model:served:v1:<jobId>` et le sauvegarde sur son volume privé ; Next enregistre seulement `servedModelId` et les métriques. Ni CID IPFS, ni clé de modèle, ni capsule de livraison ne sont émis pour cette voie. Les routes de téléchargement/re-livraison excluent ces jobs.
+
+`POST /api/models/<jobId>/predict` reçoit `{ "features": { "nom_de_colonne": 12.5 }, "authorization": <grant wallet> }` : le grant P-256 de la délégation wallet porte `operation: "predict"`, `jobId`, la révision de session et l’empreinte de `[jobId, JSON.stringify(features)]`. L’API vérifie session, propriété du job, KYB, provenance Phala et plafond HTTP ; le runner répète la vérification de grant/anti-rejeu, exige exactement les variables numériques du modèle, réserve le compteur dans `RUNNER_PREDICT_USAGE_FILE` avant calcul, puis retourne uniquement `decision: 0|1`, `counter`, `modelId`, `modelVersion`, `signer`, `signature`, `domain` et `signedMessage`. La signature EIP-712 `SiriusPrediction` v1 engage `modelId`, `modelVersion`, `subject`, `featuresHash = keccak256(UTF-8(JSON.stringify(features)))`, `decision`, `counter` et `sessionRevision` sur la chaîne testnet 46630 ; le compteur persiste entre sessions. Aucun score ni probabilité ne sort. Les appels refusés ne décrémentent pas le compteur déjà engagé.
+
+**Exploitation du prototype :** migration additive `20261027000000_add_served_model_id` sur la base de l’instance dédiée ; `SIRIUS_PREDICT_ENABLED=true` seulement après publication et attestation d’une image compatible, avec la même valeur côté Next et Compose runner. `RUNNER_SERVED_MODELS_DIR` doit être un répertoire privé persistant (0700) et `RUNNER_PREDICT_USAGE_FILE` un fichier SQLite sur volume privé (0600) ; le Compose de démonstration les place sous `runner_budget`. `RUNNER_PREDICT_DAILY_LIMIT` vaut 24 par défaut (1–100). Le flag reste `false` dans le Compose en l’absence de décision explicite. L’UI montre les modèles privés mais ne propose leur prédiction que pendant une session ouverte ; les entrées JSON reprennent exactement les noms des colonnes numériques utilisées à l’entraînement.
+
+**Limites bloquantes avant une API commerciale :** seul le propriétaire KYB du dataset peut appeler ce prototype ; aucun acheteur ni agent tiers, aucun contrat de crédits prépayés ni rémunération provider. Le registre KYB v3 indexe une **adresse**, pas une identité juridique commune à plusieurs wallets : le quota est par wallet et par modèle, contrairement à l’objectif « par entité » du §1.2. Le modèle reste sur le volume Phala et doit être inclus dans les sauvegardes/restaurations, avec sa master key ; la perte du volume ou de la réponse Next avant enregistrement du job n’a pas de reprise automatique. La clé de signature dérivée n’est pas encore liée par un certificat de modèle et une quote spécifique au modèle selon §1.4 : une signature vérifiable ne prouve pas à elle seule la provenance du dataset. Aucun benchmark de débit, attaque d’extraction sur les arbres servis ou parcours à deux wallets sur cette image n’a été exécuté.
 
 ## Partie 2 — Fuites, nettoyage et politique de sortie
 
@@ -259,7 +267,7 @@ Place dans le code : la politique remplace l’appel direct à `gateModel` dans 
 | E1 | Rapport de qualité à l’import, dans le navigateur, sans modifier le fichier : cible qui change, colonnes écartées et leurs cellules manquantes, constantes, doublons, colonne qui recopie la cible, déséquilibre | Faible | **Livré** (PR E1, après la #111) |
 | E2 | Politique de sortie v1 : verdict, plafond d’influence par ligne distincte, AUC d’appartenance ; seuil `trainAuc − heldOutAuc` seulement une fois calibré ; métriques held-out et `n` arrondi pour les nouveaux profils uniquement | Moyen | **Livré en version minimale le 24 octobre** (§2.5) : plafond k = 1, seuils, arrondis, en-têtes, banc de canaris en CI. Restent : la structure `EgressPolicy` / `TrainingDiagnostics` (verdict unique partagé avec l’API), le journal des doublons dans l’enclave ; l’AUC d’appartenance par la perte est abandonnée comme contrôle |
 | E3 | Préparation intégrée au modèle (imputation, normalisation, encodage) | Moyen (nouvelle version de profil) | Profil des arbres ou version suivante |
-| E4 | Prototype `/predict` en staging (§1.6), pendant les sessions manuelles | Moyen | E2, fusion #111 |
+| E4 | Prototype `/predict` en staging (§1.6), pendant les sessions manuelles | Moyen | **Implémenté localement le 27 octobre, non déployé** : propriétaire seul, GBDT 1.1.0, pas de facturation par appel ; validation matérielle et certificat de modèle restant à faire |
 | E5 | Crédits prépayés et rémunération par appel | Élevé (contrat) | Décision commerciale, revue Solidity |
 | — | CVM allumée en continu | Coût fixe | Décision séparée, business plan |
 | — | Modèle type Kev servi | Élevé (GPU) | Hors périmètre |

@@ -30,7 +30,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ cid: str
         select: { id: true },
       }),
       prisma.trainingJob.findFirst({
-        where: { owner: session.address, status: "DONE", modelCid: cid },
+        where: { owner: session.address, status: "DONE", modelCid: cid, servedModelId: null },
         select: { id: true },
       }),
     ]);

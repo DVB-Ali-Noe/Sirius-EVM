@@ -48,8 +48,21 @@ export function demoControlAuthorized(header: string | string[] | undefined): bo
   return timingSafeEqual(hash(header), hash(`Bearer ${secret}`));
 }
 
+export function assertPredictEnabled(): number {
+  if (!demoEnabled() || process.env.SIRIUS_PREDICT_ENABLED !== "true") {
+    throw new AppError("Prédiction privée désactivée", 403);
+  }
+  const session = demoSessions().read();
+  if (!session.open) throw new AppError("Démonstration Phala fermée", 403);
+  return session.revision;
+}
+
 export function checkDemoOperation(op: string): void {
   if (!demoEnabled()) return;
+  if (op === "predict") {
+    assertPredictEnabled();
+    return;
+  }
   if (op === "self-train-key") return;
   if (!["dataset-ingress-key", "seal-dataset", "run-training"].includes(op)) {
     throw new AppError("Cette instance est réservée à l’entraînement sur ses propres données", 403);

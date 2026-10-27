@@ -107,6 +107,30 @@ export interface AuthorizedTrainingResult {
   modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
 
+export interface ServedTrainingResult {
+  servedModelId: string;
+  metrics: Record<string, number>;
+}
+
+export interface SignedPrediction {
+  modelId: string;
+  modelVersion: "1.1.0";
+  decision: 0 | 1;
+  counter: number;
+  signer: `0x${string}`;
+  signature: `0x${string}`;
+  domain: { name: "SiriusPrediction"; version: "1"; chainId: number };
+  signedMessage: {
+    modelId: string;
+    modelVersion: "1.1.0";
+    subject: `0x${string}`;
+    featuresHash: `0x${string}`;
+    decision: 0 | 1;
+    counter: number;
+    sessionRevision: number;
+  };
+}
+
 export interface LoanJobResult {
   modelCid: string;
   metrics: Record<string, number>;

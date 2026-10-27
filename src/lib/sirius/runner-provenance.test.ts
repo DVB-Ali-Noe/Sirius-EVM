@@ -7,13 +7,14 @@ import { AppError } from "@/lib/app-error";
 import * as provenance from "@/lib/runner/provenance";
 import * as addresses from "@/lib/evm/address";
 import * as models from "@/lib/models/registry";
+import type * as SelfTraining from "./self-train";
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
   const source = ts.transpileModule(readFileSync(file, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  runInNewContext(source, { exports, Date, console, require: (name: string) => {
+  runInNewContext(source, { exports, Date, console, process, require: (name: string) => {
     assert.ok(Object.hasOwn(dependencies, name), `Dépendance inattendue : ${name}`);
     return dependencies[name];
   } });
@@ -59,6 +60,7 @@ function fixture() {
   const common = {
     "server-only": {}, "@/lib/errors": { AppError },
     "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
+    "@/lib/sirius/self-training-access": { phalaDemoInstance: () => true },
     "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
     "@/lib/db": { serializableTransaction: async (fn: (value: typeof tx) => unknown) => fn(tx), prisma: {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
@@ -112,6 +114,53 @@ test("le résultat self-train et sa capsule sont persistés ensemble avant livra
   assert.equal(JSON.stringify(updates[0].deliveryEnvelope), JSON.stringify(envelope));
   assert.equal(updates[0].modelCid, "bafyModel");
   assert.equal(updates[0].runnerReceipt, "job-receipt");
+});
+
+test("le self-train servi refuse le mauvais profil avant le runner puis ne livre aucune clé", async () => {
+  const { dataset, records, updates, common } = fixture();
+  process.env.SIRIUS_PREDICT_ENABLED = "true";
+  let executions = 0;
+  const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+    ...common,
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
+      executions++;
+      assert.equal(args[3], undefined);
+      assert.equal(args[4], true);
+      return { servedModelId: "job", metrics: { accuracy: 0.8 } };
+    } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
+    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+  });
+  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true), /GBDT/);
+  assert.equal(records.length, 0);
+  assert.equal(executions, 0);
+  dataset.modelId = "gradient_boosted_trees";
+  dataset.modelVersion = "1.1.0";
+  const result = await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true);
+  assert.equal(JSON.stringify(result), JSON.stringify({ jobId: "job", servedModelId: "job", metrics: { accuracy: 0.8 } }));
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "DONE");
+  assert.equal(updates[0].servedModelId, "job");
+  for (const field of ["modelCid", "runnerReceipt", "deliveryPublicKey", "deliveryEnvelope"]) {
+    assert.equal(Object.hasOwn(updates[0], field), false, field);
+  }
+});
+
+test("le self-train servi reste désactivé par défaut et refuse les clés de livraison", async () => {
+  const { dataset, records, common } = fixture();
+  const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+    ...common,
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => { assert.fail("runner appelé"); } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
+    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+  });
+  delete process.env.SIRIUS_PREDICT_ENABLED;
+  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true), /indisponible/);
+  process.env.SIRIUS_PREDICT_ENABLED = "true";
+  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, "public-key", true), /interdite/);
+  assert.equal(records.length, 0);
 });
 
 test("le prêt conserve la provenance dès sa préparation et ne réserve pas un dataset d’un autre runner", async () => {

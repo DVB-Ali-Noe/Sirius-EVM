@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const job = await prisma.trainingJob.findUnique({ where: { id } });
     if (!job) return NextResponse.json({ error: "Job introuvable" }, { status: 404 });
     assertOwner(session, job.owner);
-    if (job.status !== "DONE" || !job.modelCid || !job.runnerReceipt) {
+    if (job.servedModelId || job.status !== "DONE" || !job.modelCid || !job.runnerReceipt) {
       return NextResponse.json({ error: "Modèle pas encore livré" }, { status: 409 });
     }
     await assertCurrentRunner(job);

@@ -6,6 +6,12 @@ services:
       EVM_NETWORK: testnet
       RUNNER_DEMO_SESSION_FILE: /var/lib/sirius-runner/budget/demo-sessions.sqlite
       RUNNER_DEMO_CONTROL_SECRET: ${RUNNER_DEMO_CONTROL_SECRET:?Secret opérateur dédié requis}
+      # Prototype prédiction : désactivé par défaut sur l'image. Ne pas activer avant
+      # migration Next, image attestée et essai avec wallet sur une session manuelle.
+      SIRIUS_PREDICT_ENABLED: ${SIRIUS_PREDICT_ENABLED:-false}
+      RUNNER_SERVED_MODELS_DIR: /var/lib/sirius-runner/budget/served-models
+      RUNNER_PREDICT_USAGE_FILE: /var/lib/sirius-runner/budget/prediction-usage.sqlite
+      RUNNER_PREDICT_DAILY_LIMIT: ${RUNNER_PREDICT_DAILY_LIMIT:-24}
 
 volumes:
   runner_budget:

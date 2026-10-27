@@ -100,6 +100,8 @@ jobs:
 
       - name: Sessions manuelles et livraison Phala
         run: pnpm test:phala-demo
+      - name: API des modèles privés
+        run: pnpm test:private-api
 
       - name: Outils de préparation et de sauvegarde
         run: pnpm test:operations

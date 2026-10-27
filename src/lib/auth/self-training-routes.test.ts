@@ -27,7 +27,7 @@ import { EN_MESSAGES } from "../i18n/english";
 const ROOT = process.cwd();
 const ADMIN = `0x${"ab".repeat(20)}`;
 const VISITOR = `0x${"cd".repeat(20)}`;
-const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "EVM_NETWORK", "TEE_MODE", "DSTACK_SIMULATOR_ENDPOINT"] as const;
+const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "SIRIUS_PREDICT_ENABLED", "EVM_NETWORK", "TEE_MODE", "DSTACK_SIMULATOR_ENDPOINT"] as const;
 const DEMO_ENV = { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", TEE_MODE: "phala" };
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
@@ -258,7 +258,7 @@ test("l'exemption de démo exige la configuration complète d'une démo Phala et
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
   const source = ts.transpileModule(read(file), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  runInNewContext(source, { exports, Buffer, Date, Map, Set, console, process: { env: {} }, require: (name: string) => {
+  runInNewContext(source, { exports, Buffer, Date, Map, Set, console, process: { env: process.env }, require: (name: string) => {
     assert.ok(Object.hasOwn(dependencies, name), `Dépendance inattendue : ${name}`);
     return dependencies[name];
   } });
@@ -283,7 +283,8 @@ test("les handlers inspectés sont exactement ceux que chaque module de route ex
   }
 });
 
-function routes(session: { address: string; source: "external" }) {
+function routes(session: { address: string; source: "external" }, rows: Record<string, unknown>[] = [],
+  demoStatus = { phase: "open", available: true, sessionRevision: 3 }) {
   const calls: string[] = [];
   const auth = {
     requireAuth: () => session,
@@ -292,10 +293,20 @@ function routes(session: { address: string; source: "external" }) {
   };
   const train = load<typeof import("../../app/api/train/route")>("src/app/api/train/route.ts", {
     "next/server": { NextResponse },
-    "@/lib/db": { prisma: { trainingJob: { findMany: async () => { calls.push("findMany"); return []; } } } },
-    "@/lib/sirius/self-train": { runSelfTrain: async (_dataset: string, _owner: string, jobId: string) => {
-      calls.push("runSelfTrain"); return { jobId, modelCid: "cid", runnerReceipt: "receipt", metrics: {} }; } },
+    "@/lib/db": { prisma: { trainingJob: { findMany: async ({ select }: { select: Record<string, unknown> }) => {
+      calls.push("findMany");
+      return rows.map((row) => Object.fromEntries(Object.keys(select).filter((key) => key in row).map((key) => [key, row[key]])));
+    } } } },
+    "@/lib/sirius/self-train": { runSelfTrain: async (_dataset: string, _owner: string, jobId: string, _receipt: string,
+      _grant: unknown, _key?: string, served?: boolean) => {
+      calls.push("runSelfTrain");
+      return served ? { jobId, servedModelId: jobId, metrics: {} } : { jobId, modelCid: "cid", runnerReceipt: "receipt", metrics: {} };
+    } },
     "@/lib/sirius/self-training-access": access,
+    "@/lib/phala-demo/controller-client": { requestDemoController: async () => {
+      calls.push("requestDemoController");
+      return demoStatus;
+    } },
     "@/lib/auth/require-auth": auth,
     "@/lib/errors": errors,
     "@/lib/http/body": body,
@@ -445,4 +456,64 @@ test("la démo n'exempte jamais hors testnet, hors enclave Phala, ni avec un dra
       await sendKey(key.POST, json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), calls);
     });
   }
+});
+
+test("le train servi exige le drapeau strict et la session de démo, et interdit toute clé", async () => {
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV }, async () => {
+    const { train, calls } = routes({ address: VISITOR, source: "external" });
+    const request = { ...training({ demoSessionRevision: 3 }), served: true };
+    const disabled = await train.POST(json(TRAIN, request));
+    assert.equal(disabled.status, 403);
+    assert.deepEqual(calls.splice(0), []);
+  });
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, SIRIUS_PREDICT_ENABLED: "true" }, async () => {
+    const { train, calls } = routes({ address: VISITOR, source: "external" });
+    const request = { ...training({ demoSessionRevision: 3 }), served: true };
+    const keyed = await train.POST(json(TRAIN, { ...request, deliveryPublicKey: "key" }));
+    assert.equal(keyed.status, 400);
+    assert.deepEqual(calls.splice(0), []);
+    const created = await train.POST(json(TRAIN, request));
+    assert.equal(created.status, 201);
+    assert.deepEqual(await created.json(), { jobId: "job-1", servedModelId: "job-1", metrics: {} });
+    assert.deepEqual(calls.splice(0), ["requestDemoController", "assertAuthenticGrant", "runSelfTrain"]);
+  });
+});
+
+test("le train servi refuse une session fermée, un grant d'une autre révision ou un réseau non Phala", async () => {
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, SIRIUS_PREDICT_ENABLED: "true" }, async () => {
+    const { train, calls } = routes({ address: VISITOR, source: "external" }, [], { phase: "closed", available: false, sessionRevision: 3 });
+    const response = await train.POST(json(TRAIN, { ...training({ demoSessionRevision: 3 }), served: true }));
+    assert.equal(response.status, 403);
+    assert.deepEqual(calls, ["requestDemoController"]);
+    const wrong = routes({ address: VISITOR, source: "external" });
+    const outdated = await wrong.train.POST(json(TRAIN, { ...training({ demoSessionRevision: 2 }), served: true }));
+    assert.equal(outdated.status, 403);
+    assert.deepEqual(wrong.calls, ["requestDemoController"]);
+  });
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, EVM_NETWORK: "mainnet", SIRIUS_PREDICT_ENABLED: "true" }, async () => {
+    const { train, calls } = routes({ address: ADMIN, source: "external" });
+    const response = await train.POST(json(TRAIN, { ...training({ demoSessionRevision: 3 }), served: true }));
+    assert.equal(response.status, 403);
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("la liste du propriétaire expose le modèle servi sans capsule ni secrets", async () => {
+  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN }, async () => {
+    const { train } = routes({ address: ADMIN, source: "external" }, [
+      { id: "job-1", status: "DONE", servedModelId: "job-1", modelCid: "legacy-cid", modelVersion: "1.1.0", runnerReceipt: "secret-receipt",
+        metrics: { accuracy: 0.8 }, deliveryEnvelope: { ciphertext: "secret" }, deliveryPublicKey: "legacy-key", dataset: { name: "dataset" } },
+      { id: "job-2", status: "DONE", servedModelId: null, runnerReceipt: "normal-receipt", deliveryPublicKey: "public" },
+    ]);
+    const response = await train.GET(new Request(TRAIN));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    const jobs = await response.json();
+    assert.equal(jobs[0].servedModelId, "job-1");
+    assert.equal(jobs[0].runnerReceipt, null);
+    assert.equal(jobs[0].modelCid, null);
+    assert.equal(jobs[0].deliveryPublicKey, null);
+    assert.equal(jobs[0].deliveryEnvelope, undefined);
+    assert.equal(jobs[1].runnerReceipt, "normal-receipt");
+  });
 });

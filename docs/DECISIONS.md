@@ -161,3 +161,5 @@ Le 19 octobre 2026, après l’étude [EGRESS-POLICY-API.md](EGRESS-POLICY-API.m
 - **L’API est réservée aux modèles dangereux à livrer.** Une décision seule ne protège pas la fonction de décision d’une logistique : environ 2 400 appels d’usage normal suffisent à la cloner. En v1, Sirius décide par profil ; linéaire et logistique restent livrées.
 
 Cette décision rouvre en partie l’écartement, le 14 octobre, des modèles à servir depuis l’enclave, sans les activer. Elle n’autorise ni implémentation de `/predict`, ni CVM allumée en continu, ni changement du format livré de linéaire et logistique v1, ni contrat de facturation par appel. Seuils, quotas, prix et crédits prépayés restent des questions ouvertes de la note.
+
+**Précision du 27 octobre 2026 :** Noé a autorisé le début de l’implémentation sur `feat/private-model-api`. Le prototype local E4 décrit dans [la note](EGRESS-POLICY-API.md#16-découpage-initial-du-prototype-post-predict) ne modifie pas les autres interdictions de D-27 : ni activation distante, ni service continu, ni facturation par appel. Il sert uniquement au propriétaire de son modèle pendant une session manuelle.

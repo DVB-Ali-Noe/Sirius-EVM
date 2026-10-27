@@ -12,7 +12,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const job = await prisma.trainingJob.findUnique({ where: { id } });
     if (!job) return NextResponse.json({ error: "Résultat introuvable" }, { status: 404 });
     assertOwner(session, job.owner);
-    if (job.status !== "DONE" || !job.deliveryEnvelope || !job.deliveryPublicKey || !job.modelCid) {
+    if (job.servedModelId || job.status !== "DONE" || !job.deliveryEnvelope || !job.deliveryPublicKey || !job.modelCid) {
       return NextResponse.json({ error: "Livraison pas encore disponible" }, { status: 409 });
     }
     return NextResponse.json({ jobId: id, modelCid: job.modelCid, metrics: job.metrics,

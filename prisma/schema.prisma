@@ -102,6 +102,7 @@ model TrainingJob {
   modelVersion String @default("1.0.0")
 
   modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
+  servedModelId String? @unique // modèle gardé exclusivement par le runner ; identique à l'id du job
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
   deliveryPublicKey String?

@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
+import { phalaDemoInstance } from "@/lib/sirius/self-training-access";
 import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
 import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
@@ -11,13 +12,9 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import type { RunnerDeliveryEnvelope } from "@/lib/tee/contract";
 
-export interface SelfTrainResult {
-  jobId: string;
-  modelCid: string;
-  runnerReceipt: string;
-  metrics: Record<string, number>;
-  modelKeyEnvelope?: RunnerDeliveryEnvelope;
-}
+export type SelfTrainResult =
+  | { jobId: string; servedModelId: string; metrics: Record<string, number>; runnerReceipt?: string }
+  | { jobId: string; modelCid: string; runnerReceipt: string; metrics: Record<string, number>; modelKeyEnvelope?: RunnerDeliveryEnvelope };
 
 const MAX_RUNNING_JOBS = 1;
 const MAX_JOBS_PER_HOUR = 3;
@@ -37,7 +34,12 @@ export async function runSelfTrain(
   datasetReceipt: string,
   authorization: RunnerGrant,
   deliveryPublicKey?: string,
+  served = false,
 ): Promise<SelfTrainResult> {
+  if (served && (!phalaDemoInstance() || process.env.SIRIUS_PREDICT_ENABLED !== "true")) {
+    throw new AppError("Prédiction privée indisponible", 403);
+  }
+  if (served && deliveryPublicKey !== undefined) throw new AppError("Clé de livraison interdite pour un modèle servi", 400);
   await requireAcceptedKyb(owner);
   await requireCurrentEvmDeployment();
   const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, omit: { wrappedKey: false } });
@@ -58,6 +60,9 @@ export async function runSelfTrain(
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
+  if (served && (model.modelId !== "gradient_boosted_trees" || model.modelVersion !== "1.1.0")) {
+    throw new AppError("La prédiction privée requiert un dataset GBDT binaire v1.1.0", 409);
+  }
 
   await assertDatasetScope({
     datasetId: dataset.id,
@@ -93,7 +98,7 @@ export async function runSelfTrain(
 
   let modelCid: string | undefined;
   try {
-    const out = await runSelfTrainingInRunner({
+    const input = {
       datasetId: dataset.id,
       cid: dataset.ipfsCid,
       wrappedKey: dataset.wrappedKey,
@@ -102,7 +107,30 @@ export async function runSelfTrain(
       challengeDays: dataset.challengeDays,
       jobId: job.id,
       ...model,
-    }, datasetReceipt, authorization, deliveryPublicKey);
+    };
+    const out = served
+      ? await runSelfTrainingInRunner(input, datasetReceipt, authorization, undefined, true)
+      : await runSelfTrainingInRunner(input, datasetReceipt, authorization, deliveryPublicKey);
+    if (served) {
+      if (!("servedModelId" in out) || out.servedModelId !== job.id || "modelCid" in out || "modelKeyEnvelope" in out) {
+        throw new AppError("Résultat de modèle servi invalide", 502);
+      }
+      const runnerReceipt = "runnerReceipt" in out && typeof out.runnerReceipt === "string" ? out.runnerReceipt : undefined;
+      const completed = await prisma.trainingJob.updateMany({
+        where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },
+        data: {
+          status: "DONE",
+          servedModelId: job.id,
+          metrics: out.metrics,
+          ...(runnerReceipt ? { runnerReceipt } : {}),
+          completedAt: new Date(),
+        },
+      });
+      if (completed.count !== 1) throw new AppError("Le lease d’entraînement a expiré", 409);
+      return { jobId: job.id, servedModelId: job.id, metrics: out.metrics,
+        ...(runnerReceipt ? { runnerReceipt } : {}) };
+    }
+    if ("servedModelId" in out) throw new AppError("Résultat de modèle livré invalide", 502);
     if (deliveryPublicKey && !out.modelKeyEnvelope) throw new AppError("Livraison chiffrée manquante", 502);
     modelCid = out.modelCid;
     const completed = await prisma.trainingJob.updateMany({
