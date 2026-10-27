@@ -54,7 +54,7 @@ contract SiriusDatasetRegistry {
     // Constants
     // ---------------------------------------------------------------------------------
 
-    string public constant VERSION = "sirius-dataset-v4";
+    string public constant VERSION = "sirius-dataset-v5";
 
     bytes32 public constant DATASET_ID_DOMAIN = keccak256("sirius.dataset.id.v1");
     bytes32 public constant LINEAR_REGRESSION_V1_PROFILE =
@@ -76,6 +76,9 @@ contract SiriusDatasetRegistry {
 
     mapping(bytes32 => Dataset) private _datasets;
 
+    /// @notice Training profiles accepted at mint. Append-only, see `addTrainingProfile`.
+    mapping(bytes32 => bool) private _supportedTrainingProfiles;
+
     /// @notice Number of live titles per provider, for cheap dashboard reads.
     mapping(address => uint256) public liveCount;
 
@@ -95,6 +98,7 @@ contract SiriusDatasetRegistry {
     /// @notice The title was tombstoned after crypto-shredding.
     event DatasetDestroyed(bytes32 indexed datasetId, address indexed provider, uint40 destroyedAt);
     event EscrowBound(address indexed escrow);
+    event TrainingProfileAdded(bytes32 indexed profile);
 
     // ---------------------------------------------------------------------------------
     // Errors
@@ -124,6 +128,8 @@ contract SiriusDatasetRegistry {
         if (admin_ == address(0)) revert ZeroAddress();
         kyb = kyb_;
         admin = admin_;
+        _addTrainingProfile(LINEAR_REGRESSION_V1_PROFILE);
+        _addTrainingProfile(LOGISTIC_REGRESSION_V1_PROFILE);
     }
 
     function bindEscrow(ISiriusDatasetEscrow escrow_) external {
@@ -132,6 +138,27 @@ contract SiriusDatasetRegistry {
         if (address(escrow_) == address(0) || address(escrow_).code.length == 0) revert ZeroAddress();
         escrow = escrow_;
         emit EscrowBound(address(escrow_));
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Training profiles
+    // ---------------------------------------------------------------------------------
+
+    /// @notice Allow new titles to be minted under `profile`. Admin only, idempotent.
+    /// @dev Append-only: there is no removal, so an existing title is never made unmintable
+    ///      or unusable — `isLiveForProviderAndProfile` and `matchesScope` ignore support.
+    ///      Adding a profile on-chain does not make it executable: the runner checks the
+    ///      profile itself.
+    function addTrainingProfile(bytes32 profile) external {
+        if (msg.sender != admin) revert NotAdmin();
+        if (profile == bytes32(0)) revert InvalidTrainingProfile();
+        _addTrainingProfile(profile);
+    }
+
+    function _addTrainingProfile(bytes32 profile) private {
+        if (_supportedTrainingProfiles[profile]) return;
+        _supportedTrainingProfiles[profile] = true;
+        emit TrainingProfileAdded(profile);
     }
 
     // ---------------------------------------------------------------------------------
@@ -226,8 +253,8 @@ contract SiriusDatasetRegistry {
         return dataset.provider == provider && dataset.destroyedAt == 0;
     }
 
-    function isSupportedTrainingProfile(bytes32 trainingProfile) public pure returns (bool) {
-        return trainingProfile == LINEAR_REGRESSION_V1_PROFILE || trainingProfile == LOGISTIC_REGRESSION_V1_PROFILE;
+    function isSupportedTrainingProfile(bytes32 trainingProfile) public view returns (bool) {
+        return _supportedTrainingProfiles[trainingProfile];
     }
 
     function isLiveForProviderAndProfile(bytes32 id, address provider, bytes32 trainingProfile)

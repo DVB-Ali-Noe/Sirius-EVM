@@ -47,7 +47,7 @@ test("la politique runner n'est produite qu'après approbation, financement, cal
   approved.approval = { approvedBy: ["Ali", "Noé"], approvedAt: "2026-10-01", validUntil: 1_900_000_000_000 };
   approved.trialFunding.fundingSource = "apport fondateurs";
   approved.trialFunding.approved = true;
-  for (const id of ["linear_regression", "logistic_regression"]) approved.profiles[id].phalaCalibrated = true;
+  for (const id of Object.keys(approved.profiles)) approved.profiles[id].phalaCalibrated = true;
   const verifiedPlan = { ...clone(plan), providerCapsVerified: true, phalaBenchmarkVerified: true };
   const report = tariffReport(approved, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 });
   assert.deepEqual(report.blockers, []);
@@ -58,6 +58,14 @@ test("la politique runner n'est produite qu'après approbation, financement, cal
   assert.equal(policy.chainId, 46630);
   assert.equal(policy.computeRecipient, plan.computeRecipient);
   assert.equal(policy.profiles.linear_regression.maxExecutionMs, 30000);
+  // Profil facultatif proposé : même format que les profils obligatoires, même prix minimum.
+  assert.deepEqual(policy.profiles.gradient_boosted_trees, policy.profiles.logistic_regression);
+  const withoutTrees = clone(approved);
+  delete withoutTrees.profiles.gradient_boosted_trees;
+  assert.ok(!Object.hasOwn(tariffReport(withoutTrees, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 }).billingPolicy.profiles, "gradient_boosted_trees"));
+  const uncalibrated = clone(approved);
+  uncalibrated.profiles.gradient_boosted_trees.phalaCalibrated = false;
+  assert.deepEqual(tariffReport(uncalibrated, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 }).blockers, ["profil gradient_boosted_trees non calibré sur la CVM"]);
   // Une seule condition manquante suffit à bloquer.
   const expired = tariffReport(approved, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_950_000_000_000 });
   assert.equal(expired.billingPolicy, null);

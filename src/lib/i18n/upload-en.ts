@@ -52,18 +52,35 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Trop de lignes : au plus {max} lignes, en-tête compris.": "Too many rows: at most {max} rows, header included.",
   "Trop de colonnes : au plus {max}.": "Too many columns: at most {max}.",
   "Une cellule dépasse la taille autorisée.": "A cell exceeds the allowed size.",
+  "Ligne {line} : retour chariot isolé. Enregistre le fichier avec des fins de ligne standard (LF ou CRLF).":
+    "Line {line}: lone carriage return. Save the file with standard line endings (LF or CRLF).",
+  "Ligne {line} : guillemet au milieu d’une cellule. Une cellule qui contient un guillemet doit être entièrement entre guillemets, guillemet intérieur doublé (\"\").":
+    "Line {line}: quote in the middle of a cell. A cell containing a quote must be fully quoted, with the inner quote doubled (\"\").",
+  "Ligne {line} : caractère après un guillemet fermant. Une cellule entre guillemets doit être suivie d’une virgule ou d’une fin de ligne.":
+    "Line {line}: character after a closing quote. A quoted cell must be followed by a comma or a line ending.",
+  "Ligne {line} : guillemet ouvert jamais fermé.": "Line {line}: quote opened and never closed.",
+  "Ligne {line} : ligne vide. Seules les lignes vides en fin de fichier sont admises.":
+    "Line {line}: blank line. Only blank lines at the end of the file are allowed.",
+  "Ligne {line} : {cells} cellule(s) pour {columns} colonne(s) dans l’en-tête. Chaque ligne doit avoir autant de cellules que l’en-tête ; une virgule décimale non citée, par exemple, ajoute une cellule.":
+    "Line {line}: {cells} cell(s) for {columns} column(s) in the header. Every row must have as many cells as the header; an unquoted decimal comma, for example, adds a cell.",
   "Le fichier doit contenir un en-tête et au moins une ligne de données.": "The file must contain a header and at least one data row.",
-  "En-tête invalide : chaque colonne doit avoir un nom, sans doublon.": "Invalid header: every column needs a name, with no duplicates.",
+  "En-tête invalide : chaque colonne doit avoir un nom unique de {max} caractères au plus.": "Invalid header: every column needs a unique name of at most {max} characters.",
   "Au moins deux colonnes entièrement numériques sont requises ({found} détectée(s)).":
     "At least two fully numeric columns are required ({found} detected).",
   "Trop de variables numériques : {found}, maximum {max} en plus de la cible.":
     "Too many numeric features: {found}, maximum {max} in addition to the target.",
   "Pas assez de lignes : {rows}, minimum {min} pour ce nombre de variables.":
     "Not enough rows: {rows}, minimum {min} for this number of features.",
+  "La dernière colonne, « {target} », sert de cible mais contient {missing} cellule(s) vide(s) et {invalid} non numérique(s). Complète-la, ou place la colonne à prédire en dernier.":
+    "The last column, “{target}”, is the target but contains {missing} empty and {invalid} non-numeric cell(s). Fill them in, or put the column to predict last.",
   "Budget de calcul dépassé : réduis le nombre de lignes ou de variables.":
     "Compute budget exceeded: reduce the number of rows or features.",
   "Pour la régression logistique, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":
     "For logistic regression, the target column “{target}” must contain only 0 and 1, with both classes present.",
+  "Pour les arbres boostés, la colonne cible « {target} » doit contenir uniquement 0 et 1, avec les deux classes.":
+    "For boosted trees, the target column “{target}” must contain only 0 and 1, with both classes present.",
+  "Les arbres boostés mettent une ligne sur cinq de côté pour le test : les deux parties doivent contenir les classes 0 et 1 de « {target} ».":
+    "Boosted trees hold out one row in five for testing: both parts must contain classes 0 and 1 of “{target}”.",
 
   // Transition de sécurisation
   "Sécurisation sur ton appareil": "Securing on your device",
@@ -131,4 +148,36 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Le serveur a renvoyé un autre prix": "The server returned a different price",
   "Le serveur a renvoyé une autre taille de fichier": "The server returned a different file size",
   "Le serveur a renvoyé d’autres termes de publication": "The server returned different publication terms",
+
+  // Rapport de qualité à l'import (E1), calculé et gardé dans le navigateur
+  "Rapport de qualité": "Quality report",
+  "Cible différente de la dernière colonne : à vérifier": "Target differs from the last column: please check",
+  "La dernière colonne, {expected}, contient des cellules vides ou non numériques : l’entraînement l’écarte et prendra {actual} comme cible.":
+    "The last column, {expected}, has empty or non-numeric cells: training drops it and will use {actual} as the target.",
+  "Aucun signalement.": "Nothing to report.",
+  "Variables qui semblent recopier la cible : à vérifier": "Variables that seem to copy the target: please check",
+  "identique": "identical",
+  "inverse (1 − cible)": "inverse (1 − target)",
+  "corrélation {value}": "correlation {value}",
+  "Une variable qui contient la réponse donne un modèle trompeur. Retire-la si elle n’est pas connue au moment de prédire.":
+    "A variable that contains the answer gives a misleading model. Remove it if it is not known at prediction time.",
+  "Colonnes écartées par l’entraînement : à vérifier": "Columns dropped by training: please check",
+  "{missing} vides, {invalid} non numériques": "{missing} empty, {invalid} non-numeric",
+  "Un nombre s’écrit en décimal avec un point (12.5, -3, 1e6) : une cellule faite d’espaces compte comme vide, une valeur 0x, 0b ou 0o n’est pas un nombre.":
+    "A number is written in decimal with a dot (12.5, -3, 1e6): a cell made only of spaces counts as empty, and a 0x, 0b or 0o value is not a number.",
+  "Une seule cellule vide ou non numérique écarte toute la colonne. Complète-les pour l’utiliser.":
+    "A single empty or non-numeric cell drops the whole column. Fill them in to use it.",
+  "Colonnes constantes : à vérifier": "Constant columns: please check",
+  "Une seule valeur sur tout le fichier : la colonne n’apporte aucune information.": "A single value across the whole file: the column carries no information.",
+  "Lignes en double : à vérifier": "Duplicate rows: please check",
+  "{rows} lignes ont au moins un double sur les colonnes d’entraînement ; une même ligne revient jusqu’à {max} fois.":
+    "{rows} rows have at least one duplicate on the training columns; a single row appears up to {max} times.",
+  "Les doublons peuvent être légitimes. Une ligne répétée pèse davantage et se mémorise plus facilement.":
+    "Duplicates can be legitimate. A repeated row weighs more and is memorized more easily.",
+  "Classes déséquilibrées : à vérifier": "Imbalanced classes: please check",
+  "{zeros} lignes à 0, {ones} lignes à 1 : la classe minoritaire fait {share} % du fichier.":
+    "{zeros} rows at 0, {ones} rows at 1: the minority class is {share}% of the file.",
+  "Colonnes texte, ignorées par l’entraînement :": "Text columns, ignored by training:",
+  "Ce rapport reste dans ton navigateur : il n’est ni envoyé, ni enregistré, et ne modifie pas ton fichier.":
+    "This report stays in your browser: it is neither sent nor saved, and it does not modify your file.",
 };

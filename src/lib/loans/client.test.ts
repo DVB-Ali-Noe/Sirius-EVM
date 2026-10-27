@@ -2,7 +2,12 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { borrowDataset } from "./client";
+import { borrowDataset, settleLoan, SETTLEMENT_QUEUED_RETRY_MS } from "./client";
+import { SETTLEMENT_QUEUED } from "./settlement-status";
+import { AppError } from "@/lib/app-error";
+import { RUNNER_WALLET_BUSY } from "@/lib/runner/failure-policy";
+import { settlementQueuedError } from "@/lib/sirius/settlement-queued";
+import type { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { useWalletStore } from "@/stores/wallet";
 import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, encodeFunctionResult } from "viem";
 import { siriusescrowAbi } from "@/lib/evm/abi/siriusescrow";
@@ -135,4 +140,45 @@ test("le règlement reprend après rechargement sans dépendre de la capsule loc
 
   assert.doesNotMatch(resumption, /hasAtomicLoanEnvelope|Capsule locale absente/);
   assert.match(resumption, /await settleLoan\(loanId, runnerReceipt\)/);
+});
+
+test("PAR-02 : un règlement refusé parce qu'un autre occupe le wallet runner est redemandé, avec une autorisation neuve à chaque essai", async () => {
+  const previousFetch = globalThis.fetch;
+  const waits: number[] = [];
+  const bodies: string[] = [];
+  const answers: { status: number; body: object }[] = [
+    { status: 503, body: { error: SETTLEMENT_QUEUED } },
+    { status: 503, body: { error: SETTLEMENT_QUEUED } },
+    { status: 200, body: { loanId: "loan-queued" } },
+  ];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    bodies.push(init.body);
+    const answer = answers.shift()!;
+    return new Response(JSON.stringify(answer.body), { status: answer.status });
+  }) as unknown as typeof fetch;
+  let issued = 0;
+  const grant: typeof issueRunnerGrant = async () => ({ grant: `grant-${issued++}` }) as never;
+  try {
+    await settleLoan("loan-queued", "receipt", { grant, wait: async (ms) => { waits.push(ms); } });
+    assert.deepEqual(waits, SETTLEMENT_QUEUED_RETRY_MS.slice(0, 2));
+    assert.equal(new Set(bodies).size, 3, "chaque essai porte son propre grant");
+
+    // Au-delà des essais prévus, le message lisible remonte ; toute autre erreur n'est jamais relancée.
+    answers.push(...Array.from({ length: SETTLEMENT_QUEUED_RETRY_MS.length + 1 }, () => ({ status: 503, body: { error: SETTLEMENT_QUEUED } })));
+    await assert.rejects(settleLoan("loan-queued", "receipt", { grant, wait: async () => {} }), { message: SETTLEMENT_QUEUED });
+    assert.equal(answers.length, 0);
+    answers.push({ status: 503, body: { error: "Runner confidentiel indisponible" } });
+    await assert.rejects(settleLoan("loan-queued", "receipt", { grant, wait: async () => assert.fail("pas de relance") }),
+      { message: "Runner confidentiel indisponible" });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("PAR-02 : côté serveur, seul le refus « wallet runner occupé » (503) devient le message de règlement en file", () => {
+  assert.equal((settlementQueuedError(new AppError(RUNNER_WALLET_BUSY, 503)) as Error).message, SETTLEMENT_QUEUED);
+  const conflict = new AppError(RUNNER_WALLET_BUSY, 409);
+  assert.equal(settlementQueuedError(conflict), conflict);
+  const unavailable = new AppError("Runner confidentiel indisponible", 503);
+  assert.equal(settlementQueuedError(unavailable), unavailable);
 });

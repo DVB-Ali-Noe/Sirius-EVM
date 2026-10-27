@@ -3,12 +3,26 @@ import { resolve } from "node:path";
 import { createPublicClient, createWalletClient, formatEther, http, keccak256, type Abi, type Chain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_CHAINS, USDC_DECIMALS_BY_NETWORK, type EvmNetwork } from "../../src/lib/evm/networks";
+import { selectionForModelId, trainingProfileHash } from "../../src/lib/models/registry";
 import { deploymentPlan } from "../../scripts/deploy-policy";
+import { estimateDeploymentGas, type EstimateClient } from "./deploy-estimate";
+import {
+  addTrainingProfileCall, assertBound, assertCanBind, bindEscrowCall, ESCROW_VERSIONS, expectedProfiles, profileHashes, readBinding,
+  SAFE_BATCH_END, SAFE_BATCH_START, safeTransactionBatch, type BindingReader,
+} from "./dataset-binding";
 
 /**
  * Déploie les contrats Sirius sur Robinhood Chain.
  *
  *   ROBINHOOD_DEPLOYER_KEY=0x... pnpm contracts:deploy:testnet
+ *
+ * Admin du registre de datasets (immuable, audit REP-11) :
+ * - mainnet : `SIRIUS_DATASET_ADMIN` obligatoire, le Safe de gouvernance (= `SIRIUS_KYB_ADMIN`),
+ *   vérifié comme contrat. Le script déploie registre et escrow, vérifie `admin() == Safe` et que
+ *   l'escrow pointe vers ce registre, puis S'ARRÊTE : il imprime le lot `bindEscrow` +
+ *   `addTrainingProfile` que le Safe signe. Contrôle avant et après : `contracts:dataset-admin`.
+ * - testnet : la clé de déploiement par défaut, qui envoie elle-même liaison et profils, contrôlés
+ *   avant et après. Avec `SIRIUS_DATASET_ADMIN` distinct, même déroulé que mainnet.
  *
  * Écrit en viem pur plutôt qu'avec les aides de `hardhat-viem`, pour deux raisons.
  * D'abord `hardhat-viem` ne connaît que les chaînes livrées dans `viem/chains`, et
@@ -91,11 +105,20 @@ async function main() {
   const transport = http(process.env.EVM_RPC_URL || chain.rpcUrls.default.http[0]);
   const publicClient = createPublicClient({ chain, transport });
   const walletClient = createWalletClient({ account, chain, transport });
+  // Les règles ci-dessus dépendent du réseau demandé : le RPC doit être ce réseau-là, y compris
+  // pour une exécution à blanc (qui n'envoie rien, donc que viem ne contrôlerait pas).
+  const rpcChainId = await publicClient.getChainId();
+  if (rpcChainId !== chain.id) throw new Error(`Le RPC répond chainId ${rpcChainId}, ${chain.id} attendu pour ${network}`);
+  const reader = publicClient as unknown as BindingReader;
+  const datasetAdmin = plan.datasetAdmin as Hex;
 
   const balance = await publicClient.getBalance({ address: account.address });
   console.log(`réseau        : ${network} (chainId ${chain.id})`);
   console.log(`déployeur     : ${account.address}`);
   console.log(`solde         : ${formatEther(balance)} ETH`);
+  console.log(plan.datasetAdminIsDeployer
+    ? `admin registre: ${account.address} (clé de déploiement, choix testnet explicite : immuable, pas pour mainnet)`
+    : `admin registre: ${datasetAdmin} (immuable ; liaison et profils préparés pour cet admin, non envoyés)`);
 
   if (balance === 0n && plan.dryRun) {
     console.log("solde nul     : accepté pour une exécution à blanc, refusé pour un vrai déploiement");
@@ -172,18 +195,53 @@ async function main() {
   }
   console.log(`USDC          : ${usdc} (${expectedDecimals} décimales)`);
 
-  // Sur mainnet, l'admin KYB est le Safe : une adresse sans code serait une clé seule.
+  // Sur mainnet, l'admin KYB et l'admin du registre sont le Safe : une adresse sans code serait une clé seule.
   for (const governed of plan.mustBeContracts) {
     const code = await publicClient.getBytecode({ address: governed as Hex });
-    if (!code || code === "0x") throw new Error(`L'admin KYB ${governed} doit être un contrat (Safe), pas une clé`);
+    if (!code || code === "0x") throw new Error(`L'admin ${governed} (KYB et registre de datasets) doit être un contrat (Safe), pas une clé`);
   }
 
+  // Réutilisation d'un registre KYB : son mode doit être celui demandé, avant toute transaction.
+  if (plan.existingKyb) {
+    const existing = plan.existingKyb as Hex;
+    const code = await publicClient.getBytecode({ address: existing });
+    if (!code || code === "0x") throw new Error("SIRIUS_KYB_EXISTING_ADDRESS ne contient aucun contrat");
+    const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
+    const acceptsAnyone = await publicClient.readContract({
+      address: existing, abi: artifact(kybName).abi, functionName: "isKybValid",
+      args: ["0x000000000000000000000000000000000000dEaD"],
+    });
+    if (acceptsAnyone !== kybOuvert) throw new Error("Le registre KYB existant n'est pas dans le mode demandé (SIRIUS_KYB_MODE)");
+    if (!kybOuvert) {
+      const version = await publicClient.readContract({ address: existing, abi: artifact(kybName).abi, functionName: "VERSION" });
+      if (version !== "sirius-kyb-v3") throw new Error("Le registre KYB existant n'est pas en v3");
+    }
+    console.log(`KYB réutilisé : ${existing} (${kybOuvert ? "ouvert" : "strict v3"})`);
+  }
+  const addedProfiles = profileHashes(plan.trainingProfiles);
+
   if (plan.dryRun) {
+    if (!plan.estimateDatasets) {
+      throw new Error("SIRIUS_DEPLOY_ESTIMATE_DATASETS requis en simulation : registre de datasets déjà déployé servant de référence à l'estimation de l'escrow");
+    }
+    const gasPrice = await publicClient.getGasPrice();
+    const kybName = kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry";
+    const estimates = await estimateDeploymentGas(publicClient as unknown as EstimateClient, {
+      account: account.address, artifact,
+      kyb: plan.existingKyb ? { existing: plan.existingKyb as Hex } : { deploy: kybName, args: kybOuvert ? [] : [admin, verifier] },
+      referenceDatasets: plan.estimateDatasets as Hex, escrowContract, usdc, lockAuthorizer,
+      addedProfiles: addedProfiles.map(({ id }) => id),
+      datasetAdmin, adminCallsByDeployer: plan.datasetAdminIsDeployer,
+    });
+    const total = estimates.reduce((sum, [, gas]) => sum + gas, 0n);
     console.log("");
     console.log("Exécution à blanc : toutes les vérifications sont passées, aucune transaction envoyée.");
-    console.log(`contrats      : ${kybOuvert ? "SiriusOpenKybRegistry" : "SiriusKybRegistry"}, SiriusDatasetRegistry, ${escrowContract}`);
+    for (const [name, gas] of estimates) console.log(`  ${name.padEnd(42)} ${gas.toLocaleString("fr-FR")} gas`);
+    console.log(`gas estimé    : ${total.toLocaleString("fr-FR")} à ${gasPrice} wei, soit ${formatEther(total * gasPrice)} ETH (solde ${formatEther(balance)} ETH)`);
     console.log(`signataire    : ${lockAuthorizer}`);
-    if (!kybOuvert) console.log(`admin KYB     : ${admin}\nvérificateur  : ${verifier}`);
+    if (!kybOuvert && !plan.existingKyb) console.log(`admin KYB     : ${admin}\nvérificateur  : ${verifier}`);
+    if (!plan.datasetAdminIsDeployer) console.log(`bindEscrow et profils : payés et signés par ${datasetAdmin}, hors de ce total`);
+    if (total * gasPrice * 3n > balance) throw new Error("Solde insuffisant pour trois fois le gas estimé : alimenter le compte avant le déploiement");
     return;
   }
 
@@ -216,22 +274,38 @@ async function main() {
   }
 
   console.log("");
-  const kyb = kybOuvert
-    ? await deploy("SiriusOpenKybRegistry")
-    : await deploy("SiriusKybRegistry", [admin, verifier]);
-  // Ce rôle ne sert qu'à la liaison unique ; le déployeur effectue la transaction.
-  const datasets = await deploy("SiriusDatasetRegistry", [kyb, account.address]);
+  const kyb = plan.existingKyb
+    ? plan.existingKyb as Hex
+    : kybOuvert
+      ? await deploy("SiriusOpenKybRegistry")
+      : await deploy("SiriusKybRegistry", [admin, verifier]);
+  // L'admin du registre est immuable : il lie l'escrow une seule fois et peut ensuite ajouter des
+  // profils, jamais en retirer (audit REP-11). Mainnet : le Safe passé dans SIRIUS_DATASET_ADMIN,
+  // jamais la clé de déploiement. Testnet : la clé de déploiement, sauf SIRIUS_DATASET_ADMIN.
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, datasetAdmin]);
+  const deployedAdmin = (await publicClient.readContract({
+    address: datasets, abi: artifact("SiriusDatasetRegistry").abi, functionName: "admin",
+  })) as Hex;
+  if (deployedAdmin.toLowerCase() !== datasetAdmin.toLowerCase()) {
+    throw new Error(`L'admin du registre déployé est ${deployedAdmin}, pas ${datasetAdmin} : ne pas utiliser ce registre`);
+  }
   const escrow = await deploy(escrowContract, [usdc, kyb, datasets, lockAuthorizer]);
-  const bindEscrowHash = await walletClient.writeContract({
-    address: datasets,
-    abi: artifact("SiriusDatasetRegistry").abi,
-    functionName: "bindEscrow",
-    args: [escrow],
-    account,
-  });
-  const bindEscrowReceipt = await publicClient.waitForTransactionReceipt({ hash: bindEscrowHash, confirmations: 1 });
-  if (bindEscrowReceipt.status !== "success") throw new Error("Liaison DatasetRegistry → SiriusEscrow rejetée");
-  totalGas += bindEscrowReceipt.gasUsed;
+  // REP-12 : `bindEscrow` ne vérifie pas que l'escrow pointe vers ce registre et ne s'annule pas.
+  // On le vérifie avant d'envoyer ou de faire signer quoi que ce soit.
+  const escrowVersion = ESCROW_VERSIONS[escrowContract];
+  assertCanBind(await readBinding(reader, datasets, escrow), { admin: datasetAdmin, escrowVersion });
+
+  const adminCalls = [bindEscrowCall(datasets, escrow), ...addedProfiles.map((profile) => addTrainingProfileCall(datasets, profile))];
+  if (plan.datasetAdminIsDeployer) {
+    // Testnet, admin = clé de déploiement : elle envoie elle-même la liaison puis les profils.
+    for (const call of adminCalls) {
+      const hash = await walletClient.sendTransaction({ to: call.to, data: call.data, value: 0n, account, chain });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      if (receipt.status !== "success") throw new Error(`${call.description} rejetée (tx ${hash})`);
+      totalGas += receipt.gasUsed;
+      console.log(`${call.description} (${receipt.gasUsed.toLocaleString("fr-FR")} gas, tx ${hash})`);
+    }
+  }
 
   console.log("");
   console.log(`gas total     : ${totalGas.toLocaleString("fr-FR")}`);
@@ -311,13 +385,21 @@ async function main() {
   if (linkedKyb.toLowerCase() !== kyb.toLowerCase()) {
     throw new Error("Le registre dataset ne pointe pas sur le registre KYB déployé");
   }
-  const linkedEscrow = (await publicClient.readContract({
-    address: datasets,
-    abi: datasetAbi,
-    functionName: "escrow",
-  })) as Hex;
-  if (linkedEscrow.toLowerCase() !== escrow.toLowerCase()) {
-    throw new Error("SiriusDatasetRegistry ne référence pas le contrat escrow déployé");
+  // Après déploiement : l'admin est celui demandé, et la liaison est faite dans les deux sens
+  // (testnet) ou pas du tout, en attente du Safe (mainnet).
+  const binding = await readBinding(reader, datasets, escrow);
+  if (plan.datasetAdminIsDeployer) {
+    assertBound(binding, { admin: datasetAdmin, escrowVersion });
+  } else {
+    assertCanBind(binding, { admin: datasetAdmin, escrowVersion });
+  }
+  // Linéaire et logistique dès la construction, puis les profils ajoutés (s'ils l'ont été ici) :
+  // tous acceptés au mint.
+  for (const id of expectedProfiles(plan.datasetAdminIsDeployer ? plan.trainingProfiles : [])) {
+    const supported = await publicClient.readContract({
+      address: datasets, abi: datasetAbi, functionName: "isSupportedTrainingProfile", args: [trainingProfileHash(selectionForModelId(id))],
+    });
+    if (!supported) throw new Error(`Le registre dataset n'accepte pas le profil ${id}`);
   }
 
   const explorer = chain.blockExplorers?.default.url;
@@ -342,6 +424,19 @@ async function main() {
     ] as const) {
       console.log(`  ${name.padEnd(22)} ${explorer}/address/${address}`);
     }
+  }
+
+  if (!plan.datasetAdminIsDeployer) {
+    // Rien n'est lié : l'escrow refuse tout verrouillage tant que `datasets.escrow() != escrow`
+    // (SiriusEscrowV7.sol, DatasetEscrowMismatch), donc cette attente est sans risque.
+    console.log("");
+    console.log(`LIAISON EN ATTENTE : l'admin ${datasetAdmin} doit signer, dans cet ordre (rien n'a été envoyé) :`);
+    adminCalls.forEach((call, index) => console.log(`  ${index + 1}. ${call.description}\n     to=${call.to} value=0 data=${call.data}`));
+    console.log(SAFE_BATCH_START);
+    console.log(JSON.stringify(safeTransactionBatch(chain.id, datasetAdmin, "Sirius : liaison du registre de datasets", adminCalls), null, 2));
+    console.log(SAFE_BATCH_END);
+    console.log("Avant de signer, recontrôler : pnpm contracts:dataset-admin prepare-bind (mêmes adresses).");
+    console.log("Après exécution, et avant toute mise en service : pnpm contracts:dataset-admin verify.");
   }
 }
 

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import { trainInWorker } from "./bounded-training";
 import { gateModel } from "./output-gate";
-import { DatasetValidationError, MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS, trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "./train";
+import {
+  DatasetValidationError, MAX_TRAINING_FEATURES, MAX_TRAINING_OPERATIONS, MIN_TRAINING_ROWS,
+  trainingClock, trainingClockMs, trainingClockSource, trainLinearRegression, trainLogisticRegression, validateTrainingDataset,
+} from "./train";
 import { trainSelectedModel } from "./model-registry";
 import { modelSelection } from "@/lib/models/registry";
 import { translateEnglish } from "@/lib/i18n/english";
@@ -160,17 +164,74 @@ test("chaque motif de validation a une traduction anglaise", () => {
   }
 });
 
-for (const [modelId, rows] of [["linear_regression", 19_999], ["logistic_regression", 4_000]] as const) {
-  test(`l'ingestion refuse le budget excessif pour ${modelId}`, () => {
-    const header = Array.from({ length: 32 }, (_, index) => `f${index}`).join(",");
-    const csv = Buffer.from([header, ...Array.from({ length: rows }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
-    assert.ok(csv.length < 3 * 1024 * 1024);
-    const selection = modelSelection(modelId, "1.0.0")!;
-    for (const run of [() => validateTrainingDataset(csv, selection), () => trainSelectedModel(selection, csv)]) {
-      assert.throws(run, (error) => error instanceof DatasetValidationError && /budget de calcul/.test(error.message));
-    }
-    const limit = Math.floor(20_000_000 / (32 * (modelId === "linear_regression" ? 32 : 200)));
-    const boundary = Buffer.from([header, ...Array.from({ length: limit }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
-    assert.doesNotThrow(() => validateTrainingDataset(boundary, selection));
-  });
-}
+test("le budget élargi admet 30 000 lignes et refuse la première logistique hors limite", () => {
+  const header = Array.from({ length: 32 }, (_, index) => `f${index}`).join(",");
+  const rows = Math.floor(MAX_TRAINING_OPERATIONS / (32 * 200));
+  const csv = Buffer.from([header, ...Array.from({ length: rows + 1 }, (_, index) => Array(32).fill(index % 2).join(","))].join("\n"));
+  assert.ok(csv.length < 3 * 1024 * 1024);
+  const selection = modelSelection("logistic_regression", "1.0.0")!;
+  const accepted = csv.subarray(0, csv.lastIndexOf("\n"));
+  validateTrainingDataset(accepted, selection);
+  assert.throws(
+    () => validateTrainingDataset(csv, selection),
+    (error) => error instanceof DatasetValidationError && /budget de calcul/.test(error.message),
+  );
+});
+
+test("entraîne 30 000 lignes en worker sans épuiser son délai ni sa mémoire", { timeout: 20_000 }, async () => {
+  const header = Array.from({ length: 24 }, (_, index) => `f${index}`).join(",");
+  const data = Array.from({ length: 30_000 }, (_, index) => [
+    index % 2,
+    ...Array.from({ length: 22 }, (_, feature) => String((index * 37 + feature * 71) % 1000).padStart(3, "0")),
+    index % 2,
+  ].join(","));
+  const csv = Buffer.from([header, ...data].join("\n"));
+  assert.ok(csv.length < 3 * 1024 * 1024);
+  const model = await trainInWorker(modelSelection("logistic_regression", "1.0.0")!, csv, AbortSignal.timeout(15_000));
+  assert.equal(model.algo, "logistic_regression");
+  assert.equal(model.metrics.n, 30_000);
+  assert.ok(model.metrics.accuracy > 0.9);
+});
+
+test("EXA-05 : le délai d'entraînement se mesure en temps CPU du thread quand la source le fournit", () => {
+  // Horloge CPU : microsecondes user + system, rendues en millisecondes.
+  let cpu = { user: 2_000_000, system: 500_000 };
+  const clock = trainingClock({ threadCpuUsage: () => cpu });
+  assert.equal(clock(), 2_500);
+  const deadline = clock() + 15_000;
+  // Machine chargée : le temps réel avance, mais le thread n'a pas eu le processeur ; l'échéance n'est pas atteinte.
+  assert.ok(clock() <= deadline);
+  cpu = { user: 17_000_000, system: 600_000 };
+  assert.ok(clock() > deadline);
+  // La méthode est appelée sur sa source, comme `process.threadCpuUsage` sur `process`.
+  const source = { calls: 0, threadCpuUsage(this: { calls: number }) { this.calls++; return { user: 1_000, system: 0 }; } };
+  assert.equal(trainingClock(source)(), 1);
+  assert.equal(source.calls, 1);
+});
+
+test("EXA-05 : sans threadCpuUsage, le délai se mesure en temps réel, comme avant", () => {
+  // Absence forcée par injection : vrai quelle que soit la version de Node qui exécute le test.
+  const wall = trainingClock({});
+  const before = performance.now();
+  const read = wall();
+  assert.ok(read >= before && read <= performance.now());
+});
+
+test("EXA-05 : l'horloge du délai suit process.threadCpuUsage quand Node la fournit (Node 22.23 de la CI), sinon le temps réel", () => {
+  const nodeCpu = (process as unknown as { threadCpuUsage?: () => { user: number; system: number } }).threadCpuUsage;
+  const reference = typeof nodeCpu === "function"
+    ? () => { const { user, system } = nodeCpu.call(process); return (user + system) / 1_000; }
+    : () => performance.now();
+  assert.equal(typeof trainingClockSource.threadCpuUsage, typeof nodeCpu);
+  const before = reference();
+  const read = trainingClockMs();
+  assert.ok(read >= before && read <= reference(), `${read} hors de [${before}, …]`);
+});
+
+const hasThreadCpuClock = typeof (process as unknown as { threadCpuUsage?: unknown }).threadCpuUsage === "function";
+
+test("EXA-05 : une attente hors CPU ne consomme pas le délai", { skip: hasThreadCpuClock ? false : "process.threadCpuUsage absent de cette version de Node" }, async () => {
+  const started = trainingClockMs();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(trainingClockMs() - started < 150);
+});

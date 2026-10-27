@@ -57,6 +57,15 @@ pnpm phala:compose-v7 demo-active ghcr.io/dvb-ali-noe/sirius-runner@sha256:DIGES
 
 Le digest doit contenir 64 caractères hexadécimaux. Le rendu conserve les références de secrets chiffrés ; ne pas interpoler les valeurs sur le poste avant téléversement. Les volumes `sirius_phala_demo_budget` et `sirius_phala_demo_replay` sont indépendants des volumes historiques. Ne pas les supprimer pour débloquer une erreur.
 
+Maintenance d'un volume déjà initialisé, sans réinitialisation (détails : [GBDT-PHASE2.md](GBDT-PHASE2.md)) :
+
+- `demo-budget` prolonge la politique sponsorisée dans `ledger.sqlite` (`RUNNER_BUDGET_RENEWAL={"validUntil":…,"observedAtMs":…}`, au plus 31 jours après le relevé). Elle exige aussi `EVM_NETWORK` et `SIRIUS_LOCK_AUTHORIZER`.
+- `demo-billing` remplace le tarif (`RUNNER_UPDATED_BILLING_POLICY`). Elle exige aussi `EVM_NETWORK`, `SIRIUS_USDC_ADDRESS` et `SIRIUS_COMPUTE_RECIPIENT`.
+- `demo-renewal` enchaîne les deux, le tarif n'étant remplacé qu'après une prolongation réussie.
+- `demo-active --opt-in-models=gradient_boosted_trees` écrit l'interrupteur en clair dans le Compose actif. Absent par défaut.
+
+Retirer les variables de maintenance de l'environnement chiffré avant de repasser au Compose actif. Le résultat se vérifie sans journaux dans `/operations/budget` : `check.expired`, `check.quotesUntilMs`, `tariff.version`, `tariff.profiles` et `tariff.sha256`.
+
 Ajouter `RUNNER_DEMO_CONTROL_SECRET`, distinct du transport et du monitoring. La session est stockée à `/var/lib/sirius-runner/budget/demo-sessions.sqlite`. L’initialisation v7 exige une politique budget **sponsored** et une politique de tarification v7 valide ; cette dernière maintient la compatibilité de configuration, les opérations de prêts étant refusées dans ce mode dédié. Les politiques doivent désigner les contrats/signataire réels, et les volumes doivent être vides avant leur première initialisation.
 
 Dans le budget : racine `earnedMarginUsdMicros="0"`, `cashUsdMicros="0"`, aucun `trial`. `sponsored` contient le financement ci-dessous, `origin` exacte et `observedAtMs`. Les prix positifs `costsUsdMicros` et `fixedReserveUsdMicros` restent obligatoires. Provisionner assez d’opérations pour ingestion + scellement + entraînement ; **scellement et entraînement comptent chacun comme une opération de session**. Les quotas historiques Next (3 entraînements/wallet/heure, 30 globaux/heure, un calcul à la fois) restent aussi applicables.
@@ -65,13 +74,13 @@ Le changement de Compose modifie les mesures : capturer et vérifier matérielle
 
 ### Contrôleur sur le nouveau VPS
 
-Hôte prévu : `162.19.66.80`, compte système `sirius-ops`, code `/opt/sirius-ops`. Le service `deploy/operations/sirius-phala-demo-controller.service` est préparé **sans timer**. Son redémarrage ne lance aucune commande CVM ; une commande interrompue exige une intervention opérateur.
+Hôte prévu : `<VPS_HOST>`, compte système `<COMPTE_OPS>`, code `<DOSSIER_OPS>`. Le service `deploy/operations/sirius-phala-demo-controller.service` est préparé **sans timer**. Son redémarrage ne lance aucune commande CVM ; une commande interrompue exige une intervention opérateur.
 
-Préparer un répertoire `/var/lib/sirius-ops/phala-demo` en 0700 appartenant à `sirius-ops`, et le fichier `/etc/sirius/operations/phala-demo-controller.env` en 0600. Modèle : `deploy/operations/phala-demo-controller.env.example`. Vérifier le chemin Node du serveur avant d’installer l’unité. Node 22.13+ et les dépendances de production sont nécessaires.
+Préparer un répertoire `<ETAT_OPS>/phala-demo` en 0700 appartenant à `<COMPTE_OPS>`, et le fichier `<CONFIG_OPS>/phala-demo-controller.env` en 0600. Modèle : `deploy/operations/phala-demo-controller.env.example`. Vérifier le chemin Node du serveur avant d’installer l’unité. Node 22.13+ et les dépendances de production sont nécessaires.
 
-Le profil Phala CLI 1.1.22 reste local au compte `sirius-ops`. Le service lance seulement `cvms get/start/stop` sur la CVM déclarée et contrôle son app ID. `PHALA_DEMO_CONTROLLER_SECRET` est partagé avec Next ; `RUNNER_DEMO_CONTROL_SECRET` est partagé avec le runner. Les pins attestés doivent être les mêmes que ceux de Next. Aucune clé fournisseur n’est envoyée au navigateur.
+Le profil Phala CLI 1.1.22 reste local au compte `<COMPTE_OPS>`. Le service lance seulement `cvms get/start/stop` sur la CVM déclarée et contrôle son app ID. `PHALA_DEMO_CONTROLLER_SECRET` est partagé avec Next ; `RUNNER_DEMO_CONTROL_SECRET` est partagé avec le runner. Les pins attestés doivent être les mêmes que ceux de Next. Aucune clé fournisseur n’est envoyée au navigateur.
 
-Le service écoute par défaut en HTTPS sur `127.0.0.1:4443`. Installer un accès HTTPS authentifié utilisable depuis Vercel (proxy ou écoute adaptée avec certificat valide). Configurer correctement pare-feu, renouvellement du certificat et droits de lecture ; le port 22 actuellement ouvert ne suffit pas. Préserver les reapers et les autres dossiers du VPS.
+Le service écoute par défaut en HTTPS sur `127.0.0.1:4443`. Installer un accès HTTPS authentifié utilisable depuis Vercel (proxy ou écoute adaptée avec certificat valide). Configurer correctement pare-feu, renouvellement du certificat et droits de lecture ; l’ouverture réseau actuelle du VPS ne suffit pas (état détaillé tenu hors dépôt). Préserver les reapers et les autres dossiers du VPS.
 
 Laisser les watchdogs historiques désactivés. Un collecteur de supervision en lecture seule peut rester périodique ; il ne doit pas commander d’arrêt.
 
@@ -112,6 +121,14 @@ Ce mécanisme autorise une enveloppe interne. Il ne choisit pas le solde que Pha
 8. Redémarrer uniquement le contrôleur : aucune commande automatique à Phala. Une commande interrompue passe en erreur et réclame une action opérateur.
 
 Les essais unitaires/navigateur locaux ne remplacent pas cette répétition réseau/Phala/Neon/wallet. Ne pas annoncer la confidentialité matérielle de cette nouvelle version avant sa vérification effective.
+
+### Mesure du plafond CSV sur la CVM staging (différée jusqu’au financement)
+
+1. Après réapprovisionnement, relever le solde et le tarif fournisseur actuels, puis annoncer créneau et budget maximal **très inférieur au solde** ; obtenir l’autorisation explicite avant de démarrer et ne jamais consommer tout le solde. Ne pas assimiler les crédits du testnet EVM au financement Phala. Vérifier que la session est fermée et que l’image candidate est issue de la PR staging ; ne pas toucher à production.
+2. Installer l’image runner figée par digest et les mesures attendues propres à son nouveau Compose. Vérifier matériellement la quote `UpToDate`, le hash Compose, MRTD/RTMR3, la clé KMS, l’empreinte d’ingestion et le signataire avant ouverture manuelle ; ne pas réutiliser les anciens pins.
+3. Depuis la même origine, le même navigateur et un wallet opérateur autorisé, importer un CSV synthétique binaire de 30 000 lignes de données, 23 variables numériques plus la cible, sous 3 Mio ; noter taille et empreinte SHA-256 **sans publier les données**. Contrôler l’acceptation navigateur, l’ingestion, puis lancer un seul self-train. Mesurer séparément l’aller-retour complet (chiffrement, IPFS et réseau inclus) et le calcul du worker si les journaux internes le permettent ; relever le pic mémoire du conteneur et l’état du worker, qui ne sont pas équivalents au heap V8 de 128 Mio.
+4. Réussite attendue : résultat de 30 000 lignes, modèle téléchargeable, aucune interruption du worker ni 503, marge réelle sur les 15 s de calcul et sur la mémoire de la CVM. Un rejet à 31 251 lignes avec 31 variables doit rester explicite côté navigateur, sans nouveau calcul facturé ; ne pas envoyer un CSV tiers pour cette vérification.
+5. Fermer manuellement en drainant les opérations et confirmer l’arrêt chez Phala. Relever le coût et le solde avant/après. Si mémoire ou délai manquent, analyser leur cause sur la CVM avant de proposer 256 Mio d’old-gen ou 30 s ; un changement de délai du parcours facturé v7 exige également un devis signé cohérent. Consigner les mesures dans la PR avant toute fusion.
 
 ## Incident et reprise
 

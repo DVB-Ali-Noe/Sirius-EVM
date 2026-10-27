@@ -11,6 +11,7 @@ import { confirmedBlock } from "@/lib/evm/finality";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { MAX_DATASET_BYTES, type DatasetRef } from "@/lib/tee/contract";
 import { runnerBudget } from "@/lib/runner/budget";
+import { QUOTE_LIFETIME_SECONDS } from "@/lib/runner/budget-ledger";
 import { billingPolicy } from "./config";
 import { computeQuoteHash, parseComputeQuote, quoteAuthorizationTypedData, verifyComputeQuote, type ComputeQuote, type SignedComputeQuote } from "./quote";
 
@@ -87,9 +88,10 @@ export async function prepareComputeQuote(input: {
     throw new AppError("Token ou précision du tarif incohérent", 503);
   }
   const profile = policy.profiles[input.dataset.modelId];
+  if (!profile) throw new AppError("Tarif compute absent, invalide ou périmé", 503);
   const minimum = BigInt(policy.minimumComputeAmount);
   const configured = BigInt(profile.computeAmount);
-  const expiresAt = Math.min(input.authorizationDeadline, Math.floor(Date.now() / 1000) + 300, Math.floor(policy.validUntil / 1000));
+  const expiresAt = Math.min(input.authorizationDeadline, Math.floor(Date.now() / 1000) + QUOTE_LIFETIME_SECONDS, Math.floor(policy.validUntil / 1000));
   if (expiresAt * 1000 < Date.now() + 60000) throw new AppError("Devis compute expiré", 409);
   const quote = parseComputeQuote({
     version: 7, ...binding, escrow: binding.escrow.toLowerCase(), usdc: token.toLowerCase(), usdcDecimals: Number(decimals),

@@ -9,6 +9,7 @@ import type { FinalityTier } from "@/lib/evm/fast-finality";
 import { assignLoanFinalityTier, effectiveLoanFinalityTier } from "./finality-tier";
 import { recordSettlementEvidence } from "./settlement-evidence";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
+import { settlementQueuedError } from "./settlement-queued";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
@@ -419,6 +420,8 @@ export async function settlePreparedLoan(
               ? { status: "TRAINING", settleTxHash: null }
               : { status: "TRAINING" },
     });
-    throw error;
+    // Règlement simultané d'un autre prêt (un seul wallet runner, audit PAR-02) : rien n'est
+    // perdu, le prêt vient de revenir à TRAINING ; l'acheteur lit un motif clair, pas une panne.
+    throw settlementQueuedError(error);
   }
 }

@@ -126,6 +126,20 @@ describe("SiriusEscrow v7 — facturation compute", () => {
     });
   }
 
+  it("verrouille un titre minté sous un profil ajouté après déploiement du registre v5", async () => {
+    const ctx = await loadFixture(fixture);
+    const gbdtProfile = keccak256(toHex("sirius.training-profile.v1:gradient_boosted_trees:1.0.0"));
+    const gbdtDataset = datasetIdHash("gbdt-v7-dataset");
+    assert.equal(await ctx.registry.read.VERSION(), "sirius-dataset-v5");
+    await ctx.registry.write.addTrainingProfile([gbdtProfile], { account: ctx.admin.account });
+    await ctx.registry.write.mint([gbdtDataset, EVIDENCE, EVIDENCE, 1n, gbdtProfile], { account: ctx.provider.account });
+    const datasetId = await ctx.registry.read.datasetIdOf([ctx.provider.account.address, gbdtDataset]);
+    assert.equal(await ctx.registry.read.isLiveForProviderAndProfile([datasetId, ctx.provider.account.address, gbdtProfile]), true);
+    const loan = await lock(ctx, { datasetId, trainingProfile: gbdtProfile, loanIdHash: loanIdHash("gbdt-loan") });
+    assert.equal(await ctx.escrow.read.matchesScope([loan.loanKey, loan.termsHash, 60n]), true);
+    await assertAccounting(ctx, loan.total, 0n);
+  });
+
   it("lie la signature à tous les postes, au plafond, à la trésorerie et au devis", async () => {
     const ctx = await loadFixture(fixture);
     const otherDataset = datasetIdHash("other-v7-dataset");

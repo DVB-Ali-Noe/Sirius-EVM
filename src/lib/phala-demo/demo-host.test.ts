@@ -16,13 +16,14 @@ test("seule l'adresse démo est restreinte", () => {
 test("sur l'adresse démo, seules la page de training et ses ressources passent", () => {
   assert.equal(demoOnlyRoute("/phala"), "allow");
   assert.equal(demoOnlyRoute("/phala/"), "allow");
+  assert.equal(demoOnlyRoute("/phala/attestation"), "allow");
   assert.equal(demoOnlyRoute("/_next/static/chunks/app.js"), "allow");
   assert.equal(demoOnlyRoute("/examples/regression/housing-prices-train.csv"), "allow");
   assert.equal(demoOnlyRoute("/favicon.ico"), "allow");
   assert.equal(demoOnlyRoute("/terms"), "allow");
   assert.equal(demoOnlyRoute("/privacy"), "allow");
   assert.equal(demoOnlyRoute("/legal"), "allow");
-  for (const page of ["/", "/dashboard", "/datasets", "/datasets/new", "/marketplace", "/train", "/wallet", "/settings", "/kyb", "/explorer", "/phala-admin", "/certificate/abc"]) {
+  for (const page of ["/", "/dashboard", "/datasets", "/datasets/new", "/marketplace", "/train", "/wallet", "/settings", "/kyb", "/explorer", "/phala-admin", "/phala/operator", "/phala/attestation/x", "/certificate/abc"]) {
     assert.equal(demoOnlyRoute(page), "redirect", page);
   }
 });

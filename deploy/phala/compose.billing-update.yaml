@@ -1,0 +1,25 @@
+# Maintenance ponctuelle d'un volume déjà initialisé ; ne jamais combiner avec le Compose actif.
+services:
+  update-billing-policy:
+    image: ${SIRIUS_RUNNER_IMAGE:?Image v7 immuable requise}
+    restart: "no"
+    read_only: true
+    network_mode: none
+    command: ["node", "--import", "tsx", "scripts/update-runner-billing-policy.ts", "/var/lib/sirius-runner/budget"]
+    environment:
+      RUNNER_VOLUME_ACTION: update-billing-policy
+      EVM_NETWORK: ${EVM_NETWORK:?Réseau EVM requis}
+      SIRIUS_USDC_ADDRESS: ${SIRIUS_USDC_ADDRESS:?Token attendu requis}
+      SIRIUS_COMPUTE_RECIPIENT: ${SIRIUS_COMPUTE_RECIPIENT:?Trésorerie attendue requise}
+      RUNNER_UPDATED_BILLING_POLICY: ${RUNNER_UPDATED_BILLING_POLICY:?Tarif approuvé requis}
+      RUNNER_BILLING_ALLOW_PROFILE_CHANGES: ${RUNNER_BILLING_ALLOW_PROFILE_CHANGES:-false}
+    volumes:
+      - runner_budget:/var/lib/sirius-runner/budget
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    cpus: 0.25
+    mem_limit: 256m
+    memswap_limit: 256m

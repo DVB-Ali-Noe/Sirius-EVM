@@ -1,0 +1,15 @@
+# Zones sensibles : une PR qui les touche est approuvée par l'autre fondateur avant la fusion.
+#
+# Attention : sur un dépôt privé en offre GitHub Free, ce fichier est SANS EFFET (pas de demande de
+# relecture automatique, pas de blocage). Il sert de liste de référence, et deviendrait actif avec une
+# offre payante et le réglage « Require review from Code Owners ». La vérification réelle aujourd'hui
+# est le contrôle « Relecture croisée » (.github/workflows/relecture.yml). Voir docs/PROCESS-RELECTURE.md.
+
+/src/lib/tee/        @alibenyezza @CHAAIISE
+/src/runner/         @alibenyezza @CHAAIISE
+/src/lib/billing/    @alibenyezza @CHAAIISE
+/contracts/          @alibenyezza @CHAAIISE
+/prisma/migrations/  @alibenyezza @CHAAIISE
+/.github/            @alibenyezza @CHAAIISE
+/deploy/             @alibenyezza @CHAAIISE
+/scripts/operations/ @alibenyezza @CHAAIISE

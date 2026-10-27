@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
-import { BudgetLedger, initializeBudgetLedger, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
+import { BudgetLedger, initializeBudgetLedger, QUOTE_RESERVATION_MARGIN_MS, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
 import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
 import { classifySendError, sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { assertAbandonable, parseTransactionsCommand } from "../../../scripts/runner-transactions";
@@ -80,6 +80,19 @@ function trialPolicy(p: BudgetPolicy): void {
   p.trial = { provider: "phala", creditsUsdMicros: "10000", ceilingUsdMicros: "200", observedAtMs: Date.now(),
     escrow: `0x${"34".repeat(20)}`, wallets: [`0x${"56".repeat(20)}`] };
 }
+
+test("les devis s'arrêtent avant la fin de politique, de la marge de réservation (délai + durée du devis)", () => {
+  const now = Date.now();
+  const { ledger } = fixture((p) => {
+    p.validUntil = now + QUOTE_RESERVATION_MARGIN_MS + 60_000;
+    p.earnedMarginUsdMicros = p.cashUsdMicros = "10000";
+  });
+  const open = ledger.diagnostics(now);
+  assert.equal(open.canQuote, true);
+  assert.equal(open.quotesUntilMs, now + 60_000);
+  const closed = ledger.diagnostics(now + 60_000);
+  assert.deepEqual([closed.canQuote, closed.quoteWindowClosed, closed.expired], [false, true, false]);
+});
 
 test("les crédits d’essai financent une enveloppe persistante sans fabriquer de marge", () => {
   const { ledger, open } = fixture(trialPolicy);
@@ -249,24 +262,82 @@ test("un job terminé restitue le même résultat sans calcul ou upload supplém
   let calls = 0;
   const action = async () => { calls++; return { modelCid: "bafy-model", metrics: { mse: 1 } }; };
   const first = await runBudgetedOperation(ledger, "training", "job", "scope", action);
+  const beforeReplay = ledger.snapshot();
   const second = await runBudgetedOperation(open(), "training", "job", "scope", action);
   assert.deepEqual(second, first);
   assert.equal(calls, 1);
+  assert.deepEqual(open().snapshot(), beforeReplay);
 });
 
 test("une reprise concurrente, interrompue ou échouée ne redémarre pas le calcul", async () => {
   const { ledger, open } = fixture();
   ledger.reserve("crash", "scope", "training");
   const unexpected = async () => { assert.fail("compute relancé"); };
-  await assert.rejects(runBudgetedOperation(open(), "training", "crash", "scope", unexpected), /réconciliation/);
+  await assert.rejects(runBudgetedOperation(open(), "training", "crash", "scope", unexpected),
+    (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
   await assert.rejects(runBudgetedOperation(ledger, "training", "failed", "scope", async () => { throw new Error("CPU timeout"); }), /CPU timeout/);
-  await assert.rejects(runBudgetedOperation(open(), "training", "failed", "scope", unexpected), /réconciliation/);
+  await assert.rejects(runBudgetedOperation(open(), "training", "failed", "scope", unexpected),
+    (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
 });
+
+for (const state of ["reserved", "succeeded", "failed"] as const) {
+  test(`un scellement ${state} refuse les reprises temporairement sans recalcul, nouveau coût ou nouvelle panne`, async () => {
+    const { ledger, open } = fixture();
+    let calls = 0;
+    const action = async () => {
+      calls++;
+      if (state === "failed") throw new Error("IPFS indisponible");
+      return { cid: "bafy-dataset" };
+    };
+    if (state === "reserved") ledger.reserve("seal", "scope", "seal");
+    else if (state === "succeeded") await runBudgetedOperation(ledger, "seal", "seal", "scope", action);
+    else await assert.rejects(runBudgetedOperation(ledger, "seal", "seal", "scope", action), /IPFS indisponible/);
+    const before = ledger.snapshot();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await assert.rejects(runBudgetedOperation(open(), "request", `retry-${attempt}`, "request-v1",
+        () => runBudgetedOperation(open(), "seal", "seal", "scope", action)),
+      (error: unknown) => error instanceof RunnerRetryLater && error.status === 503);
+      assert.equal(ledger.find(`retry-${attempt}`, "request-v1"), null);
+      assert.equal(ledger.find("seal", "scope")?.state, state);
+      assert.equal(ledger.snapshot().failures, before.failures);
+    }
+    assert.equal(calls, state === "reserved" ? 0 : 1, "aucun scellement n’est rejoué");
+    assert.deepEqual(open().snapshot(), before);
+  });
+}
 
 test("la limite globale de concurrence persiste après interruption", () => {
   const { ledger, open } = fixture((p) => { p.maxActive = 1; });
   ledger.reserve("crash", "crash", "training");
   assert.throws(() => open().reserve("new", "new", "request"), /réconciliation/);
+});
+
+test("ROB-09 : un registre plein refuse le job imbriqué sans compter de panne ni garder la réservation", async () => {
+  const { ledger } = fixture((p) => { p.maxActive = 8; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  // 7 requêtes en vol : la 8e passe sa propre réservation, son scellement trouve le registre plein.
+  const inflight = Array.from({ length: 7 }, (_, i) => runBudgetedOperation(ledger, "request", `request:busy-${i}`, "request-v1", () => gate));
+  await new Promise((resolve) => setImmediate(resolve));
+  const before = ledger.snapshot();
+  let sealed = false;
+  await assert.rejects(runBudgetedOperation(ledger, "request", "request:legit", "request-v1", () =>
+    runBudgetedOperation(ledger, "seal", "seal:legit", "fingerprint", async () => { sealed = true; return "scellé"; })), (error: unknown) => {
+    assert.ok(error instanceof RunnerRetryLater);
+    assert.match((error as Error).message, /Réservations runner en attente de réconciliation/);
+    return true;
+  });
+  assert.equal(sealed, false);
+  assert.equal(ledger.snapshot().failures, before.failures, "un refus de capacité n’est pas une panne");
+  assert.equal(ledger.find("request:legit", "request-v1"), null, "la réservation de la requête est rendue");
+  assert.equal(ledger.find("seal:legit", "fingerprint"), null);
+  assert.equal(ledger.snapshot().allocatedUsd, before.allocatedUsd);
+  release();
+  await Promise.all(inflight);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await runBudgetedOperation(ledger, "request", `request:after-${attempt}`, "request-v1", async () => "ok");
+  }
+  assert.equal(ledger.snapshot().failures, 0, "le coupe-circuit reste fermé");
 });
 
 test("le fingerprint est indépendant de l’ordre des champs et lié au contenu", () => {
@@ -369,22 +440,104 @@ test("un timeout estimateGas puis une reprise règlent le prêt sans épuiser le
   assert.throws(() => ledger.reserve("third", "third", "transaction", workflow), /épuisé/, "les deux transactions du devis restent les seules");
 });
 
-test("deux CSV invalides et vingt grants forgés laissent le coupe-circuit fermé", async () => {
+test("trois CSV invalides et vingt grants forgés laissent le coupe-circuit fermé et ne coûtent que les scellements", async () => {
   const { ledger, open } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; p.maxActive = 32; });
-  for (let i = 0; i < 2; i++) {
-    await assert.rejects(runBudgetedOperation(ledger, "training", `csv-${i}`, "csv",
-      async () => { throw new AppError("Dataset inexploitable pour ce modèle", 422); }), /inexploitable/);
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(runBudgetedOperation(ledger, "request", `csv-request-${i}`, "request-v1",
+      () => runBudgetedOperation(open(), "seal", `csv-${i}`, "csv",
+        async () => { throw new AppError("Dataset inexploitable pour ce modèle", 422); })),
+    (error: unknown) => error instanceof AppError && error.status === 422);
+    assert.equal(ledger.snapshot().failures, 0);
+    assert.equal(ledger.find(`csv-request-${i}`, "request-v1"), null, "la requête refusée rend son coût");
   }
   for (let i = 0; i < 20; i++) {
     await assert.rejects(runBudgetedOperation(ledger, "request", `grant-${i}`, "request-v1",
       async () => { throw new AppError("Signature de grant invalide", 401); }), /grant/);
   }
   assert.equal(open().snapshot().failures, 0);
+  assert.equal(open().snapshot().allocatedUsd, BigInt(150), "seuls les trois scellements engagés restent consommés");
   assert.equal(ledger.find("csv-0", "csv")?.state, "failed", "l’opération reste close et son coût consommé");
   assert.doesNotThrow(() => open().reserve("next", "next", "request"));
   await assert.rejects(runBudgetedOperation(ledger, "request", "rpc", "request-v1", async () => { throw new Error("RPC down"); }));
   await assert.rejects(runBudgetedOperation(ledger, "request", "ipfs", "request-v1", async () => { throw new AppError("IPFS indisponible", 503); }));
   assert.equal(ledger.snapshot().failures, 2, "une panne côté runner compte toujours");
+});
+
+test("une panne propagée du scellement à la requête compte une fois et chaque nouvelle requête compte", async () => {
+  const { ledger, open, policy: p } = fixture();
+  const failure = new Error("IPFS indisponible");
+  for (let attempt = 0; attempt < p.maxFailures; attempt++) {
+    await assert.rejects(runBudgetedOperation(ledger, "request", `request-${attempt}`, "request-v1",
+      () => runBudgetedOperation(open(), "seal", `seal-${attempt}`, "scope", async () => { throw failure; })),
+    (error: unknown) => error === failure);
+    assert.equal(ledger.find(`request-${attempt}`, "request-v1")?.state, "failed");
+    assert.equal(ledger.find(`seal-${attempt}`, "scope")?.state, "failed");
+    assert.deepEqual(open().snapshot(), {
+      allocatedUsd: BigInt(51 * (attempt + 1)), allocatedWei: BigInt(0), failures: attempt + 1,
+    });
+  }
+  await assert.rejects(runBudgetedOperation(ledger, "request", "blocked", "request-v1",
+    async () => { assert.fail("requête admise après trois pannes distinctes"); }), /Coupe-circuit/);
+  assert.equal(ledger.snapshot().failures, p.maxFailures);
+  assert.equal(ledger.find("blocked", "request-v1"), null);
+});
+
+test("deux requêtes concurrentes isolent leurs erreurs même si elles propagent le même objet", async () => {
+  const { ledger, open } = fixture();
+  const failure = new AppError("RPC indisponible", 503);
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  let entered = 0;
+  const requests = ["first", "second"].map((id) => runBudgetedOperation(open(), "request", `request-${id}`, "request-v1",
+    () => runBudgetedOperation(open(), "seal", `seal-${id}`, "scope", async () => {
+      entered++;
+      await gate;
+      throw failure;
+    })));
+  assert.equal(entered, 2, "les deux actions sont actives avant leur échec");
+  assert.equal(ledger.snapshot().failures, 0);
+  resume();
+  const outcomes = await Promise.allSettled(requests);
+  for (const outcome of outcomes) {
+    assert.equal(outcome.status, "rejected");
+    if (outcome.status === "rejected") assert.equal(outcome.reason, failure);
+  }
+  assert.deepEqual(open().snapshot(), { allocatedUsd: BigInt(102), allocatedWei: BigInt(0), failures: 2 });
+  for (const id of ["first", "second"]) {
+    assert.equal(ledger.find(`request-${id}`, "request-v1")?.state, "failed");
+    assert.equal(ledger.find(`seal-${id}`, "scope")?.state, "failed");
+  }
+});
+
+test("les jobs autonomes comptent chacun leur panne même avec le même objet Error", async () => {
+  const { ledger, open } = fixture();
+  const failure = new Error("stockage indisponible");
+  for (const kind of ["seal", "training"] as const) {
+    await assert.rejects(runBudgetedOperation(open(), kind, kind, "scope", async () => { throw failure; }),
+      (error: unknown) => error === failure);
+    assert.equal(ledger.find(kind, "scope")?.state, "failed");
+  }
+  assert.deepEqual(open().snapshot(), { allocatedUsd: BigInt(150), allocatedWei: BigInt(0), failures: 2 });
+});
+
+test("les wrappers imbriqués rendent leurs réservations pendant une attente sans compter d’échec", async () => {
+  const { ledger, open } = fixture();
+  const before = ledger.snapshot();
+  for (const failure of [new RunnerRetryLater("RPC avant signature indisponible"), new RunnerFinalityPending(txHash)]) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await assert.rejects(runBudgetedOperation(open(), "request", "request", "request-v1",
+        () => runBudgetedOperation(open(), "seal", "seal", "scope", async () => { throw failure; })),
+      (error: unknown) => error === failure);
+      assert.deepEqual(ledger.snapshot(), before);
+      assert.equal(ledger.find("request", "request-v1"), null);
+      assert.equal(ledger.find("seal", "scope"), null);
+    }
+  }
+  assert.equal(await runBudgetedOperation(open(), "request", "request", "request-v1",
+    () => runBudgetedOperation(open(), "seal", "seal", "scope", async () => "sealed")), "sealed");
+  assert.deepEqual(ledger.snapshot(), { allocatedUsd: BigInt(51), allocatedWei: BigInt(0), failures: 0 });
+  assert.equal(ledger.find("request", "request-v1")?.state, "succeeded");
+  assert.equal(ledger.find("seal", "scope")?.state, "succeeded");
 });
 
 test("le classement des échecs distingue l’appelant, le runner et l’attente", () => {

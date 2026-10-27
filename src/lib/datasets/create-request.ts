@@ -1,6 +1,7 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
-import { modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
+import { MODEL_REGISTRY, isModelOffered, modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
+import type { PublishedTariff } from "./tariff";
 import {
   ESCROW_CHALLENGE_DAYS,
   MAX_DESCRIPTION_LENGTH,
@@ -30,13 +31,25 @@ export type ParsedCreateDatasetRequest =
   | { ok: true; value: CreateDatasetRequest }
   | { ok: false; status: number; error: string };
 
+/** Facturation de l'instance : en v7, un profil facultatif doit figurer dans le tarif publié. */
+export interface CreateDatasetBilling {
+  v7: boolean;
+  tariff: PublishedTariff | null;
+}
+
+const UNBILLED: CreateDatasetBilling = { v7: false, tariff: null };
+
 /**
  * Validation serveur du corps de `POST /api/datasets`, sans aucune confiance dans le
  * navigateur : chaque champ est retypé et borné ici, puis `challengeDays` est forcé à la
  * valeur fixée par Sirius quoi qu'ait envoyé le client (01-decisions-avant-samedi.md §3).
  * Les messages d'erreur ne reprennent jamais la valeur reçue.
+ *
+ * En v7, un profil facultatif sans frais dans le tarif publié est refusé : son dataset ne
+ * serait jamais empruntable (le runner refuse le devis). Les profils obligatoires gardent le
+ * comportement existant quand le tarif est illisible : toute politique valide les contient.
  */
-export function parseCreateDatasetRequest(body: unknown): ParsedCreateDatasetRequest {
+export function parseCreateDatasetRequest(body: unknown, billing: CreateDatasetBilling = UNBILLED): ParsedCreateDatasetRequest {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, status: 400, error: "JSON invalide" };
   const input = body as Record<string, unknown>;
 
@@ -66,7 +79,10 @@ export function parseCreateDatasetRequest(body: unknown): ParsedCreateDatasetReq
   const trainingConsent = parseTrainingConsent(input.trainingConsent);
   if (trainingConsent === null) return { ok: false, status: 400, error: "Consentement invalide" };
   const model = modelSelectionForId(input.modelId);
-  if (!model) return { ok: false, status: 400, error: "Profil d’entraînement obligatoire" };
+  if (!model || !isModelOffered(model.modelId)) return { ok: false, status: 400, error: "Profil d’entraînement obligatoire" };
+  if (billing.v7 && MODEL_REGISTRY[model.modelId].optIn && billing.tariff?.computeFeeAtomic[model.modelId] === undefined) {
+    return { ok: false, status: 503, error: "Profil d’entraînement sans tarif de calcul : publication impossible pour l’instant" };
+  }
 
   const description = typeof input.description === "string" ? input.description.trim() : undefined;
   return {

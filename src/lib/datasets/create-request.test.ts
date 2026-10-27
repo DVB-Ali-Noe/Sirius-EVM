@@ -117,3 +117,26 @@ test("les champs sont vérifiés dans un ordre fixe : la première erreur est si
 test("un corps qui n'est pas un objet est refusé sans exception", () => {
   for (const body of [null, undefined, "x", 1, [], true]) refused(body, "JSON invalide");
 });
+
+test("en facturation v7, un profil facultatif absent du tarif publié est refusé côté serveur", () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees";
+  try {
+    const trees = { ...valid, modelId: "gradient_boosted_trees" };
+    const tariff = { version: "t", computeFeeAtomic: { linear_regression: "1", logistic_regression: "1" }, minimumProviderAtomic: "1", decimals: 6 };
+    const unpriced = "Profil d’entraînement sans tarif de calcul : publication impossible pour l’instant";
+    for (const billing of [{ v7: true, tariff }, { v7: true, tariff: null }]) {
+      const result = parseCreateDatasetRequest(trees, billing);
+      assert.deepEqual(result, { ok: false, status: 503, error: unpriced });
+    }
+    assert.ok(Object.hasOwn(EN_MESSAGES, unpriced));
+    const priced = { ...tariff, computeFeeAtomic: { ...tariff.computeFeeAtomic, gradient_boosted_trees: "2" } };
+    assert.ok(parseCreateDatasetRequest(trees, { v7: true, tariff: priced }).ok);
+    assert.ok(parseCreateDatasetRequest(trees, { v7: false, tariff: null }).ok, "sans v7, aucun frais de calcul");
+    // Profils obligatoires : comportement inchangé même si le tarif est illisible.
+    assert.ok(parseCreateDatasetRequest(valid, { v7: true, tariff: null }).ok);
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
+});

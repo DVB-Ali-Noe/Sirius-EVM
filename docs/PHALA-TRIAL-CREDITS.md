@@ -2,7 +2,7 @@
 
 **Évolution demandée ensuite par Noé le 25 septembre :** permettre des démonstrations publiques de self-train, activées et désactivées manuellement par Noé/Ali, financées par Sirius avec des crédits Phala ou une enveloppe payée. Les deux heures étaient un exemple : aucune durée de session imposée ni fermeture programmée. Pour ces sessions, la restriction produit aux seuls testeurs internes est remplacée par un accès public avec quotas ; le timer d’arrêt historique reste désactivé, la supervision doit informer les opérateurs. Ce nouveau mode est implémenté localement et décrit dans [le runbook dédié](PHALA-DEMO-RUNBOOK.md), mais n’est pas publié ni activé ; la politique historique installée reste celle décrite ci-dessous. Voir [le plan des sessions et du financement](PLAN-VPS-PHALA.md).
 
-Décision initiale du 25 septembre 2026 : les crédits Phala financent les essais internes sur staging ; les entraînements de clients commerciaux restent hors de cette enveloppe. La politique est installée dans la CVM et son diagnostic a été vérifié par RA-TLS avant et après redémarrage. Le watchdog et le collecteur sont installés sur le nouveau VPS sous `sirius-ops`, avec leurs timers désactivés ; la CVM reste arrêtée. La collecte attestée depuis le VPS pendant un créneau actif et le parcours navigateur restent à terminer dans [le lot B](PHALA-V7-STAGING.md).
+Décision initiale du 25 septembre 2026 : les crédits Phala financent les essais internes sur staging ; les entraînements de clients commerciaux restent hors de cette enveloppe. La politique est installée dans la CVM et son diagnostic a été vérifié par RA-TLS avant et après redémarrage. Le watchdog et le collecteur sont installés sur le nouveau VPS sous `<COMPTE_OPS>`, avec leurs timers désactivés ; la CVM reste arrêtée. La collecte attestée depuis le VPS pendant un créneau actif et le parcours navigateur restent à terminer dans [le lot B](PHALA-V7-STAGING.md).
 
 ## Séparation des financements
 
@@ -45,15 +45,15 @@ La commande interne du conteneur est `node --import tsx scripts/add-runner-trial
 Le collecteur extérieur vérifie la RA-TLS et les mesures épinglées avec le même client que Next, puis l’identité et la fraîcheur du rapport. Il écrit atomiquement un fichier `0600` dans un répertoire `0700`. Un échec conserve l’ancien rapport et sa date ; le superviseur détecte sa péremption.
 
 ```bash
-node --env-file=/etc/sirius/operations/runner-monitor.env \
+node --env-file=<CONFIG_OPS>/runner-monitor.env \
   --conditions=react-server --import tsx scripts/operations/runner-monitor.ts \
-  /var/lib/sirius-ops/budget-check.json
-pnpm ops:supervise /etc/sirius/operations/session.json \
-  /var/lib/sirius-ops/cvm.json /var/lib/sirius-ops/budget-check.json
+  <ETAT_OPS>/budget-check.json
+pnpm ops:supervise <CONFIG_OPS>/session.json \
+  <ETAT_OPS>/cvm.json <ETAT_OPS>/budget-check.json
 ```
 
 Le fichier privé du collecteur contient `RUNNER_URL`, `RUNNER_MONITOR_SECRET`, réseau/contrats/RPC de staging, finalité et mesures actives épinglées (`SIRIUS_EXPECTED_MRTD`, `SIRIUS_EXPECTED_RTMR3`, `SIRIUS_EXPECTED_COMPOSE_HASH`, `SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256`, `NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256`). Aucun `DATABASE_URL`, secret de transport métier, JWT Pinata ou clé de signature n’est nécessaire.
 
-Les unités `deploy/operations/sirius-runner-monitor.service` et `.timer` collectent chaque minute sur un hôte extérieur doté de Node 22 et des dépendances. Adapter `/opt/sirius` à l’installation des outils de supervision ; ne pas remplacer la pile de production. Installer avec l’utilisateur dédié `sirius-ops`, répertoire de rapports privé, fichier d’environnement privé et mesures actives vérifiées. Le watchdog Phala existant reste séparé : il demande l’arrêt à l’échéance inscrite dans `session.json`, même si le runner ne répond plus.
+Les unités `deploy/operations/sirius-runner-monitor.service` et `.timer` collectent chaque minute sur un hôte extérieur doté de Node 22 et des dépendances. Adapter `<DOSSIER_PROD>` à l’installation des outils de supervision ; ne pas remplacer la pile de production. Installer avec l’utilisateur dédié `<COMPTE_OPS>`, répertoire de rapports privé, fichier d’environnement privé et mesures actives vérifiées. Le watchdog Phala existant reste séparé : il demande l’arrêt à l’échéance inscrite dans `session.json`, même si le runner ne répond plus.
 
-Installation vérifiée le 25 septembre sur `162.19.66.80` : surcharges systemd vers `/opt/sirius-ops`, runtime Node 22.23.2 et pnpm 11.18.0, CLI Phala 1.1.22 préchargée, profil dans `/var/lib/sirius-ops/phala`, configuration du collecteur dans `/etc/sirius/operations/runner-monitor.env`, fichiers privés `0600`. Le compte n’a pas de droits Docker ; son répertoire personnel est `/var/lib/sirius-ops` et son shell est `nologin`. Le profil a été authentifié et la CVM lue comme arrêtée. Les deux timers restent **disabled/inactive**, sans `session.json`. Vérifier leur exécution et un rapport frais lors du prochain créneau avant de déclarer la supervision active opérationnelle.
+Installation vérifiée le 25 septembre sur `<VPS_HOST>` : surcharges systemd vers `<DOSSIER_OPS>`, runtime Node 22.23.2 et pnpm 11.18.0, CLI Phala 1.1.22 préchargée, profil dans `<ETAT_OPS>/phala`, configuration du collecteur dans `<CONFIG_OPS>/runner-monitor.env`, fichiers privés `0600`. Le compte n’a pas de droits Docker ; son répertoire personnel est `<ETAT_OPS>` et son shell est `nologin`. Le profil a été authentifié et la CVM lue comme arrêtée. Les deux timers restent **disabled/inactive**, sans `session.json`. Vérifier leur exécution et un rapport frais lors du prochain créneau avant de déclarer la supervision active opérationnelle.

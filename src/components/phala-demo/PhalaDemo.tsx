@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { CardTitle, SectionTitle } from "@/components/ui/Heading";
 import { Page, PageHeader } from "@/components/layout/Page";
@@ -9,6 +10,8 @@ import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
 import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
+import { demoQualityReport } from "@/lib/phala-demo/csv";
+import { QualityReportPanel } from "@/components/datasets/QualityReportPanel";
 import { trainDemoFile } from "@/lib/phala-demo/training-client";
 import { openDemoDelivery } from "@/lib/phala-demo/delivery-client";
 import { parseCsv } from "@/lib/sirius/metrics";
@@ -18,8 +21,9 @@ import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
 interface Job { id: string; status: string; metrics: Record<string, number> | null; deliveryPublicKey: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
-interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; target: string; model: ModelId }
-const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, target: "", model: "linear_regression" };
+/** `table` : le fichier lu, gardé dans la page pour le rapport de qualité ; jamais envoyé ni stocké. */
+interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; table: string[][]; target: string; model: ModelId }
+const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: "linear_regression" };
 const button = "rounded-xl bg-accent px-5 py-3 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40";
 const selectedButton = "rounded-xl border border-positive/50 px-5 py-3 font-medium text-positive disabled:cursor-not-allowed disabled:opacity-40";
 const field = "w-full rounded-xl border border-border bg-background p-3 text-foreground";
@@ -34,7 +38,8 @@ export function PhalaDemo() {
 
 function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>> }) {
   const { locale, t } = useLocale();
-  const { file, example, columns, rows, target, model } = draft;
+  const { file, example, columns, rows, table, target, model } = draft;
+  const quality = useMemo(() => (file ? demoQualityReport(table, target) : null), [file, table, target]);
   const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
   const connected = useWalletStore((state) => state.connected);
@@ -43,6 +48,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [downloadError, setDownloadError] = useState<{ jobId: string; message: string } | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const available = session?.available === true;
 
@@ -83,9 +89,10 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   async function selectFile(selected: File, sample?: (typeof DEMO_EXAMPLES)[number]) {
     setDraft((current) => ({ ...EMPTY_DRAFT, model: current.model })); setError("");
     if (!selected.size || selected.size > MAX_DATASET_BYTES) throw new Error("CSV vide ou trop volumineux (max 3 Mo)");
-    const [header, ...lines] = parseCsv(await selected.text());
+    const table = parseCsv(await selected.text());
+    const [header, ...lines] = table;
     if (!header?.length || header.some((name) => !name.trim()) || new Set(header).size !== header.length) throw new Error("En-têtes CSV absents ou dupliqués");
-    setDraft((current) => ({ file: selected, example: sample?.id ?? null, columns: header, rows: lines.length,
+    setDraft((current) => ({ file: selected, example: sample?.id ?? null, columns: header, rows: lines.length, table,
       target: sample?.target ?? header[header.length - 1], model: sample?.modelId ?? current.model }));
   }
 
@@ -113,7 +120,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   async function download(job: Job) {
     if (!address) return;
     const revision = useWalletStore.getState().revision;
-    setBusy(true); setError("");
+    setBusy(true); setDownloadError(null);
     try {
       const response = await fetch(`/api/phala-demo/results/${encodeURIComponent(job.id)}`);
       const result = await response.json();
@@ -122,7 +129,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       const output = await fetchDecryptedModel(result.modelCid, key);
       if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
       downloadDecryptedModel(output, `sirius-${job.id}.json`);
-    } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); }
+    } catch (cause) { setDownloadError({ jobId: job.id, message: messageOf(cause) }); } finally { setBusy(false); }
   }
 
   return <Page>
@@ -133,9 +140,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         : session.available ? "Démonstration ouverte · offerte par Sirius" : session.phase === null ? "Démonstration indisponible"
         : session.phase === "opening" ? "Démarrage en cours" : session.phase === "open" ? "Démonstration ouverte · capacité momentanément indisponible"
         : "Démonstration fermée")}</span>
-      <a href="/api/phala-demo/attestation" target="_blank" rel="noreferrer" className="text-sm underline">{t("Attestation du runner")}</a>
+      <Link href="/phala/attestation" className="text-sm underline">{t("Attestation du runner")}</Link>
     </div>
-    {error && <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     <div className="grid gap-4 md:grid-cols-2" data-guide="page:phala:examples">{DEMO_EXAMPLES.map((sample, index) => <Card key={sample.id} className={example === sample.id ? "ring-1 ring-positive/50" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted">{t("Dataset synthétique prêt à utiliser")}</p>
       <CardTitle className="mt-3">{sample.name}</CardTitle><p className="mt-2 min-h-12 text-sm text-muted">{sample.description}</p>
@@ -160,12 +166,19 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
         <label className="space-y-2 text-sm"><span>{t("Colonne à prédire")}</span><select className={field} value={target} disabled={busy || !file} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))}>
           {columns.map((column) => <option key={column} value={column}>{column}</option>)}</select></label></div>
       <p className="mt-4 text-sm text-muted">{t("Au moins 100 lignes ; colonnes prédictives numériques. La classification attend une cible 0/1. Les limites du profil sont vérifiées avant calcul.")}</p>
+      {quality && quality.invalidTarget > 0 && <div role="alert" className="mt-4 rounded-lg border border-yellow-400/40 bg-yellow-400/10 p-3 text-xs text-foreground/90">
+        <p className="font-medium text-yellow-400">{t("Colonne à prédire non numérique : à vérifier")}</p>
+        <p className="mt-1">{t("La colonne à prédire, {column}, contient {count} cellules vides ou non numériques : l’entraînement sera refusé. Choisis une autre colonne ou complète-les.", { column: target, count: quality.invalidTarget })}</p>
+      </div>}
+      {quality && <QualityReportPanel report={quality.report} />}
       <div className="mt-6">{authenticated ? <button className={button} disabled={!available || busy || !file || !target} onClick={() => void train()}>{t("Entraîner avec Phala")}</button>
         // Sans wallet connecté : le menu de choix (Google, MetaMask, Phantom…) plutôt que
         // `window.ethereum`, que la dernière extension installée s'approprie.
-        : connected ? <SignInCta>{t("Connecter mon wallet testnet")}</SignInCta> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
+        : connected ? <SignInCta /> : <div className="inline-block"><ConnectButton menuAlign="left" /></div>}</div>
       <p className="mt-3 text-sm text-muted">{t("Le calcul est offert. Ton wallet confirme le titre testnet du dataset ; aucun achat de données n’est demandé.")}</p>
       {progress && <p role="status" className="mt-4">{t(progress)}</p>}
+      {/* Sous le bouton : un refus (quota, fichier, session) reste visible là où l'on vient de cliquer. */}
+      {error && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     </Card>
     {authenticated && <section className="space-y-3" data-guide="page:phala:results"><SectionTitle>{t("Mes résultats")}</SectionTitle>
       <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>
@@ -175,6 +188,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
           <p className="text-xs text-muted">{t("Entraîné le {date}", { date: new Date(job.completedAt ?? job.createdAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })}</p></div>
         <button className={button} disabled={busy || job.status !== "DONE"} onClick={() => void download(job)}>{t("Télécharger le modèle")}</button></div>
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
+        {downloadError?.jobId === job.id && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(downloadError.message)}</p>}
       </Card>)}
     </section>}
   </Page>;

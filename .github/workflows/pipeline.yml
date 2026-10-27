@@ -18,7 +18,11 @@
 #
 # Les secrets ne sont pas choisis par le workflow : chaque job déclare son
 # `environment:` et GitHub résout `secrets.*` dans celui-là. Une cible ne peut donc
-# pas atteindre les identifiants de l'autre, même en cas d'erreur d'expression.
+# pas atteindre les identifiants de l'autre, même en cas d'erreur d'expression —
+# à condition qu'aucun secret du même nom n'existe au niveau du dépôt : GitHub le
+# servirait alors à toute branche, et à la place d'un secret d'environnement absent.
+# Au 23 octobre, 9 secrets sont encore au niveau du dépôt : à déplacer dans les
+# environnements (voir docs/PROCESS-RELECTURE.md).
 #
 # Ce que le pipeline ne fait PAS, volontairement : déployer les contrats, et mettre à
 # jour la CVM Phala. Ces deux gestes changent une identité que l'application épingle,
@@ -132,6 +136,12 @@ jobs:
       - name: Tests end-to-end
         run: pnpm test:e2e
 
+      # Le parcours /phala a sa propre configuration (serveur en mode démo Phala, port
+      # 3101) : `playwright.config.ts` l'exclut, et sans cette étape il n'était vérifié
+      # qu'en local (constat PRO-06 de l'audit du processus).
+      - name: Tests end-to-end Phala
+        run: pnpm exec playwright test -c playwright.phala.config.ts
+
   cible:
     name: Cible
     if: github.event_name == 'push'
@@ -211,14 +221,27 @@ jobs:
       # le pipeline : c'est `phala deploy`, à la main, qui la met en service, parce
       # que chaque changement d'image change l'identité mesurée que l'application
       # épingle et impose une nouvelle capture RA-TLS.
+      #
+      # Build reproductible (audit REP-02) : la date du commit fige les horodatages de la
+      # config et des couches (SOURCE_DATE_EPOCH + rewrite-timestamp), et aucune
+      # attestation BuildKit horodatée n'entre dans le digest publié. Le même commit,
+      # reconstruit avec la commande d'en-tête de Dockerfile.runner, redonne ce digest.
+      - name: Date du commit pour le runner
+        id: epoch
+        run: echo "value=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
       - name: Runner confidentiel
         id: runner
         uses: docker/build-push-action@v6
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.value }}
         with:
           context: .
           file: Dockerfile.runner
           platforms: linux/amd64
-          push: true
+          provenance: false
+          sbom: false
+          outputs: type=image,push=true,oci-mediatypes=true,rewrite-timestamp=true
           tags: ghcr.io/${{ steps.owner.outputs.lc }}/sirius-runner:${{ needs.cible.outputs.branche }}-${{ github.sha }}
           cache-from: type=gha,scope=runner
           cache-to: type=gha,mode=max,scope=runner
@@ -226,6 +249,7 @@ jobs:
       - name: Rappeler le digest du runner
         run: |
           echo "Image runner : ghcr.io/${{ steps.owner.outputs.lc }}/sirius-runner@${{ steps.runner.outputs.digest }}"
+          echo "Reconstruction : commit ${{ github.sha }}, SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.value }} (commande dans l'en-tête de Dockerfile.runner)."
           echo "Elle n'est pas déployée automatiquement — voir docs/PHALA.md."
 
   migrate:
@@ -290,7 +314,9 @@ jobs:
         run: |
           mkdir -p .vercel
           echo "{\"projectId\":\"${PROJET}\",\"orgId\":\"team_lgHr4F4CMq1B8wXtrRe1fbvz\"}" > .vercel/project.json
-          cat .vercel/project.json
+          # Le projet suffit pour savoir quelle cible est déployée ; l'identifiant
+          # d'équipe n'a pas besoin de figurer dans chaque journal.
+          echo "Projet Vercel : ${PROJET}"
 
       - name: Déployer
         env:

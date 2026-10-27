@@ -31,7 +31,7 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 - [x] Choisir crédits seuls, budget Sirius ou financement mixte. Crédits seuls.
 - [x] Affecter explicitement le complément payé éventuel et le plafond cumulé. Aucun complément payé ; plafond cumulé 14 USD.
 - [x] Prévoir la réserve de disponibilité de la machine, de stockage et d’arrêt ; calibrer les coûts des opérations. Réserve fixe 4 USD ; coûts 0,01 / 0,10 / 0,30 USD par requête / scellement / entraînement.
-- [x] Préparer les politiques privées sans assimiler crédits ou apports à une marge acquise. Aucun montant n’est approuvé par cette checklist. Politiques générées hors Git, validées par l’initialiseur de volume, copiées sur le VPS sous `sirius-ops` ; marge acquise et liquidités à 0.
+- [x] Préparer les politiques privées sans assimiler crédits ou apports à une marge acquise. Aucun montant n’est approuvé par cette checklist. Politiques générées hors Git, validées par l’initialiseur de volume, copiées sur le VPS sous `<COMPTE_OPS>` ; marge acquise et liquidités à 0.
 
 ### 4. Fixer les quotas
 
@@ -73,13 +73,13 @@ Les validations locales enregistrées sont : 366 tests au dernier passage applic
 ### 9. Publier et installer le nouveau runner
 
 - [x] Construire et publier l’image contenant cette implémentation ; conserver son digest immuable. Digest publié par la pipeline staging : `sha256:8a10ab554e5693c70c97831c6df8b8d41774bce680896a368a66ffcbbb513f8e`.
-- [x] Préparer les Compose `demo-init` et `demo-active`, avec des volumes dédiés au budget et à l’anti-rejeu. Rendus depuis ce digest, copiés sur le VPS sous `sirius-ops`.
+- [x] Préparer les Compose `demo-init` et `demo-active`, avec des volumes dédiés au budget et à l’anti-rejeu. Rendus depuis ce digest, copiés sur le VPS sous `<COMPTE_OPS>`.
 - [x] Initialiser les nouveaux volumes et politiques une seule fois, sans supprimer les registres historiques ni recréer des crédits consommés. Fait le 26 septembre : volumes `sirius_phala_demo_*` créés neufs, démarrage actif réussi, rapport de budget attesté conforme (10 USD disponibles après réserve).
 - [x] Vérifier la cohérence testnet/contrats/signataire/politiques. Si les contrats du 25 septembre sont conservés, garder la configuration v7 attendue. Contrats du 25 septembre conservés ; politiques cohérentes (testnet 46630, signataire, trésorerie, USDC 18 décimales).
 
 ### 10. Installer le contrôleur sur le VPS
 
-- [x] Installer le service préparé sous `sirius-ops` sur le nouveau VPS, en préservant les reapers. Installé et actif ; reapers intacts.
+- [x] Installer le service préparé sous `<COMPTE_OPS>` sur le nouveau VPS, en préservant les reapers. Installé et actif ; reapers intacts.
 - [x] Configurer le profil Phala, les secrets, le fichier de financement et l’état persistant avec des permissions privées. Profil `sirius` connecté, secrets générés, financement 14 USD daté, état persistant en 0700/0600.
 - [x] Rendre son HTTPS accessible depuis Vercel et vérifier pare-feu, certificat et renouvellement. Caddy sur `ctl.sirius-data.tech` : 401 sans secret, 200 avec ; pare-feu 80/443 ouverts.
 - [x] Vérifier qu’un redémarrage du contrôleur ne déclenche pas de démarrage CVM. Vérifié : après redémarrage du service, la CVM reste arrêtée et l’état reste `closed`.
@@ -154,6 +154,16 @@ Implémenté et testé localement le 26 septembre, désactivé par défaut. Proc
 - [ ] Générer une clé dédiée par worker directement dans `.env.vps`, puis la financer en ETH du réseau visé.
 - [ ] Activer, vérifier le journal de démarrage et un premier retrait réel. Le bouton manuel doit rester fonctionnel.
 - [ ] Mesurer le coût réel par retrait et le reporter dans le business plan.
+
+## Capacité CSV et calcul — code local du 17 octobre 2026
+
+- [x] Porter les limites locales à 200 millions d’opérations et 50 000 lignes CSV, garder 3 Mio ; tester 30 000 lignes et le refus au-delà du budget.
+- [x] Faire passer tout entraînement exécuté dans l’enclave (self-train, emprunts v6) par le worker borné, délai de 15 s par défaut après téléchargement ; dépassement imputé au fichier (422) sans ouvrir le coupe-circuit. Noms de colonnes limités à 128 caractères. Vérifié localement.
+- [x] Mesurer sur la CVM staging 30 000 lignes : environ 5 s de bout en bout en régression linéaire, sans 503 ni arrêt du worker (18 octobre). Délai de 15 s et heap de 128 Mio conservés.
+- [x] Mesurer la régression logistique à 30 000 lignes (cas le plus lourd, 144 M d’opérations) : 201 puis 200, 5,74 s entre `POST` et `GET /api/train`, `n = 30000`, coût 0,011 USD (18 octobre). Délai de 15 s conservé.
+- [x] Réaligner le scénario Playwright de connexion sur le menu de choix du wallet (PR #54/#55) : 6/6 scénarios Phala verts (18 octobre).
+- [x] Replacer l’adresse démo figée `demo.sirius-data.tech` sur le déploiement de `0bf7fea` (#105 à #107), ancienne cible `hftbdgjta` notée pour retour arrière (18 octobre).
+- [ ] Mise en production : opération distincte avec rotation du hash Compose et validation des clés.
 
 ## Suites produit différées
 

@@ -4,6 +4,7 @@
  */
 
 import { MAINNET_STABLECOIN_ADDRESS, MAINNET_STABLECOIN_SYMBOL } from "../src/lib/evm/stablecoin";
+import { MODEL_REGISTRY, type ModelId } from "../src/lib/models/registry";
 
 export const MAINNET_CHAIN_ID = 4663;
 export const TESTNET_CHAIN_ID = 46630;
@@ -27,6 +28,35 @@ export interface DeploymentPlan {
   dryRun: boolean;
   /** Adresses à vérifier on-chain comme contrats (Safe) avant tout envoi. */
   mustBeContracts: string[];
+  /**
+   * Registre KYB existant à réutiliser (`SIRIUS_KYB_EXISTING_ADDRESS`) au lieu d'en déployer un :
+   * les attestations et les adresses publiques KYB restent valides. Son mode (ouvert/strict) est
+   * vérifié on-chain par le script avant toute transaction.
+   */
+  existingKyb: string | null;
+  /**
+   * Profils facultatifs à accepter au mint juste après la liaison (`SIRIUS_DATASET_TRAINING_PROFILES`,
+   * identifiants séparés par des virgules). Linéaire et logistique sont présents dès la construction.
+   */
+  trainingProfiles: ModelId[];
+  /**
+   * Registre de datasets déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`) servant de référence à
+   * l'estimation de l'escrow en simulation ; jamais utilisé pour un vrai déploiement.
+   */
+  estimateDatasets: string | null;
+  /**
+   * Admin immuable du registre de datasets v5 (`SIRIUS_DATASET_ADMIN`). Il lie l'escrow une seule
+   * fois et ajoute des profils, sans retrait possible. Mainnet : obligatoire, le Safe de gouvernance
+   * (= `SIRIUS_KYB_ADMIN`), jamais la clé de déploiement (audit REP-11). Testnet : la clé de
+   * déploiement si rien n'est fourni, comme le prévoit docs/GBDT-PHASE2.md §3.
+   */
+  datasetAdmin: string;
+  /**
+   * Vrai seulement si l'admin du registre est la clé de déploiement (testnet) : le script envoie
+   * alors lui-même `bindEscrow` et `addTrainingProfile`. Sinon il les prépare pour l'admin (Safe)
+   * et n'envoie rien.
+   */
+  datasetAdminIsDeployer: boolean;
 }
 
 function address(env: Env, name: string): string | undefined {
@@ -34,6 +64,21 @@ function address(env: Env, name: string): string | undefined {
   if (!value) return undefined;
   if (!ADDRESS.test(value) || ZERO.test(value)) throw new Error(`${name} doit être une adresse EVM non nulle`);
   return value.toLowerCase();
+}
+
+/**
+ * Profils facultatifs à ajouter au registre, séparés par des virgules. Seuls des identifiants
+ * facultatifs connus de MODEL_REGISTRY passent, jamais un hash saisi à la main (audit REP-13).
+ */
+export function parseTrainingProfiles(raw: string | undefined): ModelId[] {
+  const trainingProfiles = (raw ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+  for (const id of trainingProfiles) {
+    if (!Object.hasOwn(MODEL_REGISTRY, id) || !MODEL_REGISTRY[id as ModelId].optIn) {
+      throw new Error("SIRIUS_DATASET_TRAINING_PROFILES : seuls des profils facultatifs connus peuvent être ajoutés");
+    }
+  }
+  if (new Set(trainingProfiles).size !== trainingProfiles.length) throw new Error("SIRIUS_DATASET_TRAINING_PROFILES : profil en double");
+  return trainingProfiles as ModelId[];
 }
 
 export function deploymentPlan(env: Env, chainId: number, deployer: string): DeploymentPlan {
@@ -81,6 +126,33 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
       throw new Error("SIRIUS_KYB_ADMIN et SIRIUS_KYB_VERIFIER doivent être distinctes. Pour un déploiement jetable : SIRIUS_ALLOW_SHARED_ROLES=true");
     }
   }
+  const existingKyb = address(env, "SIRIUS_KYB_EXISTING_ADDRESS") ?? null;
+  const trainingProfiles = parseTrainingProfiles(env.SIRIUS_DATASET_TRAINING_PROFILES);
+
+  // Admin du registre de datasets : immuable (SiriusDatasetRegistry.sol, `admin`), donc jamais
+  // une valeur par défaut sur mainnet.
+  const configuredDatasetAdmin = address(env, "SIRIUS_DATASET_ADMIN");
+  const deployerAddress = deployer.toLowerCase();
+  let datasetAdmin: string;
+  if (mainnet) {
+    if (!configuredDatasetAdmin) {
+      throw new Error("Sur mainnet, SIRIUS_DATASET_ADMIN (le Safe de gouvernance) est obligatoire : l'admin du registre de datasets est immuable");
+    }
+    if (configuredDatasetAdmin === deployerAddress) {
+      throw new Error("Sur mainnet, SIRIUS_DATASET_ADMIN ne peut pas être la clé de déploiement : l'admin du registre de datasets est immuable");
+    }
+    // Le pré-vol (`datasets.admin_not_governance`) compare l'admin du registre au compte de
+    // gouvernance, c'est-à-dire l'admin KYB : les deux doivent être le même Safe.
+    if (configuredDatasetAdmin !== address(env, "SIRIUS_KYB_ADMIN")) {
+      throw new Error("Sur mainnet, SIRIUS_DATASET_ADMIN doit être le Safe de gouvernance, c'est-à-dire SIRIUS_KYB_ADMIN");
+    }
+    if (!mustBeContracts.includes(configuredDatasetAdmin)) mustBeContracts.push(configuredDatasetAdmin);
+    datasetAdmin = configuredDatasetAdmin;
+  } else {
+    // Testnet : la clé de déploiement par défaut (docs/GBDT-PHASE2.md §3), affichée par deploy.ts.
+    datasetAdmin = configuredDatasetAdmin ?? deployerAddress;
+  }
+  if (datasetAdmin === lockAuthorizer) throw new Error("SIRIUS_DATASET_ADMIN ne peut pas être le signataire de lock");
 
   return {
     billingVersion,
@@ -89,5 +161,10 @@ export function deploymentPlan(env: Env, chainId: number, deployer: string): Dep
     sharedRoles,
     dryRun: env.SIRIUS_DEPLOY_DRY_RUN === "true",
     mustBeContracts,
+    existingKyb,
+    trainingProfiles,
+    estimateDatasets: address(env, "SIRIUS_DEPLOY_ESTIMATE_DATASETS") ?? null,
+    datasetAdmin,
+    datasetAdminIsDeployer: datasetAdmin === deployerAddress,
   };
 }

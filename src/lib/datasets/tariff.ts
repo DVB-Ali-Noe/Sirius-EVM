@@ -13,8 +13,11 @@ import { computePriceBreakdown, parseAtomic, type PriceBreakdownResult } from "@
 export interface PublishedTariff {
   /** `tariffVersion` de la politique, ou `legacy-v6` quand la facturation v7 n'est pas active. */
   version: string;
-  /** Frais de calcul par profil : ce que le devis annoncera à l'emprunteur en plus de la part du fournisseur. */
-  computeFeeAtomic: Record<ModelId, string>;
+  /**
+   * Frais de calcul par profil : ce que le devis annoncera à l'emprunteur en plus de la part du
+   * fournisseur. Un profil facultatif absent de la politique n'a pas de frais : il n'est pas publiable.
+   */
+  computeFeeAtomic: Partial<Record<ModelId, string>>;
   /** Plancher de la part du fournisseur (`MIN_PRICE_USDC_ATOMIC`), refusé en dessous par la route. */
   minimumProviderAtomic: string;
   /** Décimales du jeton de règlement, pour affichage. */
@@ -35,8 +38,10 @@ const MODEL_IDS = Object.keys(MODEL_REGISTRY) as ModelId[];
  * Frais de calcul d'un profil, exactement comme `prepareComputeQuote` (src/lib/billing/runner.ts)
  * les met dans le devis : le montant du profil, relevé au minimum de la politique.
  */
-function computeFee(policy: BillingPolicy, modelId: ModelId): string {
-  const configured = BigInt(policy.profiles[modelId].computeAmount);
+function computeFee(policy: BillingPolicy, modelId: ModelId): string | null {
+  const profile = policy.profiles[modelId];
+  if (!profile) return null;
+  const configured = BigInt(profile.computeAmount);
   const minimum = BigInt(policy.minimumComputeAmount);
   return (configured > minimum ? configured : minimum).toString();
 }
@@ -53,7 +58,10 @@ export function tariffFromPolicy(policy: BillingPolicy, expected: ExpectedTariff
   if (parseAtomic(expected.minimumProviderAtomic) === null) return null;
   return {
     version: policy.tariffVersion,
-    computeFeeAtomic: Object.fromEntries(MODEL_IDS.map((id) => [id, computeFee(policy, id)])) as Record<ModelId, string>,
+    computeFeeAtomic: Object.fromEntries(MODEL_IDS.flatMap((id) => {
+      const fee = computeFee(policy, id);
+      return fee === null ? [] : [[id, fee]];
+    })),
     minimumProviderAtomic: expected.minimumProviderAtomic,
     decimals: expected.decimals,
   };
@@ -64,7 +72,7 @@ export function legacyTariff(decimals: number, minimumProviderAtomic: string): P
   if (parseAtomic(minimumProviderAtomic) === null) return null;
   return {
     version: "legacy-v6",
-    computeFeeAtomic: Object.fromEntries(MODEL_IDS.map((id) => [id, "0"])) as Record<ModelId, string>,
+    computeFeeAtomic: Object.fromEntries(MODEL_IDS.map((id) => [id, "0"])),
     minimumProviderAtomic,
     decimals,
   };

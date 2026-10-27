@@ -155,6 +155,28 @@ test("finalité rapide : facultative et cohérente entre les rôles, bornes vér
   }
 });
 
+test("REP-07 : un Next qui propose un profil facultatif que le Compose du runner n'active pas est refusé, pas l'inverse", () => {
+  const issue = "next.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS.runner-disabled";
+  const cases = [
+    // [Next, runner (recopié du Compose), refusé ?]
+    [undefined, undefined, false],
+    ["gradient_boosted_trees", "gradient_boosted_trees", false],
+    [" gradient_boosted_trees ", "gradient_boosted_trees", false],
+    // Étape intermédiaire du retour arrière « Interrupteur seul » : Next déjà coupé.
+    [undefined, "gradient_boosted_trees", false],
+    ["gradient_boosted_trees", undefined, true],
+    ["gradient_boosted_trees", "", true],
+  ];
+  for (const [next, runner, refused] of cases) {
+    const env = environments();
+    if (next !== undefined) env[0].NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = next;
+    if (runner !== undefined) env[2].NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = runner;
+    const result = checkReleaseEnvironments(...env);
+    assert.equal(result.issues.includes(issue), refused, `${next} / ${runner}`);
+    assert.equal(result.configurationReady, !refused);
+  }
+});
+
 test("accès instantané KYB : la clé automatique n'est admise que sur Next, avec le drapeau, et le vérificateur humain reste interdit", () => {
   const key = `0x${"ab".repeat(32)}`;
   // Sans la fonction, rien ne change : une configuration mainnet complète passe toujours.

@@ -1,0 +1,6 @@
+# Le tarif n'est remplacé qu'après une prolongation du budget réussie.
+services:
+  update-billing-policy:
+    depends_on:
+      renew-budget-policy:
+        condition: service_completed_successfully

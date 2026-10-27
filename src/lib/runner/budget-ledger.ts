@@ -2,7 +2,16 @@ import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync } from 
 import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
 import { parseDemoPolicy, type DemoPolicy } from "@/lib/phala-demo/contract";
-import { RunnerRetryLater } from "./failure-policy";
+import { ESCROW_CHALLENGE_DAYS } from "@/lib/datasets/publication";
+import { RUNNER_WALLET_BUSY, RunnerRetryLater } from "./failure-policy";
+
+/** Durée de vie maximale d'un devis compute signé (`src/lib/billing/runner.ts`). */
+export const QUOTE_LIFETIME_SECONDS = 300;
+/**
+ * Un devis réserve son flux jusqu'à `expiresAt + challengeDays` (`reserveWorkflow`), borné par la
+ * politique : le dernier devis possible précède donc `validUntil` de cette marge (délai standard).
+ */
+export const QUOTE_RESERVATION_MARGIN_MS = (QUOTE_LIFETIME_SECONDS + ESCROW_CHALLENGE_DAYS * 86_400) * 1000;
 
 export type BudgetKind = "request" | "seal" | "training" | "transaction";
 export interface BudgetPolicy {
@@ -156,6 +165,76 @@ export function initializeBudgetLedger(path: string, value: unknown): void {
   }
   const dir = openSync(dirname(path), constants.O_RDONLY);
   try { fsyncSync(dir); } finally { closeSync(dir); }
+}
+
+function assertPrivateLedger(path: string): void {
+  assertPrivatePath(path);
+  const stat = lstatSync(path);
+  if (!stat.isFile() || (stat.mode & 0o077) !== 0) throw new AppError("Registre de budget privé requis", 503);
+}
+
+/** Politique en vigueur dans le registre réel (la copie `budget-policy.json` n'est que celle de l'installation). */
+export function readBudgetPolicy(path: string): BudgetPolicy {
+  assertPrivateLedger(path);
+  const db = database(path);
+  try {
+    return validateBudgetPolicy(JSON.parse(String(db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
+  } finally {
+    db.close();
+  }
+}
+
+export interface BudgetRenewal { validUntil: number; observedAtMs: number }
+
+/**
+ * Prolonge une politique sponsorisée dans le registre réel : seuls `validUntil` et
+ * `sponsored.observedAtMs` (relevé du financement, borne des 31 jours) changent. Financement,
+ * plafonds, coûts, gas, compteurs, réservations, flux et anti-rejeu restent intacts ; un
+ * changement de financement passe par la commande opérateur, jamais par ici. Une seule
+ * transaction SQLite : une coupure laisse l'ancienne politique, et rejouer la même demande après
+ * validation répond `already-applied` sans nouvelle écriture.
+ */
+export function renewSponsoredBudgetPolicy(
+  path: string, chainId: number, wallet: string, value: unknown, actor: string, now = Date.now(),
+): { status: "renewed" | "already-applied"; previous: BudgetPolicy; next: BudgetPolicy } {
+  const renewal = value as BudgetRenewal | null;
+  if (!renewal || typeof renewal !== "object" || Object.keys(renewal).sort().join() !== "observedAtMs,validUntil"
+    || !integer(renewal.validUntil, 1, Number.MAX_SAFE_INTEGER) || !integer(renewal.observedAtMs, 1, now + 30_000)) {
+    throw new AppError("Renouvellement attendu : validUntil et observedAtMs seulement", 400);
+  }
+  assertPrivateLedger(path);
+  const db = database(path);
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    let result: { status: "renewed"; previous: BudgetPolicy; next: BudgetPolicy };
+    try {
+      const current = validateBudgetPolicy(JSON.parse(String(db.prepare("SELECT policy FROM budget WHERE id = 1").get()?.policy)));
+      if (current.chainId !== chainId || current.wallet !== wallet.toLowerCase()) throw new AppError("Budget lié à un autre réseau ou wallet", 409);
+      if (!current.sponsored) throw new AppError("Renouvellement réservé au financement sponsorisé de la démonstration", 409);
+      if (current.validUntil === renewal.validUntil && current.sponsored.observedAtMs === renewal.observedAtMs) {
+        db.exec("ROLLBACK");
+        return { status: "already-applied", previous: current, next: current };
+      }
+      if (renewal.validUntil <= current.validUntil || renewal.validUntil <= now) throw new AppError("Le renouvellement ne peut ni raccourcir ni dater dans le passé", 409);
+      if (renewal.observedAtMs < current.sponsored.observedAtMs) throw new AppError("Relevé du financement antérieur au relevé en vigueur", 409);
+      const next = validateBudgetPolicy({ ...current, validUntil: renewal.validUntil, sponsored: { ...current.sponsored, observedAtMs: renewal.observedAtMs } });
+      db.exec("CREATE TABLE IF NOT EXISTS sponsored_policy_changes (id INTEGER PRIMARY KEY, actor TEXT NOT NULL, changed_at INTEGER NOT NULL, previous_policy TEXT NOT NULL, next_policy TEXT NOT NULL)");
+      db.prepare("INSERT INTO sponsored_policy_changes (actor, changed_at, previous_policy, next_policy) VALUES (?, ?, ?, ?)")
+        .run(actor, now, JSON.stringify(current), JSON.stringify(next));
+      db.prepare("UPDATE budget SET policy = ? WHERE id = 1").run(JSON.stringify(next));
+      db.exec("COMMIT");
+      result = { status: "renewed", previous: current, next };
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* transaction déjà close */ }
+      throw error;
+    }
+    // Validé : un checkpoint manqué ne défait rien (WAL durable, synchronous = FULL) et ne doit
+    // pas faire annoncer un échec ; il sera repris au prochain checkpoint du runner.
+    try { db.exec("PRAGMA wal_checkpoint(FULL)"); } catch { /* reporté */ }
+    return result;
+  } finally {
+    db.close();
+  }
 }
 
 export interface BudgetOperation {
@@ -327,11 +406,14 @@ export class BudgetLedger {
       }
       if (!workflow) this.assertAdmission();
       const active = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE state = 'reserved'").get()?.n);
-      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new AppError("Réservations runner en attente de réconciliation", 503);
+      // Registre plein : un refus de capacité, pas une panne. `RunnerRetryLater` n'est pas compté par
+      // le coupe-circuit et rend la réservation de la requête parente (audit ROB-09) ; sinon
+      // `maxFailures` requêtes légitimes concurrentes fermaient le runner à tous.
+      if ((!workflow || kind === "training") && active >= this.policy.maxActive) throw new RunnerRetryLater("Réservations runner en attente de réconciliation");
       if (kind === "transaction" && this.db.prepare("SELECT id FROM operations WHERE kind = 'transaction' AND state = 'reserved'").get()) {
         // Une seule transaction en vol par wallet : les autres règlements attendent leur tour
         // sans compter d'échec ni consommer de crédit.
-        throw new RunnerRetryLater("Transaction du wallet runner encore incertaine");
+        throw new RunnerRetryLater(RUNNER_WALLET_BUSY);
       }
       const wei = kind === "transaction" ? BigInt(this.policy.gas.maxTransactionWei) : BigInt(0);
       const scale = BigInt("1000000000000000000");
@@ -584,11 +666,15 @@ export class BudgetLedger {
     });
     const incompleteJobs = Number(this.db.prepare("SELECT count(*) AS n FROM operations WHERE kind = 'training' AND state = 'reserved'").get()?.n);
     const allocation = this.workflowAllocation();
+    const quotesUntilMs = this.policy.validUntil - QUOTE_RESERVATION_MARGIN_MS;
     return {
       ...accounting, remainingUsd, remainingWei, pendingTransactions, incompleteJobs,
       expired: now >= this.policy.validUntil,
+      validUntilMs: this.policy.validUntil,
+      quotesUntilMs,
+      quoteWindowClosed: now >= quotesUntilMs,
       circuitOpen: accounting.failures >= this.policy.maxFailures,
-      canQuote: now < this.policy.validUntil && accounting.failures < this.policy.maxFailures
+      canQuote: now < quotesUntilMs && accounting.failures < this.policy.maxFailures
         && remainingUsd >= allocation.usd && remainingWei >= allocation.wei && pendingTransactions.length === 0,
     };
   }

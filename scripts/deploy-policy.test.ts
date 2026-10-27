@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deploymentPlan, MAINNET_CHAIN_ID, MAINNET_STABLECOIN, MAINNET_USDC, TESTNET_CHAIN_ID } from "./deploy-policy";
+import { deploymentPlan, MAINNET_CHAIN_ID, MAINNET_STABLECOIN, MAINNET_USDC, parseTrainingProfiles, TESTNET_CHAIN_ID } from "./deploy-policy";
 
 const deployer = `0x${"d1".repeat(20)}`;
 const safe = `0x${"5a".repeat(20)}`;
@@ -14,7 +14,7 @@ const LEGACY_USDC = "0x80e0e24718dbFcad49ECAA6F1e6C89A190586cA8";
 function mainnetEnv(change: Record<string, string | undefined> = {}) {
   return {
     SIRIUS_ALLOW_MAINNET: "true", SIRIUS_BILLING_VERSION: "7", SIRIUS_USDC_ADDRESS: USDG_CHECKSUMMED,
-    SIRIUS_KYB_ADMIN: safe, SIRIUS_KYB_VERIFIER: verifier, SIRIUS_LOCK_AUTHORIZER: enclave, ...change,
+    SIRIUS_KYB_ADMIN: safe, SIRIUS_KYB_VERIFIER: verifier, SIRIUS_LOCK_AUTHORIZER: enclave, SIRIUS_DATASET_ADMIN: safe, ...change,
   };
 }
 
@@ -84,4 +84,64 @@ test("le testnet garde ses raccourcis assumés et n'impose aucun jeton", () => {
   assert.throws(() => deploymentPlan(base, TESTNET_CHAIN_ID, deployer), /requis/);
   assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_ADMIN: safe, SIRIUS_KYB_VERIFIER: safe }, TESTNET_CHAIN_ID, deployer), /distinctes/);
   assert.throws(() => deploymentPlan(base, 1, deployer), /Réseau inattendu/);
+});
+
+test("le déploiement peut réutiliser un KYB existant et n'ajoute que des profils facultatifs connus", () => {
+  const base = { SIRIUS_USDC_ADDRESS: `0x${"34".repeat(20)}`, SIRIUS_LOCK_AUTHORIZER: enclave, SIRIUS_KYB_MODE: "open", SIRIUS_BILLING_VERSION: "7" };
+  const fresh = deploymentPlan(base, TESTNET_CHAIN_ID, deployer);
+  assert.equal(fresh.existingKyb, null);
+  assert.deepEqual(fresh.trainingProfiles, []);
+  const kyb = "0xC6Ef861119C097d135C85ff0988014d52cc78c64";
+  const reuse = deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: kyb, SIRIUS_DATASET_TRAINING_PROFILES: " gradient_boosted_trees " }, TESTNET_CHAIN_ID, deployer);
+  assert.equal(reuse.existingKyb, kyb.toLowerCase());
+  assert.deepEqual(reuse.trainingProfiles, ["gradient_boosted_trees"]);
+  for (const profiles of ["linear_regression", "unknown_model", "gradient_boosted_trees,gradient_boosted_trees", "__proto__"]) {
+    assert.throws(() => deploymentPlan({ ...base, SIRIUS_DATASET_TRAINING_PROFILES: profiles }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DATASET_TRAINING_PROFILES/, profiles);
+  }
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: `0x${"0".repeat(40)}` }, TESTNET_CHAIN_ID, deployer), /non nulle/);
+  assert.equal(fresh.estimateDatasets, null);
+  const registry = "0x99EA98be5c439809a918115764bcabf089ef4be5";
+  assert.equal(deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: registry }, TESTNET_CHAIN_ID, deployer).estimateDatasets, registry.toLowerCase());
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_DEPLOY_ESTIMATE_DATASETS: "0x99ea" }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DEPLOY_ESTIMATE_DATASETS/);
+});
+
+test("REP-11 : sur mainnet, l'admin du registre de datasets est le Safe passé explicitement, jamais le déployeur", () => {
+  const plan = deploymentPlan(mainnetEnv(), MAINNET_CHAIN_ID, deployer);
+  assert.equal(plan.datasetAdmin, safe);
+  assert.equal(plan.datasetAdminIsDeployer, false);
+  // Le Safe est vérifié comme contrat une seule fois, qu'il gouverne le KYB et le registre.
+  assert.deepEqual(plan.mustBeContracts, [safe]);
+  // Casse ignorée : la forme checksummée d'un Safe passe.
+  assert.equal(deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: safe.toUpperCase().replace("0X", "0x") }), MAINNET_CHAIN_ID, deployer).datasetAdmin, safe);
+
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: undefined }), MAINNET_CHAIN_ID, deployer), /SIRIUS_DATASET_ADMIN.*obligatoire/);
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: "  " }), MAINNET_CHAIN_ID, deployer), /SIRIUS_DATASET_ADMIN.*obligatoire/);
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: deployer }), MAINNET_CHAIN_ID, deployer), /clé de déploiement/);
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: deployer.toUpperCase().replace("0X", "0x") }), MAINNET_CHAIN_ID, deployer), /clé de déploiement/);
+  for (const other of [verifier, enclave, `0x${"77".repeat(20)}`]) {
+    assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: other }), MAINNET_CHAIN_ID, deployer), /SIRIUS_KYB_ADMIN/, other);
+  }
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: `0x${"0".repeat(40)}` }), MAINNET_CHAIN_ID, deployer), /non nulle/);
+  assert.throws(() => deploymentPlan(mainnetEnv({ SIRIUS_DATASET_ADMIN: "0x5a5a" }), MAINNET_CHAIN_ID, deployer), /non nulle/);
+});
+
+test("testnet : l'admin du registre est la clé de déploiement par défaut, et le plan le dit", () => {
+  const base = { SIRIUS_USDC_ADDRESS: `0x${"34".repeat(20)}`, SIRIUS_LOCK_AUTHORIZER: enclave, SIRIUS_KYB_MODE: "open", SIRIUS_BILLING_VERSION: "7" };
+  const byDefault = deploymentPlan(base, TESTNET_CHAIN_ID, deployer.toUpperCase().replace("0X", "0x"));
+  assert.equal(byDefault.datasetAdmin, deployer);
+  assert.equal(byDefault.datasetAdminIsDeployer, true);
+  assert.equal(deploymentPlan({ ...base, SIRIUS_DATASET_ADMIN: deployer }, TESTNET_CHAIN_ID, deployer).datasetAdminIsDeployer, true);
+  // Un admin distinct, même sur testnet : le script prépare les transactions au lieu de les envoyer.
+  const governed = deploymentPlan({ ...base, SIRIUS_DATASET_ADMIN: safe }, TESTNET_CHAIN_ID, deployer);
+  assert.equal(governed.datasetAdmin, safe);
+  assert.equal(governed.datasetAdminIsDeployer, false);
+  assert.throws(() => deploymentPlan({ ...base, SIRIUS_DATASET_ADMIN: enclave }, TESTNET_CHAIN_ID, deployer), /signataire de lock/);
+});
+
+test("REP-13 : les profils ajoutés viennent de MODEL_REGISTRY, jamais d'un hash saisi", () => {
+  assert.deepEqual(parseTrainingProfiles(" gradient_boosted_trees "), ["gradient_boosted_trees"]);
+  assert.deepEqual(parseTrainingProfiles(undefined), []);
+  for (const raw of [`0x${"eb".repeat(32)}`, "gradient_boosted_tress", "logistic_regression", "constructor"]) {
+    assert.throws(() => parseTrainingProfiles(raw), /profils facultatifs connus/, raw);
+  }
 });

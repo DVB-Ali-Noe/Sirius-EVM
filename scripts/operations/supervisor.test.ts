@@ -15,11 +15,11 @@ const running = { app_id: APP, status: "running" };
 const healthy = { canQuote: true, expired: false, circuitOpen: false, incompleteJobs: 0, pendingTransactions: [], remainingUsd: "1000" };
 const codes = (report: { alerts: Array<{ code: string }> }) => report.alerts.map((a) => a.code);
 
-function realCheck(change: (ledger: BudgetLedger) => void = () => {}) {
+function realCheck(change: (ledger: BudgetLedger) => void = () => {}, validForMs = 4 * 86_400_000) {
   const directory = mkdtempSync(join(tmpdir(), "sirius-supervisor-"));
   chmodSync(directory, 0o700);
   const path = join(directory, "ledger.sqlite");
-  const policy = syntheticPolicy();
+  const policy = { ...syntheticPolicy(), validUntil: Date.now() + validForMs };
   initializeBudgetLedger(path, policy);
   const ledger = new BudgetLedger(path, policy.chainId, policy.wallet);
   try {
@@ -38,6 +38,12 @@ test("la sortie réelle de runner:budget check est lue : registre sain, puis cal
   const busy = budgetAlerts(realCheck((ledger) => { ledger.reserve("job", "scope", "training"); }), NOW, NOW);
   assert.deepEqual(busy.alerts.map((a) => a.code), ["incomplete-jobs"]);
   assert.equal(busy.inFlight, true);
+});
+
+test("moins de trois jours avant la fin de politique : alerte de renouvellement, pas de faux manque de marge", () => {
+  const closing = budgetAlerts(realCheck(() => {}, 3_600_000), Date.now(), Date.now());
+  assert.deepEqual(closing.alerts.map((a) => a.code), ["quote-window-closed"]);
+  assert.equal(closing.blocked, true);
 });
 
 test("session saine avec contrôle récent : aucun signal", () => {

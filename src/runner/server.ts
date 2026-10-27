@@ -24,6 +24,8 @@ import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
 import { demoControl, demoControlAuthorized, demoEnabled, recoverDemoAfterRestart } from "@/lib/phala-demo/runner-session";
+import { FreeOpsGuard, freeOpsPolicyFromEnv } from "./free-ops-guard";
+import { UNCHARGED_OPS } from "./handler";
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -40,6 +42,26 @@ const MAX_CONCURRENT_REQUESTS = boundedSetting("RUNNER_MAX_CONCURRENT_REQUESTS",
 const MAX_CONCURRENT_UPLOADS = boundedSetting("RUNNER_MAX_CONCURRENT_UPLOADS", 1, 2);
 const MAX_CONCURRENT_JOBS = boundedSetting("RUNNER_MAX_CONCURRENT_JOBS", 1, 2);
 const MAX_CONNECTIONS = boundedSetting("RUNNER_MAX_CONNECTIONS", 32, 128);
+/**
+ * Délais HTTP du runner. Next garde ses connexions ouvertes (keep-alive) et ferme lui-même une
+ * connexion inactive après `RUNNER_CLIENT_IDLE_MS` (4 s, ra-tls-client.ts) : le runner doit attendre
+ * nettement plus longtemps, sinon une requête part sur une connexion qu'il est en train de fermer
+ * (ECONNRESET, puis 503 « Runner confidentiel indisponible » côté Next : audit ROB-10).
+ * `headersTimeout` reste au-dessus de `keepAliveTimeout` et sous `requestTimeout`. Les deux restent
+ * courts : ils bornent aussi le temps qu'une connexion muette garde une des `RUNNER_MAX_CONNECTIONS`
+ * places (5 s auparavant, 11 s maintenant).
+ */
+export const RUNNER_KEEP_ALIVE_TIMEOUT_MS = 10_000;
+export const RUNNER_HEADERS_TIMEOUT_MS = 11_000;
+export const RUNNER_REQUEST_TIMEOUT_MS = 30_000;
+const freeOps = new FreeOpsGuard(freeOpsPolicyFromEnv());
+/**
+ * Plafond effectif des requêtes payantes simultanées. Chaque requête réserve dans le registre de
+ * budget sa propre ligne et, au plus, celle d'un job imbriqué (scellement, entraînement,
+ * transaction) : au-delà de `maxActive / 2` requêtes, un job légitime trouverait le registre plein
+ * (audit ROB-09). Le runner réduit donc son admission HTTP à la politique lue au démarrage.
+ */
+let admittedRequests = MAX_CONCURRENT_REQUESTS;
 let activeRequests = 0;
 let activeUploads = 0;
 let activeJobs = 0;
@@ -98,11 +120,12 @@ export async function handleRunnerRequest(
   raTlsEvidence?: RunnerRaTlsEvidence,
   bootstrapOnly = false,
 ): Promise<void> {
-  const send = (status: number, obj: unknown) => {
+  const send = (status: number, obj: unknown, extraHeaders: Record<string, string> = {}) => {
     res.writeHead(status, {
       "cache-control": "no-store",
       "content-type": "application/json",
       "x-content-type-options": "nosniff",
+      ...extraHeaders,
     });
     res.end(JSON.stringify(obj));
   };
@@ -136,17 +159,28 @@ export async function handleRunnerRequest(
       return send(401, { error: "Runner : capability invalide" });
     }
     const expectedLength = declaredBodyLength(req, maxBodyBytes(op));
+    const isFree = UNCHARGED_OPS.has(verifiedCapability.op);
     const isUpload = op === "seal-dataset";
     const isJob = op === "run-training" || op === "run-loan-job";
-    if (
-      activeRequests >= MAX_CONCURRENT_REQUESTS ||
+    let releaseFree: (() => void) | undefined;
+    if (isFree) {
+      // Débit, concurrence et coupe-circuit propres aux opérations gratuites, vérifiés avant de lire
+      // le corps et avant toute écriture dans l'anti-rejeu : un refus ne coûte qu'une vérification
+      // HMAC, et ces opérations ne prennent jamais la place d'une opération payante.
+      const decision = freeOps.admit(verifiedCapability.op);
+      if (!decision.admitted) {
+        return send(decision.status, { error: decision.error }, { "retry-after": String(decision.retryAfterSeconds) });
+      }
+      releaseFree = decision.release;
+    } else if (
+      activeRequests >= admittedRequests ||
       (isUpload && activeUploads >= MAX_CONCURRENT_UPLOADS) ||
       (isJob && activeJobs >= MAX_CONCURRENT_JOBS)
     ) {
       return send(503, { error: "Runner saturé" });
     }
 
-    activeRequests += 1;
+    if (!isFree) activeRequests += 1;
     if (isUpload) activeUploads += 1;
     if (isJob) activeJobs += 1;
     try {
@@ -163,7 +197,8 @@ export async function handleRunnerRequest(
       }
       send(200, await handleRunnerOp(target.op as RunnerOperation, body));
     } finally {
-      activeRequests -= 1;
+      if (releaseFree) releaseFree();
+      else activeRequests -= 1;
       if (isUpload) activeUploads -= 1;
       if (isJob) activeJobs -= 1;
     }
@@ -177,13 +212,29 @@ export async function handleRunnerRequest(
   }
 }
 
+/**
+ * Requêtes payantes admises en même temps pour un registre dont la politique autorise `maxActive`
+ * réservations ouvertes : au plus `maxActive / 2`, jamais plus que `RUNNER_MAX_CONCURRENT_REQUESTS`.
+ */
+export function admittedRequestLimit(configured: number, maxActive: number | undefined): number {
+  if (maxActive === undefined) return configured;
+  const limit = Math.max(1, Math.min(configured, Math.floor(maxActive / 2)));
+  if (limit < configured) {
+    console.warn(
+      `[runner] politique de budget : maxActive = ${maxActive} ne couvre pas ${configured} requêtes et leurs jobs ; ` +
+        `admission réduite à ${limit} requête(s) simultanée(s) (prévoir maxActive ≥ ${2 * configured})`,
+    );
+  }
+  return limit;
+}
+
 export async function startRunner(
   { port = PORT, log = true }: StartRunnerOptions = {},
 ): Promise<HttpServer | HttpsServer> {
   const { bootstrapOnly, tlsEnabled } = validateRunnerConfiguration();
   if (!bootstrapOnly && process.env.RUNNER_REPLAY_DIR?.trim()) checkRunnerReplay(process.env.RUNNER_REPLAY_DIR.trim());
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
-  if (!bootstrapOnly) runnerBudget();
+  if (!bootstrapOnly) admittedRequests = admittedRequestLimit(MAX_CONCURRENT_REQUESTS, runnerBudget()?.policy.maxActive);
   if (!bootstrapOnly && demoEnabled()) recoverDemoAfterRestart();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
     await verifyRunnerDeployment(runnerSettlementAddress());
@@ -218,9 +269,9 @@ export async function startRunner(
     res.writeHead(417, { connection: "close" });
     res.end();
   });
-  server.headersTimeout = 5_000;
-  server.requestTimeout = 30_000;
-  server.keepAliveTimeout = 5_000;
+  server.headersTimeout = RUNNER_HEADERS_TIMEOUT_MS;
+  server.requestTimeout = RUNNER_REQUEST_TIMEOUT_MS;
+  server.keepAliveTimeout = RUNNER_KEEP_ALIVE_TIMEOUT_MS;
   server.maxRequestsPerSocket = 20;
   server.maxConnections = MAX_CONNECTIONS;
   server.setTimeout(65_000, (socket) => socket.destroy());

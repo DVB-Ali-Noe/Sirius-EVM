@@ -96,7 +96,7 @@ Le registre strict v3 signe `verifierEpoch` sous le domaine EIP-712 version `2`.
 
 ## D-20 — Budget à l’ingestion
 
-Le plafond de 20 millions d’opérations est partagé par validation et entraînement. Un fichier qui le dépasse est refusé avant scellement. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
+En septembre, le plafond de 20 millions d’opérations était partagé par validation et entraînement. Le 17 octobre, le code local le porte à 200 millions sans modifier la règle de refus avant scellement ; la mesure sur la CVM staging reste à faire. Ce contrôle ne garantit pas la disponibilité du runner ni le temps d’exécution sur toute machine.
 
 ## D-21 — Phala unique en production, sans sélecteur VPS
 
@@ -150,3 +150,14 @@ Le 26 septembre 2026, après l’inventaire des variables Vercel et GitHub de st
 Conséquences : pas de base Neon dédiée ni de cible pipeline supplémentaire ; la base staging existante reçoit les migrations par la pipeline, dont `20260926000000_add_self_train_delivery`. Le domaine `phala.sirius-data.tech` devient l’origine principale du projet staging, l’ancienne origine Vercel reste en alias ; le contrôleur répond sur `ctl.sirius-data.tech` depuis le nouveau VPS. Les mesures attendues sont recapturées après publication de la nouvelle image. La discipline remplace l’isolation : aucune fusion vers `staging` pendant une session ouverte, et les quotas et le financement de la démo restent ceux de D-25. Le retour à une instance dédiée reste possible plus tard sans changement de code.
 
 Ce que D-26 ne change pas : la production reste sur le parcours historique v6 avec runner intégré, le déplacement de ce calcul vers le VPS reste P09, les portes mainnet sont inchangées.
+
+## D-27 — Politique de sortie unique et API sur modèles privés
+
+Le 19 octobre 2026, après l’étude [EGRESS-POLICY-API.md](EGRESS-POLICY-API.md), Noé décide :
+
+- **Décision seule en sortie d’API**, jamais de probabilité, même arrondie : une probabilité exacte reconstruit une logistique à 23 variables en 24 requêtes, et l’arrondi ne multiplie ce coût que par deux à dix.
+- **Une politique de sortie unique dans l’enclave**, appliquée aux modèles livrés comme aux réponses d’API ; elle livre, dégrade ou refuse.
+- **Le dataset n’est jamais modifié** : son Merkle root est ce qui est vendu. La préparation (imputation, normalisation, encodage) fait partie du modèle et n’entre que dans de nouvelles versions de profil.
+- **L’API est réservée aux modèles dangereux à livrer.** Une décision seule ne protège pas la fonction de décision d’une logistique : environ 2 400 appels d’usage normal suffisent à la cloner. En v1, Sirius décide par profil ; linéaire et logistique restent livrées.
+
+Cette décision rouvre en partie l’écartement, le 14 octobre, des modèles à servir depuis l’enclave, sans les activer. Elle n’autorise ni implémentation de `/predict`, ni CVM allumée en continu, ni changement du format livré de linéaire et logistique v1, ni contrat de facturation par appel. Seuils, quotas, prix et crédits prépayés restent des questions ouvertes de la note.

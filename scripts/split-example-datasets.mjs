@@ -44,6 +44,17 @@ const datasets = [
       [[], []],
     ),
   },
+  {
+    directory: "classification",
+    name: "credit-risk",
+    split: (rows) => rows.reduce(
+      (groups, row, index) => {
+        groups[index % 5 === 4 ? 1 : 0].push(row);
+        return groups;
+      },
+      [[], []],
+    ),
+  },
 ];
 
 async function splitDataset({ directory, name, optional, split }) {

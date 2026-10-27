@@ -37,7 +37,7 @@ export function demoOnlyRoute(pathname: string): DemoRouteDecision {
     if ((DEMO_API_EXACT as readonly string[]).includes(pathname)) return "allow";
     return DEMO_API_PREFIXES.some((prefix) => underPrefix(pathname, prefix)) ? "allow" : "block";
   }
-  if (pathname === DEMO_PAGE || pathname === `${DEMO_PAGE}/`) return "allow";
+  if (pathname === DEMO_PAGE || pathname === `${DEMO_PAGE}/` || pathname === `${DEMO_PAGE}/attestation`) return "allow";
   // Pages légales : la connexion renvoie aux conditions, le pied de page aux trois.
   if (pathname === "/terms" || pathname === "/privacy" || pathname === "/legal") return "allow";
   if (pathname.startsWith("/_next/")) return "allow";

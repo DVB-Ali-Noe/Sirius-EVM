@@ -27,6 +27,7 @@ beforeEach(() => {
     if (functionName === "datasets") return datasets;
     if (functionName === "escrow") return escrow;
     if (functionName === "kyb" && address.toLowerCase() === datasets) return bindings.datasetKyb;
+    if (functionName === "isSupportedTrainingProfile") return true;
     return bindings[functionName];
   });
 });

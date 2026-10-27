@@ -1,0 +1,23 @@
+# Maintenance ponctuelle du volume de démonstration ; ne jamais combiner avec le Compose actif.
+services:
+  renew-budget-policy:
+    image: ${SIRIUS_RUNNER_IMAGE:?Image v7 immuable requise}
+    restart: "no"
+    read_only: true
+    network_mode: none
+    command: ["node", "--import", "tsx", "scripts/renew-runner-budget-policy.ts", "/var/lib/sirius-runner/budget/ledger.sqlite"]
+    environment:
+      RUNNER_VOLUME_ACTION: renew-budget-policy
+      EVM_NETWORK: ${EVM_NETWORK:?Réseau EVM requis}
+      SIRIUS_LOCK_AUTHORIZER: ${SIRIUS_LOCK_AUTHORIZER:?Signataire attendu requis}
+      RUNNER_BUDGET_RENEWAL: ${RUNNER_BUDGET_RENEWAL:?Prolongation approuvée requise}
+    volumes:
+      - runner_budget:/var/lib/sirius-runner/budget
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    cpus: 0.25
+    mem_limit: 256m
+    memswap_limit: 256m

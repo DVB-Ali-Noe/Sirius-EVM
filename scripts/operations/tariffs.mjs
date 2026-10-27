@@ -6,7 +6,10 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { estimatePlan } from "./costs.mjs";
 
-const PROFILES = ["linear_regression", "logistic_regression"];
+const REQUIRED_PROFILES = ["linear_regression", "logistic_regression"];
+/** Profils facultatifs (src/lib/billing/config.ts) : tarifés seulement s'ils figurent dans la proposition. */
+const OPTIONAL_PROFILES = ["gradient_boosted_trees"];
+const proposedProfiles = (p) => [...REQUIRED_PROFILES, ...OPTIONAL_PROFILES.filter((id) => Object.hasOwn(p.profiles ?? {}, id))];
 const amount = (value) => typeof value === "string" && /^(0|[1-9][0-9]{0,28})$/.test(value);
 const int = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= min && value <= max;
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
@@ -30,7 +33,7 @@ export function validateProposal(p) {
     && int(p.fixedCostCoverage?.bufferPercent, 0, 500)
     && p.failurePolicy?.rule === "consumed-execution-only" && p.failurePolicy?.rounding === "floor"
     && amount(p.trialFunding?.proposedEnvelopeUsdMicros) && Array.isArray(p.stopScenarios) && p.stopScenarios.length > 0
-    && PROFILES.every((id) => int(p.profiles?.[id]?.maxExecutionMs, 1000, 30000) && typeof p.profiles[id].phalaCalibrated === "boolean");
+    && proposedProfiles(p).every((id) => int(p.profiles?.[id]?.maxExecutionMs, 1000, 30000) && typeof p.profiles[id].phalaCalibrated === "boolean");
   if (!ok) throw new Error("Proposition tarifaire invalide");
   return p;
 }
@@ -58,6 +61,7 @@ export function tariffReport(proposal, plan, token) {
   const rateAtomicPerMs = computePerHour * 10n ** BigInt(decimals) / (MICROS * MS_PER_HOUR);
   const minimumAtomic = usdMicrosToAtomic(minimum, decimals, "ceil");
 
+  const PROFILES = proposedProfiles(p);
   const profiles = Object.fromEntries(PROFILES.map((id) => {
     const profile = p.profiles[id];
     const maxFailureFee = rateAtomicPerMs * BigInt(profile.maxExecutionMs);

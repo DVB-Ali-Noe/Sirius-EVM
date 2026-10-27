@@ -42,6 +42,11 @@
       "maxExecutionMs": 30000,
       "localBenchmarkMaxMs": 282,
       "phalaCalibrated": false
+    },
+    "gradient_boosted_trees": {
+      "maxExecutionMs": 30000,
+      "localBenchmarkMaxMs": 931,
+      "phalaCalibrated": false
     }
   },
   "failurePolicy": {

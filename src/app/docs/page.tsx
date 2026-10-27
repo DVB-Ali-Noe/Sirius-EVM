@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
+import { isModelOffered } from "@/lib/models/registry";
 import { DocSection, DocsShell, HERO_PRIMARY, HERO_SECONDARY, Hint } from "./DocsShell";
 import { EscrowLifecycleDiagram, FairExchangeDiagram, OverviewDiagram } from "./diagrams";
 
@@ -74,12 +75,12 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Calcul réussi": "Successful computation",
   "Une transaction crédite le provider et publie le préimage. Le navigateur déchiffre ensuite la capsule hors chaîne.": "One transaction credits the provider and publishes the preimage. The browser then decrypts the capsule off-chain.",
   "Job invalide ou infructueux": "Invalid or unsuccessful job",
-  "Aucun préimage n’est révélé ; le borrower récupère les fonds après échéance.": "No preimage is revealed; the borrower recovers the funds after expiry.",
+  "Aucun préimage n’est révélé. En v7, le runner atteste l’échec : le prêt passe à Failed et le borrower est remboursé aussitôt, moins les frais de calcul attestés, bornés par `maxFailureFee`. Sinon, il récupère les fonds après échéance.": "No preimage is revealed. In v7, the runner attests the failure: the loan moves to Failed and the borrower is refunded immediately, minus the attested compute fees, capped by `maxFailureFee`. Otherwise, they recover the funds after expiry.",
   "Tentative d'obtenir le modèle sans payer": "Attempt to obtain the model without paying",
   "Impossible : la capsule exige le préimage publié au règlement.": "Impossible: the capsule requires the preimage published at settlement.",
   "Litige subjectif sur la qualité": "Subjective quality dispute",
   "Non tranché par l’escrow seul ; arbitrage à venir.": "Not resolved by escrow alone; arbitration is a future extension.",
-  "Le borrower signe le verrouillage depuis son wallet. Un prêt créé est Locked, puis Released ou Refunded : release et refund sont mutuellement exclusifs. Les statuts applicatifs comme TRAINING ne sont pas des états du contrat.": "The borrower signs the lock from their wallet. A created loan is Locked, then Released or Refunded: release and refund are mutually exclusive. Application statuses such as TRAINING are not contract states.",
+  "Le borrower signe le verrouillage depuis son wallet. Un prêt créé est Locked, puis Released, Refunded ou Failed : ces issues sont mutuellement exclusives. Failed n’existe qu’avec l’escrow v7, où dataset et calcul sont prépayés : un échec attesté par le runner rembourse le borrower sans attendre l’échéance. Les statuts applicatifs comme TRAINING ne sont pas des états du contrat.": "The borrower signs the lock from their wallet. A created loan is Locked, then Released, Refunded, or Failed: these outcomes are mutually exclusive. Failed exists only with the v7 escrow, where dataset and compute are prepaid: a failure attested by the runner refunds the borrower without waiting for expiry. Application statuses such as TRAINING are not contract states.",
   "Les crédits sont retirés séparément, par `withdraw` ou `withdrawFor`. Un wallet de provider qui refuse un transfert ne peut pas bloquer la transition du prêt.": "Credits are withdrawn separately with `withdraw` or `withdrawFor`. A provider wallet that rejects a transfer cannot block the loan transition.",
   "Appel": "Call",
   "Qui peut l’appeler": "Who can call it",
@@ -87,9 +88,11 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Le borrower": "The borrower",
   "Crée un prêt en stablecoin lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.": "Creates a stablecoin loan bound to the title and training profile, fixing the provider, amount, hashlock, and 1-to-30-day expiry; both KYB attestations must be valid.",
   "Toute adresse qui connaît le préimage, avant l’échéance": "Any address knowing the preimage, before expiry",
-  "Révèle le préimage et crédite le provider, sans transfert externe dans cette transaction.": "Reveals the preimage and credits the provider, without an external transfer in this transaction.",
+  "Révèle le préimage et crédite le provider (en v7, aussi la trésorerie compute pour le calcul), sans transfert externe dans cette transaction.": "Reveals the preimage and credits the provider (in v7, also the compute treasury for the computation), without an external transfer in this transaction.",
+  "Toute adresse, avec un reçu signé par le runner, avant l’échéance (v7)": "Any address, with a receipt signed by the runner, before expiry (v7)",
+  "Inscrit le calcul consommé, au plus `maxFailureFee`. Un reçu d’échec définitif passe le prêt à Failed : le borrower est crédité du reste, la trésorerie compute des frais attestés.": "Records the compute consumed, at most `maxFailureFee`. A final-failure receipt moves the loan to Failed: the borrower is credited with the remainder, the compute treasury with the attested fees.",
   "Toute adresse, après échéance": "Any address, after expiry",
-  "Crédite uniquement le borrower ; cet appel ferme définitivement la fenêtre de release.": "Credits only the borrower; this call permanently closes the release window.",
+  "Crédite le borrower ; en v7, la part de calcul déjà attestée (au plus `maxFailureFee`) va à la trésorerie compute. Cet appel ferme définitivement la fenêtre de release.": "Credits the borrower; in v7, the compute share already attested (at most `maxFailureFee`) goes to the compute treasury. This call permanently closes the release window.",
   "Toute adresse": "Any address",
   "Transfère le crédit uniquement au compte désigné, avec protection anti-réentrance.": "Transfers the credit only to the designated account, with reentrancy protection.",
   "Artefact": "Artifact",
@@ -111,13 +114,13 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "La suppression": "Deletion",
   "détruit la clé de dataset et laisse un tombstone vérifiable, sans rendre le contenu récupérable.": "destroys the dataset key and leaves a verifiable tombstone without making the content recoverable.",
   "Règlement": "Settlement",
-  "Pas d’admin, pas d’upgrade ni de frais. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.": "No admin, upgrade, or fees. Exact stablecoin amounts, SHA-256 hashlock, KYB for both parties, strict expiry, and pull-only credits.",
+  "Pas d’admin ni d’upgrade. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only. En v7, le calcul est prépayé avec le dataset ; un échec ne retient que les frais attestés, bornés par `maxFailureFee`.": "No admin or upgrade. Exact stablecoin amounts, SHA-256 hashlock, KYB for both parties, strict expiry, and pull-only credits. In v7, compute is prepaid with the dataset; a failure retains only the attested fees, capped by `maxFailureFee`.",
   "Attestations EIP-712 avec consentement, nonce anti-rejeu, expiration, révocation et époque de vérificateur. L’admin pilote les vérificateurs.": "EIP-712 attestations with consent, anti-replay nonce, expiry, revocation, and verifier epoch. The admin manages verifiers.",
   "Provenance": "Provenance",
   "Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.": "Deterministic title, KYB checks, CID hash, Merkle root, size, immutable training profile, and tombstone after deletion.",
-  "Le profil d’entraînement utilise SiriusEscrow v5 et SiriusDatasetRegistry v4. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.": "The training profile uses SiriusEscrow v5 and SiriusDatasetRegistry v4. Changing contracts requires a coordinated migration of the application, database, and services; this page does not attest to any instance’s configuration.",
+  "Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4 ou v5 ; un profil ajouté après le déploiement, comme les arbres boostés, exige le registre v5. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.": "The current code uses SiriusEscrow v7 (billed compute) or v6, with SiriusDatasetRegistry v4 or v5; a profile added after deployment, such as boosted trees, requires the v5 registry. Changing contracts requires a coordinated migration of the application, database, and services; this page does not attest to any instance’s configuration.",
   "Ce que la chaîne garantit": "What the chain guarantees",
-  "Un prêt ne passe qu’une fois de `Locked` vers `Released` ou `Refunded`.": "A loan transitions only once from `Locked` to `Released` or `Refunded`.",
+  "Un prêt ne passe qu’une fois de `Locked` vers `Released`, `Refunded` ou `Failed`.": "A loan transitions only once from `Locked` to `Released`, `Refunded`, or `Failed`.",
   "Le provider ne peut être crédité sans que le préimage soit rendu public, et réciproquement.": "The provider cannot be credited without the preimage becoming public, and vice versa.",
   "Le retrait ne peut pas modifier un prêt ni rediriger un crédit vers une autre adresse.": "Withdrawal cannot alter a loan or redirect a credit to another address.",
   "Le registre considère un titre détruit comme inactif et une attestation KYB comme invalide après expiration, révocation ou retrait du vérificateur.": "The registry treats a destroyed title as inactive and a KYB attestation as invalid after expiry, revocation, or verifier removal.",
@@ -137,8 +140,13 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Cible numérique continue. Métriques : R², RMSE et MAE.": "Continuous numeric target. Metrics: R², RMSE, and MAE.",
   "Régression logistique binaire": "Binary logistic regression",
   "Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.": "Target strictly encoded as 0 and 1, with both classes present. Metrics: accuracy, precision, recall, and F1.",
+  "Arbres boostés binaires": "Binary gradient-boosted trees",
+  "Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’écart d’AUC entre entraînement et held-out.":
+    "0/1 target, at least 10,000 rows (otherwise, logistic regression). Depth 2, leaves of at least 1,000 rows, no randomness. One row in five is held out: held-out AUC, accuracy, precision, recall and F1, plus the train / held-out AUC gap.",
+  "Exemple d’entraînement par arbres boostés": "Gradient-boosted trees training example",
   "Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.": "The CSV must have unique headers. Its last numeric column is the target; other numeric columns are features, up to 31. At least 100 rows and 10 rows per parameter, including the bias, are required.",
-  "Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "Delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
+  "Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For linear and logistic regression, delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
+  "Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.": "For boosted trees, delivered metrics are computed on one row in five held out from training; the train / held-out AUC gap is delivered alongside. The training page flags an abnormal train / held-out gap in either direction, measured in held-out standard errors: a training AUC higher by more than 0.02 + 3 standard errors (likely overfitting), or a held-out AUC higher by more than 3 standard errors (possible leak or row error). This check is about model quality: it does not detect memorization of specific rows.",
   "Exemple d’entraînement linéaire": "Linear training example",
   "Exemple d’entraînement logistique": "Logistic training example",
   "Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.": "An incompatible profile is rejected before the stablecoin is locked. To change the profile, upload the dataset again. Self-training on your own data also respects this profile, without a loan.",
@@ -197,6 +205,7 @@ const strong = "text-foreground";
 export default function DocsPage() {
   const { locale, t } = useLocale();
   const d: Translate = (value) => locale === "en" ? DOCUMENTATION_EN[value] ?? value : value;
+  const trees = isModelOffered("gradient_boosted_trees");
 
   return (
     <DocsShell
@@ -255,6 +264,7 @@ export default function DocsPage() {
             {[
               [d("Régression linéaire"), "linear_regression", d("Cible numérique continue. Métriques : R², RMSE et MAE.")],
               [d("Régression logistique binaire"), "logistic_regression", d("Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.")],
+              ...(trees ? [[d("Arbres boostés binaires"), "gradient_boosted_trees", d("Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’écart d’AUC entre entraînement et held-out.")]] : []),
             ].map(([name, model, description]) => (
               <div key={model} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]">
                 <h3 className="font-semibold text-foreground">{name}</h3>
@@ -265,10 +275,12 @@ export default function DocsPage() {
           </div>
           <p>{d("Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.")}</p>
           <p>{d("Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.")}</p>
-          <p>{d("Les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          <p>{d("Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          {trees && <p>{d("Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.")}</p>}
           <ul className="ml-5 list-disc space-y-2">
             <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>
             <li><a href="/examples/classification/credit-default-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement logistique")}</a></li>
+            {trees && <li><a href="/examples/classification/credit-risk-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement par arbres boostés")}</a></li>}
           </ul>
         </DocSection>
 
@@ -310,7 +322,7 @@ export default function DocsPage() {
               <tbody className="align-top">
                 {[
                   [d("Calcul réussi"), d("Une transaction crédite le provider et publie le préimage. Le navigateur déchiffre ensuite la capsule hors chaîne.")],
-                  [d("Job invalide ou infructueux"), d("Aucun préimage n’est révélé ; le borrower récupère les fonds après échéance.")],
+                  [d("Job invalide ou infructueux"), d("Aucun préimage n’est révélé. En v7, le runner atteste l’échec : le prêt passe à Failed et le borrower est remboursé aussitôt, moins les frais de calcul attestés, bornés par `maxFailureFee`. Sinon, il récupère les fonds après échéance.")],
                   [d("Tentative d'obtenir le modèle sans payer"), d("Impossible : la capsule exige le préimage publié au règlement.")],
                   [d("Litige subjectif sur la qualité"), d("Non tranché par l’escrow seul ; arbitrage à venir.")],
                 ].map(([scenario, outcome]) => <tr key={scenario} className="border-b border-border/60"><td className="py-2.5 pr-4 text-foreground">{scenario}</td><td className="py-2.5">{outcome}</td></tr>)}
@@ -320,7 +332,7 @@ export default function DocsPage() {
         </DocSection>
 
         <DocSection id="escrow" title={d("Cycle de vie de l'escrow")}>
-          <p>{d("Le borrower signe le verrouillage depuis son wallet. Un prêt créé est Locked, puis Released ou Refunded : release et refund sont mutuellement exclusifs. Les statuts applicatifs comme TRAINING ne sont pas des états du contrat.")}</p>
+          <p>{d("Le borrower signe le verrouillage depuis son wallet. Un prêt créé est Locked, puis Released, Refunded ou Failed : ces issues sont mutuellement exclusives. Failed n’existe qu’avec l’escrow v7, où dataset et calcul sont prépayés : un échec attesté par le runner rembourse le borrower sans attendre l’échéance. Les statuts applicatifs comme TRAINING ne sont pas des états du contrat.")}</p>
           <EscrowLifecycleDiagram d={d} />
           <p>{d("Les crédits sont retirés séparément, par `withdraw` ou `withdrawFor`. Un wallet de provider qui refuse un transfert ne peut pas bloquer la transition du prêt.")}</p>
           <div className="mt-4 overflow-x-auto">
@@ -329,8 +341,9 @@ export default function DocsPage() {
               <tbody className="align-top">
                 {[
                   ["lock", d("Le borrower"), d("Crée un prêt en stablecoin lié au titre et au profil d’entraînement, fixe provider, montant, hashlock et échéance de 1 à 30 jours ; les deux KYB doivent être valides.")],
-                  ["release", d("Toute adresse qui connaît le préimage, avant l’échéance"), d("Révèle le préimage et crédite le provider, sans transfert externe dans cette transaction.")],
-                  ["refund", d("Toute adresse, après échéance"), d("Crédite uniquement le borrower ; cet appel ferme définitivement la fenêtre de release.")],
+                  ["release", d("Toute adresse qui connaît le préimage, avant l’échéance"), d("Révèle le préimage et crédite le provider (en v7, aussi la trésorerie compute pour le calcul), sans transfert externe dans cette transaction.")],
+                  ["recordExecution", d("Toute adresse, avec un reçu signé par le runner, avant l’échéance (v7)"), d("Inscrit le calcul consommé, au plus `maxFailureFee`. Un reçu d’échec définitif passe le prêt à Failed : le borrower est crédité du reste, la trésorerie compute des frais attestés.")],
+                  ["refund", d("Toute adresse, après échéance"), d("Crédite le borrower ; en v7, la part de calcul déjà attestée (au plus `maxFailureFee`) va à la trésorerie compute. Cet appel ferme définitivement la fenêtre de release.")],
                   ["withdrawFor", d("Toute adresse"), d("Transfère le crédit uniquement au compte désigné, avec protection anti-réentrance.")],
                 ].map(([action, caller, effect]) => <tr key={action} className="border-b border-border/60"><td className="py-2.5 pr-4 font-mono text-foreground">{action}</td><td className="py-2.5 pr-4">{caller}</td><td className="py-2.5">{effect}</td></tr>)}
               </tbody>
@@ -370,12 +383,12 @@ export default function DocsPage() {
         <DocSection id="evm" title={d("Les contrats EVM")}>
           <div className="grid gap-3 sm:grid-cols-3">
             {[
-              ["SiriusEscrow", d("Règlement"), d("Pas d’admin, pas d’upgrade ni de frais. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only.")],
+              ["SiriusEscrow", d("Règlement"), d("Pas d’admin ni d’upgrade. Montants exacts en stablecoin, hashlock SHA-256, KYB des deux parties, échéance stricte et crédits pull-only. En v7, le calcul est prépayé avec le dataset ; un échec ne retient que les frais attestés, bornés par `maxFailureFee`.")],
               ["SiriusKybRegistry", "KYB", d("Attestations EIP-712 avec consentement, nonce anti-rejeu, expiration, révocation et époque de vérificateur. L’admin pilote les vérificateurs.")],
               ["SiriusDatasetRegistry", d("Provenance"), d("Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.")],
             ].map(([name, role, description]) => <div key={name} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]"><div className="text-xs font-medium tracking-widest text-muted">{role}</div><div className="mt-1 font-semibold text-foreground">{name}</div><p className="mt-1 text-sm text-muted">{description}</p></div>)}
           </div>
-          <p>{d("Le profil d’entraînement utilise SiriusEscrow v5 et SiriusDatasetRegistry v4. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.")}</p>
+          <p>{d("Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4 ou v5 ; un profil ajouté après le déploiement, comme les arbres boostés, exige le registre v5. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.")}</p>
         </DocSection>
 
         <DocSection id="securite" title={d("Garanties & limites de sécurité")}>
@@ -383,7 +396,7 @@ export default function DocsPage() {
             <div>
               <h3 className="font-semibold text-foreground">{d("Ce que la chaîne garantit")}</h3>
               <ul className="mt-3 ml-5 list-disc space-y-2 marker:text-muted">
-                <li>{d("Un prêt ne passe qu’une fois de `Locked` vers `Released` ou `Refunded`.")}</li>
+                <li>{d("Un prêt ne passe qu’une fois de `Locked` vers `Released`, `Refunded` ou `Failed`.")}</li>
                 <li>{d("Le provider ne peut être crédité sans que le préimage soit rendu public, et réciproquement.")}</li>
                 <li>{d("Le retrait ne peut pas modifier un prêt ni rediriger un crédit vers une autre adresse.")}</li>
                 <li>{d("Le registre considère un titre détruit comme inactif et une attestation KYB comme invalide après expiration, révocation ou retrait du vérificateur.")}</li>

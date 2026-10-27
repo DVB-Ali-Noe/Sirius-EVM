@@ -18,7 +18,11 @@ export function budgetAlerts(check, observedAtMs, now = Date.now(), maxAgeMs = 6
   if (now - observedAtMs > maxAgeMs || observedAtMs > now + 30_000) alerts.push({ code: "budget-report-stale", detail: "Date du contrôle de budget trop ancienne ou future" });
   if (check.circuitOpen) alerts.push({ code: "circuit-open", detail: "Coupe-circuit ouvert : admissions refusées" });
   if (check.expired) alerts.push({ code: "policy-expired", detail: "Politique de budget expirée : admissions refusées" });
-  if (!check.canQuote && !check.circuitOpen && !check.expired) alerts.push({ code: "cannot-quote", detail: "Marge ou gas insuffisant pour un nouveau devis" });
+  if (check.quoteWindowClosed === true && !check.expired) {
+    alerts.push({ code: "quote-window-closed", detail: "Fin de politique à moins de trois jours : nouveaux devis refusés, renouveler le budget" });
+  } else if (!check.canQuote && !check.circuitOpen && !check.expired) {
+    alerts.push({ code: "cannot-quote", detail: "Marge ou gas insuffisant pour un nouveau devis" });
+  }
   if (BigInt(check.remainingUsd) < 0n) alerts.push({ code: "negative-remaining", detail: "Réserve de frais fixes supérieure à la marge" });
   if (check.incompleteJobs > 0) alerts.push({ code: "incomplete-jobs", detail: `${check.incompleteJobs} calcul(s) réservé(s) non terminé(s)` });
   for (const tx of check.pendingTransactions) {

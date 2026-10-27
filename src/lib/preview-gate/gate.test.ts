@@ -153,7 +153,8 @@ test("liste des fichiers racine et dossiers de public/ : exactement ceux du dép
   // mise à jour de la liste fait échouer ce test, plutôt que d'être réécrit vers la page
   // d'attente en production.
   const root = resolve(import.meta.dirname, "../../..");
-  const publicEntries = readdirSync(resolve(root, "public"), { withFileTypes: true });
+  // Les fichiers cachés (`.DS_Store` d'un poste macOS) ne sont ni servis ni versionnés.
+  const publicEntries = readdirSync(resolve(root, "public"), { withFileTypes: true }).filter((entry) => !entry.name.startsWith("."));
   const publicFiles = publicEntries.filter((entry) => entry.isFile()).map((entry) => `/${entry.name}`);
   const publicDirectories = publicEntries.filter((entry) => entry.isDirectory()).map((entry) => `/${entry.name}/`);
   const metadataIcons = readdirSync(resolve(root, "src/app"), { withFileTypes: true })
@@ -169,6 +170,7 @@ test("liste des fichiers racine et dossiers de public/ : exactement ceux du dép
   assert.equal(isStaticFilePath("/examples/regression/HOUSING.CSV"), true);
   assert.equal(isStaticFilePath("/examples/.env"), false);
   assert.equal(isStaticFilePath("/FAVICON.ICO"), false);
+  assert.equal(isStaticFilePath("/.DS_Store"), false);
 });
 
 test("comparaison de la clé : exacte, sans tolérance", async () => {

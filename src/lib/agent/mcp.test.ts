@@ -38,6 +38,7 @@ function emptyCatalogue(): CatalogueResponse {
     computeFees: {
       linear_regression: { kind: "quoted", atomic: "7000000" },
       logistic_regression: { kind: "unknown", atomic: null },
+      gradient_boosted_trees: { kind: "unknown", atomic: null },
     },
     kybAvailable: true,
   };

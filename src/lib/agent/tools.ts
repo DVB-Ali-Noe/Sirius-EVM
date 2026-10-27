@@ -14,7 +14,7 @@ import {
   MAX_SEARCH_TERMS,
   type MarketplaceQuery,
 } from "@/lib/marketplace/query";
-import { MODEL_REGISTRY, modelSelection, type ModelId } from "@/lib/models/registry";
+import { MODEL_OPTIONS, MODEL_REGISTRY, modelSelection, type ModelId } from "@/lib/models/registry";
 import type { ProtocolStatusSummary } from "@/lib/assistant/tools";
 
 /**
@@ -362,13 +362,13 @@ export function getDatasetResult(
 }
 
 export const DELIVERY =
-  "The buyer receives the trained model only: target column, feature columns, coefficients and evaluation metrics, " +
+  "The buyer receives the trained model only: target column, feature columns, coefficients or depth-2 trees, and evaluation metrics, " +
   "encrypted to the buyer, plus a public execution certificate. The raw rows never leave the enclave.";
 
 export function listTrainingProfilesResult(): z.infer<typeof listTrainingProfilesOutput> {
   return {
     delivery: DELIVERY,
-    profiles: Object.values(MODEL_REGISTRY).map((entry) => ({
+    profiles: MODEL_OPTIONS.map((entry) => ({
       id: entry.id,
       version: entry.version,
       label: entry.label,

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, before, mock, test } from "node:test";
+import { selectionForModelId, trainingProfileHash } from "@/lib/models/registry";
 
 const ESCROW = `0x${"11".repeat(20)}`;
 const DATASETS = `0x${"22".repeat(20)}`;
+const BASE_PROFILES = [trainingProfileHash(selectionForModelId("linear_regression")), trainingProfileHash(selectionForModelId("logistic_regression"))];
+const TREES_PROFILE = trainingProfileHash(selectionForModelId("gradient_boosted_trees"));
 let client: ReturnType<typeof import("./client").getPublicClient>;
 let deployment: typeof import("./deployment");
 
@@ -16,11 +19,12 @@ before(async () => {
 
 afterEach(() => mock.restoreAll());
 
-function stubDeployment(escrowVersion: string, registryVersion = "sirius-dataset-v4", linkedEscrow = ESCROW) {
-  return mock.method(client, "readContract", async ({ address, functionName }: { address: string; functionName: string }) => {
+function stubDeployment(escrowVersion: string, registryVersion = "sirius-dataset-v4", linkedEscrow = ESCROW, profiles = BASE_PROFILES) {
+  return mock.method(client, "readContract", async ({ address, functionName, args }: { address: string; functionName: string; args?: unknown[] }) => {
     if (functionName === "VERSION") return address === ESCROW ? escrowVersion : registryVersion;
     if (functionName === "datasets") return DATASETS;
     if (functionName === "escrow") return linkedEscrow;
+    if (functionName === "isSupportedTrainingProfile") return profiles.includes(args?.[0] as `0x${string}`);
     throw new Error("Lecture inattendue");
   });
 }
@@ -71,5 +75,30 @@ test("activer v7 invalide le cache v6 et exige le contrat v7 lié", async () => 
   } finally {
     if (previous === undefined) delete process.env.SIRIUS_BILLING_VERSION;
     else process.env.SIRIUS_BILLING_VERSION = previous;
+  }
+});
+
+test("registre v4 ou v5 : chaque profil proposé doit être accepté au mint, arbres compris une fois activés", async () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  try {
+    delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+      const stub = stubDeployment("sirius-escrow-usdc-v6", registry);
+      await deployment.requireCurrentEvmDeployment();
+      stub.mock.restore();
+    }
+    process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees";
+    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+      const stub = stubDeployment("sirius-escrow-usdc-v6", registry);
+      await assert.rejects(deployment.requireCurrentEvmDeployment(), /profil d’entraînement proposé n’est pas accepté/);
+      // Le reaper ne publie rien : il n'exige pas les profils proposés.
+      await deployment.requireReaperEvmDeployment();
+      stub.mock.restore();
+    }
+    stubDeployment("sirius-escrow-usdc-v6", "sirius-dataset-v5", ESCROW, [...BASE_PROFILES, TREES_PROFILE]);
+    await deployment.requireCurrentEvmDeployment();
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
   }
 });

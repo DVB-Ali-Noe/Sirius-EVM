@@ -51,7 +51,7 @@ function catalogue(count: number): CatalogueResponse {
     pageSize: 24,
     truncated: false,
     token: { symbol: "USDG", decimals: 6 },
-    computeFees: { linear_regression: { kind: "quoted", atomic: "250000" }, logistic_regression: { kind: "quoted", atomic: "250000" } },
+    computeFees: { linear_regression: { kind: "quoted", atomic: "250000" }, logistic_regression: { kind: "quoted", atomic: "250000" }, gradient_boosted_trees: { kind: "unknown", atomic: null } },
     kybAvailable: true,
   };
 }

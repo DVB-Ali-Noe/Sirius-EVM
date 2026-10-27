@@ -60,9 +60,12 @@ Le [récapitulatif des coûts et business plan](docs/BUSINESS-PLAN.md) centralis
 
 ## Démarrage
 
+`pnpm install` lance `prisma generate`, qui exige `DATABASE_URL` ; or `prisma.config.ts` ne lit que `.env` (pas `.env.local`). Sans cette variable, l'installation échoue (`PrismaConfigEnvError`) et chaque `pnpm <script>` la relance. Copier donc la configuration et exporter l'URL **avant** l'installation :
+
 ```bash
+cp .env.example .env.local                      # puis renseigner DATABASE_URL (PostgreSQL)
+export DATABASE_URL="postgresql://…"            # même valeur ; lue par prisma generate
 pnpm install --frozen-lockfile
-cp .env.example .env.local
 pnpm contracts:compile
 pnpm contracts:test
 pnpm contracts:abi
@@ -73,6 +76,8 @@ pnpm test:operations
 pnpm lint
 pnpm build
 ```
+
+Les scripts de test posent `NODE_OPTIONS=…` à la manière POSIX et le budget runner exige un dossier en droits `0700` : lancer les tests sous Linux, macOS ou WSL, pas depuis PowerShell ou `cmd.exe`.
 
 Validations du 23 septembre : **308 tests applicatifs, lint, typage et build local réussis** lors de la dernière passe applicative ; **18 tests d'exploitation et lint ciblé réussis** lors de la préparation du budget Phala. Les passes précédentes ont aussi validé 79 tests contrats, 62 tests navigateur, le typage v7, un parcours EVM de facturation et les admissions PostgreSQL 17 entre huit processus. La restauration réelle et ses migrations ont été vérifiées sur PostgreSQL 18 local. Aucun parcours complet à deux vrais wallets sur Phala actif n'est validé.
 

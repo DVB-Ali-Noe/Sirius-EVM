@@ -238,7 +238,7 @@ Mettre à jour les états P01–P09 et rendre la reprise autonome : distinguer d
 2. Créer base et configuration dédiées. Préserver la base historique ; réconcilier les variables déjà préparées dans staging avant tout prochain déploiement de cette branche.
 3. Préparer crédits disponibles, budget payé éventuel, réserve de disponibilité/disque/arrêt et coûts, puis affecter explicitement l’enveloppe. Les modes fonctionnent dans le code ; aucun montant n’a été approuvé implicitement.
 4. Préparer le troisième déploiement Vercel (pipeline actuelle limitée à main/staging), la nouvelle image et l’initialisation des volumes dédiés. Appliquer la migration avant de servir le nouveau client Prisma.
-5. Installer TLS et contrôleur sur le nouveau VPS sous `sirius-ops`, en préservant les reapers. Watchdog de fermeture temporelle toujours désactivé.
+5. Installer TLS et contrôleur sur le nouveau VPS sous `<COMPTE_OPS>`, en préservant les reapers. Watchdog de fermeture temporelle toujours désactivé.
 6. Après annonce du créneau/coût, vérifier réellement les nouvelles mesures Phala et les épingler. Faire les huit scénarios du runbook avec les wallets.
 7. Ouvrir publiquement seulement après cette répétition. P09 (runner VPS) reste distinct et différé ; ne pas annoncer que les reapers entraînent déjà les modèles.
 
@@ -292,13 +292,13 @@ La documentation et la fiche fournisseurs sont regroupées dans `docs(phala): do
 
 Décision D-26 appliquée : staging devient l’instance de démonstration. Objectif de cette passe : rendre le contrôleur joignable en HTTPS depuis Vercel, préparer sans les exécuter les fichiers privés du runner (`demo-init`, `demo-active`, politiques), aligner les variables Vercel restantes et consigner l’état de la checklist. Aucune commande de démarrage de CVM, aucune dépense Phala, aucune opération Git.
 
-Pré-requis vérifiés : pipeline staging verte sur `f509cb2` (migration `20260926000000_add_self_train_delivery` appliquée, image `sha256:8a10ab55…13f8e` publiée), CVM `e8a8b8cb…` arrêtée et `in_progress` faux, profil Phala `sirius` connecté sous `sirius-ops`, secrets de transport et Pinata absents des variables lisibles de Vercel (type sensible).
+Pré-requis vérifiés : pipeline staging verte sur `f509cb2` (migration `20260926000000_add_self_train_delivery` appliquée, image `sha256:8a10ab55…13f8e` publiée), CVM `e8a8b8cb…` arrêtée et `in_progress` faux, profil Phala `sirius` connecté sous `<COMPTE_OPS>`, secrets de transport et Pinata absents des variables lisibles de Vercel (type sensible).
 
 ### Contrôleur et préparation du runner — après modification, 26 septembre 2026
 
-Contrôleur : service `sirius-phala-demo-controller` activé et démarré sous `sirius-ops` ; `GET /session` répond 401 sans secret et 200 avec, en local et via `https://ctl.sirius-data.tech` (Caddy, certificat Let’s Encrypt valide jusqu’au 25 décembre 2026). Un redémarrage du service laisse la CVM arrêtée et l’état `closed`. Les six pins attestés restent des placeholders jusqu’à la recapture.
+Contrôleur : service `sirius-phala-demo-controller` activé et démarré sous `<COMPTE_OPS>` ; `GET /session` répond 401 sans secret et 200 avec, en local et via `https://ctl.sirius-data.tech` (Caddy, certificat Let’s Encrypt valide jusqu’au 25 décembre 2026). Un redémarrage du service laisse la CVM arrêtée et l’état `closed`. Les six pins attestés restent des placeholders jusqu’à la recapture.
 
-Runner : politiques `demo-budget-policy.json` (sponsorisé, crédits seuls, plafond 14 USD, réserve 4 USD, 20 opérations, 4 par wallet, 1 simultanée, origine `https://phala.sirius-data.tech`) et `demo-billing-policy.json` (tarif v7 de compatibilité, 7 USDC minimum, trésorerie attendue) générées hors Git et validées par l’initialiseur de volume sous Linux. Fichiers `runner.demo-init.env` et `runner.demo-active.env` assemblés sur le VPS dans `/var/lib/sirius-ops/phala-demo/runner/` (0700/0600) à partir du RPC archive et du secret de supervision du collecteur, du secret opérateur du contrôleur, d’un nouveau secret de transport et de l’accès Pinata vérifié. Les deux Compose rendus y sont copiés. Rien n’a été déployé sur la CVM.
+Runner : politiques `demo-budget-policy.json` (sponsorisé, crédits seuls, plafond 14 USD, réserve 4 USD, 20 opérations, 4 par wallet, 1 simultanée, origine `https://phala.sirius-data.tech`) et `demo-billing-policy.json` (tarif v7 de compatibilité, 7 USDC minimum, trésorerie attendue) générées hors Git et validées par l’initialiseur de volume sous Linux. Fichiers `runner.demo-init.env` et `runner.demo-active.env` assemblés sur le VPS dans `<ETAT_OPS>/phala-demo/runner/` (0700/0600) à partir du RPC archive et du secret de supervision du collecteur, du secret opérateur du contrôleur, d’un nouveau secret de transport et de l’accès Pinata vérifié. Les deux Compose rendus y sont copiés. Rien n’a été déployé sur la CVM.
 
 Vercel staging : `SIRIUS_PHALA_DEMO=true`, `PHALA_DEMO_CONTROLLER_URL` et `PHALA_DEMO_CONTROLLER_SECRET` renseignés ; `RUNNER_TRANSPORT_SECRET` remplacé par le nouveau secret partagé avec le futur runner (l’ancien n’était pas lisible). `SIRIUS_DEMO_OPERATORS` renseigné avec les deux opérateurs dans Next et le contrôleur, staging redéployé (`/`, `/phala`, `/phala/operator` en 200).
 
@@ -439,13 +439,13 @@ Fermeture envoyée au contrôleur (`close`, révision 2) : phase `closing` puis 
 
 Publication pendant la session fermée : PR #13 fusionnée (`e9dbbab`) — dates d’entraînement sur `/phala` et de publication sur la marketplace, migration additive `20260927000000_add_dataset_listed_at`.
 
-Anomalies notées pour la suite : (1) les tests du contrôleur échouent sur Windows par vérification de droits de dossier, sans lien avec le code ; (2) `verify-init` du raccourci VPS ne peut pas conclure tant que les logs conteneur de la CVM sont privés ; (3) la copie de code `/opt/sirius-ops` n’a pas `dotenv`, la capture d’attestation se fait depuis un poste avec dépendances complètes.
+Anomalies notées pour la suite : (1) les tests du contrôleur échouent sur Windows par vérification de droits de dossier, sans lien avec le code ; (2) `verify-init` du raccourci VPS ne peut pas conclure tant que les logs conteneur de la CVM sont privés ; (3) la copie de code `<DOSSIER_OPS>` n’a pas `dotenv`, la capture d’attestation se fait depuis un poste avec dépendances complètes.
 
 ### Deuxième session et annulation du démarrage — après exécution, 27 septembre 2026
 
 Réouverture depuis `/operator` après la fusion des dates (révision 4), fermeture par « Deactivate » (révision 5, CVM arrêtée), nouvelle ouverture (révision 6) puis fermeture par « Deactivate » (révision 7). Le bouton de fermeture fonctionne dès que l’état est `open`.
 
-Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes quand la CVM doit être rallumée, seul « Emergency stop » était cliquable. Un opérateur qui change d’avis devait passer par un bouton d’urgence alors qu’aucun calcul n’est encore admis. Correction fusionnée dans staging (`c06ca9a`) : un `close` reçu pendant l’ouverture est traité par le contrôleur comme une annulation, sur le chemin de l’urgence ; la console laisse « Deactivate » actif pendant l’ouverture et son texte d’aide le dit ; test ajouté, suite du contrôleur 7/7 sous Linux. La copie `/opt/sirius-ops` du VPS est mise à jour sur ce commit et le service redémarré ; état `closed` confirmé.
+Constat d’ergonomie : pendant la phase `opening`, qui dure une à deux minutes quand la CVM doit être rallumée, seul « Emergency stop » était cliquable. Un opérateur qui change d’avis devait passer par un bouton d’urgence alors qu’aucun calcul n’est encore admis. Correction fusionnée dans staging (`c06ca9a`) : un `close` reçu pendant l’ouverture est traité par le contrôleur comme une annulation, sur le chemin de l’urgence ; la console laisse « Deactivate » actif pendant l’ouverture et son texte d’aide le dit ; test ajouté, suite du contrôleur 7/7 sous Linux. La copie `<DOSSIER_OPS>` du VPS est mise à jour sur ce commit et le service redémarré ; état `closed` confirmé.
 
 Dates d’entraînement et de publication (`e9dbbab`) vérifiées sur l’instance servie : l’API des datasets renvoie `listedAt` (reprise de la dernière modification pour l’existant) et la carte marketplace l’affiche ; la date de fin d’entraînement apparaît sous chaque résultat de `/phala`.
 
@@ -472,3 +472,327 @@ Menu profil (haut à droite) : point vert/rouge identique au bouton wallet de la
 Bouton « Sign in » en haut à droite : à la réussite de la signature, les lettres de « Signing… » convergent vers le centre en tournant, le bouton se resserre en pastille ronde où une coche se dessine, puis la pastille s’efface (environ 2 s). Séquence vérifiée par capture continue avec le wallet simulé des tests e2e. Correctif : le bouton ne disparaît plus dès que la session est signée, avant la fin du chargement.
 
 Barre latérale : bouton de sortie placé avant le bouton wallet, à la même position repliée ou dépliée ; une marge invisible de 16 px au bord gauche de l’écran déplie aussi la barre repliée.
+
+### Capacité CSV et calcul — avant modification, 17 octobre 2026
+
+Demande : lever le refus des jeux tabulaires d’environ 30 000 lignes sans augmenter le plafond d’upload de 3 Mio. Diagnostic reproduit localement : une logistique à 23 variables et 4 200 lignes (201 685 octets) échoue sur le budget de 20 M opérations ; à 30 000 lignes (1 440 085 octets), le parseur refuse d’abord le plafond de 20 000 lignes. Le même profil à 4 000 lignes termine dans le worker actuel en 236 ms, avec un pic RSS du processus de 105 Mio sur ce poste. Le plafond Vercel de 4,5 Mo concerne le corps HTTP chiffré, non ces refus de calcul.
+
+Prévoir une augmentation bornée des opérations et des lignes, puis mesurer une exécution réelle de 30 000 lignes dans le worker et tester les frontières de refus. Ne relever la mémoire du worker que si le besoin est observé ; conserver les 3 Mio, le modèle, la facturation et les contrats inchangés. Pas de CVM, de dépense, de mutation distante, de Git ni de lancement de PR dans cette passe locale.
+
+### Capacité CSV et calcul — après modification locale, 17 octobre 2026
+
+`MAX_TRAINING_OPERATIONS` passe de 20 M à 200 M, `MAX_CSV_ROWS` de 20 000 à 50 000 (en-tête compris). 30 000 lignes × 24 paramètres × 200 = 144 M en logistique. Le budget refuse encore dès 31 251 lignes avec 32 paramètres ; l’analyse côté navigateur et le runner suivent les mêmes bornes. Le plafond de 3 Mio, le worker à 128 Mio d’old-gen, les délais de 15 s et la facturation restent inchangés.
+
+Sur ce poste, le vrai worker accepte 30 000 lignes et 23 variables avec un CSV synthétique de 2 820 085 octets en 759 ms, pic RSS du processus 148 Mio ; un exemple plus compact (1 440 085 octets) termine en 748 ms, pic RSS 128 Mio. Les 20 tests ciblés de validation navigateur/runner et entraînement passent, dont la limite exacte du budget et l’entraînement de 30 000 lignes sous le timeout. RSS du processus ≠ heap du worker. Ces mesures locales ne prouvent ni le temps, ni la mémoire disponibles sur tdx.small à 1 vCPU.
+
+Restent à faire avant ouverture : créneau et coût de la CVM staging explicitement validés, déploiement/attestation de la nouvelle image, mesures d’un CSV représentatif de 30 000 lignes et parcours réel. Si le délai doit changer, synchroniser aussi le maximum signé du devis v7. Aucun déploiement, dépense ni opération Git dans cette passe.
+
+Vérification finale locale : `pnpm test` 1 032/1 032, `pnpm test:phala-demo` 27/27, typage et build Next réussis, lint des fichiers touchés sans erreur. Le lint global reste bloqué par 10 erreurs dans `experiments/kev-decision-tune/.vendor/kev/` (dépendances tierces hors chantier). En navigateur, la page réelle de publication affiche 50 000 lignes ; un CSV logistique synthétique de 30 000 lignes et 23 variables (2 760 083 octets) est accepté avec le bon compte de lignes ; à 31 251 lignes et 31 variables (2 000 179 octets), le navigateur affiche le refus de budget. Le serveur de production local sans `SIRIUS_SESSION_SECRET` a refusé le démarrage comme prévu ; le parcours visible a été vérifié avec le serveur de développement, arrêté ensuite. Le test d’inventaire exact de `public/`, fragile à la présence locale de `.DS_Store`, est remplacé par des assertions comportementales : les fichiers cachés ne franchissent pas la porte de prévisualisation.
+
+### Portage isolé depuis staging — 17 octobre 2026
+
+Après accord pour préparer une branche, le correctif a été transféré dans `fix/staging-training-capacity`, créée depuis `origin/staging` à `3ba030c`. Les expériences et fichiers d’environnement copiés automatiquement par l’outil de worktree ont été retirés **du nouveau dossier seulement**, avec accord explicite ; le dossier initial et les branches distantes existantes restent intacts. Sur cette base staging propre : 1 065 tests applicatifs et 27 tests Phala réussis, lint global et typage réussis, build Next réussi avec une URL PostgreSQL locale fictive et un secret de session de test. Aucun service distant ni CVM n’a été modifié ou démarré par ces contrôles. Le créneau CVM et la dépense restent à valider séparément avant de publier des mesures matérielles.
+
+La branche a été poussée et la [PR #105](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/105) est ouverte en brouillon vers `staging` ; aucune branche distante existante n’a été modifiée ou fusionnée. Noé reporte le test matériel jusqu’au réapprovisionnement Phala : ne pas démarrer la CVM, déployer l’image staging ni fusionner cette PR avant ce financement, l’estimation de coût actualisée et les mesures matérielles. Le testnet EVM n’annule pas le coût de la CVM.
+
+### Chemin réel du self-train — avant correctif complémentaire
+
+Relecture de la PR : le test de 30 000 lignes exerçait `trainInWorker` isolément, mais `/api/train` → `runSelfTraining` → `runTraining` appelait `trainAndSeal` sans signal, donc `trainOnData` dans le processus runner. La protection mémoire du worker et son annulation n’étaient pas exercées sur le parcours Phala réel. Relier uniquement le self-train de la démonstration au worker et au délai configurable de 15 s par défaut ; préserver le parcours in-process hors démonstration et les emprunts v6. Vérifier avec un CSV synthétique chiffré et un stockage IPFS simulé localement, sans CVM ni dépense.
+
+### Chemin réel du self-train — après correctif complémentaire
+
+`runSelfTraining` accepte désormais un délai et l’opération runner `run-training` le fournit quand `SIRIUS_PHALA_DEMO=true`, via `RUNNER_TRAINING_TIMEOUT_MS` (15 s par défaut). Le self-train Phala passe donc par `trainInWorker`, son plafond de 128 Mio d’old-gen et son annulation ; un délai dépassé retourne une erreur 503 et ne publie aucun modèle. Hors démonstration, le comportement self-train antérieur et les emprunts v6/v7 ne changent pas. Nouvelle régression : CSV synthétique de 30 000 lignes chiffré, stocké dans un IPFS simulé, entraîné et republié ; le même parcours avec 1 ms est interrompu sans nouvel upload. Aucun appel réseau extérieur, CVM ou dépense.
+
+Consigne de Noé pour la future mesure : Phala sera réapprovisionné, mais ne pas consommer tout le solde. Relever d’abord tarif et solde, puis faire valider un plafond explicite très inférieur au solde et un créneau court ; fermer et confirmer l’arrêt dès les mesures prises.
+
+### Revue approfondie de la PR #105 — avant corrections
+
+Deux relectures indépendantes (sécurité, exactitude) sans faille critique. À corriger : (1) le délai de 15 s couvrait aussi le téléchargement IPFS et l’envoi du modèle, et un dépassement devenait une 503 comptée par le coupe-circuit financier (3 échecs ferment le runner à tous) ; (2) les noms de colonnes non bornés (jusqu’à 10 000 caractères) faisaient dépasser l’output-gate de 256 Kio, avec une 500 comptée : trois entraînements d’un visiteur suffisaient à fermer la démo ; (3) le test d’inventaire de `public/` et des tests de textes avaient été supprimés au lieu d’être adaptés. Également : self-train hors démonstration et emprunts v6 encore dans le processus runner malgré un budget ×10 ; double analyse du CSV à l’ingestion ; parseur construisant environ 96 Mio de tas pour 3 Mio de cellules longues (mesuré), proche du plafond de 128 Mio du worker ; erreur de délai v7 dans `COMPUTE-BILLING.md`.
+
+### Revue approfondie de la PR #105 — après corrections
+
+- Dans l’enclave (`TEE_MODE=phala`), self-train et emprunts v6 passent toujours par le worker borné, sans dépendre du handler. Le délai démarre après téléchargement, déchiffrement et Merkle ; les reprises IPFS sont conservées. Un délai ou une mémoire de worker épuisés (`TrainingLimitExceeded`) deviennent une 422 « Calcul trop long ou trop lourd pour ce fichier » : coût et quota consommés, coupe-circuit intact. Le parcours facturé v7 garde sa 503 comptée et son délai de devis inchangés. Le Next en processus (sans `TEE_MODE=phala`) reste inchangé.
+- Noms de colonnes limités à 128 caractères dans le navigateur et le runner (`MAX_HEADER_CHARS`), message traduit ; un modèle refusé par l’output-gate devient une 422. Les datasets déjà scellés avec un nom plus long deviennent inexploitables à l’entraînement (422) et doivent être réimportés.
+- `parseCsv` copie par tranches : 3 Mio de cellules de 10 000 caractères passent de 96 Mio de tas et 261 ms à moins de 1 Mio et 23 ms ; 200 000 entrées aléatoires donnent un résultat et des erreurs identiques à l’ancien parseur. L’ingestion ne relit plus le fichier pour ses volumes.
+- Tests restaurés avec 50 000 lignes : textes communs, rendu de l’avertissement, message « Too many rows », inventaire de `public/` (fichiers cachés ignorés). Nouveaux : bornes 128/129 caractères, 422 non comptée au dépassement du délai.
+- Retour arrière : une image antérieure refuserait l’analyse des datasets scellés avec plus de 19 999 lignes de données.
+
+### Mesure réelle sur la CVM staging — 18 octobre 2026
+
+Budget accordé : 0,50 USD et 2 h. Solde avant : 10,11 USD. Depuis le VPS (clé `sirius_vps`, empreinte `o710R0…` vérifiée), `demo-active.fast.compose.json` copié en `demo-active.capacity.compose.json` avec la seule image remplacée par `sirius-runner@sha256:78839668…6eff4` (pipeline de `712fbb2`) ; un rendu local du Compose courant ne diffère que par cette image. Déploiement sur la CVM `e8a8b8cb…` à 15:36 UTC, prête en 115 s. Attestation active recapturée : quote vérifiée, MRTD, chaîne KMS, empreinte d’ingestion, signataire `0x3b31…c8c8d` et `RUNNER_DEPLOYMENT_ID` inchangés ; nouveau hash Compose `61581af7…950a`, épinglé dans `phala-demo-controller.env` et `runner-monitor.env` (sauvegardes `.bak-capacity-*`, contrôleur redémarré) et dans Vercel staging (job « Front Vercel » relancé, fumée verte). `phala.sirius-data.tech` a vérifié la nouvelle attestation ; l’alias `demo.sirius-data.tech` n’a pas été déplacé.
+
+Deux self-trains de 30 000 lignes × 23 variables (CSV synthétique de 2 760 083 octets) en régression linéaire, à 15:48 et 15:53 UTC : import 200, entraînement 201, environ 5 s entre l’appel `/api/train` et l’affichage du résultat (téléchargement IPFS, worker et envoi du modèle compris), `n = 30000`, aucune 503 ni arrêt du worker. Le cas logistique (144 M d’opérations) n’a pas été mesuré : quota de 4 opérations par wallet atteint ; quatre tentatives refusées en 429. Délai de 15 s et heap de 128 Mio conservés. Session fermée et CVM `stopped` vérifiées à 16:03 UTC ; solde 10,09 USD.
+
+Constats d’interface : le refus 429 s’affichait en haut de la page, hors écran ; chaque refus laissait un brouillon vide ; le lien « Runner attestation » ouvrait un JSON brut. Corrigés dans la PR [#106](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/106) : erreur sous le bouton d’entraînement, suppression du brouillon sur tout refus 4xx du runner, page `/phala/attestation` (contrôles passés, mesures, lecture sans jargon, état « runner éteint », téléchargement de la preuve brute ; autorisée sur l’adresse démo).
+
+### Test navigateur « un seul bouton » — avant correctif, 18 octobre 2026
+
+Sur `origin/staging` (`54cbf37`), `pnpm exec playwright test -c playwright.phala.config.ts --retries=0 -g "un seul bouton"` échoue : `e2e/phala/demo.spec.ts:99` attend le bouton « Connect my testnet wallet » pendant 30 s ; les 5 autres scénarios passent. L’instantané de page montre à la place le bouton « Connect » du menu de choix du wallet.
+
+Cause : le test était devenu faux, pas le code. Depuis les PR #54 et #55 (`582d552`, `675a99c`, 4 octobre), sans wallet connecté, `/phala` affiche `ConnectButton` (menu Google/extensions EIP-6963) au lieu de `SignInCta`. Ce choix est consigné dans `docs/passage-mainnet/12-test-phala.md`. `SignInCta` n’est plus rendu qu’une fois le wallet connecté et affiche alors « Sign in » : le libellé « Connect my testnet wallet » n’apparaît plus jamais. Le parcours compte donc deux gestes, choisir le wallet puis signer.
+
+### Test navigateur — après correctif, 18 octobre 2026
+
+Le scénario devient « menu de choix du wallet puis signature, sans perdre l’exemple choisi ». Il suit le parcours réel : « Connect » dans la page → « Test Wallet » dans le menu → aucune signature tant que l’utilisateur n’a pas cliqué → « Sign in » → une signature exactement → « Train with Phala » actif, `housing.csv` conservé. Aucune attente assouplie ni délai allongé ; code applicatif inchangé.
+
+Vérifié : 6/6 scénarios `playwright.phala.config.ts`, typage, lint, `pnpm test:phala-demo` 28/28. Le lint local ignore `experiments/`, dossier non suivi copié depuis le dépôt principal à la création du worktree et absent de la CI.
+
+Fusionné dans staging le 18 octobre (PR [#107](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/107), commit `0bf7fea`), pipeline staging verte sur les 7 jobs.
+
+### Adresse démo figée — avant déplacement, 18 octobre 2026
+
+`demo.sirius-data.tech` est un alias posé sur un déploiement figé du projet Vercel `sirius-evm-staging` (PR #51), pas un domaine du projet. **Ancienne cible, pour retour arrière :** `sirius-evm-staging-hftbdgjta-<SCOPE_VERCEL>.vercel.app`. Relevé curl avant : `/phala` 200, `/phala/attestation` 307 vers `/phala` (page absente de ce déploiement), `/dashboard` 307 vers `/phala`, `/api/loans` 404.
+
+Nouvelle cible retenue : dernier déploiement Production de staging, `sirius-evm-staging-kp3g34898-<SCOPE_VERCEL>.vercel.app` (créé à 19:46 CEST). Selon `vercel api /v13/deployments`, `githubCommitSha` = `0bf7fea` (fusion de #107), qui contient donc #105, #106 et #107.
+
+### Adresse démo figée — après déplacement, 18 octobre 2026
+
+`vercel alias set sirius-evm-staging-kp3g34898-<SCOPE_VERCEL>.vercel.app demo.sirius-data.tech --scope <SCOPE_VERCEL>` : succès. L’alias vise une URL de déploiement précise, pas le domaine du projet : les prochaines fusions dans staging ne le déplacent pas. `vercel alias ls` confirme la cible `kp3g34898`.
+
+Relevé curl après : `/phala` 200 ; `/phala/attestation` 200 avec « Attestation not available right now » (CVM arrêtée) ; `/dashboard` 307 vers `/phala` ; `/api/loans` 404.
+
+Retour arrière : `vercel alias set sirius-evm-staging-hftbdgjta-<SCOPE_VERCEL>.vercel.app demo.sirius-data.tech --scope <SCOPE_VERCEL>`.
+
+### Mesure logistique 30 000 lignes sur la CVM staging — avant, 18 octobre 2026
+
+Créneau confirmé par Noé. Plafond : 0,30 USD et 1 h. Coût annoncé : environ 0,06 USD/h (tdx.small à 0,058 USD/h, plus le disque). Noé ouvre et ferme la session depuis `/operator` et entraîne avec un autre wallet ; Claude ne démarre rien. État à 17:49:52 UTC : solde 10,085743 USD, CVM `sirius-phala-production` et `sirius-mainnet` `stopped`, session `phase=closed`, contrôleur VPS `active` (révision 34, 0 opération). Suivi en lecture : `/api/phala-demo/session`, `/phala/attestation`, `vercel logs` filtré sur `/api/datasets` et `/api/train`.
+
+### Mesure logistique 30 000 lignes sur la CVM staging — après, 18 octobre 2026
+
+Chronologie, relevée toutes les 20 s par `/api/phala-demo/session` et `phala cvms list` :
+
+- 17:53:35 UTC : ouverture par Noé, CVM `starting`.
+- 17:53:58 : CVM `running`.
+- 17:54:22 : `open`, révision de session 27.
+- 18:01:56 : Désactiver, `closing` et CVM `stopping`.
+- 18:02:19 : `closed` et CVM `stopped`.
+
+Contrôleur VPS ensuite : `phase=closed`, révision 36, 0 opération active.
+
+Self-train avec un autre wallet : `capacity-30000x23.csv` (30 000 lignes, 24 colonnes), profil « Binary logistic regression », cible `y`. Logs Vercel de `sirius-evm-staging` :
+
+- 18:00:12.049Z : `POST /api/datasets` 201.
+- Upload 200, puis `POST` et `PUT …/list` 200, puis `GET /api/datasets/:id` 200.
+- 18:00:27.912Z : `POST /api/train` 201.
+- 18:00:33.648Z : `GET /api/train` 200.
+
+**Durée POST → GET : 5,74 s**, du même ordre que la régression linéaire et loin du délai de 15 s. Résultat affiché : `n = 30000`, f1, recall, accuracy et precision = 1 (CSV synthétique à cible séparable ; ce n’est pas une mesure de qualité). Aucune 503 ni 422. Pendant la session, `/phala/attestation` affichait « Attestation verified » sur `phala.sirius-data.tech` et sur `demo.sirius-data.tech`.
+
+Coût : solde 10,085743 → 10,074990 USD à 18:02:30 UTC, soit **0,010753 USD** pour environ 9 min de CVM, sous le plafond de 0,30 USD et 1 h. Délai de 15 s et heap de 128 Mio conservés ; aucun réglage modifié.
+
+### Libellé mort « Connecter mon wallet testnet » — avant, 18 octobre 2026
+
+`PhalaDemo` ne rend `SignInCta` qu’une fois le wallet connecté. Or `SignInCta` n’affiche son libellé (`children`) que sans wallet connecté, sinon « Sign in ». Le libellé « Connecter mon wallet testnet » et sa clé dans `phala-en.ts` ne servaient donc plus. Le prop reste utile ailleurs : `/operator` (« Connect operator wallet », affiché avant connexion) et `/wallet`.
+
+### Libellé mort — après, 18 octobre 2026
+
+`children` devient optionnel dans `SignInCta` ; sans libellé, le bouton affiche « Se connecter » (« Sign in »). `PhalaDemo` rend `<SignInCta />` et la clé « Connecter mon wallet testnet » est retirée de `phala-en.ts`. Rendu inchangé pour l’utilisateur.
+
+Vérifié : test i18n `english.test.ts` 7/7, `pnpm test:phala-demo` 28/28, typage, lint, 6/6 scénarios Playwright Phala (dont « Connect operator wallet » sur `/operator`).
+
+### Page d'attestation en chaîne de confiance — avant, 18 octobre 2026
+
+`/phala/attestation` (PR #106) listait quatre contrôles « Passed » et des mesures brutes. Le MRTD venait de `SIRIUS_EXPECTED_MRTD`, pas de la quote. L'état indisponible affirmait « machine éteinte », alors que `readDemoAttestation` renvoie `null` aussi quand la preuve est refusée. Rien ne reliait le hash Compose à l'image runner ni au commit. La commande de revérification n'était pas donnée.
+
+### Page d'attestation en chaîne de confiance — après, 18 octobre 2026
+
+PR [#110](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/110). Quatre maillons, chacun avec sa valeur, ce qu'il prouve et un état réel :
+
+- Puce Intel : signature, TCB `UpToDate`.
+- Machine : MRTD lu dans la quote.
+- Code : hash Compose → image → commit.
+- Connexion : certificat dans `report_data`. Chaîne KMS, clé d'ingestion et signataire en lignes secondaires, « annoncés sur le canal attesté et comparés aux pins ».
+
+La page ajoute aussi un résumé en tête, l'encadré « prouve / ne prouve pas » et un bloc « Verify it yourself » (`dcap-qvl verify --hex`, CLI v0.7.0). L'état indisponible devient « éteinte ou non vérifiable ».
+
+Lien Compose → image (`resolveCodeRelease`, `src/lib/phala-demo/attestation.ts`) :
+
+- **Prouvé** : `composes/<hash>.json` existe et le SHA-256 de ses octets exacts égale le hash attesté. L'image est celle du service `runner` du `docker_compose_file`.
+- **Déclaré** : le hash figure seulement dans `DECLARED_RELEASES`. Image et commit sont affichés en texte, sans lien (dépôt et GHCR privés).
+- **Non répertorié** : seul le hash Compose est affiché.
+
+`docker_compose_hash` n'est pas utilisé, car il n'est pas dans la quote. Table actuelle : `61581af7…950a` → `sirius-runner@sha256:78839668…6eff4`, commit `712fbb2`. `composes/` est vide. `next.config.ts` trace `composes/*.json` pour la page et l'API.
+
+Procédure :
+
+1. À chaque nouvelle image CVM, ajouter l'entrée dans la table.
+2. À la session suivante, récupérer `phala cvms attestation --json` → `tcb_info.app_compose`, vérifier que son SHA-256 égale le `compose_hash` attesté, puis l'ajouter tel quel par une PR de suivi.
+
+L'écart RTMR0–2 / `os-image-hash` / `app-id` / `key-provider` est suivi dans l'issue [#112](https://github.com/DVB-Ali-Noe/Sirius-EVM/issues/112), sans correctif. Reportés : colonne `composeHash` sur `TrainingJob`, `app_compose` exposé par le runner, preuve image → commit si le dépôt devient public. Alias `demo.sirius-data.tech` non déplacé.
+
+Vérifié : `pnpm test:phala-demo` 38/38 (10 nouveaux), typage, ESLint hors `experiments/`, build. Rendu navigateur bureau et mobile des vues déclarée, prouvée, non répertoriée et éteinte, sur une page d'aperçu supprimée ensuite. Aucune quote actuelle revérifiée de bout en bout : CVM éteinte.
+
+### Compose publié : image prouvée — 18 octobre 2026
+
+Avant : `composes/` vide, la page affichait l'image et le commit « déclarés ». Session ouverte par Noé à 20:16 UTC uniquement pour cette lecture (aucun entraînement). `phala cvms attestation --json` → `tcb_info.app_compose` : 23 765 octets, SHA-256 `61581af7…950a`, égal au hash Compose attesté et épinglé ; image du service `runner` `sirius-runner@sha256:78839668…6eff4` ; aucune valeur secrète (les variables d'environnement sont chiffrées à part, seuls leurs noms figurent dans `allowed_envs`).
+
+Après : fichier versionné tel quel dans `src/lib/phala-demo/composes/61581af7….json`, protégé par `-text` dans `.gitattributes` pour que Git n'en modifie pas les octets. `resolveCodeRelease` renvoie `proven` avec cette image et le commit `712fbb2` : la page passe de « déclaré » à « Image : prouvée par le hash Compose ». Le commit reste « déclaré » (dépôt privé).
+
+### Politique de sortie et API sur modèles privés — avant, 19 octobre 2026
+
+Seule barrière de sortie : `gateModel` (`src/lib/tee/output-gate.ts`), arrondi et taille. Aucune route de prédiction ; aucune règle commune aux modèles livrés et à une future API ; décision du 14 octobre écartant les modèles à servir depuis l’enclave. Linéaire et logistique v1 livrent `n` exact et des métriques mesurées sur l’entraînement ; les arbres de la #111 livrent des métriques held-out et `trainAuc`.
+
+### Politique de sortie et API sur modèles privés — après, 19 octobre 2026
+
+PR [#115](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/115), documentation seule : note [`EGRESS-POLICY-API.md`](EGRESS-POLICY-API.md) et décision D-27 (décision seule en sortie, politique de sortie unique dans l’enclave, dataset jamais modifié et préparation dans le modèle, API réservée aux modèles dangereux à livrer). Aucun changement dans `src/` ni `contracts/`, aucune session Phala.
+
+Mesuré par un prototype jetable hors dépôt (logistique à 23 variables, synthétique, 20 tirages) : la probabilité exacte reconstruit les poids en 24 requêtes ; la décision seule donne 74 % d’accord équilibré à 24 requêtes, mais environ 2 400 appels d’usage normal clonent le modèle (99,3 %). Débit estimé sur 1 vCPU à partir de mesures M2 : 390 à 1 550 réponses signées EIP-712 par seconde, à confirmer sur la CVM.
+
+Seuils provisoires : AUC d’appartenance ≤ 0,55, plafond d’influence k = 2, `n` arrondi à la centaine pour les nouveaux profils ; doublons seulement signalés ; écarts `trainAuc − heldOutAuc` et de perte non applicables avant calibration (annexe B), qui doit laisser passer les exemples de la #111. Tranche de test alignée sur la #111 (une ligne sur cinq selon l’index). Restent : calibration, quotas et prix, crédits prépayés (proposition), CVM continue (décision séparée), prototype `/predict` après la fusion de la #111.
+
+### Profil arbres boostés, phase 1 — avant, 19 octobre 2026
+
+Deux profils seulement : régression linéaire et logistique. `SiriusDatasetRegistry` v4 les codait en dur (`isSupportedTrainingProfile` `pure`), le tarif exigeait exactement ces deux profils, et le contrôle de sortie ne connaissait que des coefficients. Sur Taïwan (24 000 / 6 000), la logistique atteint une AUC de test de 0,727.
+
+### Profil arbres boostés, phase 1 — après, 19 octobre 2026
+
+PR [#111](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/111), **interrupteur coupé** : rien n'est déployé, et le profil n'est proposé nulle part tant que `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` ne contient pas `gradient_boosted_trees`.
+
+- **Profil `gradient_boosted_trees` v1** : 150 arbres, profondeur 2, feuilles d'au moins 1 000 lignes, sans aléa ; minimum 10 000 lignes. Une ligne sur cinq est mise de côté : les métriques livrées sont « held-out », avec `trainAuc` à côté.
+- **Seuils** : milieux entre valeurs voisines, arrondis à 3 chiffres significatifs. Un audit repasse les lignes dans le modèle livré.
+- **Contrôle de sortie** : refuse tout arbre hors profil ou tout champ ajouté.
+- **Registre v5** (code et tests Hardhat) : liste de profils gérée par l'administrateur, à laquelle on ne peut qu'ajouter.
+- **Contrôles applicatifs** : le contrôle de déploiement et le pré-vol vérifient que chaque profil proposé est accepté on-chain.
+- **Tarif** : un profil facultatif sans tarif est refusé par `/api/datasets` en v7. Les politiques déjà installées dans les volumes restent valides.
+
+Mesures (Mac, worker de 128 Mio) :
+- 30 000 lignes en 0,8 s, comme la logistique. Pire cas au budget en 0,93 s ; moins de 40 Mio de tas.
+- AUC de test sur Taïwan : 0,786, contre 0,787 pour scikit-learn au même réglage.
+- Canaris : 22 % contre 13 % pour une ligne répétée 5 fois. Signal transmis au chantier C.
+
+Vérifié : `pnpm test` 1 083/1 083, `test:phala-demo` 38/38, `test:operations`, `contracts:test` 85, `test:billing`, typage, ESLint hors `experiments/`, build, CI de la PR (e2e et PostgreSQL compris). Aucune mesure sur la CVM : estimation d'environ 6 s de bout en bout à partir de la logistique (5,74 s).
+
+### Arbres boostés, préparation de la phase 2 — avant, 19 octobre 2026
+
+Arbres codés mais inutilisables de bout en bout : registre testnet v4 limité à deux profils, image runner `78839668…6eff4` antérieure à la #111, aucun outil pour ajouter un tarif à un volume CVM déjà initialisé (`initialize-runner-volume` refuse un volume existant, `ops:tariffs` ne connaît que deux profils), `deploy.ts` redéploie toujours un KYB, et le pré-vol ne lit pas l'admin du registre. Lecture seule du 19 octobre : escrow v7 vierge (`accounting` = 0, aucun événement), 8 titres v4, déployeur à 0,00787 ETH testnet.
+
+### Arbres boostés, préparation de la phase 2 — après, 19 octobre 2026
+
+PR brouillon `feat/gbdt-phase2` : code et procédure seulement, **rien de déployé ni dépensé**. Procédure, variables, session et retour arrière : [GBDT-PHASE2.md](GBDT-PHASE2.md).
+
+- **`deploy.ts`** : réutilisation d'un KYB existant (`SIRIUS_KYB_EXISTING_ADDRESS`, mode vérifié on-chain) ; ajout de profils facultatifs après la liaison (`SIRIUS_DATASET_TRAINING_PROFILES`), avec vérification que chaque profil est accepté au mint. La simulation estime le gas sur le RPC et refuse sous trois fois l'estimation. Commentaire sur l'administrateur corrigé.
+- **Pré-vol** : lecture de `admin()` du registre ; signalement si ce n'est pas le déployeur (testnet) ou la gouvernance (mainnet).
+- **Tarif sur un volume existant** : `update-runner-billing-policy` et modes de rendu `billing` / `demo-billing` (service ponctuel sans réseau). Le rapport de supervision expose la version et les profils du tarif lu, sans montants. `ops:tariffs` accepte le profil facultatif arbres.
+- **Compose** : `--opt-in-models` écrit l'interrupteur en clair dans le seul Compose actif.
+- **Mesure** : CSV synthétique de 30 000 lignes, sous 3 Mio, et métriques de référence locales que la CVM doit reproduire à l'identique.
+- **Docs** : `BILLING-INTEGRATION.md` (profils obligatoires et facultatifs, échec sûr, outil de mise à jour).
+
+Gas estimé : ≈ 3,71 M, soit ≈ 0,000037 ETH testnet. Session Phala prévue : ≤ 30 min, ≈ 0,03 USD.
+
+### Arbres boostés, corrections après relecture de la #116 — avant, 19 octobre 2026
+
+Relecture par deux agents (sécurité/opérations, exactitude) :
+- La simulation de `deploy.ts` échouait toujours, car l'escrow était estimé avec le déployeur comme registre (`InvalidRegistry`).
+- Le budget et le tarif du volume démo expirent le 2026-10-26 à 14:12 UTC (relevé de Noé), sans outil de prolongation.
+- `check.canQuote` ignorait la marge de 3 jours, alors que le dernier devis possible est le 2026-10-23 à 14:07 UTC.
+- L'outil de tarif lisait la validité dans la copie d'installation, laissait un `.next` bloquant après une erreur et acceptait un changement de prix silencieux.
+- Le plan omettait la pause des titres v4, le gel des fusions, l'alias `demo.sirius-data.tech` et le couplage image/adresses du retour arrière.
+
+### Arbres boostés, corrections après relecture de la #116 — après, 19 octobre 2026
+
+- **Prolongation du budget** : `renewSponsoredBudgetPolicy` et `scripts/renew-runner-budget-policy.ts`, modes `demo-budget` et `demo-renewal` (tarif enchaîné après succès). Une transaction SQLite dans `ledger.sqlite` ; seuls `validUntil` et `sponsored.observedAtMs` changent ; historique dans `sponsored_policy_changes` ; rejeu sans effet.
+- **Fenêtre de devis** : `canQuote` intègre 3 jours + 300 s ; le rapport expose `quotesUntilMs` et `quoteWindowClosed` ; la supervision lève `quote-window-closed`.
+- **Simulation** : `contracts/scripts/deploy-estimate.ts` estime l'escrow contre un registre déjà déployé (`SIRIUS_DEPLOY_ESTIMATE_DATASETS`). Sortie réelle en lecture seule : 3 731 970 gas, 0,0000373197 ETH.
+- **Tarif** :
+  - validité lue dans le registre réel ;
+  - `.next` jeté à la relance ;
+  - prix installés modifiables seulement avec `RUNNER_BILLING_ALLOW_PROFILE_CHANGES=true` ;
+  - octets écrits tels quels, SHA-256 publié dans `/operations/budget`.
+- **Référence** : métriques épinglées dans `gbdt-benchmark-csv.test.mjs`.
+- **Plan** : `GBDT-PHASE2.md` réécrit, avec deux sessions (A prolongation avant le 26 octobre, B arbres), étapes manquantes et retour arrière corrigé. Aucune entrée `RETIRED_ENCLAVES` nécessaire.
+
+Toujours rien de déployé ni de dépensé.
+
+### Rapport de qualité à l'import (E1) — avant, 19 octobre 2026
+
+`/datasets/new` affichait seulement lignes, colonnes, colonnes numériques et cible. `numericColumns` (`src/lib/tee/train.ts`) écarte en silence toute colonne dont une seule cellule est vide ou non numérique ; si c'est la dernière, une autre colonne devient la cible sans autre signal que son nom. Rien ne signalait une variable qui recopie la cible, les constantes, les doublons ni le déséquilibre des classes.
+
+### Rapport de qualité à l'import (E1) — après, 19 octobre 2026
+
+PR [#117](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/117). `src/lib/datasets/quality.ts` calcule dans le navigateur, avant chiffrement, un rapport montré au fournisseur seul : jamais envoyé, stocké ni publié ; fichier et Merkle root inchangés ; aucun refus ajouté. Cible qui change : avertissement au-dessus du résultat du contrôle, qui passe alors en ton avertissement. Puis, dans le rapport : variable qui recopie la cible (identité, 1 − cible, \|r\| ≥ 0,98, provisoire), colonnes écartées avec leurs cellules vides ou non numériques, constantes, doublons sur les colonnes d'entraînement (clé `\u0000`, sans hachage), classe minoritaire < 10 % (provisoire), colonnes texte ignorées. Affiché aussi pour un fichier refusé. `/phala` non modifié (PR séparée prévue).
+
+Mesuré sur M2 (Node, V8) : 149 ms de plus pour 49 999 × 31 (3,10 Mo), 28 à 30 Mo de tas alloué au pire sous 3 Mo ; pas de Web Worker. Vérifié : `pnpm test` 1 090/1 090 (7 nouveaux), typage, ESLint des fichiers touchés, build, captures locales (propre, fuite, refusé, cible qui change), aucune requête réseau pendant la lecture du fichier.
+
+### Arbres boostés, rejeu sans console — avant/après, 19 octobre 2026
+
+Avant :
+- Rejouer `demo-renewal`, ou redémarrer la CVM dessus, faisait échouer l'outil de tarif (« Nouvelle version de tarif requise », sortie 1) alors que le tarif était déjà en place.
+- Un tarif identique, écrit avec un autre ordre de clés, était compté comme un changement de prix.
+- Un échec du checkpoint SQLite après un `COMMIT` réussi affichait « Rien n'a été modifié ».
+
+Après :
+- Des octets identiques au fichier installé donnent « déjà appliqué », une sortie 0 et aucune écriture.
+- Les profils sont comparés avec leurs clés triées.
+- Le checkpoint est sorti du chemin d'échec.
+- Docs : le relevé du financement doit couvrir le plafond ; le `sha256` se calcule sans saut de ligne final ; `canQuote` suppose un délai de 3 jours.
+- Plan : les commandes VPS et CLI Phala sont exécutées par l'agent principal ; Noé ouvre et ferme la session dans `/operator` et donne les accords.
+
+Rien de déployé.
+
+### Rapport de qualité sur `/phala` — avant, 19 octobre 2026
+
+`/phala` n'affichait aucun rapport de qualité ; la colonne à prédire est choisie par l'utilisateur, une fuite de la cible (cas du 18 octobre) passait inaperçue. `csvWithTargetLast` acceptait une cible au-delà de 10¹² que l'enclave refusait ensuite, après consommation d'une opération de quota.
+
+### Rapport de qualité sur `/phala` — après, 19 octobre 2026
+
+PR [#118](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/118). `demoQualityReport` (`src/lib/phala-demo/csv.ts`) applique `quality.ts`, inchangé, au tableau réordonné par `tableWithTargetLast`, le même que le fichier envoyé à l'enclave. Une cible non numérique est annoncée en jaune au-dessus du rapport (« l'entraînement sera refusé »), sans « cible qui change » ni seconde mention parmi les colonnes écartées ; le bouton reste actif, `csvWithTargetLast` refuse comme avant. `csvWithTargetLast` applique désormais à la cible la règle numérique de l'enclave (`isNumericCell`, borne 10¹²) ; une cellule faite d'espaces, lue 0 par l'enclave, n'y est plus refusée. `QualityReportPanel` déplacé vers `src/components/datasets/`. Navigateur seulement : rien d'envoyé ni stocké.
+
+Vérifié : `pnpm test` 1 090/1 090, `test:phala-demo` 42/42, typage, ESLint, build, e2e Phala en local 7/7 (ce fichier ne tourne pas en CI), captures locales (exemple propre, fuite, cible non numérique).
+
+### Conversions silencieuses de `Number()` dans le rapport de qualité — avant, 19 octobre 2026
+
+La règle numérique de l'enclave (`Number()`) lit sans erreur une cellule faite d'espaces comme 0, et une valeur préfixée 0x/0b/0o en base 16/2/8. Le rapport de qualité ne le signalait pas : un « vide » saisi avec un espace devenait un vrai zéro.
+
+### Conversions silencieuses de `Number()` dans le rapport de qualité — après, 19 octobre 2026
+
+PR [#119](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/119). `quality.ts` compte, dans les colonnes numériques ou écartées, les cellules faites d'espaces et les valeurs préfixées 0x/0X, 0b/0B, 0o/0O ; deux signalements « à vérifier », avec colonne et compte, sur `/datasets/new` et `/phala` (cible choisie comprise). Notation scientifique et signe + non signalés. Navigateur seulement, aucun refus ; `isNumericCell`, `csvWithTargetLast` et l'enclave inchangés.
+
+Vérifié : `pnpm test` 1 112/1 112, `test:phala-demo` 43/43, typage, ESLint, build, e2e Phala en local 7/7 (hors CI), capture locale, CI de la PR.
+
+### Coupe-circuit et CSV invalides — avant/après, 20 octobre 2026
+
+Avant : les limites du parseur CSV levaient une erreur technique ; un dépôt de 65 colonnes comptait deux pannes dans les enveloppes budgétaires imbriquées. Reproduction locale avec un registre SQLite et un seuil de cinq : compteurs 2, 4, 6, puis refus d'une requête légitime. Une reprise de scellement sans résultat conservé renvoyait aussi 503 et pouvait alimenter le coupe-circuit.
+
+Après : les limites CSV lèvent `CsvValidationError`, convertie en 400 uniquement à l'ingestion chiffrée. Les autres exceptions techniques et l'opacité des erreurs d'entraînement privé sont conservées. Le budget déduplique une erreur propagée dans le contexte asynchrone de sa requête ; des requêtes distinctes comptent chacune leurs pannes. Une opération déjà engagée sans résultat récupérable conserve le statut 503 mais relève de `RunnerRetryLater` : aucun recalcul, aucune nouvelle panne ni dépense de requête. Garder 503 évite que le nettoyage des refus 4xx de `completeDatasetIngestion` supprime le brouillon d'un scellement concurrent encore en cours. Le rejeu du résultat d'entraînement reste inchangé.
+
+Vérifié localement : 93 tests ciblés budget, métriques, ingestion et sécurité HTTP réussis. Smoke sur les fonctions réelles de chiffrement navigateur, ingestion et registre SQLite : trois CSV de 65 colonnes renvoient 400, zéro panne comptée, coupe-circuit fermé, puis une requête légitime réussit. Fichiers temporaires nettoyés ; aucune donnée réelle ni appel Phala. Ce correctif précède la session staging arbres et ne constitue pas encore une publication d'image ni un déploiement matériel. Les autres constats d'audit restent hors de ce correctif.
+
+Typage (`tsc --noEmit`) et ESLint ciblé réussis. Artefacts de contrats testnet recompilés (10 fichiers Solidity) pour la préparation de la bascule ; aucune transaction envoyée.
+
+Vérification après maintien du statut 503 pour les reprises : 72 tests budget réussis, typage et lint ciblé réussis. Smoke chiffré rejoué avec trois reprises supplémentaires : aucun recalcul, zéro nouvelle panne et zéro coût de requête supplémentaire.
+
+### Session staging arbres et renouvellement — avant/après, 20 octobre 2026
+
+Avant : contrats testnet sans profil arbres (registre v4 `0x99ea…`, escrow `0x5f9d…`), interrupteur `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` absent, budget démo à 14 USD expirant le 26 octobre, runner sur `sirius-runner@sha256:78839668…` (Compose `61581af7…`), reaper staging resté sur la configuration v6 (`0xc51e…`, `0x4075…`), copie `<DOSSIER_OPS>` antérieure au registre v5.
+
+Après (session unique décidée par Noé, CVM allumée de 09:26:45 à 09:57 UTC environ) :
+- Contrats testnet : `SiriusDatasetRegistry` v5 `0xd9e0189094d8d7e78e1ba67475c29b2c6af62606`, `SiriusEscrowV7` `0x035c374db960ede406398708501ecbbb2fdc31ea`, KYB ouvert réutilisé, profil `gradient_boosted_trees` ajouté (tx `0x38f0055b…423f`), 3 674 630 gas. Préflight `phala:check-v7` au bloc finalisé 139 311 255 : `chainChecksPassed: true`, aucun écart ; admin du registre = clé de déploiement (testnet).
+- Image `sirius-runner@sha256:5a63e9dd…1c06` (fusion `fdeb29f`, correctif coupe-circuit #121). Maintenance `demo-renewal` puis Compose actif avec l'interrupteur arbres. Attestation active : quote `UpToDate`, MRTD, chaîne KMS, empreinte d'ingestion et signataire inchangés ; Compose `0c3f6f87…dcd6`, égal au SHA-256 de `tcb_info.app_compose`, publié dans `composes/` et déclaré dans `DECLARED_RELEASES`.
+- Budget : relevé Phala T1 = 2026-10-20 09:26:02 UTC (9,720117 USD), prolongation jusqu'au 2026-11-20 09:26 UTC ; tarif `demo-trees-2026-10-20` (arbres = logistique), SHA-256 `e2a0bce0…6349` vérifié dans `/operations/budget`. Activer a appliqué 9 USD de crédits et de plafond avant ouverture ; quotas 20 / 4 / 1 inchangés.
+- Base staging : les 10 titres actifs (8 sur `0x99ea…`, 2 sur `0x4075…`) passés en `SUSPENDED` dans une transaction vérifiant 10 lignes ; 0 prêt ouvert.
+- Vercel staging : adresses v5, escrows historiques complets, tarif, interrupteur et pin Compose mis à jour, front reconstruit (`n8jmpm272`). `demo.sirius-data.tech` déplacé sur ce déploiement (retour possible vers `dtdfr75f9`).
+- VPS : pins et adresses du contrôleur et du moniteur mis à jour ; `<DOSSIER_OPS>` remplacé par `src`/`scripts` de `fdeb29f` (sauvegardes `*.bak-trees-*`), sans quoi le contrôleur refusait le registre v5. Reaper staging basculé dans `.env.vps` (adresses v5, v7 et configuration runner attestée exigée par le reaper v7) : passe saine.
+
+Recette matérielle, wallet de test neuf, CSV `d25689ca…2c33` (30 000 lignes, 23 variables), profil arbres : `heldOutAuc` 0,841841, `trainAuc` 0,847003, `heldOutAccuracy` 0,778667, identiques aux références locales à l'arrondi affiché ; 32 s du clic au résultat, dont la transaction de titre testnet. Le self-train exige un peu d'ETH testnet pour ce titre (0,0005 ETH versé au wallet de test). Une tentative a échoué en 503 « Confidential runner unavailable » (erreur réseau ou attestation côté Next, sans échec compté) ; la suivante a réussi ; cause non établie. Une tentative antérieure avait échoué faute de transaction gérée par le wallet de test : une opération du quota consommée.
+
+Fermeture par Noé depuis `/operator` ; CVM `stopped` vérifiée à 09:57 UTC, contrôleur `closed` (révision 45). Coût estimé ≈ 0,03–0,06 USD selon l'arrondi horaire ; solde relevé juste après : 9,720117 USD, débit pas encore visible. Restent : cause de la 503 ponctuelle, mise à jour reproductible de `<DOSSIER_OPS>`, et alignement de PR #120 sur ce qui a été exécuté.
+
+### Budget sponsorisé et requêtes refusées — avant/après, 20 octobre 2026
+
+Avant (audit N1) : chaque requête runner réservait son coût (`request`, 0,01 USD sur la démo) avant la vérification du grant, et un refus 4xx le gardait consommé. La clé publique d'ingestion, appelée à chaque `POST /api/datasets`, était aussi facturée, et Next supprime le brouillon après un refus, ce qui remet à zéro ses quotas d'ingestion. Reproduit sur registre SQLite : 100 refus 401 épuisent 1 USD de marge, 0 échec compté. Avec la marge restante de staging (≈ 1,08 USD), une cinquantaine de boucles rendaient `/phala` indisponible pendant une session, sans mint ni quota consommé.
+
+Après : une requête refusée à l'appelant (4xx) rend son coût ; les jobs imbriqués déjà engagés (scellement, entraînement) gardent le leur, et les pannes runner restent comptées. `dataset-ingress-key` et `self-train-key` (clé publique, re-livraison d'une clé déjà calculée) ne sont plus facturées, mais exigent toujours le registre en production, sur Phala et sur mainnet. Smoke sur le vrai handler : 50 clés d'ingestion, 50 `self-train-key` et 50 `seal-dataset` refusés → 0 USD alloué, 0 échec (avant : 1,50 USD). Les quotas de démonstration (20 / 4 / 1) bornent toujours les scellements et entraînements réels. Image runner et CVM inchangées tant qu'une nouvelle session n'a pas déployé ce correctif.
+
+Vérifié localement : `pnpm test` 1 124/1 124, `test:phala-demo` 43/43, typage et ESLint ciblé réussis.
+
+Déploiement le 20 octobre, 12:04–12:07 UTC, sans ouverture de session : image `sirius-runner@sha256:76fb0001…c914` (fusion `c408221`), Compose actif arbres identique au précédent à l'image près. Attestation active : quote vérifiée, MRTD, chaîne KMS, empreinte d'ingestion et signataire inchangés ; Compose `2fdc0919…23d3`, égal au SHA-256 de `tcb_info.app_compose`, publié dans `composes/` et déclaré dans `DECLARED_RELEASES`. Pin mis à jour dans le contrôleur, le moniteur (rapport attesté réussi) et Vercel staging, front reconstruit. Budget relevé : 4,35 USD engagés, 0,65 USD disponibles avant la réserve de 4 USD sur le plafond de 9 USD, aucun échec nouveau. CVM arrêtée à 12:07 UTC. Le correctif est désormais actif à la prochaine ouverture ; la marge restante ne couvre que deux self-trains environ.
+
+### E2 minimale pour les arbres boostés — avant/après, 24 octobre 2026
+
+Avant (audit confidentialité du 23 octobre, branche `audit/confidentialite`) : les arbres `gradient_boosted_trees` 1.0.0 mémorisaient les lignes répétées (canari présent 20 fois reconnu comme membre à AUC 0,77 Taïwan, 0,81 GMSC, 0,72 credit-risk ; 0,59–0,62 dès 5 copies), 51 seuils sur 119 (Taïwan) étaient exactement une valeur du fichier, `trainAuc` à 6 chiffres changeait au retrait d'une seule ligne dans 97 % des cas, les cinq métriques held-out à 6 chiffres donnaient la matrice de confusion exacte, `n` sortait exact et les noms de colonnes (128 caractères libres) sortaient tels quels. La mesure « AUC d'appartenance par la perte » prévue pour E2 restait à 0,50 même devant cette fuite.
+
+Après (profil 1.1.0, [EGRESS-POLICY-API.md §2.5](EGRESS-POLICY-API.md)) : plafond d'influence k = 1 (une copie de chaque ligne distincte dans l'entraînement, `n` et Merkle root inchangés), seuils strictement entre deux valeurs voisines du fichier (0 seuil sur une valeur présente sur les trois jeux), métriques held-out à 3 décimales, `trainAuc` remplacé par `aucGap` à 2 décimales, `n` à 2 chiffres significatifs, `baseScore` à 3 chiffres, en-têtes publiés limités à `[A-Za-z0-9_]{1,64}` avec refus à l'import (enclave et navigateur). Banc de canaris réduit ajouté à `pnpm test` : canaris ×20 indiscernables des témoins avec k = 1 (mêmes arbres qu'avec ×1), contrôle positif sur des quasi-doublons. Linéaire et logistique v1 inchangées (D-27). Banc complet rejoué (20 graines × 20 canaris) : AUC d'appartenance des canaris ×20 ramenée de 0,766 à 0,478 (Taïwan), 0,810 à 0,523 (GMSC), 0,716 à 0,516 (credit-risk), toutes non significatives (p ≥ 0,27) ; AUC held-out inchangée (0,781 / 0,855 / 0,719) ; 0 seuil égal à une valeur du fichier sur les trois jeux (avant : 51 / 119, 12 / 83, 56 / 76).
+
+Conséquences opérationnelles : nouvelle empreinte de profil `0x4f19db62…0f07`, à ajouter au registre v5 testnet avant toute session arbres ; les titres et le modèle livré en 1.0.0 (démonstration du 20 octobre) ne sont plus acceptés. Référence du CSV de mesure en 1.1.0 : `heldOutAuc` 0,842, `aucGap` 0,01, `heldOutAccuracy` 0,779.
+
+Déploiement le 26 octobre, 11:31–11:40 UTC environ, sans ouverture de session : image `sirius-runner@sha256:3fbd5986…d291` (fusion `95bf2bf`, corrections de l'audit interne #125), Compose actif arbres identique au précédent à l'image près, plus les six variables `RUNNER_FREE_OPS_*` à leurs valeurs par défaut. Environnement chiffré et `allowed_envs` (19 noms) conservés. Attestation : MRTD inchangé, Compose `935f941f…7c9a`, égal au SHA-256 de `tcb_info.app_compose`, publié dans `composes/` et déclaré dans `DECLARED_RELEASES`. RTMR3 changé (`d8ca1307…`). CVM arrêtée après lecture. Restent : pins du contrôleur, du moniteur et de Vercel staging, et ajout de l'empreinte 1.1.0 au registre v5 testnet avant toute session arbres.

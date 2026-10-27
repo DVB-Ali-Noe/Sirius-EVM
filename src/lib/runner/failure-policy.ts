@@ -24,6 +24,9 @@ export class RunnerRetryLater extends AppError {
   }
 }
 
+/** Une seule transaction en vol par wallet runner : un second règlement simultané est refusé avec ce motif. */
+export const RUNNER_WALLET_BUSY = "Transaction du wallet runner encore incertaine";
+
 /** Ni l'attente de finalité ni un refus avant signature ne doivent consommer de crédit. */
 export function releasesReservation(error: unknown): boolean {
   return error instanceof RunnerFinalityPending || error instanceof RunnerRetryLater;
