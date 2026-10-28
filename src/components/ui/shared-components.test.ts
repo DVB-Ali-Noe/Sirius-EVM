@@ -25,7 +25,7 @@ function page(name: string): string {
 test("DisclaimerNote : textes communs, un seul lien mailto vers le contact, pas de HTML injecté", () => {
   const out = page("note-default");
   assert.match(out, /<aside role="note"/);
-  assert.match(out, /Sirius currently trains baseline models/);
+  assert.match(out, /Sirius currently trains three models on tabular data/);
   assert.match(out, /Need a stronger model or specific data\? Contact us at <a href="mailto:sirius\.data\.contact@gmail\.com"[^>]*>sirius\.data\.contact@gmail\.com<\/a>\./);
   assert.equal(out.match(/href=/g)?.length, 1);
   assert.doesNotMatch(out, /dangerouslySetInnerHTML|<script/i);

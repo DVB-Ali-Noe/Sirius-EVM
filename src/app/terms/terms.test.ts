@@ -44,11 +44,11 @@ test("conditions : paiement en USDG émis par Paxos, qui peut geler des adresses
   assert.doesNotMatch(terms, /USDC/);
 });
 
-test("conditions : nature bêta, modèles de base, date de mise à jour et contact", () => {
+test("conditions : nature bêta, modèles proposés, date de mise à jour et contact", () => {
   // Accès ouvert : vérification on-chain instantanée, plus d'accès sur invitation.
   assert.match(terms, /Access requires an on-chain verification of your wallet, available instantly from the KYB page; Sirius may revoke it/);
   assert.doesNotMatch(terms, /by invitation|invitation-only/i);
-  assert.match(terms, /baseline models: linear and logistic regression/);
+  assert.match(terms, /linear regression, logistic regression and gradient-boosted trees/);
   const date = /Last updated \{LAST_UPDATED\}/.test(terms) && /const LAST_UPDATED = "(\d{1,2} [A-Z][a-z]+ \d{4})"/.exec(terms);
   assert.ok(date, "une date de mise à jour est affichée");
   assert.ok(Number.isFinite(Date.parse(`${date[1]} UTC`)), "la date est lisible");

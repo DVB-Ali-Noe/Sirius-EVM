@@ -60,7 +60,7 @@ export function dataLimitsVariables(limits: DataLimits): TranslationVariables {
 
 export const DISCLAIMERS: Readonly<Record<DisclaimerId, DisclaimerCopy>> = {
   modelQuality: {
-    key: "Sirius entraîne pour l’instant des modèles de base : régression linéaire et régression logistique sur données tabulaires. Les résultats dépendent des données. De nouveaux modèles sont en développement.",
+    key: "Sirius entraîne pour l’instant trois modèles sur données tabulaires : régression linéaire, régression logistique et arbres boostés pour une classification binaire. Les résultats dépendent des données. De nouveaux modèles sont en développement.",
     variables: {},
   },
   contactUs: {
