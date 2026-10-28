@@ -46,7 +46,7 @@ import {
   retrieveLoanKey,
   runLoanJob,
 } from "@/lib/loans/client";
-import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
 import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
@@ -164,6 +164,8 @@ function TrainPageContent() {
   const [inspected, setInspected] = useState<Record<string, DownloadedModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Règlement envoyé, pas encore confirmé : information, pas une erreur (le prêt n'a pas échoué).
+  const [notice, setNotice] = useState<string | null>(null);
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
   // que sa propre action (pas de collision entre self-train et lancement de job).
   const [busy, setBusy] = useState<Set<string>>(new Set());
@@ -411,6 +413,7 @@ function TrainPageContent() {
     if (activeLoanJobs.current.has(key)) return;
     activeLoanJobs.current.add(key);
     setError(null);
+    setNotice(null);
     setBusyKey(key, true);
     try {
       if (!loan.dataset?.runnerReceipt || !loan.evmLockTxHash || !loan.evmLoanKey) {
@@ -431,6 +434,9 @@ function TrainPageContent() {
       if (message === "Loan non verrouillé ou déjà en cours") {
         await refresh().catch(() => {});
         setError(t("Le job TEE est déjà en cours. Actualise dans quelques secondes."));
+      } else if (isSettlementPending(message)) {
+        setNotice(message);
+        await refresh().catch(() => {});
       } else if (message === LOCK_FINALITY_PENDING) {
         // Pas une erreur : le lock n'est pas encore sous le bloc stable. L'attente reprend (un
         // lancement automatique refusé n'est pas consommé) et la relecture remplace le bouton.
@@ -452,13 +458,16 @@ function TrainPageContent() {
   async function resumeJob(loan: Loan) {
     const key = `job:${loan.id}`;
     setError(null);
+    setNotice(null);
     setBusyKey(key, true);
     try {
       if (!loan.runnerReceipt) throw new Error(t("Capsule TEE manquante"));
       deliver(loan.id, await resumeLoanSettlement(loan.id, loan.runnerReceipt));
       await refresh();
     } catch (err) {
-      setError(messageOf(err));
+      const message = messageOf(err);
+      if (isSettlementPending(message)) setNotice(message);
+      else setError(message);
     } finally {
       setBusyKey(key, false);
     }
@@ -564,6 +573,11 @@ function TrainPageContent() {
       {error && (
         <div role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">
           {t(error)}
+        </div>
+      )}
+      {notice && !error && (
+        <div role="status" aria-live="polite" data-testid="settlement-pending" className="rounded-lg border border-yellow-400/30 bg-yellow-400/5 px-4 py-3 text-sm text-yellow-400">
+          {t(notice)}
         </div>
       )}
 

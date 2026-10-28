@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   description: "Terms of the Sirius mainnet beta.",
 };
 
-const LAST_UPDATED = "6 October 2026";
+const LAST_UPDATED = "28 October 2026";
 
 const SECTIONS: [string, string[]][] = [
   ["What the beta is", [
@@ -29,7 +29,7 @@ const SECTIONS: [string, string[]][] = [
     "Nothing on Sirius is investment, financial, legal or tax advice.",
   ]],
   ["Models", [
-    "Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development.",
+    "Sirius currently trains three models on tabular data: linear regression, logistic regression and gradient-boosted trees for binary classification. Results depend on the data. New models are in development.",
     "Sirius does not promise that a model will be accurate, useful or suitable for any particular purpose. Check a model on your own data before relying on it.",
     "Need a stronger model or specific data? Contact us at the address below.",
   ]],
