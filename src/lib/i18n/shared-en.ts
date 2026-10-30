@@ -9,8 +9,8 @@
  */
 export const SHARED_MESSAGES_EN: Record<string, string> = {
   // Avertissements communs
-  "Sirius entraîne pour l’instant des modèles de base : régression linéaire et régression logistique sur données tabulaires. Les résultats dépendent des données. De nouveaux modèles sont en développement.":
-    "Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development.",
+  "Sirius entraîne pour l’instant trois modèles sur données tabulaires : régression linéaire, régression logistique et arbres boostés pour une classification binaire. Les résultats dépendent des données. De nouveaux modèles sont en développement.":
+    "Sirius currently trains three models on tabular data: linear regression, logistic regression and gradient-boosted trees for binary classification. Results depend on the data. New models are in development.",
   "Besoin d’un modèle plus puissant ou de données précises ? Contactez-nous à {email}.":
     "Need a stronger model or specific data? Contact us at {email}.",
   "Bêta : vérification on-chain instantanée du wallet, montants plafonnés par prêt et au total.":

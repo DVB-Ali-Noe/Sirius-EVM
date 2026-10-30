@@ -1,7 +1,7 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_QUEUED } from "./settlement-status";
+import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -162,6 +162,15 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
  */
 export const SETTLEMENT_QUEUED_RETRY_MS = [2_000, 4_000, 8_000] as const;
 
+/**
+ * Relectures d'un règlement déjà envoyé, au palier rapide seulement (`SETTLEMENT_FINALITY_PENDING_FAST`) :
+ * le réseau le confirme en général sous une minute. La page reste en « Règlement… » et livre le
+ * modèle dès la confirmation, au lieu d'afficher l'attente comme un échec et de laisser l'emprunteur
+ * recharger. Environ 2 min 30 au total, sous le quota de la route (10 par minute). Au-delà, ou au
+ * palier long (un quart d'heure), le message d'attente remonte comme avant.
+ */
+export const SETTLEMENT_PENDING_RETRY_MS = [5_000, 10_000, 10_000, 15_000, 15_000, 20_000, 30_000, 45_000] as const;
+
 export async function settleLoan(
   loanId: string,
   runnerReceipt: string,
@@ -170,7 +179,9 @@ export async function settleLoan(
     grant = issueRunnerGrant,
   }: { wait?: (ms: number) => Promise<void>; grant?: typeof issueRunnerGrant } = {},
 ): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
+  let queued = 0;
+  let pending = 0;
+  for (;;) {
     const authorization = await grant("settle-loan", { loanId }, [loanId, runnerReceipt]);
     const response = await fetch(`/api/loans/${loanId}/settle`, {
       method: "POST",
@@ -179,9 +190,16 @@ export async function settleLoan(
     });
     const body = await response.json() as { error?: string; pending?: boolean };
     // Le serveur annonce l'attente selon le palier du prêt (secondes ou quart d'heure) ; sans message, l'attente longue.
-    if (response.status === 202 && body.pending) throw new Error(typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING);
-    if (response.status === 503 && body.error === SETTLEMENT_QUEUED && attempt < SETTLEMENT_QUEUED_RETRY_MS.length) {
-      await wait(SETTLEMENT_QUEUED_RETRY_MS[attempt]);
+    if (response.status === 202 && body.pending) {
+      const message = typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING;
+      if (message === SETTLEMENT_FINALITY_PENDING_FAST && pending < SETTLEMENT_PENDING_RETRY_MS.length) {
+        await wait(SETTLEMENT_PENDING_RETRY_MS[pending++]);
+        continue;
+      }
+      throw new Error(message);
+    }
+    if (response.status === 503 && body.error === SETTLEMENT_QUEUED && queued < SETTLEMENT_QUEUED_RETRY_MS.length) {
+      await wait(SETTLEMENT_QUEUED_RETRY_MS[queued++]);
       continue;
     }
     if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");

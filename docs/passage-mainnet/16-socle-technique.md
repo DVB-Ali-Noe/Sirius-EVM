@@ -54,7 +54,7 @@ Un seul fichier source, pour que le même texte apparaisse partout et se modifie
 
 | Clé | Texte | Où |
 |---|---|---|
-| `modelQuality` | « Sirius currently trains baseline models: linear and logistic regression on tabular data. Results depend on the data. New models are in development. » | Dashboard, upload, marketplace, train, tutos |
+| `modelQuality` | « Sirius currently trains three models on tabular data: linear regression, logistic regression and gradient-boosted trees for binary classification. Results depend on the data. New models are in development. » | Dashboard, upload, marketplace, train, tutos |
 | `contactUs` | « Need a stronger model or specific data? Contact us at sirius.data.contact@gmail.com. » | Mêmes endroits |
 | `betaLimits` | « Beta: invitation-only access, capped amounts per loan and in total. » | Dashboard, tuto, landing |
 | `retrainDeterministic` | « Linear and logistic regression are deterministic: retraining on the same data gives the same model. » | Train |

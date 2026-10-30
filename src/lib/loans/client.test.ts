@@ -2,8 +2,8 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { borrowDataset, settleLoan, SETTLEMENT_QUEUED_RETRY_MS } from "./client";
-import { SETTLEMENT_QUEUED } from "./settlement-status";
+import { borrowDataset, settleLoan, SETTLEMENT_PENDING_RETRY_MS, SETTLEMENT_QUEUED_RETRY_MS } from "./client";
+import { isSettlementPending, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
 import { AppError } from "@/lib/app-error";
 import { RUNNER_WALLET_BUSY } from "@/lib/runner/failure-policy";
 import { settlementQueuedError } from "@/lib/sirius/settlement-queued";
@@ -173,6 +173,45 @@ test("PAR-02 : un règlement refusé parce qu'un autre occupe le wallet runner e
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+test("règlement au palier rapide : la page relit l'attente seule et livre dès la confirmation", async () => {
+  const previousFetch = globalThis.fetch;
+  const waits: number[] = [];
+  const pending = { status: 202, body: { pending: true, error: SETTLEMENT_FINALITY_PENDING_FAST } };
+  const answers: { status: number; body: object }[] = [pending, pending, { status: 200, body: { loanId: "loan-fast" } }];
+  globalThis.fetch = (async () => {
+    const answer = answers.shift()!;
+    return new Response(JSON.stringify(answer.body), { status: answer.status });
+  }) as unknown as typeof fetch;
+  let issued = 0;
+  const grant: typeof issueRunnerGrant = async () => ({ grant: `grant-${issued++}` }) as never;
+  try {
+    await settleLoan("loan-fast", "receipt", { grant, wait: async (ms) => { waits.push(ms); } });
+    assert.deepEqual(waits, SETTLEMENT_PENDING_RETRY_MS.slice(0, 2));
+    assert.ok(SETTLEMENT_PENDING_RETRY_MS.every((ms) => ms >= 5_000), "au plus 10 essais par minute, quota de la route");
+
+    // Attente rapide qui dure : le message remonte après les relectures prévues.
+    answers.push(...Array.from({ length: SETTLEMENT_PENDING_RETRY_MS.length + 1 }, () => pending));
+    await assert.rejects(settleLoan("loan-fast", "receipt", { grant, wait: async () => {} }), { message: SETTLEMENT_FINALITY_PENDING_FAST });
+    assert.equal(answers.length, 0);
+
+    // Palier long (un quart d'heure) : aucune relecture, la page affiche l'attente.
+    answers.push({ status: 202, body: { pending: true, error: SETTLEMENT_FINALITY_PENDING } });
+    await assert.rejects(settleLoan("loan-slow", "receipt", { grant, wait: async () => assert.fail("pas de relance") }),
+      { message: SETTLEMENT_FINALITY_PENDING });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("une attente de règlement s'affiche en information, jamais en erreur", () => {
+  assert.equal(isSettlementPending(SETTLEMENT_FINALITY_PENDING), true);
+  assert.equal(isSettlementPending(SETTLEMENT_FINALITY_PENDING_FAST), true);
+  assert.equal(isSettlementPending(SETTLEMENT_QUEUED), false);
+  const page = readFileSync(join(process.cwd(), "src/app/(app)/train/page.tsx"), "utf8");
+  assert.match(page, /isSettlementPending\(message\)\) setNotice\(message\)/);
+  assert.match(page, /role="status"[^>]*data-testid="settlement-pending"/);
 });
 
 test("PAR-02 : côté serveur, seul le refus « wallet runner occupé » (503) devient le message de règlement en file", () => {

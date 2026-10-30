@@ -165,7 +165,7 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(page.getByText(/escrow safety delay is set by Sirius to 3 days/)).toBeVisible();
   await expect(page.getByRole("radio", { name: "30 days (default)" })).toBeChecked();
   await page.getByRole("radio", { name: "90 days", exact: true }).check();
-  await expect(page.getByText(/Sirius currently trains baseline models/)).toBeVisible();
+  await expect(page.getByText(/Sirius currently trains three models on tabular data/)).toBeVisible();
   const consent = page.getByRole("checkbox", { name: /Allow Sirius to use this dataset, inside the enclave only/ });
   await expect(consent).not.toBeChecked();
   await consent.check();
