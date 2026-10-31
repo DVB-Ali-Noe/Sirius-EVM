@@ -7,6 +7,11 @@ export const SETTLEMENT_FINALITY_PENDING = "Règlement envoyé : le réseau le c
 /** Même attente pour un prêt au palier rapide (fast-finality.ts) : quelques dizaines de confirmations L2. */
 export const SETTLEMENT_FINALITY_PENDING_FAST = "Règlement envoyé : le réseau le confirme en général sous une minute. Reviens ensuite pour récupérer ton modèle.";
 
+/** Une attente de règlement n'est pas un échec : la page l'affiche en information, pas en erreur. */
+export function isSettlementPending(message: string): boolean {
+  return message === SETTLEMENT_FINALITY_PENDING || message === SETTLEMENT_FINALITY_PENDING_FAST;
+}
+
 /**
  * Refus de `POST /api/loans/[id]/settle` (503) quand un autre règlement occupe le wallet unique du
  * runner (audit PAR-02). Rien n'est perdu : le prêt revient en attente de règlement, l'interface

@@ -15,7 +15,6 @@ overrides:
   # projet embarque la v2 (subpaths renommés) → épingle l'arête du SDK sur la 1.x compatible.
   '@phala/dstack-sdk>@noble/hashes': '1.8.0'
   '@segment/analytics-next>js-cookie': '3.0.7'
-  '@prisma/dev>@hono/node-server': '1.19.15'
   # Avis d'octobre 2026 (GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr) : corrigés en 3.1.9. Atteint
   # via ajv (@prisma/dev, outillage Hardhat), qui demande ^3 : la 3.1.9 reste dans sa plage.
   'fast-uri@>=3.0.0 <3.1.9': '3.1.9'
@@ -29,14 +28,10 @@ overrides:
   'brace-expansion@>=2 <2.1.7': '2.1.7'
   'brace-expansion@>=4 <5.0.12': '5.0.12'
   'valibot@>=1 <1.4.2': '1.4.2'
-  # GHSA-5r4p-p66f-jhc7 (moyenne), corrigé en 4.13.11. Atteint seulement par @prisma/dev
-  # (base locale de `prisma dev`), jamais servi par l'application.
-  'hono@>=4 <4.13.11': '4.13.11'
   'nanoid@>=3 <3.3.18': '3.3.18'
   'browserslist@>=4 <4.28.7': '4.28.7'
   'mysql2@>=3 <3.23.1': '3.23.1'
-  # GHSA-6pq8-jhm2-2vcw : qs.stringify sur entrée hostile pouvait lever une TypeError.
-  # Atteint via l'outillage Hardhat de développement ; conserver la version corrigée.
+  # GHSA-6pq8-jhm2-2vcw (moyenne), corrigé en 6.16.1 : atteint seulement par eth-gas-reporter (outillage Hardhat).
   'qs@>=6 <6.16.1': '6.16.1'
   'baseline-browser-mapping@>=2 <2.11.0': '2.11.0'
   'js-yaml@>=3 <3.15.2': '3.15.2'
@@ -68,6 +63,9 @@ overrides:
   # corrigés en 8.3.3. vite n'arrive que comme pair de vitest, que @web3auth/modal déclare en
   # dépendance : `pnpm update` ne remonte pas un pair déjà résolu, d'où l'épinglage.
   'vite@>=8.3.0 <8.3.3': '8.3.3'
+  # GHSA-mrwp-f3q8-3g9p (haute), corrigé en 1.16.2 dans la même branche. Atteint seulement par
+  # solc via hardhat (outillage Solidity de développement).
+  'follow-redirects@>=1.16.0 <1.16.2': '1.16.2'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans
@@ -80,3 +78,9 @@ auditConfig:
     # développement (solidity-coverage > js-yaml > argparse) : `pnpm audit --prod` ne la voit pas.
     # À retirer dès que sprintf-js 1.1.4 est publiée.
     - GHSA-hp3w-g68c-fv3c
+    # minimatch < 11.0.1 (GHSA-g3hv-75wg-m249) et glob 9 à 14.0.1 (GHSA-3g3m-2fjr-6pw4), avis
+    # d'octobre 2026 corrigés seulement dans des versions majeures que mocha et hardhat ne
+    # demandent pas. Atteints uniquement par l'outillage Solidity de développement :
+    # `pnpm audit --prod` ne les voit pas. À retirer dès que mocha/hardhat acceptent ces versions.
+    - GHSA-g3hv-75wg-m249
+    - GHSA-3g3m-2fjr-6pw4
