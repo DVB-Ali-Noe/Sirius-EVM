@@ -63,6 +63,9 @@ overrides:
   # corrigés en 8.3.3. vite n'arrive que comme pair de vitest, que @web3auth/modal déclare en
   # dépendance : `pnpm update` ne remonte pas un pair déjà résolu, d'où l'épinglage.
   'vite@>=8.3.0 <8.3.3': '8.3.3'
+  # GHSA-mrwp-f3q8-3g9p (haute), corrigé en 1.16.2 dans la même branche. Atteint seulement par
+  # solc via hardhat (outillage Solidity de développement).
+  'follow-redirects@>=1.16.0 <1.16.2': '1.16.2'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans
@@ -75,3 +78,9 @@ auditConfig:
     # développement (solidity-coverage > js-yaml > argparse) : `pnpm audit --prod` ne la voit pas.
     # À retirer dès que sprintf-js 1.1.4 est publiée.
     - GHSA-hp3w-g68c-fv3c
+    # minimatch < 11.0.1 (GHSA-g3hv-75wg-m249) et glob 9 à 14.0.1 (GHSA-3g3m-2fjr-6pw4), avis
+    # d'octobre 2026 corrigés seulement dans des versions majeures que mocha et hardhat ne
+    # demandent pas. Atteints uniquement par l'outillage Solidity de développement :
+    # `pnpm audit --prod` ne les voit pas. À retirer dès que mocha/hardhat acceptent ces versions.
+    - GHSA-g3hv-75wg-m249
+    - GHSA-3g3m-2fjr-6pw4

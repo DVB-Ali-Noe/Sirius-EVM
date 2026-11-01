@@ -14,7 +14,7 @@ import {
   needsLockFinalityCheck,
   canResumeSettlement,
   canRetrain,
-  canRetrieveModelKey,
+  canPredictLoan,
   hasOtherActiveLoan,
   isFailedWithoutModel,
   isOverdueUnsettled,
@@ -173,10 +173,13 @@ test("A-05, A-10 : échu avec capsule et reçu, sans release diffusé : Rembours
   assert.equal(canRefund(prepared({ status: "CANCELLED" }), ME), false);
 });
 
-test("Finaliser ou réconcilier le règlement : capsule et reçu, et règlement encore possible", () => {
+test("Finaliser ou réconcilier le règlement : modèle scellé et reçu, et règlement encore possible", () => {
   const ready = (overrides: Partial<LoanDisplayInput> = {}) =>
-    loan({ status: "TRAINING", modelCid: "bafy", runnerReceipt: "receipt", ...overrides });
+    loan({ status: "TRAINING", modelCid: `sm1${"ef".repeat(32)}`, runnerReceipt: "receipt", ...overrides });
   assert.equal(canResumeSettlement(ready()), true);
+  // Ancien CID (livraison supprimée) : rien à finaliser avant release ; un release déjà diffusé se réconcilie.
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel" })), false);
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel", status: "SETTLING", settleTxHash: TX })), true);
   assert.equal(canResumeSettlement(ready({ status: "SETTLING" })), true);
   // Release diffusé avant l'échéance : la réconciliation reste proposée, même échu.
   assert.equal(canResumeSettlement(ready({ status: "SETTLING", settleTxHash: TX, refundable: true })), true);
@@ -370,33 +373,22 @@ test("le self training n'est montré que si le serveur répond exactement admin:
   }
 });
 
-test("Vérifier et télécharger : la clé n'est proposée que sur un emprunt réglé, à son emprunteur", () => {
-  const settled = () => loan({ status: "SETTLED", settleTxHash: TX, modelCid: "bafy", runnerReceipt: "receipt" });
-  assert.equal(canRetrieveModelKey(settled(), ME), true);
-  assert.equal(canRetrieveModelKey(settled(), ME.toUpperCase().replace("0X", "0x")), true);
-  // Fournisseur, tiers ou sans wallet : aucun appel à /api/loans/[id]/key (A-12).
-  assert.equal(canRetrieveModelKey(settled(), OTHER), false);
-  assert.equal(canRetrieveModelKey(settled(), null), false);
-  assert.equal(canRetrieveModelKey(settled(), ""), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), borrower: undefined }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), borrower: "pas-une-adresse" }, ME), false);
+test("Prédiction d'un emprunt : proposée seulement sur un emprunt réglé, à son emprunteur", () => {
+  const settled = () => loan({ status: "SETTLED", settleTxHash: TX, modelCid: "sm1abc", runnerReceipt: "receipt" });
+  assert.equal(canPredictLoan(settled(), ME), true);
+  assert.equal(canPredictLoan(settled(), ME.toUpperCase().replace("0X", "0x")), true);
+  // Fournisseur, tiers ou sans wallet : aucune prédiction proposée.
+  assert.equal(canPredictLoan(settled(), OTHER), false);
+  assert.equal(canPredictLoan(settled(), null), false);
+  assert.equal(canPredictLoan(settled(), ""), false);
+  assert.equal(canPredictLoan({ ...settled(), borrower: undefined }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), borrower: "pas-une-adresse" }, ME), false);
   for (const status of ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "CANCELLED", "X"]) {
-    assert.equal(canRetrieveModelKey({ ...settled(), status }, ME), false, status);
+    assert.equal(canPredictLoan({ ...settled(), status }, ME), false, status);
   }
-  assert.equal(canRetrieveModelKey({ ...settled(), settleTxHash: null }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: null }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: undefined }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), cancelTxHash: TX }, ME), false);
-});
-
-test("page Train : la clé d'un emprunt est demandée au clic, jamais au chargement (A-04, A-12)", () => {
-  const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
-  const refresh = page.match(/const refresh = useCallback\(async \(\) => \{([\s\S]*?)\}, \[address, authenticated\]\);/);
-  assert.ok(refresh, "refresh() introuvable");
-  assert.doesNotMatch(refresh![1], /retrieveLoanKey/, "refresh() ne doit pas demander la clé des emprunts");
-  assert.doesNotMatch(refresh![1], /fetch\([^)]*\/key\b/, "refresh() ne doit pas appeler la route de livraison de clé");
-  // Le bouton est conditionné par l'emprunteur, et le seul appel part du gestionnaire de clic.
-  assert.match(page, /\{canRetrieveModelKey\(l, address\) && \(\s*<button\s*onClick=\{\(\) => void inspectLoanModel\(l\)\}/);
-  assert.equal(page.match(/retrieveLoanKey\(/g)?.length, 1);
-  assert.match(page, /async function inspectLoanModel\(loan: Loan\) \{[\s\S]*?canRetrieveModelKey\(loan, address\)[\s\S]*?retrieveLoanKey\(loan\.id, loan\.runnerReceipt\)/);
+  assert.equal(canPredictLoan({ ...settled(), settleTxHash: null }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), runnerReceipt: null }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), runnerReceipt: undefined }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), cancelTxHash: TX }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), finalityReview: "divergence" }, ME), false);
 });

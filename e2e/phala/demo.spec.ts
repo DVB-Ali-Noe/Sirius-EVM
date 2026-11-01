@@ -1,26 +1,13 @@
 import { expect, test, type Page } from "playwright/test";
-import { createRequire } from "node:module";
-import { resolve } from "node:path";
-import { createCipheriv, createECDH, hkdfSync, randomBytes } from "node:crypto";
 import { mockSigningWallet } from "../helpers/wallet";
 
 const owner = `0x${"12".repeat(20)}`;
-const context = `self-train:${owner}:demo-job`;
-let deliveryScript = "";
 
-test.beforeAll(async () => {
-  const require = createRequire(resolve(process.cwd(), "package.json"));
-  const { build } = createRequire(require.resolve("tsx"))("esbuild");
-  const result = await build({ entryPoints: ["src/lib/phala-demo/delivery-client.ts"], bundle: true, write: false, format: "esm", platform: "browser" });
-  deliveryScript = result.outputFiles[0].text;
-});
-
-async function mock(page: Page, phase = "closed") {
-  await page.route("**/__delivery-test.js", (route) => route.fulfill({ contentType: "application/javascript", body: deliveryScript }));
+async function mock(page: Page, phase = "closed", jobs: unknown[] = []) {
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/phala-demo/session") return route.fulfill({ json: { phase, available: phase === "open", sessionRevision: 1 } });
-    if (path === "/api/train") return route.fulfill({ json: [] });
+    if (path === "/api/train") return route.fulfill({ json: jobs });
     if (path === "/api/phala-demo/operator") return route.fulfill({ status: 403, json: { error: "Commande réservée aux opérateurs Sirius" } });
     return route.fulfill({ json: { authenticated: false, known: true } });
   });
@@ -65,6 +52,35 @@ test("CSV personnel : cible explicite et interface mobile sans débordement", as
   await page.getByLabel("Target column").selectOption("target");
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("aucun mode livré : pas de case « privé », chaque modèle reste dans Phala et répond pendant une session ouverte", async ({ page }) => {
+  const job = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id, status: "DONE", servedModelId: id, metrics: { heldOutAuc: 0.81 }, dataset: { name: `Demo ${id}` },
+    createdAt: "2026-10-30T10:00:00.000Z", completedAt: "2026-10-30T10:05:00.000Z", ...overrides,
+  });
+  await mock(page, "open", [job("served"), job("legacy", { servedModelId: null })]);
+  await page.goto("/phala");
+  await connect(page);
+  for (const model of ["linear_regression", "logistic_regression", "gradient_boosted_trees"]) {
+    await page.getByRole("combobox", { name: "Model" }).selectOption(model);
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+  }
+  const served = page.getByRole("heading", { name: "Demo served", exact: true }).locator("../../..");
+  await expect(served.getByRole("button", { name: "Request a prediction" })).toBeEnabled();
+  await expect(served).toContainText("Private model · no download");
+  // Un ancien job livré n'est plus listé : son modèle est indisponible.
+  await expect(page.getByRole("heading", { name: "Demo legacy", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /download/i })).toHaveCount(0);
+});
+
+test("session fermée : la prédiction reste visible mais inactive", async ({ page }) => {
+  await mock(page, "closed", [{ id: "served", status: "DONE", servedModelId: "served", metrics: null, dataset: { name: "Demo served" },
+    createdAt: "2026-10-30T10:00:00.000Z", completedAt: null }]);
+  await page.goto("/phala");
+  await connect(page);
+  const served = page.getByRole("heading", { name: "Demo served", exact: true }).locator("../../..");
+  await expect(served.getByRole("button", { name: "Request a prediction" })).toBeDisabled();
 });
 
 test("rapport de qualité sur la cible choisie : fuite signalée, cible non numérique annoncée, bouton actif", async ({ page }) => {
@@ -130,30 +146,4 @@ test("menu de choix du wallet puis signature, sans perdre l’exemple choisi", a
   await expect.poll(wallet.signatureCount).toBe(1);
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
   await expect(page.getByText("✓ housing.csv")).toBeVisible();
-});
-
-test("IndexedDB conserve la vraie clé non exportable après rechargement, Phala fermé", async ({ page }) => {
-  await mock(page); await page.goto("/phala");
-  const publicKey = await page.evaluate(async (address) => {
-    const path = "/__delivery-test.js";
-    const { prepareDemoDelivery } = await import(path);
-    return (await prepareDemoDelivery("demo-job", address)).publicKey as string;
-  }, owner);
-  const ephemeral = createECDH("prime256v1"); ephemeral.generateKeys();
-  const shared = ephemeral.computeSecret(Buffer.from(publicKey, "base64url"));
-  const salt = randomBytes(16); const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", Buffer.from(hkdfSync("sha256", shared, salt, Buffer.from(`sirius-runner-delivery-v1:${context}`), 32)), iv);
-  cipher.setAAD(Buffer.from(context));
-  const ciphertext = Buffer.concat([cipher.update("synthetic-model-key"), cipher.final(), cipher.getAuthTag()]);
-  const envelope = { version: 1, ephemeralPublicKey: ephemeral.getPublicKey().toString("base64url"), salt: salt.toString("base64url"), iv: iv.toString("base64url"), ciphertext: ciphertext.toString("base64url") };
-  await page.reload();
-  const result = await page.evaluate(async ({ owner, publicKey, envelope }) => {
-    const path = "/__delivery-test.js";
-    const { openDemoDelivery } = await import(path);
-    const value = await openDemoDelivery("demo-job", owner, publicKey, envelope);
-    let denied = false;
-    try { await openDemoDelivery("demo-job", `0x${"34".repeat(20)}`, publicKey, envelope); } catch { denied = true; }
-    return { value, denied };
-  }, { owner, publicKey, envelope });
-  expect(result).toEqual({ value: "synthetic-model-key", denied: true });
 });

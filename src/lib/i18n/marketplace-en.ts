@@ -16,8 +16,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
 
   // Grille et filtres
   "Datasets disponibles": "Available datasets",
-  "Un emprunt = l’accès à un dataset et un entraînement dans l’enclave. Vous recevez le modèle entraîné, jamais la donnée.":
-    "One loan = access to a dataset and one training run inside the enclave. You receive the trained model, never the data.",
+  "Un emprunt = l’accès à un dataset et un entraînement dans l’enclave. Vous obtenez les prédictions signées du modèle entraîné, jamais le modèle ni la donnée.":
+    "One loan = access to a dataset and one training run inside the enclave. You get signed predictions from the trained model, never the model or the data.",
   "Consultation libre, sans wallet. La connexion n’est demandée qu’au moment d’emprunter.":
     "Browse freely, no wallet needed. You are only asked to connect when you borrow.",
   "Rechercher un dataset": "Search datasets",
@@ -66,9 +66,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
     "Column names and types stay inside the encrypted file: they are not published.",
   "Modèle d’entraînement": "Training model",
   "Ce qu’il fait": "What it does",
-  "Ce que vous recevez": "What you receive",
-  "Le modèle entraîné : ses coefficients et ses métriques de qualité.": "The trained model: its coefficients and quality metrics.",
-  "Le modèle entraîné : ses arbres et ses métriques de qualité.": "The trained model: its trees and quality metrics.",
+  "Des prédictions signées du modèle entraîné, qui reste scellé dans l’enclave, et ses métriques de qualité.":
+    "Signed predictions from the trained model, which stays sealed in the enclave, and its quality metrics.",
   "Statistiques publiques": "Public statistics",
   "Publication": "Published",
   "Emprunts réglés au fournisseur": "Loans settled to the provider",
@@ -95,8 +94,8 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.":
     "The compute fee and the total are shown in the quote, before any payment.",
   "Ce que vous obtenez": "What you get",
-  "Un accès à cette donnée et un entraînement dans l’enclave. Vous recevez le modèle entraîné, jamais la donnée. Chaque nouvel entraînement est un nouvel emprunt.":
-    "Access to this data and one training run inside the enclave. You receive the trained model, never the data. Each new training is a new loan.",
+  "Un accès à cette donnée et un entraînement dans l’enclave. Le modèle entraîné y reste scellé : vous obtenez ses prédictions signées, jamais le modèle ni la donnée. Chaque nouvel entraînement est un nouvel emprunt.":
+    "Access to this data and one training run inside the enclave. The trained model stays sealed there: you get its signed predictions, never the model or the data. Each new training is a new loan.",
   "En cas d’échec": "If it fails",
   "Seul le calcul réellement consommé est retenu, le reste est remboursé.":
     "Only the compute actually consumed is retained; the rest is refunded.",

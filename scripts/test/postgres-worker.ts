@@ -17,7 +17,7 @@ client.readContract = (async ({ address, functionName }: { address: string; func
   return true;
 }) as typeof client.readContract;
 client.getBlockNumber = async () => BigInt(10);
-globalThis.fetch = async (input) => {
+globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (url === "http://runner.test.invalid/dataset-ingress-key") {
     return Response.json({ version: 1, publicKey: Buffer.alloc(65, 7).toString("base64url"), origin: "http://localhost" });
@@ -28,7 +28,8 @@ globalThis.fetch = async (input) => {
   if (url === "http://runner.test.invalid/run-training") {
     process.send?.({ accepted: true });
     await new Promise<void>((resolve) => process.once("message", () => resolve()));
-    return Response.json({ modelCid: "bafy-model", metrics: { n: 20 }, runnerReceipt: "synthetic-result" });
+    const { jobId } = JSON.parse(String(init?.body)) as { jobId: string };
+    return Response.json({ servedModelId: jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: { n: 20 }, runnerReceipt: "synthetic-result" });
   }
   throw new Error("Accès externe interdit dans le test PostgreSQL");
 };

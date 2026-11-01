@@ -39,7 +39,7 @@ async function verifyCachedAttestation(
   return value;
 }
 
-/** Preuve TEE liée au modèle, au scope de prêt et à la capsule livrée. */
+/** Preuve TEE liée à l'empreinte du modèle scellé et au scope de prêt. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = requireAuth(req);

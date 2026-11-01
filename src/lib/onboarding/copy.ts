@@ -19,7 +19,7 @@ const STEP_COPY_BASE: Omit<StepCopy, "verify"> = {
   fund: { title: "Ajoute de l’ETH et des {token}", body: "L’ETH paie le gas de chaque transaction ; les {token} paient l’emprunt." },
   pick: { title: "Choisis un dataset", body: "Parcours la marketplace et ouvre la fiche d’un dataset." },
   borrow: { title: "Emprunte-le", body: "Sur la fiche, clique sur Emprunter : le prix du dataset et le compute sont bloqués en escrow." },
-  model: { title: "Récupère ton modèle", body: "L’entraînement tourne dans une enclave TEE ; ton modèle t’attend sur la page Entraîner." },
+  model: { title: "Utilise ton modèle", body: "L’entraînement tourne dans une enclave TEE ; ton modèle y reste scellé et répond à tes demandes de prédiction sur la page Entraîner." },
 };
 
 const VERIFY_BODY: Record<EvmNetwork, string> = {
@@ -60,12 +60,12 @@ export const LOAN_PHASE_LABEL: Record<ActiveLoanPhase, string> = {
   payment: "paiement en cours de finalisation",
   escrow: "fonds en escrow · lance l’entraînement",
   training: "entraînement en cours",
-  delivering: "livraison du modèle",
+  settling: "règlement en cours",
   attention: "action requise sur Train",
 };
 
 /** Ordre des étapes d'un prêt, pour la petite frise de l'indicateur (une échéance dépassée n'y figure pas). */
-export const LOAN_PHASE_STEPS: readonly ActiveLoanPhase[] = ["payment", "escrow", "training", "delivering"];
+export const LOAN_PHASE_STEPS: readonly ActiveLoanPhase[] = ["payment", "escrow", "training", "settling"];
 
 /** Toutes les clés ci-dessus, pour le test de traduction. */
 export function onboardingCopyKeys(): string[] {

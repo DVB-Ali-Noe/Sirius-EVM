@@ -1,5 +1,7 @@
 # Reprise de l’implémentation — démonstration Phala
 
+> **Journal historique.** Depuis [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule) (1er novembre 2026), la livraison chiffrée persistante décrite ici (capsule, clé IndexedDB, `delivery-client.ts`, `model-client.test.ts`, migration `20260926000000_add_self_train_delivery` dont les colonnes restent inutilisées) est retirée du code : le modèle reste scellé dans le runner et ne s'utilise que par prédiction signée pendant une session ouverte.
+
 ## Consignes et décisions validées
 
 Le développement a été autorisé. Journaliser chaque modification avant et après exécution. Le [plan complet](PLAN-VPS-PHALA.md) fait référence ; ce journal indique ce qui est réellement implémenté/testé, sans confondre préparation locale et déploiement.

@@ -43,7 +43,7 @@ test("certificat vérifié : titre, mesures, règlement, lien de preuve et tél�
   assert.match(out, /data-pin="event-log">Not pinned: changes at every restart, checked by the event log replay</);
   assert.equal(out.match(/data-check-state="pass"/g)?.length, 4);
   assert.match(out, /data-plain-summary/);
-  assert.match(out, /whoever rented it received the trained model, never the data/);
+  assert.match(out, /whoever rented it can only query the trained model through signed predictions, never the data/);
 });
 
 test("échec, attente, erreur, sans quote : jamais le titre d'exécution vérifiée", () => {

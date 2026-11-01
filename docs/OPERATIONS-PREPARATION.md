@@ -82,12 +82,11 @@ Commandes reproductibles :
 ```bash
 pnpm ops:postgres backup .env.phala-production-secrets
 pnpm ops:postgres verify /chemin/snapshot /chemin/separe/snapshot.key
-pnpm ops:models /chemin/snapshot /chemin/separe/snapshot.key .env.phala
 ```
 
 Les fichiers d’environnement sont lus explicitement, sans fusion avec `.env` ni affichage de leurs valeurs. Le dump couvre le schéma applicatif `public` ; rôles PostgreSQL, permissions fournisseur, autres schémas et sauvegardes du fournisseur ne sont pas restaurés par cet exercice. L’outil vérifie la compatibilité des migrations avec leurs empreintes avant de les appliquer localement.
 
-Les **13 blobs de modèles historiques** ont été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques. Les deux modèles du wallet local ont ensuite été livrés par le parcours historique autorisé, déchiffrés et restaurés hors ligne ; leurs clés sont sauvegardées chiffrées dans un dossier complémentaire. Les onze autres modèles restent liés à d'anciens wallets de test inaccessibles. Noé conserve les sauvegardes en local pour l'instant ; la copie hors machine est différée. Voir [les preuves et emplacements](BACKUP-RECOVERY.md).
+Les **13 blobs de modèles historiques** ont été téléchargés, sauvegardés sous chiffrement supplémentaire et relus avec empreintes identiques (outil `ops:models` depuis supprimé). Depuis [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule), aucun modèle n'est plus livré, historique compris : cette copie n'a plus d'usage applicatif. Voir [l'archive de l'exercice](BACKUP-RECOVERY.md).
 
 La sauvegarde est une observation ponctuelle ; refaire un snapshot pendant la maintenance. Elle n’autorise pas à restaurer un ancien registre de budget pour récupérer artificiellement des allocations.
 

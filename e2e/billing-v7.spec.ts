@@ -289,7 +289,7 @@ test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant
   await installWallet(page);
   const calls = await installApi(page, {
     prepare: { loanId: LOAN_ID, approveTransaction: {}, lockTransaction: {}, billingQuote: signed },
-    loans: [{ ...loanBase, id: "loan-done", status: "SETTLED", settleTxHash: hash(6), modelCid: "bafy-model" }],
+    loans: [{ ...loanBase, id: "loan-done", status: "SETTLED", settleTxHash: hash(6), modelCid: "sm1fixture" }],
   });
   // Enregistrée après installApi : Playwright essaie les routes de la plus récente à la plus ancienne.
   const bodies: unknown[] = [];

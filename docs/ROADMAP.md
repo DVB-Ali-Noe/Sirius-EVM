@@ -6,6 +6,8 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 
 Le [business plan et récapitulatif des coûts](BUSINESS-PLAN.md) centralise désormais les hypothèses d'exploitation, le budget de lancement et la rentabilité. Ses propositions de prix et de dépenses ne valent ni approbation ni activation.
 
+**Livraison de modèle supprimée ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule), 1er novembre 2026) :** self-train et prêts, historique compris. Les trois profils sont servis par prédiction signée depuis le runner, seulement pendant qu'il tourne. Les cases cochées ci-dessous qui parlent de livraison, de capsule ou de re-livraison de clé décrivent un état antérieur, retiré du code.
+
 **Facturation demandée par Noé :** le [parcours signé jusqu’au remboursement](BILLING-INTEGRATION.md) est raccordé et testé localement, avec réservation du budget de clôture. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des risques encore ouverts. La [reprise locale](RECOVERY-OPERATIONS.md) couvre désormais les réponses Next perdues, les rediffusions identiques et les quotas PostgreSQL entre processus. La [préparation opérationnelle](OPERATIONS-PREPARATION.md) ajoute sauvegarde réelle/restauration locale, copie des modèles, images et chiffrage. Tarifs complets, comptabilité, plafonds fournisseurs, anciennes clés et validation Phala restent nécessaires avant activation. Les identifiants PostgreSQL sont conservés à la demande de Noé. Aucun nouveau contrat public v7 n'est déployé ; la CVM reste arrêtée.
 
 **Reprise au 23 septembre 2026 :** lire d’abord [le point de reprise Phala](PHALA.md#reprendre-ici--23-septembre-2026). L'arrêt de la CVM demandé par Noé est confirmé à 13:13 UTC ; le disque reste facturé. Prévenir Noé du moment et du coût avant toute nouvelle utilisation de Phala. Le site, les contrats et la base n’ont pas basculé. Les deux accès de production sont validés, et Pinata est configuré localement pour Phala. Aucun prêt ni entraînement actif observé ; les blobs des modèles de 5 prêts et 8 entraînements sont sauvegardés. Les deux modèles du wallet local sont déchiffrés et restaurés hors ligne ; onze anciens modèles de test restent sans wallet accessible. Noé conserve les sauvegardes en local pour l'instant. Le KYB ouvert actuel est confirmé ; le compte local de déploiement/trésorerie est confirmé par Noé. Ne pas recréer la CVM ni reprendre la configuration des accès CLI déjà effectuée.
@@ -109,7 +111,7 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 - [ ] Déployer les contrats retenus et valider le parcours applicatif v7 avec le vrai runner et les adresses publiées. `pnpm contracts:smoke` reste réservé au smoke historique v6 et refuse v7.
 - [ ] Attester un provider et un borrower via l'émetteur KYB externe puis `SiriusKybRegistry`.
 - [ ] Publier un dataset chiffré, verrouiller un prêt en USDC, entraîner dans le TEE et régler avec `release`.
-- [ ] Vérifier sur le réseau cible la capsule historique v6 et la livraison de clé v7 après règlement confirmé.
+- [ ] Vérifier sur le réseau cible la prédiction signée d'un prêt v7 après règlement confirmé, et son refus avant.
 - [ ] Vérifier le remboursement après échéance et le retrait des crédits par les deux parties.
 - [ ] Vérifier le crypto-shredding et le tombstone du registre dataset.
 - [ ] Rejouer les reprises après timeout et les scénarios de conflit de réseau ou d'adresse de contrat.
@@ -131,11 +133,12 @@ Validation et limites : [correctifs du 13 septembre](AUDIT-CORRECTIFS-2026-09-13
 - [ ] Après validation de la facturation compute, utiliser le signataire confirmé et déployer la version de contrats retenue avec l’autorisateur attesté de Phala ; conserver le KYB ouvert testnet actuel et les escrows historiques, dont `0x805a2c2deaa3a8926e85fed6b341dacb54cacba0`.
 - [ ] Financer l’adresse de règlement Phala en ETH testnet et activer la CVM existante avec les nouvelles adresses.
 - [ ] Recapturer les mesures RA-TLS actives et épingler les valeurs côté Next ; les mesures d’amorçage ne conviennent pas à la réouverture.
-- [ ] Appliquer les migrations de provenance `20260919000000_track_runner_provenance` et de facturation `20260923000000_add_compute_billing` en maintenance, réimporter les datasets et préserver l'accès séparé aux modèles historiques.
+- [ ] Appliquer les migrations de provenance `20260919000000_track_runner_provenance` et de facturation `20260923000000_add_compute_billing` en maintenance et réimporter les datasets ; les modèles historiques ne sont plus livrés (D-28).
 - [ ] Synchroniser la configuration Next/reaper, reconstruire et déployer l’application, puis valider les préflights et le parcours navigateur à deux wallets.
 - [ ] Exécuter le smoke RA-TLS avec un RPC EVM et des contrats testnet.
 - [ ] Faire revoir les contrats et le flux de règlement avant activation mainnet.
 - [ ] Obtenir une validation manuelle complète avant toute utilisation avec des fonds réels.
+- [ ] Prédictions signées (D-28) : publier une image compatible, valider sur Phala l'entraînement scellé des trois profils et la prédiction self-train/prêt avec quota.
 
 ## Post-MVP
 

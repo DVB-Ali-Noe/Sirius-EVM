@@ -7,7 +7,7 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   // Carte « Get started »
   "Bien démarrer": "Get started",
   "{done} étapes sur {total} — de ton wallet à ton premier modèle entraîné.": "{done} of {total} steps — from your wallet to your first trained model.",
-  "Tout est fait : tu as vérifié ton wallet, emprunté un dataset et récupéré un modèle.": "All done: you verified your wallet, borrowed a dataset and got a model.",
+  "Tout est fait : tu as vérifié ton wallet, emprunté un dataset et obtenu un modèle prêt à prédire.": "All done: you verified your wallet, borrowed a dataset and got a model ready to predict.",
   "Masquer": "Hide",
   "Progression": "Progress",
   "fait": "done",
@@ -29,8 +29,8 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "Parcours la marketplace et ouvre la fiche d’un dataset.": "Browse the marketplace and open a dataset page.",
   "Emprunte-le": "Borrow it",
   "Sur la fiche, clique sur Emprunter : le prix du dataset et le compute sont bloqués en escrow.": "On the dataset page, click Borrow: the dataset price and compute are locked in escrow.",
-  "Récupère ton modèle": "Get your model",
-  "L’entraînement tourne dans une enclave TEE ; ton modèle t’attend sur la page Entraîner.": "Training runs in a TEE enclave; your model waits for you on the Train page.",
+  "Utilise ton modèle": "Use your model",
+  "L’entraînement tourne dans une enclave TEE ; ton modèle y reste scellé et répond à tes demandes de prédiction sur la page Entraîner.": "Training runs in a TEE enclave; your model stays sealed there and answers your prediction requests on the Train page.",
   "Voir mon statut de vérification": "Check my verification status",
   "Saisir un code d’invitation": "Enter an invitation code",
   "Ouvrir la marketplace": "Open the marketplace",
@@ -71,6 +71,6 @@ export const ONBOARDING_MESSAGES_EN: Record<string, string> = {
   "paiement en cours de finalisation": "payment finalizing",
   "fonds en escrow · lance l’entraînement": "funds in escrow — start training",
   "entraînement en cours": "training",
-  "livraison du modèle": "delivering model",
+  "règlement en cours": "settling",
   "action requise sur Train": "action needed on Train",
 };

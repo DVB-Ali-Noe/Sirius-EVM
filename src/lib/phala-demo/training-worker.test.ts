@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { AppError } from "@/lib/app-error";
 import { countsAsRunnerFailure } from "@/lib/runner/failure-policy";
 import { runSelfTraining, sealDataset, TRAINING_LIMIT_MESSAGE } from "@/lib/tee/core";
+import { loadServedModel } from "@/lib/tee/served-models";
 
-test("le self-train de 30 000 lignes livre un modèle ; un délai épuisé est imputé au fichier, pas au runner", { timeout: 35_000 }, async () => {
+test("le self-train de 30 000 lignes scelle un modèle ; un délai épuisé est imputé au fichier, pas au runner", { timeout: 35_000 }, async () => {
   const originalFetch = globalThis.fetch;
-  const keys = ["TEE_MODE", "EVM_NETWORK", "SIRIUS_MASTER_KEY", "PINATA_JWT", "PINATA_GATEWAY", "RUNNER_BUDGET_FILE"] as const;
+  const root = mkdtempSync(join(tmpdir(), "sirius-capacity-"));
+  const keys = ["TEE_MODE", "EVM_NETWORK", "SIRIUS_MASTER_KEY", "PINATA_JWT", "PINATA_GATEWAY", "RUNNER_BUDGET_FILE", "RUNNER_SERVED_MODELS_DIR"] as const;
   const previous = keys.map((key) => process.env[key]);
   const blobs = new Map<string, Buffer>();
   let uploads = 0;
@@ -14,6 +19,7 @@ test("le self-train de 30 000 lignes livre un modèle ; un délai épuisé est i
     TEE_MODE: "stub", EVM_NETWORK: "testnet",
     SIRIUS_MASTER_KEY: Buffer.alloc(32, 17).toString("base64"),
     PINATA_JWT: "synthetic-only", PINATA_GATEWAY: "https://ipfs.test.invalid",
+    RUNNER_SERVED_MODELS_DIR: join(root, "models"),
   });
   delete process.env.RUNNER_BUDGET_FILE;
   globalThis.fetch = async (input, init) => {
@@ -49,7 +55,10 @@ test("le self-train de 30 000 lignes livre un modèle ; un délai épuisé est i
     };
     const result = await runSelfTraining(input, 15_000);
     assert.equal(result.metrics.n, 30_000);
-    assert.equal(uploads, 2, "dataset et modèle chiffré sont stockés");
+    assert.equal(result.servedModelId, "capacity-success");
+    assert.match(result.modelCid, /^sm1[0-9a-f]{64}$/);
+    assert.equal(uploads, 1, "seul le dataset est publié ; le modèle reste scellé dans le runner");
+    assert.equal(loadServedModel({ kind: "job", id: "capacity-success" })?.owner, input.owner);
 
     // Seul le worker borné émet ce refus : le délai explicite impose donc bien son usage.
     await assert.rejects(
@@ -57,9 +66,11 @@ test("le self-train de 30 000 lignes livre un modèle ; un délai épuisé est i
       (error) => error instanceof AppError && error.status === 422 && error.message === TRAINING_LIMIT_MESSAGE
         && !countsAsRunnerFailure(error),
     );
-    assert.equal(uploads, 2, "un calcul interrompu ne doit pas publier de modèle");
+    assert.equal(uploads, 1);
+    assert.equal(loadServedModel({ kind: "job", id: "capacity-timeout" }), null, "un calcul interrompu ne scelle aucun modèle");
   } finally {
     globalThis.fetch = originalFetch;
+    rmSync(root, { recursive: true, force: true });
     keys.forEach((key, index) => {
       if (previous[index] === undefined) delete process.env[key];
       else process.env[key] = previous[index];

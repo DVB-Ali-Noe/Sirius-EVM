@@ -111,7 +111,7 @@ export function CertificateView(props: CertificateViewProps) {
             </li>
             <li>
               The training ran inside a sealed Intel TDX machine on Phala Cloud. The data was only decrypted there:
-              whoever rented it received the trained model, never the data.
+              whoever rented it can only query the trained model through signed predictions, never the data.
             </li>
             <li>
               The payment settled on {props.networkLabel}
@@ -131,7 +131,7 @@ export function CertificateView(props: CertificateViewProps) {
         <Row label="Model" mono={false}>
           {props.modelName}
         </Row>
-        <Row label="Model fingerprint (CID)">{props.modelCid}</Row>
+        <Row label="Model fingerprint">{props.modelCid}</Row>
         {props.settledAt && (
           <Row label="Settlement recorded" mono={false}>
             {props.settledAt}

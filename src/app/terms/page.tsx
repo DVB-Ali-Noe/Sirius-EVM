@@ -17,11 +17,11 @@ export const metadata: Metadata = {
   description: "Terms of the Sirius mainnet beta.",
 };
 
-const LAST_UPDATED = "28 October 2026";
+const LAST_UPDATED = "1 November 2026";
 
 const SECTIONS: [string, string[]][] = [
   ["What the beta is", [
-    "Sirius lets a data provider rent access to an encrypted dataset for model training, and a borrower pay to obtain only the trained model.",
+    "Sirius lets a data provider rent access to an encrypted dataset for model training, and a borrower pay to use only the trained model, through signed predictions. The model stays sealed in the training environment: it is never delivered or downloadable.",
     "The mainnet beta runs on Robinhood Chain and is limited on purpose: each loan is capped and total exposure is capped. The current limits are published on the status page.",
     "Access requires an on-chain verification of your wallet, available instantly from the KYB page; Sirius may revoke it.",
     "You must be at least 18 years old to use Sirius.",
@@ -42,12 +42,12 @@ const SECTIONS: [string, string[]][] = [
   ["Safety period and refunds", [
     "When a borrower starts a loan, the payment is locked in the escrow contract with a safety period of 3 days.",
     "If the training run fails, or if the loan has not been settled when the 3 days end, the borrower can recover the payment. Only the compute actually used before the failure, as measured and signed by the training environment, is kept to cover its cost. Everything else is credited back to the borrower's escrow balance, from which it can be withdrawn.",
-    "Refunds are meant for failed runs. The app only offers a refund when no model was delivered, and a loan that succeeded is not refunded.",
+    "Refunds are meant for failed runs. The app only offers a refund when no usable model was produced, and a loan that succeeded is not refunded.",
     "Retraining is a new loan: the data access and the compute are paid for again.",
   ]],
   ["Dataset access records", [
-    "Sirius records dataset accesses and the fingerprint of each delivered model in order to detect and investigate leaks.",
-    "For each access this means the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself). The records are used for that purpose only, are visible only to Sirius administrators, and are kept for 24 months after the access, then deleted. Wallet addresses and loans are also visible on-chain.",
+    "Sirius no longer delivers models, so it no longer records model deliveries. Records created before that change list, for each past delivery, the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself).",
+    "These records are used only to detect and investigate leaks, are visible only to Sirius administrators, and are kept for 24 months after the access, then deleted. Wallet addresses and loans are also visible on-chain.",
   ]],
   ["Model improvement, only with your consent", [
     "When you publish a dataset, you can choose to allow Sirius to use it, inside the secure enclave only, to evaluate and develop new models. This choice is optional and off by default, and publishing does not depend on it.",

@@ -7,13 +7,14 @@ import { AppError } from "@/lib/app-error";
 import * as provenance from "@/lib/runner/provenance";
 import * as addresses from "@/lib/evm/address";
 import * as models from "@/lib/models/registry";
+import type * as SelfTraining from "./self-train";
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
   const source = ts.transpileModule(readFileSync(file, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  runInNewContext(source, { exports, Date, console, require: (name: string) => {
+  runInNewContext(source, { exports, Date, console, process, require: (name: string) => {
     assert.ok(Object.hasOwn(dependencies, name), `Dépendance inattendue : ${name}`);
     return dependencies[name];
   } });
@@ -59,6 +60,7 @@ function fixture() {
   const common = {
     "server-only": {}, "@/lib/errors": { AppError },
     "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
+    "@/lib/sirius/self-training-access": { phalaDemoInstance: () => true },
     "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
     "@/lib/db": { serializableTransaction: async (fn: (value: typeof tx) => unknown) => fn(tx), prisma: {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
@@ -75,12 +77,11 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
   let executions = 0;
   const api = load<typeof import("./self-train")>("src/lib/sirius/self-train.ts", {
     ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => {
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (input: { jobId: string }) => {
       executions++;
-      return { modelCid: "bafyModel", metrics: {}, runnerReceipt: "job-receipt" };
+      return { servedModelId: input.jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: {}, runnerReceipt: "job-receipt" };
     } },
     "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
     "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
   });
   await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never);
@@ -92,26 +93,48 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
   assert.equal(records.length, 1);
 });
 
-test("le résultat self-train et sa capsule sont persistés ensemble avant livraison", async () => {
-  const { dataset, updates, common } = fixture();
-  const envelope = { version: 1, ephemeralPublicKey: "public", salt: "salt", iv: "iv", ciphertext: "encrypted" };
-  const api = load<typeof import("./self-train")>("src/lib/sirius/self-train.ts", {
-    ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
-      assert.equal(args[3], "delivery-public-key");
-      return { modelCid: "bafyModel", metrics: {}, runnerReceipt: "job-receipt", modelKeyEnvelope: envelope };
-    } },
-    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
-    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
-  });
-  await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, "delivery-public-key");
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0].status, "DONE");
-  assert.equal(updates[0].deliveryPublicKey, "delivery-public-key");
-  assert.equal(JSON.stringify(updates[0].deliveryEnvelope), JSON.stringify(envelope));
-  assert.equal(updates[0].modelCid, "bafyModel");
-  assert.equal(updates[0].runnerReceipt, "job-receipt");
+test("le self-train garde le modèle scellé pour les trois profils : empreinte et reçu persistés, rien livré", async () => {
+  const fingerprint = `sm1${"b".repeat(64)}`;
+  for (const [modelId, modelVersion] of [["linear_regression", "1.0.0"], ["logistic_regression", "1.0.0"], ["gradient_boosted_trees", "1.1.0"]]) {
+    const { dataset, updates, common } = fixture();
+    dataset.modelId = modelId;
+    dataset.modelVersion = modelVersion;
+    const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+      ...common,
+      "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
+        assert.equal(args.length, 3, "aucune clé de livraison ni mode servi transmis");
+        return { servedModelId: "job", modelCid: fingerprint, metrics: { accuracy: 0.8 }, runnerReceipt: "job-receipt" };
+      } },
+      "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+      "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+    });
+    const result = await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never);
+    assert.equal(JSON.stringify(result), JSON.stringify({ jobId: "job", servedModelId: "job", metrics: { accuracy: 0.8 } }), modelId);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].status, "DONE");
+    assert.equal(updates[0].servedModelId, "job");
+    assert.equal(updates[0].modelCid, fingerprint);
+    assert.equal(updates[0].runnerReceipt, "job-receipt");
+    for (const field of ["deliveryPublicKey", "deliveryEnvelope"]) assert.equal(Object.hasOwn(updates[0], field), false, field);
+  }
+});
+
+test("le self-train refuse un résultat runner d'un autre job ou sans empreinte", async () => {
+  for (const out of [
+    { servedModelId: "other", modelCid: `sm1${"c".repeat(64)}`, metrics: {}, runnerReceipt: "r" },
+    { servedModelId: "job", metrics: {}, runnerReceipt: "r" },
+  ]) {
+    const { dataset, updates, common } = fixture();
+    const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+      ...common,
+      "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => out },
+      "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+      "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+    });
+    await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never), /servi invalide/);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].status, "FAILED");
+  }
 });
 
 test("le prêt conserve la provenance dès sa préparation et ne réserve pas un dataset d’un autre runner", async () => {

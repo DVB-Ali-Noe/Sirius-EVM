@@ -11,6 +11,7 @@ export default defineConfig({
     url: `${origin}/phala`, reuseExistingServer: false, timeout: 180_000,
     env: {
       NEXT_PUBLIC_SIRIUS_E2E: "1", SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", NEXT_PUBLIC_EVM_NETWORK: "testnet",
+      NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "gradient_boosted_trees",
       SIRIUS_REAPER_ENABLED: "false", SIRIUS_MASTER_KEY: "", TEE_MODE: "phala", DSTACK_SIMULATOR_ENDPOINT: "",
       RUNNER_URL: "https://runner.invalid", RUNNER_TRANSPORT_SECRET: "e2e-only-never-deploy",
       SIRIUS_EXPECTED_MRTD: "11".repeat(48), SIRIUS_EXPECTED_RTMR3: "22".repeat(48),

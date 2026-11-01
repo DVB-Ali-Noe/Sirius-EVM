@@ -52,7 +52,7 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Aucun": "None",
   "Revenus gagnés": "Revenue earned",
   "Bloqué dans l’escrow": "Locked in escrow",
-  "Entraînements livrés": "Trainings delivered",
+  "Entraînements réussis": "Successful trainings",
   "Remboursés (échec ou délai dépassé)": "Refunded (failed or timed out)",
   "Les revenus réglés sont crédités sur ton wallet dans l’escrow, tous datasets confondus : retraits et solde à retirer sont sur la page":
     "Settled revenue is credited to your wallet in the escrow, across all datasets: withdrawals and the balance to withdraw are on the page",
@@ -118,8 +118,8 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
 
   // Fiche : destruction
   "Destruction définitive": "Permanent destruction",
-  "Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà livrés ne sont pas effacés.":
-    "Destroys the active key and deactivates the on-chain title. The dataset can no longer be recovered. Backups and models already delivered are not erased.",
+  "Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà entraînés ne sont pas effacés.":
+    "Destroys the active key and deactivates the on-chain title. The dataset can no longer be recovered. Backups and models already trained are not erased.",
   "Vérifie le titre dans le registre EVM courant et finalise la suppression. Les éventuels anciens registres ne seront pas modifiés.":
     "Check the title in the current EVM registry and finalize the deletion. Any previous registries will not be modified.",
   "Détruire ce dataset…": "Destroy this dataset…",

@@ -58,16 +58,16 @@ model Dataset {
   @@index([status])
 }
 
-/// Journal des accès à un dataset, déclaré dans les conditions d'utilisation : qui a reçu
-/// quel modèle, pour quel prêt. Écrit à la livraison du modèle, lu par l'admin seulement.
+/// Journal historique des livraisons de modèle (qui a reçu quel modèle, pour quel prêt). Plus
+/// aucune écriture depuis la fin de la livraison de modèles ; les lignes restantes sont purgées.
 model DatasetAccessLog {
   id               String   @id @default(cuid())
   datasetId        String
   dataset          Dataset  @relation(fields: [datasetId], references: [id])
   loanId           String? // identifiant du prêt, sans clé étrangère : le journal survit à tout nettoyage
   address          String // wallet destinataire, en minuscules
-  modelCid         String? // CID du modèle livré
-  modelFingerprint String? // empreinte du modèle livré, pour relier un modèle qui circulerait
+  modelCid         String? // CID du modèle livré (historique)
+  modelFingerprint String? // empreinte du modèle livré (historique)
   createdAt        DateTime @default(now()) // purgée après 24 mois par le reaper (access-log-retention.ts)
 
   @@index([datasetId])
@@ -92,7 +92,8 @@ model UserProfile {
 }
 
 /// Self-train (MLaaS) : entraînement sur SON PROPRE dataset, sans escrow ni
-/// fair-exchange (aucun tiers à payer, cf. D-19). Le TEE rend le modèle au propriétaire.
+/// fair-exchange (aucun tiers à payer, cf. D-19). Le modèle reste scellé dans le runner et ne
+/// s'utilise que par prédiction signée.
 model TrainingJob {
   id        String  @id @default(cuid())
   datasetId String
@@ -101,11 +102,12 @@ model TrainingJob {
   modelId   String  @default("linear_regression")
   modelVersion String @default("1.0.0")
 
-  modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
+  modelCid      String? // empreinte du modèle scellé (`sm1…`, servedModelFingerprint) ; ancien CID IPFS sur l'historique
+  servedModelId String? @unique // modèle gardé exclusivement par le runner ; identique à l'id du job
   metrics       Json? // métriques en clair (R², RMSE…)
-  runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
-  deliveryPublicKey String?
-  deliveryEnvelope Json?
+  runnerReceipt String? // reçu enclave du job, jamais renvoyé au client
+  deliveryPublicKey String? // historique, plus lu ni écrit
+  deliveryEnvelope Json? // historique, plus lu ni écrit
   runnerKind    RunnerKind @default(UNKNOWN)
   runnerDeploymentId String?
 
@@ -149,9 +151,11 @@ model Loan {
 
   // Résultat TEE préparé avant le release atomique
   jobId                  String?
-  modelCid               String? // modèle entraîné chiffré, produit avant le règlement
+  // Empreinte du modèle scellé dans le runner (`sm1…`, servedModelFingerprint) ; ancien CID IPFS
+  // sur l'historique. Non nulle = modèle produit : remboursement, reaper et attestation en dépendent.
+  modelCid               String?
   attestationHash        String? // SHA-256 du payload TEE attesté
-  attestationPayload     String? // payload canonique lié au modèle, scope et hash de capsule
+  attestationPayload     String? // payload canonique lié au modèle et au scope du prêt
   attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log

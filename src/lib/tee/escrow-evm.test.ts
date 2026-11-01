@@ -21,18 +21,15 @@ test("le hashlock est le SHA-256 du préimage EVM", async () => {
   assert.equal(hashlock, `0x${digest}`);
 });
 
-test("le préimage et la clé modèle sont séparés par chaîne et contrat", async () => {
+test("le préimage est séparé par chaîne et contrat", async () => {
   const first = await coreUnder();
   const testnetLock = first.escrowLock(LOAN_ID, BORROWER);
-  const testnetKey = first.evmLoanModelKey(LOAN_ID, BORROWER);
 
   const mainnet = await coreUnder({ network: "mainnet" });
   assert.notEqual(testnetLock.preimage, mainnet.escrowLock(LOAN_ID, BORROWER).preimage);
-  assert.notEqual(testnetKey, mainnet.evmLoanModelKey(LOAN_ID, BORROWER));
 
   const redeployed = await coreUnder({ escrow: ESCROW_B });
   assert.notEqual(testnetLock.preimage, redeployed.escrowLock(LOAN_ID, BORROWER).preimage);
-  assert.notEqual(testnetKey, redeployed.evmLoanModelKey(LOAN_ID, BORROWER));
 });
 
 test("une adresse borrower malformée est refusée", async () => {

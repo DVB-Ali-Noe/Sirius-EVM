@@ -1,5 +1,7 @@
 # Sirius — dstack Integration Brief
 
+> **Historical brief (September 2026).** Superseded on 1 November 2026 by [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule): models are no longer delivered (no capsule, no key). They stay sealed in the runner and are used only through signed predictions; the hashlock preimage only settles the loan. Operations `loan-model-key` and `self-train-key` no longer exist; `predict` replaces them.
+
 **Confidential data lending on Intel TDX**
 Prepared for Phala Network · September 2026
 

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createPublicClient, createWalletClient, erc20Abi, http, toHex, type Abi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { DatasetRef } from "@/lib/tee/contract";
+import type { DatasetRef, LoanJobResult, SignedPrediction } from "@/lib/tee/contract";
 import type { BudgetPolicy } from "@/lib/runner/budget-ledger";
 import type { SignedComputeQuote } from "./quote";
 
@@ -44,6 +44,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     EVM_RPC_URL: `http://127.0.0.1:${port}`, SIRIUS_APP_ORIGIN: "http://localhost:3000",
     SIRIUS_MASTER_KEY: Buffer.alloc(32, 19).toString("base64"), PINATA_JWT: "synthetic", PINATA_GATEWAY: "https://ipfs.test.invalid",
     RUNNER_BUDGET_FILE: join(temporary, "budget.sqlite"), RUNNER_BILLING_POLICY_FILE: join(temporary, "tariff.json"),
+    RUNNER_SERVED_MODELS_DIR: join(temporary, "models"), RUNNER_PREDICT_USAGE_FILE: join(temporary, "usage.sqlite"),
   });
   const { robinhoodTestnet: chain } = await import("@/lib/evm/networks");
   const contracts = chain.contracts;
@@ -144,7 +145,6 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const { quoteLockTerms, quoteTermsHash, totalQuoteAmount } = await import("./quote");
   const { readLoan, reconcileLoanEscrow } = await import("@/lib/evm/escrow");
   const { runnerBudget } = await import("@/lib/runner/budget");
-  const { createRunnerDelivery } = await import("@/lib/runner/delivery-client");
   const { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } = await import("@/lib/runner/authorization-client");
   const { buildDelegationMessage } = await import("@/lib/runner/authorization-contract");
   const { useWalletStore } = await import("@/stores/wallet");
@@ -165,11 +165,10 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   }
   const quotes = await Promise.all(["success", "failure", "timeout"].map(prepare));
   assert.equal(runnerBudget()!.snapshot().allocatedWei, BigInt(policy.gas.maxTransactionWei) * BigInt(6));
-  const delivery = await createRunnerDelivery(`loan:${borrower.address.toLowerCase()}:success`);
   async function run(signed: SignedComputeQuote) {
     const loanId = signed.quote.loanId;
-    const authorization = await issueRunnerGrant("run-loan-job", { loanId, datasetId: dataset.datasetId }, [loanId, dataset.datasetId, datasetReceipt, delivery.publicKey, dataset.modelId, dataset.modelVersion]);
-    return handleRunnerOp("run-loan-job", { ...dataset, loanId, datasetReceipt, deliveryPublicKey: delivery.publicKey, authorization, billingQuote: signed });
+    const authorization = await issueRunnerGrant("run-loan-job", { loanId, datasetId: dataset.datasetId }, [loanId, dataset.datasetId, datasetReceipt, dataset.modelId, dataset.modelVersion, "served"]);
+    return handleRunnerOp("run-loan-job", { ...dataset, loanId, datasetReceipt, authorization, billingQuote: signed });
   }
   await assert.rejects(run(quotes[0]), /inactif|scope/);
   assert.equal(reads, 0, "aucun dataset déchiffré avant prépaiement");
@@ -187,28 +186,31 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     assert.equal(loan?.billing?.termsHash, quoteTermsHash(signed.quote));
   }
   assert.equal(runnerBudget()!.snapshot().failures, 0, "un devis falsifié ou un appel prématuré ne ferme pas la plateforme");
-  const result = await run(quotes[0]) as { modelCid: string; runnerReceipt: string; releaseEnvelopeHash: string; releaseEnvelope?: unknown };
-  assert.ok(result.modelCid);
-  assert.equal(result.releaseEnvelope, undefined, "aucune capsule avant règlement v7");
-  const produced = uploads;
+  const result = await run(quotes[0]) as LoanJobResult;
+  assert.match(result.modelCid, /^sm1[0-9a-f]{64}$/, "empreinte du modèle scellé, pas un CID IPFS");
+  assert.equal(result.loanKey, loanKeyFor(borrower.address, "success"));
+  assert.equal(result.hashlock, quotes[0].quote.hashlock);
+  assert.equal("releaseEnvelope" in result || "releaseEnvelopeHash" in result, false, "aucune capsule de livraison");
+  assert.equal(uploads, 1, "seul le dataset est publié sur IPFS, jamais le modèle");
+  const produced = reads;
   assert.equal((await run(quotes[0]) as typeof result).modelCid, result.modelCid);
-  assert.equal(uploads, produced, "la reprise ne repinne pas le modèle");
+  assert.equal(reads, produced, "la reprise ne recalcule pas le modèle");
   const recovered = await handleRunnerOp("recover-loan-job", { loanId: "success", billingQuote: quotes[0] }) as {
     state: string; result: typeof result;
   };
   assert.equal(recovered.state, "ready");
   assert.equal(recovered.result.modelCid, result.modelCid);
   assert.equal(recovered.result.runnerReceipt, result.runnerReceipt);
-  assert.equal(uploads, produced, "la reprise sans grant ne recalcule pas");
+  assert.equal(reads, produced, "la reprise sans grant ne recalcule pas");
   await assert.rejects(handleRunnerOp("recover-loan-job", { loanId: "autre", billingQuote: quotes[0] }), /scope/);
   for (let i = 0; i < 20; i++) {
     assert.deepEqual(await handleRunnerOp("recover-loan-job", { loanId: "timeout", billingQuote: quotes[2] }), { state: "missing" });
   }
-  const keyRequest = async (settleTxHash: string) => ({ loanId: "success", loanReceipt: result.runnerReceipt,
-    deliveryPublicKey: delivery.publicKey,
-    authorization: await issueRunnerGrant("loan-model-key", { loanId: "success" }, ["success", result.runnerReceipt, delivery.publicKey]),
-    settleTxHash });
-  await assert.rejects(handleRunnerOp("loan-model-key", await keyRequest(`0x${"00".repeat(32)}`)), /confirmé/i);
+  const features = { x: 5 };
+  const predictRequest = async (settleTxHash: string) => ({ modelRef: { kind: "loan", id: "success" }, features,
+    authorization: await issueRunnerGrant("predict", { loanId: "success" }, ["loan", "success", JSON.stringify(features)]),
+    loanReceipt: result.runnerReceipt, settleTxHash });
+  await assert.rejects(handleRunnerOp("predict", await predictRequest(`0x${"00".repeat(32)}`)), /confirmé/i);
   // Next a perdu la réponse : seules les données préalables au calcul subsistent.
   process.env.DATABASE_URL = "postgresql://synthetic:synthetic@127.0.0.1:1/unused";
   process.env.RUNNER_URL = "http://runner.test.invalid";
@@ -257,7 +259,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     } finally { Date.now = clock; }
     assert.equal(localLoan.status, "SETTLED", "le reaper récupère et règle sans nouveau grant");
     assert.equal(localLoan.modelCid, result.modelCid);
-    assert.equal(uploads, produced, "aucun recalcul après perte de la réponse Next");
+    assert.equal(reads, produced, "aucun recalcul après perte de la réponse Next");
     assert.equal(runnerBroadcasts.length, 2);
     assert.equal(runnerBroadcasts[0], runnerBroadcasts[1], "la transaction perdue est rediffusée à l’identique sur l’EVM");
   } finally {
@@ -268,12 +270,20 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   }
   async function settle() {
     return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt,
-      releaseEnvelopeHash: result.releaseEnvelopeHash, lockBlock: String(lockBlocks[0]) });
+      lockBlock: String(lockBlocks[0]) });
   }
   const settled = await settle() as { settleTxHash: string };
-  const delivered = await handleRunnerOp("loan-model-key", await keyRequest(settled.settleTxHash)) as { modelCid: string; modelKeyEnvelope: unknown };
-  assert.equal(delivered.modelCid, result.modelCid);
-  assert.ok(delivered.modelKeyEnvelope);
+  // Après règlement confirmé : prédiction signée sur le modèle scellé du prêt (y = 3x + 1).
+  const prediction = await handleRunnerOp("predict", await predictRequest(settled.settleTxHash)) as SignedPrediction;
+  assert.equal(prediction.modelRef, "loan:success");
+  assert.equal(prediction.outputKind, "value");
+  assert.equal(prediction.output, "16");
+  assert.equal(prediction.counter, 1);
+  // Les prédictions ne puisent plus dans le budget de clôture du prêt (16 requêtes) : au-delà, elles
+  // passent encore, et le règlement peut toujours être réconcilié ensuite.
+  for (let call = 2; call <= 20; call++) {
+    assert.equal((await handleRunnerOp("predict", await predictRequest(settled.settleTxHash)) as SignedPrediction).counter, call);
+  }
   const nonce = await client.getTransactionCount({ address: runner.address });
   assert.deepEqual(await settle(), settled);
   assert.equal(await client.getTransactionCount({ address: runner.address }), nonce);

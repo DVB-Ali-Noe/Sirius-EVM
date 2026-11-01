@@ -12,15 +12,14 @@ import { useWalletStore } from "@/stores/wallet";
 import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
 import { demoQualityReport } from "@/lib/phala-demo/csv";
 import { QualityReportPanel } from "@/components/datasets/QualityReportPanel";
-import { trainDemoFile } from "@/lib/phala-demo/training-client";
-import { openDemoDelivery } from "@/lib/phala-demo/delivery-client";
+import { predictDemoModel, trainDemoFile } from "@/lib/phala-demo/training-client";
+import { PredictionBox } from "@/components/train/PredictionBox";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { fetchDecryptedModel, downloadDecryptedModel } from "@/lib/train/model-client";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
-interface Job { id: string; status: string; metrics: Record<string, number> | null; deliveryPublicKey: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
+interface Job { id: string; status: string; metrics: Record<string, number> | null; servedModelId: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
 /** `table` : le fichier lu, gardé dans la page pour le rapport de qualité ; jamais envoyé ni stocké. */
 interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; table: string[][]; target: string; model: ModelId }
 const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: "linear_regression" };
@@ -40,7 +39,6 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   const { locale, t } = useLocale();
   const { file, example, columns, rows, table, target, model } = draft;
   const quality = useMemo(() => (file ? demoQualityReport(table, target) : null), [file, table, target]);
-  const address = useWalletStore((state) => state.address);
   const authenticated = useWalletStore((state) => state.authenticated);
   const connected = useWalletStore((state) => state.connected);
   // null : première lecture en cours ; phase null : état illisible.
@@ -48,7 +46,6 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
-  const [downloadError, setDownloadError] = useState<{ jobId: string; message: string } | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const available = session?.available === true;
 
@@ -72,7 +69,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
     const response = await fetch("/api/train", { cache: "no-store" });
     if (response.ok) {
       const result = await response.json();
-      if (useWalletStore.getState().revision === revision) setJobs(result.filter((job: Job) => job.deliveryPublicKey));
+      if (useWalletStore.getState().revision === revision) setJobs(result.filter((job: Job) => job.servedModelId));
     }
   }, [authenticated]);
   useEffect(() => {
@@ -81,7 +78,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
     void fetch("/api/train", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
       const result = await response.json();
-      if (!cancelled) setJobs(result.filter((job: Job) => job.deliveryPublicKey));
+      if (!cancelled) setJobs(result.filter((job: Job) => job.servedModelId));
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [authenticated]);
@@ -111,25 +108,10 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
     setBusy(true); setError("");
     try {
       await trainDemoFile(file, model, target, setProgress);
-      setProgress("Modèle prêt. Télécharge-le ci-dessous.");
+      setProgress("Modèle privé prêt. Il reste dans Phala pendant les sessions ouvertes.");
       await refreshJobs();
     } catch (cause) { setError(messageOf(cause)); setProgress(""); }
     finally { setBusy(false); }
-  }
-
-  async function download(job: Job) {
-    if (!address) return;
-    const revision = useWalletStore.getState().revision;
-    setBusy(true); setDownloadError(null);
-    try {
-      const response = await fetch(`/api/phala-demo/results/${encodeURIComponent(job.id)}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Résultat indisponible");
-      const key = await openDemoDelivery(job.id, address, result.publicKey, result.envelope);
-      const output = await fetchDecryptedModel(result.modelCid, key);
-      if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
-      downloadDecryptedModel(output, `sirius-${job.id}.json`);
-    } catch (cause) { setDownloadError({ jobId: job.id, message: messageOf(cause) }); } finally { setBusy(false); }
   }
 
   return <Page>
@@ -181,14 +163,14 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
       {error && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(error)}</p>}
     </Card>
     {authenticated && <section className="space-y-3" data-guide="page:phala:results"><SectionTitle>{t("Mes résultats")}</SectionTitle>
-      <p className="text-sm text-muted">{t("Après fermeture, récupère tes modèles depuis ce même navigateur. Télécharge-les pour les conserver ailleurs.")}</p>
+      <p className="text-sm text-muted">{t("Les modèles restent privés dans Phala, sans téléchargement : ils ne répondent que pendant une session ouverte.")}</p>
       {jobs.length === 0 && <p className="text-sm text-muted">{t("Ton premier modèle apparaîtra ici.")}</p>}
       {jobs.map((job) => <Card key={job.id}><div className="flex flex-wrap items-center justify-between gap-4">
         <div><h3 className="font-medium">{job.dataset?.name ?? t("Mon dataset")}</h3><p className="text-sm text-muted">{job.status === "DONE" ? t("Entraînement terminé") : job.status}</p>
           <p className="text-xs text-muted">{t("Entraîné le {date}", { date: new Date(job.completedAt ?? job.createdAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })}</p></div>
-        <button className={button} disabled={busy || job.status !== "DONE"} onClick={() => void download(job)}>{t("Télécharger le modèle")}</button></div>
+        <span className="text-sm text-muted">{t("Modèle privé · sans téléchargement")}</span></div>
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
-        {downloadError?.jobId === job.id && <p role="alert" className="mt-4 rounded-lg border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative">{t(downloadError.message)}</p>}
+        {job.status === "DONE" && <PredictionBox id={job.id} disabled={!available} predict={(features) => predictDemoModel(job.id, features)} />}
       </Card>)}
     </section>}
   </Page>;

@@ -135,13 +135,6 @@ test("le hash de lock est persisté et soumis immédiatement au serveur", () => 
   assert.doesNotMatch(borrow, /await waitForTransactionExternal/);
 });
 
-test("le règlement reprend après rechargement sans dépendre de la capsule locale", () => {
-  const resumption = SOURCE.slice(SOURCE.indexOf("export async function resumeLoanSettlement"));
-
-  assert.doesNotMatch(resumption, /hasAtomicLoanEnvelope|Capsule locale absente/);
-  assert.match(resumption, /await settleLoan\(loanId, runnerReceipt\)/);
-});
-
 test("PAR-02 : un règlement refusé parce qu'un autre occupe le wallet runner est redemandé, avec une autorisation neuve à chaque essai", async () => {
   const previousFetch = globalThis.fetch;
   const waits: number[] = [];
@@ -175,7 +168,7 @@ test("PAR-02 : un règlement refusé parce qu'un autre occupe le wallet runner e
   }
 });
 
-test("règlement au palier rapide : la page relit l'attente seule et livre dès la confirmation", async () => {
+test("règlement au palier rapide : la page relit l'attente seule et termine dès la confirmation", async () => {
   const previousFetch = globalThis.fetch;
   const waits: number[] = [];
   const pending = { status: 202, body: { pending: true, error: SETTLEMENT_FINALITY_PENDING_FAST } };

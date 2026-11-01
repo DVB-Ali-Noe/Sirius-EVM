@@ -27,7 +27,8 @@ import {
 import { MODEL_OPTIONS, isModelOffered, modelSelection, parseDeliveredModel, type GradientBoostedTreesModel } from "@/lib/models/registry";
 import { gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { parseCsv } from "@/lib/sirius/metrics";
-import { predictModel } from "@/lib/train/evaluation-client";
+import { scoreModel } from "@/lib/models/predict";
+import type { DeliveredModel } from "@/lib/models/registry";
 
 const example = (name: string) => readFileSync(resolve(process.cwd(), `public/examples/classification/${name}`));
 
@@ -72,14 +73,12 @@ function leafSizes(model: GradientBoostedTreesModel, csv: Buffer): number[][] {
   });
 }
 
-function probabilityAuc(model: Parameters<typeof predictModel>[0], csv: string): number {
+/** AUC sur le score brut (log-odds) : l'AUC ne dépend que du rang, identique à celle des probabilités. */
+function probabilityAuc(model: DeliveredModel, csv: string): number {
   const [header, ...rows] = parseCsv(csv);
   const target = header.indexOf(model.target);
-  const scores = rows.map((row) => {
-    const prediction = predictModel(model, Object.fromEntries(header.map((column, index) => [column, Number(row[index])])));
-    assert.ok(prediction.algo !== "linear_regression");
-    return prediction.probability;
-  });
+  const positions = model.features.map((feature) => header.indexOf(feature));
+  const scores = rows.map((row) => scoreModel(model, positions.map((index) => Number(row[index]))));
   return binaryAuc(scores, rows.map((row) => Number(row[target])))!;
 }
 

@@ -56,7 +56,7 @@ before(async () => {
 after(() => { server?.close(); });
 
 function call(agent: Agent, timeoutMs = 20_000) {
-  return bufferedRequest(new URL(`http://127.0.0.1:${port}/self-train-key`), {
+  return bufferedRequest(new URL(`http://127.0.0.1:${port}/dataset-ingress-key`), {
     agent: agent as never,
     body: Buffer.from("{}"),
     headers: new Headers({ "content-type": "application/json", "content-length": "2" }),
@@ -138,10 +138,10 @@ test("ROB-10 : jamais de nouvel essai pour une opération qui engage un calcul, 
     agent.destroy();
     mode = "ok";
   }
-  for (const op of ["seal-dataset", "prepare-escrow-lock", "run-loan-job", "settle-loan", "recover-loan-job", "loan-model-key", "run-training"] as const) {
+  for (const op of ["seal-dataset", "prepare-escrow-lock", "run-loan-job", "settle-loan", "recover-loan-job", "predict", "run-training"] as const) {
     assert.equal(RETRYABLE_RUNNER_OPS.has(op), false, op);
   }
-  assert.deepEqual([...RETRYABLE_RUNNER_OPS].sort(), ["dataset-ingress-key", "self-train-key"]);
+  assert.deepEqual([...RETRYABLE_RUNNER_OPS], ["dataset-ingress-key"]);
 });
 
 test("ROB-10 : seule une coupure sur socket réutilisé, avant toute réponse, autorise le nouvel essai", async () => {

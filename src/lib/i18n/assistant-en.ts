@@ -70,9 +70,9 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   "Que veut dire le badge « vérifié » ?": "What does the “verified” badge mean?",
   "Le badge indique que le fournisseur du dataset a une attestation KYB valide dans le registre on-chain. Sans attestation valide, le dataset reste visible mais ne peut pas être emprunté.":
     "The badge means the dataset provider has a valid KYB attestation in the on-chain registry. Without a valid attestation, the dataset stays visible but cannot be borrowed.",
-  "Comment récupérer mon modèle ?": "How do I get my model?",
-  "Quand l’entraînement est réglé, clique sur Vérifier et télécharger sur la page Entraîner : la clé du modèle est livrée et tu peux le déchiffrer dans ton navigateur.":
-    "Once training is settled, click Verify and download on the Train page: the model key is delivered and you can decrypt it in your browser.",
+  "Comment utiliser mon modèle ?": "How do I use my model?",
+  "Quand l’entraînement est réglé, saisis tes variables sur la page Entraîner et clique sur Demander une prédiction : le modèle reste scellé dans l’enclave et renvoie une réponse signée, décision 0/1 ou valeur.":
+    "Once training is settled, enter your features on the Train page and click Request a prediction: the model stays sealed in the enclave and returns a signed answer, a 0/1 decision or a value.",
   "Que faire si l’entraînement échoue ?": "What if training fails?",
   "Le prix du dataset et le compute non utilisé sont remboursés dans l’escrow ; seuls les frais d’exécution mesurés, plafonnés dans le devis, sont retenus. Retire le crédit depuis la page Wallet.":
     "The dataset price and the unused compute are refunded into the escrow; only measured execution fees, capped in the quote, are retained. Withdraw the credit from the Wallet page.",
@@ -95,8 +95,8 @@ export const ASSISTANT_MESSAGES_EN: Record<string, string> = {
   "Tes emprunts, règlements et remboursements, chacun vérifiable sur l’explorateur de la chaîne. Jamais le contenu des datasets.":
     "Your borrowings, settlements and refunds, each verifiable on the chain explorer. Never the contents of datasets.",
   "Qu’est-ce qu’un reçu d’audit ?": "What is an audit receipt?",
-  "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle livré.":
-    "Every training run produces an audit receipt and a certificate binding the dataset title, the loan, the TEE attestation and the fingerprint of the delivered model.",
+  "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle scellé dans l’enclave.":
+    "Every training run produces an audit receipt and a certificate binding the dataset title, the loan, the TEE attestation and the fingerprint of the model sealed in the enclave.",
   "Pourquoi vérifier mon wallet ?": "Why verify my wallet?",
   "Chaque prêteur et chaque emprunteur est vérifié on-chain : ça protège les données et l’argent de tout le monde sur la marketplace.":
     "Every lender and borrower is verified on-chain: it protects everyone’s data and money on the marketplace.",

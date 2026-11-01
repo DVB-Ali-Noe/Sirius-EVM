@@ -87,13 +87,6 @@ export interface GradientBoostedTreesModel {
 
 export type DeliveredModel = LinearRegressionModel | LogisticRegressionModel | GradientBoostedTreesModel;
 
-export interface HistoricalLinearRegressionModel extends Omit<LinearRegressionModel, "version" | "metrics"> {
-  version?: never;
-  metrics: { r2: number; rmse: number; n: number; mae?: never };
-}
-
-export type DownloadedModel = DeliveredModel | HistoricalLinearRegressionModel;
-
 export const DEFAULT_MODEL_SELECTION: ModelSelection = {
   modelId: "linear_regression",
   modelVersion: MODEL_REGISTRY.linear_regression.version,
@@ -132,6 +125,14 @@ export function trainingProfileHash(selection: ModelSelection): Hex {
 
 export function modelDisplayName(selection: ModelSelection): string {
   return `${MODEL_REGISTRY[selection.modelId].label} v${selection.modelVersion}`;
+}
+
+/** Empreinte `servedModelFingerprint` (`sm1` + SHA-256 hex) : les anciens CID IPFS n'ont aucun modèle scellé. */
+const SERVED_MODEL_FINGERPRINT = /^sm1[0-9a-f]{64}$/;
+
+/** Vrai si `modelCid` désigne un modèle scellé dans le runner ; un modèle historique livré est indisponible. */
+export function isServedModelFingerprint(modelCid: string | null | undefined): boolean {
+  return typeof modelCid === "string" && SERVED_MODEL_FINGERPRINT.test(modelCid);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -225,26 +226,6 @@ export function parseDeliveredModel(value: unknown): DeliveredModel {
     return model as unknown as LogisticRegressionModel;
   }
 
-  throw new Error("Modèle déchiffré invalide");
-}
-
-// Compatibility is limited to downloads; new runner outputs still require their declared version and all metrics.
-export function parseDownloadedModel(value: unknown): DownloadedModel {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Modèle déchiffré invalide");
-  if (Object.hasOwn(value, "version")) return parseDeliveredModel(value);
-  const model = value as Record<string, unknown>;
-  if (
-    Object.keys(model).length === 5 &&
-    ["algo", "target", "features", "coefficients", "metrics"].every((key) => Object.hasOwn(model, key)) &&
-    model.algo === "linear_regression" &&
-    isModelBase(model) &&
-    exactMetrics(model.metrics, ["r2", "rmse", "n"]) &&
-    isFiniteNumber(model.metrics.r2) &&
-    isFiniteNumber(model.metrics.rmse) && model.metrics.rmse >= 0 &&
-    isCount(model.metrics.n)
-  ) {
-    return model as unknown as HistoricalLinearRegressionModel;
-  }
   throw new Error("Modèle déchiffré invalide");
 }
 import { keccak256, stringToBytes, type Hex } from "viem";

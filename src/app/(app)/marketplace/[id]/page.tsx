@@ -135,7 +135,7 @@ export default function MarketplaceListingPage() {
             <dl className="mt-3 space-y-2 text-sm">
               <Fact label={t("Modèle")} value={modelDisplayName(model)} />
               <Fact label={t("Ce qu’il fait")} value={MODEL_REGISTRY[model.modelId].description} />
-              <Fact label={t("Ce que vous recevez")} value={model.modelId === "gradient_boosted_trees" ? t("Le modèle entraîné : ses arbres et ses métriques de qualité.") : t("Le modèle entraîné : ses coefficients et ses métriques de qualité.")} />
+              <Fact label={t("Ce que vous obtenez")} value={t("Des prédictions signées du modèle entraîné, qui reste scellé dans l’enclave, et ses métriques de qualité.")} />
             </dl>
           ) : (
             <p className="mt-3 text-sm text-negative">{t("Profil d’entraînement manquant")}</p>
@@ -220,7 +220,7 @@ export default function MarketplaceListingPage() {
         <Card>
           <CardTitle>{t("Ce que vous obtenez")}</CardTitle>
           <p className="mt-2 text-sm text-muted">
-            {t("Un accès à cette donnée et un entraînement dans l’enclave. Vous recevez le modèle entraîné, jamais la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}
+            {t("Un accès à cette donnée et un entraînement dans l’enclave. Le modèle entraîné y reste scellé : vous obtenez ses prédictions signées, jamais le modèle ni la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}
           </p>
         </Card>
 

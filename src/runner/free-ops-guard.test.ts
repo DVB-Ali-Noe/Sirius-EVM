@@ -30,8 +30,8 @@ test("ROB-08 : le seau à jetons borne la rafale puis le débit soutenu, par op�
   }
   const refused = guard.admit("dataset-ingress-key");
   assert.deepEqual(refused, { admitted: false, status: 429, error: FREE_OPS_RATE_LIMITED, retryAfterSeconds: 1 });
-  // L'autre opération gratuite garde son propre seau.
-  const other = guard.admit("self-train-key");
+  // Chaque opération gratuite garde son propre seau (nom synthétique : une seule existe aujourd'hui).
+  const other = guard.admit("other-free-op");
   assert.equal(other.admitted, true);
   if (other.admitted) other.release();
   // 60 par minute : un jeton revient chaque seconde.
@@ -53,16 +53,16 @@ test("ROB-08 : le seau à jetons borne la rafale puis le débit soutenu, par op�
 test("ROB-08 : une concurrence propre aux opérations gratuites, rendue une seule fois", () => {
   const time = clock();
   const guard = new FreeOpsGuard(policy({ concurrency: 2 }), time.now);
-  const first = guard.admit("self-train-key");
+  const first = guard.admit("other-free-op");
   const second = guard.admit("dataset-ingress-key");
   assert.ok(first.admitted && second.admitted);
-  const third = guard.admit("self-train-key");
+  const third = guard.admit("other-free-op");
   assert.equal(third.admitted, false);
   if (!third.admitted) assert.equal(third.status, 503);
   first.release();
   first.release();
   assert.equal(guard.state().active, 1, "une double libération ne crée pas de place");
-  const fourth = guard.admit("self-train-key");
+  const fourth = guard.admit("other-free-op");
   assert.equal(fourth.admitted, true);
 });
 
@@ -77,7 +77,7 @@ test("ROB-08 : le coupe-circuit s’ouvre quand le traitement dépasse sa part d
     if (decision.admitted) decision.release();
   }
   assert.equal(guard.state().open, true);
-  const suspended = guard.admit("self-train-key");
+  const suspended = guard.admit("other-free-op");
   assert.deepEqual(suspended, { admitted: false, status: 503, error: FREE_OPS_SUSPENDED, retryAfterSeconds: 30 });
   time.advance(29_000);
   assert.equal(guard.admit("dataset-ingress-key").admitted, false);
@@ -90,7 +90,7 @@ test("ROB-08 : des appels rapides restent sous le seuil, la fenêtre glisse", ()
   const time = clock();
   const guard = new FreeOpsGuard(policy({ burst: 100, perMinute: 600 }), time.now);
   for (let i = 0; i < 60; i++) {
-    const decision = guard.admit("self-train-key");
+    const decision = guard.admit("other-free-op");
     assert.equal(decision.admitted, true);
     time.advance(100);
     if (decision.admitted) decision.release();

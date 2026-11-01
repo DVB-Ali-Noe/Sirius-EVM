@@ -10,7 +10,6 @@ import { test } from "node:test";
 import { inspectCsv, csvRejectionText } from "@/lib/datasets/csv-check";
 import { translateEnglish } from "@/lib/i18n/english";
 import { selectionForModelId, type ModelId } from "@/lib/models/registry";
-import { evaluateModelCsv } from "@/lib/train/evaluation-client";
 import { trainGradientBoostedTrees } from "@/lib/tee/train-gbdt";
 import { trainLinearRegression, trainLogisticRegression, validateTrainingDataset } from "@/lib/tee/train";
 import { CsvValidationError, isNumericCell, MAX_CSV_ROWS, parseCsv, type CsvSyntaxProblem } from "./metrics";
@@ -213,14 +212,4 @@ test("EXA-03 : cible incomplète refusée à l'ingestion par les trois profils, 
   const withNote = binaryFile((row) => String(row % 13)).replace("first,a,b,y\n", "first,a,b,y,note\n").replace(/(\d)\n/g, "$1,texte\n");
   assert.ok(inspectCsv(withNote, "gradient_boosted_trees").ok);
   assert.doesNotThrow(() => validateTrainingDataset(Buffer.from(withNote), selectionForModelId("gradient_boosted_trees")));
-});
-
-test("l'évaluation du navigateur lit les nombres comme l'enclave : 0x et espaces refusés", () => {
-  const model = trainLogisticRegression(Buffer.from(binaryFile((row) => String(row % 13), 300)));
-  const test = binaryFile((row) => String(row % 13), 40);
-  assert.equal(evaluateModelCsv(model, test).n, 40);
-  for (const cell of ["0x10", " ", " 7"]) {
-    const broken = test.replace(/\n(\d+),/, `\n${cell},`);
-    assert.throws(() => evaluateModelCsv(model, broken), /Valeur invalide dans la colonne « first »/, JSON.stringify(cell));
-  }
 });
