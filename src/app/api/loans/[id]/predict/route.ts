@@ -7,8 +7,8 @@ import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit"
 import { phalaDemoInstance } from "@/lib/sirius/self-training-access";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
 import { effectiveLoanFinalityTier } from "@/lib/sirius/finality-tier";
-import { assertSignedPrediction, isServedModelFingerprint, parsePredictionRequest, predictionSessionRevision } from "@/lib/sirius/prediction";
-import { modelSelection } from "@/lib/models/registry";
+import { assertSignedPrediction, parsePredictionRequest, predictionSessionRevision } from "@/lib/sirius/prediction";
+import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { predictInRunner } from "@/lib/tee/runner-client";
 

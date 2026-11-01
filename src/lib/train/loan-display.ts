@@ -1,4 +1,5 @@
 import { addressesEqual } from "@/lib/evm/address";
+import { isServedModelFingerprint } from "@/lib/models/registry";
 
 /**
  * Logique d'affichage de la page Train pour les emprunts (docs/passage-mainnet/09-train-et-certificat.md,
@@ -161,15 +162,16 @@ export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | 
 }
 
 /**
- * « Finaliser » ou « Réconcilier le règlement » : modèle produit et reçu présents, et règlement encore
- * possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le release
- * et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde la
- * réconciliation, même après l'échéance.
+ * « Finaliser » ou « Réconcilier le règlement » : modèle scellé produit et reçu présents, et règlement
+ * encore possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le
+ * release et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde
+ * la réconciliation, même après l'échéance. Sans empreinte `sm1…` (entraîné avant la suppression de la
+ * livraison), rien n'est proposé avant release : le serveur refuserait de payer un modèle non servi.
  */
 export function canResumeSettlement(loan: LoanDisplayInput): boolean {
   return (
     (loan.status === "TRAINING" || loan.status === "SETTLING") &&
-    Boolean(loan.modelCid) &&
+    (isServedModelFingerprint(loan.modelCid) || Boolean(loan.modelCid && loan.settleTxHash)) &&
     Boolean(loan.runnerReceipt) &&
     !isOverdueUnsettled(loan)
   );

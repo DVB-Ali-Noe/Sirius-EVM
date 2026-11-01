@@ -48,6 +48,16 @@ export function servedModelFingerprint(model: DeliveredModel): string {
   return `sm1${createHash("sha256").update(JSON.stringify(quantizeModel(model))).digest("hex")}`;
 }
 
+/**
+ * Un prêt ne se règle (et ne se reprend) que si son modèle est scellé ici, à l'emprunteur, sous
+ * l'empreinte du reçu : sinon le fournisseur serait payé pour un modèle que `predict` ne servira
+ * jamais (prêt entraîné avant la suppression de la livraison). Il reste remboursable à l'échéance.
+ */
+export function hasSealedLoanModel(loanId: string, borrower: string, fingerprint: string): boolean {
+  const sealed = loadServedModel({ kind: "loan", id: loanId });
+  return !!sealed && sealed.owner === canonicalSubject(borrower) && servedModelFingerprint(sealed.model) === fingerprint;
+}
+
 export function loadServedModel(ref: ModelRef): { owner: string; model: DeliveredModel } | null {
   const path = servedPath(ref);
   let fd: number;

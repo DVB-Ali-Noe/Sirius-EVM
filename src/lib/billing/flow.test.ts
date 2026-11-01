@@ -279,6 +279,11 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   assert.equal(prediction.outputKind, "value");
   assert.equal(prediction.output, "16");
   assert.equal(prediction.counter, 1);
+  // Les prédictions ne puisent plus dans le budget de clôture du prêt (16 requêtes) : au-delà, elles
+  // passent encore, et le règlement peut toujours être réconcilié ensuite.
+  for (let call = 2; call <= 20; call++) {
+    assert.equal((await handleRunnerOp("predict", await predictRequest(settled.settleTxHash)) as SignedPrediction).counter, call);
+  }
   const nonce = await client.getTransactionCount({ address: runner.address });
   assert.deepEqual(await settle(), settled);
   assert.equal(await client.getTransactionCount({ address: runner.address }), nonce);

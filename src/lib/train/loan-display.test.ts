@@ -173,10 +173,13 @@ test("A-05, A-10 : échu avec capsule et reçu, sans release diffusé : Rembours
   assert.equal(canRefund(prepared({ status: "CANCELLED" }), ME), false);
 });
 
-test("Finaliser ou réconcilier le règlement : capsule et reçu, et règlement encore possible", () => {
+test("Finaliser ou réconcilier le règlement : modèle scellé et reçu, et règlement encore possible", () => {
   const ready = (overrides: Partial<LoanDisplayInput> = {}) =>
-    loan({ status: "TRAINING", modelCid: "bafy", runnerReceipt: "receipt", ...overrides });
+    loan({ status: "TRAINING", modelCid: `sm1${"ef".repeat(32)}`, runnerReceipt: "receipt", ...overrides });
   assert.equal(canResumeSettlement(ready()), true);
+  // Ancien CID (livraison supprimée) : rien à finaliser avant release ; un release déjà diffusé se réconcilie.
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel" })), false);
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel", status: "SETTLING", settleTxHash: TX })), true);
   assert.equal(canResumeSettlement(ready({ status: "SETTLING" })), true);
   // Release diffusé avant l'échéance : la réconciliation reste proposée, même échu.
   assert.equal(canResumeSettlement(ready({ status: "SETTLING", settleTxHash: TX, refundable: true })), true);

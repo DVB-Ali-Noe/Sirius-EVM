@@ -28,14 +28,6 @@ const MAX_FEATURE_ABS = 1e9;
 const MAX_FEATURES_BYTES = 4096;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
-/** Empreinte `servedModelFingerprint` (`sm1` + SHA-256 hex) : les anciens CID IPFS n'ont aucun modèle scellé. */
-const SERVED_MODEL_FINGERPRINT = /^sm1[0-9a-f]{64}$/;
-
-/** Vrai si `modelCid` désigne un modèle scellé dans le runner ; un modèle historique livré est indisponible. */
-export function isServedModelFingerprint(modelCid: string | null): boolean {
-  return modelCid !== null && SERVED_MODEL_FINGERPRINT.test(modelCid);
-}
-
 export interface PredictionRequest {
   features: Record<string, number>;
   authorization: RunnerGrant;

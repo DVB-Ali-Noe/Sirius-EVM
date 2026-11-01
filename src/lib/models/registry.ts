@@ -127,6 +127,14 @@ export function modelDisplayName(selection: ModelSelection): string {
   return `${MODEL_REGISTRY[selection.modelId].label} v${selection.modelVersion}`;
 }
 
+/** Empreinte `servedModelFingerprint` (`sm1` + SHA-256 hex) : les anciens CID IPFS n'ont aucun modèle scellé. */
+const SERVED_MODEL_FINGERPRINT = /^sm1[0-9a-f]{64}$/;
+
+/** Vrai si `modelCid` désigne un modèle scellé dans le runner ; un modèle historique livré est indisponible. */
+export function isServedModelFingerprint(modelCid: string | null | undefined): boolean {
+  return typeof modelCid === "string" && SERVED_MODEL_FINGERPRINT.test(modelCid);
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }

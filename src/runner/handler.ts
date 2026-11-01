@@ -3,7 +3,7 @@ import { keccak256, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { predictionOutput } from "@/lib/models/predict";
-import { loadServedModel } from "@/lib/tee/served-models";
+import { hasSealedLoanModel, loadServedModel } from "@/lib/tee/served-models";
 import { reservePrediction } from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
@@ -180,11 +180,6 @@ function predictionFeatures(body: Record<string, unknown>): { features: Record<s
   return { features: features as Record<string, number>, serialized };
 }
 
-function isLoanPrediction(op: RunnerOperation, body: Record<string, unknown>): boolean {
-  const ref = body.modelRef;
-  return op === "predict" && !!ref && typeof ref === "object" && (ref as Record<string, unknown>).kind === "loan";
-}
-
 export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { op: RunnerOperation; scope: RunnerScope } {
   switch (op) {
     case "dataset-ingress-key":
@@ -223,8 +218,7 @@ export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ing
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
-  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "recover-loan-job"
-    || isLoanPrediction(op, body))) return executeRunnerOp(op, body);
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "recover-loan-job")) return executeRunnerOp(op, body);
   if (UNCHARGED_OPS.has(op)) {
     runnerBudget();
     return executeRunnerOp(op, body);
@@ -430,8 +424,14 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       if (signed.quote.loanId !== loanId) throw new AppError("Devis compute hors scope", 409);
       const ledger = requireBillingBudget();
       const scope = quoteWorkflow(signed.quote);
-      if (!ledger.workflowResult(scope)) return { state: "missing" };
+      const stored = ledger.workflowResult(scope);
+      if (!stored) return { state: "missing" };
       if (!ledger.executionEvidence(scope)) return { state: "pending" };
+      // Résultat d'avant la suppression de la livraison : aucun modèle scellé, donc rien à régler.
+      const result: unknown = stored.result ? JSON.parse(stored.result) : null;
+      const storedModelCid = result && typeof result === "object" && "modelCid" in result && typeof result.modelCid === "string"
+        ? result.modelCid : null;
+      if (stored.result && (!storedModelCid || !hasSealedLoanModel(loanId, signed.quote.borrower, storedModelCid))) return { state: "missing" };
       return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(() => recoverBilledLoanResult(signed)));
     }
 
@@ -440,6 +440,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const loanReceiptToken = text(body, "loanReceipt", MAX_RECEIPT_LENGTH);
       const receipt = verifyLoanReceipt(loanReceiptToken, loanId);
       const { preimage } = escrowLock(loanId, receipt.borrower);
+      if (!hasSealedLoanModel(loanId, receipt.borrower, receipt.modelCid)) {
+        throw new AppError("Modèle scellé absent : règlement refusé, remboursement à l’échéance", 409);
+      }
       const lockBlock = BigInt(text(body, "lockBlock", 20));
       if (billingEnabled()) {
         const signedQuote = await runnerComputeQuote(receipt.billingQuote);
@@ -550,16 +553,6 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           domain, signedMessage,
         };
       };
-      // Prêt v7 : même rattachement budgétaire que le règlement tant que la fenêtre du devis court.
-      if (loanReceipt && billingEnabled()) {
-        if (loanReceipt.billingQuote) {
-          const signed = await runnerComputeQuote(loanReceipt.billingQuote, false, loanReceipt);
-          if ((signed.quote.expiresAt + signed.quote.challengeDays * 86400) * 1000 > Date.now()) {
-            return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(predict));
-          }
-        }
-        return budgetRunnerRequest(predict);
-      }
       return predict();
     }
   }

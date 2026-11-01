@@ -132,6 +132,7 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Contexte de prêt invalide": "Invalid loan context",
   "Prédiction réservée à l’emprunteur": "Prediction restricted to the borrower",
   "modelRef invalide": "Invalid modelRef",
+  "Modèle scellé absent : règlement refusé, remboursement à l’échéance": "No sealed model: settlement refused, refund available at the deadline",
   "Compteur de prédiction invalide": "Invalid prediction counter",
   "Quota quotidien de prédiction atteint": "Daily prediction quota reached",
   "Quota quotidien de prédiction invalide": "Invalid daily prediction quota",

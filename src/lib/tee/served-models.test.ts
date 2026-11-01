@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { GradientBoostedTreesModel, LinearRegressionModel } from "@/lib/models/registry";
-import { loadServedModel, saveServedModel, servedModelFingerprint } from "./served-models";
+import { hasSealedLoanModel, loadServedModel, saveServedModel, servedModelFingerprint } from "./served-models";
 
 const owner = `0x${"12".repeat(20)}`;
 const model: GradientBoostedTreesModel = {
@@ -64,4 +64,30 @@ test("l'empreinte sm1 est canonique, stable et distingue les modèles", () => {
     features: model.features, target: model.target, version: model.version, algo: model.algo })) as GradientBoostedTreesModel;
   assert.equal(servedModelFingerprint(reordered), fingerprint);
   assert.notEqual(servedModelFingerprint(linear), fingerprint);
+});
+
+test("un prêt n'est réglable que si son modèle est scellé à l'emprunteur sous l'empreinte du reçu", () => {
+  const root = mkdtempSync(join(tmpdir(), "sirius-served-loan-"));
+  const previous = { directory: process.env.RUNNER_SERVED_MODELS_DIR, master: process.env.SIRIUS_MASTER_KEY };
+  process.env.RUNNER_SERVED_MODELS_DIR = join(root, "private");
+  process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 23).toString("base64");
+  try {
+    const fingerprint = servedModelFingerprint(linear);
+    // Prêt entraîné avant la suppression de la livraison : rien de scellé, ancien CID dans le reçu.
+    assert.equal(hasSealedLoanModel("loan-1", owner, "bafyLegacyModel"), false);
+    assert.equal(hasSealedLoanModel("loan-1", owner, fingerprint), false);
+    saveServedModel({ kind: "loan", id: "loan-1" }, owner, linear);
+    assert.equal(hasSealedLoanModel("loan-1", owner.toUpperCase().replace("0X", "0x"), fingerprint), true);
+    assert.equal(hasSealedLoanModel("loan-1", `0x${"34".repeat(20)}`, fingerprint), false, "autre emprunteur");
+    assert.equal(hasSealedLoanModel("loan-1", owner, servedModelFingerprint(model)), false, "autre empreinte");
+    // Un job homonyme ne rend pas un prêt réglable.
+    saveServedModel({ kind: "job", id: "loan-2" }, owner, linear);
+    assert.equal(hasSealedLoanModel("loan-2", owner, fingerprint), false);
+  } finally {
+    if (previous.directory === undefined) delete process.env.RUNNER_SERVED_MODELS_DIR;
+    else process.env.RUNNER_SERVED_MODELS_DIR = previous.directory;
+    if (previous.master === undefined) delete process.env.SIRIUS_MASTER_KEY;
+    else process.env.SIRIUS_MASTER_KEY = previous.master;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -14,6 +14,7 @@ const PROVIDER = `0x${"33".repeat(20)}`;
 const HASH = `0x${"aa".repeat(32)}` as Hex;
 const DATASET = `0x${"bb".repeat(32)}` as Hex;
 const MODEL = { modelId: "linear_regression", modelVersion: "1.0.0" } as const;
+const SEALED = `sm1${"cd".repeat(32)}`;
 let prisma: typeof import("@/lib/db").prisma;
 let client: ReturnType<typeof import("@/lib/evm/client").getPublicClient>;
 let recover: typeof import("./recover-loan").recoverUnsubmittedLoan;
@@ -446,7 +447,7 @@ test("une panne RPC avant réconciliation v7 ne fabrique aucun remboursement", a
 
 test("un règlement v7 avec modèle passe encore par la validation de sa preuve", async () => {
   const reads = billedReaperFixture(2);
-  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", billingQuoteHash: HASH })]);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: SEALED, billingQuoteHash: HASH })]);
   await reap();
   assert.equal(reads(), 1);
   assert.equal(updates.length, 0);
@@ -458,7 +459,7 @@ test("A-05 : une capsule v7 échue, toujours verrouillée on-chain et sans relea
   mock.method(console, "log", (...args: unknown[]) => { logs.push(args); });
   const overdue = new Date(Date.now() - 60_000);
   for (const status of ["TRAINING", "SETTLING"] as const) {
-    stubDb(prisma.loan, "findMany", async () => [loan({ status, modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue })]);
+    stubDb(prisma.loan, "findMany", async () => [loan({ status, modelCid: SEALED, runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue })]);
     await reap();
   }
   assert.equal(reads(), 0);
@@ -473,12 +474,23 @@ test("avant l'échéance, ou avec un release déjà diffusé, le reaper reprend 
   const reads = billedReaperFixture(1);
   const inTime = new Date(Date.now() + 60_000);
   const overdue = new Date(Date.now() - 60_000);
-  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: inTime })]);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "TRAINING", modelCid: SEALED, runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: inTime })]);
   await reap();
   assert.equal(reads(), 1);
-  stubDb(prisma.loan, "findMany", async () => [loan({ status: "SETTLING", modelCid: "model", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue, settleTxHash: HASH })]);
+  stubDb(prisma.loan, "findMany", async () => [loan({ status: "SETTLING", modelCid: SEALED, runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: overdue, settleTxHash: HASH })]);
   await reap();
   assert.equal(reads(), 2);
+  assert.equal(updates.length, 0);
+});
+
+test("un prêt v7 entraîné avant la suppression de la livraison (ancien CID) n'est jamais réglé par le reaper", async () => {
+  const reads = billedReaperFixture(1);
+  const inTime = new Date(Date.now() + 60_000);
+  for (const status of ["TRAINING", "SETTLING"] as const) {
+    stubDb(prisma.loan, "findMany", async () => [loan({ status, modelCid: "bafyLegacyModel", runnerReceipt: "receipt", billingQuoteHash: HASH, evmDeadline: inTime })]);
+    await reap();
+  }
+  assert.equal(reads(), 0);
   assert.equal(updates.length, 0);
 });
 

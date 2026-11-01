@@ -321,11 +321,10 @@ function routes(session: { address: string; source: "external" }, rows: Record<s
         if (!input.features || !input.authorization) throw new errors.AppError("Caractéristiques ou autorisation invalides", 400);
         return input;
       },
-      isServedModelFingerprint: () => true,
       predictionSessionRevision: async () => 0,
       assertSignedPrediction: async (result: unknown) => result,
     },
-    "@/lib/models/registry": { modelSelection: () => null },
+    "@/lib/models/registry": { modelSelection: () => null, isServedModelFingerprint: () => true },
     "@/lib/auth/require-auth": auth,
     "@/lib/errors": errors,
     "@/lib/http/body": body,

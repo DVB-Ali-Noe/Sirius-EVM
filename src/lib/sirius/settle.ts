@@ -12,7 +12,7 @@ import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { settlementQueuedError } from "./settlement-queued";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
-import { modelSelection } from "@/lib/models/registry";
+import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry";
 import type { ModelId } from "@/lib/models/registry";
 import {
   hashLoanAttestationPayload,
@@ -104,6 +104,8 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
   const recovered = await recoverLoanJobInRunner(loanId, signed);
   if (recovered.state !== "ready") return false;
   const { result } = recovered;
+  // Résultat d'avant la suppression de la livraison : aucun modèle scellé, rien à régler (remboursement à l'échéance).
+  if (!isServedModelFingerprint(result.modelCid)) return false;
   const model = modelSelection(loan.modelId, loan.modelVersion);
   if (!model || !loan.dataset.ipfsCid || !loan.dataset.merkleRoot) throw new AppError("Dataset de reprise incohérent", 409);
   await verifyLoanAttestation({
@@ -293,6 +295,10 @@ export async function settlePreparedLoan(
     !loan.attestationPayload
   ) {
     throw new AppError("Résultat TEE ou preuve d’attestation absente", 409);
+  }
+  // Release pas encore diffusé : on ne paie le fournisseur que pour un modèle que `predict` servira.
+  if (!loan.settleTxHash && !isServedModelFingerprint(loan.modelCid)) {
+    throw new AppError("Modèle scellé absent : règlement refusé, remboursement à l’échéance", 409);
   }
   let payload: LoanAttestationPayload;
   try {

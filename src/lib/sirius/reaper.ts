@@ -19,6 +19,7 @@ import { recoverLoanResult, settlePreparedLoan } from "./settle";
 import { verifyFastSettlement } from "./fast-settlement-review";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { AppError } from "@/lib/app-error";
+import { isServedModelFingerprint } from "@/lib/models/registry";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -112,6 +113,9 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         continue;
       }
       if ((loan.status === "TRAINING" || loan.status === "SETTLING") && loan.modelCid && loan.billingQuoteHash) {
+        // Entraîné avant la suppression de la livraison : aucun modèle scellé, le règlement est refusé
+        // pour ne pas payer le fournisseur sans prédiction possible. L'emprunteur rembourse à l'échéance.
+        if (!loan.settleTxHash && !isServedModelFingerprint(loan.modelCid)) continue;
         // Échu et toujours verrouillé on-chain, sans release diffusé : le contrat refuse désormais
         // tout release (`ChallengePeriodElapsed`), seul `refund()` par l'emprunteur libère les fonds
         // (audit A-05, A-10). Retenter le règlement toutes les 90 s ne ferait qu'osciller
