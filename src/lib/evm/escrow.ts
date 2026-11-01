@@ -373,7 +373,7 @@ async function findLifecycleTxHash(
   return last.transactionHash;
 }
 
-/** Préimage publié, que le navigateur utilise pour ouvrir sa capsule. */
+/** Préimage publié par `release` : preuve de règlement exigée avant toute prédiction sur le modèle d'un prêt. */
 export async function publishedPreimage(loanKey: Hex, binding = evmEscrowBinding()): Promise<Hex> {
   const [revealed, preimage] = await getPublicClient().readContract({
     address: escrowReadAddress(binding),

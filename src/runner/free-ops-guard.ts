@@ -1,9 +1,8 @@
 /**
- * Garde des opérations runner non facturées (`dataset-ingress-key`, `self-train-key`, audit ROB-08).
+ * Garde des opérations runner non facturées (`UNCHARGED_OPS` : `dataset-ingress-key`, audit ROB-08).
  *
  * Elles ne coûtent rien au budget, mais pas rien au runner : chaque appel consomme sa capability
- * dans l'anti-rejeu SQLite (écriture synchronisée, fsync), et `self-train-key` vérifie deux
- * signatures, consomme un grant et chiffre une livraison. `node:sqlite` est synchrone : pendant ces
+ * dans l'anti-rejeu SQLite (écriture synchronisée, fsync). `node:sqlite` est synchrone : pendant ces
  * écritures, la boucle d'événements est bloquée pour toutes les requêtes, payantes comprises.
  *
  * Trois bornes, toutes propres à ces opérations :

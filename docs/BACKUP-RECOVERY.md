@@ -1,5 +1,7 @@
 # Sauvegardes et exercice de reprise — 23 septembre 2026
 
+> **Archive, remplacée par [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule) (1er novembre 2026).** Plus aucune livraison de modèle, historique compris : les commandes `ops:recovery-pack`, `ops:models` et `ops:verify-model-delivery` et l'inventaire de livraison historique ont été supprimés du dépôt. Seul `pnpm ops:postgres backup|verify` reste. Ce document consigne l'exercice du 23 septembre tel qu'il a eu lieu.
+
 ## Résultat vérifié
 
 Le paquet `.ops/recovery-transfer-20260923/recovery.aesgcm` regroupe la sauvegarde PostgreSQL et les 13 blobs de modèles sous chiffrement authentifié. Il contient **110 621 octets**, sans clé de sauvegarde embarquée. Empreinte SHA-256 :

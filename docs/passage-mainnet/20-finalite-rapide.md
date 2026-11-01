@@ -20,7 +20,7 @@ Références : [19-mise-en-production.md](19-mise-en-production.md) (étapes 3, 
 | Lock avant entraînement, Next (`src/lib/sirius/settle.ts`, `prepareLoanResult`) | `assertBlockStable` : bloc finalisé ≥ bloc de lock | `assertLockStable` : reçu du lock relu, dans le bloc persisté, hash canonique, tête ≥ lock + 29 |
 | Lock lu par l'enclave (`src/lib/evm/escrow.ts`, `assertLoanScope`) | `matchesScope` au bloc finalisé | `matchesScope` à tête − 29 |
 | Reçu du release, enclave (`src/lib/billing/settlement.ts`, `confirm`) | canonique sous le bloc finalisé, sinon « pending-finality » | canonique sous tête − 29 |
-| Livraison de la clé, enclave (`src/runner/handler.ts`, `loan-model-key` → `publishedFinalizedPreimage`) | idem | idem |
+| Prédiction d'un prêt réglé, enclave (`src/runner/handler.ts`, `predict` → `publishedFinalizedPreimage`) | idem | idem |
 | Réconciliation du reaper et des reprises (`reconcileLoanEscrow`) | bloc finalisé | **inchangé** : toujours le bloc finalisé |
 | Revérification d'un release rapide (`src/lib/sirius/fast-settlement-review.ts`) | — | 15 min après `settledAt`, sous le bloc finalisé ; divergence ⇒ alerte et revue |
 | Affichage de l'attente (`GET /api/loans/[id]/finality`, page Train) | minutes | secondes, relecture toutes les 5 à 20 s |
@@ -107,7 +107,7 @@ pnpm dlx phala@1.1.22 deploy --profile sirius --cvm-id <cvm-id> \
 **Qui** : Ali et Noé, wallets d'équipe.
 
 1. Retirer `SIRIUS_ADMISSIONS_CLOSED` (ou `false`), redéployer.
-2. Prêt de test **≤ 25 USDG** : après le lock, la page Train affiche « Confirmation du paiement : ~N s » et l'entraînement démarre seul en quelques secondes ; le règlement passe en SETTLED et le modèle se télécharge sans attendre un quart d'heure. En base : `finalityTier = 'FAST'`.
+2. Prêt de test **≤ 25 USDG** : après le lock, la page Train affiche « Confirmation du paiement : ~N s » et l'entraînement démarre seul en quelques secondes ; le règlement passe en SETTLED et la prédiction signée répond sans attendre un quart d'heure. En base : `finalityTier = 'FAST'`.
 3. Prêt de test **> 25 USDG** (si le plafond de la bêta le permet) : la page affiche les minutes, comportement historique, `finalityTier = 'FULL'`.
 4. Quinze à vingt minutes après le règlement rapide : le reaper journalise `[reaper] prêt EVM <id> : release rapide confirmé à finalité complète` et `finalityVerifiedAt` est renseigné.
 
@@ -125,11 +125,11 @@ Ne jamais retirer `SIRIUS_EXPECTED_COMPOSE_HASH` ni laisser Next et le reaper su
 
 ## Alerte : `[reaper] ALERTE finalité rapide`
 
-Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne le contredit. Il a posé `Loan.finalityReview` (motif) et `finalityReviewAt`, compté une erreur dans sa passe (visible dans le battement `erreurs=`), et le prêt est **gelé** : plus de livraison de clé (`POST /api/loans/[id]/key` répond 409 « Règlement en cours de revue »), plus de certificat. Le statut reste SETTLED : le modèle peut déjà avoir été livré, rien n'est annulé ni retenté automatiquement.
+Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne le contredit. Il a posé `Loan.finalityReview` (motif) et `finalityReviewAt`, compté une erreur dans sa passe (visible dans le battement `erreurs=`), et le prêt est **gelé** : plus de prédiction (`POST /api/loans/[id]/predict` refusé), plus de certificat. Le statut reste SETTLED : des prédictions peuvent déjà avoir été servies, rien n'est annulé ni retenté automatiquement.
 
 | Motif | Ce qui s'est passé | Décision |
 |---|---|---|
-| `release disparu après réorganisation : escrow encore verrouillé` | Le release a été réorganisé hors de la chaîne et n'a pas été réinclus ; le fournisseur n'a pas été payé, l'emprunteur a peut-être le modèle | Avant l'échéance : **rejouer le release** avec les preuves conservées (ci-dessous), sans ouvrir l'enclave. Sinon laisser l'échéance passer et l'emprunteur se rembourser. Montant en jeu ≤ 25 USDG : perte acceptée si aucune des deux voies n'aboutit |
+| `release disparu après réorganisation : escrow encore verrouillé` | Le release a été réorganisé hors de la chaîne et n'a pas été réinclus ; le fournisseur n'a pas été payé, l'emprunteur a peut-être déjà obtenu des prédictions | Avant l'échéance : **rejouer le release** avec les preuves conservées (ci-dessous), sans ouvrir l'enclave. Sinon laisser l'échéance passer et l'emprunteur se rembourser. Montant en jeu ≤ 25 USDG : perte acceptée si aucune des deux voies n'aboutit |
 | `bloc du release réorganisé après le règlement rapide` | Le reçu existe mais son bloc n'est plus canonique ; vérifier sur l'explorateur si la transaction a été réincluse ailleurs | Si réincluse et escrow libéré : clore la revue (ci-dessous). Sinon, comme la ligne précédente |
 | `release finalisé mais escrow non libéré on-chain (…)` | Incohérence entre le reçu et l'état du contrat : ne devrait pas arriver | Vérifier le RPC (archive, bonne chaîne) ; si confirmé, arrêter les admissions et ouvrir une analyse, runbook 1 |
 | `release introuvable mais escrow libéré par une autre transaction` | Le fournisseur a été payé par un autre release (reprise, remplacement de frais) | Vérifier la transaction sur l'explorateur, puis clore la revue en corrigeant `settleTxHash` |
@@ -142,11 +142,11 @@ Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne l
 
 Si `settleRawTx`/`settlePreimage` sont vides (capture échouée, journal `[settle] preuves de rediffusion non enregistrées`), le préimage se relit sur le contrat tant que le release y figure (`preimageOf`) ; s'il a disparu avec le release, seule l'enclave le connaît : runbook 1.
 
-Clore une revue, une fois la décision prise et consignée : `UPDATE "Loan" SET "finalityReview" = NULL, "finalityVerifiedAt" = now() WHERE id = '<id>' AND "finalityReview" IS NOT NULL;` (livraison et certificat redeviennent possibles). Si la finalité rapide est suspectée, désactiver d'abord (retour arrière, niveau 1).
+Clore une revue, une fois la décision prise et consignée : `UPDATE "Loan" SET "finalityReview" = NULL, "finalityVerifiedAt" = now() WHERE id = '<id>' AND "finalityReview" IS NOT NULL;` (prédiction et certificat redeviennent possibles). Si la finalité rapide est suspectée, désactiver d'abord (retour arrière, niveau 1).
 
 ## Risques résiduels, assumés
 
-- Séquenceur qui équivoque ou perd des blocs non postés sur L1 après un règlement rapide : 30 confirmations L2 n'y changent rien (elles ne couvrent que la vue RPC) ; le modèle est livré, le release peut disparaître ; borné à 25 USDG par prêt et 100 USDG en cours (Next et enclave) ; détecté par le reaper, rejouable avec les preuves conservées, jamais réparé seul.
-- Le lock lu par l'enclave à tête − 29 n'a pas de reçu à comparer (seul Next relit le reçu du lock) : une réorganisation du lock pendant l'entraînement produirait un modèle pour un escrow disparu ; l'enclave ne livre la clé qu'après un release confirmé, donc rien ne sort sans paiement.
+- Séquenceur qui équivoque ou perd des blocs non postés sur L1 après un règlement rapide : 30 confirmations L2 n'y changent rien (elles ne couvrent que la vue RPC) ; des prédictions peuvent être servies, le release peut disparaître ; borné à 25 USDG par prêt et 100 USDG en cours (Next et enclave) ; détecté par le reaper, rejouable avec les preuves conservées, jamais réparé seul.
+- Le lock lu par l'enclave à tête − 29 n'a pas de reçu à comparer (seul Next relit le reçu du lock) : une réorganisation du lock pendant l'entraînement produirait un modèle pour un escrow disparu ; l'enclave ne sert de prédiction qu'après un release confirmé, donc rien n'est servi sans paiement.
 - La somme des prêts rapides en cours est celle de la base : un prêt rapide dont la ligne serait perdue ne compterait plus. La transaction sérialisable couvre la concurrence, pas l'incohérence base/chaîne, déjà couverte par le reaper.
 - Le palier est annoncé à l'affichage (`GET …/finality`) avant d'être décidé au lancement : si le plafond se remplit entre les deux, la page repasse en minutes à la lecture suivante.

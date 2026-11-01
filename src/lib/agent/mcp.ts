@@ -41,8 +41,9 @@ const LIST_CACHE_TTL_MS = 60 * 60_000;
 
 export const MCP_INSTRUCTIONS =
   "Sirius is a private data marketplace on Robinhood Chain. Providers publish encrypted CSV datasets; " +
-  "a buyer pays in a stablecoin for a training run inside an Intel TDX enclave and receives only the trained model, " +
-  "never the raw data. Payment is held in an on-chain escrow and released on delivery, or refunded after the deadline. " +
+  "a buyer pays in a stablecoin for a training run inside an Intel TDX enclave; the trained model stays sealed in the enclave and is used " +
+  "only through signed predictions, never downloaded, and the raw data never leaves. Payment is held in an on-chain escrow and released " +
+  "once the model is trained, or refunded after the deadline. " +
   "These tools are read-only: search the catalogue, read a dataset, list training profiles, read the protocol status " +
   "and verify a public execution certificate. Purchases happen on the website for now.";
 

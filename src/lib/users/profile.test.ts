@@ -42,7 +42,6 @@ interface Row {
 function fakeDb(seed: Partial<Row>[] = []) {
   const rows = new Map<string, Row>();
   const calls: string[] = [];
-  const accessLogs: Record<string, unknown>[] = [];
   const base = (address: string): Row => ({
     address, tourCompletedAt: null, featureTours: {}, settings: {}, kybStatus: null, kybCheckedAt: null,
     blockedAt: null, blockedReason: null, blockedBy: null, createdAt: new Date("2026-10-01T00:00:00Z"), lastSeenAt: new Date("2026-10-01T00:00:00Z"),
@@ -76,17 +75,9 @@ function fakeDb(seed: Partial<Row>[] = []) {
         return next;
       },
     },
-    datasetAccessLog: {
-      create: async ({ data }: { data: Record<string, unknown> }) => {
-        calls.push("accessLog.create");
-        const row = { id: `log-${accessLogs.length + 1}`, createdAt: new Date("2026-10-03T10:00:00Z"), ...data };
-        accessLogs.push(row);
-        return row;
-      },
-    },
   };
   const transaction = async <T>(action: (tx: never) => Promise<T>) => action(db as never);
-  return { db: db as never as Parameters<typeof profile.ensureUserProfile>[1], rows, calls, accessLogs, transaction };
+  return { db: db as never as Parameters<typeof profile.ensureUserProfile>[1], rows, calls, transaction };
 }
 
 function rejects400(input: unknown, message: string, status = 400) {
@@ -109,10 +100,8 @@ test("l'adresse du profil est normalisée en minuscules et refusée si invalide"
   assert.deepEqual([...rows.keys()], [SUBJECT]);
   assert.deepEqual(calls, [`upsert:${SUBJECT}`]);
   assert.equal(view.createdAt, view.lastSeenAt, "une ligne créée est datée d'une seule horloge : jamais vue avant d'exister");
-  for (const message of ["adresse du profil EVM invalide", "adresse du journal des accès EVM invalide", "Entrée du journal des accès invalide"]) {
-    const english = translateEnglish(message);
-    assert.ok(english !== message && !/adresse|journal/.test(english), `« ${message} » doit avoir une traduction explicite`);
-  }
+  const english = translateEnglish("adresse du profil EVM invalide");
+  assert.ok(english !== "adresse du profil EVM invalide" && !/adresse/.test(english), "le refus d'adresse doit avoir une traduction explicite");
   await assert.rejects(profile.ensureUserProfile("not-an-address", db), /adresse du profil EVM invalide/);
   await assert.rejects(profile.readUserProfile("0x1234", db), /adresse du profil EVM invalide/);
   assert.equal(await profile.readUserProfile(OTHER, db), null);
@@ -293,43 +282,6 @@ test("updateUserProfile fusionne les réglages clé par clé, pose la date du tu
   await assert.rejects(profile.updateUserProfile(SUBJECT, { kybStatus: "ACCEPTED" }, untouched.transaction), /non modifiable/);
   await assert.rejects(profile.updateUserProfile("bad", { tourCompletedAt: true }, untouched.transaction), /adresse du profil EVM invalide/);
   assert.deepEqual(untouched.calls, [], "rien n'est lu ni écrit quand la validation échoue");
-});
-
-test("recordDatasetAccess normalise l'adresse, borne chaque champ et refuse les entrées malformées", async () => {
-  const { db, accessLogs, calls } = fakeDb();
-  const record = await profile.recordDatasetAccess({ datasetId: "clz0dataset", address: MIXED_CASE, loanId: "clz0loan", modelCid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", modelFingerprint: "a".repeat(64) }, db);
-  assert.equal(record.address, SUBJECT);
-  assert.equal(record.datasetId, "clz0dataset");
-  assert.equal(record.loanId, "clz0loan");
-  assert.equal(record.id, "log-1");
-  assert.equal(accessLogs[0].address, SUBJECT);
-  assert.deepEqual(calls, ["accessLog.create"]);
-
-  const minimal = await profile.recordDatasetAccess({ datasetId: "clz0dataset", address: SUBJECT }, db);
-  assert.deepEqual([minimal.loanId, minimal.modelCid, minimal.modelFingerprint], [null, null, null]);
-  assert.equal(accessLogs.length, 2);
-
-  const invalid = [
-    null, [], "clz0dataset",
-    { address: SUBJECT }, { datasetId: "", address: SUBJECT }, { datasetId: "x".repeat(65), address: SUBJECT },
-    { datasetId: "clz0 dataset", address: SUBJECT }, { datasetId: "clz0;drop", address: SUBJECT }, { datasetId: 42, address: SUBJECT },
-    { datasetId: "clz0dataset", address: "0x1234" }, { datasetId: "clz0dataset" }, { datasetId: "clz0dataset", address: null },
-    { datasetId: "clz0dataset", address: SUBJECT, loanId: "" }, { datasetId: "clz0dataset", address: SUBJECT, loanId: 7 },
-    { datasetId: "clz0dataset", address: SUBJECT, modelCid: "x".repeat(257) }, { datasetId: "clz0dataset", address: SUBJECT, modelCid: "bafy/../etc" },
-    { datasetId: "clz0dataset", address: SUBJECT, modelFingerprint: "g".repeat(129) }, { datasetId: "clz0dataset", address: SUBJECT, modelFingerprint: { sha256: "a" } },
-  ];
-  for (const entry of invalid) {
-    await assert.rejects(profile.recordDatasetAccess(entry as never, db), (error: unknown) =>
-      error instanceof AppError && error.status === 400 && translateEnglish(error.message) !== error.message, `${JSON.stringify(entry)} devrait être refusé avec un message traduit`);
-  }
-  assert.equal(accessLogs.length, 2, "aucune entrée invalide n'est écrite");
-
-  const orphan = new Prisma.PrismaClientKnownRequestError("fk", { code: "P2003", clientVersion: "test" });
-  const strict = { datasetAccessLog: { create: async () => { throw orphan; } } };
-  await assert.rejects(profile.recordDatasetAccess({ datasetId: "clz0missing", address: SUBJECT }, strict as never),
-    (error: unknown) => error instanceof AppError && error.status === 404 && error.message === "Dataset introuvable");
-  const outage = new Error("connection lost");
-  await assert.rejects(profile.recordDatasetAccess({ datasetId: "clz0dataset", address: SUBJECT }, { datasetAccessLog: { create: async () => { throw outage; } } } as never), (error) => error === outage);
 });
 
 const warnings: string[] = [];

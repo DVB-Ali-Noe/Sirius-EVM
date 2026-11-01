@@ -10,7 +10,6 @@ import { siriusescrowAbi } from "../../src/lib/evm/abi/siriusescrow";
 import { siriusescrowv7Abi } from "../../src/lib/evm/abi/siriusescrowv7";
 import * as address from "../../src/lib/evm/address";
 import * as networks from "../../src/lib/evm/networks";
-import { parseDownloadedModel } from "../../src/lib/models/registry";
 import { loadModule, serverOnly } from "./module-testkit";
 
 const CURRENT = "0xc6a27dd5fdfdeda069b5634ca8d44416dfdb3f4f";
@@ -44,20 +43,6 @@ function receiptsUnderMasterKey() {
   return { receipts, historical };
 }
 
-test("un reçu d'entraînement v2 relivre encore son modèle, mais seulement pour son propre job", () => {
-  const { receipts, historical } = receiptsUnderMasterKey();
-  const token = historical({ version: 2, kind: "training", jobId: "job-hist", datasetId: "ds-1", owner: PROVIDER, modelCid: "bafy-hist" });
-  const receipt = receipts.verifyTrainingReceipt(token, "job-hist");
-  assert.equal(receipt.version, 2);
-  assert.equal(receipt.modelCid, "bafy-hist");
-  assert.equal("modelId" in receipt, false, "aucun profil n'est inventé pour un reçu v2");
-  assert.throws(() => receipts.verifyTrainingReceipt(token, "autre-job"), /hors scope/);
-  // Un reçu v2 signé avec la clé v3 n'est pas un reçu historique : les deux clés restent distinctes.
-  assert.throws(() => receipts.verifyTrainingReceipt(historical({ version: 2, kind: "training", jobId: "job-hist" }, 3), "job-hist"), /Reçu runner invalide/);
-  const fresh = receipts.issueTrainingReceipt({ jobId: "job-new", datasetId: "ds-1", owner: PROVIDER, modelCid: "bafy-new", modelId: "linear_regression", modelVersion: "1.0.0" });
-  assert.equal(receipts.verifyTrainingReceipt(fresh, "job-new").version, 3);
-});
-
 test("un reçu de dataset v2 est refusé : un dataset scellé sous l'ancien format doit être réimporté", () => {
   const { receipts, historical } = receiptsUnderMasterKey();
   const dataset = { datasetId: "ds-1", cid: "bafy-ds", wrappedKey: "wk", merkleRoot: "root", priceUsdcAtomic: "10", challengeDays: 7,
@@ -68,15 +53,15 @@ test("un reçu de dataset v2 est refusé : un dataset scellé sous l'ancien form
   assert.equal(receipts.verifyDatasetReceipt(receipts.issueDatasetReceipt(PROVIDER, dataset), dataset).version, 3);
 });
 
-test("un reçu de prêt v2 ne sert qu'à relivrer un modèle déjà réglé, sur un escrow historique déclaré", () => {
+test("un reçu de prêt v3 d'un escrow historique déclaré prouve son règlement, sans autoriser de nouvel usage", () => {
   const { receipts, historical } = receiptsUnderMasterKey();
-  const payload = { version: 2, kind: "loan", loanId: "loan-hist", datasetId: "ds-1", borrower: BORROWER, provider: PROVIDER, modelCid: "bafy-l",
-    loanKey: `0x${"ab".repeat(32)}`, chainId: 46630, escrow: OLD, amountUsdcAtomic: "10", challengeDays: 7, deliveryPublicKey: "k",
-    releaseEnvelopeHash: "f".repeat(64), attestationHash: "a".repeat(64) };
-  const token = historical(payload);
+  const payload = { version: 3, kind: "loan", loanId: "loan-hist", datasetId: "ds-1", borrower: BORROWER, provider: PROVIDER, modelCid: "bafy-l",
+    modelId: "linear_regression", modelVersion: "1.0.0", loanKey: `0x${"ab".repeat(32)}`, chainId: 46630, escrow: OLD, amountUsdcAtomic: "10",
+    challengeDays: 7, attestationHash: "a".repeat(64) };
+  const token = historical(payload, 3);
   assert.throws(() => receipts.verifyLoanReceipt(token, "loan-hist"), appError.AppError);
-  assert.equal(receipts.verifyLoanDeliveryReceipt(token, "loan-hist").escrow, OLD);
-  assert.throws(() => receipts.verifyLoanDeliveryReceipt(historical({ ...payload, escrow: `0x${"99".repeat(20)}` }), "loan-hist"), /non autorisé/);
+  assert.equal(receipts.verifySettledLoanReceipt(token, "loan-hist").escrow, OLD);
+  assert.throws(() => receipts.verifySettledLoanReceipt(historical({ ...payload, escrow: `0x${"99".repeat(20)}` }, 3), "loan-hist"), /non autorisé/);
 });
 
 function escrowUnder(version: string, loan: Record<string, unknown> | null) {
@@ -131,13 +116,4 @@ test("les prêts des escrows v4, v5, v6 et v7 se lisent chacun dans leur format,
   await assert.rejects(escrowUnder("sirius-escrow-usdc-v3", legacyLoan).readLoan(LOAN_KEY, { chainId: 46630, escrow: OLD }), /non supportée/);
   // Un escrow absent de la liste historique n'est jamais lu, même avec une version connue.
   await assert.rejects(escrowUnder("sirius-escrow-usdc-v6", legacyLoan).readLoan(LOAN_KEY, { chainId: 46630, escrow: `0x${"99".repeat(20)}` }), /non autorisé/);
-});
-
-test("le format historique du modèle linéaire s'ouvre tel quel, sans version ni MAE ajoutées", () => {
-  const historical = { algo: "linear_regression", target: "y", features: ["a", "b"], coefficients: [0.1, 0.2, 0.3], metrics: { r2: 0.9, rmse: 1.5, n: 40 } };
-  const parsed = parseDownloadedModel(historical);
-  assert.equal("version" in parsed, false);
-  assert.equal("mae" in parsed.metrics, false);
-  assert.throws(() => parseDownloadedModel({ ...historical, version: "1.0.0" }), /invalide/);
-  assert.throws(() => parseDownloadedModel({ ...historical, metrics: { ...historical.metrics, mae: 0.1 } }), /invalide/);
 });

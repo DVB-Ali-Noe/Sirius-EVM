@@ -55,11 +55,23 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
   "Ce dataset n’est plus disponible à l’emprunt : le réentraînement est impossible.":
     "This dataset is no longer available to borrow: retraining is not possible.",
 
-  // Remboursement, réservé aux échecs sans modèle livré
+  // Remboursement, réservé aux échecs sans modèle utilisable
   "Rembourser": "Refund",
-  "L’échéance est dépassée et le règlement ne peut plus être finalisé : aucun modèle n’a été livré.":
-    "The deadline has passed and the settlement can no longer be completed: no model was delivered.",
-  "Entraînement échoué : aucun modèle n’a été livré.": "Training failed: no model was delivered.",
   "Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.":
     "The refund returns everything you paid except, where applicable, the compute actually consumed, as measured by the enclave. You confirm it in your wallet; ETH network fees are paid separately.",
+  "L’échéance est dépassée et le règlement ne peut plus être finalisé : le modèle reste inutilisable.":
+    "The deadline has passed and the settlement can no longer be completed: the model remains unusable.",
+  "Entraînement échoué : aucun modèle n’a été produit.": "Training failed: no model was produced.",
+
+  // Modèle scellé dans le runner : prédictions signées seulement
+  "Le calcul tourne dans un TEE — le modèle y reste scellé : tu obtiens des prédictions signées, jamais le modèle ni la donnée brute.":
+    "Computing runs in a TEE — the model stays sealed there: you get signed predictions, never the model or the raw data.",
+  "Modèle privé": "Private model",
+  "Empreinte du modèle": "Model fingerprint",
+  "Modèle indisponible : entraîné avant la prédiction privée.": "Model unavailable: trained before private prediction.",
+  "Reçu runner manquant": "Runner receipt is missing",
+  "Demander une prédiction": "Request a prediction",
+  "Prédiction…": "Predicting…",
+  "Valeur : {value} · appel n° {count}": "Value: {value} · call #{count}",
+  "Prédiction refusée": "Prediction refused",
 };

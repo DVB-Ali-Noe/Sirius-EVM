@@ -128,7 +128,7 @@ export function deriveOnboardingProgress(input: OnboardingInput): OnboardingProg
     borrow: borrowed,
     model: mine.some((loan) => loan.status === "SETTLED"),
   };
-  // Une étape aval faite valide les étapes amont qui en sont la condition (un modèle livré
+  // Une étape aval faite valide les étapes amont qui en sont la condition (un modèle prêt
   // suppose un emprunt, un emprunt suppose un dataset choisi).
   if (done.model) done.borrow = true;
   if (done.borrow) done.pick = true;
@@ -210,13 +210,13 @@ export function shouldPromptVerification(input: {
  *  - `payment` : lock envoyé, pas encore finalisé (SUBMITTING, ou PENDING avec un hash de lock) ;
  *  - `escrow` : fonds en escrow, l'entraînement est à lancer depuis Train (ESCROWED) ;
  *  - `training` : entraînement en cours (TRAINING) ;
- *  - `delivering` : règlement envoyé, modèle en cours de livraison (SETTLING) ;
+ *  - `settling` : règlement envoyé, en attente de confirmation (SETTLING) ;
  *  - `attention` : échéance dépassée, une action est requise sur Train.
  */
-export type ActiveLoanPhase = "payment" | "escrow" | "training" | "delivering" | "attention";
+export type ActiveLoanPhase = "payment" | "escrow" | "training" | "settling" | "attention";
 
 /** Priorité d'affichage : d'abord ce qui demande une action de l'utilisateur. */
-const PHASE_ORDER: Record<ActiveLoanPhase, number> = { attention: 4, escrow: 3, delivering: 2, training: 1, payment: 0 };
+const PHASE_ORDER: Record<ActiveLoanPhase, number> = { attention: 4, escrow: 3, settling: 2, training: 1, payment: 0 };
 
 /** Phase d'un prêt d'emprunteur, ou `null` s'il n'est pas en cours (devis, réglé, annulé). */
 export function loanPhase(loan: OnboardingLoan): ActiveLoanPhase | null {
@@ -224,7 +224,7 @@ export function loanPhase(loan: OnboardingLoan): ActiveLoanPhase | null {
   if (loan.status === "SUBMITTING" || (loan.status === "PENDING" && Boolean(loan.evmLockTxHash))) phase = "payment";
   else if (loan.status === "ESCROWED") phase = "escrow";
   else if (loan.status === "TRAINING") phase = "training";
-  else if (loan.status === "SETTLING") phase = "delivering";
+  else if (loan.status === "SETTLING") phase = "settling";
   else return null;
   return loan.refundable === true ? "attention" : phase;
 }

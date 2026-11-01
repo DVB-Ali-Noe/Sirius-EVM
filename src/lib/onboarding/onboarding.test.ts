@@ -36,7 +36,7 @@ function done(progress: ReturnType<typeof deriveOnboardingProgress>) {
   return Object.fromEntries(progress.steps.map((step) => [step.id, step.done]));
 }
 
-test("ordre des étapes : du wallet au modèle livré", () => {
+test("ordre des étapes : du wallet au modèle prêt", () => {
   assert.deepEqual([...ONBOARDING_STEP_IDS], ["connect", "signin", "verify", "fund", "pick", "borrow", "model"]);
 });
 
@@ -104,7 +104,7 @@ test("un devis abandonné compte comme dataset choisi, pas comme emprunt", () =>
   assert.equal(progress.current, "borrow");
 });
 
-test("modèle livré : tout est fait, la carte n'a plus d'étape courante", () => {
+test("modèle prêt : tout est fait, la carte n'a plus d'étape courante", () => {
   const progress = deriveOnboardingProgress(input({ kyb: "valid", loans: [loan("SETTLED")] }));
   assert.equal(progress.current, null);
   assert.equal(progress.completed, 7);
@@ -195,19 +195,19 @@ test("préférence de la carte : lue seulement dans le profil du wallet attendu"
   }
 });
 
-test("phase d'un prêt : paiement en finalisation, escrow, entraînement, livraison", () => {
+test("phase d'un prêt : paiement en finalisation, escrow, entraînement, règlement", () => {
   assert.equal(loanPhase(loan("SUBMITTING")), "payment");
   assert.equal(loanPhase(loan("PENDING", { evmLockTxHash: TX })), "payment");
   assert.equal(loanPhase(loan("ESCROWED")), "escrow");
   assert.equal(loanPhase(loan("TRAINING")), "training");
-  assert.equal(loanPhase(loan("SETTLING")), "delivering");
+  assert.equal(loanPhase(loan("SETTLING")), "settling");
   // Devis refusé ou abandonné, prêt réglé ou annulé : pas en cours.
   for (const status of ["PENDING", "SETTLED", "CANCELLED", "INCONNU"]) assert.equal(loanPhase(loan(status)), null, status);
   assert.equal(loanPhase(loan("SETTLING", { refundable: true })), "attention");
   assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.payment], "payment finalizing");
   assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.escrow], "funds in escrow — start training");
   assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.training], "training");
-  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.delivering], "delivering model");
+  assert.equal(EN_MESSAGES[LOAN_PHASE_LABEL.settling], "settling");
 });
 
 test("indicateur global : prêts actifs de l'emprunteur, la phase qui demande une action en premier", () => {
@@ -217,7 +217,7 @@ test("indicateur global : prêts actifs de l'emprunteur, la phase qui demande un
   assert.deepEqual(activeLoanSummary([loan("PENDING", { evmLockTxHash: TX })], ME), { count: 1, phase: "payment" });
   assert.deepEqual(activeLoanSummary([loan("ESCROWED")], ME), { count: 1, phase: "escrow" });
   assert.deepEqual(activeLoanSummary([loan("SUBMITTING"), loan("TRAINING")], ME), { count: 2, phase: "training" });
-  assert.deepEqual(activeLoanSummary([loan("TRAINING"), loan("SETTLING")], ME), { count: 2, phase: "delivering" });
+  assert.deepEqual(activeLoanSummary([loan("TRAINING"), loan("SETTLING")], ME), { count: 2, phase: "settling" });
   // Fonds en escrow : l'entraînement est à lancer, cela passe avant un prêt qui suit son cours.
   assert.deepEqual(activeLoanSummary([loan("SETTLING"), loan("ESCROWED")], ME), { count: 2, phase: "escrow" });
   assert.deepEqual(activeLoanSummary([loan("TRAINING", { refundable: true }), loan("ESCROWED")], ME), { count: 2, phase: "attention" });

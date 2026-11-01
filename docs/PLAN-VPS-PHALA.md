@@ -1,5 +1,7 @@
 # Testnet sur VPS et espace Phala — plan actualisé le 26 septembre 2026
 
+> **Plan historique.** Depuis [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule), le visiteur ne récupère plus le modèle : il l'interroge par prédiction signée pendant la session. Les passages sur la livraison après arrêt sont caducs.
+
 ## Objectif et périmètre
 
 **Priorité validée : proposer rapidement des sessions publiques de démonstration Phala, activées et désactivées manuellement par les opérateurs autorisés et financées par Sirius.** Les deux heures évoquées étaient un ordre de grandeur, pas une durée imposée. Les visiteurs choisissent un dataset fourni sur le site ou importent leur propre CSV, entraînent un modèle et récupèrent leur résultat. L’objectif est de profiter de l’attention actuelle portée à Phala avec une fonctionnalité utilisable. Ce plan ne vérifie ni ne reprend de chiffre de performance de son token.

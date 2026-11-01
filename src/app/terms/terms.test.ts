@@ -14,8 +14,11 @@ const read = (relative: string) => readFileSync(fileURLToPath(new URL(relative, 
 // Les phrases du source tiennent sur une ligne ; on neutralise tout de même les espaces.
 const terms = read("./page.tsx").replace(/\s+/g, " ");
 
-test("conditions : traçage des accès et des empreintes de modèles déclaré", () => {
-  assert.match(terms, /Sirius records dataset accesses and the fingerprint of each delivered model in order to detect and investigate leaks/);
+test("conditions : plus de livraison de modèle, anciens journaux d'accès déclarés", () => {
+  assert.match(terms, /use only the trained model, through signed predictions/);
+  assert.match(terms, /it is never delivered or downloadable/);
+  assert.match(terms, /Sirius no longer delivers models, so it no longer records model deliveries/);
+  assert.doesNotMatch(terms, /records dataset accesses and the fingerprint of each delivered model/);
 });
 
 test("conditions : consentement facultatif, décoché par défaut, enclave seule, révocable", () => {

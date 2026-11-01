@@ -11,10 +11,10 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "entraîne un modèle": "trains a model",
   "publie le titre": "publishes the title",
   "verrouille le stablecoin": "locks the stablecoin",
-  "modèle chiffré": "encrypted model",
+  "prédictions signées": "signed predictions",
   "release + préimage": "release + preimage",
   "modèle prêt ?": "model ready?",
-  "Capsule verrouillée": "Locked capsule",
+  "Modèle scellé": "Sealed model",
   "signé par le borrower": "signed by the borrower",
   "État de l’implémentation": "Implementation status",
   "Garanties & limites de sécurité": "Security guarantees & limits",
@@ -29,10 +29,10 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Sirius inverse le flux :": "Sirius reverses the flow:",
   "le modèle vient à la donnée": "the model comes to the data",
   ", avec une isolation matérielle du calcul lorsque le runner utilise un TEE attesté. Le provider conserve sa donnée source.": ", with hardware isolation of computation when the runner uses an attested TEE. The provider keeps their source data.",
-  "Le navigateur chiffre le dataset avant son envoi au runner. Celui-ci stocke le dataset chiffré sur IPFS, entraîne le modèle et prépare sa livraison chiffrée. Le règlement EVM publie le préimage nécessaire à l’ouverture de la capsule.": "The browser encrypts the dataset before sending it to the runner. The runner stores the encrypted dataset on IPFS, trains the model, and prepares encrypted delivery. EVM settlement publishes the preimage needed to open the capsule.",
+  "Le navigateur chiffre le dataset avant son envoi au runner. Celui-ci stocke le dataset chiffré sur IPFS, entraîne le modèle et le garde scellé : le modèle ne sort jamais du runner. Le borrower l’interroge par prédictions signées après le règlement EVM.": "The browser encrypts the dataset before sending it to the runner. The runner stores the encrypted dataset on IPFS, trains the model, and keeps it sealed: the model never leaves the runner. The borrower queries it through signed predictions after EVM settlement.",
   "Après l’envoi, le runner déchiffre le CSV pour calculer. Seul le mode Phala attesté isole ce calcul matériellement ; le mode stub ne le fait pas.": "After upload, the runner decrypts the CSV to compute. Only attested Phala mode provides hardware isolation for this computation; stub mode does not.",
   "publie un dataset chiffré et reçoit le règlement.": "publishes an encrypted dataset and receives settlement.",
-  "choisit un dataset, finance le prêt et récupère le modèle.": "chooses a dataset, funds the loan, and receives the model.",
+  "choisit un dataset, finance le prêt et interroge le modèle par prédictions signées.": "chooses a dataset, funds the loan, and queries the model through signed predictions.",
   "ouvre le dataset, calcule et détient le préimage ; l’attestation matérielle dépend du mode de déploiement.": "opens the dataset, computes, and holds the preimage; hardware attestation depends on the deployment mode.",
   "orchestre le parcours. Avec un runner distant attesté, Next ne reçoit ni CSV en clair ni clés de dataset ; ce n’est pas une garantie du mode stub local.": "orchestrates the flow. With a remote attested runner, Next receives neither plaintext CSV nor dataset keys; local stub mode does not provide this guarantee.",
   "Dataset chiffré": "Encrypted dataset",
@@ -41,8 +41,8 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "hash du CID, Merkle root, taille et empreinte du profil d’entraînement inscrits dans": "CID hash, Merkle root, size, and training-profile hash registered in",
   "Attestation KYB": "KYB attestation",
   "credential EIP-712 consenti par le wallet, émis par un vérificateur externe et requis par le registre comme par l’escrow.": "EIP-712 credential consented to by the wallet, issued by an external verifier, and required by both the registry and escrow.",
-  "Capsule modèle": "Model capsule",
-  "clé de livraison chiffrée pour le navigateur et liée au préimage.": "delivery key encrypted for the browser and tied to the preimage.",
+  "Prédiction signée": "Signed prediction",
+  "réponse du runner signée EIP-712 : valeur arrondie à 3 chiffres significatifs (régression linéaire) ou décision 0/1 (logistique, arbres). Disponible seulement pendant que le runner tourne.": "EIP-712-signed runner answer: a value rounded to 3 significant digits (linear regression) or a 0/1 decision (logistic, trees). Available only while the runner is running.",
   "Déposer": "Upload",
   "Entraîner": "Train",
   "Le provider choisit le profil d’entraînement, puis le navigateur chiffre le CSV pour le runner. Le runner valide sa compatibilité, calcule le Merkle root et stocke le blob chiffré sur IPFS.": "The provider selects the training profile, then the browser encrypts the CSV for the runner. The runner validates compatibility, computes the Merkle root, and stores the encrypted blob on IPFS.",
@@ -52,7 +52,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.": "The borrower uses the dataset’s fixed profile, approves the stablecoin, and signs lock. Escrow checks the title, profile, and KYB, then fixes the amount, hashlock, and expiry.",
   "Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.": "The runner cross-checks KYB, title, profile, and escrow terms before decrypting and training. Hardware isolation requires attested Phala mode.",
   "Régler": "Settle",
-  "Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit en stablecoin se retire séparément.": "Once the capsule is ready, the runner calls release: the provider is credited and the preimage is published. The browser can then open the model. Stablecoin credit is withdrawn separately.",
+  "Une fois le modèle scellé, le runner appelle release : le provider est crédité et le préimage est publié. Le borrower peut ensuite demander des prédictions signées. Le crédit en stablecoin se retire séparément.": "Once the model is sealed, the runner calls release: the provider is credited and the preimage is published. The borrower can then request signed predictions. Stablecoin credit is withdrawn separately.",
   "Implémenté": "Implemented",
   "Hashlock SHA-256, transferts exacts en stablecoin, KYB des deux parties, remboursement et retraits pull-only.": "SHA-256 hashlock, exact stablecoin transfers, KYB for both parties, refunds, and pull-only withdrawals.",
   "Attestations EIP-712, expiration, révocation durable et consentement du wallet ; l’émetteur est externe.": "EIP-712 attestations, expiry, durable revocation, and wallet consent; the issuer is external.",
@@ -68,16 +68,16 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Confidentialité : qui voit quoi": "Confidentiality: who sees what",
   "Custody : qui détient quoi": "Custody: who holds what",
   "Les contrats EVM": "EVM contracts",
-  "Le runner TEE contrôle le release, pas les deux contreparties. Le borrower possède d’abord une capsule inutilisable ; le préimage qui l’ouvre n’est publié qu’avec le crédit du provider.": "The TEE runner controls release, not either counterparty. The borrower first holds an unusable capsule; its opening preimage is published only when the provider is credited.",
+  "Le runner TEE contrôle le release, pas les deux contreparties. Le modèle reste scellé dans le runner ; il ne répond aux prédictions du borrower qu’après un release confirmé, qui crédite le provider.": "The TEE runner controls release, not either counterparty. The model stays sealed in the runner; it answers the borrower’s predictions only after a confirmed release, which credits the provider.",
   "`release` est autorisé uniquement avant l’échéance. Après celle-ci, seul `refund` peut créditer le borrower : aucun préimage ne peut alors être publié par l’escrow.": "`release` is allowed only before expiry. After that, only `refund` can credit the borrower: the escrow can no longer publish a preimage.",
   "Scénario": "Scenario",
   "Issue": "Outcome",
   "Calcul réussi": "Successful computation",
-  "Une transaction crédite le provider et publie le préimage. Le navigateur déchiffre ensuite la capsule hors chaîne.": "One transaction credits the provider and publishes the preimage. The browser then decrypts the capsule off-chain.",
+  "Une transaction crédite le provider et publie le préimage. Le borrower obtient ensuite des prédictions signées.": "One transaction credits the provider and publishes the preimage. The borrower then obtains signed predictions.",
   "Job invalide ou infructueux": "Invalid or unsuccessful job",
   "Aucun préimage n’est révélé. En v7, le runner atteste l’échec : le prêt passe à Failed et le borrower est remboursé aussitôt, moins les frais de calcul attestés, bornés par `maxFailureFee`. Sinon, il récupère les fonds après échéance.": "No preimage is revealed. In v7, the runner attests the failure: the loan moves to Failed and the borrower is refunded immediately, minus the attested compute fees, capped by `maxFailureFee`. Otherwise, they recover the funds after expiry.",
-  "Tentative d'obtenir le modèle sans payer": "Attempt to obtain the model without paying",
-  "Impossible : la capsule exige le préimage publié au règlement.": "Impossible: the capsule requires the preimage published at settlement.",
+  "Tentative d'interroger le modèle sans payer": "Attempt to query the model without paying",
+  "Impossible : le runner exige un release confirmé avant toute prédiction.": "Impossible: the runner requires a confirmed release before any prediction.",
   "Litige subjectif sur la qualité": "Subjective quality dispute",
   "Non tranché par l’escrow seul ; arbitrage à venir.": "Not resolved by escrow alone; arbitration is a future extension.",
   "Le borrower signe le verrouillage depuis son wallet. Un prêt créé est Locked, puis Released, Refunded ou Failed : ces issues sont mutuellement exclusives. Failed n’existe qu’avec l’escrow v7, où dataset et calcul sont prépayés : un échec attesté par le runner rembourse le borrower sans attendre l’échéance. Les statuts applicatifs comme TRAINING ne sont pas des états du contrat.": "The borrower signs the lock from their wallet. A created loan is Locked, then Released, Refunded, or Failed: these outcomes are mutually exclusive. Failed exists only with the v7 escrow, where dataset and compute are prepaid: a failure attested by the runner refunds the borrower without waiting for expiry. Application statuses such as TRAINING are not contract states.",
@@ -103,8 +103,9 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "oui": "yes",
   "Clé du dataset (DEK)": "Dataset key (DEK)",
   "Titre et événements EVM": "EVM title and events",
-  "Modèle déchiffré": "Decrypted model",
-  "oui, pendant le job": "yes, during the job",
+  "Modèle entraîné": "Trained model",
+  "oui, scellé": "yes, sealed",
+  "Prédictions signées": "Signed predictions",
   "Les fonds": "Funds",
   "restent dans le wallet ou dans `SiriusEscrow` ; Sirius ne peut pas les déplacer discrétionnairement.": "remain in the wallet or `SiriusEscrow`; Sirius cannot move them at its discretion.",
   "Le titre du dataset": "The dataset title",
@@ -145,28 +146,29 @@ const DOCUMENTATION_EN: Record<string, string> = {
     "0/1 target, at least 10,000 rows (otherwise, logistic regression). Depth 2, leaves of at least 1,000 rows, no randomness. One row in five is held out: held-out AUC, accuracy, precision, recall and F1, plus the train / held-out AUC gap.",
   "Exemple d’entraînement par arbres boostés": "Gradient-boosted trees training example",
   "Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.": "The CSV must have unique headers. Its last numeric column is the target; other numeric columns are features, up to 31. At least 100 rows and 10 rows per parameter, including the bias, are required.",
-  "Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For linear and logistic regression, delivered model metrics are calculated on the training data. Then evaluate a separate test CSV in the browser: a high training score does not prove performance on new data.",
+  "Pour la régression linéaire et la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For linear and logistic regression, model metrics are calculated on the training data: a high training score does not prove performance on new data.",
   "Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.": "For boosted trees, delivered metrics are computed on one row in five held out from training; the train / held-out AUC gap is delivered alongside. The training page flags an abnormal train / held-out gap in either direction, measured in held-out standard errors: a training AUC higher by more than 0.02 + 3 standard errors (likely overfitting), or a held-out AUC higher by more than 3 standard errors (possible leak or row error). This check is about model quality: it does not detect memorization of specific rows.",
   "Exemple d’entraînement linéaire": "Linear training example",
   "Exemple d’entraînement logistique": "Logistic training example",
   "Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.": "An incompatible profile is rejected before the stablecoin is locked. To change the profile, upload the dataset again. Self-training on your own data also respects this profile, without a loan.",
   "Préimage avant release": "Preimage before release",
   "Préimage publié au release": "Preimage published on release",
-  "Ce tableau décrit le mode Phala distant attesté, sans partage volontaire des artefacts par les participants. Il ne s’applique pas au mode stub local, où le serveur a accès à la donnée brute et aux clés. Le préimage public ne suffit pas à ouvrir la capsule sans la clé du navigateur destinataire.": "This table describes remote attested Phala mode, without participants voluntarily sharing artifacts. It does not apply to local stub mode, where the server has access to raw data and keys. The public preimage alone cannot open the capsule without the recipient browser’s key.",
+  "Ce tableau décrit le mode Phala distant attesté, sans partage volontaire des artefacts par les participants. Il ne s’applique pas au mode stub local, où le serveur a accès à la donnée brute et aux clés. Le préimage public sert uniquement au règlement : il n’ouvre aucun modèle.": "This table describes remote attested Phala mode, without participants voluntarily sharing artifacts. It does not apply to local stub mode, where the server has access to raw data and keys. The public preimage only settles the loan: it opens no model.",
   "Sur petit écran, faites défiler le schéma horizontalement.": "On smaller screens, scroll the diagram horizontally.",
   "Flux du dataset et du règlement": "Dataset and settlement flow",
-  "Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.": "The provider sends the encrypted CSV to the runner and publishes the title. The runner uses IPFS for encrypted storage and delivers the encrypted model to the borrower. The borrower locks the stablecoin; the runner publishes the preimage at settlement.",
+  "Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et répond au borrower par prédictions signées. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.": "The provider sends the encrypted CSV to the runner and publishes the title. The runner uses IPFS for encrypted storage and answers the borrower with signed predictions. The borrower locks the stablecoin; the runner publishes the preimage at settlement.",
   "stub ou TEE attesté": "stub or attested TEE",
   "stockage chiffré": "encrypted storage",
   "DatasetRegistry · KYB · Escrow\nCrédits en stablecoin · retraits séparés": "DatasetRegistry · KYB · Escrow\nStablecoin credits · separate withdrawals",
   "CSV chiffré": "encrypted CSV",
   "lecture": "read",
-  "Livraison du modèle et paiement": "Model delivery and payment",
-  "Avant échéance, release crédite le provider et publie le préimage dans une seule transaction. Ensuite, le navigateur ouvre la capsule hors chaîne. Sans release avant échéance, refund crédite le borrower.": "Before expiry, release credits the provider and publishes the preimage in one transaction. The browser then opens the capsule off-chain. Without release before expiry, refund credits the borrower.",
+  "Prédictions et paiement": "Predictions and payment",
+  "Avant échéance, release crédite le provider et publie le préimage dans une seule transaction. Ensuite, le runner répond aux prédictions du borrower. Sans release avant échéance, refund crédite le borrower.": "Before expiry, release credits the provider and publishes the preimage in one transaction. The runner then answers the borrower’s predictions. Without release before expiry, refund credits the borrower.",
   "Calcul du runner": "Runner computation",
   "provider crédité\n+ préimage public\nune transaction EVM": "provider credited\n+ public preimage\none EVM transaction",
-  "Capsule ouverte": "Capsule opened",
-  "ensuite, dans le navigateur": "then, in the browser",
+  "Prédictions ouvertes": "Predictions open",
+  "signées par le runner": "signed by the runner",
+  "dans le runner": "in the runner",
   "Pas de release": "No release",
   "échec ou délai dépassé": "failure or missed deadline",
   "après échéance\nborrower crédité": "after expiry\nborrower credited",
@@ -238,7 +240,7 @@ export default function DocsPage() {
         </DocSection>
 
         <DocSection id="solution" title={d("La solution en un coup d'œil")}>
-          <p>{d("Le navigateur chiffre le dataset avant son envoi au runner. Celui-ci stocke le dataset chiffré sur IPFS, entraîne le modèle et prépare sa livraison chiffrée. Le règlement EVM publie le préimage nécessaire à l’ouverture de la capsule.")}</p>
+          <p>{d("Le navigateur chiffre le dataset avant son envoi au runner. Celui-ci stocke le dataset chiffré sur IPFS, entraîne le modèle et le garde scellé : le modèle ne sort jamais du runner. Le borrower l’interroge par prédictions signées après le règlement EVM.")}</p>
           <OverviewDiagram d={d} />
           <Caption>{d("Après l’envoi, le runner déchiffre le CSV pour calculer. Seul le mode Phala attesté isole ce calcul matériellement ; le mode stub ne le fait pas.")}</Caption>
         </DocSection>
@@ -246,7 +248,7 @@ export default function DocsPage() {
         <DocSection id="acteurs" title={d("Les acteurs & artefacts")}>
           <ul className="ml-5 list-disc space-y-2 marker:text-muted">
             <li><span className={strong}>Provider</span> — {d("publie un dataset chiffré et reçoit le règlement.")}</li>
-            <li><span className={strong}>Borrower</span> — {d("choisit un dataset, finance le prêt et récupère le modèle.")}</li>
+            <li><span className={strong}>Borrower</span> — {d("choisit un dataset, finance le prêt et interroge le modèle par prédictions signées.")}</li>
             <li><span className={strong}>Runner</span> — {d("ouvre le dataset, calcule et détient le préimage ; l’attestation matérielle dépend du mode de déploiement.")}</li>
             <li><span className={strong}>Sirius</span> — {d("orchestre le parcours. Avec un runner distant attesté, Next ne reçoit ni CSV en clair ni clés de dataset ; ce n’est pas une garantie du mode stub local.")}</li>
           </ul>
@@ -254,7 +256,7 @@ export default function DocsPage() {
             <li><span className={strong}>{d("Dataset chiffré")}</span> — {d("blob AES-256-GCM sur IPFS.")}</li>
             <li><span className={strong}>{d("Titre de dataset")}</span> — {d("hash du CID, Merkle root, taille et empreinte du profil d’entraînement inscrits dans")} `SiriusDatasetRegistry`.</li>
             <li><span className={strong}>{d("Attestation KYB")}</span> — {d("credential EIP-712 consenti par le wallet, émis par un vérificateur externe et requis par le registre comme par l’escrow.")}</li>
-            <li><span className={strong}>{d("Capsule modèle")}</span> — {d("clé de livraison chiffrée pour le navigateur et liée au préimage.")}</li>
+            <li><span className={strong}>{d("Prédiction signée")}</span> — {d("réponse du runner signée EIP-712 : valeur arrondie à 3 chiffres significatifs (régression linéaire) ou décision 0/1 (logistique, arbres). Disponible seulement pendant que le runner tourne.")}</li>
           </ul>
         </DocSection>
 
@@ -275,7 +277,7 @@ export default function DocsPage() {
           </div>
           <p>{d("Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.")}</p>
           <p>{d("Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.")}</p>
-          <p>{d("Pour la régression linéaire et la régression logistique, les métriques du modèle livré sont calculées sur les données d’entraînement. Évaluez ensuite un CSV de test séparé dans le navigateur : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          <p>{d("Pour la régression linéaire et la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
           {trees && <p>{d("Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.")}</p>}
           <ul className="ml-5 list-disc space-y-2">
             <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>
@@ -291,7 +293,7 @@ export default function DocsPage() {
               ["02", d("Publier"), d("Le provider inscrit le titre et l’empreinte du profil dans le registre EVM, sous contrôle KYB. Le CSV chiffré reste hors chaîne ; le titre publié fixe le profil utilisable.")],
               ["03", d("Verrouiller"), d("Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.")],
               ["04", d("Entraîner"), d("Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.")],
-              ["05", d("Régler"), d("Une fois la capsule prête, le runner appelle release : le provider est crédité et le préimage est publié. Le navigateur peut ensuite ouvrir le modèle. Le crédit en stablecoin se retire séparément.")],
+              ["05", d("Régler"), d("Une fois le modèle scellé, le runner appelle release : le provider est crédité et le préimage est publié. Le borrower peut ensuite demander des prédictions signées. Le crédit en stablecoin se retire séparément.")],
             ].map(([n, title, description]) => (
               <li key={n} className="flex gap-4 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4">
                 <span className="shrink-0 font-mono text-sm text-muted">{n}</span>
@@ -313,7 +315,7 @@ export default function DocsPage() {
         </DocSection>
 
         <DocSection id="fair-exchange" title={d("Le fair-exchange atomique")}>
-          <p>{d("Le runner TEE contrôle le release, pas les deux contreparties. Le borrower possède d’abord une capsule inutilisable ; le préimage qui l’ouvre n’est publié qu’avec le crédit du provider.")}</p>
+          <p>{d("Le runner TEE contrôle le release, pas les deux contreparties. Le modèle reste scellé dans le runner ; il ne répond aux prédictions du borrower qu’après un release confirmé, qui crédite le provider.")}</p>
           <FairExchangeDiagram d={d} />
           <p>{d("`release` est autorisé uniquement avant l’échéance. Après celle-ci, seul `refund` peut créditer le borrower : aucun préimage ne peut alors être publié par l’escrow.")}</p>
           <div className="mt-4 overflow-x-auto">
@@ -321,9 +323,9 @@ export default function DocsPage() {
               <thead><tr className="border-b border-border text-left text-muted"><th className="py-2 pr-4 font-medium">{d("Scénario")}</th><th className="py-2 font-medium">{d("Issue")}</th></tr></thead>
               <tbody className="align-top">
                 {[
-                  [d("Calcul réussi"), d("Une transaction crédite le provider et publie le préimage. Le navigateur déchiffre ensuite la capsule hors chaîne.")],
+                  [d("Calcul réussi"), d("Une transaction crédite le provider et publie le préimage. Le borrower obtient ensuite des prédictions signées.")],
                   [d("Job invalide ou infructueux"), d("Aucun préimage n’est révélé. En v7, le runner atteste l’échec : le prêt passe à Failed et le borrower est remboursé aussitôt, moins les frais de calcul attestés, bornés par `maxFailureFee`. Sinon, il récupère les fonds après échéance.")],
-                  [d("Tentative d'obtenir le modèle sans payer"), d("Impossible : la capsule exige le préimage publié au règlement.")],
+                  [d("Tentative d'interroger le modèle sans payer"), d("Impossible : le runner exige un release confirmé avant toute prédiction.")],
                   [d("Litige subjectif sur la qualité"), d("Non tranché par l’escrow seul ; arbitrage à venir.")],
                 ].map(([scenario, outcome]) => <tr key={scenario} className="border-b border-border/60"><td className="py-2.5 pr-4 text-foreground">{scenario}</td><td className="py-2.5">{outcome}</td></tr>)}
               </tbody>
@@ -352,7 +354,7 @@ export default function DocsPage() {
         </DocSection>
 
         <DocSection id="confidentialite" title={d("Confidentialité : qui voit quoi")}>
-          <p>{d("Ce tableau décrit le mode Phala distant attesté, sans partage volontaire des artefacts par les participants. Il ne s’applique pas au mode stub local, où le serveur a accès à la donnée brute et aux clés. Le préimage public ne suffit pas à ouvrir la capsule sans la clé du navigateur destinataire.")}</p>
+          <p>{d("Ce tableau décrit le mode Phala distant attesté, sans partage volontaire des artefacts par les participants. Il ne s’applique pas au mode stub local, où le serveur a accès à la donnée brute et aux clés. Le préimage public sert uniquement au règlement : il n’ouvre aucun modèle.")}</p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead><tr className="border-b border-border text-left text-muted"><th className="py-2 pr-4 font-medium">{d("Artefact")}</th><th className="py-2 pr-4 font-medium">Provider</th><th className="py-2 pr-4 font-medium">Borrower</th><th className="py-2 pr-4 font-medium">Sirius</th><th className="py-2 font-medium">TEE</th></tr></thead>
@@ -364,7 +366,8 @@ export default function DocsPage() {
                   [d("Préimage avant release"), d("non"), d("non"), d("non"), d("oui")],
                   [d("Préimage publié au release"), d("oui"), d("oui"), d("oui"), d("oui")],
                   [d("Titre et événements EVM"), d("oui"), d("oui"), d("oui"), d("oui")],
-                  [d("Modèle déchiffré"), d("non"), d("oui"), d("non"), d("oui, pendant le job")],
+                  [d("Modèle entraîné"), d("non"), d("non"), d("non"), d("oui, scellé")],
+                  [d("Prédictions signées"), d("non"), d("oui"), d("non"), d("oui")],
                 ].map((row) => <tr key={row[0]} className="border-b border-border/60"><td className="py-2.5 pr-4 text-foreground">{row[0]}</td>{row.slice(1).map((cell, index) => <td key={`${row[0]}-${index}`} className="py-2.5 pr-4">{cell}</td>)}</tr>)}
               </tbody>
             </table>

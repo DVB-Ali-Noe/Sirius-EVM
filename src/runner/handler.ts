@@ -2,18 +2,16 @@ import "server-only";
 import { keccak256, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
-import { gbdtScore, GBDT_HEADER_PATTERN } from "@/lib/models/gbdt";
+import { predictionOutput } from "@/lib/models/predict";
 import { loadServedModel } from "@/lib/tee/served-models";
 import { reservePrediction } from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
   escrowLock,
-  evmLoanModelKey,
   runEvmLoanJob,
   runBilledEvmLoanJob,
   runSelfTraining,
-  runServedTraining,
-  selfTrainModelKey,
+  sealDatasetEnvelope,
 } from "@/lib/tee/core";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
@@ -31,7 +29,6 @@ import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry"
 import { assertLockedProfile, requestedTrainingProfile, type ProfileAdmission } from "@/lib/runner/profile-admission";
 import { AppError } from "@/lib/app-error";
 import { datasetIngressPublicKey } from "@/lib/tee/ingress";
-import { sealDatasetEnvelope } from "@/lib/tee/core";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
 import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, runnerBudget, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled } from "@/lib/billing/config";
@@ -39,24 +36,28 @@ import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingB
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
 import { recoverBilledLoanResult } from "@/lib/billing/recovery";
 import {
-  assertReleaseEnvelopeHash,
   issueDatasetReceipt,
   issueLoanReceipt,
   issueTrainingReceipt,
   verifyDatasetReceipt,
   verifyLoanReceipt,
-  verifyLoanDeliveryReceipt,
-  verifyTrainingReceipt,
+  verifySettledLoanReceipt,
+  type LoanReceipt,
 } from "@/lib/runner/receipt";
 import {
-  encryptRunnerDelivery,
-  validateDeliveryPublicKey,
-  encryptRunnerRelease,
-  hashRunnerReleaseEnvelope,
-} from "@/lib/runner/delivery";
-import type { DatasetIngressEnvelope, DatasetRef } from "@/lib/tee/contract";
-import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { assertPredictEnabled, checkDemoOperation, demoEnabled, demoGrantScope, withDemoAdmission } from "@/lib/phala-demo/runner-session";
+  MAX_DATASET_BYTES,
+  MODEL_REF_ID_PATTERN,
+  PREDICTION_DOMAIN_NAME,
+  PREDICTION_DOMAIN_VERSION,
+  PREDICTION_EIP712_TYPES,
+  modelRefString,
+  type DatasetIngressEnvelope,
+  type DatasetRef,
+  type LoanJobResult,
+  type ModelRef,
+  type SignedPrediction,
+} from "@/lib/tee/contract";
+import { checkDemoOperation, demoGrantScope, predictionSessionRevision, withDemoAdmission } from "@/lib/phala-demo/runner-session";
 import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
 import { fastFinalityPolicy } from "@/lib/evm/finality";
 import { enclaveFinalityTier, type FinalityTier } from "@/lib/evm/fast-finality";
@@ -73,7 +74,7 @@ const MAX_ID_LENGTH = 128;
  * palier rapide, l'enclave ne l'accorde que si sa politique l'admet pour ce montant, et refuse
  * explicitement sinon : jamais de profondeur rapide pour un prêt au-dessus du seuil.
  *
- * Cette décision ne réserve rien : règlement et livraison de clé la reprennent telle quelle. Le
+ * Cette décision ne réserve rien : règlement et prédiction la reprennent telle quelle. Le
  * plafond d'exposition de l'enclave (`reserveFastExposure`) n'est engagé qu'au lancement du calcul,
  * une fois le lock lu à la profondeur rapide : voir `run-loan-job`.
  */
@@ -89,7 +90,7 @@ function loanFinalityTier(requested: unknown, quote: ComputeQuote): FinalityTier
  * attestée SIRIUS_FAST_FINALITY_TOTAL_USDC. Appelé au lancement seulement, après lecture du lock à
  * la profondeur rapide ; idempotent pour un même prêt ; la part est rendue au release ou au
  * remboursement confirmés, à l'échec définitif du règlement, et purgée après l'échéance du prêt.
- * Jamais sur la livraison de clé : le release l'a déjà rendue, la réserver à nouveau figerait le
+ * Jamais sur une prédiction : le release l'a déjà rendue, la réserver à nouveau figerait le
  * plafond jusqu'à l'échéance de prêts pourtant clos.
  */
 function reserveFastExposure(quote: ComputeQuote): boolean {
@@ -148,12 +149,40 @@ function ingressEnvelope(body: Record<string, unknown>): DatasetIngressEnvelope 
   return value as DatasetIngressEnvelope;
 }
 
-export function loanDeliveryContext(loanId: string, subject: string): string {
-  return `loan:${canonicalSubject(subject)}:${loanId}`;
+function modelRef(body: Record<string, unknown>): ModelRef {
+  const value = body.modelRef;
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2) {
+    throw new AppError("modelRef invalide", 400);
+  }
+  const { kind, id } = value as Record<string, unknown>;
+  if ((kind !== "job" && kind !== "loan") || typeof id !== "string" || !MODEL_REF_ID_PATTERN.test(id)) {
+    throw new AppError("modelRef invalide", 400);
+  }
+  return { kind, id };
 }
 
-export function selfTrainDeliveryContext(jobId: string, owner: string): string {
-  return `self-train:${canonicalSubject(owner)}:${jobId}`;
+const MAX_PREDICTION_FEATURES = 31;
+const MAX_PREDICTION_BYTES = 4_096;
+
+/** Variables numériques finies, |x| ≤ 1e9, 31 au plus, 4 096 octets au plus une fois sérialisées. */
+function predictionFeatures(body: Record<string, unknown>): { features: Record<string, number>; serialized: string } {
+  const features = body.features;
+  if (!features || typeof features !== "object" || Array.isArray(features)) {
+    throw new AppError("Variables de prédiction invalides", 400);
+  }
+  const entries = Object.entries(features);
+  if (entries.length < 1 || entries.length > MAX_PREDICTION_FEATURES || entries.some(([name, value]) =>
+    name.length === 0 || typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1e9)) {
+    throw new AppError("Variables de prédiction invalides", 400);
+  }
+  const serialized = JSON.stringify(features);
+  if (Buffer.byteLength(serialized) > MAX_PREDICTION_BYTES) throw new AppError("Variables de prédiction trop volumineuses", 413);
+  return { features: features as Record<string, number>, serialized };
+}
+
+function isLoanPrediction(op: RunnerOperation, body: Record<string, unknown>): boolean {
+  const ref = body.modelRef;
+  return op === "predict" && !!ref && typeof ref === "object" && (ref as Record<string, unknown>).kind === "loan";
 }
 
 export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { op: RunnerOperation; scope: RunnerScope } {
@@ -168,37 +197,34 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
     case "recover-loan-job":
-    case "loan-model-key":
       return { op, scope: { loanId: text(body, "loanId") } };
     case "run-training":
       return { op, scope: { datasetId: text(body, "datasetId"), jobId: text(body, "jobId") } };
-    case "self-train-key":
-      return { op, scope: { jobId: text(body, "jobId") } };
-    case "predict":
-      return { op, scope: { jobId: text(body, "modelId") } };
+    case "predict": {
+      const ref = modelRef(body);
+      return { op, scope: ref.kind === "job" ? { jobId: ref.id } : { loanId: ref.id } };
+    }
     default:
       throw new AppError("Opération runner inconnue", 404);
   }
 }
 
 /**
- * Clé publique d'ingestion et re-livraison d'une clé self-train déjà calculée : aucun coût
- * sponsorisé (pas de réservation dans le registre de budget). Les facturer laissait n'importe quel
- * visiteur épuiser le budget de la démonstration en boucle. Le registre reste exigé (production,
- * Phala, mainnet).
+ * Clé publique d'ingestion : aucun coût sponsorisé (pas de réservation dans le registre de
+ * budget). La facturer laissait n'importe quel visiteur épuiser le budget de la démonstration en
+ * boucle. Le registre reste exigé (production, Phala, mainnet).
  *
- * Gratuites ne veut pas dire sans travail (audit ROB-08) : la capability est consommée dans
- * l'anti-rejeu SQLite (écriture synchronisée) et `self-train-key` vérifie le reçu, la délégation
- * secp256k1 et le grant P-256, consomme ce grant (seconde écriture) puis chiffre la livraison
- * (ECDH). Leur débit, leur concurrence et un coupe-circuit sont donc bornés à part, dans le
- * serveur (`free-ops-guard.ts`), sans prendre de place aux opérations payantes.
+ * Gratuite ne veut pas dire sans travail (audit ROB-08) : la capability est consommée dans
+ * l'anti-rejeu SQLite (écriture synchronisée). Débit, concurrence et coupe-circuit sont donc
+ * bornés à part, dans le serveur (`free-ops-guard.ts`), sans prendre de place aux opérations
+ * payantes.
  */
-export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
+export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key"]);
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
-  if (op === "predict" || (op === "run-training" && body.served === true)) assertPredictEnabled();
   checkDemoOperation(op);
-  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "loan-model-key" || op === "recover-loan-job")) return executeRunnerOp(op, body);
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "recover-loan-job"
+    || isLoanPrediction(op, body))) return executeRunnerOp(op, body);
   if (UNCHARGED_OPS.has(op)) {
     runnerBudget();
     return executeRunnerOp(op, body);
@@ -286,17 +312,16 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const dataset = datasetRef(body, "locked");
       const loanId = text(body, "loanId");
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
-      const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op,
         datasetId: dataset.datasetId,
         loanId,
-        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, deliveryPublicKey, dataset.modelId, dataset.modelVersion],
+        intentParts: [loanId, dataset.datasetId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, "served"],
       });
       const borrower = canonicalSubject(subject);
       const loanKey = loanKeyFor(borrower, loanId);
-      const { hashlock, preimage } = escrowLock(loanId, borrower);
+      const hashlock = escrowHashlock(loanId, borrower);
       const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
       assertLockedProfile(dataset, signedQuote);
@@ -334,7 +359,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
 
         if (signedQuote) {
           requireBillingBudget().prepareWorkflowResult(quoteWorkflow(signedQuote.quote), JSON.stringify({
-            datasetCid: dataset.cid, merkleRoot: dataset.merkleRoot, deliveryPublicKey,
+            datasetCid: dataset.cid, merkleRoot: dataset.merkleRoot,
           }));
         }
         let result;
@@ -354,12 +379,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           if (recovered.state !== "ready") throw new AppError("Résultat durable manquant", 503);
           return recovered.result;
         }
-        const releaseEnvelope = encryptRunnerRelease(
-          evmLoanModelKey(loanId, borrower), deliveryPublicKey,
-          loanDeliveryContext(loanId, borrower), preimage, "evm-preimage",
-        );
         const { chainId, escrow } = evmEscrowBinding();
-        const releaseEnvelopeHash = hashRunnerReleaseEnvelope(releaseEnvelope);
         const attestation = await attestLoanExecution({
           chainId,
           escrow,
@@ -375,16 +395,13 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           modelId: dataset.modelId,
           modelVersion: dataset.modelVersion,
           modelCid: result.modelCid,
-          releaseEnvelopeHash,
         });
-        return {
+        const loanResult: LoanJobResult = {
           modelCid: result.modelCid,
           metrics: result.metrics,
           attestation,
           loanKey,
           hashlock,
-          ...(releaseEnvelope ? { releaseEnvelope } : {}),
-          releaseEnvelopeHash,
           runnerReceipt: issueLoanReceipt({
             loanId,
             datasetId: dataset.datasetId,
@@ -398,11 +415,10 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
             challengeDays: datasetReceipt.challengeDays,
             modelId: dataset.modelId,
             modelVersion: dataset.modelVersion,
-            deliveryPublicKey,
-            releaseEnvelopeHash,
             attestationHash: attestation.payloadHash,
           }),
         };
+        return loanResult;
       };
       return signedQuote ? withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(execute)) : execute();
     }
@@ -422,9 +438,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
     case "settle-loan": {
       const loanId = text(body, "loanId");
       const loanReceiptToken = text(body, "loanReceipt", MAX_RECEIPT_LENGTH);
-      const releaseEnvelopeHash = text(body, "releaseEnvelopeHash", 64);
       const receipt = verifyLoanReceipt(loanReceiptToken, loanId);
-      assertReleaseEnvelopeHash(receipt, releaseEnvelopeHash);
       const { preimage } = escrowLock(loanId, receipt.borrower);
       const lockBlock = BigInt(text(body, "lockBlock", 20));
       if (billingEnabled()) {
@@ -448,62 +462,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       return { settleTxHash: await settleEscrow(receipt.loanKey as `0x${string}`, preimage, lockBlock) };
     }
 
-    case "loan-model-key": {
-      const loanId = text(body, "loanId");
-      const loanReceiptToken = text(body, "loanReceipt", MAX_RECEIPT_LENGTH);
-      const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
-      const receipt = verifyLoanDeliveryReceipt(loanReceiptToken, loanId);
-      const { subject } = await verifyRunnerGrant(body.authorization, {
-        operation: op,
-        loanId,
-        intentParts: [loanId, loanReceiptToken, deliveryPublicKey],
-      });
-      if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Clé réservée au borrower", 403);
-      const deliver = async () => {
-        if (receipt.billingQuote) {
-          const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
-          const settleTxHash = text(body, "settleTxHash", 66);
-          if (!/^0x[0-9a-fA-F]{64}$/.test(settleTxHash)) throw new AppError("Hash de règlement invalide", 400);
-          await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
-            settleTxHash as `0x${string}`, signed.quote,
-            requireBillingBudget().policy.gas.confirmations, loanFinalityTier(body.finalityTier, signed.quote));
-        } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
-        return {
-          modelCid: receipt.modelCid,
-          modelKeyEnvelope: encryptRunnerDelivery(
-            evmLoanModelKey(loanId, receipt.borrower, receipt),
-            deliveryPublicKey,
-            loanDeliveryContext(loanId, receipt.borrower),
-          ),
-        };
-      };
-      if (billingEnabled()) {
-        if (receipt.billingQuote) {
-          const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
-          if ((signed.quote.expiresAt + signed.quote.challengeDays * 86400) * 1000 > Date.now()) {
-            return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(deliver));
-          }
-        }
-        return budgetRunnerRequest(deliver);
-      }
-      return deliver();
-    }
-
     case "run-training": {
       const dataset = datasetRef(body);
       const jobId = text(body, "jobId");
-      if (body.served !== undefined && body.served !== true) throw new AppError("Mode de modèle invalide", 400);
-      const served = body.served === true;
-      if (served) {
-        assertPredictEnabled();
-        if (body.deliveryPublicKey !== undefined) throw new AppError("Clé de livraison interdite pour un modèle privé", 400);
-        if (dataset.modelId !== "gradient_boosted_trees" || dataset.modelVersion !== "1.1.0") {
-          throw new AppError("Profil de prédiction indisponible", 400);
-        }
-      }
-      const deliveryPublicKey = served || body.deliveryPublicKey === undefined ? undefined : text(body, "deliveryPublicKey", 200);
-      if (!served && demoEnabled() && !deliveryPublicKey) throw new AppError("Clé de livraison requise pour la démonstration", 400);
-      if (deliveryPublicKey) validateDeliveryPublicKey(deliveryPublicKey);
       const datasetReceiptToken = text(body, "datasetReceipt", MAX_RECEIPT_LENGTH);
       const datasetReceipt = verifyDatasetReceipt(datasetReceiptToken, dataset);
       const demoScope = demoGrantScope();
@@ -511,8 +472,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         ...demoScope,
         operation: op,
         datasetId: dataset.datasetId,
-        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion,
-          ...(served ? ["served"] : deliveryPublicKey ? [deliveryPublicKey] : [])],
+        intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, "served"],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
         throw new AppError("Self-train réservé au propriétaire", 403);
@@ -524,16 +484,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         cid: dataset.cid,
         model: dataset,
       });
-      if (served) {
-        return withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, served: true },
-          () => runServedTraining({ ...dataset, jobId, owner: subject }), demoScope.demoSessionRevision);
-      }
-      const result = await withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId, deliveryPublicKey }, async () => {
-        const trained = await runSelfTraining({ ...dataset, jobId, owner: subject });
-        return { ...trained, ...(deliveryPublicKey ? { modelKeyEnvelope: encryptRunnerDelivery(
-          selfTrainModelKey(jobId, subject), deliveryPublicKey, selfTrainDeliveryContext(jobId, subject),
-        ) } : {}) };
-      }, demoScope.demoSessionRevision);
+      const result = await withDemoAdmission(`train:${jobId}`, canonicalSubject(subject), { ...dataset, jobId },
+        () => runSelfTraining({ ...dataset, jobId, owner: subject }), demoScope.demoSessionRevision);
       return {
         ...result,
         runnerReceipt: issueTrainingReceipt({
@@ -548,74 +500,82 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
     }
 
     case "predict": {
-      const modelId = text(body, "modelId");
-      const features = body.features;
-      if (!features || typeof features !== "object" || Array.isArray(features)) {
-        throw new AppError("Variables de prédiction invalides", 400);
-      }
-      const entries = Object.entries(features);
-      if (entries.length < 1 || entries.length > 31 || entries.some(([name, value]) =>
-        !GBDT_HEADER_PATTERN.test(name) || typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1e9)) {
-        throw new AppError("Variables de prédiction invalides", 400);
-      }
-      const serialized = JSON.stringify(features);
-      if (Buffer.byteLength(serialized) > 4096) throw new AppError("Variables de prédiction trop volumineuses", 413);
-      const revision = assertPredictEnabled();
+      const ref = modelRef(body);
+      const { features, serialized } = predictionFeatures(body);
+      const loanReceipt = ref.kind === "loan" ? verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), ref.id) : undefined;
+      const revision = predictionSessionRevision();
       const { subject } = await verifyRunnerGrant(body.authorization, {
-        ...demoGrantScope(), operation: op, jobId: modelId, intentParts: [modelId, serialized],
-      });
-      if (assertPredictEnabled() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
-      const served = loadServedModel(modelId);
-      if (!served) throw new AppError("Modèle privé introuvable", 404);
-      if (served.owner !== canonicalSubject(subject)) throw new AppError("Prédiction réservée au propriétaire", 403);
-      if (entries.length !== served.model.features.length ||
-        served.model.features.some((name) => !Object.hasOwn(features, name))) {
-        throw new AppError("Variables de prédiction hors modèle", 400);
-      }
-      const values = served.model.features.map((name) => (features as Record<string, number>)[name]);
-      const counter = reservePrediction(subject, modelId, revision);
-      const decision = (gbdtScore(served.model.baseScore, served.model.trees, values) >= 0 ? 1 : 0) as 0 | 1;
-      const account = privateKeyToAccount(`0x${deriveKey(getMasterKey(), "prediction:sign:v1").toString("hex")}`);
-      const domain = { name: "SiriusPrediction", version: "1", chainId: evmEscrowBinding().chainId };
-      const signedMessage = {
-        modelId, modelVersion: served.model.version, subject: canonicalSubject(subject) as `0x${string}`,
-        featuresHash: keccak256(stringToHex(serialized)), decision, counter: BigInt(counter),
-        sessionRevision: BigInt(revision),
-      };
-      const signature = await account.signTypedData({
-        domain, primaryType: "Prediction",
-        types: { Prediction: [
-          { name: "modelId", type: "string" }, { name: "modelVersion", type: "string" },
-          { name: "subject", type: "address" }, { name: "featuresHash", type: "bytes32" },
-          { name: "decision", type: "uint8" }, { name: "counter", type: "uint64" },
-          { name: "sessionRevision", type: "uint64" },
-        ] },
-        message: signedMessage,
-      });
-      if (assertPredictEnabled() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
-      return {
-        modelId, modelVersion: served.model.version, decision, counter, signature, signer: account.address,
-        domain, signedMessage: { ...signedMessage, counter, sessionRevision: revision },
-      };
-    }
-
-    case "self-train-key": {
-      const jobId = text(body, "jobId");
-      const receipt = verifyTrainingReceipt(text(body, "jobReceipt", MAX_RECEIPT_LENGTH), jobId);
-      const deliveryPublicKey = text(body, "deliveryPublicKey", 200);
-      const { subject } = await verifyRunnerGrant(body.authorization, {
+        ...demoGrantScope(),
         operation: op,
-        jobId,
-        intentParts: [jobId, text(body, "jobReceipt", MAX_RECEIPT_LENGTH), deliveryPublicKey],
+        ...(ref.kind === "job" ? { jobId: ref.id } : { loanId: ref.id }),
+        intentParts: [ref.kind, ref.id, serialized],
       });
-      if (canonicalSubject(subject) !== canonicalSubject(receipt.owner)) throw new AppError("Clé réservée au propriétaire", 403);
-      return {
-        modelKeyEnvelope: encryptRunnerDelivery(
-          selfTrainModelKey(jobId, receipt.owner),
-          deliveryPublicKey,
-          selfTrainDeliveryContext(jobId, receipt.owner),
-        ),
+      const caller = canonicalSubject(subject);
+      if (predictionSessionRevision() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+      if (loanReceipt && caller !== loanReceipt.borrower) throw new AppError("Prédiction réservée à l’emprunteur", 403);
+      const predict = async (): Promise<SignedPrediction> => {
+        if (loanReceipt) await assertLoanSettled(loanReceipt, body);
+        const served = loadServedModel(ref);
+        if (!served) throw new AppError("Modèle indisponible", 404);
+        if (served.owner !== caller) throw new AppError("Prédiction réservée au propriétaire", 403);
+        if (loanReceipt && served.model.algo !== loanReceipt.modelId) throw new AppError("Modèle indisponible", 409);
+        const names = served.model.features;
+        if (Object.keys(features).length !== names.length || names.some((name) => !Object.hasOwn(features, name))) {
+          throw new AppError("Variables de prédiction hors modèle", 400);
+        }
+        const values = names.map((name) => features[name]);
+        const counter = reservePrediction(caller, ref, revision);
+        let output;
+        try {
+          output = predictionOutput(served.model, values);
+        } catch {
+          throw new AppError("Prédiction numérique instable", 422);
+        }
+        const modelRefText = modelRefString(ref);
+        const account = privateKeyToAccount(`0x${deriveKey(getMasterKey(), "prediction:sign:v1").toString("hex")}`);
+        const domain = { name: PREDICTION_DOMAIN_NAME, version: PREDICTION_DOMAIN_VERSION, chainId: evmEscrowBinding().chainId } as const;
+        const signedMessage = {
+          modelRef: modelRefText, modelId: served.model.algo, modelVersion: served.model.version,
+          subject: caller as `0x${string}`, featuresHash: keccak256(stringToHex(serialized)),
+          outputKind: output.outputKind, output: output.output, counter, sessionRevision: revision,
+        };
+        const signature = await account.signTypedData({
+          domain, primaryType: "Prediction", types: PREDICTION_EIP712_TYPES,
+          message: { ...signedMessage, counter: BigInt(counter), sessionRevision: BigInt(revision) },
+        });
+        if (predictionSessionRevision() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+        return {
+          modelRef: modelRefText, modelId: served.model.algo, modelVersion: served.model.version,
+          outputKind: output.outputKind, output: output.output, counter, signer: account.address, signature,
+          domain, signedMessage,
+        };
       };
+      // Prêt v7 : même rattachement budgétaire que le règlement tant que la fenêtre du devis court.
+      if (loanReceipt && billingEnabled()) {
+        if (loanReceipt.billingQuote) {
+          const signed = await runnerComputeQuote(loanReceipt.billingQuote, false, loanReceipt);
+          if ((signed.quote.expiresAt + signed.quote.challengeDays * 86400) * 1000 > Date.now()) {
+            return withWorkflowBudget(quoteWorkflow(signed.quote), () => budgetRunnerRequest(predict));
+          }
+        }
+        return budgetRunnerRequest(predict);
+      }
+      return predict();
     }
   }
+}
+
+/**
+ * Le modèle d'un prêt ne sert qu'après règlement confirmé : v7, la transaction `release` publiée
+ * à la profondeur du palier ; v6, le préimage publié par l'escrow. Sinon 409.
+ */
+async function assertLoanSettled(receipt: LoanReceipt, body: Record<string, unknown>): Promise<void> {
+  if (receipt.billingQuote) {
+    const signed = await runnerComputeQuote(receipt.billingQuote, false, receipt);
+    const settleTxHash = text(body, "settleTxHash", 66);
+    if (!/^0x[0-9a-fA-F]{64}$/.test(settleTxHash)) throw new AppError("Hash de règlement invalide", 400);
+    await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
+      settleTxHash as `0x${string}`, signed.quote,
+      requireBillingBudget().policy.gas.confirmations, loanFinalityTier(body.finalityTier, signed.quote));
+  } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
 }

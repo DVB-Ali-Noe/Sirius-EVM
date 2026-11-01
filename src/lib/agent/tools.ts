@@ -318,7 +318,7 @@ function feeStatus(fee: ComputeFee): "none" | "indicative" | "unknown" {
 
 export const HOW_TO_BUY =
   "A purchase is made on the dataset page by the holder of a KYB-verified wallet: the payment is locked in an on-chain escrow, " +
-  "training runs inside an Intel TDX enclave, and only the trained model is delivered (never the raw rows). " +
+  "training runs inside an Intel TDX enclave, and the trained model stays sealed there, usable only through signed predictions (never the raw rows). " +
   "Purchase through this MCP server is not available yet.";
 
 export function getDatasetResult(
@@ -362,8 +362,9 @@ export function getDatasetResult(
 }
 
 export const DELIVERY =
-  "The buyer receives the trained model only: target column, feature columns, coefficients or depth-2 trees, and evaluation metrics, " +
-  "encrypted to the buyer, plus a public execution certificate. The raw rows never leave the enclave.";
+  "The trained model stays sealed in the enclave and is never delivered: the buyer sends feature values and receives signed predictions " +
+  "(a value rounded to 3 significant digits for linear regression, a 0/1 decision otherwise), plus the evaluation metrics and a public " +
+  "execution certificate. The raw rows never leave the enclave.";
 
 export function listTrainingProfilesResult(): z.infer<typeof listTrainingProfilesOutput> {
   return {

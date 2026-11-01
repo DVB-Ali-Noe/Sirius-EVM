@@ -332,7 +332,7 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
             <Field label={t("Dernier emprunt")} value={stats.lastBorrowAt ? formatUtcDateTime(stats.lastBorrowAt) : t("Aucun")} />
             <Field label={t("Revenus gagnés")} value={amount(stats.earnedAtomic)} />
             <Field label={t("Bloqué dans l’escrow")} value={amount(stats.inEscrowAtomic)} />
-            <Field label={t("Entraînements livrés")} value={formatCount(stats.trainingsSucceeded)} />
+            <Field label={t("Entraînements réussis")} value={formatCount(stats.trainingsSucceeded)} />
             <Field label={t("Remboursés (échec ou délai dépassé)")} value={formatCount(stats.trainingsRefunded)} />
           </dl>
           <p className="mt-3 text-xs text-muted">
@@ -609,7 +609,7 @@ function DestroyCard({ view, busy, onDestroy }: { view: OwnerDatasetView; busy: 
       <p className="mt-1 text-sm text-muted">
         {finalize
           ? t("Vérifie le titre dans le registre EVM courant et finalise la suppression. Les éventuels anciens registres ne seront pas modifiés.")
-          : t("Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà livrés ne sont pas effacés.")}
+          : t("Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà entraînés ne sont pas effacés.")}
       </p>
       {!open ? (
         <button

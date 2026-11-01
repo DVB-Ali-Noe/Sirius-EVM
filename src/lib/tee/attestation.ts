@@ -39,11 +39,16 @@ export interface LoanAttestationInput {
   merkleRoot: string;
   modelId: ModelId;
   modelVersion: string;
+  /** Empreinte `sm1…` du modèle scellé dans le runner (served-models.ts). */
   modelCid: string;
-  releaseEnvelopeHash: string;
   billingQuoteHash?: string;
 }
 
+/**
+ * Versions du payload : 3 (prêt v6) et 4 (prêt v7, `billingQuoteHash`) pour toute nouvelle
+ * attestation. Les versions 1 et 2 portaient en plus `releaseEnvelopeHash` (capsule de livraison,
+ * supprimée) : elles restent lisibles pour les attestations déjà stockées (certificat public).
+ */
 const PAYLOAD_KEYS = [
   "version",
   "kind",
@@ -61,8 +66,17 @@ const PAYLOAD_KEYS = [
   "modelId",
   "modelVersion",
   "modelCid",
-  "releaseEnvelopeHash",
 ] as const;
+
+function payloadKeys(version: unknown): readonly string[] | null {
+  switch (version) {
+    case 1: return [...PAYLOAD_KEYS, "releaseEnvelopeHash"];
+    case 2: return [...PAYLOAD_KEYS, "releaseEnvelopeHash", "billingQuoteHash"];
+    case 3: return PAYLOAD_KEYS;
+    case 4: return [...PAYLOAD_KEYS, "billingQuoteHash"];
+    default: return null;
+  }
+}
 
 function isText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -71,11 +85,11 @@ function isText(value: unknown): value is string {
 function payloadObject(value: unknown): LoanAttestationPayload | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const payload = value as Record<string, unknown>;
-  const keys = payload.version === 2 ? [...PAYLOAD_KEYS, "billingQuoteHash"] : PAYLOAD_KEYS;
-  if (Object.keys(payload).length !== keys.length || !keys.every((key) => key in payload)) return null;
+  const keys = payloadKeys(payload.version);
+  if (!keys || Object.keys(payload).length !== keys.length || !keys.every((key) => key in payload)) return null;
   if (
-    (payload.version !== 1 && payload.version !== 2) ||
-    (payload.version === 2 && (typeof payload.billingQuoteHash !== "string" || !/^0x[0-9a-f]{64}$/.test(payload.billingQuoteHash))) ||
+    ("billingQuoteHash" in payload && (typeof payload.billingQuoteHash !== "string" || !/^0x[0-9a-f]{64}$/.test(payload.billingQuoteHash))) ||
+    ("releaseEnvelopeHash" in payload && !isText(payload.releaseEnvelopeHash)) ||
     payload.kind !== "sirius-loan-training" ||
     !Number.isSafeInteger(payload.chainId) ||
     (payload.chainId as number) < 1 ||
@@ -95,7 +109,6 @@ function payloadObject(value: unknown): LoanAttestationPayload | null {
       payload.merkleRoot,
       payload.modelVersion,
       payload.modelCid,
-      payload.releaseEnvelopeHash,
     ].every(isText)
   ) {
     return null;
@@ -105,7 +118,7 @@ function payloadObject(value: unknown): LoanAttestationPayload | null {
 
 export function serializeLoanAttestationPayload(input: LoanAttestationInput): string {
   const payload: LoanAttestationPayload = {
-    version: input.billingQuoteHash ? 2 : 1,
+    version: input.billingQuoteHash ? 4 : 3,
     kind: "sirius-loan-training",
     chainId: input.chainId,
     escrow: input.escrow,
@@ -121,7 +134,6 @@ export function serializeLoanAttestationPayload(input: LoanAttestationInput): st
     modelId: input.modelId,
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
-    releaseEnvelopeHash: input.releaseEnvelopeHash,
     ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   };
   return JSON.stringify(payload);

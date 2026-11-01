@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { GradientBoostedTreesModel } from "@/lib/models/registry";
-import { loadServedModel, saveServedModel } from "./served-models";
+import type { GradientBoostedTreesModel, LinearRegressionModel } from "@/lib/models/registry";
+import { loadServedModel, saveServedModel, servedModelFingerprint } from "./served-models";
 
 const owner = `0x${"12".repeat(20)}`;
 const model: GradientBoostedTreesModel = {
@@ -13,29 +13,40 @@ const model: GradientBoostedTreesModel = {
   metrics: { heldOutAuc: 0.7, heldOutAccuracy: 0.6, heldOutPrecision: 0.6,
     heldOutRecall: 0.5, heldOutF1: 0.55, aucGap: 0.05, n: 10_000 },
 };
+const linear: LinearRegressionModel = {
+  algo: "linear_regression", version: "1.0.0", target: "price", features: ["size"], coefficients: [1, 2],
+  metrics: { r2: 0.5, rmse: 1, mae: 1, n: 100 },
+};
 
-test("le modèle servi est chiffré au repos, privé, lié au job et non substituable", () => {
+test("le modèle servi est chiffré au repos, privé, lié à sa référence et non substituable", () => {
   const root = mkdtempSync(join(tmpdir(), "sirius-served-"));
   const previous = { directory: process.env.RUNNER_SERVED_MODELS_DIR, master: process.env.SIRIUS_MASTER_KEY };
   process.env.RUNNER_SERVED_MODELS_DIR = join(root, "private");
   process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 19).toString("base64");
   try {
-    assert.equal(loadServedModel("job-1"), null);
-    saveServedModel("job-1", owner, model);
+    const job = { kind: "job", id: "job-1" } as const;
+    assert.equal(loadServedModel(job), null);
+    saveServedModel(job, owner, model);
     assert.equal(statSync(process.env.RUNNER_SERVED_MODELS_DIR).mode & 0o777, 0o700);
-    assert.deepEqual(loadServedModel("job-1"), { owner, model });
+    assert.deepEqual(loadServedModel(job), { owner, model });
     const file = join(process.env.RUNNER_SERVED_MODELS_DIR, readdirSync(process.env.RUNNER_SERVED_MODELS_DIR)[0]);
     assert.equal(statSync(file).mode & 0o777, 0o600);
     assert.doesNotMatch(readFileSync(file, "utf8"), /"target"|"metrics"/);
-    assert.throws(() => saveServedModel("job-1", owner, model), /EEXIST/);
-    assert.equal(loadServedModel("job-2"), null);
+    assert.throws(() => saveServedModel(job, owner, model), /EEXIST/);
+    assert.equal(loadServedModel({ kind: "job", id: "job-2" }), null);
+    // Même identifiant, autre espace : un prêt homonyme n'ouvre jamais le modèle d'un job.
+    assert.equal(loadServedModel({ kind: "loan", id: "job-1" }), null);
+    saveServedModel({ kind: "loan", id: "job-1" }, owner, linear);
+    assert.deepEqual(loadServedModel({ kind: "loan", id: "job-1" }), { owner, model: linear });
+    assert.deepEqual(loadServedModel(job), { owner, model });
     unlinkSync(file);
     symlinkSync(join(root, "untrusted"), file);
-    assert.throws(() => loadServedModel("job-1"));
-    assert.throws(() => loadServedModel("../outside"), /invalide/);
+    assert.throws(() => loadServedModel(job));
+    assert.throws(() => loadServedModel({ kind: "job", id: "../outside" }), /invalide/);
+    assert.throws(() => loadServedModel({ kind: "other" as never, id: "job-1" }), /invalide/);
     symlinkSync(join(root, "private"), join(root, "linked-directory"));
     process.env.RUNNER_SERVED_MODELS_DIR = join(root, "linked-directory");
-    assert.throws(() => loadServedModel("job-1"), /Répertoire de modèles privés invalide/);
+    assert.throws(() => loadServedModel(job), /Répertoire de modèles privés invalide/);
   } finally {
     if (previous.directory === undefined) delete process.env.RUNNER_SERVED_MODELS_DIR;
     else process.env.RUNNER_SERVED_MODELS_DIR = previous.directory;
@@ -43,4 +54,14 @@ test("le modèle servi est chiffré au repos, privé, lié au job et non substit
     else process.env.SIRIUS_MASTER_KEY = previous.master;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("l'empreinte sm1 est canonique, stable et distingue les modèles", () => {
+  const fingerprint = servedModelFingerprint(model);
+  assert.match(fingerprint, /^sm1[0-9a-f]{64}$/);
+  assert.equal(fingerprint.length, 67);
+  const reordered = JSON.parse(JSON.stringify({ metrics: model.metrics, trees: model.trees, baseScore: model.baseScore,
+    features: model.features, target: model.target, version: model.version, algo: model.algo })) as GradientBoostedTreesModel;
+  assert.equal(servedModelFingerprint(reordered), fingerprint);
+  assert.notEqual(servedModelFingerprint(linear), fingerprint);
 });

@@ -12,9 +12,7 @@ export async function GET(req: Request) {
     enforceRateLimit(limiter, requestClientKey(req));
     const status = await requestDemoController();
     return NextResponse.json({ phase: status.phase, available: status.available,
-      activeOperations: status.activeOperations, funding: status.funding, sessionRevision: status.sessionRevision,
-      predictEnabled: process.env.SIRIUS_PREDICT_ENABLED === "true" && process.env.SIRIUS_PHALA_DEMO === "true"
-        && process.env.EVM_NETWORK === "testnet" && process.env.TEE_MODE === "phala" },
+      activeOperations: status.activeOperations, funding: status.funding, sessionRevision: status.sessionRevision },
     { headers: { "cache-control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }

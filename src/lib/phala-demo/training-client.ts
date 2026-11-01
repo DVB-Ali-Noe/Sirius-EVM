@@ -5,11 +5,11 @@ import { csvWithTargetLast } from "./csv";
 import { publishDataset } from "@/lib/datasets/client";
 import { ensureKybAttested } from "@/lib/kyb/client";
 import { encryptDatasetForRunner } from "@/lib/tee/ingress-client";
-import { MAX_DATASET_BYTES, type DatasetIngressKey, type RunnerDeliveryEnvelope } from "@/lib/tee/contract";
+import { MAX_DATASET_BYTES, type DatasetIngressKey } from "@/lib/tee/contract";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import type { ModelId, ModelSelection } from "@/lib/models/registry";
-import { prepareDemoDelivery } from "./delivery-client";
+import { requestPrediction } from "@/lib/train/prediction-client";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -24,8 +24,8 @@ async function demoScope() {
   return { demoSessionRevision: state.sessionRevision };
 }
 
-
-export async function trainDemoFile(file: File, modelId: ModelId, target: string, progress: (message: string) => void, served = false) {
+/** Le modèle entraîné reste scellé dans Phala ; il ne s'utilise que par prédiction signée. */
+export async function trainDemoFile(file: File, modelId: ModelId, target: string, progress: (message: string) => void) {
   const initial = useWalletStore.getState();
   if (!initial.authenticated || !initial.address) throw new Error("Connecte et authentifie ton wallet");
   const owner = initial.address.toLowerCase();
@@ -41,7 +41,6 @@ export async function trainDemoFile(file: File, modelId: ModelId, target: string
   await ensureKybAttested(owner, current);
   current();
   const jobId = crypto.randomUUID();
-  const delivery = served ? null : await prepareDemoDelivery(jobId, owner);
   progress("Chiffrement de ton fichier…");
   const init = await json<{ datasetId: string; ingressKey: DatasetIngressKey; priceUsdcAtomic: string; challengeDays: number; sizeBytes: number; model: ModelSelection }>("/api/datasets", {
     method: "POST", headers: { "content-type": "application/json" },
@@ -64,32 +63,19 @@ export async function trainDemoFile(file: File, modelId: ModelId, target: string
   current();
   const dataset = await json<{ runnerReceipt: string }>(`/api/datasets/${init.datasetId}`);
   const authorization = await issueRunnerGrant("run-training", { datasetId: init.datasetId, jobId, ...await demoScope() },
-    [init.datasetId, jobId, dataset.runnerReceipt, init.model.modelId, init.model.modelVersion, served ? "served" : delivery!.publicKey]);
+    [init.datasetId, jobId, dataset.runnerReceipt, init.model.modelId, init.model.modelVersion, "served"]);
   current();
   progress("Entraînement dans Phala…");
-  if (served) {
-    const result = await json<{ jobId: string; servedModelId: string; metrics: Record<string, number> }>("/api/train", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ datasetId: init.datasetId, jobId, datasetReceipt: dataset.runnerReceipt, authorization, served: true }),
-    });
-    current();
-    if (result.servedModelId !== jobId) throw new Error("Identifiant du modèle servi invalide");
-    return result;
-  }
-  const result = await json<{ jobId: string; modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope; metrics: Record<string, number>; runnerReceipt: string }>("/api/train", {
+  const result = await json<{ jobId: string; servedModelId: string; metrics: Record<string, number> }>("/api/train", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ datasetId: init.datasetId, jobId, datasetReceipt: dataset.runnerReceipt, authorization, deliveryPublicKey: delivery!.publicKey }),
+    body: JSON.stringify({ datasetId: init.datasetId, jobId, datasetReceipt: dataset.runnerReceipt, authorization }),
   });
   current();
-  if (!result.modelKeyEnvelope) throw new Error("Livraison chiffrée absente");
-  return { ...result, modelKey: await delivery!.decrypt(result.modelKeyEnvelope) };
+  if (result.servedModelId !== jobId) throw new Error("Identifiant du modèle servi invalide");
+  return result;
 }
 
-export async function predictDemoModel(modelId: string, features: Record<string, number>) {
-  const scope = await demoScope();
-  const authorization = await issueRunnerGrant("predict", { jobId: modelId, ...scope }, [modelId, JSON.stringify(features)]);
-  return json<{ modelId: string; modelVersion: string; decision: 0 | 1; counter: number; signature: string; signer: string }>(
-    `/api/models/${encodeURIComponent(modelId)}/predict`,
-    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ features, authorization }) },
-  );
+export async function predictDemoModel(jobId: string, features: Record<string, number>) {
+  const { demoSessionRevision } = await demoScope();
+  return requestPrediction({ kind: "job", id: jobId }, features, demoSessionRevision);
 }

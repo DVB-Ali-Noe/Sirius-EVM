@@ -138,7 +138,7 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
 
 /**
  * Prêt FAST déjà SETTLED : verdict à finalité complète (fast-settlement-review.ts). Confirmé ⇒
- * `finalityVerifiedAt`. Divergence ⇒ alerte journalisée, `finalityReview` posé (livraison de clé
+ * `finalityVerifiedAt`. Divergence ⇒ alerte journalisée, `finalityReview` posé (prédiction
  * et certificat suspendus) et erreur comptée dans la passe : le battement du reaper la fait
  * remonter. Rien n'est retenté ni annulé automatiquement : un opérateur tranche (runbook 20).
  */

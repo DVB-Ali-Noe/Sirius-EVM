@@ -21,8 +21,11 @@ export interface LoanDisplayInput {
   evmLoanKey?: string | null;
   settleTxHash?: string | null;
   cancelTxHash?: string | null;
+  /** Empreinte du modèle scellé dans le runner (`sm1…`) ou ancien CID : présente dès que le modèle est produit. */
   modelCid?: string | null;
   runnerReceipt?: string | null;
+  /** Motif de revue de finalité d'un prêt rapide : la prédiction reste fermée tant qu'il est posé. */
+  finalityReview?: string | null;
   /** Calculé par le serveur : prêt actif dont l'échéance est dépassée. */
   refundable?: boolean;
   /** Lu sur `GET /api/loans/[id]/finality` : lock pas encore sous le bloc stable, lancement refusé. */
@@ -81,15 +84,15 @@ export function isOverdueUnsettled(loan: LoanDisplayInput): boolean {
   );
 }
 
-/** Échec sans modèle livré : échu, sans capsule préparée (`modelCid` vide). */
+/** Échec sans modèle produit : échu, sans empreinte de modèle (`modelCid` vide). */
 export function isFailedWithoutModel(loan: LoanDisplayInput): boolean {
   return isOverdueUnsettled(loan) && !loan.modelCid;
 }
 
 /**
- * Échu avec une capsule de modèle (avec ou sans reçu enclave) dont le règlement ne peut plus être
- * finalisé. Aucun modèle n'a été livré (`settleTxHash` vide, clé jamais libérée) : sans secours, les
- * fonds resteraient bloqués, le remboursement est donc proposé.
+ * Échu avec un modèle produit (avec ou sans reçu enclave) dont le règlement ne peut plus être
+ * finalisé. Le prêt n'a pas été réglé (`settleTxHash` vide) : sans secours, les fonds resteraient
+ * bloqués, le remboursement est donc proposé.
  */
 export function isOverdueWithCapsule(loan: LoanDisplayInput): boolean {
   return isOverdueUnsettled(loan) && Boolean(loan.modelCid);
@@ -158,7 +161,7 @@ export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | 
 }
 
 /**
- * « Finaliser » ou « Réconcilier le règlement » : capsule et reçu présents, et règlement encore
+ * « Finaliser » ou « Réconcilier le règlement » : modèle produit et reçu présents, et règlement encore
  * possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le release
  * et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde la
  * réconciliation, même après l'échéance.
@@ -173,18 +176,17 @@ export function canResumeSettlement(loan: LoanDisplayInput): boolean {
 }
 
 /**
- * « Vérifier et télécharger » : la clé du modèle n'est demandée qu'au clic, sur un emprunt réglé
- * (release miné, reçu enclave présent), par son emprunteur. Jamais au chargement de la page ni pour
- * un prêt où l'on est fournisseur : chaque appel à `/api/loans/[id]/key` consomme le quota de
- * livraison (20 par minute) et, pour un prêt v7, le budget runner prépayé (audit du 5 octobre,
- * A-04 et A-12). Le serveur reste l'autorité (`assertOwner`).
+ * Zone de prédiction : seulement sur un emprunt réglé (release miné, reçu enclave présent, hors revue
+ * de finalité), pour son emprunteur. Le modèle reste scellé dans le runner ; chaque prédiction est
+ * demandée au clic et consomme le quota quotidien. Le serveur reste l'autorité (`assertOwner`).
  */
-export function canRetrieveModelKey(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+export function canPredictLoan(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
   return (
     loan.status === "SETTLED" &&
     Boolean(loan.settleTxHash) &&
     Boolean(loan.runnerReceipt) &&
     !loan.cancelTxHash &&
+    !loan.finalityReview &&
     isBorrower(loan, viewer)
   );
 }

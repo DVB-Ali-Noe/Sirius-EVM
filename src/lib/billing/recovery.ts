@@ -1,7 +1,6 @@
 import "server-only";
 import { AppError } from "@/lib/app-error";
 import { loanKeyFor } from "@/lib/evm/loan-key";
-import { deferredLoanDeliveryCommitment } from "@/lib/runner/delivery";
 import { issueLoanReceipt } from "@/lib/runner/receipt";
 import { attestLoanExecution } from "@/lib/tee/attestation";
 import type { LoanJobResult, RecoveredLoanResult } from "@/lib/tee/contract";
@@ -12,7 +11,6 @@ import { failBilledEscrow } from "./settlement";
 export interface LoanRecoveryContext {
   datasetCid: string;
   merkleRoot: string;
-  deliveryPublicKey: string;
 }
 
 export async function recoverBilledLoanResult(signed: SignedComputeQuote): Promise<RecoveredLoanResult> {
@@ -33,24 +31,22 @@ export async function recoverBilledLoanResult(signed: SignedComputeQuote): Promi
   if (!stored.result) throw new AppError("Résultat durable manquant", 503);
   const context = JSON.parse(stored.context) as LoanRecoveryContext;
   const model = JSON.parse(stored.result) as Pick<LoanJobResult, "modelCid" | "metrics">;
-  const releaseEnvelopeHash = deferredLoanDeliveryCommitment(loanKey, model.modelCid, context.deliveryPublicKey);
   const attestation = await attestLoanExecution({
     chainId: quote.chainId, escrow: quote.escrow, loanId: quote.loanId, loanKey,
     datasetId: quote.datasetId, datasetCid: context.datasetCid, provider: quote.provider,
     borrower: quote.borrower, amountUsdcAtomic: totalQuoteAmount(quote), billingQuoteHash: scope.fingerprint,
     challengeDays: quote.challengeDays, merkleRoot: context.merkleRoot, modelId: quote.modelId,
-    modelVersion: quote.modelVersion, modelCid: model.modelCid, releaseEnvelopeHash,
+    modelVersion: quote.modelVersion, modelCid: model.modelCid,
   });
   return {
-    state: "ready", deliveryPublicKey: context.deliveryPublicKey,
+    state: "ready",
     result: {
-      ...model, attestation, releaseEnvelopeHash,
+      ...model, attestation, loanKey, hashlock: quote.hashlock,
       runnerReceipt: issueLoanReceipt({
         loanId: quote.loanId, datasetId: quote.datasetId, borrower: quote.borrower, provider: quote.provider,
         modelCid: model.modelCid, loanKey, chainId: quote.chainId, escrow: quote.escrow,
         amountUsdcAtomic: totalQuoteAmount(quote), billingQuote: signed, challengeDays: quote.challengeDays,
-        modelId: quote.modelId, modelVersion: quote.modelVersion, deliveryPublicKey: context.deliveryPublicKey,
-        releaseEnvelopeHash, attestationHash: attestation.payloadHash,
+        modelId: quote.modelId, modelVersion: quote.modelVersion, attestationHash: attestation.payloadHash,
       }),
     },
   };

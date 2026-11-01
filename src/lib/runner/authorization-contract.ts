@@ -5,8 +5,6 @@ export type AuthorizedRunnerOperation =
   | "run-training"
   | "run-loan-job"
   | "settle-loan"
-  | "loan-model-key"
-  | "self-train-key"
   | "predict";
 
 export interface RunnerGrantScope {

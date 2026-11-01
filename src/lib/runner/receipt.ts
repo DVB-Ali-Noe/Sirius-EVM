@@ -23,7 +23,7 @@ export interface DatasetReceipt {
 }
 
 export interface TrainingReceipt {
-  version: 2 | 3;
+  version: 3;
   kind: "training";
   jobId: string;
   datasetId: string;
@@ -33,8 +33,13 @@ export interface TrainingReceipt {
   modelVersion: string;
 }
 
+/**
+ * `modelCid` : empreinte `sm1…` du modèle scellé dans le runner (served-models.ts). Les reçus émis
+ * avant la suppression de la livraison portent aussi `deliveryPublicKey` et `releaseEnvelopeHash`,
+ * ignorés : le règlement ne dépend que du reçu signé et du préimage dérivé dans le runner.
+ */
 export interface LoanReceipt {
-  version: 2 | 3;
+  version: 3;
   kind: "loan";
   loanId: string;
   datasetId: string;
@@ -48,16 +53,14 @@ export interface LoanReceipt {
   challengeDays: number;
   modelId: ModelId;
   modelVersion: string;
-  deliveryPublicKey: string;
-  releaseEnvelopeHash: string;
   attestationHash: string;
   billingQuote?: SignedComputeQuote;
 }
 
 type Receipt = DatasetReceipt | TrainingReceipt | LoanReceipt;
 
-function receiptKey(version: 2 | 3 = 3): Buffer {
-  return deriveKey(getMasterKey(), `runner-receipt:hmac:v${version}`);
+function receiptKey(): Buffer {
+  return deriveKey(getMasterKey(), "runner-receipt:hmac:v3");
 }
 
 function issue(payload: Receipt): string {
@@ -66,7 +69,7 @@ function issue(payload: Receipt): string {
   return `${body}.${signature}`;
 }
 
-function verify<T extends Receipt["kind"]>(token: string, kind: T, delivery = false): Extract<Receipt, { kind: T }> {
+function verify<T extends Receipt["kind"]>(token: string, kind: T): Extract<Receipt, { kind: T }> {
   const separator = token.indexOf(".");
   if (separator < 1 || token.length > 8_192) throw new AppError("Reçu runner invalide", 401);
   const body = token.slice(0, separator);
@@ -77,10 +80,10 @@ function verify<T extends Receipt["kind"]>(token: string, kind: T, delivery = fa
   } catch {
     throw new AppError("Reçu runner invalide", 401);
   }
-  if (!receipt || (receipt.version !== 3 && !(delivery && receipt.version === 2)) || receipt.kind !== kind) {
+  if (!receipt || receipt.version !== 3 || receipt.kind !== kind) {
     throw new AppError("Reçu runner invalide", 401);
   }
-  const expected = createHmac("sha256", receiptKey(receipt.version)).update(body).digest();
+  const expected = createHmac("sha256", receiptKey()).update(body).digest();
   if (!safeEqual(signature, expected)) throw new AppError("Reçu runner invalide", 401);
   return receipt as Extract<Receipt, { kind: T }>;
 }
@@ -126,12 +129,6 @@ export function issueTrainingReceipt(input: Omit<TrainingReceipt, "version" | "k
   return issue({ version: 3, kind: "training", ...input });
 }
 
-export function verifyTrainingReceipt(token: string, jobId: string): TrainingReceipt {
-  const receipt = verify(token, "training", true);
-  if (receipt.jobId !== jobId) throw new AppError("Reçu d’entraînement hors scope", 401);
-  return receipt;
-}
-
 export function issueLoanReceipt(input: Omit<LoanReceipt, "version" | "kind">): string {
   return issue({ version: 3, kind: "loan", ...input });
 }
@@ -146,17 +143,13 @@ export function verifyLoanReceipt(token: string, loanId: string): LoanReceipt {
   return receipt;
 }
 
-/** Les reçus historiques ne peuvent que relivrer un modèle déjà réglé. */
-export function verifyLoanDeliveryReceipt(token: string, loanId: string): LoanReceipt {
-  const receipt = verify(token, "loan", true);
+/**
+ * Reçu d'un prêt déjà réglé, pour la prédiction : l'escrow peut être un déploiement antérieur,
+ * pourvu qu'il reste autorisé (`trustedEscrowBinding`). Le règlement, lui, exige l'escrow courant.
+ */
+export function verifySettledLoanReceipt(token: string, loanId: string): LoanReceipt {
+  const receipt = verify(token, "loan");
   if (receipt.loanId !== loanId) throw new AppError("Reçu d’emprunt hors scope", 401);
   trustedEscrowBinding(receipt);
   return receipt;
-}
-
-export function assertReleaseEnvelopeHash(receipt: LoanReceipt, persistedHash: string): void {
-  if (!/^[a-f0-9]{64}$/.test(persistedHash)) throw new AppError("Accusé de capsule invalide", 400);
-  if (receipt.releaseEnvelopeHash !== persistedHash) {
-    throw new AppError("Capsule persistée différente de la capsule attestée", 409);
-  }
 }

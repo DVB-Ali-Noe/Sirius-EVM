@@ -29,12 +29,6 @@ export type ProfileLanguage = (typeof PROFILE_LANGUAGES)[number];
 /** Taille maximale, en caractères JSON, d'une modification de profil. */
 export const MAX_PROFILE_PATCH_CHARS = 2_048;
 
-/** Bornes des champs du journal des accès : identifiants cuid, CID IPFS et empreintes hexadécimales. */
-const MAX_ID_CHARS = 64;
-const MAX_CID_CHARS = 256;
-const MAX_FINGERPRINT_CHARS = 128;
-const TOKEN_PATTERN = /^[A-Za-z0-9:_.-]+$/;
-
 /**
  * Ancien champ des tutos par page, remplacés par les visites du guide (`settings.guide.pages`).
  * La colonne reste en base mais n'est plus lue ; un ancien client qui l'envoie encore est ignoré
@@ -131,7 +125,7 @@ export interface UserProfileRow {
 }
 
 /** Client Prisma ou transaction : la même fonction sert hors et dans une transaction. */
-type Db = Pick<Prisma.TransactionClient, "userProfile" | "datasetAccessLog">;
+type Db = Pick<Prisma.TransactionClient, "userProfile">;
 
 /** Client capable d'ouvrir une transaction interactive ; les stubs de test peuvent s'en passer. */
 type TransactionalDb = Db & Partial<Pick<typeof prisma, "$transaction">>;
@@ -400,70 +394,4 @@ class ProfileTimeoutError extends Error {
     super("délai dépassé");
     this.name = "ProfileTimeout";
   }
-}
-
-export interface DatasetAccessEntry {
-  datasetId: string;
-  address: string;
-  loanId?: string | null;
-  modelCid?: string | null;
-  modelFingerprint?: string | null;
-}
-
-export interface DatasetAccessRecord {
-  id: string;
-  datasetId: string;
-  address: CanonicalAddress;
-  loanId: string | null;
-  modelCid: string | null;
-  modelFingerprint: string | null;
-  createdAt: Date;
-}
-
-function requireToken(value: unknown, maxChars: number, message: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maxChars || !TOKEN_PATTERN.test(value)) {
-    throw new AppError(message, 400);
-  }
-  return value;
-}
-
-function optionalToken(value: unknown, maxChars: number, message: string): string | null {
-  if (value === undefined || value === null) return null;
-  return requireToken(value, maxChars, message);
-}
-
-/**
- * Journal des accès : qui a reçu quel modèle pour quel dataset et quel prêt. À appeler
- * au moment de la livraison du modèle, dans la même transaction que la livraison quand
- * c'est possible (`db` accepte une transaction). Un dataset inconnu est refusé en 404 par
- * la clé étrangère. Pas encore branché sur la livraison.
- */
-export async function recordDatasetAccess(entry: DatasetAccessEntry, db: Db = prisma): Promise<DatasetAccessRecord> {
-  if (!isPlainObject(entry)) throw new AppError("Entrée du journal des accès invalide", 400);
-  const data = {
-    datasetId: requireToken(entry.datasetId, MAX_ID_CHARS, "Entrée du journal des accès invalide"),
-    address: normalizeAddress(entry.address, "adresse du journal des accès"),
-    loanId: optionalToken(entry.loanId, MAX_ID_CHARS, "Entrée du journal des accès invalide"),
-    modelCid: optionalToken(entry.modelCid, MAX_CID_CHARS, "Entrée du journal des accès invalide"),
-    modelFingerprint: optionalToken(entry.modelFingerprint, MAX_FINGERPRINT_CHARS, "Entrée du journal des accès invalide"),
-  };
-  let row: Awaited<ReturnType<typeof db.datasetAccessLog.create>>;
-  try {
-    row = await db.datasetAccessLog.create({ data });
-  } catch (error) {
-    // Clé étrangère : le dataset n'existe pas (ou plus). Message métier plutôt qu'un 500 opaque.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-      throw new AppError("Dataset introuvable", 404);
-    }
-    throw error;
-  }
-  return {
-    id: row.id,
-    datasetId: row.datasetId,
-    address: data.address,
-    loanId: row.loanId,
-    modelCid: row.modelCid,
-    modelFingerprint: row.modelFingerprint,
-    createdAt: row.createdAt,
-  };
 }

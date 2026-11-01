@@ -20,7 +20,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 
 ## What Sirius is
 - Sirius is a confidential data-lending marketplace. Data providers publish encrypted tabular datasets (CSV); borrowers rent them to train a machine-learning model without ever seeing the raw data.
-- Training runs inside a hardware enclave (TEE, Phala dstack on Intel TDX). The borrower receives only the trained model; the provider is paid on every settled training run.
+- Training runs inside a hardware enclave (TEE, Phala dstack on Intel TDX). The model stays sealed in the enclave: the borrower never receives it and uses it only through signed predictions; the provider is paid on every settled training run.
 - Payments and the audit trail live on an EVM chain: Robinhood Chain (an Arbitrum Nitro L2). Production uses Robinhood Chain mainnet (chain id 4663) with the USDG stablecoin (Global Dollar, issued by Paxos). The staging/test instance uses Robinhood Chain testnet (chain id 46630) with a valueless "test USDC" token.
 - Gas (network fees) is always paid in ETH on Robinhood Chain, separately from the stablecoin.
 - Sirius is in beta. Models currently supported: linear regression and binary logistic regression on numeric tabular data. More models are in development.
@@ -52,7 +52,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - A quote ("training quote") shows dataset price, compute price, maximum retained execution fees and total prepayment; ETH network fees are paid separately in the wallet.
 - After the lock transaction, the payment must reach finality before training can start: on mainnet this takes under a minute for small loans and about 15 minutes otherwise ("Payment confirmation: ~N s" or "Payment finality: ~N min" on the Train page). If the Train page stays open, training starts automatically once finality is reached; otherwise come back to the Train page and click "Run job (TEE)". There is no need to borrow again.
 - Only one training job runs at a time on the engine; if it is busy, retry a little later. Jobs are queued.
-- When training completes, the escrow is released: the provider is paid and the model key is delivered. The settlement itself needs network confirmation: for small loans the Train page waits (usually under a minute) and delivers the model on its own; otherwise it can take 15 to 30 minutes, then come back to the Train page. The model appears on the Train page: "Verify and download". You can decrypt it in the browser, inspect coefficients, evaluate it on a test CSV (kept in your browser) and test predictions.
+- When training completes, the escrow is released and the provider is paid. The model is never delivered or downloadable: it stays sealed inside the TEE runner and is used only through signed predictions. The settlement itself needs network confirmation: for small loans the Train page waits (usually under a minute); otherwise it can take 15 to 30 minutes, then come back to the Train page. Once settled, the borrower enters a JSON object of numeric features on the Train page and clicks "Request a prediction": the answer is "Decision: 0/1" for logistic regression and gradient-boosted trees, or "Value: x" (rounded to 3 significant digits) for linear regression, with a call number. Predictions are signed by the runner and limited by a daily quota per model. Models trained before this change are unavailable.
 - If training fails, the dataset price and the unused compute are refunded; only measured execution fees (capped and announced in the quote) are retained.
 - If the loan is never settled before its deadline, the borrower can recover the escrow with "Recover escrow" on the Train page. The escrow safety delay is fixed by Sirius for every dataset: ${ESCROW_CHALLENGE_DAYS} days (shown on the dataset card as "refundable after ${ESCROW_CHALLENGE_DAYS} d"); the provider does not choose it. Release and refund are mutually exclusive.
 - Self-training (training on your OWN dataset without escrow, Train page, "My data") is reserved to the Sirius team during the beta: other wallets see "Coming soon".
@@ -63,18 +63,18 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - At upload you give a name, an optional description, a category (${DATASET_CATEGORIES.join(", ")}), the training profile (linear regression, logistic regression or gradient-boosted trees), the price in the stablecoin, and a listing duration of ${LISTING_DURATIONS_DAYS.join(", ").replace(/, (\d+)$/, " or $1")} days (default ${DEFAULT_LISTING_DURATION_DAYS}). The escrow safety delay (${ESCROW_CHALLENGE_DAYS} days) is fixed by Sirius. The target column of a logistic or gradient-boosted trees model must be strictly 0 or 1.
 - Data limits: CSV up to ${Math.round(MAX_DATASET_BYTES / MIB)} MB, between ${MIN_TRAINING_ROWS} and ${MAX_CSV_ROWS} rows, numeric columns, up to ${MAX_TRAINING_FEATURES} explanatory variables. Datasets that are too small are refused to preserve privacy.
 - A dataset becomes borrowable once its EVM title is published ("Publish title") in the SiriusDatasetRegistry contract: a non-transferable title bound to the hash of its content and its training profile. Visibility: Public (in the catalog), Unlisted (borrowable by direct link), Private (self-train only).
-- Providers get paid on each settled loan; the credit is withdrawn from the Wallet page. Deleting a dataset removes its active key and deactivates its title; models already delivered are not erased.
+- Providers get paid on each settled loan; the credit is withdrawn from the Wallet page. Deleting a dataset removes its active key and deactivates its title; models already trained are not erased.
 - An example dataset can be loaded from the upload page to try the flow.
 
 ## Explorer, certificates and proofs
 - The Explorer page lists your borrowings, settlements and refunds, each verifiable on the chain explorer (Blockscout). It shows on-chain activity, never dataset contents.
 - Each dataset has a public proof page ("Public proof") and an on-chain anchor that anyone can verify.
-- A training run produces an audit receipt and a certificate page that can be downloaded and verified: it binds the dataset title, the loan, the TEE attestation and the delivered model fingerprint.
+- A training run produces an audit receipt and a certificate page that can be downloaded and verified: it binds the dataset title, the loan, the TEE attestation and the fingerprint of the model sealed in the runner.
 - The Dashboard shows the "EVM trust" summary: settled, refunded and proof counts, only for escrows confirmed on-chain.
 
 ## Phala, privacy and security
 - The Phala page explains the confidential compute: the runner is a service inside a Phala CVM; its identity (MRTD, compose hash) is pinned and attested on every request (RA-TLS). In demonstration mode, training is not yet isolated in an enclave and the status page says so.
-- Who sees what: the provider keeps the encrypted dataset; the borrower sees only the model; Sirius servers see neither raw data nor the model key.
+- Who sees what: the provider keeps the encrypted dataset; the borrower never sees the model, only signed predictions (a 0/1 decision or a rounded value); Sirius servers see neither raw data nor the model.
 - The /status page lists what is live: network, contracts, confidential compute, loan limits (maximum per loan and total exposure), audit status ("Not yet audited. Internal review completed on 1 October 2026").
 - Privacy: Sirius uses only strictly necessary cookies (sirius_session for 24 hours, sirius_preview for the team). No analytics, advertising or tracking cookies, hence no consent banner. A sign-in challenge expires after 5 minutes. Wallet addresses and loan records are kept for the audit trail.
 - Never share a private key, seed phrase or recovery phrase with anyone, including Sirius. Sirius never asks for them.
@@ -87,7 +87,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 
 ## Pages of the app
 - Dashboard (/dashboard): balance, "Get started" checklist, shortcuts.
-- Train (/train): your training runs, Run job, Verify and download, Recover escrow; self-training is team-only during the beta.
+- Train (/train): your training runs, Run job, Request a prediction, Recover escrow; self-training is team-only during the beta.
 - Phala (/phala): confidential compute status and attestation.
 - Marketplace (/marketplace): browse and borrow datasets.
 - My datasets (/datasets): your uploaded datasets; Upload (/datasets/new).

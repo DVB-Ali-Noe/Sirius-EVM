@@ -5,18 +5,16 @@ import { runnerEndpoint as endpoint } from "@/lib/runner/config";
 import { issueRunnerCapability, type RunnerOperation, type RunnerScope } from "@/lib/runner/capability";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import type { ModelSelection } from "@/lib/models/registry";
-import type { LoanExecutionAttestation } from "./types";
 import type {
   AuthorizedSealDatasetResult,
-  AuthorizedTrainingResult,
   DatasetIngressEnvelope,
   DatasetIngressKey,
   DatasetRef,
-  RunnerDeliveryEnvelope,
-  ServedTrainingResult,
-  SignedPrediction,
-  RunnerReleaseEnvelope,
+  LoanJobResult,
+  ModelRef,
   RecoveredLoanResult,
+  SelfTrainingResult,
+  SignedPrediction,
 } from "./contract";
 import { attestedRunnerFetch, runnerFailureDiagnostic } from "./ra-tls-client";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
@@ -26,13 +24,12 @@ import type { FinalityTier } from "@/lib/evm/fast-finality";
 const RUNNER_TIMEOUT_MS = 60_000;
 
 /**
- * Seules opérations qu'un nouvel essai peut rejouer après une connexion keep-alive périmée
- * (ra-tls-client.ts, audit ROB-10) : lecture de la clé publique d'ingestion et re-livraison d'une
- * clé self-train déjà calculée. Ni scellement, ni entraînement, ni verrou, ni règlement, ni
- * livraison de prêt : une requête qui engage un calcul, un paiement ou un règlement n'est jamais
- * renvoyée par le client.
+ * Seule opération qu'un nouvel essai peut rejouer après une connexion keep-alive périmée
+ * (ra-tls-client.ts, audit ROB-10) : la lecture de la clé publique d'ingestion. Ni scellement, ni
+ * entraînement, ni verrou, ni règlement, ni prédiction (quota décompté) : une requête qui engage
+ * un calcul, un paiement ou un règlement n'est jamais renvoyée par le client.
  */
-export const RETRYABLE_RUNNER_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "self-train-key"]);
+export const RETRYABLE_RUNNER_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key"]);
 
 /**
  * Palier demandé à l'enclave, transmis seulement quand il est rapide : un prêt à finalité complète
@@ -119,29 +116,20 @@ export async function prepareEscrowLockInRunner(
 export async function runLoanJobInRunner(
   input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; loanId: string },
   datasetReceipt: string,
-  deliveryPublicKey: string,
   authorization: RunnerGrant,
   billingQuote?: SignedComputeQuote,
   finalityTier?: FinalityTier,
-): Promise<{
-  modelCid: string;
-  metrics: Record<string, number>;
-  attestation: LoanExecutionAttestation;
-  releaseEnvelope?: RunnerReleaseEnvelope;
-  releaseEnvelopeHash: string;
-  runnerReceipt: string;
-}> {
+): Promise<LoanJobResult> {
   return dispatchRunner(
     "run-loan-job",
     { datasetId: input.datasetId, loanId: input.loanId },
-    { ...input, datasetReceipt, deliveryPublicKey, authorization, ...(billingQuote ? { billingQuote } : {}), ...finalityTierField(finalityTier) },
+    { ...input, datasetReceipt, authorization, ...(billingQuote ? { billingQuote } : {}), ...finalityTierField(finalityTier) },
   );
 }
 
 export async function settleLoanInRunner(
   loanId: string,
   loanReceipt: string,
-  releaseEnvelopeHash: string,
   lockBlock: string,
   authorization?: RunnerGrant,
   finalityTier?: FinalityTier,
@@ -149,7 +137,7 @@ export async function settleLoanInRunner(
   return dispatchRunner(
     "settle-loan",
     { loanId },
-    { loanId, loanReceipt, releaseEnvelopeHash, lockBlock, ...(authorization ? { authorization } : {}), ...finalityTierField(finalityTier) },
+    { loanId, loanReceipt, lockBlock, ...(authorization ? { authorization } : {}), ...finalityTierField(finalityTier) },
   );
 }
 
@@ -157,67 +145,35 @@ export async function recoverLoanJobInRunner(loanId: string, billingQuote: Signe
   return dispatchRunner("recover-loan-job", { loanId }, { loanId, billingQuote });
 }
 
-export async function loanModelKeyInRunner(
-  loanId: string,
-  loanReceipt: string,
-  deliveryPublicKey: string,
-  authorization: RunnerGrant,
-  settleTxHash?: string,
-  finalityTier?: FinalityTier,
-): Promise<{ modelCid: string; modelKeyEnvelope: RunnerDeliveryEnvelope }> {
-  return dispatchRunner(
-    "loan-model-key",
-    { loanId },
-    { loanId, loanReceipt, deliveryPublicKey, authorization, ...(settleTxHash ? { settleTxHash } : {}), ...finalityTierField(finalityTier) },
-  );
-}
-
+/** Self-train : toujours scellé dans le runner, pour les trois profils. */
 export async function runSelfTrainingInRunner(
   input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
   datasetReceipt: string,
   authorization: RunnerGrant,
-  deliveryPublicKey?: string,
-  served?: false,
-): Promise<AuthorizedTrainingResult>;
-export async function runSelfTrainingInRunner(
-  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
-  datasetReceipt: string,
-  authorization: RunnerGrant,
-  deliveryPublicKey: undefined,
-  served: true,
-): Promise<ServedTrainingResult>;
-export async function runSelfTrainingInRunner(
-  input: Omit<DatasetRef, "datasetId"> & ModelSelection & { datasetId: string; jobId: string },
-  datasetReceipt: string,
-  authorization: RunnerGrant,
-  deliveryPublicKey?: string,
-  served = false,
-): Promise<AuthorizedTrainingResult | ServedTrainingResult> {
+): Promise<SelfTrainingResult> {
   return dispatchRunner(
     "run-training",
     { datasetId: input.datasetId, jobId: input.jobId },
-    { ...input, datasetReceipt, authorization, ...(deliveryPublicKey ? { deliveryPublicKey } : {}), ...(served ? { served: true } : {}) },
+    { ...input, datasetReceipt, authorization },
   );
+}
+
+/** Preuve de règlement d'un prêt, exigée par le runner avant toute prédiction sur son modèle. */
+export interface LoanPredictionContext {
+  loanReceipt: string;
+  settleTxHash: string;
+  finalityTier?: FinalityTier;
 }
 
 export async function predictInRunner(
-  modelId: string,
+  ref: ModelRef,
   features: Record<string, number>,
   authorization: RunnerGrant,
+  loanContext?: LoanPredictionContext,
 ): Promise<SignedPrediction> {
-  return dispatchRunner("predict", { jobId: modelId }, { modelId, features, authorization });
-}
-
-export async function selfTrainModelKeyInRunner(
-  jobId: string,
-  jobReceipt: string,
-  deliveryPublicKey: string,
-  authorization: RunnerGrant,
-): Promise<RunnerDeliveryEnvelope> {
-  const out = await dispatchRunner<{ modelKeyEnvelope: RunnerDeliveryEnvelope }>(
-    "self-train-key",
-    { jobId },
-    { jobId, jobReceipt, deliveryPublicKey, authorization },
-  );
-  return out.modelKeyEnvelope;
+  if ((ref.kind === "loan") !== Boolean(loanContext)) throw new AppError("Contexte de prêt invalide", 400);
+  const scope = ref.kind === "job" ? { jobId: ref.id } : { loanId: ref.id };
+  const loan = loanContext ? { loanReceipt: loanContext.loanReceipt, settleTxHash: loanContext.settleTxHash } : {};
+  const finalityTier = loanContext?.finalityTier;
+  return dispatchRunner("predict", scope, { modelRef: ref, features, authorization, ...loan, ...finalityTierField(finalityTier) });
 }

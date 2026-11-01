@@ -22,26 +22,39 @@ const input = {
   merkleRoot: "f".repeat(64),
   modelId: "logistic_regression" as const,
   modelVersion: "1.0.0",
-  modelCid: "bafy-model",
-  releaseEnvelopeHash: "e".repeat(64),
+  modelCid: `sm1${"c".repeat(64)}`,
 };
 
-test("le payload d’attestation lie le modèle, le scope et la capsule", () => {
+test("le payload d’attestation lie le modèle scellé et le scope, sans capsule de livraison", () => {
   const payload = serializeLoanAttestationPayload(input);
   const parsed = parseLoanAttestationPayload(payload);
 
+  assert.equal(parsed.version, 3);
   assert.equal(parsed.modelId, "logistic_regression");
   assert.equal(parsed.modelVersion, "1.0.0");
   assert.equal(parsed.datasetCid, input.datasetCid);
-  assert.equal(parsed.releaseEnvelopeHash, input.releaseEnvelopeHash);
+  assert.equal(parsed.modelCid, input.modelCid);
+  assert.equal("releaseEnvelopeHash" in parsed, false);
   assert.notEqual(
     hashLoanAttestationPayload(payload),
     hashLoanAttestationPayload(serializeLoanAttestationPayload({ ...input, modelId: "linear_regression" })),
   );
-  assert.notEqual(
-    hashLoanAttestationPayload(payload),
-    hashLoanAttestationPayload(serializeLoanAttestationPayload({ ...input, releaseEnvelopeHash: "d".repeat(64) })),
-  );
+  const billed = parseLoanAttestationPayload(serializeLoanAttestationPayload({ ...input, billingQuoteHash: `0x${"cd".repeat(32)}` }));
+  assert.equal(billed.version, 4);
+  assert.equal(billed.billingQuoteHash, `0x${"cd".repeat(32)}`);
+});
+
+test("les attestations déjà stockées (v1, v2 avec capsule) restent vérifiables", () => {
+  const base = JSON.parse(serializeLoanAttestationPayload(input)) as Record<string, unknown>;
+  delete base.version;
+  const legacy = JSON.stringify({ version: 1, ...base, releaseEnvelopeHash: "e".repeat(64) });
+  assert.equal(parseLoanAttestationPayload(legacy).releaseEnvelopeHash, "e".repeat(64));
+  assert.match(hashLoanAttestationPayload(legacy), /^[0-9a-f]{64}$/);
+  const legacyBilled = JSON.stringify({ version: 2, ...base, releaseEnvelopeHash: "e".repeat(64), billingQuoteHash: `0x${"cd".repeat(32)}` });
+  assert.equal(parseLoanAttestationPayload(legacyBilled).version, 2);
+  // Une version récente ne peut pas porter de capsule, une ancienne ne peut pas s'en passer.
+  assert.throws(() => parseLoanAttestationPayload(JSON.stringify({ version: 3, ...base, releaseEnvelopeHash: "e".repeat(64) })), /invalide/i);
+  assert.throws(() => parseLoanAttestationPayload(JSON.stringify({ version: 1, ...base })), /invalide/i);
 });
 
 test("le payload d’attestation refuse les champs libres et les modèles inconnus", () => {

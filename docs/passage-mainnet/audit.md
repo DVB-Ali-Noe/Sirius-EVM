@@ -1,5 +1,7 @@
 # Points de contrôle pour l'audit
 
+> **Note du 1er novembre 2026 :** les sections qui décrivent la livraison de modèle (clé, capsule, `/api/loans/[id]/key`, `/api/train/[id]/key`, `recordDatasetAccess`) sont historiques. [D-28](../DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule) a retiré toute livraison : les modèles ne s'utilisent que par prédiction signée.
+
 Chaque slice du passage au mainnet remplit **sa propre section**, déjà réservée ci-dessous. Une slice ne touche jamais la section d'une autre : les fusions restent ainsi sans conflit.
 
 L'audit interne final vérifie chacun de ces points **en plus** de l'audit général du code. Une section restée « À remplir » est elle-même un point à signaler.

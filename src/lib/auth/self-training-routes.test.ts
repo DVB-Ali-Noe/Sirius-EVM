@@ -27,7 +27,7 @@ import { EN_MESSAGES } from "../i18n/english";
 const ROOT = process.cwd();
 const ADMIN = `0x${"ab".repeat(20)}`;
 const VISITOR = `0x${"cd".repeat(20)}`;
-const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "SIRIUS_PREDICT_ENABLED", "EVM_NETWORK", "TEE_MODE", "DSTACK_SIMULATOR_ENDPOINT"] as const;
+const ENV_KEYS = ["SIRIUS_ADMIN_ADDRESSES", "SIRIUS_PHALA_DEMO", "EVM_NETWORK", "TEE_MODE", "DSTACK_SIMULATOR_ENDPOINT"] as const;
 const DEMO_ENV = { SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", TEE_MODE: "phala" };
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
 
@@ -131,10 +131,10 @@ function identifiers(source: ts.SourceFile, name: string): number {
   return count;
 }
 
-const EXPENSIVE = /^(prisma\.|readJson\b|assertAuthenticGrant\b|runSelfTrain\b|selfTrainModelKeyInRunner\b|enforceRateLimit\b|assertCurrentRunner\b|assertOwner\b)/;
+const EXPENSIVE = /^(prisma\.|readJson\b|assertAuthenticGrant\b|runSelfTrain\b|predictInRunner\b|parsePredictionRequest\b|enforceRateLimit\b|assertCurrentRunner\b|assertOwner\b)/;
 
 test("les routes de self training sont bien celles attendues", () => {
-  assert.deepEqual(SELF_TRAINING_ROUTES, ["src/app/api/train/[id]/key/route.ts", "src/app/api/train/route.ts"]);
+  assert.deepEqual(SELF_TRAINING_ROUTES, ["src/app/api/train/[id]/predict/route.ts", "src/app/api/train/route.ts"]);
 });
 
 test("chaque handler de self training appelle la garde admin juste après requireAuth, avant tout le reste", () => {
@@ -161,11 +161,11 @@ test("chaque handler de self training appelle la garde admin juste après requir
   }
 });
 
-test("la liste des jobs et le lancement tolèrent la démo Phala, la livraison de clé non", () => {
+test("la liste des jobs, le lancement et la prédiction tolèrent la démo Phala", () => {
   const train = parse("src/app/api/train/route.ts");
   const byMethod = Object.fromEntries(handlers(train).map(({ method, node }) => [method, node]));
-  const args = (node: ts.Node) => calls(node, train).filter((call) => call.name === "assertSelfTrainingAccess")
-    .map((call) => train.text.slice(call.pos, train.text.indexOf(");", call.pos)).replace(/^assertSelfTrainingAccess\(/, ""));
+  const args = (node: ts.Node, source = train) => calls(node, source).filter((call) => call.name === "assertSelfTrainingAccess")
+    .map((call) => source.text.slice(call.pos, source.text.indexOf(");", call.pos)).replace(/^assertSelfTrainingAccess\(/, ""));
   assert.deepEqual(args(byMethod.GET), ["session, true"]);
   assert.deepEqual(args(byMethod.POST), ["session, true", "session, isDemoTrainingGrant(authorization)"]);
   const post = calls(byMethod.POST, train);
@@ -176,10 +176,9 @@ test("la liste des jobs et le lancement tolèrent la démo Phala, la livraison d
   assert.ok(first.pos < readBody.pos, "premier refus avant le corps");
   assert.ok(readBody.pos < second.pos && second.pos < grant.pos, "second refus entre le corps et le grant");
 
-  const key = parse("src/app/api/train/[id]/key/route.ts");
-  const [{ node }] = handlers(key);
-  assert.deepEqual(calls(node, key).filter((call) => call.name === "assertSelfTrainingAccess")
-    .map((call) => key.text.slice(call.pos, key.text.indexOf(");", call.pos))), ["assertSelfTrainingAccess(session"]);
+  const predict = parse("src/app/api/train/[id]/predict/route.ts");
+  const [{ node }] = handlers(predict);
+  assert.deepEqual(args(node, predict), ["session, true"]);
 });
 
 test("la résolution des imports reconnaît l'alias, les chemins relatifs, frères et avec extension", () => {
@@ -202,8 +201,8 @@ test("la résolution des imports reconnaît l'alias, les chemins relatifs, frèr
 test("aucun autre fichier n'atteint le self training, sous aucune forme d'import", () => {
   assert.deepEqual(importersOf("src/lib/sirius/self-train"), ["src/app/api/train/route.ts"]);
   // Listes exactes, `src/lib/tee/` compris : un réexport sous alias y serait vu.
-  assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "selfTrainModelKeyInRunner") > 0).sort(),
-    ["src/app/api/train/[id]/key/route.ts", "src/lib/tee/runner-client.ts"]);
+  assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "predictInRunner") > 0).sort(),
+    ["src/app/api/loans/[id]/predict/route.ts", "src/app/api/train/[id]/predict/route.ts", "src/lib/tee/runner-client.ts"]);
   assert.deepEqual(SOURCES.filter((file) => identifiers(parse(file), "runSelfTrainingInRunner") > 0).sort(),
     ["src/lib/sirius/self-train.ts", "src/lib/tee/runner-client.ts"]);
   // `runSelfTrain` est aussi le nom de la fonction navigateur de src/lib/train/client.ts ; tout nouvel usage doit être relu.
@@ -275,8 +274,8 @@ async function withEnv<T>(overrides: Partial<Record<(typeof ENV_KEYS)[number], s
 }
 
 test("les handlers inspectés sont exactement ceux que chaque module de route exporte", () => {
-  const { train, key, me } = routes({ address: VISITOR, source: "external" });
-  for (const [file, module] of [["src/app/api/train/route.ts", train], ["src/app/api/train/[id]/key/route.ts", key], ["src/app/api/admin/me/route.ts", me]] as const) {
+  const { train, predict, me } = routes({ address: VISITOR, source: "external" });
+  for (const [file, module] of [["src/app/api/train/route.ts", train], ["src/app/api/train/[id]/predict/route.ts", predict], ["src/app/api/admin/me/route.ts", me]] as const) {
     const exported = Object.keys(module).filter((name) => HTTP_METHODS.has(name)).sort();
     assert.deepEqual(exported, handlers(parse(file)).map(({ method }) => method).sort(), file);
     assert.ok(exported.length > 0, file);
@@ -297,10 +296,10 @@ function routes(session: { address: string; source: "external" }, rows: Record<s
       calls.push("findMany");
       return rows.map((row) => Object.fromEntries(Object.keys(select).filter((key) => key in row).map((key) => [key, row[key]])));
     } } } },
-    "@/lib/sirius/self-train": { runSelfTrain: async (_dataset: string, _owner: string, jobId: string, _receipt: string,
-      _grant: unknown, _key?: string, served?: boolean) => {
+    "@/lib/sirius/self-train": { runSelfTrain: async (...args: unknown[]) => {
       calls.push("runSelfTrain");
-      return served ? { jobId, servedModelId: jobId, metrics: {} } : { jobId, modelCid: "cid", runnerReceipt: "receipt", metrics: {} };
+      assert.equal(args.length, 5, "aucune clé de livraison ni mode servi transmis");
+      return { jobId: args[2], servedModelId: args[2], metrics: {} };
     } },
     "@/lib/sirius/self-training-access": access,
     "@/lib/phala-demo/controller-client": { requestDemoController: async () => {
@@ -311,11 +310,22 @@ function routes(session: { address: string; source: "external" }, rows: Record<s
     "@/lib/errors": errors,
     "@/lib/http/body": body,
   });
-  const key = load<typeof import("../../app/api/train/[id]/key/route")>("src/app/api/train/[id]/key/route.ts", {
+  const predict = load<typeof import("../../app/api/train/[id]/predict/route")>("src/app/api/train/[id]/predict/route.ts", {
     "next/server": { NextResponse },
     "@/lib/db": { prisma: { trainingJob: { findUnique: async () => { calls.push("findUnique"); return null; } } } },
-    "@/lib/tee/runner-client": { selfTrainModelKeyInRunner: async () => { calls.push("selfTrainModelKeyInRunner"); return {}; } },
+    "@/lib/tee/runner-client": { predictInRunner: async () => { calls.push("predictInRunner"); return {}; } },
     "@/lib/sirius/self-training-access": access,
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => { calls.push("requireAcceptedKyb"); } },
+    "@/lib/sirius/prediction": {
+      parsePredictionRequest: (input: { features?: unknown; authorization?: unknown }) => {
+        if (!input.features || !input.authorization) throw new errors.AppError("Caractéristiques ou autorisation invalides", 400);
+        return input;
+      },
+      isServedModelFingerprint: () => true,
+      predictionSessionRevision: async () => 0,
+      assertSignedPrediction: async (result: unknown) => result,
+    },
+    "@/lib/models/registry": { modelSelection: () => null },
     "@/lib/auth/require-auth": auth,
     "@/lib/errors": errors,
     "@/lib/http/body": body,
@@ -328,17 +338,18 @@ function routes(session: { address: string; source: "external" }, rows: Record<s
     "@/lib/auth/require-auth": auth,
     "@/lib/errors": errors,
   });
-  return { train, key, me, calls };
+  return { train, predict, me, calls };
 }
 
 const json = (url: string, payload: unknown) => new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
 const garbage = (url: string) => new Request(url, { method: "POST", headers: { "content-type": "text/plain" }, body: "pas du JSON" });
 const TRAIN = "https://test.invalid/api/train";
-const KEY = "https://test.invalid/api/train/job-1/key";
+const PREDICT = "https://test.invalid/api/train/job-1/predict";
 const ME = "https://test.invalid/api/admin/me";
 const params = { params: Promise.resolve({ id: "job-1" }) };
 const grant = (extra: Record<string, unknown> = {}) => ({ payload: { subject: VISITOR, ...extra }, signature: "0x" });
 const training = (extra?: Record<string, unknown>) => ({ datasetId: "ds-1", jobId: "job-1", datasetReceipt: "receipt", authorization: grant(extra) });
+const prediction = (extra?: Record<string, unknown>) => ({ features: { income: 1 }, authorization: grant({ operation: "predict", jobId: "job-1", ...extra }) });
 
 async function refused(request: Request, response: Response, calls: string[], bodyRead = false) {
   assert.equal(response.status, 403);
@@ -349,18 +360,18 @@ async function refused(request: Request, response: Response, calls: string[], bo
 
 const send = async (route: (req: Request, ...rest: never[]) => Promise<Response>, request: Request, calls: string[], bodyRead = false) =>
   refused(request, await route(request), calls, bodyRead);
-const sendKey = async (route: (req: Request, ctx: typeof params) => Promise<Response>, request: Request, calls: string[]) =>
+const sendPredict = async (route: (req: Request, ctx: typeof params) => Promise<Response>, request: Request, calls: string[]) =>
   refused(request, await route(request, params), calls);
 
 test("hors démo, un wallet non admin est refusé sur chaque route sans corps lu, ni base, ni grant, ni runner", async () => {
   await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN }, async () => {
-    const { train, key, me, calls } = routes({ address: VISITOR, source: "external" });
+    const { train, predict, me, calls } = routes({ address: VISITOR, source: "external" });
     await send(train.GET, new Request(TRAIN), calls);
     await send(train.POST, garbage(TRAIN), calls);
     await send(train.POST, json(TRAIN, training()), calls);
     await send(train.POST, json(TRAIN, training({ demoSessionRevision: 1 })), calls);
-    await sendKey(key.POST, garbage(KEY), calls);
-    await sendKey(key.POST, json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), calls);
+    await sendPredict(predict.POST, garbage(PREDICT), calls);
+    await sendPredict(predict.POST, json(PREDICT, prediction()), calls);
     const who = await me.GET(new Request(ME));
     assert.equal(who.status, 200);
     assert.deepEqual(await who.json(), { admin: false });
@@ -373,7 +384,7 @@ test("un wallet de l'équipe passe la garde, quelle que soit la casse, et le flu
   const upper = `0X${"AB".repeat(20)}`;
   for (const [configured, address] of [[ADMIN, ADMIN], [mixed, ADMIN], [`${VISITOR},${ADMIN}`, mixed], [upper, ADMIN], [ADMIN, upper]]) {
     await withEnv({ SIRIUS_ADMIN_ADDRESSES: configured }, async () => {
-      const { train, key, me, calls } = routes({ address, source: "external" });
+      const { train, predict, me, calls } = routes({ address, source: "external" });
       const list = await train.GET(new Request(TRAIN));
       assert.equal(list.status, 200, `${configured} / ${address}`);
       assert.deepEqual(calls.splice(0), ["findMany"]);
@@ -386,8 +397,8 @@ test("un wallet de l'équipe passe la garde, quelle que soit la casse, et le flu
       assert.equal(incomplete.status, 400);
       assert.deepEqual(calls.splice(0), []);
 
-      const delivery = await key.POST(json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), params);
-      assert.equal(delivery.status, 404, "la garde passée, la route refuse le job inconnu comme avant");
+      const predicted = await predict.POST(json(PREDICT, prediction()), params);
+      assert.equal(predicted.status, 404, "la garde passée, la route refuse le job inconnu");
       assert.deepEqual(calls.splice(0), ["assertAuthenticGrant", "findUnique"]);
 
       const who = await me.GET(new Request(ME));
@@ -402,10 +413,10 @@ test("liste vide ou mal formée : même l'adresse attendue est refusée partout"
   try {
     for (const configured of [undefined, "", `${ADMIN},oops`, `${ADMIN},`]) {
       await withEnv(configured === undefined ? {} : { SIRIUS_ADMIN_ADDRESSES: configured }, async () => {
-        const { train, key, me, calls } = routes({ address: ADMIN, source: "external" });
+        const { train, predict, me, calls } = routes({ address: ADMIN, source: "external" });
         await send(train.GET, new Request(TRAIN), calls);
         await send(train.POST, json(TRAIN, training()), calls);
-        await sendKey(key.POST, json(KEY, { authorization: grant(), deliveryPublicKey: "k" }), calls);
+        await sendPredict(predict.POST, json(PREDICT, prediction()), calls);
         assert.deepEqual(await (await me.GET(new Request(ME))).json(), { admin: false });
       });
     }
@@ -414,7 +425,7 @@ test("liste vide ou mal formée : même l'adresse attendue est refusée partout"
 
 test("instance de démo Phala sur testnet : la part publique de la démo reste ouverte, le reste non", async () => {
   await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV }, async () => {
-    const { train, key, me, calls } = routes({ address: VISITOR, source: "external" });
+    const { train, predict, me, calls } = routes({ address: VISITOR, source: "external" });
     const list = await train.GET(new Request(TRAIN));
     assert.equal(list.status, 200, "la page de démo liste ses propres jobs");
     assert.deepEqual(calls.splice(0), ["findMany"]);
@@ -428,13 +439,15 @@ test("instance de démo Phala sur testnet : la part publique de la démo reste o
 
     const demo = await train.POST(json(TRAIN, training({ demoSessionRevision: 3 })));
     assert.equal(demo.status, 201, await demo.text());
-    assert.deepEqual(calls.splice(0), ["assertAuthenticGrant", "runSelfTrain"]);
+    assert.deepEqual(calls.splice(0), ["requestDemoController", "assertAuthenticGrant", "runSelfTrain"]);
 
     const malformed = await train.POST(garbage(TRAIN));
     assert.equal(malformed.status, 415, "sur la démo, le corps est lu pour reconnaître un grant de démo");
     assert.deepEqual(calls.splice(0), []);
 
-    await sendKey(key.POST, json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), calls);
+    const predicted = await predict.POST(json(PREDICT, prediction({ demoSessionRevision: 3 })), params);
+    assert.equal(predicted.status, 404, "la démo prédit sur ses propres jobs ; un job inconnu est refusé");
+    assert.deepEqual(calls.splice(0), ["assertAuthenticGrant", "findUnique"]);
     assert.deepEqual(await (await me.GET(new Request(ME))).json(), { admin: false });
   });
 });
@@ -450,70 +463,46 @@ test("la démo n'exempte jamais hors testnet, hors enclave Phala, ni avec un dra
     { EVM_NETWORK: "testnet", TEE_MODE: "phala" },
   ]) {
     await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...env }, async () => {
-      const { train, key, calls } = routes({ address: VISITOR, source: "external" });
+      const { train, predict, calls } = routes({ address: VISITOR, source: "external" });
       await send(train.GET, new Request(TRAIN), calls);
       await send(train.POST, json(TRAIN, training({ demoSessionRevision: 3 })), calls);
-      await sendKey(key.POST, json(KEY, { authorization: grant({ demoSessionRevision: 3 }), deliveryPublicKey: "k" }), calls);
+      await sendPredict(predict.POST, json(PREDICT, prediction({ demoSessionRevision: 3 })), calls);
     });
   }
 });
 
-test("le train servi exige le drapeau strict et la session de démo, et interdit toute clé", async () => {
+test("sur la démo, l'entraînement exige la session ouverte et le grant de sa révision ; le modèle reste scellé", async () => {
   await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV }, async () => {
     const { train, calls } = routes({ address: VISITOR, source: "external" });
-    const request = { ...training({ demoSessionRevision: 3 }), served: true };
-    const disabled = await train.POST(json(TRAIN, request));
-    assert.equal(disabled.status, 403);
-    assert.deepEqual(calls.splice(0), []);
-  });
-  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, SIRIUS_PREDICT_ENABLED: "true" }, async () => {
-    const { train, calls } = routes({ address: VISITOR, source: "external" });
-    const request = { ...training({ demoSessionRevision: 3 }), served: true };
-    const keyed = await train.POST(json(TRAIN, { ...request, deliveryPublicKey: "key" }));
-    assert.equal(keyed.status, 400);
-    assert.deepEqual(calls.splice(0), []);
-    const created = await train.POST(json(TRAIN, request));
+    const created = await train.POST(json(TRAIN, { ...training({ demoSessionRevision: 3 }), deliveryPublicKey: "ignorée" }));
     assert.equal(created.status, 201);
     assert.deepEqual(await created.json(), { jobId: "job-1", servedModelId: "job-1", metrics: {} });
     assert.deepEqual(calls.splice(0), ["requestDemoController", "assertAuthenticGrant", "runSelfTrain"]);
-  });
-});
 
-test("le train servi refuse une session fermée, un grant d'une autre révision ou un réseau non Phala", async () => {
-  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, SIRIUS_PREDICT_ENABLED: "true" }, async () => {
-    const { train, calls } = routes({ address: VISITOR, source: "external" }, [], { phase: "closed", available: false, sessionRevision: 3 });
-    const response = await train.POST(json(TRAIN, { ...training({ demoSessionRevision: 3 }), served: true }));
-    assert.equal(response.status, 403);
-    assert.deepEqual(calls, ["requestDemoController"]);
-    const wrong = routes({ address: VISITOR, source: "external" });
-    const outdated = await wrong.train.POST(json(TRAIN, { ...training({ demoSessionRevision: 2 }), served: true }));
+    const closed = routes({ address: VISITOR, source: "external" }, [], { phase: "closed", available: false, sessionRevision: 3 });
+    assert.equal((await closed.train.POST(json(TRAIN, training({ demoSessionRevision: 3 })))).status, 403);
+    assert.deepEqual(closed.calls, ["requestDemoController"]);
+    const outdated = await train.POST(json(TRAIN, training({ demoSessionRevision: 2 })));
     assert.equal(outdated.status, 403);
-    assert.deepEqual(wrong.calls, ["requestDemoController"]);
-  });
-  await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN, ...DEMO_ENV, EVM_NETWORK: "mainnet", SIRIUS_PREDICT_ENABLED: "true" }, async () => {
-    const { train, calls } = routes({ address: ADMIN, source: "external" });
-    const response = await train.POST(json(TRAIN, { ...training({ demoSessionRevision: 3 }), served: true }));
-    assert.equal(response.status, 403);
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls, ["requestDemoController"]);
   });
 });
 
-test("la liste du propriétaire expose le modèle servi sans capsule ni secrets", async () => {
+test("la liste du propriétaire ne renvoie ni empreinte, ni reçu, ni champ de livraison, pour aucun job", async () => {
   await withEnv({ SIRIUS_ADMIN_ADDRESSES: ADMIN }, async () => {
     const { train } = routes({ address: ADMIN, source: "external" }, [
-      { id: "job-1", status: "DONE", servedModelId: "job-1", modelCid: "legacy-cid", modelVersion: "1.1.0", runnerReceipt: "secret-receipt",
+      { id: "job-1", status: "DONE", servedModelId: "job-1", modelCid: "sm1fingerprint", modelVersion: "1.1.0", runnerReceipt: "secret-receipt",
         metrics: { accuracy: 0.8 }, deliveryEnvelope: { ciphertext: "secret" }, deliveryPublicKey: "legacy-key", dataset: { name: "dataset" } },
-      { id: "job-2", status: "DONE", servedModelId: null, runnerReceipt: "normal-receipt", deliveryPublicKey: "public" },
+      { id: "job-2", status: "DONE", servedModelId: null, modelCid: "bafyLegacy", runnerReceipt: "legacy-receipt", deliveryPublicKey: "public" },
     ]);
     const response = await train.GET(new Request(TRAIN));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "private, no-store");
     const jobs = await response.json();
     assert.equal(jobs[0].servedModelId, "job-1");
-    assert.equal(jobs[0].runnerReceipt, null);
-    assert.equal(jobs[0].modelCid, null);
-    assert.equal(jobs[0].deliveryPublicKey, null);
-    assert.equal(jobs[0].deliveryEnvelope, undefined);
-    assert.equal(jobs[1].runnerReceipt, "normal-receipt");
+    assert.equal(jobs[1].servedModelId, null);
+    for (const job of jobs) {
+      for (const field of ["modelCid", "runnerReceipt", "deliveryPublicKey", "deliveryEnvelope"]) assert.equal(field in job, false, `${job.id} ${field}`);
+    }
   });
 });

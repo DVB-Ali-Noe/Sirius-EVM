@@ -25,7 +25,7 @@ import {
   canRescueRefund,
   canResumeSettlement,
   canRetrain,
-  canRetrieveModelKey,
+  canPredictLoan,
   loanDisplayState,
   needsLockFinalityCheck,
   parseAdminResponse,
@@ -43,14 +43,13 @@ import {
   cancelExpiredLoan,
   resumeLoanSubmission,
   resumeLoanSettlement,
-  retrieveLoanKey,
   runLoanJob,
 } from "@/lib/loans/client";
 import { isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
-import { retrieveSelfTrainKey, runSelfTrain } from "@/lib/train/client";
-import { downloadDecryptedModel, fetchDecryptedModel, type DownloadedModel } from "@/lib/train/model-client";
-import { evaluateModelCsv, predictModel, type ModelEvaluation } from "@/lib/train/evaluation-client";
+import { runSelfTrain } from "@/lib/train/client";
+import { requestPrediction } from "@/lib/train/prediction-client";
+import { PredictionBox } from "@/components/train/PredictionBox";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
@@ -98,8 +97,10 @@ interface Loan {
   evmLoanKey: string | null;
   settleTxHash: string | null;
   cancelTxHash: string | null;
+  /** Empreinte du modèle scellé dans le runner (champ historique `modelCid`). */
   modelCid: string | null;
   runnerReceipt: string | null;
+  finalityReview?: string | null;
   modelId: ModelId;
   modelVersion: string;
   evmDeadline: string | null;
@@ -111,18 +112,12 @@ interface Loan {
 interface Job {
   id: string;
   status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
-  modelCid: string | null;
-  runnerReceipt: string | null;
+  servedModelId: string | null;
   metrics: Record<string, number> | null;
   modelId: ModelId;
   modelVersion: string;
   createdAt: string;
   dataset: { name: string } | null;
-}
-
-interface Delivery {
-  modelCid: string;
-  modelKey: string;
 }
 
 const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
@@ -160,8 +155,6 @@ function TrainPageContent() {
   const refreshGeneration = useRef(0);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [delivered, setDelivered] = useState<Record<string, Delivery>>({});
-  const [inspected, setInspected] = useState<Record<string, DownloadedModel>>({});
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Règlement envoyé, pas encore confirmé : information, pas une erreur (le prêt n'a pas échoué).
@@ -170,8 +163,6 @@ function TrainPageContent() {
   // que sa propre action (pas de collision entre self-train et lancement de job).
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
-  // Ids dont la clé du modèle est déjà livrée → évite de re-fetcher à chaque refresh.
-  const haveKey = useRef<Set<string>>(new Set());
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
   // Attente de finalité du lock, par prêt (décisions dans lock-finality-tracker.ts) : état affiché,
@@ -209,11 +200,6 @@ function TrainPageContent() {
       return next;
     });
 
-  const deliver = (id: string, d: Delivery) => {
-    haveKey.current.add(id);
-    setDelivered((prev) => ({ ...prev, [id]: d }));
-  };
-
   const refresh = useCallback(async () => {
     if (!mounted.current) return;
     const generation = ++refreshGeneration.current;
@@ -223,9 +209,6 @@ function TrainPageContent() {
       setCursor(null);
       setLoans([]);
       setJobs([]);
-      setDelivered({});
-      setInspected({});
-      haveKey.current.clear();
       return;
     }
     const [adminRes, loansRes] = await Promise.all([
@@ -253,20 +236,6 @@ function TrainPageContent() {
     setMine(mineData);
     setLoans(loanData);
     setJobs(jobData);
-
-    for (const job of jobData) {
-      if (job.status !== "DONE" || !job.runnerReceipt || haveKey.current.has(job.id)) continue;
-      try {
-        const delivery = await retrieveSelfTrainKey(job.id, job.runnerReceipt);
-        if (mounted.current) deliver(job.id, delivery);
-      } catch {
-        // Une délégation expirée sera redemandée lors de la prochaine connexion.
-      }
-    }
-    // La clé d'un emprunt réglé n'est jamais demandée au chargement (audit du 5 octobre, A-04 et
-    // A-12) : chaque appel à `/api/loans/[id]/key` consomme le quota de 20 par minute et, pour un
-    // prêt v7, le budget runner prépayé. Elle est demandée au clic sur « Vérifier et télécharger »,
-    // par l'emprunteur seulement, puis gardée en mémoire (`delivered`) pour la session.
   }, [address, authenticated]);
 
   useEffect(() => {
@@ -302,8 +271,7 @@ function TrainPageContent() {
       if (!dataset.runnerReceipt) throw new Error(t("Reçu confidentiel du dataset manquant"));
       const model = modelSelection(dataset.modelId, dataset.modelVersion);
       if (!model) throw new Error(t("Profil d’entraînement du dataset absent ou invalide"));
-      const res = await runSelfTrain(dataset.id, dataset.runnerReceipt, model);
-      deliver(res.jobId, { modelCid: res.modelCid, modelKey: res.modelKey });
+      await runSelfTrain(dataset.id, dataset.runnerReceipt, model);
       await refresh();
     } catch (err) {
       setError(messageOf(err));
@@ -347,7 +315,7 @@ function TrainPageContent() {
    * estimé (entre 20 s et 60 s plus tard) et, si elle est restée ouverte, lance le job une seule
    * fois quand l'attente observée ici prend fin. Seule une réponse 200 vaut lecture : une erreur
    * conserve l'état et relit plus tard (`observeLockFinality`). Le lancement lui-même exige
-   * toujours la session de l'emprunteur (grant signé par la clé de session, clé de livraison) :
+   * toujours la session de l'emprunteur (grant signé par la clé de session) :
    * rien ne démarre sans ce navigateur, d'où « tu peux fermer cette page » plutôt qu'une promesse.
    */
   const checkLockFinality = useCallback(async (loanId: string) => {
@@ -421,13 +389,12 @@ function TrainPageContent() {
       }
       const model = modelSelection(loan.modelId, loan.modelVersion);
       if (!model) throw new Error(t("Modèle ou version non autorisé"));
-      const delivery = await runLoanJob({
+      await runLoanJob({
         loanId: loan.id,
         datasetId: loan.datasetId,
         datasetReceipt: loan.dataset.runnerReceipt,
         model,
       });
-      deliver(loan.id, delivery);
       await refresh();
     } catch (err) {
       const message = messageOf(err);
@@ -461,8 +428,8 @@ function TrainPageContent() {
     setNotice(null);
     setBusyKey(key, true);
     try {
-      if (!loan.runnerReceipt) throw new Error(t("Capsule TEE manquante"));
-      deliver(loan.id, await resumeLoanSettlement(loan.id, loan.runnerReceipt));
+      if (!loan.runnerReceipt) throw new Error(t("Reçu runner manquant"));
+      await resumeLoanSettlement(loan.id, loan.runnerReceipt);
       await refresh();
     } catch (err) {
       const message = messageOf(err);
@@ -471,48 +438,6 @@ function TrainPageContent() {
     } finally {
       setBusyKey(key, false);
     }
-  }
-
-  async function inspectModel(id: string, delivery: Delivery) {
-    const key = `model:${id}`;
-    setError(null);
-    setBusyKey(key, true);
-    try {
-      const model = await fetchDecryptedModel(delivery.modelCid, delivery.modelKey);
-      if (!mounted.current) return;
-      setInspected((previous) => ({ ...previous, [id]: model }));
-      downloadDecryptedModel(model, `sirius-model-${id}.json`);
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setBusyKey(key, false);
-    }
-  }
-
-  /**
-   * « Vérifier et télécharger » sur un emprunt réglé : la clé est demandée au clic, une seule fois
-   * par session (puis `delivered`), et seulement par l'emprunteur. Une erreur (429, budget v7
-   * épuisé, délégation expirée) est affichée au lieu d'être avalée.
-   */
-  async function inspectLoanModel(loan: Loan) {
-    const cached = delivered[loan.id];
-    if (cached) return inspectModel(loan.id, cached);
-    const key = `model:${loan.id}`;
-    if (busy.has(key) || !canRetrieveModelKey(loan, address) || !loan.runnerReceipt) return;
-    setError(null);
-    setBusyKey(key, true);
-    let delivery: Delivery;
-    try {
-      delivery = await retrieveLoanKey(loan.id, loan.runnerReceipt);
-      if (!mounted.current) return;
-      deliver(loan.id, delivery);
-    } catch (err) {
-      setError(messageOf(err));
-      return;
-    } finally {
-      setBusyKey(key, false);
-    }
-    await inspectModel(loan.id, delivery);
   }
 
   async function resumeSubmission(loan: Loan, lockTxHash?: string) {
@@ -565,7 +490,7 @@ function TrainPageContent() {
     <Page>
       <PageHeader
         title={t("Entraîner un modèle")}
-        description={t("Le calcul tourne dans un TEE — tu ne récupères que le modèle, jamais la donnée brute.")}
+        description={t("Le calcul tourne dans un TEE — le modèle y reste scellé : tu obtiens des prédictions signées, jamais le modèle ni la donnée brute.")}
       />
 
       <DisclaimerNote messages={["modelQuality", "retrainDeterministic", "betaLimits", "contactUs"]} />
@@ -649,24 +574,19 @@ function TrainPageContent() {
               </div>
               {j.status === "DONE" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
-                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle livré")}</div>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle privé")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
-                    <Field label={t("Modèle (CID)")} value={j.modelCid ? truncate(j.modelCid) : "—"} mono />
                     <Field
                       label={j.modelId === "linear_regression" ? "R²" : j.modelId === "gradient_boosted_trees" ? "Held-out AUC" : "Accuracy"}
                       value={(j.metrics?.[j.modelId === "linear_regression" ? "r2" : j.modelId === "gradient_boosted_trees" ? "heldOutAuc" : "accuracy"])?.toFixed(4) ?? "—"}
                     />
                   </dl>
-                  {delivered[j.id] && (
-                    <button
-                      onClick={() => void inspectModel(j.id, delivered[j.id])}
-                      disabled={busy.has(`model:${j.id}`)}
-                      className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
-                    >
-                      {busy.has(`model:${j.id}`) ? t("Vérification…") : t("Vérifier et télécharger")}
-                    </button>
+                  {gapWarning(j) && <p role="status" className="mt-2 text-xs text-negative">{t(gapWarning(j)!)}</p>}
+                  {j.servedModelId ? (
+                    <PredictionBox id={j.id} predict={(features) => requestPrediction({ kind: "job", id: j.id }, features)} />
+                  ) : (
+                    <p className="mt-3 text-xs text-muted">{t("Modèle indisponible : entraîné avant la prédiction privée.")}</p>
                   )}
-                  {inspected[j.id] && <ModelInspection model={inspected[j.id]} />}
                 </div>
               )}
             </Card>
@@ -819,8 +739,8 @@ function TrainPageContent() {
                 <div className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs leading-relaxed" data-testid="refund-explanation">
                   <p className="font-medium text-negative">
                     {rescueRefund
-                      ? t("L’échéance est dépassée et le règlement ne peut plus être finalisé : aucun modèle n’a été livré.")
-                      : t("Entraînement échoué : aucun modèle n’a été livré.")}
+                      ? t("L’échéance est dépassée et le règlement ne peut plus être finalisé : le modèle reste inutilisable.")
+                      : t("Entraînement échoué : aucun modèle n’a été produit.")}
                   </p>
                   <p className="mt-1 text-muted">
                     {t("Le remboursement te rend tout ce que tu as payé, sauf, le cas échéant, le calcul réellement consommé et mesuré par l’enclave. Il est confirmé dans ton wallet ; les frais réseau ETH sont payés séparément.")}
@@ -838,9 +758,9 @@ function TrainPageContent() {
 
               {l.status === "SETTLED" && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
-                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle livré")}</div>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle privé")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
-                    <Field label={t("Modèle (CID)")} value={l.modelCid ? truncate(l.modelCid) : "—"} mono />
+                    <Field label={t("Empreinte du modèle")} value={l.modelCid ? truncate(l.modelCid) : "—"} mono />
                     {advanced && (
                       <Field label={t("Règlement tx")} value={l.settleTxHash ? truncate(l.settleTxHash) : "—"} mono />
                     )}
@@ -851,16 +771,9 @@ function TrainPageContent() {
                   >
                     {t("Certificat d’exécution")}
                   </Link>
-                  {canRetrieveModelKey(l, address) && (
-                    <button
-                      onClick={() => void inspectLoanModel(l)}
-                      disabled={busy.has(`model:${l.id}`)}
-                      className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
-                    >
-                      {busy.has(`model:${l.id}`) ? t("Vérification…") : t("Vérifier et télécharger")}
-                    </button>
+                  {canPredictLoan(l, address) && (
+                    <PredictionBox id={l.id} predict={(features) => requestPrediction({ kind: "loan", id: l.id }, features)} />
                   )}
-                  {inspected[l.id] && <ModelInspection model={inspected[l.id]} />}
                 </div>
               )}
               {l.status === "CANCELLED" && l.cancelTxHash && (
@@ -927,178 +840,12 @@ function TeeSpinner() {
   return <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-background/35 border-t-background motion-reduce:animate-none" />;
 }
 
-function ModelInspection({ model }: { model: DownloadedModel }) {
-  const { t } = useLocale();
-  const [testFile, setTestFile] = useState<File | null>(null);
-  const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null);
-  const [evaluating, setEvaluating] = useState(false);
-  const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
-  const [prediction, setPrediction] = useState<ReturnType<typeof predictModel> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Écart train / held-out jugé dans les deux sens, depuis les seules métriques livrées (audit EXA-01).
-  const gapVerdict = model.algo === "gradient_boosted_trees" ? gbdtGapVerdict(model.metrics) : null;
-
-  async function evaluate() {
-    if (!testFile) {
-      setError(t("Sélectionne un CSV de test"));
-      return;
-    }
-    setError(null);
-    setEvaluating(true);
-    try {
-      setEvaluation(evaluateModelCsv(model, await testFile.text()));
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setEvaluating(false);
-    }
-  }
-
-  function predict() {
-    setError(null);
-    try {
-      const values = Object.fromEntries(
-        model.features.map((feature) => {
-          const raw = featureValues[feature];
-          if (raw === undefined || raw.trim() === "" || !Number.isFinite(Number(raw))) {
-            throw new Error(t("Toutes les valeurs doivent être numériques"));
-          }
-          return [feature, Number(raw)];
-        }),
-      );
-      setPrediction(predictModel(model, values));
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-
-  return (
-    <div className="mt-3 border-t border-positive/20 pt-3">
-      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle déchiffré")}</div>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
-        <Field label={t("Algorithme")} value={model.algo} mono />
-        <Field label={t("Version")} value={model.version ?? "—"} mono />
-        <Field label={t("Cible")} value={model.target} />
-        <Field label={t("Features")} value={model.features.join(", ")} />
-        {model.algo === "linear_regression" && (
-          <>
-            <Field label="R²" value={model.metrics.r2.toFixed(6)} />
-            <Field label="RMSE" value={model.metrics.rmse.toFixed(6)} />
-            <Field label="MAE" value={model.metrics.mae?.toFixed(6) ?? "—"} />
-          </>
-        )}
-        {model.algo === "logistic_regression" && (
-          <>
-            <Field label="Accuracy" value={model.metrics.accuracy.toFixed(6)} />
-            <Field label="Precision" value={model.metrics.precision.toFixed(6)} />
-            <Field label="Recall" value={model.metrics.recall.toFixed(6)} />
-            <Field label="F1" value={model.metrics.f1.toFixed(6)} />
-          </>
-        )}
-        {model.algo === "gradient_boosted_trees" && (
-          <>
-            <Field label="Held-out AUC" value={model.metrics.heldOutAuc.toFixed(3)} />
-            <Field label="Held-out accuracy" value={model.metrics.heldOutAccuracy.toFixed(3)} />
-            <Field label="Held-out precision" value={model.metrics.heldOutPrecision.toFixed(3)} />
-            <Field label="Held-out recall" value={model.metrics.heldOutRecall.toFixed(3)} />
-            <Field label="Held-out F1" value={model.metrics.heldOutF1.toFixed(3)} />
-            <Field label="Train/held-out AUC gap" value={model.metrics.aucGap.toFixed(2)} />
-          </>
-        )}
-        <Field label="n" value={String(model.metrics.n)} />
-      </dl>
-      {gapVerdict && gapVerdict !== "ok" && (
-        <p role="status" className="mt-2 text-xs text-negative">{t(GAP_WARNINGS[gapVerdict])}</p>
-      )}
-      <div className="mt-2 text-xs text-muted">
-        {model.algo === "gradient_boosted_trees" ? (
-          <>
-            <span className="font-medium text-foreground">{t("Arbres")}</span>
-            <code className="ml-2 font-mono">{model.trees.length}</code>
-          </>
-        ) : (
-          <>
-            <span className="font-medium text-foreground">{t("Coefficients")}</span>
-            <code className="ml-2 break-all font-mono">[{model.coefficients.join(", ")}]</code>
-          </>
-        )}
-      </div>
-      <details className="mt-3 rounded-lg border border-border bg-surface/30 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Évaluer sur un CSV de test")}</summary>
-        <p className="mt-2 text-xs text-muted">
-          {t("Le fichier reste dans ton navigateur et doit contenir la cible et les mêmes features.")}
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(event) => setTestFile(event.target.files?.[0] ?? null)}
-            className="max-w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-background hover:file:bg-accent/90"
-          />
-          <button
-            type="button"
-            onClick={() => void evaluate()}
-            disabled={evaluating || !testFile}
-            className="rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
-          >
-            {evaluating ? t("Évaluation…") : t("Évaluer")}
-          </button>
-        </div>
-        {evaluation?.algo === "linear_regression" && (
-          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
-            <Field label="R²" value={evaluation.r2.toFixed(6)} />
-            <Field label="RMSE" value={evaluation.rmse.toFixed(6)} />
-            <Field label="MAE" value={evaluation.mae.toFixed(6)} />
-            <Field label={t("Lignes de test")} value={String(evaluation.n)} />
-          </dl>
-        )}
-        {(evaluation?.algo === "logistic_regression" || evaluation?.algo === "gradient_boosted_trees") && (
-          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-5">
-            {evaluation.algo === "gradient_boosted_trees" && <Field label="AUC" value={evaluation.auc?.toFixed(6) ?? "—"} />}
-            <Field label="Accuracy" value={evaluation.accuracy.toFixed(6)} />
-            <Field label="Precision" value={evaluation.precision.toFixed(6)} />
-            <Field label="Recall" value={evaluation.recall.toFixed(6)} />
-            <Field label="F1" value={evaluation.f1.toFixed(6)} />
-            <Field label={t("Lignes de test")} value={String(evaluation.n)} />
-          </dl>
-        )}
-      </details>
-      <details className="mt-3 rounded-lg border border-border bg-surface/30 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-foreground">{t("Tester une prédiction")}</summary>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {model.features.map((feature) => (
-            <label key={feature} className="flex min-w-0 flex-col gap-1 text-xs text-muted">
-              {feature}
-              <input
-                type="number"
-                inputMode="decimal"
-                value={featureValues[feature] ?? ""}
-                onChange={(event) => setFeatureValues((values) => ({ ...values, [feature]: event.target.value }))}
-                className="w-full min-w-0 rounded-lg border border-border bg-background px-2 py-1.5 text-foreground outline-none focus:border-accent"
-              />
-            </label>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={predict}
-          className="mt-3 rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive"
-        >
-          {t("Prédire")}
-        </button>
-        {prediction?.algo === "linear_regression" && (
-          <p className="mt-2 text-xs text-muted">
-            {t("Prédiction")} <span className="font-medium text-foreground">{prediction.value.toFixed(6)} {model.target}</span>
-          </p>
-        )}
-        {prediction && prediction.algo !== "linear_regression" && (
-          <p className="mt-2 text-xs text-muted">
-            {t("Probabilité (classe 1)")} <span className="font-medium text-foreground">{prediction.probability.toFixed(6)}</span>
-            <span className="ml-3">{t("Classe prédite")} <span className="font-medium text-foreground">{prediction.label}</span></span>
-          </p>
-        )}
-      </details>
-      {error && <p className="mt-3 text-xs text-negative">{t(error)}</p>}
-    </div>
-  );
+/** Écart train / held-out des arbres boostés, jugé dans les deux sens depuis les métriques du job (audit EXA-01). */
+function gapWarning(job: Job): string | null {
+  const metrics = job.metrics;
+  if (job.modelId !== "gradient_boosted_trees" || !metrics) return null;
+  const keys = ["heldOutAuc", "aucGap", "heldOutAccuracy", "heldOutPrecision", "heldOutRecall", "n"] as const;
+  if (!keys.every((key) => Number.isFinite(metrics[key]))) return null;
+  const verdict = gbdtGapVerdict(metrics as Parameters<typeof gbdtGapVerdict>[0]);
+  return verdict && verdict !== "ok" ? GAP_WARNINGS[verdict] : null;
 }

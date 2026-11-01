@@ -21,9 +21,9 @@ function loan(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-interface Options { admin?: boolean; loans?: unknown[] }
+interface Options { admin?: boolean; loans?: unknown[]; jobs?: unknown[] }
 
-async function install(page: Page, { admin = false, loans = [] }: Options = {}) {
+async function install(page: Page, { admin = false, loans = [], jobs = [] }: Options = {}) {
   const calls: string[] = [];
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -32,7 +32,7 @@ async function install(page: Page, { admin = false, loans = [] }: Options = {}) 
       case "/api/admin/me": return route.fulfill({ json: { admin } });
       case "/api/loans": return route.fulfill({ json: loans });
       case "/api/datasets": return route.fulfill({ json: [ownDataset] });
-      case "/api/train": return route.fulfill({ json: [] });
+      case "/api/train": return route.fulfill({ json: jobs });
       case "/api/auth/session": return route.fulfill({ json: { authenticated: false } });
       default: return route.fulfill({ json: { known: true } });
     }
@@ -132,7 +132,41 @@ test("Retrain n'apparaît que sur un emprunt terminé de l'emprunteur, avec l'av
   await expect(page.getByRole("button", { name: "Retrain", exact: true })).toHaveCount(1);
 });
 
-test("Refund n'apparaît que pour un échec sans modèle livré, avec l'explication", async ({ page }) => {
+test("la prédiction privée remplace la livraison : jobs servis et prêts réglés de l'emprunteur, sans téléchargement", async ({ page }) => {
+  const job = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id, status: "DONE", servedModelId: id, metrics: { r2: 0.91 }, modelId: "linear_regression", modelVersion: "1.0.0",
+    createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: `Job ${id}` }, ...overrides,
+  });
+  const calls = await install(page, {
+    admin: true,
+    jobs: [job("served"), job("legacy", { servedModelId: null }), job("running", { status: "RUNNING", servedModelId: null })],
+    loans: [
+      loan("done", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt" }),
+      loan("provider-view", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt", borrower: OTHER, provider: ME }),
+    ],
+  });
+  await page.goto("/train");
+  await connect(page);
+  const jobCard = (name: string) => page.getByRole("heading", { name, exact: true }).locator("../..");
+  await expect(jobCard("Job served").getByRole("button", { name: "Request a prediction" })).toBeVisible({ timeout: 30_000 });
+  await expect(jobCard("Job served").getByLabel("Numeric features (JSON, use the training column names)")).toHaveValue("{}");
+  await expect(jobCard("Job legacy")).toContainText("Model unavailable: trained before private prediction.");
+  await expect(jobCard("Job legacy").getByRole("button", { name: "Request a prediction" })).toHaveCount(0);
+  await expect(jobCard("Job running").getByTestId("prediction-box")).toHaveCount(0);
+  await expect(card(page, "Dataset done").getByRole("button", { name: "Request a prediction" })).toBeVisible();
+  await expect(card(page, "Dataset done")).toContainText("Model fingerprint");
+  await expect(card(page, "Dataset provider-view").getByTestId("prediction-box")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /download|verify/i })).toHaveCount(0);
+
+  // Saisie invalide : refusée dans le navigateur, sans appel au serveur.
+  await jobCard("Job served").getByLabel("Numeric features (JSON, use the training column names)").fill("[1, 2]");
+  await jobCard("Job served").getByRole("button", { name: "Request a prediction" }).click();
+  await expect(jobCard("Job served").getByRole("alert")).toHaveText("Enter a JSON object of numeric features");
+  // Aucun appel de livraison : ni clé, ni modèle, ni prédiction au chargement.
+  expect(calls.filter((call) => /\/key\b|\/api\/models\/|\/predict/.test(call))).toEqual([]);
+});
+
+test("Refund n'apparaît que pour un échec sans modèle utilisable, avec l'explication", async ({ page }) => {
   await install(page, {
     loans: [
       loan("failed", { status: "ESCROWED", refundable: true }),
@@ -149,9 +183,9 @@ test("Refund n'apparaît que pour un échec sans modèle livré, avec l'explicat
   await connect(page);
   const failed = card(page, "Dataset failed");
   await expect(failed.getByRole("button", { name: "Refund", exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(failed.getByTestId("refund-explanation")).toContainText("no model was delivered");
+  await expect(failed.getByTestId("refund-explanation")).toContainText("no model was produced");
   await expect(failed.getByTestId("refund-explanation")).toContainText("everything you paid except, where applicable, the compute actually consumed, as measured by the enclave");
-  // Échu avec capsule (avec ou sans reçu) et sans release diffusé : le contrat refuse désormais le
+  // Échu avec modèle scellé (avec ou sans reçu) et sans release diffusé : le contrat refuse désormais le
   // règlement, remboursement de secours et plus de bouton « Finalize settlement » (audit A-05, A-10).
   for (const name of ["rescue", "prepared"]) {
     const stuck = card(page, `Dataset ${name}`);

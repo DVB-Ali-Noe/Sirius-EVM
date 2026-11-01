@@ -11,12 +11,9 @@ import { recordSettlementEvidence } from "./settlement-evidence";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { settlementQueuedError } from "./settlement-queued";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
-import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
-import { unpinModelUnlessReferenced } from "./model-storage";
 import { modelSelection } from "@/lib/models/registry";
 import type { ModelId } from "@/lib/models/registry";
-import { deferredLoanDeliveryCommitment, hashRunnerReleaseEnvelope } from "@/lib/runner/delivery";
 import {
   hashLoanAttestationPayload,
   parseLoanAttestationPayload,
@@ -43,20 +40,11 @@ async function verifyLoanAttestation(input: {
   merkleRoot: string;
   modelId: ModelId;
   modelVersion: string;
+  /** Empreinte du modèle scellé dans le runner (`servedModelFingerprint`), gardée sous le nom historique. */
   modelCid: string;
-  releaseEnvelope?: RunnerReleaseEnvelope;
-  releaseEnvelopeHash: string;
-  deliveryPublicKey: string;
   billingQuoteHash?: string;
 }): Promise<void> {
   const { chainId, escrow } = evmEscrowBinding();
-  if (!input.billingQuoteHash && !input.releaseEnvelope) throw new AppError("Capsule de release incompatible", 409);
-  const expectedDeliveryHash = input.billingQuoteHash
-    ? deferredLoanDeliveryCommitment(input.loanKey, input.modelCid, input.deliveryPublicKey)
-    : hashRunnerReleaseEnvelope(input.releaseEnvelope!);
-  if (input.releaseEnvelopeHash !== expectedDeliveryHash || (input.billingQuoteHash && input.releaseEnvelope)) {
-    throw new AppError("Accusé de capsule invalide", 409);
-  }
   const payload = serializeLoanAttestationPayload({
     chainId,
     escrow,
@@ -72,7 +60,6 @@ async function verifyLoanAttestation(input: {
     modelId: input.modelId,
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
-    releaseEnvelopeHash: expectedDeliveryHash,
     ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   });
   const attestation = input.attestation;
@@ -102,10 +89,9 @@ export interface PreparedLoanResult {
   loanId: string;
   modelCid: string;
   runnerReceipt: string;
-  releaseEnvelope?: RunnerReleaseEnvelope;
 }
 
-export interface SettleResult extends Omit<PreparedLoanResult, "releaseEnvelope"> {
+export interface SettleResult extends PreparedLoanResult {
   settleTxHash: string;
 }
 
@@ -125,8 +111,7 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
     datasetCid: loan.dataset.ipfsCid, provider: loan.provider, borrower: loan.borrower,
     amountUsdcAtomic: loan.amountUsdcAtomic, billingQuoteHash: loan.billingQuoteHash!,
     challengeDays: loan.dataset.challengeDays, merkleRoot: loan.dataset.merkleRoot, ...model,
-    modelCid: result.modelCid, releaseEnvelope: result.releaseEnvelope,
-    releaseEnvelopeHash: result.releaseEnvelopeHash, deliveryPublicKey: recovered.deliveryPublicKey,
+    modelCid: result.modelCid,
   });
   const persisted = await prisma.loan.updateMany({
     where: { id: loanId, status: loan.status, modelCid: null, updatedAt: loan.updatedAt },
@@ -147,7 +132,6 @@ export { LOCK_FINALITY_PENDING };
 
 export async function prepareLoanResult(
   loanId: string,
-  deliveryPublicKey: string,
   authorization: RunnerGrant,
 ): Promise<PreparedLoanResult> {
   const lock = await prisma.loan.findUnique({
@@ -223,12 +207,11 @@ export async function prepareLoanResult(
     throw new AppError("Profil d’entraînement du dataset incohérent", 409);
   }
 
-  let result: Awaited<ReturnType<typeof runLoanJobInRunner>> | undefined;
   try {
     const runner = await assertCurrentRunner(loan);
     await assertCurrentRunner(dataset);
     const billingQuote = loanBillingQuote(loan);
-    result = await runLoanJobInRunner(
+    const result = await runLoanJobInRunner(
       {
         loanId,
         datasetId: dataset.id,
@@ -240,7 +223,6 @@ export async function prepareLoanResult(
         ...datasetModel,
       },
       dataset.runnerReceipt,
-      deliveryPublicKey,
       authorization,
       billingQuote,
       effectiveLoanFinalityTier(loan.finalityTier),
@@ -260,9 +242,6 @@ export async function prepareLoanResult(
       modelId: model.modelId,
       modelVersion: model.modelVersion,
       modelCid: result.modelCid,
-      releaseEnvelope: result.releaseEnvelope,
-      releaseEnvelopeHash: result.releaseEnvelopeHash,
-      deliveryPublicKey,
     });
     const persisted = await prisma.loan.updateMany({
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
@@ -279,8 +258,7 @@ export async function prepareLoanResult(
       },
     });
     if (persisted.count !== 1) throw new AppError("Lease d’entraînement expiré", 409);
-    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
-      ...(billingQuote ? {} : { releaseEnvelope: result.releaseEnvelope }) };
+    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt };
   } catch (error) {
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
@@ -290,7 +268,6 @@ export async function prepareLoanResult(
         ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}),
       } : { status: "ESCROWED" },
     });
-    if (result?.modelCid && !loan.billingQuote) await unpinModelUnlessReferenced(result.modelCid, dataset.id);
     throw error;
   }
 }
@@ -376,7 +353,6 @@ export async function settlePreparedLoan(
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
-      payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
       effectiveLoanFinalityTier(loan.finalityTier),

@@ -10,8 +10,8 @@ export const DEMO_ONLY_HOSTS: readonly string[] = ["demo.sirius-data.tech"];
 
 export const DEMO_PAGE = "/phala";
 
-/** Routes API utilisées par la page de démo : session, connexion, entraînement, livraison du modèle. */
-const DEMO_API_PREFIXES = ["/api/phala-demo", "/api/auth", "/api/train", "/api/datasets", "/api/models"] as const;
+/** Routes API utilisées par la page de démo : session, connexion, entraînement, prédiction. */
+const DEMO_API_PREFIXES = ["/api/phala-demo", "/api/auth", "/api/train", "/api/datasets"] as const;
 
 /**
  * Routes exactes du parcours d'un wallet neuf (audit A-14) : attestation KYB de démo, statut du

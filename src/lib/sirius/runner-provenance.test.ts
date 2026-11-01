@@ -77,12 +77,11 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
   let executions = 0;
   const api = load<typeof import("./self-train")>("src/lib/sirius/self-train.ts", {
     ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => {
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (input: { jobId: string }) => {
       executions++;
-      return { modelCid: "bafyModel", metrics: {}, runnerReceipt: "job-receipt" };
+      return { servedModelId: input.jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: {}, runnerReceipt: "job-receipt" };
     } },
     "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
     "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
   });
   await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never);
@@ -94,73 +93,48 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
   assert.equal(records.length, 1);
 });
 
-test("le résultat self-train et sa capsule sont persistés ensemble avant livraison", async () => {
-  const { dataset, updates, common } = fixture();
-  const envelope = { version: 1, ephemeralPublicKey: "public", salt: "salt", iv: "iv", ciphertext: "encrypted" };
-  const api = load<typeof import("./self-train")>("src/lib/sirius/self-train.ts", {
-    ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
-      assert.equal(args[3], "delivery-public-key");
-      return { modelCid: "bafyModel", metrics: {}, runnerReceipt: "job-receipt", modelKeyEnvelope: envelope };
-    } },
-    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
-    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
-  });
-  await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, "delivery-public-key");
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0].status, "DONE");
-  assert.equal(updates[0].deliveryPublicKey, "delivery-public-key");
-  assert.equal(JSON.stringify(updates[0].deliveryEnvelope), JSON.stringify(envelope));
-  assert.equal(updates[0].modelCid, "bafyModel");
-  assert.equal(updates[0].runnerReceipt, "job-receipt");
-});
-
-test("le self-train servi refuse le mauvais profil avant le runner puis ne livre aucune clé", async () => {
-  const { dataset, records, updates, common } = fixture();
-  process.env.SIRIUS_PREDICT_ENABLED = "true";
-  let executions = 0;
-  const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
-    ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
-      executions++;
-      assert.equal(args[3], undefined);
-      assert.equal(args[4], true);
-      return { servedModelId: "job", metrics: { accuracy: 0.8 } };
-    } },
-    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
-    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
-  });
-  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true), /GBDT/);
-  assert.equal(records.length, 0);
-  assert.equal(executions, 0);
-  dataset.modelId = "gradient_boosted_trees";
-  dataset.modelVersion = "1.1.0";
-  const result = await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true);
-  assert.equal(JSON.stringify(result), JSON.stringify({ jobId: "job", servedModelId: "job", metrics: { accuracy: 0.8 } }));
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0].status, "DONE");
-  assert.equal(updates[0].servedModelId, "job");
-  for (const field of ["modelCid", "runnerReceipt", "deliveryPublicKey", "deliveryEnvelope"]) {
-    assert.equal(Object.hasOwn(updates[0], field), false, field);
+test("le self-train garde le modèle scellé pour les trois profils : empreinte et reçu persistés, rien livré", async () => {
+  const fingerprint = `sm1${"b".repeat(64)}`;
+  for (const [modelId, modelVersion] of [["linear_regression", "1.0.0"], ["logistic_regression", "1.0.0"], ["gradient_boosted_trees", "1.1.0"]]) {
+    const { dataset, updates, common } = fixture();
+    dataset.modelId = modelId;
+    dataset.modelVersion = modelVersion;
+    const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+      ...common,
+      "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
+        assert.equal(args.length, 3, "aucune clé de livraison ni mode servi transmis");
+        return { servedModelId: "job", modelCid: fingerprint, metrics: { accuracy: 0.8 }, runnerReceipt: "job-receipt" };
+      } },
+      "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+      "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+    });
+    const result = await api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never);
+    assert.equal(JSON.stringify(result), JSON.stringify({ jobId: "job", servedModelId: "job", metrics: { accuracy: 0.8 } }), modelId);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].status, "DONE");
+    assert.equal(updates[0].servedModelId, "job");
+    assert.equal(updates[0].modelCid, fingerprint);
+    assert.equal(updates[0].runnerReceipt, "job-receipt");
+    for (const field of ["deliveryPublicKey", "deliveryEnvelope"]) assert.equal(Object.hasOwn(updates[0], field), false, field);
   }
 });
 
-test("le self-train servi reste désactivé par défaut et refuse les clés de livraison", async () => {
-  const { dataset, records, common } = fixture();
-  const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
-    ...common,
-    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => { assert.fail("runner appelé"); } },
-    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
-    "@/lib/sirius/model-storage": { unpinModelUnlessReferenced: async () => {} },
-    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
-  });
-  delete process.env.SIRIUS_PREDICT_ENABLED;
-  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, undefined, true), /indisponible/);
-  process.env.SIRIUS_PREDICT_ENABLED = "true";
-  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never, "public-key", true), /interdite/);
-  assert.equal(records.length, 0);
+test("le self-train refuse un résultat runner d'un autre job ou sans empreinte", async () => {
+  for (const out of [
+    { servedModelId: "other", modelCid: `sm1${"c".repeat(64)}`, metrics: {}, runnerReceipt: "r" },
+    { servedModelId: "job", metrics: {}, runnerReceipt: "r" },
+  ]) {
+    const { dataset, updates, common } = fixture();
+    const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+      ...common,
+      "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => out },
+      "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+      "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+    });
+    await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never), /servi invalide/);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].status, "FAILED");
+  }
 });
 
 test("le prêt conserve la provenance dès sa préparation et ne réserve pas un dataset d’un autre runner", async () => {

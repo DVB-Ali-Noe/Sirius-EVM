@@ -5,13 +5,6 @@ import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEME
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
-import { createRunnerDelivery } from "@/lib/runner/delivery-client";
-import {
-  openAtomicLoanEnvelope,
-  persistAtomicLoanEnvelope,
-  prepareAtomicLoanDelivery,
-} from "@/lib/runner/atomic-delivery-client";
-import type { RunnerDeliveryEnvelope, RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { ModelSelection } from "@/lib/models/registry";
 import { computeQuoteHash, type ComputeQuote, type SignedComputeQuote } from "@/lib/billing/quote";
 import { escrowBillingVersion, quotedTransactions, verifyBorrowQuote } from "@/lib/billing/client";
@@ -120,10 +113,9 @@ interface RunLoanInput {
   model: ModelSelection;
 }
 
-export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: string; modelKey: string }> {
+export async function runLoanJob(input: RunLoanInput): Promise<void> {
   const address = useWalletStore.getState().address;
   if (!address) throw new Error("Wallet déconnecté");
-  const deliveryPublicKey = await prepareAtomicLoanDelivery(address, input.loanId);
   const authorization = await issueRunnerGrant(
     "run-loan-job",
     { loanId: input.loanId, datasetId: input.datasetId },
@@ -131,28 +123,25 @@ export async function runLoanJob(input: RunLoanInput): Promise<{ modelCid: strin
       input.loanId,
       input.datasetId,
       input.datasetReceipt,
-      deliveryPublicKey,
       input.model.modelId,
       input.model.modelVersion,
+      "served",
     ],
   );
   const response = await fetch(`/api/loans/${input.loanId}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorization, deliveryPublicKey }),
+    body: JSON.stringify({ authorization }),
   });
   const body = await response.json() as {
     modelCid?: string;
     runnerReceipt?: string;
-    releaseEnvelope?: RunnerReleaseEnvelope;
     error?: string;
   };
   if (!response.ok || !body.modelCid || !body.runnerReceipt) {
     throw new Error(body.error ?? "Échec du job confidentiel");
   }
-  if (body.releaseEnvelope) await persistAtomicLoanEnvelope(address, input.loanId, body.releaseEnvelope);
   await settleLoan(input.loanId, body.runnerReceipt);
-  return retrieveLoanKey(input.loanId, body.runnerReceipt);
 }
 
 /**
@@ -164,8 +153,8 @@ export const SETTLEMENT_QUEUED_RETRY_MS = [2_000, 4_000, 8_000] as const;
 
 /**
  * Relectures d'un règlement déjà envoyé, au palier rapide seulement (`SETTLEMENT_FINALITY_PENDING_FAST`) :
- * le réseau le confirme en général sous une minute. La page reste en « Règlement… » et livre le
- * modèle dès la confirmation, au lieu d'afficher l'attente comme un échec et de laisser l'emprunteur
+ * le réseau le confirme en général sous une minute. La page reste en « Règlement… » et ouvre la
+ * prédiction dès la confirmation, au lieu d'afficher l'attente comme un échec et de laisser l'emprunteur
  * recharger. Environ 2 min 30 au total, sous le quota de la route (10 par minute). Au-delà, ou au
  * palier long (un quart d'heure), le message d'attente remonte comme avant.
  */
@@ -207,34 +196,8 @@ export async function settleLoan(
   }
 }
 
-export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {
+export async function resumeLoanSettlement(loanId: string, runnerReceipt: string): Promise<void> {
   const address = useWalletStore.getState().address;
   if (!address) throw new Error("Wallet déconnecté");
   await settleLoan(loanId, runnerReceipt);
-  return retrieveLoanKey(loanId, runnerReceipt);
-}
-
-export async function retrieveLoanKey(loanId: string, runnerReceipt: string): Promise<{ modelCid: string; modelKey: string }> {
-  const address = useWalletStore.getState().address;
-  if (!address) throw new Error("Wallet déconnecté");
-  const releaseResponse = await fetch(`/api/loans/${loanId}/key`);
-  const release = await releaseResponse.json() as { modelCid?: string; preimage?: string; error?: string };
-  if (releaseResponse.ok && release.modelCid && release.preimage) {
-    try {
-      return { modelCid: release.modelCid, modelKey: await openAtomicLoanEnvelope(address, loanId, release.preimage) };
-    } catch {
-      // Changement d'appareil : le runner re-chiffre une livraison après vérification on-chain.
-    }
-  }
-
-  const delivery = await createRunnerDelivery(`loan:${address.toLowerCase()}:${loanId}`);
-  const authorization = await issueRunnerGrant("loan-model-key", { loanId }, [loanId, runnerReceipt, delivery.publicKey]);
-  const response = await fetch(`/api/loans/${loanId}/key`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ authorization, deliveryPublicKey: delivery.publicKey }),
-  });
-  const body = await response.json() as { modelCid?: string; modelKeyEnvelope?: RunnerDeliveryEnvelope; error?: string };
-  if (!response.ok || !body.modelCid || !body.modelKeyEnvelope) throw new Error(body.error ?? "Livraison de clé échouée");
-  return { modelCid: body.modelCid, modelKey: await delivery.decrypt(body.modelKeyEnvelope) };
 }

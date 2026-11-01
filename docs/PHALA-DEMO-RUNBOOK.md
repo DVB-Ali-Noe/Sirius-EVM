@@ -2,13 +2,15 @@
 
 État du 26 septembre 2026 : implémentation locale ; **pas publiée, pas activée chez Phala**. Lire le [journal de validation](PHALA-DEMO-IMPLEMENTATION.md), le [plan complet](PLAN-VPS-PHALA.md) et la [checklist du reste à faire](PHALA-DEMO-RESTE-A-FAIRE.md). Ce document remplace les commandes de bascule globale du lot B pour ce nouveau parcours.
 
+**Mise à jour du 1er novembre 2026 ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)) :** plus aucune livraison de modèle. Le modèle entraîné (trois profils) reste scellé sur le volume du runner ; le visiteur l'interroge par prédiction signée pendant la session ouverte, avec quota quotidien. CVM arrêtée = aucune prédiction.
+
 ## Ce qui est livré dans le code
 
-- `/phala` : présentation sur le site principal, parcours complet sur l’instance dédiée. CSV personnel ou deux exemples synthétiques ; régression linéaire/logistique ; maximum 3 Mo et profils existants.
+- `/phala` : présentation sur le site principal, parcours complet sur l’instance dédiée. CSV personnel ou deux exemples synthétiques ; régression linéaire/logistique ou arbres ; maximum 3 Mo et profils existants.
 - `/operator` : page liée nulle part, `noindex`, 404 hors `SIRIUS_PHALA_DEMO=true`. Wallet de `SIRIUS_DEMO_OPERATORS` connecté **et signé**, puis code d’accès vérifié à chaque lecture et commande. Activer, désactiver, arrêt d’urgence. Les commandes et compteurs sont persistants.
 - Le navigateur chiffre le CSV, signe l’autorisation liée à la session, publie son titre **testnet privé** et lance le self-train. Aucun prêt, paiement client ou utilisation d’USDC réel. Du gas ETH testnet reste nécessaire pour le titre et éventuellement le KYB.
-- La fermeture normale bloque les nouvelles admissions, attend les opérations déjà admises et les livraisons Next, puis arrête la CVM. L’urgence peut supplanter une commande en cours ; elle attend uniquement la fin de l’appel fournisseur en vol avant l’arrêt.
-- Le modèle chiffré reste sur IPFS, sa capsule dans PostgreSQL et sa clé de livraison non exportable dans IndexedDB. Téléchargement depuis le **même navigateur, même origine et même wallet**, même lorsque Phala est arrêté. Perdre le stockage local n’est pas un cas de récupération garanti.
+- La fermeture normale bloque les nouvelles admissions, attend les opérations déjà admises et leur persistance côté Next, puis arrête la CVM. L’urgence peut supplanter une commande en cours ; elle attend uniquement la fin de l’appel fournisseur en vol avant l’arrêt.
+- Le modèle est chiffré sous une clé dérivée de l’enclave sur le volume privé du runner ; il n’en sort jamais. Les prédictions (valeur à 3 chiffres significatifs en linéaire, décision 0/1 sinon) ne répondent qu’au wallet propriétaire et seulement pendant une session ouverte.
 - Aucun bouton visiteur ni polling ne démarre la CVM. Aucune durée de session ni fermeture automatique. Le budget épuisé ou l’attestation invalide rend le calcul indisponible sans prendre la décision de fermeture à votre place.
 
 ## Décisions et accès nécessaires avant déploiement
@@ -113,9 +115,9 @@ Ce mécanisme autorise une enveloppe interne. Il ne choisit pas le solde que Pha
 
 1. Contrôleur lancé, CVM arrêtée : une visite, un appel d’état et un visiteur authentifié ne démarrent rien ; commande visiteur refusée.
 2. Un opérateur autorisé clique Activer : seul ce geste lance la CVM ; attente d’attestation ; ouverture enregistrée. Mauvais pin = refus, sans fallback.
-3. Entraîner les deux exemples puis un fichier personnel. Vérifier titre PRIVATE, métriques, modèle téléchargé et budget consommé. Un nouvel identifiant wallet ne contourne pas le plafond global.
-4. Fermer pendant un entraînement : aucune nouvelle admission, l’opération engagée finit et sa capsule est persistée avant l’arrêt confirmé.
-5. Recharger le navigateur puis télécharger le modèle **CVM arrêtée** ; tester autre wallet et autre navigateur, refus attendus.
+3. Entraîner les deux exemples puis un fichier personnel. Vérifier titre PRIVATE, métriques, prédiction signée et budget consommé. Un nouvel identifiant wallet ne contourne pas le plafond global.
+4. Fermer pendant un entraînement : aucune nouvelle admission, l’opération engagée finit et son résultat est persisté avant l’arrêt confirmé.
+5. Rouvrir puis prédire sur le job précédent ; tester autre wallet, refus attendu, et l’épuisement du quota quotidien. CVM arrêtée : prédiction indisponible.
 6. Réouvrir : dépenses antérieures conservées ; ancien grant de session refusé. Tester une limite de quota et un budget insuffisant : aucune fermeture automatique.
 7. Arrêt d’urgence pendant ouverture puis pendant calcul ; vérifier l’état réel dans Phala. Après arrêt brutal, réconcilier les réservations avant réouverture.
 8. Redémarrer uniquement le contrôleur : aucune commande automatique à Phala. Une commande interrompue passe en erreur et réclame une action opérateur.
@@ -127,15 +129,15 @@ Les essais unitaires/navigateur locaux ne remplacent pas cette répétition rés
 1. Après réapprovisionnement, relever le solde et le tarif fournisseur actuels, puis annoncer créneau et budget maximal **très inférieur au solde** ; obtenir l’autorisation explicite avant de démarrer et ne jamais consommer tout le solde. Ne pas assimiler les crédits du testnet EVM au financement Phala. Vérifier que la session est fermée et que l’image candidate est issue de la PR staging ; ne pas toucher à production.
 2. Installer l’image runner figée par digest et les mesures attendues propres à son nouveau Compose. Vérifier matériellement la quote `UpToDate`, le hash Compose, MRTD/RTMR3, la clé KMS, l’empreinte d’ingestion et le signataire avant ouverture manuelle ; ne pas réutiliser les anciens pins.
 3. Depuis la même origine, le même navigateur et un wallet opérateur autorisé, importer un CSV synthétique binaire de 30 000 lignes de données, 23 variables numériques plus la cible, sous 3 Mio ; noter taille et empreinte SHA-256 **sans publier les données**. Contrôler l’acceptation navigateur, l’ingestion, puis lancer un seul self-train. Mesurer séparément l’aller-retour complet (chiffrement, IPFS et réseau inclus) et le calcul du worker si les journaux internes le permettent ; relever le pic mémoire du conteneur et l’état du worker, qui ne sont pas équivalents au heap V8 de 128 Mio.
-4. Réussite attendue : résultat de 30 000 lignes, modèle téléchargeable, aucune interruption du worker ni 503, marge réelle sur les 15 s de calcul et sur la mémoire de la CVM. Un rejet à 31 251 lignes avec 31 variables doit rester explicite côté navigateur, sans nouveau calcul facturé ; ne pas envoyer un CSV tiers pour cette vérification.
+4. Réussite attendue : résultat de 30 000 lignes, prédiction signée disponible, aucune interruption du worker ni 503, marge réelle sur les 15 s de calcul et sur la mémoire de la CVM. Un rejet à 31 251 lignes avec 31 variables doit rester explicite côté navigateur, sans nouveau calcul facturé ; ne pas envoyer un CSV tiers pour cette vérification.
 5. Fermer manuellement en drainant les opérations et confirmer l’arrêt chez Phala. Relever le coût et le solde avant/après. Si mémoire ou délai manquent, analyser leur cause sur la CVM avant de proposer 256 Mio d’old-gen ou 30 s ; un changement de délai du parcours facturé v7 exige également un devis signé cohérent. Consigner les mesures dans la PR avant toute fusion.
 
 ## Incident et reprise
 
 - Erreur de commande/attestation : page indisponible ; consulter l’état fournisseur. Aucune garantie que la machine soit arrêtée tant que Phala ne le confirme pas. Utiliser Arrêt d’urgence si nécessaire.
 - Calcul interrompu : les réservations SQLite restent engagées. La réconciliation automatique self-train après SIGKILL n’est pas livrée ; ne pas marquer artificiellement un job réussi ni recréer un budget. Préserver les deux registres et traiter la reprise en maintenance.
-- Perte de réponse Next avant persistance : un résultat peut rester dans le runner sans capsule accessible en base ; ce cas n’est pas une livraison garantie. Le drainage normal protège les jobs RUNNING, pas une panne arbitraire de Next.
-- Clé IndexedDB perdue : téléchargement déjà exporté utilisable ; récupération depuis un autre navigateur non garantie. Ne pas promettre le contraire.
+- Perte de réponse Next avant persistance : un résultat peut rester scellé dans le runner sans job `DONE` en base ; la prédiction n’est alors pas garantie. Le drainage normal protège les jobs RUNNING, pas une panne arbitraire de Next.
+- Volume runner perdu : les modèles scellés sont perdus ; aucun autre exemplaire n’existe. Ne pas promettre le contraire.
 - Pause longue : fermer manuellement puis confirmer l’arrêt, vérifier charges disque et sauvegardes. Aucun minuteur ne le fait à votre place.
 
 ## Travail restant sans attribution nominative

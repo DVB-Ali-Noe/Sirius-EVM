@@ -2,6 +2,8 @@
 
 Plan initial communiqué par Noé : 22 septembre 2026 → mars 2027. Consolidation : **23 septembre 2026**.
 
+> **Mise à jour du 1er novembre 2026 ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)) :** aucun modèle n'est plus livré (« modèle livré dans la capsule », « ouverture du modèle » ci-dessous sont caducs). Les portes correspondantes se lisent : prédiction signée de l'emprunteur après `release` confirmé.
+
 Objectif : passer de la démonstration à un service qu'un client accepte de payer, avec une porte vérifiable avant chaque phase. Les dates et charges sont des objectifs du plan initial, à recalibrer selon les résultats et la disponibilité de Noé et Ali.
 
 Ce document conserve les phases produit, les responsabilités et les pistes de financement. [BUSINESS-PLAN.md](BUSINESS-PLAN.md) centralise désormais coûts totaux, hypothèses de revenus et rentabilité ; [ROADMAP.md](ROADMAP.md) décrit l'état technique et [DECISIONS.md](DECISIONS.md) conserve les décisions validées. Les recommandations de revue sont identifiées comme **propositions à arbitrer** : leur enregistrement ne vaut pas adoption. Aucun financement, entretien ou pilote n'est considéré comme obtenu sans preuve.

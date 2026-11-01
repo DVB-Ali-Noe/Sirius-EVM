@@ -12,7 +12,7 @@ const limiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 60, ma
 
 /**
  * Statistiques privées d'un dataset : emprunts (total, par semaine, dernier), revenus gagnés
- * et bloqués dans l'escrow, entraînements livrés ou remboursés. Propriétaire uniquement ;
+ * et bloqués dans l'escrow, entraînements réglés ou remboursés. Propriétaire uniquement ;
  * la propriété est vérifiée avant toute lecture des prêts.
  *
  * Les retraits ne sont pas ventilés par dataset : l'escrow crédite le wallet du fournisseur

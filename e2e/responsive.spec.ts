@@ -47,8 +47,8 @@ const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SET
   evmLoanKey: status === "PENDING" || status === "SUBMITTING" ? null : `0x${"9".repeat(64)}`,
   settleTxHash: status === "SETTLED" ? `0x${"e".repeat(64)}` : null,
   cancelTxHash: null,
-  modelCid: status === "SETTLING" ? "bafy-layout-model" : null,
-  runnerReceipt: status === "SETTLING" ? "layout-fixture" : null,
+  modelCid: status === "SETTLING" || status === "SETTLED" ? "sm1layoutmodel" : null,
+  runnerReceipt: status === "SETTLING" || status === "SETTLED" ? "layout-fixture" : null,
   evmDeadline: "2026-09-12T12:00:00.000Z",
   createdAt: "2026-09-05T12:00:00.000Z",
   refundable: false,
@@ -138,8 +138,7 @@ test.beforeEach(async ({ page }) => {
           status: "DONE",
           modelId: dataset.modelId,
           modelVersion: dataset.modelVersion,
-          modelCid: "bafy-layout-model",
-          runnerReceipt: null,
+          servedModelId: "responsive-self-job",
           metrics: { accuracy: 0.812345 },
           createdAt: "2026-09-05T12:00:00.000Z",
         }];
@@ -251,7 +250,8 @@ for (const screen of SCREENS) {
       await openLayoutPage(page, "/train", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true })).toBeVisible();
-      await expect(page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true })).toBeVisible();
+      const selfJob = page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true }).locator("../..");
+      await expect(selfJob.getByRole("button", { name: "Request a prediction" })).toBeVisible();
       await expectContainedLayout(page);
 
       const pending = page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true }).locator("../../../..");
@@ -270,6 +270,8 @@ for (const screen of SCREENS) {
       const settled = page.getByRole("heading", { name: `SETTLED ${LONG_NAME}`, exact: true }).locator("../../../..");
       await settled.getByRole("button", { name: "Retrain", exact: true }).click();
       await expect(settled.getByRole("button", { name: "View the quote and retrain" })).toBeVisible();
+      await expect(settled.getByRole("button", { name: "Request a prediction" })).toBeVisible();
+      await expect(settled.getByRole("button", { name: /download/i })).toHaveCount(0);
       await expectContainedLayout(page);
     });
 

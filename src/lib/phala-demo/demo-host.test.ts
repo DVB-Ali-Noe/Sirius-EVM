@@ -29,14 +29,14 @@ test("sur l'adresse démo, seules la page de training et ses ressources passent"
 });
 
 test("sur l'adresse démo, seules les API de la session répondent", () => {
-  for (const api of ["/api/phala-demo/session", "/api/phala-demo/results/x", "/api/auth/challenge", "/api/auth/verify", "/api/train", "/api/datasets", "/api/datasets/x/upload", "/api/models/cid"]) {
+  for (const api of ["/api/phala-demo/session", "/api/auth/challenge", "/api/auth/verify", "/api/train", "/api/train/x/predict", "/api/datasets", "/api/datasets/x/upload"]) {
     assert.equal(demoOnlyRoute(api), "allow", api);
   }
   // Parcours d'un wallet neuf (audit A-14) : KYB de démo, statut du compte, faucet de test.
   for (const api of ["/api/kyb/demo", "/api/account/status", "/api/faucet"]) {
     assert.equal(demoOnlyRoute(api), "allow", api);
   }
-  for (const api of ["/api/onramp", "/api/loans", "/api/marketplace", "/api/profile", "/api/admin/me", "/api/kyb/status", "/api/kyb/demo/x", "/api/account", "/api/account/status/x", "/api/faucet/x", "/api/trainer", "/api/auth-bypass", "/api"]) {
+  for (const api of ["/api/onramp", "/api/loans", "/api/loans/x/predict", "/api/models/cid", "/api/marketplace", "/api/profile", "/api/admin/me", "/api/kyb/status", "/api/kyb/demo/x", "/api/account", "/api/account/status/x", "/api/faucet/x", "/api/trainer", "/api/auth-bypass", "/api"]) {
     assert.equal(demoOnlyRoute(api), "block", api);
   }
 });

@@ -1,6 +1,8 @@
 # Politique de sortie de l’enclave et API sur modèles privés
 
-> **Mise à jour du 27 octobre 2026 : prototype E4 implémenté localement, désactivé par défaut, non déployé.** E2 reste livré en version minimale pour le profil arbres (`gradient_boosted_trees` 1.1.0). La facturation par appel, la politique de sortie commune `EgressPolicy`, les quotas par entité juridique et l’accès des acheteurs restent hors de ce prototype.
+> **Mise à jour du 1er novembre 2026 ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)) : plus aucune livraison de modèle, self-train, prêts et historique compris.** Les trois profils sont scellés dans le runner et servis par prédiction signée EIP-712 (`SiriusPrediction` v2) : linéaire = valeur à 3 chiffres significatifs (clonable en ~d+1 appels, accepté), logistique et GBDT = décision 0/1. Routes `POST /api/train/[id]/predict` et `POST /api/loans/[id]/predict` (prêt réglé, emprunteur), quota par wallet et modèle, sans drapeau d’activation, disponibles seulement pendant que le runner tourne. Les passages ci-dessous qui parlent de modèles « livrés », de `served` optionnel, de `SIRIUS_PREDICT_ENABLED` ou de `/api/models/[cid]/predict` décrivent l’état antérieur.
+>
+> *Mise à jour du 27 octobre 2026 (antérieure) : prototype E4 implémenté localement, désactivé par défaut.* E2 reste en version minimale pour le profil arbres (`gradient_boosted_trees` 1.1.0). La facturation par appel, la politique de sortie commune `EgressPolicy` et les quotas par entité juridique restent hors périmètre.
 
 Note de décision du 19 octobre 2026. Les chiffres ci-dessous viennent d’un prototype jetable hors du dépôt (annexe A), de mesures locales sur Apple M2 et de mesures de la PR #111 ; le débit de la nouvelle API sur CVM n’a pas été mesuré. Les choix de Noé sont repris dans [D-27](DECISIONS.md#d-27--politique-de-sortie-unique-et-api-sur-modèles-privés) et marqués **Décidé** ; le reste est proposé.
 
@@ -315,7 +317,7 @@ Reste de E2, non livré : structure `EgressPolicy` / `TrainingDiagnostics` (verd
 1. Sortie de l’API : **décision seule**, jamais de probabilité, même arrondie.
 2. **Une politique de sortie unique dans l’enclave**, pour les modèles livrés et les réponses d’API.
 3. **Le dataset n’est jamais modifié** ; la préparation fait partie du modèle.
-4. **API réservée aux modèles dangereux à livrer** ; en v1, Sirius décide par profil (linéaire et logistique livrées).
+4. **API réservée aux modèles dangereux à livrer** ; en v1, Sirius décide par profil (linéaire et logistique livrées). *Remplacé par D-28 : aucun modèle livré, les trois profils sont servis.*
 
 Également tranché, hors D-27 : seuils provisoires puis calibrés ; métriques held-out et `n` arrondi seulement pour les nouveaux profils ou versions ; pas de CVM continue, API pendant les sessions manuelles.
 
@@ -323,7 +325,7 @@ Reste de E2, non livré : structure `EgressPolicy` / `TrainingDiagnostics` (verd
 
 ## Questions ouvertes
 
-1. Quand et comment laisser au fournisseur le choix entre modèle livré et servi seulement (D-11) ?
+1. ~~Quand et comment laisser au fournisseur le choix entre modèle livré et servi seulement (D-11) ?~~ Tranché par D-28 : servi seulement.
 2. Valeurs définitives des seuils, après calibration (annexe B).
 3. Quotas et prix par appel : niveaux exacts, à partir des ~2 400 appels de clonage par usage normal.
 4. Crédits prépayés : nouveau contrat ou extension de v7, période de règlement, part du fournisseur.

@@ -3,7 +3,8 @@ import { closeSync, constants, fstatSync, lstatSync, openSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import { AppError } from "@/lib/app-error";
 import { canonicalSubject } from "@/lib/subject";
-import { assertPredictEnabled } from "@/lib/phala-demo/runner-session";
+import { MODEL_REF_ID_PATTERN, modelRefString, type ModelRef } from "@/lib/tee/contract";
+import { predictionSessionRevision } from "@/lib/phala-demo/runner-session";
 
 type SqlValue = string | number;
 interface Database {
@@ -46,16 +47,17 @@ function usageDatabase(): Database {
     db.exec(`PRAGMA busy_timeout = 3000;
       PRAGMA journal_mode = DELETE;
       PRAGMA synchronous = FULL;
-      CREATE TABLE IF NOT EXISTS prediction_usage (
-        day TEXT NOT NULL, subject TEXT NOT NULL, model_id TEXT NOT NULL,
+      -- v2 : clé modelRefString (job:… / loan:…) ; les tables v1 du prototype restent intactes.
+      CREATE TABLE IF NOT EXISTS prediction_usage_v2 (
+        day TEXT NOT NULL, subject TEXT NOT NULL, model_ref TEXT NOT NULL,
         count INTEGER NOT NULL CHECK(count >= 1 AND count <= 100),
         session_revision INTEGER NOT NULL,
-        PRIMARY KEY(day, subject, model_id)
+        PRIMARY KEY(day, subject, model_ref)
       );
-      CREATE TABLE IF NOT EXISTS prediction_counters (
-        subject TEXT NOT NULL, model_id TEXT NOT NULL,
+      CREATE TABLE IF NOT EXISTS prediction_counters_v2 (
+        subject TEXT NOT NULL, model_ref TEXT NOT NULL,
         total INTEGER NOT NULL CHECK(total >= 1),
-        PRIMARY KEY(subject, model_id)
+        PRIMARY KEY(subject, model_ref)
       );`);
     return db;
   } catch (error) {
@@ -64,30 +66,34 @@ function usageDatabase(): Database {
   }
 }
 
-/** Décompte avant tout calcul ; une erreur après la réservation ne rembourse pas un essai. */
-export function reservePrediction(subject: string, modelId: string, sessionRevision: number): number {
+/**
+ * Décompte avant tout calcul, par `(sujet, modelRefString)` ; une erreur après la réservation ne
+ * rembourse pas un essai.
+ */
+export function reservePrediction(subject: string, ref: ModelRef, sessionRevision: number): number {
   const owner = canonicalSubject(subject);
-  if (!/^0x[0-9a-f]{40}$/.test(owner) || !/^[A-Za-z0-9_-]{1,128}$/.test(modelId)
+  if (!/^0x[0-9a-f]{40}$/.test(owner) || (ref.kind !== "job" && ref.kind !== "loan") || !MODEL_REF_ID_PATTERN.test(ref.id)
     || !Number.isSafeInteger(sessionRevision) || sessionRevision < 0) throw new AppError("Scope de prédiction invalide", 400);
   const limit = dailyLimit();
   const db = usageDatabase();
   try {
     db.exec("BEGIN IMMEDIATE");
     try {
-      if (assertPredictEnabled() !== sessionRevision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+      if (predictionSessionRevision() !== sessionRevision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+      const modelRef = modelRefString(ref);
       const day = new Date().toISOString().slice(0, 10);
-      const current = db.prepare("SELECT count FROM prediction_usage WHERE day = ? AND subject = ? AND model_id = ?")
-        .get(day, owner, modelId);
+      const current = db.prepare("SELECT count FROM prediction_usage_v2 WHERE day = ? AND subject = ? AND model_ref = ?")
+        .get(day, owner, modelRef);
       const next = Number(current?.count ?? 0) + 1;
       if (next > limit) throw new AppError("Quota quotidien de prédiction atteint", 429);
-      db.prepare(`INSERT INTO prediction_usage(day, subject, model_id, count, session_revision) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(day, subject, model_id) DO UPDATE SET count = excluded.count,
-        session_revision = excluded.session_revision`).run(day, owner, modelId, next, sessionRevision);
-      db.prepare(`INSERT INTO prediction_counters(subject, model_id, total) VALUES (?, ?, 1)
-        ON CONFLICT(subject, model_id) DO UPDATE SET total = total + 1`)
-        .run(owner, modelId);
-      const total = Number(db.prepare("SELECT total FROM prediction_counters WHERE subject = ? AND model_id = ?")
-        .get(owner, modelId)!.total);
+      db.prepare(`INSERT INTO prediction_usage_v2(day, subject, model_ref, count, session_revision) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(day, subject, model_ref) DO UPDATE SET count = excluded.count,
+        session_revision = excluded.session_revision`).run(day, owner, modelRef, next, sessionRevision);
+      db.prepare(`INSERT INTO prediction_counters_v2(subject, model_ref, total) VALUES (?, ?, 1)
+        ON CONFLICT(subject, model_ref) DO UPDATE SET total = total + 1`)
+        .run(owner, modelRef);
+      const total = Number(db.prepare("SELECT total FROM prediction_counters_v2 WHERE subject = ? AND model_ref = ?")
+        .get(owner, modelRef)!.total);
       if (!Number.isSafeInteger(total)) throw new AppError("Compteur de prédiction invalide", 503);
       db.exec("COMMIT");
       return total;

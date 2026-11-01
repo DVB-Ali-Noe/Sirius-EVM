@@ -55,10 +55,10 @@ test("le lock doit porter le titre EVM du dataset demandé", () => {
 test("le TEE confirme le scope du self-train avant le déchiffrement", () => {
   const selfTraining = RUNNER_HANDLER.slice(
     RUNNER_HANDLER.lastIndexOf('case "run-training"'),
-    RUNNER_HANDLER.lastIndexOf('case "self-train-key"'),
+    RUNNER_HANDLER.lastIndexOf('case "predict"'),
   );
   const scope = selfTraining.indexOf("await assertDatasetScope");
-  const training = selfTraining.indexOf("await runSelfTraining");
+  const training = selfTraining.indexOf("runSelfTraining(");
 
   assert.ok(scope >= 0, "le titre EVM doit être vérifié");
   assert.ok(training >= 0, "le runner doit entraîner le dataset");

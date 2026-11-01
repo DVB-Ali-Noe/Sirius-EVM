@@ -139,7 +139,7 @@ La [préparation opérationnelle](OPERATIONS-PREPARATION.md) documente la sauveg
 
 Le 26 septembre 2026, Noé valide un parcours de self-train Phala offert par Sirius, avec CSV personnel ou exemples synthétiques. Seuls les opérateurs explicitement autorisés ouvrent et ferment les sessions ; aucune durée imposée ni fermeture programmée. Les financements crédits, Sirius ou mixtes sont déclarés et bornés, sans assimilation à une marge acquise et sans réinitialisation des engagements. Les limites financières refusent les nouveaux calculs, sans commander l’arrêt de la CVM.
 
-Le même dépôt sert une instance Phala isolée (origine/base/configuration), avec attestation stricte et livraison chiffrée persistante. Aucun fallback Phala vers VPS ou Next. Le site historique demeure sur testnet ; son déplacement de calcul vers VPS est autorisé comme chantier ultérieur, explicitement sans promesse de TEE. Cette décision remplace la portée « aucun VPS » de D-21 pour ce seul parcours de démonstration, pas les garanties du parcours confidentiel ni les portes mainnet.
+Le même dépôt sert une instance Phala isolée (origine/base/configuration), avec attestation stricte et livraison chiffrée persistante (*livraison remplacée par D-28 : le modèle reste dans le runner*). Aucun fallback Phala vers VPS ou Next. Le site historique demeure sur testnet ; son déplacement de calcul vers VPS est autorisé comme chantier ultérieur, explicitement sans promesse de TEE. Cette décision remplace la portée « aucun VPS » de D-21 pour ce seul parcours de démonstration, pas les garanties du parcours confidentiel ni les portes mainnet.
 
 La bascule globale staging v7 et la remise à zéro Neon sont différées. Le runner VPS n’est pas encore livré ; les reapers transférés ne font pas d’entraînement. Voir [plan](PLAN-VPS-PHALA.md), [journal avant/après](PHALA-DEMO-IMPLEMENTATION.md) et [runbook](PHALA-DEMO-RUNBOOK.md).
 
@@ -151,7 +151,7 @@ Conséquences : pas de base Neon dédiée ni de cible pipeline supplémentaire ;
 
 Ce que D-26 ne change pas : la production reste sur le parcours historique v6 avec runner intégré, le déplacement de ce calcul vers le VPS reste P09, les portes mainnet sont inchangées.
 
-## D-27 — Politique de sortie unique et API sur modèles privés
+## D-27 — Politique de sortie unique et API sur modèles privés (partiellement remplacée par D-28)
 
 Le 19 octobre 2026, après l’étude [EGRESS-POLICY-API.md](EGRESS-POLICY-API.md), Noé décide :
 
@@ -163,3 +163,15 @@ Le 19 octobre 2026, après l’étude [EGRESS-POLICY-API.md](EGRESS-POLICY-API.m
 Cette décision rouvre en partie l’écartement, le 14 octobre, des modèles à servir depuis l’enclave, sans les activer. Elle n’autorise ni implémentation de `/predict`, ni CVM allumée en continu, ni changement du format livré de linéaire et logistique v1, ni contrat de facturation par appel. Seuils, quotas, prix et crédits prépayés restent des questions ouvertes de la note.
 
 **Précision du 27 octobre 2026 :** Noé a autorisé le début de l’implémentation sur `feat/private-model-api`. Le prototype local E4 décrit dans [la note](EGRESS-POLICY-API.md#16-découpage-initial-du-prototype-post-predict) ne modifie pas les autres interdictions de D-27 : ni activation distante, ni service continu, ni facturation par appel. Il sert uniquement au propriétaire de son modèle pendant une session manuelle.
+
+## D-28 — Plus aucune livraison de modèle : prédiction signée seule
+
+Le 1er novembre 2026, Noé décide de supprimer toute livraison de modèle, self-train **et** prêts, **historique compris** :
+
+- Aucun téléchargement, aucune clé, aucune capsule ni enveloppe de livraison. Les anciens jobs et prêts répondent « modèle indisponible » ; leurs colonnes de livraison restent en base, sans lecture ni écriture.
+- Les trois profils (`linear_regression` 1.0.0, `logistic_regression` 1.0.0, `gradient_boosted_trees` 1.1.0) sont scellés dans le runner et servis par prédiction signée EIP-712 (`POST /api/train/[id]/predict`, `POST /api/loans/[id]/predict`), au propriétaire du job ou à l'emprunteur d'un prêt réglé. Quota quotidien par wallet et modèle.
+- Linéaire : valeur arrondie à **3 chiffres significatifs**. Elle reste clonable en environ d+1 appels ; ce risque est accepté. Logistique et GBDT : décision 0/1 seule.
+- Contrats Solidity inchangés : le préimage du hashlock ne sert plus qu'au règlement (`release`), plus à dériver une clé de modèle.
+- Les prédictions ne sont disponibles que pendant que le runner tourne ; aucune CVM continue n'est décidée. Le drapeau `SIRIUS_PREDICT_ENABLED` disparaît : la prédiction est la seule voie.
+
+D-28 remplace dans D-27 « linéaire et logistique restent livrées » et l'interdiction d'un `/predict` actif, ainsi que la livraison chiffrée du self-train de D-25. Les outils d'exploitation dédiés à la livraison (`ops:verify-model-delivery`, `ops:models`, `ops:recovery-pack`, inventaire de livraison historique) sont supprimés. Les documents antérieurs qui décrivent la livraison sont des archives.

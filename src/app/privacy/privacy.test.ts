@@ -25,6 +25,15 @@ test("confidentialité : responsable Sirius, contact par la constante", () => {
   assert.doesNotMatch(privacy, /[\w.+-]+@[\w-]+\.[a-z]{2,}/i, "aucune adresse électronique écrite en dur");
 });
 
+test("confidentialité : aucun modèle livré, compteurs de prédiction et anciens journaux d'accès déclarés", () => {
+  const usage = read("../../lib/runner/prediction-usage.ts");
+  assert.match(usage, /day TEXT NOT NULL, subject TEXT NOT NULL, model_ref TEXT NOT NULL/);
+  assert.match(privacyText, /your wallet address, the model reference, the day and the number of calls/);
+  assert.match(privacyText, /The model itself stays sealed in the training environment and is never delivered/);
+  assert.match(privacyText, /Records created before models stopped being delivered/);
+  assert.doesNotMatch(privacyText, /a reference to the delivered model/);
+});
+
 test("confidentialité : durées des cookies et des défis conformes au code", () => {
   assert.match(session, /const COOKIE = "sirius_session";/);
   assert.match(session, /const TTL_MS = 24 \* 60 \* 60 \* 1000;/);
