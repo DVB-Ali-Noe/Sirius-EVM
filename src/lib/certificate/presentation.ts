@@ -17,6 +17,9 @@ export interface QuoteVerificationView {
   eventLogMatches: boolean | null;
   composeHashMatches: boolean | null;
   rtMr3Matches: boolean | null;
+  /** OS dstack (RTMR0–2, `os-image-hash`) et application (`app-id`, fournisseur de clés KMS). */
+  platformMatches: boolean | null;
+  applicationMatches: boolean | null;
   codeIdentityMatches: boolean | null;
   measurements: { mrTd: string; rtMr3: string; composeHash: string | null };
   tcbStatus?: string;
@@ -141,14 +144,14 @@ function codeCheck(verification: QuoteVerificationView, retired: RetiredEnclaveV
     return {
       label,
       state: "pass",
-      detail: `MRTD matches the value pinned by Sirius today. The compose hash is the one of the Sirius production enclave until its upgrade on ${formatCertificateDate(retired.retiredAt)}, after this run. The event log replays to RTMR3 with a single boot-time compose hash.`,
+      detail: `MRTD, the dstack OS measurements and the app id match the values pinned by Sirius today. The compose hash is the one of the Sirius production enclave until its upgrade on ${formatCertificateDate(retired.retiredAt)}, after this run. The event log replays to RTMR3 with a single boot-time compose hash.`,
     };
   }
   if (verification.codeIdentityMatches === true) {
     return {
       label,
       state: "pass",
-      detail: "MRTD and compose hash match the values pinned by Sirius today, and the event log replays to RTMR3 with a single boot-time compose hash.",
+      detail: "MRTD, the dstack OS measurements (RTMR0–2, OS image), the app id and the compose hash match the values pinned by Sirius today, keys come from the Phala KMS, and the event log replays to RTMR3 with a single boot-time compose hash.",
     };
   }
   if (verification.codeIdentityMatches === false) {
@@ -201,11 +204,14 @@ export function presentVerification(outcome: VerificationOutcome): CertificatePr
 
   const verification = outcome.verification;
   // Seul le compose diffère, et c'est celui d'une enclave Sirius remplacée après ce prêt :
-  // l'identité du code est établie comme si la valeur épinglée d'alors était lue.
+  // l'identité du code est établie comme si la valeur épinglée d'alors était lue. Firmware, OS
+  // et application doivent, eux, correspondre aux valeurs épinglées d'aujourd'hui.
   const retired =
     outcome.retiredEnclave &&
     verification.composeHashMatches === false &&
     verification.baseImageMatches === true &&
+    verification.platformMatches === true &&
+    verification.applicationMatches === true &&
     verification.eventLogMatches === true
       ? outcome.retiredEnclave
       : null;

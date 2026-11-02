@@ -292,6 +292,11 @@ export function verificationCacheKey(record: CertificateRecord, env: Record<stri
     record.evidence.eventLog ?? "",
     record.evidence.composeHash ?? "",
     env.SIRIUS_EXPECTED_MRTD ?? "",
+    env.SIRIUS_EXPECTED_RTMR0 ?? "",
+    env.SIRIUS_EXPECTED_RTMR1 ?? "",
+    env.SIRIUS_EXPECTED_RTMR2 ?? "",
+    env.SIRIUS_EXPECTED_OS_IMAGE_HASH ?? "",
+    env.SIRIUS_EXPECTED_APP_ID ?? "",
     env.SIRIUS_EXPECTED_COMPOSE_HASH ?? "",
     env.DSTACK_SIMULATOR_ENDPOINT ? "simulateur" : "",
   ]) {
