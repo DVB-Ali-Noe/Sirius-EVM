@@ -11,6 +11,7 @@ Cible : samedi 7 novembre, sur le mainnet.
 |---|---|
 | Taille visée | **Décidé** : 1 Go par dataset |
 | Stockage des morceaux chiffrés | **Décidé** : Cloudflare R2 |
+| Outil d'envoi | **Décidé** : le site (glisser-déposer, voie principale pour tous) **et** une CLI (équipes techniques, automatisation), tous deux pour le 7, sur le même code de découpage et de chiffrement |
 | Répartition | **Décidé** : Ali porte l'upload, les contrats et la migration ; Noé porte l'API de prédiction (D-28), ses tests et l'expiration de la location |
 | Branches | **Décidé** : tout l'upload se fait dans `feat/upload-1go`, testé dans la branche, fusionné dans `staging` seulement quand personne ne l'utilise ; pas de PR pour l'instant |
 | Migration | Proposé : une seule migration mainnet le 7, conçue pour être la dernière qui fait perdre des datasets |
@@ -37,7 +38,7 @@ Cible : samedi 7 novembre, sur le mainnet.
 ## 3. Architecture visée
 
 ```text
-Fournisseur (CLI)                Site Sirius (Next)            Cloudflare R2           Enclave (runner Phala)
+Fournisseur (site ou CLI)        Site Sirius (Next)            Cloudflare R2           Enclave (runner Phala)
 1. lit la clé d'ingestion  ────────────────────────────────────────────────────────>  publie sa clé, signée KMS
    vérifie la chaîne KMS
 2. découpe + chiffre        3. ouvre l'envoi (KYB, quota)
@@ -67,15 +68,25 @@ Fournisseur (CLI)                Site Sirius (Next)            Cloudflare R2    
 - Le site et Cloudflare ne voient que du chiffré. Les identifiants R2 sont des secrets serveur (Vercel) ; le runner lit avec un jeton en lecture seule passé dans sa configuration chiffrée.
 - Garde-fous : envoi réservé aux fournisseurs KYB, quota d'octets par fournisseur et par jour, expiration des envois non clos (nettoyage), taille annoncée vérifiée à la clôture.
 
-## 6. Côté fournisseur : CLI (proposé)
+## 6. Côté fournisseur : site et CLI (décidé : les deux pour le 7)
 
-Commande `sirius upload <fichier.csv> --model <profil>` (Node, dans le dépôt) :
-1. récupère la clé d'ingestion et **vérifie sa chaîne de signature KMS** (guest-api-v1 de dstack, « Verifying a chain ») au lieu de faire confiance au build du site ;
-2. lit le CSV en flux, contrôle le format avec le lecteur strict partagé, calcule la racine du clair ;
-3. chiffre et envoie morceau par morceau, en parallèle limité, avec reprise ;
-4. clôt l'envoi et affiche le titre à publier.
+Un seul module partagé (TypeScript, Web Crypto, utilisable dans le navigateur et dans Node) fait tout le travail : vérification de la clé, découpage, chiffrement, racines, manifeste, envoi et reprise. Le site et la CLI n'en sont que deux interfaces.
 
-L'envoi par navigateur reste pour les fichiers sous 3 Mio, inchangé.
+Étapes communes :
+1. récupérer la clé d'ingestion et **vérifier sa chaîne de signature KMS** (guest-api-v1 de dstack, « Verifying a chain ») ;
+2. lire le CSV en flux, morceau par morceau, contrôler le format avec le lecteur strict partagé, calculer la racine du clair ;
+3. chiffrer et envoyer chaque morceau vers R2, en parallèle limité ;
+4. clore l'envoi et publier le titre.
+
+**Site (voie principale, pour tout le monde)** :
+- glisser-déposer du fichier, barre de progression, message « ne fermez pas cette page » ;
+- lecture par `File.slice`, quelques morceaux en mémoire à la fois, quelle que soit la taille du fichier ;
+- reprise : si la page se ferme, le fournisseur resélectionne le même fichier ; le site vérifie qu'il s'agit du même (taille et empreinte du premier morceau) et n'envoie que les morceaux manquants ;
+- sous 3 Mio, le parcours actuel en une seule enveloppe reste disponible.
+
+**CLI (équipes techniques, automatisation)** :
+- `sirius upload <fichier.csv> --model <profil>`, connexion par jeton du fournisseur ;
+- même reprise, sans page à garder ouverte ; utilisable depuis un serveur ou une tâche planifiée.
 
 ## 7. Côté site : routes (proposé)
 
@@ -140,7 +151,7 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 | Jour | Ali (+ Claude) | Noé | Actions manuelles d'Ali |
 |---|---|---|---|
 | Lun. 2 | Ce document ; format des morceaux | Relit ce document ; expiration | Compte Cloudflare + bucket R2 ; Safe sur Base |
-| Mar. 3 | CLI + routes du site | Expiration + sauvegarde des modèles | Secrets R2 dans Vercel staging |
+| Mar. 3 | Module partagé + routes du site + envoi par le site + CLI | Expiration + sauvegarde des modèles | Secrets R2 dans Vercel staging |
 | Mer. 4 | Lecture en flux, vérification, colonnes | Tests API | — |
 | Jeu. 5 | Tâches en arrière-plan + CVM 8 Go ; registre v6 et escrow v8 avec tests | Branchement avec l'upload | Rallumer la CVM de staging |
 | Ven. 6 | Test de bout en bout sur staging avec un fichier de 1 Go ; passage de clés testé | Tests de bout en bout | **Go / no-go mainnet** |
