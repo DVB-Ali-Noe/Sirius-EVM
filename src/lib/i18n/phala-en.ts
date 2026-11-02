@@ -126,6 +126,7 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "La démonstration est fermée ou l’autorisation a expiré": "The demo is closed or the authorization has expired",
   "Runner Phala requis": "Phala runner required",
   "Réponse de prédiction invalide": "Invalid prediction response",
+  "Colonnes du modèle invalides": "Invalid model columns",
   "Modèle indisponible": "Model unavailable",
   "Règlement du prêt non confirmé": "Loan settlement not confirmed",
   "Autorisation de prédiction invalide": "Invalid prediction authorization",

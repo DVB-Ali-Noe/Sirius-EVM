@@ -52,10 +52,21 @@ export function parsePredictionRequest(body: unknown): PredictionRequest {
   return { features: features as Record<string, number>, authorization: authorization as unknown as RunnerGrant };
 }
 
+/** Colonnes renvoyées par le runner après entraînement : 1 à 31 noms distincts, sinon réponse invalide. */
+export function modelFeaturesFromRunner(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_FEATURES
+    || value.some((name) => typeof name !== "string" || !name || name.length > 128)
+    || new Set(value).size !== value.length) {
+    throw new AppError("Colonnes du modèle invalides", 502);
+  }
+  return value as string[];
+}
+
 /**
  * Révision de session signée dans la prédiction. Le grant doit viser l'opération `predict` et
  * exactement ce modèle. Sur une instance de démo Phala, la session doit être ouverte et le grant
- * porter sa révision courante ; ailleurs, aucune révision de démo et `sessionRevision = 0`.
+ * porter sa révision courante ; la capacité d'entraînement n'est pas requise (une prédiction ne
+ * coûte qu'une requête, que le runner décompte). Ailleurs, `sessionRevision = 0`.
  */
 export async function predictionSessionRevision(ref: ModelRef, authorization: RunnerGrant): Promise<number> {
   const payload = authorization.payload;
@@ -69,7 +80,7 @@ export async function predictionSessionRevision(ref: ModelRef, authorization: Ru
   }
   const demo = await requestDemoController();
   const revision = demo.sessionRevision;
-  if (demo.phase !== "open" || !demo.available || typeof revision !== "number" || !Number.isSafeInteger(revision)
+  if (demo.phase !== "open" || typeof revision !== "number" || !Number.isSafeInteger(revision)
     || payload.demoSessionRevision !== revision) {
     throw new AppError("La démonstration est fermée ou l’autorisation a expiré", 403);
   }

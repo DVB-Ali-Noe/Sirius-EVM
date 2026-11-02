@@ -60,6 +60,7 @@ function fixture() {
   const common = {
     "server-only": {}, "@/lib/errors": { AppError },
     "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
+    "@/lib/sirius/prediction": { modelFeaturesFromRunner: (value: string[]) => value },
     "@/lib/sirius/self-training-access": { phalaDemoInstance: () => true },
     "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
     "@/lib/db": { serializableTransaction: async (fn: (value: typeof tx) => unknown) => fn(tx), prisma: {
@@ -79,7 +80,7 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
     ...common,
     "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (input: { jobId: string }) => {
       executions++;
-      return { servedModelId: input.jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: {}, runnerReceipt: "job-receipt" };
+      return { servedModelId: input.jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: {}, features: ["x"], runnerReceipt: "job-receipt" };
     } },
     "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
     "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
@@ -103,7 +104,7 @@ test("le self-train garde le modèle scellé pour les trois profils : empreinte 
       ...common,
       "@/lib/tee/runner-client": { runSelfTrainingInRunner: async (...args: unknown[]) => {
         assert.equal(args.length, 3, "aucune clé de livraison ni mode servi transmis");
-        return { servedModelId: "job", modelCid: fingerprint, metrics: { accuracy: 0.8 }, runnerReceipt: "job-receipt" };
+        return { servedModelId: "job", modelCid: fingerprint, metrics: { accuracy: 0.8 }, features: ["income", "debt"], runnerReceipt: "job-receipt" };
       } },
       "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
       "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
@@ -113,6 +114,7 @@ test("le self-train garde le modèle scellé pour les trois profils : empreinte 
     assert.equal(updates.length, 1);
     assert.equal(updates[0].status, "DONE");
     assert.equal(updates[0].servedModelId, "job");
+    assert.deepEqual(updates[0].modelFeatures, ["income", "debt"]);
     assert.equal(updates[0].modelCid, fingerprint);
     assert.equal(updates[0].runnerReceipt, "job-receipt");
     for (const field of ["deliveryPublicKey", "deliveryEnvelope"]) assert.equal(Object.hasOwn(updates[0], field), false, field);
@@ -121,8 +123,8 @@ test("le self-train garde le modèle scellé pour les trois profils : empreinte 
 
 test("le self-train refuse un résultat runner d'un autre job ou sans empreinte", async () => {
   for (const out of [
-    { servedModelId: "other", modelCid: `sm1${"c".repeat(64)}`, metrics: {}, runnerReceipt: "r" },
-    { servedModelId: "job", metrics: {}, runnerReceipt: "r" },
+    { servedModelId: "other", modelCid: `sm1${"c".repeat(64)}`, metrics: {}, features: ["x"], runnerReceipt: "r" },
+    { servedModelId: "job", metrics: {}, features: ["x"], runnerReceipt: "r" },
   ]) {
     const { dataset, updates, common } = fixture();
     const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {

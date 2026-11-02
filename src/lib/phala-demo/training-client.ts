@@ -18,9 +18,14 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-async function demoScope() {
-  const state = await json<{ available: boolean; sessionRevision?: number }>("/api/phala-demo/session", { cache: "no-store" });
-  if (!state.available || !Number.isSafeInteger(state.sessionRevision)) throw new Error("La démonstration est fermée ou momentanément indisponible");
+/**
+ * Révision de session à signer. Un entraînement exige une capacité disponible (budget, quotas,
+ * concurrence) ; une prédiction ne coûte qu'une requête et n'exige qu'une session ouverte.
+ */
+async function demoScope(purpose: "training" | "prediction" = "training") {
+  const state = await json<{ phase?: string; available: boolean; sessionRevision?: number }>("/api/phala-demo/session", { cache: "no-store" });
+  const usable = purpose === "training" ? state.available : state.phase === "open";
+  if (!usable || !Number.isSafeInteger(state.sessionRevision)) throw new Error("La démonstration est fermée ou momentanément indisponible");
   return { demoSessionRevision: state.sessionRevision };
 }
 
@@ -76,6 +81,6 @@ export async function trainDemoFile(file: File, modelId: ModelId, target: string
 }
 
 export async function predictDemoModel(jobId: string, features: Record<string, number>) {
-  const { demoSessionRevision } = await demoScope();
+  const { demoSessionRevision } = await demoScope("prediction");
   return requestPrediction({ kind: "job", id: jobId }, features, demoSessionRevision);
 }

@@ -393,6 +393,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         const loanResult: LoanJobResult = {
           modelCid: result.modelCid,
           metrics: result.metrics,
+          features: result.features,
           attestation,
           loanKey,
           hashlock,

@@ -181,10 +181,12 @@ async function trainQuoted(input: DatasetRef, signal: AbortSignal, maxDatasetByt
 interface SealedModel {
   modelCid: string;
   metrics: Record<string, number>;
+  /** Colonnes attendues par `predict`, dans l'ordre du modèle : noms du dataset, jamais ses valeurs. */
+  features: string[];
 }
 
 function sealedResult(model: TrainedModel): SealedModel {
-  return { modelCid: servedModelFingerprint(model), metrics: model.metrics };
+  return { modelCid: servedModelFingerprint(model), metrics: model.metrics, features: model.features };
 }
 
 /**

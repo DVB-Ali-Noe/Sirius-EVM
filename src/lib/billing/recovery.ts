@@ -30,7 +30,10 @@ export async function recoverBilledLoanResult(signed: SignedComputeQuote): Promi
   }
   if (!stored.result) throw new AppError("Résultat durable manquant", 503);
   const context = JSON.parse(stored.context) as LoanRecoveryContext;
-  const model = JSON.parse(stored.result) as Pick<LoanJobResult, "modelCid" | "metrics">;
+  const persisted = JSON.parse(stored.result) as Pick<LoanJobResult, "modelCid" | "metrics"> & { features?: unknown };
+  // Résultat enregistré avant l'ajout des colonnes : la prédiction reste possible, sans pré-remplissage.
+  const model = { modelCid: persisted.modelCid, metrics: persisted.metrics,
+    features: Array.isArray(persisted.features) ? persisted.features.filter((name): name is string => typeof name === "string") : [] };
   const attestation = await attestLoanExecution({
     chainId: quote.chainId, escrow: quote.escrow, loanId: quote.loanId, loanKey,
     datasetId: quote.datasetId, datasetCid: context.datasetCid, provider: quote.provider,

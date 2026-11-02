@@ -29,7 +29,7 @@ globalThis.fetch = async (input, init) => {
     process.send?.({ accepted: true });
     await new Promise<void>((resolve) => process.once("message", () => resolve()));
     const { jobId } = JSON.parse(String(init?.body)) as { jobId: string };
-    return Response.json({ servedModelId: jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: { n: 20 }, runnerReceipt: "synthetic-result" });
+    return Response.json({ servedModelId: jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: { n: 20 }, features: ["x"], runnerReceipt: "synthetic-result" });
   }
   throw new Error("Accès externe interdit dans le test PostgreSQL");
 };

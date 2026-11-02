@@ -188,6 +188,7 @@ function settlementFixture(
     "@/lib/runner/failure-policy": { RunnerFinalityPending }, "./settlement-queued": { settlementQueuedError },
     "@/lib/tee/runner-client": { settleLoanInRunner: runner },
     "@/lib/models/registry": {},
+    "./prediction": { modelFeaturesFromRunner: (value: string[]) => value },
     "@/lib/tee/attestation": {
       hashLoanAttestationPayload: () => loan.attestationHash,
       parseLoanAttestationPayload: () => payload,
