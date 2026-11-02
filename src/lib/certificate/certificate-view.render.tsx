@@ -22,6 +22,8 @@ const verification: QuoteVerificationView = {
   eventLogMatches: true,
   composeHashMatches: true,
   rtMr3Matches: true,
+  platformMatches: true,
+  applicationMatches: true,
   codeIdentityMatches: true,
   measurements: { mrTd: "a1".repeat(48), rtMr3: "b2".repeat(48), composeHash: "c3".repeat(32) },
   tcbStatus: "UpToDate",

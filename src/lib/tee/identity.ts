@@ -21,6 +21,13 @@ export interface EventLogIdentity {
   replayedRtMr3: string;
   eventLogMatches: boolean;
   composeEventMatches: boolean;
+  /**
+   * Événements de démarrage dstack lus dans RTMR3 : chacun unique, de type runtime, mesuré avant
+   * `system-ready` (donc par dstack, pas par l'application). `null` si la règle n'est pas tenue.
+   */
+  appId: string | null;
+  osImageHash: string | null;
+  keyProviderName: string | null;
 }
 
 function equalHex(left: string, right: string): boolean {
@@ -97,11 +104,39 @@ export function verifyEventLogIdentity(
   }
   const events = parseEventLog(eventLog);
   const replayedRtMr3 = replayRtMr3(eventLog);
+  const keyProvider = bootEventPayload(events, "key-provider");
   return {
     replayedRtMr3,
     eventLogMatches: equalHex(replayedRtMr3, measuredRtMr3.toLowerCase()),
     composeEventMatches: composeEventMatches(events, composeHash),
+    appId: bootEventPayload(events, "app-id")?.toLowerCase() ?? null,
+    osImageHash: bootEventPayload(events, "os-image-hash")?.toLowerCase() ?? null,
+    keyProviderName: keyProvider === null ? null : keyProviderName(keyProvider),
   };
+}
+
+// Même raisonnement que pour compose-hash : l'application peut émettre ses propres événements
+// après son lancement, et dstack émet `system-ready` juste avant de la lancer. Un événement de
+// plateforme ne compte que s'il est unique, runtime et antérieur à `system-ready` ; sans
+// `system-ready`, le journal est incomplet et rien n'est accepté.
+function bootEventPayload(events: DstackEvent[], name: string): string | null {
+  const rtMr3Events = events.filter((event) => event.imr === 3);
+  const matching = rtMr3Events.filter((event) => event.event === name);
+  const systemReady = rtMr3Events.findIndex((event) => event.event === "system-ready");
+  if (matching.length !== 1 || systemReady === -1) return null;
+  const [event] = matching;
+  if (event.event_type !== DSTACK_RUNTIME_EVENT_TYPE || rtMr3Events.indexOf(event) > systemReady) return null;
+  return event.event_payload;
+}
+
+/** Payload `key-provider` : JSON `{"name": …, "id": …}` encodé en hexadécimal. */
+function keyProviderName(payload: string): string | null {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(payload, "hex").toString("utf8"));
+    return value && typeof value === "object" && "name" in value && typeof value.name === "string" ? value.name : null;
+  } catch {
+    return null;
+  }
 }
 
 // Une CVM peut émettre ses propres événements runtime après le démarrage (emitEvent de

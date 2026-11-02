@@ -101,6 +101,13 @@ async function main() {
   console.log(`[runner:capture-ra-tls] Quote matérielle vérifiée — mode ${evidence.bootstrapOnly ? "amorçage" : "actif"}`);
   console.log("Vérifier le compose et l’image attendus avant d’épingler ces mesures dans Next.");
   console.log(`SIRIUS_EXPECTED_MRTD=${verification.measurements.mrTd}`);
+  // OS dstack et application (#112) : stables d'un redémarrage et d'un déploiement à l'autre tant que
+  // l'image OS, la taille de VM et l'app Phala ne changent pas. Absents = journal d'événements anormal.
+  console.log(`SIRIUS_EXPECTED_RTMR0=${verification.measurements.rtMr0}`);
+  console.log(`SIRIUS_EXPECTED_RTMR1=${verification.measurements.rtMr1}`);
+  console.log(`SIRIUS_EXPECTED_RTMR2=${verification.measurements.rtMr2}`);
+  console.log(`SIRIUS_EXPECTED_OS_IMAGE_HASH=${verification.measurements.osImageHash ?? "ABSENT"}`);
+  console.log(`SIRIUS_EXPECTED_APP_ID=${verification.measurements.appId ?? "ABSENT"}`);
   // RTMR3 n'est plus épinglé (il change à chaque redémarrage, audit A-01) : affiché pour information.
   console.log(`# RTMR3 (non épinglé) ${verification.measurements.rtMr3}`);
   console.log(`SIRIUS_EXPECTED_COMPOSE_HASH=${evidence.composeHash.toLowerCase()}`);

@@ -7,7 +7,7 @@ import {
   verifyCertificate,
   type VerificationInput,
 } from "./verification";
-import type { QuoteVerificationView } from "./presentation";
+import type { QuoteVerification as QuoteVerificationView } from "@/lib/tee/quote";
 import type { CertificateRecord } from "./resolve";
 
 const input: VerificationInput = { quote: "ab".repeat(100), payloadHash: "a".repeat(64) };
@@ -20,8 +20,11 @@ function result(overrides: Partial<QuoteVerificationView> = {}): QuoteVerificati
     eventLogMatches: true,
     composeHashMatches: true,
     rtMr3Matches: true,
+    platformMatches: true,
+    applicationMatches: true,
     codeIdentityMatches: true,
-    measurements: { mrTd: "1".repeat(96), rtMr3: "2".repeat(96), composeHash: "3".repeat(64) },
+    measurements: { mrTd: "1".repeat(96), rtMr0: "4".repeat(96), rtMr1: "5".repeat(96), rtMr2: "6".repeat(96),
+      rtMr3: "2".repeat(96), composeHash: "3".repeat(64), appId: "7".repeat(40), osImageHash: "8".repeat(64) },
     tcbStatus: "UpToDate",
     ...overrides,
   };
@@ -162,6 +165,9 @@ test("clé de cache : change avec chaque pièce et chaque valeur épinglée", ()
     verificationCacheKey({ ...record, evidence: { ...record.evidence, composeHash: null } } as CertificateRecord, {}),
     verificationCacheKey(record, { SIRIUS_EXPECTED_MRTD: "1" }),
     verificationCacheKey(record, { SIRIUS_EXPECTED_COMPOSE_HASH: "1" }),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_RTMR0: "1" }),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_OS_IMAGE_HASH: "1" }),
+    verificationCacheKey(record, { SIRIUS_EXPECTED_APP_ID: "1" }),
     verificationCacheKey(record, { DSTACK_SIMULATOR_ENDPOINT: "http://x" }),
   ];
   assert.equal(new Set([base, ...variants]).size, variants.length + 1);

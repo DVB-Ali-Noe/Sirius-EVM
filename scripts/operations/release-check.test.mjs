@@ -14,7 +14,8 @@ function environments() {
   for (const [index, suffix] of ["ESCROW", "DATASET", "KYB", "USDC"].entries()) common[`SIRIUS_${suffix}_ADDRESS`] = `0x${String(index + 2).repeat(40)}`;
   const client = { ...common, SIRIUS_REQUIRE_PHALA: "true", RUNNER_URL: "https://runner.example",
     DATABASE_URL: "postgresql://test:synthetic@db.example/test", SIRIUS_EXPECTED_MRTD: "11".repeat(48),
-    SIRIUS_EXPECTED_COMPOSE_HASH: "33".repeat(32),
+    SIRIUS_EXPECTED_COMPOSE_HASH: "33".repeat(32), SIRIUS_EXPECTED_RTMR0: "60".repeat(48), SIRIUS_EXPECTED_RTMR1: "61".repeat(48),
+    SIRIUS_EXPECTED_RTMR2: "62".repeat(48), SIRIUS_EXPECTED_OS_IMAGE_HASH: "63".repeat(32), SIRIUS_EXPECTED_APP_ID: "64".repeat(20),
     SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: "44".repeat(32), NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: "55".repeat(32) };
   const next = { ...client, NEXT_PUBLIC_EVM_NETWORK: "testnet" };
   for (const suffix of ["ESCROW", "DATASET", "KYB", "USDC"]) next[`NEXT_PUBLIC_SIRIUS_${suffix}_ADDRESS`] = common[`SIRIUS_${suffix}_ADDRESS`];
@@ -31,6 +32,16 @@ test("le préflight refuse les divergences de contrat, de finalité et de secret
   assert.ok(result.issues.includes("divergence.SIRIUS_ESCROW_ADDRESS"));
   assert.ok(result.issues.includes("divergence.SIRIUS_EVM_FINALITY"));
   assert.ok(!JSON.stringify(result).includes(env[1].RUNNER_TRANSPORT_SECRET));
+});
+test("#112 : Next et le reaper doivent épingler le même OS dstack et la même app", () => {
+  const env = environments();
+  delete env[1].SIRIUS_EXPECTED_RTMR1;
+  assert.equal(checkReleaseEnvironments(...env).configurationReady, false);
+  const other = environments();
+  other[1].SIRIUS_EXPECTED_APP_ID = "65".repeat(20);
+  const result = checkReleaseEnvironments(...other);
+  assert.equal(result.configurationReady, false);
+  assert.ok(result.issues.includes("divergence.SIRIUS_EXPECTED_APP_ID"));
 });
 test("A-02 : SIRIUS_EXPECTED_RTMR3 n'est ni exigé ni comparé entre Next et le reaper (RTMR3 n'est plus épinglé)", () => {
   const env = environments();

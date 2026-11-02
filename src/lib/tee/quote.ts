@@ -35,8 +35,12 @@ export interface QuoteVerification {
   composeHashMatches: boolean | null;
   /** RTMR3 de la quote authentifié par le rejeu de l'event-log (plus d'épinglage brut). */
   rtMr3Matches: boolean | null;
+  /** OS dstack : RTMR0–2 (configuration virtuelle, noyau, initrd) et `os-image-hash` épinglés. */
+  platformMatches: boolean | null;
+  /** Application et clés : `app-id` épinglé et fournisseur de clés `kms`. */
+  applicationMatches: boolean | null;
   codeIdentityMatches: boolean | null;
-  measurements: { mrTd: string; rtMr3: string; composeHash: string | null };
+  measurements: TdxMeasurements;
   tcbStatus?: string;
   /**
    * Cause d'une vérification matérielle sans succès, pour le diagnostic seulement (journaux) :
@@ -46,6 +50,19 @@ export interface QuoteVerification {
 }
 
 export type HardwareFailure = "collateral-unavailable" | "rejected";
+
+export interface TdxMeasurements {
+  mrTd: string;
+  rtMr0: string;
+  rtMr1: string;
+  rtMr2: string;
+  rtMr3: string;
+  composeHash: string | null;
+  appId: string | null;
+  osImageHash: string | null;
+}
+
+const APP_ID = /^[0-9a-f]{40}$/i;
 
 /** Une tentative de collatérale ne bloque jamais plus longtemps que ceci (audit ROB-11). */
 export const COLLATERAL_TIMEOUT_MS = 8_000;
@@ -119,6 +136,9 @@ export function isRecordedQuoteHardwareValid(
 
 interface TdReport {
   mrTd: Uint8Array;
+  rtMr0: Uint8Array;
+  rtMr1: Uint8Array;
+  rtMr2: Uint8Array;
   rtMr3: Uint8Array;
   reportData: Uint8Array;
 }
@@ -130,15 +150,22 @@ function parseTdReport(rawQuote: Buffer): TdReport {
   return td;
 }
 
-function fullCodeIdentity(checks: Array<boolean | null>): boolean | null {
+function allMatch(checks: Array<boolean | null>): boolean | null {
   if (checks.some((check) => check === false)) return false;
   return checks.every((check) => check === true) ? true : null;
 }
 
+/** Comme `matchesPinnedHash`, mais un événement absent (`null`) face à une valeur épinglée échoue. */
+function matchesPinnedEvent(actual: string | null, expected: string | undefined, pattern: RegExp): boolean | null {
+  if (!expected) return null;
+  return actual === null ? false : matchesPinnedHash(actual, expected, pattern);
+}
+
 type CodeIdentity = Pick<
   QuoteVerification,
-  "baseImageMatches" | "eventLogMatches" | "composeHashMatches" | "rtMr3Matches" | "codeIdentityMatches"
->;
+  "baseImageMatches" | "eventLogMatches" | "composeHashMatches" | "rtMr3Matches" | "platformMatches"
+  | "applicationMatches" | "codeIdentityMatches"
+> & Pick<TdxMeasurements, "appId" | "osImageHash">;
 
 /**
  * Identité du code mesuré. RTMR3 change à chaque redémarrage de la CVM Phala alors que
@@ -147,29 +174,52 @@ type CodeIdentity = Pick<
  * désormais authentifié par le rejeu de l'event-log, et le compose qu'il porte (événement
  * unique, mesuré au démarrage) est comparé à la valeur épinglée. SIRIUS_EXPECTED_RTMR3
  * n'est plus lu.
+ *
+ * MRTD ne couvre que le firmware virtuel (#112) : l'OS dstack est lié par RTMR0–2 et
+ * l'événement `os-image-hash`, l'application par `app-id`, et le fournisseur de clés doit être
+ * le KMS (dont la chaîne est épinglée à part). Une valeur épinglée absente laisse l'identité
+ * indéterminée (`null`), donc refusée.
  */
 export function evaluateCodeIdentity(
-  mrTd: string,
-  rtMr3: string,
+  td: { mrTd: string; rtMr0: string; rtMr1: string; rtMr2: string; rtMr3: string },
   evidence: Pick<TdxEvidence, "eventLog" | "composeHash"> | undefined,
   env: Record<string, string | undefined> = process.env,
 ): CodeIdentity {
-  const baseImageMatches = matchesPinnedHash(mrTd, env.SIRIUS_EXPECTED_MRTD, SHA384_MEASUREMENT);
+  const baseImageMatches = matchesPinnedHash(td.mrTd, env.SIRIUS_EXPECTED_MRTD, SHA384_MEASUREMENT);
+  const rtmrs = [
+    matchesPinnedHash(td.rtMr0, env.SIRIUS_EXPECTED_RTMR0, SHA384_MEASUREMENT),
+    matchesPinnedHash(td.rtMr1, env.SIRIUS_EXPECTED_RTMR1, SHA384_MEASUREMENT),
+    matchesPinnedHash(td.rtMr2, env.SIRIUS_EXPECTED_RTMR2, SHA384_MEASUREMENT),
+  ];
   let eventLogMatches: boolean | null = null;
   let composeHashMatches: boolean | null = null;
   let rtMr3Matches: boolean | null = null;
+  let platformMatches = allMatch([...rtmrs, null]);
+  let applicationMatches: boolean | null = null;
+  let appId: string | null = null;
+  let osImageHash: string | null = null;
   if (evidence) {
-    const identity = verifyEventLogIdentity(evidence.eventLog, rtMr3, evidence.composeHash);
+    const identity = verifyEventLogIdentity(evidence.eventLog, td.rtMr3, evidence.composeHash);
     rtMr3Matches = identity.eventLogMatches;
     eventLogMatches = identity.eventLogMatches && identity.composeEventMatches;
     composeHashMatches = matchesPinnedHash(evidence.composeHash, env.SIRIUS_EXPECTED_COMPOSE_HASH, SHA256_MEASUREMENT);
+    ({ appId, osImageHash } = identity);
+    platformMatches = allMatch([...rtmrs, matchesPinnedEvent(osImageHash, env.SIRIUS_EXPECTED_OS_IMAGE_HASH, SHA256_MEASUREMENT)]);
+    applicationMatches = allMatch([
+      matchesPinnedEvent(appId, env.SIRIUS_EXPECTED_APP_ID, APP_ID),
+      identity.keyProviderName === "kms",
+    ]);
   }
   return {
     baseImageMatches,
     eventLogMatches,
     composeHashMatches,
     rtMr3Matches,
-    codeIdentityMatches: fullCodeIdentity([baseImageMatches, eventLogMatches, composeHashMatches]),
+    platformMatches,
+    applicationMatches,
+    codeIdentityMatches: allMatch([baseImageMatches, eventLogMatches, composeHashMatches, platformMatches, applicationMatches]),
+    appId,
+    osImageHash,
   };
 }
 
@@ -190,10 +240,10 @@ export async function verifyTdxQuote(
   const reportDataMatches =
     reportData.subarray(0, expected.length).equals(expected) &&
     reportData.subarray(expected.length).every((byte) => byte === 0);
-  const mrTd = Buffer.from(td.mrTd).toString("hex");
-  const rtMr3 = Buffer.from(td.rtMr3).toString("hex");
-  const identity = evaluateCodeIdentity(mrTd, rtMr3, evidence);
-  const measurements = { mrTd, rtMr3, composeHash: evidence?.composeHash ?? null };
+  const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
+  const report = { mrTd: hex(td.mrTd), rtMr0: hex(td.rtMr0), rtMr1: hex(td.rtMr1), rtMr2: hex(td.rtMr2), rtMr3: hex(td.rtMr3) };
+  const { appId, osImageHash, ...identity } = evaluateCodeIdentity(report, evidence);
+  const measurements: TdxMeasurements = { ...report, composeHash: evidence?.composeHash ?? null, appId, osImageHash };
 
   if (opts.skipHardware ?? isSimulator()) {
     return { reportDataMatches, hardwareVerified: null, ...identity, measurements };
