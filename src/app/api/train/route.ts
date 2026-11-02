@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       where: { owner: session.address },
       orderBy: { createdAt: "desc" },
       select: {
-        id: true, status: true, modelId: true, modelVersion: true, servedModelId: true, metrics: true,
+        id: true, status: true, modelId: true, modelVersion: true, servedModelId: true, modelFeatures: true, metrics: true,
         createdAt: true, completedAt: true, dataset: { select: { name: true } },
       },
     });

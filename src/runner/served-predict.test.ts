@@ -86,7 +86,7 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
     const retry = await runSelfTraining({ jobId: "job-1", owner, datasetId: "dataset-1", cid: "not-fetched",
       wrappedKey: "not-delivered", merkleRoot: "not-fetched", priceUsdcAtomic: "1", challengeDays: 1,
       modelId: "gradient_boosted_trees", modelVersion: "1.1.0" });
-    assert.deepEqual(retry, { servedModelId: "job-1", modelCid: servedModelFingerprint(trees), metrics: trees.metrics });
+    assert.deepEqual(retry, { servedModelId: "job-1", modelCid: servedModelFingerprint(trees), metrics: trees.metrics, features: ["age"] });
     assert.match(retry.modelCid, /^sm1[0-9a-f]{64}$/);
     assert.equal(attemptedUploads, 0);
     const plaintext = readFileSync(join(process.cwd(), "public/examples/classification/credit-risk-train.csv"));

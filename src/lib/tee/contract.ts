@@ -84,6 +84,8 @@ export interface SelfTrainingResult {
   servedModelId: string;
   modelCid: string;
   metrics: Record<string, number>;
+  /** Colonnes que `predict` attend, dans l'ordre du modèle. */
+  features: string[];
   runnerReceipt: string;
 }
 
@@ -91,6 +93,7 @@ export interface SelfTrainingResult {
 export interface LoanJobResult {
   modelCid: string;
   metrics: Record<string, number>;
+  features: string[];
   attestation: LoanExecutionAttestation;
   loanKey: string;
   hashlock: string;

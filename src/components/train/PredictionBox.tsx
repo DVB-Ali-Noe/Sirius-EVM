@@ -8,23 +8,26 @@ import { parsePredictionFeatures, type PredictionResult } from "@/lib/train/pred
 
 /**
  * Prédiction privée : le modèle reste scellé dans le runner, seule la sortie signée (décision 0/1
- * ou valeur arrondie) revient avec son numéro d'appel.
+ * ou valeur arrondie) revient avec son numéro d'appel. `features` pré-remplit les colonnes du
+ * modèle à 0 ; un modèle entraîné avant leur enregistrement part d'un objet vide.
  */
 export function PredictionBox({
   id,
   disabled = false,
+  features = [],
   predict,
 }: {
   id: string;
   disabled?: boolean;
+  features?: string[];
   predict: (features: Record<string, number>) => Promise<PredictionResult>;
 }) {
   const { t } = useLocale();
-  const [input, setInput] = useState("{}");
+  const [input, setInput] = useState(() =>
+    features.length ? JSON.stringify(Object.fromEntries(features.map((name) => [name, 0])), null, 2) : "{}");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   async function submit() {
     const revision = useWalletStore.getState().revision;
     setBusy(true);
@@ -48,7 +51,7 @@ export function PredictionBox({
       </label>
       <textarea
         id={`features-${id}`}
-        rows={3}
+        rows={Math.min(Math.max(features.length + 2, 3), 12)}
         value={input}
         onChange={(event) => setInput(event.target.value)}
         className="w-full rounded-lg border border-border bg-background p-2 font-mono text-xs text-foreground outline-none focus:border-accent"

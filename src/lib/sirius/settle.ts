@@ -14,6 +14,7 @@ import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry";
 import type { ModelId } from "@/lib/models/registry";
+import { modelFeaturesFromRunner } from "./prediction";
 import {
   hashLoanAttestationPayload,
   parseLoanAttestationPayload,
@@ -119,6 +120,8 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
     where: { id: loanId, status: loan.status, modelCid: null, updatedAt: loan.updatedAt },
     data: {
       status: "TRAINING", modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
+      // Un résultat repris d'avant l'ajout des colonnes n'en porte pas : prédiction possible, sans pré-remplissage.
+      modelFeatures: result.features.length ? modelFeaturesFromRunner(result.features) : [],
       attestationHash: result.attestation.payloadHash, attestationPayload: result.attestation.payload,
       attestationQuote: result.attestation.evidence?.quote ?? null,
       attestationEventLog: result.attestation.evidence?.eventLog ?? null,
@@ -249,6 +252,7 @@ export async function prepareLoanResult(
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
       data: {
         modelCid: result.modelCid,
+        modelFeatures: modelFeaturesFromRunner(result.features),
         runnerReceipt: result.runnerReceipt,
         attestationHash: result.attestation.payloadHash,
         attestationPayload: result.attestation.payload,

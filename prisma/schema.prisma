@@ -104,6 +104,7 @@ model TrainingJob {
 
   modelCid      String? // empreinte du modèle scellé (`sm1…`, servedModelFingerprint) ; ancien CID IPFS sur l'historique
   servedModelId String? @unique // modèle gardé exclusivement par le runner ; identique à l'id du job
+  modelFeatures String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave du job, jamais renvoyé au client
   deliveryPublicKey String? // historique, plus lu ni écrit
@@ -154,6 +155,7 @@ model Loan {
   // Empreinte du modèle scellé dans le runner (`sm1…`, servedModelFingerprint) ; ancien CID IPFS
   // sur l'historique. Non nulle = modèle produit : remboursement, reaper et attestation en dépendent.
   modelCid               String?
+  modelFeatures          String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   attestationHash        String? // SHA-256 du payload TEE attesté
   attestationPayload     String? // payload canonique lié au modèle et au scope du prêt
   attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)

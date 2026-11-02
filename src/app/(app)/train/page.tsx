@@ -100,6 +100,7 @@ interface Loan {
   /** Empreinte du modèle scellé dans le runner (champ historique `modelCid`). */
   modelCid: string | null;
   runnerReceipt: string | null;
+  modelFeatures: string[];
   finalityReview?: string | null;
   modelId: ModelId;
   modelVersion: string;
@@ -113,6 +114,7 @@ interface Job {
   id: string;
   status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
   servedModelId: string | null;
+  modelFeatures: string[];
   metrics: Record<string, number> | null;
   modelId: ModelId;
   modelVersion: string;
@@ -583,7 +585,7 @@ function TrainPageContent() {
                   </dl>
                   {gapWarning(j) && <p role="status" className="mt-2 text-xs text-negative">{t(gapWarning(j)!)}</p>}
                   {j.servedModelId ? (
-                    <PredictionBox id={j.id} predict={(features) => requestPrediction({ kind: "job", id: j.id }, features)} />
+                    <PredictionBox id={j.id} features={j.modelFeatures} predict={(features) => requestPrediction({ kind: "job", id: j.id }, features)} />
                   ) : (
                     <p className="mt-3 text-xs text-muted">{t("Modèle indisponible : entraîné avant la prédiction privée.")}</p>
                   )}
@@ -772,7 +774,7 @@ function TrainPageContent() {
                     {t("Certificat d’exécution")}
                   </Link>
                   {canPredictLoan(l, address) && (
-                    <PredictionBox id={l.id} predict={(features) => requestPrediction({ kind: "loan", id: l.id }, features)} />
+                    <PredictionBox id={l.id} features={l.modelFeatures} predict={(features) => requestPrediction({ kind: "loan", id: l.id }, features)} />
                   )}
                 </div>
               )}
