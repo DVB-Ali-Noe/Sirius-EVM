@@ -475,6 +475,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         ...demoScope,
         operation: op,
         datasetId: dataset.datasetId,
+        jobId,
         intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, "served"],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
