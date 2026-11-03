@@ -139,7 +139,8 @@ test("la prédiction privée remplace la livraison : jobs servis et prêts régl
   });
   const calls = await install(page, {
     admin: true,
-    jobs: [job("served"), job("legacy", { servedModelId: null }), job("running", { status: "RUNNING", servedModelId: null })],
+    jobs: [job("served"), job("fields", { modelFeatures: ["surface_m2", "rooms"] }), job("legacy", { servedModelId: null }),
+      job("running", { status: "RUNNING", servedModelId: null })],
     loans: [
       loan("done", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt" }),
       loan("provider-view", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt", borrower: OTHER, provider: ME }),
@@ -162,6 +163,13 @@ test("la prédiction privée remplace la livraison : jobs servis et prêts régl
   await jobCard("Job served").getByLabel("Numeric features (JSON, use the training column names)").fill("[1, 2]");
   await jobCard("Job served").getByRole("button", { name: "Request a prediction" }).click();
   await expect(jobCard("Job served").getByRole("alert")).toHaveText("Enter a JSON object of numeric features");
+  // Colonnes connues : une case par variable, et une case vide est refusée sans appel au serveur.
+  const fields = jobCard("Job fields");
+  await expect(fields.getByLabel("surface_m2")).toHaveValue("");
+  await expect(fields.getByLabel("rooms")).toBeVisible();
+  await fields.getByLabel("surface_m2").fill("84");
+  await fields.getByRole("button", { name: "Request a prediction" }).click();
+  await expect(fields.getByRole("alert")).toHaveText("Enter a numeric value for each feature");
   // Aucun appel de livraison : ni clé, ni modèle, ni prédiction au chargement.
   expect(calls.filter((call) => /\/key\b|\/api\/models\/|\/predict/.test(call))).toEqual([]);
 });
