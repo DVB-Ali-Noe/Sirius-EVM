@@ -109,7 +109,7 @@ export function DatasetCard({
       <dl className="mt-auto grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <div className="col-span-2 min-w-0">
           <dt className="text-xs text-muted">
-            {priceKind === "providerReceives" ? t("Le fournisseur reçoit") : t("Prix payé par l’emprunteur")}
+            {priceKind === "providerReceives" ? t("Le fournisseur reçoit par jour") : t("Prix pour un jour de location")}
           </dt>
           <dd className="font-medium tabular-nums">{amountText(priceAtomic, token)}</dd>
         </div>

@@ -12,6 +12,7 @@ import { messageOf } from "@/lib/errors-client";
 import { checkFileSize, inspectCsvTable, readCsvTable, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
 import { qualityReport } from "@/lib/datasets/quality";
 import { parseProviderPrice } from "@/lib/datasets/price-input";
+import { DEFAULT_MAX_RENTAL_DAYS, isValidRentalDays } from "@/lib/billing/rental";
 import { DEFAULT_LISTING_DURATION_DAYS, type ListingDurationDays } from "@/lib/datasets/publication";
 import { providerPriceBreakdown, type PublishedTariff } from "@/lib/datasets/tariff";
 import { UPLOAD_STEPS, UploadError, uploadAndPublishDataset, type UploadStep } from "@/lib/datasets/upload-client";
@@ -59,6 +60,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [securingLines, setSecuringLines] = useState(0);
   const [price, setPrice] = useState("10");
+  const [maxRentalDays, setMaxRentalDays] = useState(String(DEFAULT_MAX_RENTAL_DAYS));
   const [listingDays, setListingDays] = useState<ListingDurationDays>(DEFAULT_LISTING_DURATION_DAYS);
   const [consent, setConsent] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -101,7 +103,10 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const breakdown = tariff && providerAtomic !== null ? providerPriceBreakdown(tariff, values.modelId, providerAtomic.toString()) : null;
   const belowMinimum = breakdown !== null && breakdown.ok && breakdown.belowMinimum;
   // Sans tarif, pas de décomposition du prix : la publication attend (07, « Terminé quand »).
-  const canPublish = providerAtomic !== null && !belowMinimum && breakdown !== null && breakdown.ok;
+  // Durée maximale saisie en texte : seul un entier de 1 à 365 est accepté, sans arrondi.
+  const maxRentalDaysValue = /^[0-9]{1,3}$/.test(maxRentalDays.trim()) ? Number(maxRentalDays.trim()) : null;
+  const rentalDaysValid = isValidRentalDays(maxRentalDaysValue);
+  const canPublish = providerAtomic !== null && !belowMinimum && breakdown !== null && breakdown.ok && rentalDaysValid;
 
   async function readFile(selected: File | null) {
     // Une lecture plus récente rend la précédente caduque : seule la dernière écrit l'état.
@@ -202,7 +207,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   }
 
   async function publishOnce() {
-    if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish) return;
+    if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish || maxRentalDaysValue === null) return;
     // Wallet non vérifié : fenêtre de vérification avant tout envoi, puis la publication reprend.
     if (!(await ensureVerifiedFor("publish"))) return;
     if (sealedDatasetId) return retryRegistration(sealedDatasetId);
@@ -221,6 +226,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
           modelId: values.modelId,
           priceUsdc: price.trim(),
           priceUsdcAtomic: providerAtomic.toString(),
+          maxRentalDays: maxRentalDaysValue,
           listingDays,
           trainingConsent: consent,
         },
@@ -354,6 +360,9 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             onPrice={setPrice}
             providerAtomic={providerAtomic}
             belowMinimum={belowMinimum}
+            maxRentalDays={maxRentalDays}
+            onMaxRentalDays={setMaxRentalDays}
+            maxRentalDaysInvalid={maxRentalDays.trim() !== "" && !rentalDaysValid}
             listingDays={listingDays}
             onListingDays={setListingDays}
             consent={consent}

@@ -69,8 +69,8 @@ test("projection publique : champ par champ, même si la ligne contient des cham
 
   const detail = toPublicDetail(hostile, { borrowCount: 4, settledCount: 3, refundedCount: 1 }, false, QUOTED);
   assert.deepEqual(Object.keys(detail).sort(), [
-    "borrowCount", "category", "challengeDays", "columnCount", "computeFee", "description", "id", "listedAt", "modelId",
-    "modelVersion", "name", "priceAtomic", "priceKind", "provider", "providerPriceAtomic", "refundedCount", "rowCount",
+    "borrowCount", "category", "challengeDays", "columnCount", "computeFee", "description", "id", "listedAt", "maxRentalDays",
+    "modelId", "modelVersion", "name", "priceAtomic", "priceKind", "provider", "providerPriceAtomic", "refundedCount", "rowCount",
     "settledCount", "sizeBytes", "successRate", "verified",
   ]);
   assertNoPrivateData(detail);

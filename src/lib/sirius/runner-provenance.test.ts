@@ -7,6 +7,7 @@ import { AppError } from "@/lib/app-error";
 import * as provenance from "@/lib/runner/provenance";
 import * as addresses from "@/lib/evm/address";
 import * as models from "@/lib/models/registry";
+import * as rentalRules from "@/lib/billing/rental";
 import type * as SelfTraining from "./self-train";
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
@@ -42,7 +43,7 @@ function fixture() {
   const dataset = {
     id: "dataset", provider, status: "LISTED", ...runner, ipfsCid: "bafyDataset", merkleRoot: "44".repeat(32),
     wrappedKey: "wrapped", runnerReceipt: "receipt", priceUsdcAtomic: "100", evmDatasetId: `0x${"55".repeat(32)}`,
-    modelId: "linear_regression", modelVersion: "1.0.0", challengeDays: 7,
+    modelId: "linear_regression", modelVersion: "1.0.0", challengeDays: 7, maxRentalDays: 30,
   };
   const records: Record<string, unknown>[] = [];
   const updates: Record<string, unknown>[] = [];
@@ -145,7 +146,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
   const api = load<typeof import("./borrower")>("src/lib/sirius/borrower.ts", {
     ...common, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => false },
-    "@/lib/billing/quote": {}, "@/lib/billing/loan": {},
+    "@/lib/billing/quote": {}, "@/lib/billing/loan": {}, "@/lib/billing/rental": rentalRules, "./rental": {},
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},
     "@/lib/evm/client": { getPublicClient: () => ({ readContract: async () => true, getBlockNumber: async () => BigInt(10) }) },
@@ -164,11 +165,11 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     // Testnet sans plafonds configurés : les gardes de la bêta mainnet ne s'appliquent pas.
     "./exposure-limits": { assertAdmissionsOpen: () => {}, exposureLimits: () => null, assertLoanWithinCap: () => {}, assertExposureWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [] },
   });
-  await api.prepareLoan(dataset.id, borrower);
+  await api.prepareLoan(dataset.id, borrower, 1);
   assert.equal(records[0].runnerKind, runner.runnerKind);
   assert.equal(records[0].runnerDeploymentId, runner.runnerDeploymentId);
   dataset.runnerDeploymentId = `phala:${"66".repeat(32)}`;
-  await assert.rejects(api.prepareLoan(dataset.id, borrower), /ancien runner/);
+  await assert.rejects(api.prepareLoan(dataset.id, borrower, 1), /ancien runner/);
   assert.equal(records.length, 1);
   assert.equal(signatures, 1);
 });
@@ -176,6 +177,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
 test("le dépôt conserve l’identité d’ingestion et refuse un changement de clé avant l’upload", async () => {
   let stored: Record<string, unknown> = {};
   let seals = 0;
+  let sealedMaxRentalDays: unknown;
   const datasetStore = {
     count: async () => 0, deleteMany: async () => ({ count: 0 }),
     create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -195,14 +197,16 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
     "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }), prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
     "@/lib/tee/runner-client": {
       datasetIngressKeyInRunner: async () => ({ publicKey: "public-key" }),
-      sealDatasetInRunner: async () => {
+      sealDatasetInRunner: async (...args: unknown[]) => {
         seals++;
+        sealedMaxRentalDays = args.at(-1);
         return { cid: "bafyDataset", wrappedKey: "wrapped", merkleRoot: "11".repeat(32), metrics: {}, sizeBytes: 1200, runnerReceipt: "receipt" };
       },
     },
   });
-  await api.beginDatasetIngestion({ name: "Dataset", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7,
+  await api.beginDatasetIngestion({ name: "Dataset", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7, maxRentalDays: 45,
     model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
+  assert.equal(stored.maxRentalDays, 45, "la durée maximale de location est enregistrée avec le prix par jour");
   assert.equal(stored.runnerKind, runner.runnerKind);
   assert.equal(stored.runnerDeploymentId, runner.runnerDeploymentId);
   const upload = await api.authorizeDatasetUpload("dataset", provider);
@@ -212,6 +216,7 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
   process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256 = "33".repeat(32);
   await api.completeDatasetIngestion(upload, {} as never, {} as never);
   assert.equal(seals, 1);
+  assert.equal(sealedMaxRentalDays, 45, "la durée maximale part au runner, qui la signe dans le reçu");
   assert.equal(stored.runnerDeploymentId, runner.runnerDeploymentId);
 });
 
@@ -228,7 +233,7 @@ test("un refus du runner supprime le brouillon vide ; une panne passagère le co
     "@/lib/db": { serializableTransaction: async () => { throw new Error("inutile"); }, prisma: { dataset: datasetStore } },
     "@/lib/tee/runner-client": { sealDatasetInRunner: async () => { throw refusal; } },
   });
-  const upload = { id: "draft", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7,
+  const upload = { id: "draft", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7, maxRentalDays: 30,
     model: { modelId: "linear_regression" as const, modelVersion: "1.0.0" as const }, ...runner };
   for (const status of [400, 403, 429]) {
     refusal = new AppError("refus", status);

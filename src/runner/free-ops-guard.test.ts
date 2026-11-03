@@ -164,7 +164,7 @@ test("ROB-08 : le runner refuse en 429 une rafale d’opérations gratuites sans
   // Une opération payante n'est pas touchée par la limite : elle va jusqu'à sa propre validation.
   const training = await call("run-training", { datasetId: "dataset-1", jobId: "job-1" }, JSON.stringify({
     datasetId: "dataset-1", jobId: "job-1", cid: "bafy-dataset", wrappedKey: "wrapped-key", merkleRoot: "a".repeat(64),
-    priceUsdcAtomic: "1000000000000000000", challengeDays: 7, modelId: "other", modelVersion: "1.0.0", datasetReceipt: "x",
+    priceUsdcAtomic: "1000000000000000000", challengeDays: 7, maxRentalDays: 30, modelId: "other", modelVersion: "1.0.0", datasetReceipt: "x",
   }));
   assert.equal(training.status, 400);
   assert.deepEqual(training.body, { error: "Modèle ou version non autorisé" });

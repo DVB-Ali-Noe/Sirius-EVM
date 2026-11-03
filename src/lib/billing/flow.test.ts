@@ -143,27 +143,32 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const { loanKeyFor } = await import("@/lib/evm/loan-key");
   const { siriusescrowv7Abi } = await import("@/lib/evm/abi/siriusescrowv7");
   const { quoteLockTerms, quoteTermsHash, totalQuoteAmount } = await import("./quote");
+  const { DAY_MS, RENTAL_GRACE_DAYS } = await import("./rental");
   const { readLoan, reconcileLoanEscrow } = await import("@/lib/evm/escrow");
+  const { sweepExpiredLoanModels } = await import("@/lib/tee/served-models");
   const { runnerBudget } = await import("@/lib/runner/budget");
   const { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } = await import("@/lib/runner/authorization-client");
   const { buildDelegationMessage } = await import("@/lib/runner/authorization-contract");
   const { useWalletStore } = await import("@/stores/wallet");
   const csv = Buffer.from("x,y\n" + Array.from({ length: 120 }, (_, i) => `${i},${i * 3 + 1}`).join("\n"));
   const sealed = await sealDataset("dataset", csv);
-  const dataset: DatasetRef = { datasetId: "dataset", ...sealed, priceUsdcAtomic: String(unit), challengeDays: 1, modelId: "linear_regression", modelVersion: "1.0.0" };
+  const dataset: DatasetRef = { datasetId: "dataset", ...sealed, priceUsdcAtomic: String(unit), challengeDays: 1, maxRentalDays: 30, modelId: "linear_regression", modelVersion: "1.0.0" };
   const datasetReceipt = issueDatasetReceipt(provider.toLowerCase(), dataset);
   await write("SiriusDatasetRegistry", datasets, "mint", [datasetIdHash(dataset.datasetId), cidHash(dataset.cid), `0x${dataset.merkleRoot}`, BigInt(csv.length), trainingProfileHash(dataset)], provider);
   await (await import("@/lib/evm/deployment")).requireCurrentEvmDeployment();
-  useWalletStore.getState().setConnected(borrower.address, "testnet", "external");
-  const sessionPublicKey = await beginRunnerDelegation();
-  const message = buildDelegationMessage({ origin: "http://localhost:3000", address: borrower.address, sessionPublicKey, network: "testnet", issuedAt: Date.now(), expiresAt: Date.now() + 60000, challengeToken: "synthetic.challenge" });
-  await activateRunnerDelegation({ message, walletSignature: await borrower.signMessage({ message }), sessionPublicKey });
-  async function prepare(loanId: string) {
-    const result = await handleRunnerOp("prepare-escrow-lock", { ...dataset, datasetReceipt, loanId, borrower: borrower.address, authorizationDeadline: Math.floor(Date.now() / 1000) + 300 }) as { billingQuote: SignedComputeQuote };
+  async function delegate(account: typeof borrower) {
+    useWalletStore.getState().setConnected(account.address, "testnet", "external");
+    const sessionPublicKey = await beginRunnerDelegation();
+    const message = buildDelegationMessage({ origin: "http://localhost:3000", address: account.address, sessionPublicKey, network: "testnet", issuedAt: Date.now(), expiresAt: Date.now() + 60000, challengeToken: "synthetic.challenge" });
+    await activateRunnerDelegation({ message, walletSignature: await account.signMessage({ message }), sessionPublicKey });
+  }
+  await delegate(borrower);
+  async function prepare(loanId: string, rental: { rentalDays: number; extendsLoanId?: string } = { rentalDays: 1 }, who: Address = borrower.address) {
+    const result = await handleRunnerOp("prepare-escrow-lock", { ...dataset, datasetReceipt, loanId, borrower: who, authorizationDeadline: Math.floor(Date.now() / 1000) + 300, ...rental }) as { billingQuote: SignedComputeQuote };
     assert.equal(result.billingQuote.quote.computeAmount, String(unit * BigInt(3)));
     return result.billingQuote;
   }
-  const quotes = await Promise.all(["success", "failure", "timeout"].map(prepare));
+  const quotes = await Promise.all(["success", "failure", "timeout"].map((loanId) => prepare(loanId)));
   assert.equal(runnerBudget()!.snapshot().allocatedWei, BigInt(policy.gas.maxTransactionWei) * BigInt(6));
   async function run(signed: SignedComputeQuote) {
     const loanId = signed.quote.loanId;
@@ -176,15 +181,17 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   tampered.quote.computeAmount = String(unit * BigInt(4));
   await assert.rejects(run(tampered), /Signature/);
   assert.equal(reads, 0);
-  const lockBlocks: bigint[] = [];
-  for (const signed of quotes) {
+  async function lock(signed: SignedComputeQuote) {
     const approved = await borrowerWallet.writeContract({ address: token, abi: artifact("MockEscrowToken").abi, functionName: "approve", args: [escrow, BigInt(totalQuoteAmount(signed.quote))] });
     await client.waitForTransactionReceipt({ hash: approved });
     const hash = await borrowerWallet.writeContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "lock", args: [quoteLockTerms(signed.quote), signed.authorization] });
-    lockBlocks.push((await client.waitForTransactionReceipt({ hash })).blockNumber);
+    const block = (await client.waitForTransactionReceipt({ hash })).blockNumber;
     const loan = await readLoan(loanKeyFor(borrower.address, signed.quote.loanId));
     assert.equal(loan?.billing?.termsHash, quoteTermsHash(signed.quote));
+    return block;
   }
+  const lockBlocks: bigint[] = [];
+  for (const signed of quotes) lockBlocks.push(await lock(signed));
   assert.equal(runnerBudget()!.snapshot().failures, 0, "un devis falsifié ou un appel prématuré ne ferme pas la plateforme");
   const result = await run(quotes[0]) as LoanJobResult;
   assert.match(result.modelCid, /^sm1[0-9a-f]{64}$/, "empreinte du modèle scellé, pas un CID IPFS");
@@ -233,6 +240,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     id: "success", datasetId: dataset.datasetId, borrower: borrower.address.toLowerCase(), provider: provider.toLowerCase(),
     status: "TRAINING", modelCid: null, runnerReceipt: null, updatedAt: new Date(0),
     billingQuote: JSON.stringify(quotes[0]), billingQuoteHash: (await import("./quote")).computeQuoteHash(quotes[0].quote),
+    rentalDays: 1, rentalExpiresAt: null, extendsLoanId: null,
     amountUsdcAtomic: totalQuoteAmount(quotes[0].quote), evmHashlock: quotes[0].quote.hashlock,
     evmLoanKey: loanKeyFor(borrower.address, "success"), evmLockBlock: String(lockBlocks[0]),
     evmChainId: chain.id, evmEscrowAddress: escrow.toLowerCase(), modelId: dataset.modelId, modelVersion: dataset.modelVersion,
@@ -272,7 +280,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     return handleRunnerOp("settle-loan", { loanId: "success", loanReceipt: result.runnerReceipt,
       lockBlock: String(lockBlocks[0]) });
   }
-  const settled = await settle() as { settleTxHash: string };
+  const settled = await settle() as { settleTxHash: string; expiresAt: number };
+  const releaseBlock = await client.getBlock({ blockNumber: (await client.getTransactionReceipt({ hash: settled.settleTxHash as Hex })).blockNumber });
+  assert.equal(settled.expiresAt, Number(releaseBlock.timestamp) * 1000 + DAY_MS, "échéance = bloc du release + rentalDays jours");
   // Après règlement confirmé : prédiction signée sur le modèle scellé du prêt (y = 3x + 1).
   const prediction = await handleRunnerOp("predict", await predictRequest(settled.settleTxHash)) as SignedPrediction;
   assert.equal(prediction.modelRef, "loan:success");
@@ -290,6 +300,46 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const credit = (account: Address) => client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "creditOf", args: [account] });
   assert.equal(await credit(provider), unit);
   assert.equal(await credit(treasury), unit * BigInt(3));
+
+  // --- Prolongation (D-29) : nouveau lock (prix par jour × jours + compute minimal), release
+  // immédiat sans entraînement, échéance repoussée une seule fois. ---
+  const stranger = privateKeyToAccount(`0x${"43".repeat(32)}`);
+  await assert.rejects(prepare("intrus", { rentalDays: 1, extendsLoanId: "success" }, stranger.address), /réservée à l’emprunteur/,
+    "aucun devis de prolongation pour un autre emprunteur");
+  const extension = await prepare("ext-1", { rentalDays: 2, extendsLoanId: "success" });
+  assert.equal(extension.quote.datasetAmount, String(unit * BigInt(2)), "prix par jour × jours");
+  assert.equal(extension.quote.extendsLoanId, "success");
+  const extensionLock = await lock(extension);
+  await assert.rejects(run(extension), /aucun entraînement/);
+  assert.equal(reads, produced, "une prolongation ne déchiffre jamais le dataset");
+  const extend = async (signed: SignedComputeQuote, lockBlock: bigint, withGrant = true) => handleRunnerOp("extend-loan", {
+    loanId: signed.quote.loanId, originalLoanId: "success", loanReceipt: result.runnerReceipt, billingQuote: signed, lockBlock: String(lockBlock),
+    ...(withGrant ? { authorization: await issueRunnerGrant("extend-loan", { loanId: signed.quote.loanId }, [signed.quote.loanId, "success"]) } : {}),
+  }) as Promise<{ settleTxHash: string; expiresAt: number }>;
+  const extended = await extend(extension, extensionLock);
+  assert.equal(extended.expiresAt, settled.expiresAt + 2 * DAY_MS, "prolongée avant l'échéance : repart de l'échéance en cours");
+  assert.equal(await credit(provider), unit * BigInt(3), "le provider reçoit les jours prolongés");
+  assert.equal(await credit(treasury), unit * BigInt(6), "le compute minimal de la prolongation");
+  const extensionNonce = await client.getTransactionCount({ address: runner.address });
+  assert.deepEqual(await extend(extension, extensionLock, false), extended, "rejouée sans grant : même résultat");
+  assert.equal(await client.getTransactionCount({ address: runner.address }), extensionNonce, "rejouée : aucune nouvelle transaction");
+  assert.equal((await handleRunnerOp("predict", await predictRequest(settled.settleTxHash)) as SignedPrediction).counter, 21);
+  // Un autre emprunteur ne libère pas une prolongation verrouillée ; après la purge, plus aucune.
+  const lastExtension = await prepare("ext-2", { rentalDays: 1, extendsLoanId: "success" });
+  const lastLock = await lock(lastExtension);
+  const lockedStatus = (await readLoan(loanKeyFor(borrower.address, "ext-2")))!.status;
+  await delegate(stranger);
+  await assert.rejects(extend(lastExtension, lastLock), (error: Error & { status?: number }) =>
+    error.status === 403 && /réservée à l’emprunteur/.test(error.message));
+  await delegate(borrower);
+  const deletion = extended.expiresAt + RENTAL_GRACE_DAYS * DAY_MS;
+  assert.equal(sweepExpiredLoanModels(deletion - 1), 0, "gardé scellé pendant le délai de grâce");
+  assert.equal(sweepExpiredLoanModels(deletion), 1);
+  await assert.rejects(extend(lastExtension, lastLock), (error: Error & { status?: number }) =>
+    error.status === 409 && error.message === "Modèle supprimé : location close");
+  assert.equal((await readLoan(loanKeyFor(borrower.address, "ext-2")))!.status, lockedStatus, "aucun release après suppression");
+  assert.equal(await credit(provider), unit * BigInt(3));
+  await assert.rejects(handleRunnerOp("predict", await predictRequest(settled.settleTxHash)), /Modèle supprimé/);
   failFetch = true;
   await assert.rejects(run(quotes[1]), /remboursement crédité/);
   const failed = await readLoan(loanKeyFor(borrower.address, "failure"));
@@ -297,13 +347,14 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const fee = BigInt(failed!.billing!.consumedCompute);
   assert.ok(fee > BigInt(0) && fee <= BigInt(quotes[1].quote.maxFailureFee));
   assert.equal(await credit(borrower.address), unit * BigInt(4) - fee);
-  assert.equal(await credit(provider), unit, "dataset intégralement remboursé après échec");
+  assert.equal(await credit(provider), unit * BigInt(3), "dataset intégralement remboursé après échec");
   const resolution = await reconcileLoanEscrow(loanKeyFor(borrower.address, "failure"), lockBlocks[1]);
   assert.equal(resolution.state, "cancelled");
   await localRpc("evm_increaseTime", [86401]);
   await localRpc("evm_mine", []);
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "timeout")]);
-  assert.equal(await credit(borrower.address), unit * BigInt(8) - fee, "sans exécution, remboursement intégral");
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "ext-2")]);
+  assert.equal(await credit(borrower.address), unit * BigInt(12) - fee, "sans exécution ni release, remboursement intégral");
   const [locked, owed, balance] = await client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "accounting" });
   assert.equal(locked, BigInt(0));
   assert.equal(owed, balance);
@@ -322,7 +373,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const before = await providerBalance();
   await relayer.run();
   assert.equal(await credit(provider), BigInt(0));
-  assert.equal(await providerBalance(), before + unit);
+  assert.equal(await providerBalance(), before + unit * BigInt(3));
   assert.ok(await client.getBalance({ address: relayerAddress }) < BigInt(10) ** BigInt(18), "gas payé par le relayeur");
   const relayerNonce = await client.getTransactionCount({ address: relayerAddress });
   await relayer.run();

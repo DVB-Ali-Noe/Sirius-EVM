@@ -3,6 +3,7 @@ import { AppError } from "@/lib/app-error";
 import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { loanIdHash } from "@/lib/evm/loan-key";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
+import { isValidRentalDays } from "./rental";
 
 export type ComputeQuote = ModelSelection & {
   version: 7;
@@ -29,6 +30,10 @@ export type ComputeQuote = ModelSelection & {
   tariffVersion: string;
   expiresAt: number;
   failurePolicy: "consumed-execution-only";
+  /** Durée de location signée (D-29). `null` : devis hérité, stocké avant D-29, sans expiration. */
+  rentalDays: number | null;
+  /** Prolongation : `loanId` du prêt d'origine. Absent pour un emprunt ordinaire. */
+  extendsLoanId?: string;
 };
 
 export interface SignedComputeQuote {
@@ -36,10 +41,15 @@ export interface SignedComputeQuote {
   authorization: LockAuthorization;
 }
 
-const QUOTE_KEYS = ["version", "chainId", "escrow", "usdc", "usdcDecimals", "runner", "loanId", "datasetId",
+/**
+ * Clés hachées dans `quoteHash`. `rentalDays` puis `extendsLoanId` suivent les clés historiques :
+ * un devis hérité (sans ces clés) garde exactement son empreinte d'origine.
+ */
+const LEGACY_QUOTE_KEYS = ["version", "chainId", "escrow", "usdc", "usdcDecimals", "runner", "loanId", "datasetId",
   "onChainDatasetId", "datasetReceiptHash", "borrower", "provider", "computeRecipient", "datasetAmount",
   "computeAmount", "maxFailureFee", "executionRateAtomicPerMs", "maxExecutionMs", "maxDatasetBytes", "hashlock",
   "challengeDays", "modelId", "modelVersion", "tariffVersion", "expiresAt", "failurePolicy"] as const;
+const QUOTE_KEYS = [...LEGACY_QUOTE_KEYS, "rentalDays", "extendsLoanId"] as const;
 const uint = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]{0,28})$/.test(value);
 const integer = (n: unknown, min: number, max: number): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= min && n <= max;
 const address = (v: unknown): v is Hex => typeof v === "string" && /^0x[0-9a-f]{40}$/.test(v) && !/^0x0{40}$/.test(v);
@@ -48,7 +58,8 @@ const text = (v: unknown): v is string => typeof v === "string" && v.length > 0 
 
 export function parseComputeQuote(value: unknown): ComputeQuote {
   const q = value as ComputeQuote | undefined;
-  if (!q || Object.keys(q).length !== QUOTE_KEYS.length || !QUOTE_KEYS.every((key) => key in q)
+  const keys = q && typeof q === "object" ? Object.keys(q) : [];
+  if (!q || !keys.every((key) => (QUOTE_KEYS as readonly string[]).includes(key)) || !LEGACY_QUOTE_KEYS.every((key) => key in q)
     || q.version !== 7 || !integer(q.chainId, 1, Number.MAX_SAFE_INTEGER) || !integer(q.usdcDecimals, 3, 30)
     || ![q.escrow, q.usdc, q.runner, q.borrower, q.provider, q.computeRecipient].every(address)
     || q.borrower === q.provider || [q.borrower, q.provider, q.escrow, q.runner].includes(q.computeRecipient)
@@ -58,15 +69,31 @@ export function parseComputeQuote(value: unknown): ComputeQuote {
     || !integer(q.maxExecutionMs, 1000, 30000) || !integer(q.maxDatasetBytes, 1, 3 * 1024 * 1024)
     || ![q.datasetAmount, q.computeAmount, q.maxFailureFee, q.executionRateAtomicPerMs].every(uint)
     || q.failurePolicy !== "consumed-execution-only") throw new AppError("Devis compute invalide", 409);
+  const rentalDays = q.rentalDays ?? null;
+  if ((rentalDays !== null && !isValidRentalDays(rentalDays))
+    || ("extendsLoanId" in q && (rentalDays === null || !text(q.extendsLoanId) || q.extendsLoanId === q.loanId))) {
+    throw new AppError("Durée de location du devis invalide", 409);
+  }
   const total = BigInt(q.datasetAmount) + BigInt(q.computeAmount);
   if (BigInt(q.datasetAmount) === BigInt(0) || BigInt(q.computeAmount) === BigInt(0)
     || total > BigInt(2) ** BigInt(96) - BigInt(1) || total < BigInt(10) ** BigInt(q.usdcDecimals - 3)
     || BigInt(q.maxFailureFee) > BigInt(q.computeAmount)) throw new AppError("Montants du devis invalides", 409);
-  return Object.fromEntries(QUOTE_KEYS.map((key) => [key, q[key]])) as unknown as ComputeQuote;
+  const parsed = { ...Object.fromEntries(LEGACY_QUOTE_KEYS.map((key) => [key, q[key]])), rentalDays } as unknown as ComputeQuote;
+  if (q.extendsLoanId !== undefined) parsed.extendsLoanId = q.extendsLoanId;
+  return parsed;
 }
 
+/** Devis signé depuis D-29 : la durée de location est obligatoire (emprunt, prolongation). */
+export function requireRentalQuote(quote: ComputeQuote): ComputeQuote & { rentalDays: number } {
+  if (quote.rentalDays === null) throw new AppError("Devis sans durée de location", 409);
+  return quote as ComputeQuote & { rentalDays: number };
+}
+
+/** Forme canonique hachée : `rentalDays` nul (devis hérité) et `extendsLoanId` absent sont omis. */
 export function computeQuoteHash(value: ComputeQuote): Hex {
-  return keccak256(toHex(JSON.stringify(parseComputeQuote(value))));
+  const quote = parseComputeQuote(value);
+  return keccak256(toHex(JSON.stringify(Object.fromEntries(
+    QUOTE_KEYS.flatMap((key) => quote[key] === null || quote[key] === undefined ? [] : [[key, quote[key]]])))));
 }
 
 export function totalQuoteAmount(quote: ComputeQuote): string {

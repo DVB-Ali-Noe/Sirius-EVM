@@ -94,12 +94,19 @@ export async function sealDatasetInRunner(
   envelope: DatasetIngressEnvelope,
   authorization: RunnerGrant,
   model: ModelSelection,
+  maxRentalDays: number,
 ): Promise<AuthorizedSealDatasetResult> {
   return dispatchRunner(
     "seal-dataset",
     { datasetId },
-    { datasetId, priceUsdcAtomic, challengeDays, sizeBytes, envelope, authorization, ...model },
+    { datasetId, priceUsdcAtomic, challengeDays, maxRentalDays, sizeBytes, envelope, authorization, ...model },
   );
+}
+
+/** Durée de location choisie par l'emprunteur ; `extendsLoanId` pour un prêt de prolongation. */
+export interface LoanRentalRequest {
+  rentalDays: number;
+  extendsLoanId?: string;
 }
 
 export async function prepareEscrowLockInRunner(
@@ -108,9 +115,11 @@ export async function prepareEscrowLockInRunner(
   loanId: string,
   borrower: string,
   authorizationDeadline: number,
+  rental: LoanRentalRequest,
 ): Promise<{ hashlock: `0x${string}`; authorization: LockAuthorization; billingQuote?: SignedComputeQuote }> {
   return dispatchRunner("prepare-escrow-lock", { datasetId: dataset.datasetId, loanId, borrower },
-    { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline });
+    { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline, rentalDays: rental.rentalDays,
+      ...(rental.extendsLoanId === undefined ? {} : { extendsLoanId: rental.extendsLoanId }) });
 }
 
 export async function runLoanJobInRunner(
@@ -133,11 +142,33 @@ export async function settleLoanInRunner(
   lockBlock: string,
   authorization?: RunnerGrant,
   finalityTier?: FinalityTier,
-): Promise<{ settleTxHash: string }> {
+): Promise<{ settleTxHash: string; expiresAt?: number }> {
   return dispatchRunner(
     "settle-loan",
     { loanId },
     { loanId, loanReceipt, lockBlock, ...(authorization ? { authorization } : {}), ...finalityTierField(finalityTier) },
+  );
+}
+
+/**
+ * Prolongation d'une location : `loanReceipt` est le reçu du prêt d'ORIGINE, `billingQuote` le devis
+ * du prêt de prolongation, verrouillé au bloc `lockBlock`. Le runner libère ce lock sans
+ * entraînement et renvoie l'échéance en vigueur du prêt d'origine (ms epoch). Rejouable.
+ */
+export async function extendLoanInRunner(input: {
+  loanId: string;
+  originalLoanId: string;
+  loanReceipt: string;
+  billingQuote: SignedComputeQuote;
+  lockBlock: string;
+  authorization?: RunnerGrant;
+  finalityTier?: FinalityTier;
+}): Promise<{ settleTxHash: string; expiresAt: number }> {
+  const { authorization, finalityTier, ...payload } = input;
+  return dispatchRunner(
+    "extend-loan",
+    { loanId: input.loanId },
+    { ...payload, ...(authorization ? { authorization } : {}), ...finalityTierField(finalityTier) },
   );
 }
 

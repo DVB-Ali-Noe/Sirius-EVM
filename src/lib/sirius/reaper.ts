@@ -20,6 +20,9 @@ import { verifyFastSettlement } from "./fast-settlement-review";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { AppError } from "@/lib/app-error";
 import { isServedModelFingerprint } from "@/lib/models/registry";
+import { settleLoanExtension } from "./extend";
+import { loanRentalExpiry, RENTAL_MODEL_DELETED } from "./rental";
+import { EXTENSION_PENDING } from "@/lib/loans/settlement-status";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -73,6 +76,9 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         },
         // Prêt rapide rendu à ESCROWED et laissé sans lancement : il n'occupe pas le plafond indéfiniment.
         { status: "ESCROWED", finalityTier: "FAST", updatedAt: { lte: new Date(now.getTime() - FAST_IDLE_REVERT_MS) } },
+        // Location réglée sans échéance enregistrée (règlement réconcilié sans réponse du runner) :
+        // l'échéance est relue du bloc de `release` (D-29).
+        { status: "SETTLED", rentalDays: { not: null }, rentalExpiresAt: null, extendsLoanId: null, settleTxHash: { not: null } },
       ],
     },
     orderBy: { id: "asc" },
@@ -87,8 +93,13 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         await recoverUnsubmittedLoan(loan);
         continue;
       }
+      if (loan.extendsLoanId) {
+        await reapLoanExtension(loan, now);
+        continue;
+      }
       if (loan.status === "SETTLED") {
-        await reviewFastSettledLoan(loan, now);
+        if (typeof loan.rentalDays === "number" && !loan.rentalExpiresAt) await loanRentalExpiry(loan);
+        if (needsFastReview(loan, now)) await reviewFastSettledLoan(loan, now);
         continue;
       }
       if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
@@ -138,6 +149,36 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
     }
   }
   return { examined: loans.length, failed };
+}
+
+function needsFastReview(loan: Loan, now: Date): boolean {
+  return loan.finalityTier === "FAST" && !loan.finalityVerifiedAt && !loan.finalityReview && loan.settledAt !== null
+    && loan.settledAt.getTime() <= now.getTime() - FAST_SETTLEMENT_VERIFY_DELAY_MS;
+}
+
+/**
+ * Prolongation verrouillée non réglée (D-29) : reprise de `extend-loan`, idempotent dans le runner,
+ * comme le règlement d'un prêt ordinaire. Remboursée on-chain : close. Échue sans `release` diffusé :
+ * seul `refund()` par l'emprunteur reste possible. Location d'origine close (modèle supprimé) :
+ * aucune reprise, le runner refuserait avant tout `release`.
+ */
+async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
+  const chain = await reconcileClosedLoan(loan);
+  if (chain === "closed" || chain === "unbound") return;
+  if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
+    console.log(`[reaper] prolongation EVM ${loan.id} échue : release impossible, remboursement à l'initiative de l'emprunteur`);
+    return;
+  }
+  try {
+    await settleLoanExtension(loan.id);
+  } catch (error) {
+    if (error instanceof AppError && error.message === RENTAL_MODEL_DELETED) {
+      console.log(`[reaper] prolongation EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
+      return;
+    }
+    if (error instanceof AppError && error.message === EXTENSION_PENDING) return;
+    throw error;
+  }
 }
 
 /**

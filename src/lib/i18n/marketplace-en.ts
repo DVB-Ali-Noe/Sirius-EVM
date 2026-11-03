@@ -124,4 +124,10 @@ export const MARKETPLACE_MESSAGES_EN: Record<string, string> = {
   "Tri inconnu": "Unknown sort order",
   "Page invalide": "Invalid page",
   "Configuration du réseau incohérente": "Inconsistent network configuration",
+
+  // Location (D-29)
+  "Les prédictions restent ouvertes pendant la durée louée (jusqu’à {max} jours), comptée depuis le règlement. Après l’échéance, le modèle reste scellé {grace} jours : vous pouvez prolonger en payant de nouveaux jours, puis il est supprimé.":
+    "Predictions stay open for the rented duration (up to {max} days), counted from settlement. After expiry the model stays sealed for {grace} days: you can extend by paying for more days, then it is deleted.",
+  "De {min} à {max} jours. Le prix du dataset est payé par jour ; les prédictions s’arrêtent à l’échéance, prolongeable depuis la page Entraîner.":
+    "From {min} to {max} days. The dataset price is paid per day; predictions stop at expiry, and can be extended from the Train page.",
 };

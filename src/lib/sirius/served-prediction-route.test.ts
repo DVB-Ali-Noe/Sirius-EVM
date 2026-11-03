@@ -11,7 +11,10 @@ import { AppError, errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import * as models from "@/lib/models/registry";
 import * as contract from "@/lib/tee/contract";
+import * as addresses from "@/lib/evm/address";
+import * as rentalRules from "@/lib/billing/rental";
 import type * as Prediction from "./prediction";
+import type * as Rental from "./rental";
 import type * as TrainPredictRoute from "../../app/api/train/[id]/predict/route";
 import type * as LoanPredictRoute from "../../app/api/loans/[id]/predict/route";
 
@@ -76,6 +79,8 @@ interface HarnessOptions {
   revision?: number;
   runnerKind?: string;
   respond?: () => Promise<unknown>;
+  /** Horodatage (s) du bloc du `release`, relu quand l'échéance de location manque. */
+  releasedAt?: number;
 }
 
 const JOB: Row = { id: "job-1", owner: OWNER, status: "DONE", servedModelId: "job-1", modelId: "gradient_boosted_trees",
@@ -86,6 +91,7 @@ const LOAN: Row = { id: "loan-1", borrower: OWNER, status: "SETTLED", finalityRe
 function harness(kind: Kind, options: HarnessOptions = {}) {
   const calls: string[] = [];
   const runnerCalls: unknown[][] = [];
+  const rentalWrites: Row[] = [];
   const row = { ...(kind === "job" ? JOB : LOAN), ...options.row };
   const demo = options.demo ?? false;
   const prediction = load<typeof Prediction>("src/lib/sirius/prediction.ts", {
@@ -124,6 +130,17 @@ function harness(kind: Kind, options: HarnessOptions = {}) {
     ? load<typeof TrainPredictRoute>("src/app/api/train/[id]/predict/route.ts", common)
     : load<typeof LoanPredictRoute>("src/app/api/loans/[id]/predict/route.ts", {
       ...common, "@/lib/sirius/finality-tier": { effectiveLoanFinalityTier: (tier: string) => tier },
+      "@/lib/sirius/rental": load<typeof Rental>("src/lib/sirius/rental.ts", {
+        "server-only": {}, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses, "@/lib/billing/rental": rentalRules,
+        "@/lib/db": { prisma: { loan: {
+          updateMany: async ({ data }: { data: Row }) => { rentalWrites.push(data); return { count: 1 }; },
+          findUnique: async () => row,
+        } } },
+        "@/lib/evm/client": { getPublicClient: () => ({
+          getTransactionReceipt: async () => { calls.push("release"); return { status: "success", blockNumber: BigInt(77) }; },
+          getBlock: async () => ({ timestamp: BigInt(options.releasedAt ?? 0) }),
+        }) },
+      }),
     });
   const id = kind === "job" ? "job-1" : "loan-1";
   const grant = (extra: Row = {}) => ({ payload: { operation: "predict", [kind === "job" ? "jobId" : "loanId"]: id,
@@ -132,8 +149,39 @@ function harness(kind: Kind, options: HarnessOptions = {}) {
     new Request(`https://test.invalid/api/${kind === "job" ? "train" : "loans"}/${id}/predict`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }),
     { params: Promise.resolve({ id }) });
-  return { calls, runnerCalls, send, grant };
+  return { calls, runnerCalls, rentalWrites, send, grant };
 }
+
+test("D-29 : après l'échéance de location, la prédiction est refusée avant le runner ; avant, elle passe", async () => {
+  const DAY = 86_400_000;
+  const expired = harness("loan", { row: { rentalDays: 7, rentalExpiresAt: new Date(Date.now() - 1) } });
+  const refused = await expired.send();
+  assert.equal(refused.status, 403);
+  assert.equal((await refused.json()).error, "Location expirée : prolonge pour continuer");
+  assert.ok(!expired.calls.includes("runner"));
+
+  const active = harness("loan", { row: { rentalDays: 7, rentalExpiresAt: new Date(Date.now() + DAY) } });
+  assert.equal((await active.send()).status, 200);
+  assert.ok(active.calls.includes("runner"));
+
+  // Prêt hérité (sans durée) : aucune échéance, aucune lecture de la chaîne.
+  const legacy = harness("loan", { row: { rentalDays: null, rentalExpiresAt: null } });
+  assert.equal((await legacy.send()).status, 200);
+  assert.ok(!legacy.calls.includes("release"));
+});
+
+test("D-29 : une échéance absente est relue du bloc de release, enregistrée, puis appliquée", async () => {
+  const DAY_S = 86_400;
+  const now = Math.floor(Date.now() / 1000);
+  const lapsed = harness("loan", { row: { rentalDays: 7, rentalExpiresAt: null }, releasedAt: now - 8 * DAY_S });
+  assert.equal((await lapsed.send()).status, 403);
+  assert.ok(lapsed.calls.includes("release") && !lapsed.calls.includes("runner"));
+  assert.equal(Number(lapsed.rentalWrites[0].rentalExpiresAt), (now - DAY_S) * 1000, "release + 7 jours");
+
+  const running = harness("loan", { row: { rentalDays: 7, rentalExpiresAt: null }, releasedAt: now - 6 * DAY_S });
+  assert.equal((await running.send()).status, 200);
+  assert.equal(Number(running.rentalWrites[0].rentalExpiresAt), (now + DAY_S) * 1000);
+});
 
 test("self-train : prédiction signée du propriétaire, revalidée, sans probabilité ni champ runner en trop", async () => {
   const expected = await signPrediction({ ref: { kind: "job", id: "job-1" }, modelId: "gradient_boosted_trees", modelVersion: "1.1.0",

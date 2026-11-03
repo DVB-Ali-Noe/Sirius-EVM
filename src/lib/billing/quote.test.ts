@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, type Hex } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, keccak256, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { borrowDataset } from "@/lib/loans/client";
 import { useWalletStore } from "@/stores/wallet";
 import { erc20Abi } from "@/lib/evm/abi/erc20";
 import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
 import { trainInWorker } from "@/lib/tee/bounded-training";
-import { computeQuoteHash, failureFee, parseComputeQuote, quoteAuthorizationTypedData, quoteTermsHash, verifyComputeQuote, type ComputeQuote } from "./quote";
+import type { DatasetRef } from "@/lib/tee/contract";
+import { computeQuoteHash, failureFee, parseComputeQuote, quoteAuthorizationTypedData, quoteTermsHash, requireRentalQuote, verifyComputeQuote, type ComputeQuote } from "./quote";
+import { assertQuoteDataset } from "./runner";
+import { datasetAmountFor, isValidRentalDays } from "./rental";
 
 const runner = privateKeyToAccount(`0x${"31".repeat(32)}`);
 const address = (n: string) => `0x${n.repeat(40)}` as Hex;
@@ -20,7 +23,7 @@ function quote(): ComputeQuote {
     datasetAmount: "1000000", computeAmount: "500000", maxFailureFee: "10000", executionRateAtomicPerMs: "2",
     maxExecutionMs: 10000, maxDatasetBytes: 3 * 1024 * 1024, hashlock: `0x${"33".repeat(32)}`,
     challengeDays: 1, modelId: "linear_regression", modelVersion: "1.0.0", tariffVersion: "synthetic-v1",
-    expiresAt: Math.floor(Date.now() / 1000) + 240, failurePolicy: "consumed-execution-only",
+    expiresAt: Math.floor(Date.now() / 1000) + 240, failurePolicy: "consumed-execution-only", rentalDays: 1,
   };
 }
 async function sign(q = quote()) {
@@ -38,6 +41,7 @@ test("le devis canonique signe aussi le barème, les plafonds et la politique de
     { maxExecutionMs: 5000 }, { maxDatasetBytes: 1000 }, { tariffVersion: "other" },
     { provider: address("6") }, { computeRecipient: address("6") }, { borrower: address("6") },
     { loanId: "other" }, { datasetReceiptHash: `0x${"44".repeat(32)}` as Hex },
+    { rentalDays: 2 }, { extendsLoanId: "loan-origin" },
   ]) {
     const changed = { ...signed.quote, ...changes };
     assert.notEqual(quoteTermsHash(changed), quoteTermsHash(signed.quote));
@@ -65,6 +69,61 @@ test("les montants atomiques, limites et bénéficiaires sont stricts", () => {
     const q = { ...quote(), usdcDecimals, datasetAmount: String(BigInt(10) ** BigInt(usdcDecimals)) };
     assert.deepEqual(parseComputeQuote(q), q);
   }
+});
+
+test("la durée de location est signée, bornée de 1 à 365 jours, et une prolongation désigne un autre prêt", () => {
+  for (const rentalDays of [1, 30, 365]) assert.equal(parseComputeQuote({ ...quote(), rentalDays }).rentalDays, rentalDays);
+  for (const rentalDays of [0, -1, 366, 1.5, "1", Number.NaN]) {
+    assert.throws(() => parseComputeQuote({ ...quote(), rentalDays }), /Durée de location du devis invalide/);
+  }
+  assert.notEqual(computeQuoteHash({ ...quote(), rentalDays: 7 }), computeQuoteHash({ ...quote(), rentalDays: 8 }));
+  const extension = parseComputeQuote({ ...quote(), extendsLoanId: "loan-origin" });
+  assert.equal(extension.extendsLoanId, "loan-origin");
+  assert.equal("extendsLoanId" in parseComputeQuote(quote()), false, "absent hors prolongation");
+  for (const extendsLoanId of ["", "loan", 1, null, "x".repeat(129)]) {
+    assert.throws(() => parseComputeQuote({ ...quote(), extendsLoanId }), /Durée de location du devis invalide/);
+  }
+  assert.throws(() => parseComputeQuote({ ...quote(), rentalDays: null, extendsLoanId: "loan-origin" }), /invalide/);
+});
+
+test("un devis hérité (sans durée) reste lisible, sans expiration, et garde son empreinte d'origine", () => {
+  const { rentalDays: _rental, ...legacy } = quote();
+  void _rental;
+  const parsed = parseComputeQuote(legacy);
+  assert.equal(parsed.rentalDays, null);
+  // Empreinte calculée avant D-29 : JSON des seules clés historiques, dans leur ordre.
+  assert.equal(computeQuoteHash(parsed), keccak256(toHex(JSON.stringify(legacy))));
+  assert.equal(computeQuoteHash({ ...legacy, rentalDays: null }), computeQuoteHash(parsed), "relu depuis la base avec rentalDays nul");
+  assert.equal(computeQuoteHash(parseComputeQuote(JSON.parse(JSON.stringify(parsed)))), computeQuoteHash(parsed));
+  assert.throws(() => requireRentalQuote(parsed), /sans durée de location/);
+  assert.equal(requireRentalQuote(parseComputeQuote(quote())).rentalDays, 1);
+});
+
+test("le montant dataset vaut prix par jour × jours, dans la durée maximale du reçu", () => {
+  assert.equal(datasetAmountFor("1000000", 7), "7000000");
+  assert.equal(datasetAmountFor("1", 365), "365");
+  for (const days of [0, 366, 1.5]) assert.throws(() => datasetAmountFor("1000000", days), RangeError);
+  assert.throws(() => datasetAmountFor("01", 1), RangeError);
+  assert.equal(isValidRentalDays(30, 30), true);
+  assert.equal(isValidRentalDays(31, 30), false);
+  assert.equal(isValidRentalDays(365, 1000), true);
+  assert.equal(isValidRentalDays(366, 1000), false);
+
+  const receipt = "dataset-receipt";
+  const dataset: DatasetRef = { datasetId: "dataset", cid: "cid", wrappedKey: "key", merkleRoot: "root",
+    priceUsdcAtomic: "1000000", challengeDays: 1, maxRentalDays: 10, modelId: "linear_regression", modelVersion: "1.0.0" };
+  const scoped = (changes: Partial<ComputeQuote>) => parseComputeQuote({ ...quote(), datasetReceiptHash: keccak256(toHex(receipt)), ...changes });
+  const check = (q: ComputeQuote) => assertQuoteDataset(q, dataset, receipt, q.borrower, q.loanId);
+  check(scoped({ rentalDays: 7, datasetAmount: "7000000" }));
+  check(scoped({ rentalDays: 10, datasetAmount: "10000000" }));
+  for (const changes of [
+    { rentalDays: 7, datasetAmount: "1000000" }, { rentalDays: 7, datasetAmount: "7000001" },
+    { rentalDays: 11, datasetAmount: "11000000" },
+  ]) assert.throws(() => check(scoped(changes)), /hors scope/, JSON.stringify(changes));
+  // Devis hérité : le prix forfaitaire de l'époque, sans multiplication.
+  const { rentalDays: _rental, ...legacy } = scoped({});
+  void _rental;
+  check(parseComputeQuote(legacy));
 });
 
 test("la retenue vient de la durée mesurée et reste plafonnée, jamais du forfait de réussite", () => {
@@ -122,7 +181,7 @@ for (const scenario of ["accept", "decline", "changed", "wallet", "missing", "om
       for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
       Object.assign(process.env, env);
     });
-    const result = borrowDataset({ datasetId: "dataset", priceUsdcAtomic: signed.quote.datasetAmount, confirmQuote: scenario === "missing" ? undefined : async (q) => {
+    const result = borrowDataset({ datasetId: "dataset", priceUsdcAtomic: signed.quote.datasetAmount, rentalDays: 1, confirmQuote: scenario === "missing" ? undefined : async (q) => {
       assert.deepEqual(q, signed.quote);
       if (scenario === "decline") return false;
       if (scenario === "wallet") useWalletStore.getState().setDisconnected();

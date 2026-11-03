@@ -10,6 +10,8 @@ import { connectWallet } from "@/components/wallet/WalletConnector";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
+import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
+import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import { modelSelection } from "@/lib/models/registry";
 import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { activeLoanOnDataset, type LoanDisplayInput } from "@/lib/train/loan-display";
@@ -27,14 +29,18 @@ function currentSession(): string | null {
 /**
  * Bouton « Emprunter » de la fiche publique.
  *
- * Le parcours d'emprunt est celui d'avant, inchangé : `borrowDataset` (préparation du prêt,
- * devis signé confirmé par l'emprunteur, approbation puis lock). Seule nouveauté : la fiche se lit
- * sans wallet, et c'est ici, au clic, que la connexion puis la signature sont demandées. Après la
+ * Le parcours d'emprunt est celui d'avant : `borrowDataset` (préparation du prêt, devis signé
+ * confirmé par l'emprunteur, approbation puis lock), avec la durée de location choisie ici (D-29) :
+ * le devis porte `rentalDays`, le prix du dataset vaut prix par jour × jours. La fiche se lit sans
+ * wallet, et c'est ici, au clic, que la connexion puis la signature sont demandées. Après la
  * signature, l'emprunteur clique à nouveau : l'emprunt ne part jamais tout seul.
  */
 export function BorrowPanel({
   datasetId,
   priceUsdcAtomic,
+  maxRentalDays,
+  rentalDays,
+  onRentalDays,
   modelId,
   modelVersion,
   providerVerified,
@@ -46,7 +52,13 @@ export function BorrowPanel({
    * `null` (illisible) laisse essayer : le serveur tranche.
    */
   providerVerified: boolean | null;
+  /** Prix du dataset par jour de location, en unités atomiques. */
   priceUsdcAtomic: string;
+  /** Durée maximale fixée par le fournisseur (jours). */
+  maxRentalDays: number;
+  /** Jours choisis, déjà ramenés dans `[1, maxRentalDays]` par la fiche (qui affiche le total). */
+  rentalDays: number;
+  onRentalDays: (days: number) => void;
   modelId: string | null;
   modelVersion: string | null;
 }) {
@@ -158,7 +170,7 @@ export function BorrowPanel({
     if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
-      if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) {
+      if (await borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote })) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
       }
     } catch (err) {
@@ -181,6 +193,15 @@ export function BorrowPanel({
     <div className="space-y-3">
       {quoteDialog}
       {duplicateDialog}
+      <div className="flex flex-wrap items-end gap-3">
+        <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={onRentalDays} disabled={busy} />
+        <p className="pb-2 text-xs text-muted">
+          {t("De {min} à {max} jours. Le prix du dataset est payé par jour ; les prédictions s’arrêtent à l’échéance, prolongeable depuis la page Entraîner.", {
+            min: MIN_RENTAL_DAYS,
+            max: maxRentalDays,
+          })}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"

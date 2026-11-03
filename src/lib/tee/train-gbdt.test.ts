@@ -206,7 +206,7 @@ test("le profil arbres n'est proposé nulle part tant que l'environnement ne l'a
     assert.equal(isModelOffered("gradient_boosted_trees"), false);
     assert.ok(isModelOffered("logistic_regression"));
     assert.ok(!MODEL_OPTIONS.some((model) => model.id === "gradient_boosted_trees"));
-    const body = { name: "x", sizeBytes: 1_000, priceUsdc: "1", category: "Finance", listingDays: 30, trainingConsent: false, modelId: "gradient_boosted_trees" };
+    const body = { name: "x", sizeBytes: 1_000, priceUsdc: "1", category: "Finance", listingDays: 30, maxRentalDays: 30, trainingConsent: false, modelId: "gradient_boosted_trees" };
     assert.deepEqual(parseCreateDatasetRequest(body), { ok: false, status: 400, error: "Profil d’entraînement obligatoire" });
     process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "other, gradient_boosted_trees";
     assert.ok(isModelOffered("gradient_boosted_trees"));

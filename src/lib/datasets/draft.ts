@@ -35,6 +35,7 @@ export async function createDatasetDraft(request: CreateDatasetRequest, provider
     sizeBytes: request.sizeBytes,
     priceUsdcAtomic: request.priceUsdcAtomic,
     challengeDays: ESCROW_CHALLENGE_DAYS,
+    maxRentalDays: request.maxRentalDays,
     model: request.model,
   });
   let terms: {
@@ -45,6 +46,7 @@ export async function createDatasetDraft(request: CreateDatasetRequest, provider
   };
   try {
     if (upload.challengeDays !== ESCROW_CHALLENGE_DAYS) throw new AppError("Délai de sécurité incohérent", 500);
+    if (upload.maxRentalDays !== request.maxRentalDays) throw new AppError("Durée maximale de location incohérente", 500);
     // L'échéance part de `createdAt` de la ligne (posé par Prisma à l'insertion), pas d'une
     // horloge relevée après l'appel à l'enclave : `rebasedListingExpiry` retrouve ainsi la
     // durée choisie à la milliseconde près à la mise en ligne, quelle que soit la lenteur du runner.

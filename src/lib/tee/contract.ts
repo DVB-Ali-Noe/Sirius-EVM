@@ -44,8 +44,9 @@ export type DatasetRef = {
   cid: string; // blob chiffré sur IPFS
   wrappedKey: string; // DEK scellée
   merkleRoot: string; // intégrité vérifiée après déchiffrement
-  priceUsdcAtomic: string; // termes provider authentifiés par le reçu runner (USDC, six décimales)
+  priceUsdcAtomic: string; // prix de location PAR JOUR, authentifié par le reçu runner (USDC, six décimales)
   challengeDays: number;
+  maxRentalDays: number; // durée de location maximale (1–365 j), signée dans le reçu runner v4
 } & ModelSelection;
 
 /** Entrée d'un self-train : le modèle est scellé dans le runner sous `{ kind: "job", id: jobId }`. */

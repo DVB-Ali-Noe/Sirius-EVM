@@ -52,7 +52,10 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.": "The borrower uses the dataset’s fixed profile, approves the stablecoin, and signs lock. Escrow checks the title, profile, and KYB, then fixes the amount, hashlock, and expiry.",
   "Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.": "The runner cross-checks KYB, title, profile, and escrow terms before decrypting and training. Hardware isolation requires attested Phala mode.",
   "Régler": "Settle",
-  "Une fois le modèle scellé, le runner appelle release : le provider est crédité et le préimage est publié. Le borrower peut ensuite demander des prédictions signées. Le crédit en stablecoin se retire séparément.": "Once the model is sealed, the runner calls release: the provider is credited and the preimage is published. The borrower can then request signed predictions. Stablecoin credit is withdrawn separately.",
+  "Une fois le modèle scellé, le runner appelle release : le provider est crédité du prix par jour × jours loués et le préimage est publié. Le borrower peut ensuite demander des prédictions signées jusqu’à l’échéance de sa location. Le crédit en stablecoin se retire séparément.": "Once the model is sealed, the runner calls release: the provider is credited with the daily price × rented days and the preimage is published. The borrower can then request signed predictions until the rental expires. Stablecoin credit is withdrawn separately.",
+  "Location expirée": "Rental expired",
+  "Le runner refuse les prédictions après l’échéance choisie à l’emprunt. Le borrower peut prolonger en payant de nouveaux jours pendant 30 jours ; ensuite le modèle est supprimé.": "The runner refuses predictions after the expiry chosen when borrowing. The borrower can extend by paying for more days for 30 days; after that the model is deleted.",
+  "La durée de location est appliquée par le runner et l’application, pas par l’escrow : le contrat ne connaît que l’échéance de règlement. Les prêts antérieurs à cette règle n’expirent pas.": "The rental duration is enforced by the runner and the application, not by the escrow: the contract only knows the settlement deadline. Loans made before this rule do not expire.",
   "Implémenté": "Implemented",
   "Hashlock SHA-256, transferts exacts en stablecoin, KYB des deux parties, remboursement et retraits pull-only.": "SHA-256 hashlock, exact stablecoin transfers, KYB for both parties, refunds, and pull-only withdrawals.",
   "Attestations EIP-712, expiration, révocation durable et consentement du wallet ; l’émetteur est externe.": "EIP-712 attestations, expiry, durable revocation, and wallet consent; the issuer is external.",
@@ -293,7 +296,7 @@ export default function DocsPage() {
               ["02", d("Publier"), d("Le provider inscrit le titre et l’empreinte du profil dans le registre EVM, sous contrôle KYB. Le CSV chiffré reste hors chaîne ; le titre publié fixe le profil utilisable.")],
               ["03", d("Verrouiller"), d("Le borrower utilise le profil fixé par le dataset, approuve le stablecoin puis signe lock. L’escrow vérifie le titre, le profil et les KYB, puis fixe le montant, le hashlock et l’échéance.")],
               ["04", d("Entraîner"), d("Le runner recoupe les KYB, le titre, le profil et les termes de l’escrow avant de déchiffrer et d’entraîner. L’isolation matérielle exige le mode Phala attesté.")],
-              ["05", d("Régler"), d("Une fois le modèle scellé, le runner appelle release : le provider est crédité et le préimage est publié. Le borrower peut ensuite demander des prédictions signées. Le crédit en stablecoin se retire séparément.")],
+              ["05", d("Régler"), d("Une fois le modèle scellé, le runner appelle release : le provider est crédité du prix par jour × jours loués et le préimage est publié. Le borrower peut ensuite demander des prédictions signées jusqu’à l’échéance de sa location. Le crédit en stablecoin se retire séparément.")],
             ].map(([n, title, description]) => (
               <li key={n} className="flex gap-4 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4">
                 <span className="shrink-0 font-mono text-sm text-muted">{n}</span>
@@ -326,6 +329,7 @@ export default function DocsPage() {
                   [d("Calcul réussi"), d("Une transaction crédite le provider et publie le préimage. Le borrower obtient ensuite des prédictions signées.")],
                   [d("Job invalide ou infructueux"), d("Aucun préimage n’est révélé. En v7, le runner atteste l’échec : le prêt passe à Failed et le borrower est remboursé aussitôt, moins les frais de calcul attestés, bornés par `maxFailureFee`. Sinon, il récupère les fonds après échéance.")],
                   [d("Tentative d'interroger le modèle sans payer"), d("Impossible : le runner exige un release confirmé avant toute prédiction.")],
+                  [d("Location expirée"), d("Le runner refuse les prédictions après l’échéance choisie à l’emprunt. Le borrower peut prolonger en payant de nouveaux jours pendant 30 jours ; ensuite le modèle est supprimé.")],
                   [d("Litige subjectif sur la qualité"), d("Non tranché par l’escrow seul ; arbitrage à venir.")],
                 ].map(([scenario, outcome]) => <tr key={scenario} className="border-b border-border/60"><td className="py-2.5 pr-4 text-foreground">{scenario}</td><td className="py-2.5">{outcome}</td></tr>)}
               </tbody>
@@ -411,6 +415,7 @@ export default function DocsPage() {
                 <li>{d("La qualité, la licéité du dataset et la qualité du modèle restent hors de portée des contrats.")}</li>
                 <li>{d("Le hash du CID, le Merkle root, la taille et les identifiants de prêt sont publics et permanents : ils ne doivent contenir aucune donnée sensible.")}</li>
                 <li>{d("L’émetteur KYB, sa clé de signature et l’administration du registre sont des points de gouvernance à protéger hors de Next et du runner.")}</li>
+                <li>{d("La durée de location est appliquée par le runner et l’application, pas par l’escrow : le contrat ne connaît que l’échéance de règlement. Les prêts antérieurs à cette règle n’expirent pas.")}</li>
                 <li>{d("Une démonstration testnet ne vaut ni audit indépendant, ni validation d’attestation Phala, ni autorisation d’utiliser des données sensibles ou des fonds réels.")}</li>
               </ul>
             </div>

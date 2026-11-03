@@ -5,6 +5,7 @@ import {
   computePriceBreakdown,
   formatTokenWithSymbol,
   type AtomicAmount,
+  parseAtomic,
   type TokenInfo,
 } from "./price";
 
@@ -12,8 +13,13 @@ import {
 export type PriceBreakdownPerspective = "neutral" | "provider" | "borrower";
 
 interface PriceBreakdownProps {
-  /** Montant que reçoit le fournisseur par emprunt, en unités atomiques. */
+  /** Montant que reçoit le fournisseur par jour de location (D-29), en unités atomiques. */
   providerAtomic: AtomicAmount;
+  /**
+   * Jours de location choisis : la part du fournisseur affichée vaut alors prix par jour × jours,
+   * et le minimum du tarif (qui porte sur le prix par jour) n'est pas rappelé. Absent : un jour.
+   */
+  rentalDays?: number;
   /** Frais de calcul (enclave Phala), en unités atomiques. */
   computeAtomic: AtomicAmount;
   token: TokenInfo;
@@ -29,6 +35,7 @@ interface PriceBreakdownProps {
  */
 export function PriceBreakdown({
   providerAtomic,
+  rentalDays,
   computeAtomic,
   token,
   minimumAtomic,
@@ -36,11 +43,22 @@ export function PriceBreakdown({
   className = "",
 }: PriceBreakdownProps) {
   const { t } = useLocale();
-  const breakdown = computePriceBreakdown({ providerAtomic, computeAtomic, decimals: token.decimals, minimumAtomic });
+  const perDay = parseAtomic(providerAtomic);
+  const rented = rentalDays === undefined || perDay === null ? providerAtomic : perDay * BigInt(rentalDays);
+  const breakdown = computePriceBreakdown({
+    providerAtomic: rented,
+    computeAtomic,
+    decimals: token.decimals,
+    minimumAtomic: rentalDays === undefined ? minimumAtomic : null,
+  });
   // Montant invalide : on affiche « — », jamais un montant approximatif ni une exception.
   const show = (amount: bigint | null) => (amount === null ? null : formatTokenWithSymbol(amount, token)) ?? "—";
   const ok = breakdown.ok;
   const providerLabel = perspective === "provider" ? t("Vous recevez") : t("Le fournisseur reçoit");
+  const providerDetail =
+    rentalDays === undefined || perDay === null
+      ? null
+      : t("{days} j × {price} par jour", { days: rentalDays, price: show(perDay) });
   const totalLabel =
     perspective === "borrower" ? t("Vous payez") : t("Prix payé par l’emprunteur");
 
@@ -48,7 +66,10 @@ export function PriceBreakdown({
     <section aria-label={t("Décomposition du prix")} className={`min-w-0 rounded-xl border border-border bg-surface/50 p-5 wrap-anywhere ${className}`}>
       <dl className="space-y-2 text-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <dt className="text-muted">{providerLabel}</dt>
+          <dt className="text-muted">
+            {providerLabel}
+            {providerDetail && <span className="ml-1 text-xs">({providerDetail})</span>}
+          </dt>
           <dd className="ml-auto text-right font-mono tabular-nums text-foreground">{show(ok ? breakdown.provider : null)}</dd>
         </div>
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

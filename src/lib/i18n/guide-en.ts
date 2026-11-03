@@ -183,8 +183,11 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "La catégorie sert de filtre sur la marketplace ; le profil d’entraînement est vérifié sur le CSV puis verrouillé on-chain.":
     "The category is a marketplace filter; the training profile is checked against the CSV, then locked on-chain.",
   "Ton gain": "Your earnings",
-  "Ce que tu veux gagner par emprunt, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur.":
-    "What you want to earn per loan, in {token}. Compute fees are added for the borrower.",
+  "Ce que tu veux gagner par jour de location, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur.":
+    "What you want to earn per rental day, in {token}. Compute fees are added for the borrower.",
+  "Durée maximale de location": "Maximum rental duration",
+  "L’emprunteur choisit combien de jours louer, dans cette limite ; à l’échéance ses prédictions s’arrêtent, sauf s’il prolonge.":
+    "The borrower chooses how many days to rent, within this limit; at expiry their predictions stop unless they extend.",
   "Durée de publication": "Listing duration",
   "Le temps pendant lequel le dataset reste empruntable ; tu pourras le mettre en pause avant.":
     "How long the dataset stays borrowable; you can pause it earlier.",

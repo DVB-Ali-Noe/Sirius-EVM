@@ -6,6 +6,7 @@ export interface DraftResponse {
   datasetId: string;
   ingressKey: DatasetIngressKey;
   priceUsdcAtomic: string;
+  maxRentalDays: number;
   challengeDays: typeof ESCROW_CHALLENGE_DAYS;
   sizeBytes: number;
   model: ModelSelection;
@@ -16,6 +17,7 @@ export interface DraftResponse {
 
 export interface ExpectedDraft {
   priceUsdcAtomic: string;
+  maxRentalDays: number;
   sizeBytes: number;
   modelId: ModelId;
   category: DatasetCategory;
@@ -44,6 +46,7 @@ export function checkDraftResponse(body: unknown, expected: ExpectedDraft): Draf
   const model = modelSelection(r.model?.modelId, r.model?.modelVersion);
   if (!model || model.modelId !== expected.modelId) throw new Error("Le serveur a renvoyé un autre profil d’entraînement");
   if (r.priceUsdcAtomic !== expected.priceUsdcAtomic) throw new Error("Le serveur a renvoyé un autre prix");
+  if (r.maxRentalDays !== expected.maxRentalDays) throw new Error("Le serveur a renvoyé une autre durée maximale de location");
   if (r.sizeBytes !== expected.sizeBytes) throw new Error("Le serveur a renvoyé une autre taille de fichier");
   if (r.challengeDays !== ESCROW_CHALLENGE_DAYS) throw new Error("Délai de sécurité incohérent");
   if (r.category !== expected.category || r.listingDays !== expected.listingDays) {
@@ -56,6 +59,7 @@ export function checkDraftResponse(body: unknown, expected: ExpectedDraft): Draf
     datasetId: r.datasetId,
     ingressKey: { version: 1, publicKey: key.publicKey, origin: key.origin },
     priceUsdcAtomic: r.priceUsdcAtomic,
+    maxRentalDays: r.maxRentalDays,
     challengeDays: ESCROW_CHALLENGE_DAYS,
     sizeBytes: r.sizeBytes,
     model,

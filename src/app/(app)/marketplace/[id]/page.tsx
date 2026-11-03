@@ -17,6 +17,7 @@ import { formatBytes, truncate } from "@/lib/format";
 import { categoryLabelKey } from "@/lib/marketplace/categories";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { MODEL_REGISTRY, modelDisplayName, modelSelection } from "@/lib/models/registry";
+import { MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 import { BorrowPanel } from "./BorrowPanel";
 
 type LoadResult =
@@ -42,6 +43,8 @@ export default function MarketplaceListingPage() {
   const id = typeof params?.id === "string" ? params.id : "";
   const { t } = useLocale();
   const [result, setResult] = useState<LoadResult | null>(null);
+  // Jours de location choisis par l'emprunteur (D-29) ; ramenés dans les bornes du dataset à l'affichage.
+  const [chosenDays, setChosenDays] = useState(MIN_RENTAL_DAYS);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -96,6 +99,7 @@ export default function MarketplaceListingPage() {
   const resolved = dataset.settledCount + dataset.refundedCount;
   const name = dataset.name.trim() === "" ? t("Dataset sans nom") : dataset.name;
   const days = dataset.challengeDays;
+  const rentalDays = Math.min(Math.max(chosenDays, MIN_RENTAL_DAYS), dataset.maxRentalDays);
 
   return (
     <Page>
@@ -191,6 +195,7 @@ export default function MarketplaceListingPage() {
             <>
               <PriceBreakdown
                 providerAtomic={dataset.providerPriceAtomic}
+                rentalDays={rentalDays}
                 computeAtomic={fee.atomic}
                 token={token}
                 perspective="borrower"
@@ -205,7 +210,7 @@ export default function MarketplaceListingPage() {
             <Card>
               <dl className="space-y-2 text-sm">
                 <Fact
-                  label={t("Le fournisseur reçoit")}
+                  label={t("Le fournisseur reçoit par jour")}
                   value={(dataset.providerPriceAtomic && formatTokenWithSymbol(dataset.providerPriceAtomic, token)) || "—"}
                 />
                 <Fact label={t("Frais de calcul (enclave Phala)")} value={t("Indiqués dans le devis")} />
@@ -220,7 +225,11 @@ export default function MarketplaceListingPage() {
         <Card>
           <CardTitle>{t("Ce que vous obtenez")}</CardTitle>
           <p className="mt-2 text-sm text-muted">
-            {t("Un accès à cette donnée et un entraînement dans l’enclave. Le modèle entraîné y reste scellé : vous obtenez ses prédictions signées, jamais le modèle ni la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}
+            {t("Un accès à cette donnée et un entraînement dans l’enclave. Le modèle entraîné y reste scellé : vous obtenez ses prédictions signées, jamais le modèle ni la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}{" "}
+            {t("Les prédictions restent ouvertes pendant la durée louée (jusqu’à {max} jours), comptée depuis le règlement. Après l’échéance, le modèle reste scellé {grace} jours : vous pouvez prolonger en payant de nouveaux jours, puis il est supprimé.", {
+              max: formatCount(dataset.maxRentalDays),
+              grace: RENTAL_GRACE_DAYS,
+            })}
           </p>
         </Card>
 
@@ -247,6 +256,9 @@ export default function MarketplaceListingPage() {
             datasetId={dataset.id}
             providerVerified={dataset.verified}
             priceUsdcAtomic={dataset.providerPriceAtomic}
+            maxRentalDays={dataset.maxRentalDays}
+            rentalDays={rentalDays}
+            onRentalDays={setChosenDays}
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}
           />

@@ -1,6 +1,7 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { MODEL_REGISTRY, isModelOffered, modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
+import { isValidRentalDays } from "@/lib/billing/rental";
 import type { PublishedTariff } from "./tariff";
 import {
   ESCROW_CHALLENGE_DAYS,
@@ -18,7 +19,10 @@ export interface CreateDatasetRequest {
   name: string;
   description: string | undefined;
   sizeBytes: number;
+  /** Prix de location par jour (USDC atomique). */
   priceUsdcAtomic: string;
+  /** Durée maximale qu'un emprunteur peut louer, en jours (1–365), signée dans le reçu runner. */
+  maxRentalDays: number;
   category: DatasetCategory;
   listingDays: ListingDurationDays;
   trainingConsent: boolean;
@@ -71,7 +75,11 @@ export function parseCreateDatasetRequest(body: unknown, billing: CreateDatasetB
     return { ok: false, status: 413, error: "Fichier vide ou trop volumineux (max 3 Mo)" };
   }
   const priceUsdcAtomic = priceUsdcToAtomic(input.priceUsdc);
-  if (!priceUsdcAtomic) return { ok: false, status: 400, error: "Prix invalide (0.001 à 1 000 000 par emprunt)" };
+  if (!priceUsdcAtomic) return { ok: false, status: 400, error: "Prix invalide (0.001 à 1 000 000 par jour)" };
+  if (!isValidRentalDays(input.maxRentalDays)) {
+    return { ok: false, status: 400, error: "Durée maximale de location invalide (1 à 365 jours)" };
+  }
+  const maxRentalDays = input.maxRentalDays;
   const category = parseDatasetCategory(input.category);
   if (!category) return { ok: false, status: 400, error: "Catégorie obligatoire" };
   const listingDays = parseListingDurationDays(input.listingDays);
@@ -92,6 +100,7 @@ export function parseCreateDatasetRequest(body: unknown, billing: CreateDatasetB
       description: description || undefined,
       sizeBytes: input.sizeBytes,
       priceUsdcAtomic,
+      maxRentalDays,
       category,
       listingDays,
       trainingConsent,

@@ -38,10 +38,12 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Créé le": "Created on",
   "Dernière mise en ligne": "Last listed on",
   "Prix": "Price",
-  "Ce que tu reçois par emprunt réglé. Les frais de calcul de l’enclave s’ajoutent pour l’emprunteur.":
-    "What you receive per settled borrow. The enclave compute fee is added on top for the borrower.",
-  "Le prix n’est pas modifiable : il est inscrit dans le reçu signé par l’enclave au scellement du dataset. Pour changer de prix, détruis le dataset et publie-le à nouveau.":
-    "The price cannot be changed: it is written in the receipt signed by the enclave when the dataset was sealed. To change the price, destroy the dataset and publish it again.",
+  "{price} par jour": "{price} per day",
+  "Location de 1 à {max} jours": "Rental from 1 to {max} days",
+  "Ce que tu reçois par jour de location réglé. L’emprunteur choisit sa durée dans la limite que tu as fixée ; les frais de calcul de l’enclave s’ajoutent pour lui.":
+    "What you receive per settled rental day. The borrower picks a duration within the limit you set; the enclave compute fee is added on top for them.",
+  "Le prix par jour et la durée maximale de location ne sont pas modifiables : ils sont inscrits dans le reçu signé par l’enclave au scellement du dataset. Pour les changer, détruis le dataset et publie-le à nouveau.":
+    "The daily price and the maximum rental duration cannot be changed: they are written in the receipt signed by the enclave when the dataset was sealed. To change them, destroy the dataset and publish it again.",
 
   // Fiche : statistiques
   "Statistiques": "Statistics",
@@ -141,6 +143,8 @@ export const DATASETS_MESSAGES_EN: Record<string, string> = {
   "Action de publication inconnue": "Unknown listing action",
   "Action de consentement inconnue": "Unknown consent action",
   "Le prix n'est pas modifiable : il est inscrit dans le reçu signé par l'enclave": "The price cannot be changed: it is written in the receipt signed by the enclave",
+  "La durée maximale de location n'est pas modifiable : elle est inscrite dans le reçu signé par l'enclave":
+    "The maximum rental duration cannot be changed: it is written in the receipt signed by the enclave",
   "Champ de dataset non modifiable": "This dataset field cannot be changed",
   "Nom trop long (120 caractères maximum)": "Name too long (120 characters maximum)",
   "Nom invalide : caractères invisibles ou de contrôle interdits": "Invalid name: invisible or control characters are not allowed",
