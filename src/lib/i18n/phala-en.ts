@@ -96,6 +96,8 @@ export const PHALA_MESSAGES_EN: Record<string, string> = {
   "Variables numériques (JSON, noms identiques aux colonnes d’entraînement)": "Numeric features (JSON, use the training column names)",
   "Décision : {value} · appel n° {count}": "Decision: {value} · call #{count}",
   "Saisis un objet JSON de variables numériques": "Enter a JSON object of numeric features",
+  "Variables du modèle": "Model features",
+  "Saisis une valeur numérique pour chaque variable": "Enter a numeric value for each feature",
   "Identifiant du modèle servi invalide": "Invalid served model ID",
   "Préparation du wallet testnet…": "Preparing your testnet wallet…",
   "Chiffrement de ton fichier…": "Encrypting your file…",
