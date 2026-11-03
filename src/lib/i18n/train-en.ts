@@ -74,4 +74,26 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
   "Prédiction…": "Predicting…",
   "Valeur : {value} · appel n° {count}": "Value: {value} · call #{count}",
   "Prédiction refusée": "Prediction refused",
+
+  // Location (D-29) : échéance et prolongation
+  "Prolongation": "Extension",
+  "Location expirée": "Rental expired",
+  "Jours ajoutés": "Days added",
+  "Durée de location": "Rental duration",
+  "Durée louée": "Rented for",
+  "1 jour": "1 day",
+  "Accès jusqu’au": "Access until",
+  "Accès terminé le": "Access ended on",
+  "Accès aux prédictions jusqu’au {date}.": "Access to predictions until {date}.",
+  "Prolongation réglée : les jours payés s’ajoutent à l’emprunt d’origine.": "Extension settled: the paid days are added to the original loan.",
+  "Le délai de grâce est écoulé : le modèle a été supprimé de l’enclave et la location est close.":
+    "The grace period is over: the model was deleted from the enclave and the rental is closed.",
+  "Les prédictions sont arrêtées. Le modèle reste scellé {grace} jours après l’échéance : prolonge pour retrouver l’accès, sans réentraîner.":
+    "Predictions are stopped. The model stays sealed for {grace} days after expiry: extend to get access back, without retraining.",
+  "Prolonger": "Extend",
+  "Jours à ajouter": "Days to add",
+  "Prolongation…": "Extending…",
+  "Voir le devis et prolonger": "See the quote and extend",
+  "Chaque jour ajouté est payé au prix par jour du dataset, plus le calcul minimal d’un emprunt. Le total exact est affiché dans le devis, avant tout paiement.":
+    "Each added day is paid at the dataset’s daily price, plus the minimum compute fee of a loan. The exact total is shown in the quote, before any payment.",
 };

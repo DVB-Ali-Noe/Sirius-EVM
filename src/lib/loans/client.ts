@@ -1,18 +1,39 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
+import { EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import type { ModelSelection } from "@/lib/models/registry";
 import { computeQuoteHash, type ComputeQuote, type SignedComputeQuote } from "@/lib/billing/quote";
 import { escrowBillingVersion, quotedTransactions, verifyBorrowQuote } from "@/lib/billing/client";
-import { legacyBorrowTransactions } from "./legacy-client";
+import { datasetAmountFor } from "@/lib/billing/rental";
+import { legacyBorrowTransactions, type LegacyBorrowTransactions } from "./legacy-client";
 interface BorrowInput {
   datasetId: string;
+  /** Prix par jour affiché (D-29). */
   priceUsdcAtomic: string;
+  /** Durée choisie, 1 à `maxRentalDays` du dataset ; signée dans le devis. */
+  rentalDays: number;
   confirmQuote?: (quote: ComputeQuote) => Promise<boolean>;
+}
+
+interface ExtendInput {
+  /** Prêt d'origine à prolonger. */
+  loanId: string;
+  /** Dataset du prêt d'origine : le devis de prolongation doit le viser. */
+  datasetId: string;
+  rentalDays: number;
+  confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
+}
+
+interface PreparedLock {
+  loanId?: string;
+  approveTransaction?: Record<string, unknown>;
+  lockTransaction?: Record<string, unknown>;
+  billingQuote?: SignedComputeQuote;
+  error?: string;
 }
 
 function lockSubmissionStorageKey(loanId: string): string {
@@ -35,7 +56,7 @@ async function submitLoanLock(loanId: string, lockTxHash?: string): Promise<void
   window.sessionStorage.removeItem(lockSubmissionStorageKey(loanId));
 }
 
-export async function borrowDataset(input: BorrowInput): Promise<boolean> {
+function walletGuard() {
   const snapshot = useWalletStore.getState();
   const assertCurrent = () => {
     const current = useWalletStore.getState();
@@ -43,18 +64,43 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
       throw new Error("Le wallet a changé. Relance l’opération.");
     }
   };
+  return { address: snapshot.address, assertCurrent };
+}
+
+/**
+ * Approbation, renouvellement de l'autorisation, lock puis `submit` d'un prêt préparé (emprunt ou
+ * prolongation), sur le devis déjà accepté par l'emprunteur.
+ */
+async function approveAndLock(
+  loanId: string,
+  signedQuote: SignedComputeQuote | undefined,
+  legacy: LegacyBorrowTransactions | undefined,
+  assertCurrent: () => void,
+): Promise<void> {
+  assertCurrent();
+  await sendActiveTransaction(signedQuote ? quotedTransactions(signedQuote).approve : { ...legacy!.approve }, { waitForConfirmation: true, assertCurrent });
+  const renewal = await fetch(`/api/loans/${loanId}/authorize`, { method: "POST" });
+  const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; billingQuote?: SignedComputeQuote; error?: string };
+  if (!renewal.ok || !authorized.lockTransaction) throw new Error(authorized.error ?? "Autorisation du lock refusée");
+  if (!authorized.authorizationDeadline || authorized.authorizationDeadline * 1_000 <= Date.now()) {
+    throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation du stablecoin reste acquise.");
+  }
+  if (Boolean(signedQuote) !== Boolean(authorized.billingQuote)) throw new Error("Devis compute hors scope");
+  if (signedQuote && computeQuoteHash(signedQuote.quote) !== computeQuoteHash(authorized.billingQuote!.quote)) throw new Error("Devis compute hors scope");
+  const lockTxHash = await sendActiveTransaction(signedQuote ? { ...quotedTransactions(signedQuote).lock } : { ...legacy!.lock(authorized.lockTransaction, authorized.authorizationDeadline) }, { assertCurrent });
+  window.sessionStorage.setItem(lockSubmissionStorageKey(loanId), lockTxHash);
+  // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
+  await submitLoanLock(loanId, lockTxHash);
+}
+
+export async function borrowDataset(input: BorrowInput): Promise<boolean> {
+  const { address, assertCurrent } = walletGuard();
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ datasetId: input.datasetId }),
+    body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays }),
   });
-  const body = await prep.json() as {
-    loanId?: string;
-    approveTransaction?: Record<string, unknown>;
-    lockTransaction?: Record<string, unknown>;
-    billingQuote?: SignedComputeQuote;
-    error?: string;
-  };
+  const body = await prep.json() as PreparedLock;
   if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation du lock de paiement échouée");
   }
@@ -62,8 +108,12 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const billingVersion = await escrowBillingVersion();
   if (Boolean(body.billingQuote) !== (billingVersion === 7)) throw new Error("Devis compute absent ou incompatible avec l’escrow");
   const signedQuote = body.billingQuote
-    ? await verifyBorrowQuote(body.billingQuote, { loanId: body.loanId, datasetId: input.datasetId, borrower: snapshot.address! }) : undefined;
-  if (signedQuote && signedQuote.quote.datasetAmount !== input.priceUsdcAtomic) throw new Error("Prix du dataset modifié. Recharge le catalogue.");
+    ? await verifyBorrowQuote(body.billingQuote, { loanId: body.loanId, datasetId: input.datasetId, borrower: address! }) : undefined;
+  // Prix par jour × jours choisis (D-29) : un devis sur une autre durée ou un autre prix est refusé.
+  if (signedQuote && (signedQuote.quote.rentalDays !== input.rentalDays || signedQuote.quote.extendsLoanId !== undefined
+    || signedQuote.quote.datasetAmount !== datasetAmountFor(input.priceUsdcAtomic, input.rentalDays))) {
+    throw new Error("Prix du dataset modifié. Recharge le catalogue.");
+  }
   const legacy = signedQuote ? undefined : await legacyBorrowTransactions({
     loanId: body.loanId, datasetId: input.datasetId, priceUsdcAtomic: input.priceUsdcAtomic,
     initialLock: body.lockTransaction,
@@ -73,21 +123,48 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
     if (!await input.confirmQuote(signedQuote.quote)) return false;
     if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
   }
-  assertCurrent();
-  await sendActiveTransaction(signedQuote ? quotedTransactions(signedQuote).approve : { ...legacy!.approve }, { waitForConfirmation: true, assertCurrent });
-  const renewal = await fetch(`/api/loans/${body.loanId}/authorize`, { method: "POST" });
-  const authorized = await renewal.json() as { lockTransaction?: Record<string, unknown>; authorizationDeadline?: number; billingQuote?: SignedComputeQuote; error?: string };
-  if (!renewal.ok || !authorized.lockTransaction) throw new Error(authorized.error ?? "Autorisation du lock refusée");
-  if (!authorized.authorizationDeadline || authorized.authorizationDeadline * 1_000 <= Date.now()) {
-    throw new Error("Préparation du prêt expirée. Relance l’emprunt ; l’approbation du stablecoin reste acquise.");
-  }
-  if (Boolean(signedQuote) !== Boolean(authorized.billingQuote)) throw new Error("Devis compute hors scope");
-  if (signedQuote && computeQuoteHash(signedQuote.quote) !== computeQuoteHash(authorized.billingQuote!.quote)) throw new Error("Devis compute hors scope");
-  const lockTxHash = await sendActiveTransaction(signedQuote ? { ...quotedTransactions(signedQuote).lock } : { ...legacy!.lock(authorized.lockTransaction, authorized.authorizationDeadline) }, { assertCurrent });
-  window.sessionStorage.setItem(lockSubmissionStorageKey(body.loanId), lockTxHash);
-  // Le serveur persiste SUBMITTING avant d'attendre le reçu, même si l'onglet ferme.
-  await submitLoanLock(body.loanId, lockTxHash);
+  await approveAndLock(body.loanId, signedQuote, legacy, assertCurrent);
   return true;
+}
+
+/**
+ * Prolonge la location du prêt `loanId` de `rentalDays` jours (D-29) : prêt de prolongation préparé
+ * par le serveur, devis accepté, même lock qu'un emprunt, puis `release` demandé au runner. Renvoie
+ * `false` si le devis est refusé. Lock pas encore finalisé ou `release` en attente de finalité :
+ * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action.
+ */
+export async function extendLoan(input: ExtendInput): Promise<boolean> {
+  const { address, assertCurrent } = walletGuard();
+  const prep = await fetch(`/api/loans/${input.loanId}/extend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rentalDays: input.rentalDays }),
+  });
+  const body = await prep.json() as PreparedLock;
+  if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
+    throw new Error(body.error ?? "Préparation de la prolongation échouée");
+  }
+  const extensionLoanId = body.loanId;
+  assertCurrent();
+  if (!body.billingQuote || await escrowBillingVersion() !== 7) throw new Error("Devis de prolongation absent ou incompatible avec l’escrow");
+  const signedQuote = await verifyBorrowQuote(body.billingQuote, { loanId: extensionLoanId, datasetId: input.datasetId, borrower: address! });
+  if (signedQuote.quote.extendsLoanId !== input.loanId || signedQuote.quote.rentalDays !== input.rentalDays) {
+    throw new Error("Durée de location modifiée. Relance la prolongation.");
+  }
+  if (!await input.confirmQuote(signedQuote.quote)) return false;
+  if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
+  await approveAndLock(extensionLoanId, signedQuote, undefined, assertCurrent);
+  const authorization = await issueRunnerGrant("extend-loan", { loanId: extensionLoanId }, [extensionLoanId, input.loanId]);
+  const response = await fetch(`/api/loans/${input.loanId}/extend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ extensionLoanId, authorization }),
+  });
+  const result = await response.json() as { error?: string; pending?: boolean };
+  // Paiement acquis : l'attente de finalité (lock ou release) et un wallet runner occupé se résolvent
+  // côté serveur, la prolongation s'applique alors d'elle-même.
+  if (response.ok || result.error === EXTENSION_PENDING || result.error === SETTLEMENT_QUEUED) return true;
+  throw new Error(result.error ?? "Prolongation échouée");
 }
 
 export async function resumeLoanSubmission(loanId: string, lockTxHash?: string): Promise<void> {

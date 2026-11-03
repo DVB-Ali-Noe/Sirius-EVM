@@ -9,7 +9,8 @@ export type RunnerOperation =
   | "prepare-escrow-lock"
   | "run-loan-job"
   | "recover-loan-job"
-  | "settle-loan";
+  | "settle-loan"
+  | "extend-loan";
 
 export interface RunnerScope {
   datasetId?: string;

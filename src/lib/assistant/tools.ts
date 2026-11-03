@@ -126,7 +126,7 @@ export interface PublicDatasetSummary {
   trainingProfile: string | null;
   /** Prix affiché, en unités du jeton (`"12.5"`), avec sa signification. */
   price: string | null;
-  priceMeaning: "total paid by the borrower" | "amount received by the provider";
+  priceMeaning: "total paid by the borrower for one rental day" | "amount received by the provider for one rental day";
   rows: number | null;
   columns: number | null;
   borrowCount: number;
@@ -171,7 +171,7 @@ export function summarizeCatalogue(response: CatalogueResponse): { total: number
         category: item.category,
         trainingProfile: model ? MODEL_REGISTRY[model.modelId].label : null,
         price: formatTokenAmount(item.priceAtomic, response.token.decimals),
-        priceMeaning: item.priceKind === "borrowerPays" ? "total paid by the borrower" : "amount received by the provider",
+        priceMeaning: item.priceKind === "borrowerPays" ? "total paid by the borrower for one rental day" : "amount received by the provider for one rental day",
         rows: item.rowCount,
         columns: item.columnCount,
         borrowCount: item.borrowCount,

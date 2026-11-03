@@ -95,6 +95,7 @@ export async function runSelfTrain(
       merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       jobId: job.id,
       ...model,
     };

@@ -233,10 +233,11 @@ function DetailContent({ id }: { id: string }) {
 
       <Card>
         <CardTitle>{t("Prix")}</CardTitle>
-        <p className="mt-2 text-lg font-medium tabular-nums">{price}</p>
-        <p className="mt-1 text-xs text-muted">{t("Ce que tu reçois par emprunt réglé. Les frais de calcul de l’enclave s’ajoutent pour l’emprunteur.")}</p>
+        <p className="mt-2 text-lg font-medium tabular-nums">{t("{price} par jour", { price })}</p>
+        <p className="mt-1 text-sm text-muted">{t("Location de 1 à {max} jours", { max: view.maxRentalDays })}</p>
+        <p className="mt-1 text-xs text-muted">{t("Ce que tu reçois par jour de location réglé. L’emprunteur choisit sa durée dans la limite que tu as fixée ; les frais de calcul de l’enclave s’ajoutent pour lui.")}</p>
         <p className="mt-3 text-xs text-muted">
-          {t("Le prix n’est pas modifiable : il est inscrit dans le reçu signé par l’enclave au scellement du dataset. Pour changer de prix, détruis le dataset et publie-le à nouveau.")}
+          {t("Le prix par jour et la durée maximale de location ne sont pas modifiables : ils sont inscrits dans le reçu signé par l’enclave au scellement du dataset. Pour les changer, détruis le dataset et publie-le à nouveau.")}
         </p>
       </Card>
 

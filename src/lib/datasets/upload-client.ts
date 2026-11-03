@@ -21,10 +21,12 @@ export interface UploadInput {
   description: string;
   category: DatasetCategory;
   modelId: ModelId;
-  /** Gain du fournisseur par emprunt, saisi en jeton (« 20 », « 0.5 »). */
+  /** Gain du fournisseur par jour de location, saisi en jeton (« 20 », « 0.5 »). */
   priceUsdc: string;
   /** Même montant en unités atomiques, calculé par le formulaire ; la réponse serveur doit le confirmer. */
   priceUsdcAtomic: string;
+  /** Durée de location maximale proposée aux emprunteurs, en jours (1–365, D-29). */
+  maxRentalDays: number;
   listingDays: ListingDurationDays;
   trainingConsent: boolean;
 }
@@ -82,6 +84,7 @@ export async function uploadAndPublishDataset(
         sizeBytes: input.sizeBytes,
         priceUsdc: input.priceUsdc,
         category: input.category,
+        maxRentalDays: input.maxRentalDays,
         listingDays: input.listingDays,
         trainingConsent: input.trainingConsent,
         modelId: input.modelId,
@@ -94,6 +97,7 @@ export async function uploadAndPublishDataset(
       sizeBytes: input.sizeBytes,
       modelId: input.modelId,
       category: input.category,
+      maxRentalDays: input.maxRentalDays,
       listingDays: input.listingDays,
       trainingConsent: input.trainingConsent,
     });
@@ -115,6 +119,7 @@ export async function uploadAndPublishDataset(
         envelope.ciphertext,
         draft.model.modelId,
         draft.model.modelVersion,
+        String(draft.maxRentalDays),
       ],
     );
     const uploadRes = await fetch(`/api/datasets/${draft.datasetId}/upload`, {

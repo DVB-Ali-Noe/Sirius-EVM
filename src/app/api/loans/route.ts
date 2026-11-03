@@ -6,6 +6,7 @@ import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { isValidRentalDays } from "@/lib/billing/rental";
 
 export const runtime = "nodejs";
 
@@ -17,11 +18,13 @@ const preparationLimiter = new FixedWindowRateLimiter({ windowMs: 600_000, maxPe
 export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
-    // N'expose que les prêts où le compte est partie prenante (borrower ou provider).
+    // N'expose que les prêts où le compte est partie prenante (borrower ou provider). Les colonnes de
+    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`) partent telles quelles ; le prix par
+    // jour et la durée maximale du dataset servent au choix des jours d'une prolongation.
     const loans = await prisma.loan.findMany({
       where: { OR: [{ borrower: session.address }, { provider: session.address }] },
       orderBy: { createdAt: "desc" },
-      include: { dataset: { select: { name: true, runnerReceipt: true } } },
+      include: { dataset: { select: { name: true, runnerReceipt: true, maxRentalDays: true, priceUsdcAtomic: true } } },
     });
     const now = Date.now();
     return NextResponse.json(loans.map((loan) => ({
@@ -41,12 +44,16 @@ export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(preparationLimiter, `subject:${session.address}`);
-    const { datasetId } = await readJson<Record<string, unknown>>(req);
+    const { datasetId, rentalDays } = await readJson<Record<string, unknown>>(req);
 
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
     }
-    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address);
+    // Bornée ici à 1–365, puis par `maxRentalDays` du dataset dans `prepareLoan`.
+    if (!isValidRentalDays(rentalDays)) {
+      return NextResponse.json({ error: "Durée de location invalide" }, { status: 400 });
+    }
+    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays);
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {

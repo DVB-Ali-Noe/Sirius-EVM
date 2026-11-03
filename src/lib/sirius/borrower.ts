@@ -15,7 +15,7 @@ import { computeQuoteHash, totalQuoteAmount } from "@/lib/billing/quote";
 import { assertBilledLock, loanBillingQuote, verifyPreparedComputeQuote } from "@/lib/billing/loan";
 import { prepareEscrowLockInRunner } from "@/lib/tee/runner-client";
 import { lockAuthorizationDeadline } from "./lock-policy";
-import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
+import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 import { isListingExpired } from "@/lib/datasets/manage";
@@ -24,12 +24,27 @@ import { recoverUnsubmittedLoan } from "./recover-loan";
 import { assertLoanLockTransaction } from "@/lib/evm/history";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, EXPOSED_LOAN_STATUSES, exposureLimits } from "./exposure-limits";
+import { datasetAmountFor, isValidRentalDays, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
+import { requireRentalQuote } from "@/lib/billing/quote";
+import { assertExtendableLoan } from "./rental";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
 
-export async function prepareLoan(datasetId: string, borrower: string) {
+/** Prolongation (D-29) : prêt d'origine prolongé et son profil d'entraînement, repris à l'identique. */
+export interface LoanExtensionTarget {
+  originalLoanId: string;
+  model: ModelSelection;
+}
+
+/**
+ * Prépare le lock d'un emprunt de `rentalDays` jours (1 à `maxRentalDays` du dataset), ou d'une
+ * prolongation (`extension`). Avec devis (escrow v7), le montant dataset vaut prix par jour × jours,
+ * signé dans le devis (`rentalDays`, `extendsLoanId`). Sans devis (escrow v6 hérité), le prix reste
+ * forfaitaire et le prêt n'a pas d'échéance ; une prolongation y est impossible.
+ */
+export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget) {
   const borrowerAddress = normalizeAddress(borrower);
   assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
@@ -49,9 +64,18 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   if (!dataset.priceUsdcAtomic || !dataset.ipfsCid || !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt) {
     throw new AppError("Dataset EVM incomplet", 409);
   }
-  const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  // Prolongation : profil du prêt d'origine, qui doit rester celui du dataset (contrôlé ci-dessous).
+  const model = modelSelection(extension?.model.modelId ?? dataset.modelId, extension?.model.modelVersion ?? dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
-  const amountUsdcAtomic = dataset.priceUsdcAtomic;
+  if (extension && (dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion)) {
+    throw new AppError("Profil d’entraînement du dataset modifié : prolongation impossible", 409);
+  }
+  if (!isValidRentalDays(rentalDays, dataset.maxRentalDays)) {
+    throw new AppError(`Durée de location invalide (${MIN_RENTAL_DAYS} à ${Math.min(dataset.maxRentalDays, MAX_RENTAL_DAYS)} jours)`, 400);
+  }
+  const billed = billingEnabled();
+  if (extension && !billed) throw new AppError("Prolongation indisponible sans devis compute", 503);
+  const amountUsdcAtomic = billed ? datasetAmountFor(dataset.priceUsdcAtomic, rentalDays) : dataset.priceUsdcAtomic;
   // Plafonds de la bêta : refus avant tout appel au runner, puis de nouveau sur le total du devis.
   const limits = exposureLimits();
   assertLoanWithinCap(amountUsdcAtomic, limits);
@@ -120,6 +144,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
         amountUsdcAtomic,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
+        extendsLoanId: extension?.originalLoanId ?? null,
         ...runner,
       },
     });
@@ -128,15 +153,17 @@ export async function prepareLoan(datasetId: string, borrower: string) {
   try {
     const binding = evmEscrowBinding();
     const preparedBlock = await getPublicClient().getBlockNumber({ cacheTime: 0 });
+    const rental = { rentalDays, ...(extension ? { extendsLoanId: extension.originalLoanId } : {}) };
     const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
       datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
-      priceUsdcAtomic: amountUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
+      priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, maxRentalDays: dataset.maxRentalDays, ...model,
     }, dataset.runnerReceipt, loan.id, borrowerAddress,
-    lockAuthorizationDeadline(loan.createdAt));
-    if (billingEnabled() !== Boolean(billingQuote)) throw new AppError("Devis compute absent du prêt", 503);
+    lockAuthorizationDeadline(loan.createdAt), rental);
+    if (billed !== Boolean(billingQuote)) throw new AppError("Devis compute absent du prêt", 503);
     const signedQuote = billingQuote ? await verifyPreparedComputeQuote(billingQuote) : undefined;
     if (signedQuote && (signedQuote.quote.datasetAmount !== amountUsdcAtomic || signedQuote.quote.onChainDatasetId !== dataset.evmDatasetId
-      || signedQuote.quote.hashlock !== hashlock)) throw new AppError("Devis compute hors scope", 409);
+      || signedQuote.quote.hashlock !== hashlock || signedQuote.quote.rentalDays !== rentalDays
+      || (signedQuote.quote.extendsLoanId ?? null) !== (extension?.originalLoanId ?? null))) throw new AppError("Devis compute hors scope", 409);
     const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
     assertLoanWithinCap(total, limits);
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
@@ -157,7 +184,7 @@ export async function prepareLoan(datasetId: string, borrower: string) {
           ...(signedQuote ? {
             amountUsdcAtomic: total, billingQuote: JSON.stringify(signedQuote), billingQuoteHash: computeQuoteHash(signedQuote.quote),
             datasetAmountUsdcAtomic: signedQuote.quote.datasetAmount, computeAmountUsdcAtomic: signedQuote.quote.computeAmount,
-            maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee,
+            maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee, rentalDays: signedQuote.quote.rentalDays,
           } : {}),
           evmLoanKey: loanKey,
           evmHashlock: hashlock,
@@ -200,6 +227,8 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   if (!addressesEqual(loan.borrower, address)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   const dataset = loan.dataset;
   const signedQuote = loanBillingQuote(loan);
+  // Devis hérité (sans durée) d'une préparation d'avant D-29 : il n'est plus renouvelable.
+  const rentalDays = signedQuote ? requireRentalQuote(signedQuote.quote).rentalDays : null;
   const binding = evmEscrowBinding();
   if (loan.status === "CANCELLED" && !loan.evmLockTxHash) {
     throw new AppError("Préparation d’emprunt annulée (expirée ou remplacée par une préparation plus récente) : relance l’emprunt, l’approbation du stablecoin reste acquise", 409);
@@ -210,19 +239,25 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   }
   const deadline = lockAuthorizationDeadline(loan.createdAt);
   const model = modelSelection(loan.modelId, loan.modelVersion);
+  const expectedDatasetAmount = rentalDays === null ? loan.amountUsdcAtomic : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
   if (!model || !isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId || !dataset.ipfsCid ||
-    !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt || dataset.priceUsdcAtomic !== (signedQuote?.quote.datasetAmount ?? loan.amountUsdcAtomic) ||
+    !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt ||
+    (signedQuote?.quote.datasetAmount ?? dataset.priceUsdcAtomic) !== expectedDatasetAmount ||
     dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
+  // Prolongation : la location d'origine doit rester ouverte jusqu'à la signature du lock.
+  if (loan.extendsLoanId) await assertExtendableLoan(loan.extendsLoanId, address);
   if (isListingExpired(dataset.listingExpiresAt)) throw new AppError("Annonce expirée", 409);
   if (await readLoan(loan.evmLoanKey as Hex)) throw new AppError("Emprunt déjà verrouillé", 409);
   await assertCurrentRunner(loan);
   await assertCurrentRunner(dataset);
+  // Sans devis (escrow v6 hérité), la durée n'entre dans aucun terme signé : le runner l'ignore.
+  const rental = { rentalDays: rentalDays ?? MIN_RENTAL_DAYS, ...(loan.extendsLoanId ? { extendsLoanId: loan.extendsLoanId } : {}) };
   const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
     datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
-    priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, ...model,
-  }, dataset.runnerReceipt, loan.id, address, deadline);
+    priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, maxRentalDays: dataset.maxRentalDays, ...model,
+  }, dataset.runnerReceipt, loan.id, address, deadline, rental);
   if (hashlock !== loan.evmHashlock) throw new AppError("Hashlock du runner modifié", 409);
   if (Boolean(signedQuote) !== Boolean(billingQuote)) throw new AppError("Devis compute hors scope", 409);
   if (billingQuote) {

@@ -25,3 +25,10 @@ export const SETTLEMENT_QUEUED = "Un autre règlement est en cours sur le runner
  * attente de finalité au lieu d'afficher une erreur.
  */
 export const LOCK_FINALITY_PENDING = "Paiement en attente de finalité du réseau : l’entraînement pourra démarrer dans quelques minutes";
+
+/**
+ * Prolongation payée (D-29) dont le lock n'est pas encore sous le bloc stable, ou dont le `release`
+ * attend sa finalité : `POST /api/loans/[id]/extend` répond 409 ou 202 avec ce message, et le reaper
+ * applique la prolongation dès que possible, sans autre action de l'emprunteur.
+ */
+export const EXTENSION_PENDING = "Prolongation payée : elle s’applique dès la confirmation du réseau, sans autre action de ta part";

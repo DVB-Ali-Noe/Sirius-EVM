@@ -49,7 +49,7 @@ test("le self-train de 30 000 lignes scelle un modèle ; un délai épuisé est 
     assert.ok(csv.length < 3 * 1024 * 1024);
     const sealed = await sealDataset("capacity-test", csv);
     const input = {
-      datasetId: "capacity-test", ...sealed, priceUsdcAtomic: "1", challengeDays: 1,
+      datasetId: "capacity-test", ...sealed, priceUsdcAtomic: "1", challengeDays: 1, maxRentalDays: 30,
       modelId: "logistic_regression" as const, modelVersion: "1.0.0" as const,
       owner: `0x${"1".repeat(40)}`, jobId: "capacity-success",
     };

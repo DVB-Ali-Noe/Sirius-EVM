@@ -190,7 +190,7 @@ test("DatasetCard : toutes les informations de la mosaïque", () => {
   assert.match(out, /Binary logistic regression v1\.0\.0/);
   assert.match(out, /12,345 rows/);
   assert.match(out, /8 columns/);
-  assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>23\.00 USDG<\/dd>/);
+  assert.match(out, /<dt[^>]*>Price for one rental day<\/dt><dd[^>]*>23\.00 USDG<\/dd>/);
   assert.match(out, /<dt[^>]*>Borrows<\/dt><dd[^>]*>12<\/dd>/);
   assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDG<\/dd>/);
   assert.match(out, />Verified provider</);
@@ -231,7 +231,7 @@ test("DatasetCard : l'état affiché suit la prop (en pause, détruit)", () => {
 
 test("DatasetCard : prix et revenus invalides → « — » sur la ligne concernée, jamais 0", () => {
   const out = page("card-invalid-amounts");
-  assert.match(out, /Borrower pays<\/dt><dd[^>]*>—<\/dd>/);
+  assert.match(out, /Price for one rental day<\/dt><dd[^>]*>—<\/dd>/);
   assert.match(out, /Total earned<\/dt><dd[^>]*>—<\/dd>/);
   assert.doesNotMatch(out, /USDG/);
 });
@@ -245,7 +245,7 @@ test("DatasetCard : le lien du titre couvre toute la carte (lien étiré), un se
 
 test("DatasetCard : décimales et symbole du jeton respectés (18 décimales, USDC)", () => {
   const out = page("card-testnet-18");
-  assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>20\.00 USDC<\/dd>/);
+  assert.match(out, /<dt[^>]*>Price for one rental day<\/dt><dd[^>]*>20\.00 USDC<\/dd>/);
   assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDC<\/dd>/);
   assert.doesNotMatch(out, /USDG/);
 });

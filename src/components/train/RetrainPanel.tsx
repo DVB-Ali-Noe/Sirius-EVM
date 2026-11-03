@@ -8,6 +8,8 @@ import { useDuplicateLoanConfirmation } from "@/components/loans/DuplicateLoanDi
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
+import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
+import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
@@ -44,6 +46,7 @@ export function RetrainPanel({
   const [open, setOpen] = useState(false);
   const [listing, setListing] = useState<Listing>({ status: "loading" });
   const [busy, setBusy] = useState(false);
+  const [chosenDays, setChosenDays] = useState(MIN_RENTAL_DAYS);
   const mounted = useRef(true);
   const inFlight = useRef(false);
 
@@ -73,6 +76,8 @@ export function RetrainPanel({
   const model = detail ? modelSelection(detail.dataset.modelId, detail.dataset.modelVersion) : null;
   const price = detail?.dataset.providerPriceAtomic ?? null;
   const fee = detail?.dataset.computeFee;
+  const maxRentalDays = detail?.dataset.maxRentalDays ?? MIN_RENTAL_DAYS;
+  const rentalDays = Math.min(chosenDays, maxRentalDays);
   const canConfirm = listing.status === "ready" && Boolean(model) && Boolean(price) && !busy;
 
   async function confirm() {
@@ -89,7 +94,7 @@ export function RetrainPanel({
     setBusy(true);
     let borrowed = false;
     try {
-      borrowed = await borrowDataset({ datasetId, priceUsdcAtomic: price, confirmQuote });
+      borrowed = await borrowDataset({ datasetId, priceUsdcAtomic: price, rentalDays, confirmQuote });
     } catch (err) {
       onError(messageOf(err));
     } finally {
@@ -137,8 +142,11 @@ export function RetrainPanel({
             </p>
           )}
           {detail && !model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
+          {detail && price && (
+            <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={setChosenDays} disabled={busy} />
+          )}
           {detail && price && fee && fee.kind !== "unknown" && (
-            <PriceBreakdown providerAtomic={price} computeAtomic={fee.atomic} token={detail.token} perspective="borrower" />
+            <PriceBreakdown providerAtomic={price} rentalDays={rentalDays} computeAtomic={fee.atomic} token={detail.token} perspective="borrower" />
           )}
           {detail && price && (!fee || fee.kind === "unknown") && (
             <p className="text-xs text-muted">{t("Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.")}</p>

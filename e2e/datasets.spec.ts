@@ -55,6 +55,7 @@ function ownerView(fixture: Fixture) {
     rowCount: fixture.metrics.rowCount,
     columnCount: fixture.metrics.columnCount,
     priceUsdcAtomic: fixture.priceUsdcAtomic,
+    maxRentalDays: 30,
     ipfsCid: fixture.ipfsCid,
     merkleRoot: fixture.merkleRoot,
     evmDatasetId: fixture.evmDatasetId,

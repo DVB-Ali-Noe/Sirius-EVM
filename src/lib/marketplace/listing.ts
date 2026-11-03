@@ -1,4 +1,5 @@
 import { publicDatasetMetrics } from "@/lib/sirius/metrics";
+import { DEFAULT_MAX_RENTAL_DAYS, MAX_RENTAL_DAYS, isValidRentalDays } from "@/lib/billing/rental";
 import { MODEL_REGISTRY, modelSelection, type ModelId } from "@/lib/models/registry";
 import { normalizeCategory, type CategoryId } from "./categories";
 import { foldSearchText, MARKETPLACE_PAGE_SIZE, type MarketplaceQuery } from "./query";
@@ -30,6 +31,7 @@ export const MARKETPLACE_DATASET_SELECT = {
   sizeBytes: true,
   priceUsdcAtomic: true,
   challengeDays: true,
+  maxRentalDays: true,
   status: true,
   listedAt: true,
   listingExpiresAt: true,
@@ -50,6 +52,7 @@ export interface MarketplaceDatasetRow {
   sizeBytes: number | null;
   priceUsdcAtomic: string;
   challengeDays: number;
+  maxRentalDays: number;
   status: string;
   listedAt: Date | null;
   listingExpiresAt: Date | null;
@@ -144,6 +147,8 @@ export interface PublicDetail extends PublicListing {
   provider: string;
   /** Délai de sécurité de l'escrow : au-delà, sans règlement, l'emprunteur récupère ses fonds. */
   challengeDays: number;
+  /** Durée de location maximale fixée par le fournisseur (D-29), en jours ; le prix est par jour. */
+  maxRentalDays: number;
   settledCount: number;
   refundedCount: number;
   /** Prêts réglés / prêts résolus (réglés + remboursés), entre 0 et 1 ; `null` sans prêt résolu. */
@@ -225,6 +230,8 @@ export function toPublicDetail(
     description: row.description,
     provider: row.provider,
     challengeDays: safeCount(row.challengeDays),
+    // Valeur illisible : la durée par défaut des datasets antérieurs à D-29.
+    maxRentalDays: isValidRentalDays(row.maxRentalDays, MAX_RENTAL_DAYS) ? row.maxRentalDays : DEFAULT_MAX_RENTAL_DAYS,
     settledCount,
     refundedCount,
     successRate: resolved > 0 ? settledCount / resolved : null,

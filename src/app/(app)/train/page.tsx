@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import Link from "next/link";
 import { RetrainPanel } from "@/components/train/RetrainPanel";
+import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
+import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
+import { DEFAULT_MAX_RENTAL_DAYS, MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 import { Card } from "@/components/ui/Card";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
@@ -25,7 +28,10 @@ import {
   canRescueRefund,
   canResumeSettlement,
   canRetrain,
+  canExtendLoan,
   canPredictLoan,
+  isLoanModelDeleted,
+  isLoanRentalExpired,
   loanDisplayState,
   needsLockFinalityCheck,
   parseAdminResponse,
@@ -41,6 +47,7 @@ import {
 } from "@/lib/train/lock-finality-tracker";
 import {
   cancelExpiredLoan,
+  extendLoan,
   resumeLoanSubmission,
   resumeLoanSettlement,
   runLoanJob,
@@ -106,8 +113,14 @@ interface Loan {
   modelVersion: string;
   evmDeadline: string | null;
   createdAt: string;
-  dataset: { name: string; runnerReceipt: string | null } | null;
+  dataset: { name: string; runnerReceipt: string | null; maxRentalDays?: number } | null;
   refundable: boolean;
+  /** Jours loués (D-29) ; `null` pour un prêt antérieur, sans échéance. */
+  rentalDays?: number | null;
+  /** Fin de l'accès aux prédictions (ISO), fixée au règlement ; `null` tant que non réglé ou hérité. */
+  rentalExpiresAt?: string | null;
+  /** Prêt de prolongation : identifiant du prêt d'origine. */
+  extendsLoanId?: string | null;
 }
 
 interface Job {
@@ -131,6 +144,8 @@ const JOB_VARIANT: Record<Job["status"], BadgeVariant> = {
 
 /** Rafraîchissement du compte à rebours affiché (les minutes restantes changent lentement). */
 const FINALITY_TICK_MS = 15_000;
+/** Rafraîchissement de l'état d'échéance des locations (au plus une minute de retard). */
+const RENTAL_TICK_MS = 60_000;
 
 export default function TrainPage() {
   const identity = useWalletStore((state) => `${state.revision}:${state.authenticated}`);
@@ -164,6 +179,10 @@ function TrainPageContent() {
   // Clés d'occupation préfixées par type (`train:`/`job:`) → un bouton ne débloque
   // que sa propre action (pas de collision entre self-train et lancement de job).
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
+  // Prolongation : prêt dont le choix de jours est ouvert, et jours choisis par prêt.
+  const [extending, setExtending] = useState<string | null>(null);
+  const [extendDays, setExtendDays] = useState<Record<string, number>>({});
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
@@ -237,6 +256,7 @@ function TrainPageContent() {
     setCursor(nextCursor);
     setMine(mineData);
     setLoans(loanData);
+    setNow(Date.now());
     setJobs(jobData);
   }, [address, authenticated]);
 
@@ -378,9 +398,18 @@ function TrainPageContent() {
     return () => window.clearInterval(timer);
   }, [anyPending]);
 
+  // Échéance de location : l'affichage bascule en « Location expirée » sans recharger la page.
+  const anyRental = loans.some((loan) => Boolean(loan.rentalExpiresAt));
+  useEffect(() => {
+    if (!anyRental) return;
+    const timer = window.setInterval(() => setNow(Date.now()), RENTAL_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [anyRental]);
+
   async function runJob(loan: Loan) {
     const key = `job:${loan.id}`;
-    if (activeLoanJobs.current.has(key)) return;
+    // Une prolongation n'entraîne rien : son règlement passe par `extendLoan` ou le reaper.
+    if (loan.extendsLoanId || activeLoanJobs.current.has(key)) return;
     activeLoanJobs.current.add(key);
     setError(null);
     setNotice(null);
@@ -474,6 +503,27 @@ function TrainPageContent() {
     }
   }
 
+  async function extendRental(loan: Loan, rentalDays: number) {
+    const key = `extend:${loan.id}`;
+    if (activeLoanJobs.current.has(key)) return;
+    activeLoanJobs.current.add(key);
+    setError(null);
+    setNotice(null);
+    setBusyKey(key, true);
+    try {
+      if (await extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote })) setExtending(null);
+      await refresh();
+    } catch (err) {
+      const message = messageOf(err);
+      if (isSettlementPending(message)) setNotice(message);
+      else setError(message);
+      await refresh().catch(() => {});
+    } finally {
+      activeLoanJobs.current.delete(key);
+      setBusyKey(key, false);
+    }
+  }
+
   if (!connected || !address) {
     return (
       <Page>
@@ -490,6 +540,7 @@ function TrainPageContent() {
 
   return (
     <Page>
+      {quoteDialog}
       <PageHeader
         title={t("Entraîner un modèle")}
         description={t("Le calcul tourne dans un TEE — le modèle y reste scellé : tu obtiens des prédictions signées, jamais le modèle ni la donnée brute.")}
@@ -607,6 +658,15 @@ function TrainPageContent() {
             const state = loanDisplayState({ ...l, lockFinalityPending: awaitingLock });
             const refundAllowed = canRefund(l, address);
             const rescueRefund = canRescueRefund(l, address);
+            const extension = Boolean(l.extendsLoanId);
+            const rentalExpired = isLoanRentalExpired(l, now);
+            const modelDeleted = isLoanModelDeleted(l, now);
+            const extendAllowed = canExtendLoan(l, address, now);
+            const maxRentalDays = l.dataset?.maxRentalDays ?? DEFAULT_MAX_RENTAL_DAYS;
+            const chosenExtendDays = Math.min(extendDays[l.id] ?? MIN_RENTAL_DAYS, maxRentalDays);
+            const expiryLabel = l.rentalExpiresAt
+              ? new Date(l.rentalExpiresAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" })
+              : null;
             return (
             <Card key={l.id}>
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -614,7 +674,8 @@ function TrainPageContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
-                    <Badge variant="default">{t("Emprunt")}</Badge>
+                    <Badge variant="default">{extension ? t("Prolongation") : t("Emprunt")}</Badge>
+                    {!extension && rentalExpired && <Badge variant="negative">{t("Location expirée")}</Badge>}
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
@@ -625,6 +686,12 @@ function TrainPageContent() {
                       {l.refundAmountUsdcAtomic && <Field label={t("Remboursement crédité")} value={`${formatUnits(BigInt(l.refundAmountUsdcAtomic), l.usdcDecimals)} ${token}`} />}
                       {l.retainedFeeUsdcAtomic && <Field label={t("Frais d’exécution retenus")} value={`${formatUnits(BigInt(l.retainedFeeUsdcAtomic), l.usdcDecimals)} ${token}`} />}
                     </>}
+                    {l.rentalDays != null && (
+                      <Field label={t("Durée louée")} value={l.rentalDays === 1 ? t("1 jour") : t("{days} jours", { days: l.rentalDays })} />
+                    )}
+                    {!extension && expiryLabel && (
+                      <Field label={rentalExpired ? t("Accès terminé le") : t("Accès jusqu’au")} value={expiryLabel} />
+                    )}
                     {advanced && (
                       <>
                         <Field label={t("Lock {token}", { token: stablecoinTicker(resolveClientNetwork()) })} value={l.evmLockTxHash ? truncate(l.evmLockTxHash) : "—"} mono />
@@ -658,7 +725,7 @@ function TrainPageContent() {
                       : (minutesLeft > 0 ? t("Finalité du paiement : ~{minutes} min", { minutes: minutesLeft }) : t("Finalité imminente…"))}
                   </button>
                 )}
-                {!l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
+                {!extension && !l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
                   <button
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -699,7 +766,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {canResumeSettlement(l) && (
+                {!extension && canResumeSettlement(l) && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -749,7 +816,7 @@ function TrainPageContent() {
                   </p>
                 </div>
               )}
-              {canRetrain(l, address) && (
+              {!extension && canRetrain(l, address) && (
                 <RetrainPanel
                   datasetId={l.datasetId}
                   otherActiveLoan={activeLoanOnDataset(loans, l.datasetId, address, l.id)}
@@ -758,7 +825,12 @@ function TrainPageContent() {
                 />
               )}
 
-              {l.status === "SETTLED" && (
+              {l.status === "SETTLED" && extension && (
+                <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive">
+                  {t("Prolongation réglée : les jours payés s’ajoutent à l’emprunt d’origine.")}
+                </p>
+              )}
+              {l.status === "SETTLED" && !extension && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle privé")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
@@ -773,7 +845,63 @@ function TrainPageContent() {
                   >
                     {t("Certificat d’exécution")}
                   </Link>
-                  {canPredictLoan(l, address) && (
+                  {expiryLabel && !rentalExpired && (
+                    <p className="mt-3 text-xs text-muted" data-testid="rental-access-until">
+                      {t("Accès aux prédictions jusqu’au {date}.", { date: expiryLabel })}
+                    </p>
+                  )}
+                  {rentalExpired && (
+                    <div className="mt-3 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs" data-testid="rental-expired" role="status">
+                      <p className="font-medium text-negative">{t("Location expirée")}</p>
+                      <p className="mt-1 text-muted">
+                        {modelDeleted
+                          ? t("Le délai de grâce est écoulé : le modèle a été supprimé de l’enclave et la location est close.")
+                          : t("Les prédictions sont arrêtées. Le modèle reste scellé {grace} jours après l’échéance : prolonge pour retrouver l’accès, sans réentraîner.", { grace: RENTAL_GRACE_DAYS })}
+                      </p>
+                    </div>
+                  )}
+                  {extendAllowed && (
+                    extending === l.id ? (
+                      <div className="mt-3 flex flex-wrap items-end gap-3" data-testid="rental-extend">
+                        <RentalDaysInput
+                          label="Jours à ajouter"
+                          value={chosenExtendDays}
+                          max={maxRentalDays}
+                          onChange={(days) => setExtendDays((previous) => ({ ...previous, [l.id]: days }))}
+                          disabled={busy.has(`extend:${l.id}`)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void extendRental(l, chosenExtendDays)}
+                          disabled={busy.has(`extend:${l.id}`)}
+                          aria-busy={busy.has(`extend:${l.id}`)}
+                          className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
+                        >
+                          {busy.has(`extend:${l.id}`) ? t("Prolongation…") : t("Voir le devis et prolonger")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExtending(null)}
+                          disabled={busy.has(`extend:${l.id}`)}
+                          className="rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-50"
+                        >
+                          {t("Annuler")}
+                        </button>
+                        <p className="w-full text-xs text-muted">
+                          {t("Chaque jour ajouté est payé au prix par jour du dataset, plus le calcul minimal d’un emprunt. Le total exact est affiché dans le devis, avant tout paiement.")}
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setExtending(l.id)}
+                        className="mt-3 inline-block rounded-lg border border-accent/40 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent"
+                      >
+                        {t("Prolonger")}
+                      </button>
+                    )
+                  )}
+                  {!rentalExpired && canPredictLoan(l, address, now) && (
                     <PredictionBox id={l.id} features={l.modelFeatures} predict={(features) => requestPrediction({ kind: "loan", id: l.id }, features)} />
                   )}
                 </div>

@@ -156,10 +156,12 @@ type Resolution = { state: "active" } | { state: "settled"; txHash: string };
 
 function settlementFixture(
   evmDeadline: Date | undefined,
-  runner: () => Promise<never>,
+  runner: () => Promise<{ settleTxHash: string; expiresAt?: number }>,
   resolution: Resolution = { state: "active" },
   quote: Record<string, unknown> = {},
+  loanOverrides: Record<string, unknown> = {},
 ) {
+  const rentalReads: Record<string, unknown>[] = [];
   const loan = {
     id: "loan", datasetId: "dataset", borrower: `0x${"44".repeat(20)}`, provider: `0x${"55".repeat(20)}`,
     status: "TRAINING", amountUsdcAtomic: "100", modelId: "linear_regression", modelVersion: "1.0.0",
@@ -168,6 +170,7 @@ function settlementFixture(
     attestationPayload: "attestation-payload", updatedAt: new Date(0), runnerKind: "PHALA", runnerDeploymentId: "phala:runner",
     attestationQuote: "aa", attestationEventLog: "[]", attestationComposeHash: "88".repeat(32),
     dataset: { ipfsCid: "bafyDataset", merkleRoot: "77".repeat(32), challengeDays: 7 },
+    ...loanOverrides,
   };
   const payload = {
     chainId: 46630, escrow: ESCROW, loanId: loan.id, loanKey: KEY, datasetId: loan.datasetId, datasetCid: loan.dataset.ipfsCid,
@@ -200,12 +203,39 @@ function settlementFixture(
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
     "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },
+    "./rental": { loanRentalExpiry: async (row: Record<string, unknown>) => { rentalReads.push(row); return null; } },
   });
-  return { api, updates };
+  return { api, updates, rentalReads };
 }
 
 const overdue = () => new Date(Date.now() - 60_000);
 const inTime = () => new Date(Date.now() + 60_000);
+
+test("D-29 : le règlement enregistre l'échéance de location posée par le runner au release", async () => {
+  const expiresAt = Date.parse("2026-11-10T12:00:00.000Z");
+  const { api, updates, rentalReads } = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {},
+    { rentalDays: 7, extendsLoanId: null });
+  await api.settlePreparedLoan("loan");
+  const settled = updates.find((update) => update.data.status === "SETTLED");
+  assert.ok(settled);
+  assert.equal(settled.data.settleTxHash, OTHER_TX);
+  assert.equal(Number(settled.data.rentalExpiresAt), expiresAt);
+  assert.equal(rentalReads.length, 0, "aucune relecture de la chaîne quand le runner a répondu");
+});
+
+test("D-29 : sans échéance du runner, elle est relue du bloc de release ; un prêt hérité n'en a jamais", async () => {
+  const rented = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX }), { state: "active" }, {}, { rentalDays: 7, extendsLoanId: null });
+  await rented.api.settlePreparedLoan("loan");
+  assert.equal(rented.updates.find((update) => update.data.status === "SETTLED")!.data.rentalExpiresAt, undefined);
+  assert.deepEqual(rented.rentalReads.map((row) => [row.status, row.settleTxHash, row.rentalDays, row.rentalExpiresAt]), [["SETTLED", OTHER_TX, 7, null]]);
+
+  const legacy = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt: Date.now() }), { state: "active" }, {},
+    { rentalDays: null, extendsLoanId: null });
+  await legacy.api.settlePreparedLoan("loan");
+  assert.equal(legacy.updates.find((update) => update.data.status === "SETTLED")!.data.rentalExpiresAt, undefined);
+  assert.equal(legacy.rentalReads.length, 0);
+});
+
 const rejected = (message: string, status: number) => async () => { throw new AppError(message, status); };
 
 test("A-05 : release rejetée après l'échéance, escrow encore verrouillé : le hash mort est effacé et le prêt redevient remboursable", async () => {

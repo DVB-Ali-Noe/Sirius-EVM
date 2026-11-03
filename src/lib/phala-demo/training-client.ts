@@ -9,6 +9,7 @@ import { MAX_DATASET_BYTES, type DatasetIngressKey } from "@/lib/tee/contract";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import type { ModelId, ModelSelection } from "@/lib/models/registry";
+import { DEFAULT_MAX_RENTAL_DAYS } from "@/lib/billing/rental";
 import { requestPrediction } from "@/lib/train/prediction-client";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -47,19 +48,19 @@ export async function trainDemoFile(file: File, modelId: ModelId, target: string
   current();
   const jobId = crypto.randomUUID();
   progress("Chiffrement de ton fichier…");
-  const init = await json<{ datasetId: string; ingressKey: DatasetIngressKey; priceUsdcAtomic: string; challengeDays: number; sizeBytes: number; model: ModelSelection }>("/api/datasets", {
+  const init = await json<{ datasetId: string; ingressKey: DatasetIngressKey; priceUsdcAtomic: string; challengeDays: number; maxRentalDays: number; sizeBytes: number; model: ModelSelection }>("/api/datasets", {
     method: "POST", headers: { "content-type": "application/json" },
     // Termes de publication exigés par la route (07-upload.md) : catégorie « Other », durée
     // minimale, pas de consentement. Le délai de sécurité n'est plus une entrée : le serveur
     // l'impose et le renvoie, et le grant ci-dessous reprend cette valeur.
-    body: JSON.stringify({ name: file.name.slice(0, 120), sizeBytes: bytes.length, priceUsdc: "0.001", category: "Other", listingDays: 7, trainingConsent: false, modelId }),
+    body: JSON.stringify({ name: file.name.slice(0, 120), sizeBytes: bytes.length, priceUsdc: "0.001", category: "Other", listingDays: 7, trainingConsent: false, modelId, maxRentalDays: DEFAULT_MAX_RENTAL_DAYS }),
   });
   current();
   const envelope = await encryptDatasetForRunner(bytes.buffer, init.datasetId, init.ingressKey);
   bytes.fill(0);
   current();
   const uploadGrant = await issueRunnerGrant("seal-dataset", { datasetId: init.datasetId, ...await demoScope() }, [init.datasetId, init.priceUsdcAtomic,
-    String(init.challengeDays), String(init.sizeBytes), envelope.ciphertext, init.model.modelId, init.model.modelVersion]);
+    String(init.challengeDays), String(init.sizeBytes), envelope.ciphertext, init.model.modelId, init.model.modelVersion, String(init.maxRentalDays)]);
   await json(`/api/datasets/${init.datasetId}/upload`, { method: "POST", headers: { "content-type": "application/json",
     "x-sirius-runner-grant": encodeRunnerGrantHeader(uploadGrant) }, body: JSON.stringify({ envelope }) });
   current();

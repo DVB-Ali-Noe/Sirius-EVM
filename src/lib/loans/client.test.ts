@@ -74,7 +74,7 @@ test("le lock est réautorisé après confirmation de l'approbation USDC", async
     throw new Error(input);
   });
   try {
-    await borrowDataset({ datasetId: "dataset-renew", priceUsdcAtomic: "100" });
+    await borrowDataset({ datasetId: "dataset-renew", priceUsdcAtomic: "100", rentalDays: 1 });
     assert.equal(decodeFunctionData({ abi: erc20Abi, data: events[0] as `0x${string}` }).functionName, "approve");
     assert.deepEqual(events.slice(1, 3), ["confirmed", "renewed"]);
     assert.equal(decodeFunctionData({ abi: siriusescrowAbi, data: events[3] as `0x${string}` }).functionName, "lock");
@@ -113,7 +113,7 @@ test("un lock v6 opaque ou hors contrat ne déclenche aucune signature", async (
     to: `0x${"99".repeat(20)}`, data: "0x1234",
   }, lockTransaction: { to: `0x${"99".repeat(20)}`, data: "0x1234" } }));
   try {
-    await assert.rejects(borrowDataset({ datasetId: "dataset", priceUsdcAtomic: "100" }), /Transaction de lock invalide/);
+    await assert.rejects(borrowDataset({ datasetId: "dataset", priceUsdcAtomic: "100", rentalDays: 1 }), /Transaction de lock invalide/);
     assert.equal(sent, 0);
   } finally {
     mock.restoreAll();
@@ -126,7 +126,7 @@ test("un lock v6 opaque ou hors contrat ne déclenche aucune signature", async (
 });
 
 test("le hash de lock est persisté et soumis immédiatement au serveur", () => {
-  const borrow = SOURCE.slice(SOURCE.indexOf("export async function borrowDataset"), SOURCE.indexOf("export async function resumeLoanSubmission"));
+  const borrow = SOURCE.slice(SOURCE.indexOf("async function approveAndLock"), SOURCE.indexOf("export async function borrowDataset"));
 
   assert.ok(
     borrow.indexOf("window.sessionStorage.setItem") < borrow.indexOf("await submitLoanLock"),

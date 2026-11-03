@@ -28,7 +28,7 @@ function catalogue(items: unknown[], extra: Record<string, unknown> = {}) {
 function detail(overrides: Record<string, unknown> = {}) {
   return {
     dataset: {
-      ...item, description: "Trajets agrégés par zone\n<script>alert(1)</script>", provider: PROVIDER, challengeDays: 3,
+      ...item, description: "Trajets agrégés par zone\n<script>alert(1)</script>", provider: PROVIDER, challengeDays: 3, maxRentalDays: 30,
       settledCount: 3, refundedCount: 1, successRate: 0.75, computeFee: { kind: "quoted", atomic: COMPUTE }, ...overrides,
     },
     token: TOKEN,
@@ -88,6 +88,14 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await expect(price.getByText("1.75 USDC", { exact: true })).toBeVisible();
   await expect(price.getByText("3.00 USDC", { exact: true })).toBeVisible();
   await expect(price.getByText("4.75 USDC", { exact: true })).toBeVisible();
+  // Location (D-29) : un jour par défaut ; trois jours → part du fournisseur × 3, calcul inchangé.
+  const rentalDays = page.getByLabel("Rental duration (days)");
+  await expect(rentalDays).toHaveValue("1");
+  await expect(rentalDays).toHaveAttribute("max", "30");
+  await rentalDays.fill("3");
+  await expect(price.getByText("5.25 USDC", { exact: true })).toBeVisible();
+  await expect(price.getByText("8.25 USDC", { exact: true })).toBeVisible();
+  await expect(price.getByText("3 d × 1.75 USDC per day", { exact: false })).toBeVisible();
   await expect(page.getByText("75% (3 of 4 completed loans)")).toBeVisible();
   await expect(page.getByText("If the loan is not settled after 3 days, you can recover your funds from the Train page.")).toBeVisible();
   await expect(page.getByText("Each new training is a new loan.", { exact: false })).toBeVisible();

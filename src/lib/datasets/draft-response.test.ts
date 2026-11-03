@@ -5,6 +5,7 @@ import { checkDraftResponse, type ExpectedDraft } from "./draft-response";
 
 const expected: ExpectedDraft = {
   priceUsdcAtomic: "20000000",
+  maxRentalDays: 30,
   sizeBytes: 15_000,
   modelId: "linear_regression",
   category: "Finance",
@@ -16,6 +17,7 @@ const response = {
   datasetId: "cmg1abcdefghijklmnop",
   ingressKey: { version: 1, publicKey: "BAAA", origin: "https://sirius.example" },
   priceUsdcAtomic: "20000000",
+  maxRentalDays: 30,
   challengeDays: 3,
   sizeBytes: 15_000,
   model: { modelId: "linear_regression", modelVersion: "1.0.0" },
@@ -37,6 +39,7 @@ test("une réponse conforme est relue et ne garde que les champs attendus", () =
     datasetId: response.datasetId,
     ingressKey: { version: 1, publicKey: "BAAA", origin: "https://sirius.example" },
     priceUsdcAtomic: "20000000",
+    maxRentalDays: 30,
     challengeDays: 3,
     sizeBytes: 15_000,
     model: { modelId: "linear_regression", modelVersion: "1.0.0" },
@@ -57,6 +60,9 @@ test("le délai de sécurité renvoyé doit être la constante de Sirius, jamais
 test("les termes signés doivent être ceux du formulaire", () => {
   rejected({ ...response, priceUsdcAtomic: "20000001" }, "Le serveur a renvoyé un autre prix");
   rejected({ ...response, priceUsdcAtomic: 20000000 }, "Le serveur a renvoyé un autre prix");
+  rejected({ ...response, maxRentalDays: 31 }, "Le serveur a renvoyé une autre durée maximale de location");
+  rejected({ ...response, maxRentalDays: "30" }, "Le serveur a renvoyé une autre durée maximale de location");
+  rejected({ ...response, maxRentalDays: undefined }, "Le serveur a renvoyé une autre durée maximale de location");
   rejected({ ...response, sizeBytes: 15_001 }, "Le serveur a renvoyé une autre taille de fichier");
   rejected({ ...response, model: { modelId: "logistic_regression", modelVersion: "1.0.0" } }, "Le serveur a renvoyé un autre profil d’entraînement");
   rejected({ ...response, model: { modelId: "linear_regression", modelVersion: "9.9.9" } }, "Le serveur a renvoyé un autre profil d’entraînement");

@@ -175,3 +175,22 @@ Le 1er novembre 2026, Noé décide de supprimer toute livraison de modèle, self
 - Les prédictions ne sont disponibles que pendant que le runner tourne ; aucune CVM continue n'est décidée. Le drapeau `SIRIUS_PREDICT_ENABLED` disparaît : la prédiction est la seule voie.
 
 D-28 remplace dans D-27 « linéaire et logistique restent livrées » et l'interdiction d'un `/predict` actif, ainsi que la livraison chiffrée du self-train de D-25. Les outils d'exploitation dédiés à la livraison (`ops:verify-model-delivery`, `ops:models`, `ops:recovery-pack`, inventaire de livraison historique) sont supprimés. Les documents antérieurs qui décrivent la livraison sont des archives.
+
+## D-29 — Location des modèles de prêt : prix par jour, durée bornée, prolongation
+
+Le 3 novembre 2026, Noé décide qu'un prêt n'ouvre plus les prédictions sans limite de temps :
+
+- **Le fournisseur fixe un prix par jour et une durée maximale** (1 à 365 jours, 30 par défaut). `Dataset.priceUsdcAtomic` devient le prix par jour, sans nouvelle colonne ; `Dataset.maxRentalDays` s'y ajoute. Les deux sont inscrits dans le reçu dataset signé par l'enclave (reçu v4 ; un reçu v3 vaut 30 jours) et ne sont plus modifiables après publication.
+- **L'emprunteur choisit `rentalDays`** entre 1 et la durée maximale. Le devis signé porte `rentalDays` (donc `quoteHash`, donc `termsHash` des `LockTerms` v7) et `datasetAmount = prix par jour × rentalDays`. Les frais de calcul restent payés une fois par emprunt.
+- **Échéance** = horodatage du bloc du `release` + `rentalDays × 86 400 s`. Le Next la stocke dans `Loan.rentalExpiresAt` ; le runner l'enregistre avec le modèle scellé. Après l'échéance, `POST /api/loans/[id]/predict` et le runner refusent les prédictions (« Location expirée : prolonge pour continuer »).
+- **Délai de grâce de 30 jours** (`RENTAL_GRACE_DAYS`) : le modèle reste scellé et le prêt peut être prolongé ; ensuite le runner le supprime (purge au démarrage puis toutes les heures) et toute prolongation est refusée (« Modèle supprimé : location close »).
+- **Prolongation** = un nouveau prêt complet (`Loan.extendsLoanId` → prêt d'origine), même flux de lock que l'emprunt, sans entraînement : le runner vérifie le lock, libère immédiatement (`release`) et repousse l'échéance à `max(échéance, bloc du release) + jours × 86 400 s`. L'opération est idempotente et reprise par le reaper après une coupure. Seul l'emprunteur d'origine peut prolonger, sur le même dataset.
+
+Limites acceptées :
+
+- **L'échéance est appliquée par le runner, pas par le contrat.** Aucun changement Solidity : l'escrow v7 ne connaît que `challengeDays` (fenêtre de règlement) et ignore la durée de location. Le paiement est acquis au `release` ; l'arrêt des prédictions repose sur l'horloge système de la CVM et sur le contrôle du Next. Un runner compromis ou à l'horloge fausse pourrait servir au-delà de l'échéance.
+- **Prêts hérités sans échéance.** Un prêt réglé avant D-29, ou un devis stocké sans `rentalDays`, n'a pas d'expiration (`rentalDays` et `rentalExpiresAt` nuls) : ses prédictions restent ouvertes, et il ne peut pas être prolongé puisqu'il n'expire pas.
+- **Calcul minimal à chaque prolongation.** Le contrat refuse un montant de calcul nul : une prolongation paie, en plus des jours ajoutés, le `minimumComputeAmount` de la politique de facturation, sans calcul réel en échange. La retenue maximale en échec d'une prolongation est nulle.
+- Les self-trains (`kind: "job"`) ne sont pas concernés : jamais d'expiration.
+
+D-29 ne change ni D-28 (prédiction signée seule, quota quotidien par wallet et modèle) ni les portes mainnet. Le prix par emprunt des documents antérieurs se lit désormais « prix par jour ».
