@@ -18,6 +18,8 @@ import { categoryLabelKey } from "@/lib/marketplace/categories";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { MODEL_REGISTRY, modelDisplayName, modelSelection } from "@/lib/models/registry";
 import { MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
+import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { BorrowPanel } from "./BorrowPanel";
 
 type LoadResult =
@@ -141,7 +143,14 @@ export default function MarketplaceListingPage() {
               <Fact label={t("Ce qu’il fait")} value={MODEL_REGISTRY[model.modelId].description} />
               <Fact label={t("Ce que vous obtenez")} value={t("Des prédictions signées du modèle entraîné, qui reste scellé dans l’enclave, et ses métriques de qualité.")} />
             </dl>
-          ) : (
+          ) : null}
+          {/* Gros fichier (envoi en morceaux) : entraîné sur un échantillon tant que l'entraînement complet n'est pas en ligne. */}
+          {model && ((dataset.sizeBytes ?? 0) > MAX_DATASET_BYTES || (dataset.rowCount ?? 0) >= MAX_CSV_ROWS) ? (
+            <p className="mt-3 text-xs text-muted">
+              {t("Gros fichier : pour l’instant, le modèle est entraîné sur un échantillon fixe de {rows} lignes au plus, réparti sur tout le fichier. Le nombre de lignes utilisées figure dans les métriques du modèle.", { rows: formatCount(MAX_CSV_ROWS - 1) })}
+            </p>
+          ) : null}
+          {model ? null : (
             <p className="mt-3 text-sm text-negative">{t("Profil d’entraînement manquant")}</p>
           )}
         </Card>

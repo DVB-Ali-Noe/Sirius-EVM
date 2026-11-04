@@ -24,10 +24,12 @@ import {
   decryptChunk,
   manifestSha256,
   merkleRootFromLeaves,
+  parseChunkedDatasetCid,
   parseChunkedUploadManifest,
   plaintextLeaves,
   type ChunkedUploadManifest,
 } from "@/lib/upload/chunked";
+import { chunkedTrainingSample, r2SampleSource } from "./chunked-sample";
 import { evmEscrowBinding } from "./evm-binding";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
@@ -131,6 +133,12 @@ export async function sealDatasetEnvelope(
 
 /** Déchiffre un dataset « en enclave » + vérifie l'intégrité Merkle. Le plaintext ne sort jamais. */
 async function decryptDataset({ datasetId, cid, wrappedKey, merkleRoot }: DatasetRef, signal?: AbortSignal): Promise<Buffer> {
+  // Gros dataset envoyé en morceaux : échantillon déterministe relu dans R2 (chunked-sample.ts).
+  const chunked = parseChunkedDatasetCid(cid);
+  if (chunked) {
+    const source = r2SampleSource({ datasetId, uploadId: chunked.uploadId }, signal);
+    return chunkedTrainingSample({ datasetId, cid, merkleRoot }, unwrapKey(wrappedKey, datasetKeyContext(datasetId)), source);
+  }
   const blob = await fetchFromIpfs(cid, signal);
   const payload = JSON.parse(blob.toString()) as EncryptedPayload;
   const plaintext = decrypt(payload, unwrapKey(wrappedKey, datasetKeyContext(datasetId)));

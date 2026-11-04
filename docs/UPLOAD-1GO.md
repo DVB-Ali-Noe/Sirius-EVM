@@ -172,7 +172,7 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 | Scellement dans l'enclave depuis R2 | Fait, testé en réel (25 Mio, 700 000 lignes, 5,2 s) | `sealChunkedDataset` (`src/lib/tee/core.ts`), `src/lib/storage/r2.ts` |
 | Routes du site, table `DatasetUpload`, opérations du runner | Fait, testé | ci-dessous |
 | Envoi par le site et CLI | Fait, testé (bout en bout sans réseau ; navigateur réel à faire) | `src/lib/upload/chunked-transfer.ts`, formulaire `datasets/new`, `scripts/sirius-upload.ts` |
-| Entraînement des gros fichiers | À faire : un dataset en morceaux se scelle et se publie, mais ne s'entraîne pas encore | — |
+| Entraînement des gros fichiers | **Décidé (4 nov.)** : sur un échantillon pour le 7, testé en réel (R2) ; entraînement complet en arrière-plan la semaine suivante, avec Noé | `src/lib/tee/chunked-sample.ts` |
 | Registre v6 et escrow v8 | À faire : le registre v5 refuse plus de 16 Mio au mint | — |
 
 **Routes** (toutes authentifiées, réservées au fournisseur du brouillon) :
@@ -195,6 +195,8 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 **Site** : au-delà de 3 Mo, et si l'instance l'autorise (R2 configuré, `SIRIUS_CHUNKED_MAX_BYTES`), le formulaire lit le fichier par tranches (mêmes refus que pour un petit fichier, sauf le budget de calcul et les classes des arbres, vérifiés à l'entraînement), affiche la racine de Merkle comme empreinte, puis chiffre et envoie les morceaux (3 en parallèle, reprises sur erreur, avancement en %). Le navigateur demande confirmation avant de fermer la page pendant l'envoi. Une page rechargée renvoie tout : la clé d'envoi ne quitte pas la mémoire. Un envoi interrompu est abandonné (quota libéré, morceaux supprimés).
 
 **CLI** : `SIRIUS_URL=… SIRIUS_PRIVATE_KEY=0x… SIRIUS_INGRESS_KEY_SHA256=… pnpm upload:cli data.csv --name "…" --category Finance --price 10 [--model …]`. Même code que le site ; connexion par signature du wallet (clé de session déléguée, comme le navigateur) ; l'empreinte de la clé d'ingestion est obligatoire hors localhost. Le titre on-chain se publie ensuite depuis le site.
+
+**Entraînement (échantillon)** : relire 1 Gio dépasse les 65 s d'une requête du runner. En attendant l'entraînement complet en arrière-plan, un gros dataset s'entraîne dans le parcours actuel (prêt et self-train, mêmes limites que les petits fichiers : 3 Mio, 49 999 lignes) sur un échantillon déterministe : des lignes entières prises dans des morceaux répartis sur tout le fichier (8 morceaux de 8 Mio), le fichier entier s'il tient dans les limites, le début du fichier s'il contient des retours à la ligne entre guillemets. Chaque morceau lu est vérifié contre le manifeste scellé (empreinte, puis AES-GCM). Le nombre de lignes utilisées figure dans les métriques du modèle (`n`) ; la fiche marketplace l'annonce.
 
 **Restes connus** : un scellement n'est finalisé que si quelqu'un suit l'envoi (page ouverte ou CLI) ; les morceaux d'un brouillon supprimé sans abandon restent dans R2 (nettoyage à prévoir) ; un runner redémarré oublie ses scellements en cours (le fournisseur relance la clôture, sans renvoyer ses morceaux).
 

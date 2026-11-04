@@ -9,6 +9,8 @@ export const UPLOAD_CHUNKED_MESSAGES_EN: Record<string, string> = {
   "Gros fichier : il sera chiffré et envoyé en morceaux depuis ce navigateur. Garde la page ouverte pendant l’envoi.":
     "Large file: it will be encrypted and sent in chunks from this browser. Keep the page open during the upload.",
   "{percent} % envoyé": "{percent}% sent",
+  "Gros fichier : pour l’instant, le modèle est entraîné sur un échantillon fixe de {rows} lignes au plus, réparti sur tout le fichier. Le nombre de lignes utilisées figure dans les métriques du modèle.":
+    "Large file: for now, the model is trained on a fixed sample of at most {rows} rows, spread across the whole file. The number of rows used is shown in the model metrics.",
 
   // Module d'envoi (site et CLI)
   "La taille du fichier a changé depuis la création du brouillon": "The file size changed since the draft was created",
