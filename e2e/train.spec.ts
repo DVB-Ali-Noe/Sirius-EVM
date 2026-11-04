@@ -139,7 +139,8 @@ test("la prédiction privée remplace la livraison : jobs servis et prêts régl
   });
   const calls = await install(page, {
     admin: true,
-    jobs: [job("served"), job("legacy", { servedModelId: null }), job("running", { status: "RUNNING", servedModelId: null })],
+    jobs: [job("served"), job("fields", { modelFeatures: ["surface_m2", "rooms"] }), job("legacy", { servedModelId: null }),
+      job("running", { status: "RUNNING", servedModelId: null })],
     loans: [
       loan("done", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt" }),
       loan("provider-view", { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt", borrower: OTHER, provider: ME }),
@@ -162,8 +163,64 @@ test("la prédiction privée remplace la livraison : jobs servis et prêts régl
   await jobCard("Job served").getByLabel("Numeric features (JSON, use the training column names)").fill("[1, 2]");
   await jobCard("Job served").getByRole("button", { name: "Request a prediction" }).click();
   await expect(jobCard("Job served").getByRole("alert")).toHaveText("Enter a JSON object of numeric features");
+  // Colonnes connues : une case par variable, et une case vide est refusée sans appel au serveur.
+  const fields = jobCard("Job fields");
+  await expect(fields.getByLabel("surface_m2")).toHaveValue("");
+  await expect(fields.getByLabel("rooms")).toBeVisible();
+  await fields.getByLabel("surface_m2").fill("84");
+  await fields.getByRole("button", { name: "Request a prediction" }).click();
+  await expect(fields.getByRole("alert")).toHaveText("Enter a numeric value for each feature");
   // Aucun appel de livraison : ni clé, ni modèle, ni prédiction au chargement.
   expect(calls.filter((call) => /\/key\b|\/api\/models\/|\/predict/.test(call))).toEqual([]);
+});
+
+test("location (D-29) : accès jusqu'à l'échéance, puis prédiction masquée et Prolonger tant que le modèle existe", async ({ page }) => {
+  const DAY = 86_400_000;
+  const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+  const settled = { status: "SETTLED", settleTxHash: TX, modelCid: "sm1fixture", runnerReceipt: "receipt" };
+  const dataset = (id: string) => ({ name: `Dataset ${id}`, runnerReceipt: "receipt", maxRentalDays: 14, priceUsdcAtomic: "1000000" });
+  await install(page, {
+    loans: [
+      loan("active", { ...settled, rentalDays: 7, rentalExpiresAt: at(3 * DAY), dataset: dataset("active") }),
+      loan("expired", { ...settled, rentalDays: 7, rentalExpiresAt: at(-2 * DAY), dataset: dataset("expired") }),
+      loan("deleted", { ...settled, rentalDays: 7, rentalExpiresAt: at(-31 * DAY), dataset: dataset("deleted") }),
+      loan("legacy", { ...settled, rentalDays: null, rentalExpiresAt: null }),
+      loan("extension", { ...settled, rentalDays: 3, rentalExpiresAt: null, extendsLoanId: "expired", dataset: dataset("extension") }),
+    ],
+  });
+  await page.goto("/train");
+  await connect(page);
+
+  const active = card(page, "Dataset active");
+  await expect(active.getByTestId("rental-access-until")).toContainText("Access to predictions until", { timeout: 30_000 });
+  await expect(active).toContainText("Rented for");
+  await expect(active.getByRole("button", { name: "Request a prediction" })).toBeVisible();
+  await expect(active.getByTestId("rental-expired")).toHaveCount(0);
+
+  const expired = card(page, "Dataset expired");
+  await expect(expired.getByTestId("rental-expired")).toContainText("Predictions are stopped");
+  await expect(expired.getByTestId("prediction-box")).toHaveCount(0);
+  await expired.getByRole("button", { name: "Extend", exact: true }).click();
+  const days = expired.getByLabel("Days to add");
+  await expect(days).toHaveValue("1");
+  await expect(days).toHaveAttribute("max", "14");
+  await expect(expired.getByRole("button", { name: "See the quote and extend" })).toBeEnabled();
+
+  const deleted = card(page, "Dataset deleted");
+  await expect(deleted.getByTestId("rental-expired")).toContainText("the model was deleted from the enclave");
+  await expect(deleted.getByRole("button", { name: "Extend", exact: true })).toHaveCount(0);
+  await expect(deleted.getByTestId("prediction-box")).toHaveCount(0);
+
+  // Prêt antérieur à D-29 : aucune échéance, prédiction toujours ouverte.
+  const legacy = card(page, "Dataset legacy");
+  await expect(legacy.getByRole("button", { name: "Request a prediction" })).toBeVisible();
+  await expect(legacy.getByTestId("rental-access-until")).toHaveCount(0);
+
+  // Ligne de prolongation : ni prédiction, ni réentraînement, ni lancement de job.
+  const extension = card(page, "Dataset extension");
+  await expect(extension).toContainText("Extension settled");
+  await expect(extension.getByTestId("prediction-box")).toHaveCount(0);
+  await expect(extension.getByRole("button", { name: "Retrain", exact: true })).toHaveCount(0);
 });
 
 test("Refund n'apparaît que pour un échec sans modèle utilisable, avec l'explication", async ({ page }) => {

@@ -40,6 +40,10 @@ test("rejoue RTMR3 et lie exactement le compose_hash mesuré", () => {
     replayedRtMr3: rtMr3,
     eventLogMatches: true,
     composeEventMatches: true,
+    // Journal synthétique sans événements de plateforme ni system-ready : rien d'accepté.
+    appId: null,
+    osImageHash: null,
+    keyProviderName: null,
   });
 });
 

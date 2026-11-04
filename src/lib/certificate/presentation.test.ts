@@ -15,6 +15,8 @@ function verification(overrides: Partial<QuoteVerificationView> = {}): QuoteVeri
     eventLogMatches: true,
     composeHashMatches: true,
     rtMr3Matches: true,
+    platformMatches: true,
+    applicationMatches: true,
     codeIdentityMatches: true,
     measurements: { mrTd: "A1".repeat(48), rtMr3: "b2".repeat(48), composeHash: "c3".repeat(32) },
     tcbStatus: "UpToDate",
@@ -164,11 +166,13 @@ test("ancienne enclave Sirius de production : vérifié, compose présenté comm
   assert.equal(pending.checks.find((check) => check.label === "Code identity")?.state, "pass");
 });
 
-test("ancienne enclave : ne couvre ni une autre image, ni un event log rejeté, ni une quote non liée", () => {
+test("ancienne enclave : ne couvre ni une autre image, ni un autre OS ou app, ni un event log rejeté, ni une quote non liée", () => {
   const retiredEnclave = { retiredAt: new Date("2026-10-08T12:28:56Z") };
   const cases = [
     verification({ composeHashMatches: false, codeIdentityMatches: false, baseImageMatches: false }),
     verification({ composeHashMatches: false, codeIdentityMatches: false, baseImageMatches: null }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, platformMatches: false }),
+    verification({ composeHashMatches: false, codeIdentityMatches: false, applicationMatches: false }),
     verification({ composeHashMatches: false, codeIdentityMatches: false, eventLogMatches: false }),
     verification({ composeHashMatches: false, codeIdentityMatches: false, eventLogMatches: null }),
     verification({ composeHashMatches: false, codeIdentityMatches: false, reportDataMatches: false }),

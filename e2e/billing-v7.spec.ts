@@ -44,8 +44,8 @@ const listingDetail = {
     id: listed.id, name: listed.name, description: listed.description, category: "mobility", modelId: listed.modelId,
     modelVersion: listed.modelVersion, rowCount: 48_000, columnCount: 24, sizeBytes: listed.sizeBytes, providerPriceAtomic: PRICE,
     priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 0, verified: true,
-    listedAt: "2026-10-01T00:00:00.000Z", provider: PROVIDER, challengeDays: 3, settledCount: 0, refundedCount: 0, successRate: null,
-    computeFee: { kind: "quoted", atomic: COMPUTE },
+    listedAt: "2026-10-01T00:00:00.000Z", provider: PROVIDER, challengeDays: 3, maxRentalDays: 14, settledCount: 0, refundedCount: 0,
+    successRate: null, computeFee: { kind: "quoted", atomic: COMPUTE },
   },
   token: { symbol: "USDC", decimals: DECIMALS },
   kybAvailable: true,
@@ -59,6 +59,7 @@ function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
     computeRecipient: RECIPIENT, datasetAmount: PRICE, computeAmount: COMPUTE, maxFailureFee: CAP, executionRateAtomicPerMs: "16111111111",
     maxExecutionMs: 30000, maxDatasetBytes: 1_000_000, hashlock: hash(3), challengeDays: 7, tariffVersion: "tarif-test",
     expiresAt: Math.floor(Date.now() / 1000) + 300, failurePolicy: "consumed-execution-only", modelId: "linear_regression", modelVersion: "1.0.0",
+    rentalDays: 1,
     ...overrides,
   } as ComputeQuote; // `overrides` élargit la version : les profils n'ont plus tous la même.
 }
@@ -310,7 +311,8 @@ test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant
   const dialog = page.getByRole("dialog", { name: "Training quote" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("8.75 test USDC", { exact: true })).toBeVisible();
-  expect(bodies).toEqual([{ datasetId: listed.id }]);
+  // Une journée de location par défaut (D-29) : prix par jour × 1 + calcul.
+  expect(bodies).toEqual([{ datasetId: listed.id, rentalDays: 1 }]);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
   expect(await transactions(page)).toHaveLength(0);

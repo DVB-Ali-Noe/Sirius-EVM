@@ -85,9 +85,10 @@ async function listerDatasets(req: Request) {
 /**
  * Création du brouillon (07-upload.md). Les validations sont toutes refaites côté serveur
  * dans `parseCreateDatasetRequest` : catégorie de la liste fixe, durée de publication parmi
- * 7 / 30 / 90 jours, consentement strictement booléen, prix borné, profil connu. Le délai
- * de sécurité de l'escrow n'est pas une entrée : il vaut `ESCROW_CHALLENGE_DAYS` quoi que
- * contienne le corps.
+ * 7 / 30 / 90 jours, consentement strictement booléen, prix par jour borné, durée maximale de
+ * location (1 à 365 jours), profil connu. Le délai de sécurité de l'escrow n'est pas une entrée :
+ * il vaut `ESCROW_CHALLENGE_DAYS` quoi que contienne le corps. La réponse renvoie `maxRentalDays`,
+ * signé ensuite dans le reçu du runner (non modifiable après publication).
  */
 export async function POST(req: Request) {
   try {

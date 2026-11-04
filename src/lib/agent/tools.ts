@@ -144,7 +144,10 @@ const datasetSummaryOutput = z.object({
   category: z.string().nullable(),
   trainingProfile: trainingProfileOutput.nullable(),
   price: z.string().nullable(),
-  priceMeaning: z.enum(["total paid by the buyer", "amount received by the provider (compute fee unknown)"]),
+  priceMeaning: z.enum([
+    "total paid by the buyer for one rental day",
+    "amount received by the provider for one rental day (compute fee unknown)",
+  ]),
   rows: z.number().nullable(),
   columns: z.number().nullable(),
   borrowCount: z.number(),
@@ -178,6 +181,7 @@ export const getDatasetOutput = z.object({
         note: z.string(),
       }),
       refundAfterDays: z.number(),
+      maxRentalDays: z.number(),
       stats: z.object({
         borrowCount: z.number(),
         settledCount: z.number(),
@@ -284,7 +288,9 @@ function datasetSummary(
     trainingProfile: trainingProfile(listing),
     price: formatTokenWithSymbol(price.priceAtomic, token),
     priceMeaning:
-      price.priceKind === "borrowerPays" ? "total paid by the buyer" : "amount received by the provider (compute fee unknown)",
+      price.priceKind === "borrowerPays"
+        ? "total paid by the buyer for one rental day"
+        : "amount received by the provider for one rental day (compute fee unknown)",
     rows: listing.rowCount,
     columns: listing.columnCount,
     borrowCount: listing.borrowCount,
@@ -345,11 +351,14 @@ export function getDatasetResult(
         computeFeeStatus: feeStatus(fee),
         totalPaidByBuyer: price.priceKind === "borrowerPays" ? formatTokenWithSymbol(price.priceAtomic, token) : null,
         note:
-          fee.kind === "unknown"
+          `Prices are for one rental day: the buyer picks 1 to ${dataset.maxRentalDays} days, the provider share is multiplied by the days ` +
+          "and the compute fee is paid once. Predictions stop at expiry unless the loan is extended. " +
+          (fee.kind === "unknown"
             ? "No compute fee is published right now: the signed quote presented before payment gives it, and the total."
-            : "The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
+            : "The compute fee shown is indicative: the signed quote presented before payment is authoritative."),
       },
       refundAfterDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       stats: {
         borrowCount: dataset.borrowCount,
         settledCount: dataset.settledCount,

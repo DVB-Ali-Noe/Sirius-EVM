@@ -15,10 +15,11 @@ export interface PublishedTariff {
   version: string;
   /**
    * Frais de calcul par profil : ce que le devis annoncera à l'emprunteur en plus de la part du
-   * fournisseur. Un profil facultatif absent de la politique n'a pas de frais : il n'est pas publiable.
+   * fournisseur (prix par jour × jours loués). Ils ne dépendent pas de la durée. Un profil
+   * facultatif absent de la politique n'a pas de frais : il n'est pas publiable.
    */
   computeFeeAtomic: Partial<Record<ModelId, string>>;
-  /** Plancher de la part du fournisseur (`MIN_PRICE_USDC_ATOMIC`), refusé en dessous par la route. */
+  /** Plancher du prix par jour du fournisseur (`MIN_PRICE_USDC_ATOMIC`), refusé en dessous par la route. */
   minimumProviderAtomic: string;
   /** Décimales du jeton de règlement, pour affichage. */
   decimals: number;
@@ -78,7 +79,7 @@ export function legacyTariff(decimals: number, minimumProviderAtomic: string): P
   };
 }
 
-/** Décomposition affichée pour une part de fournisseur donnée (unités atomiques) et un profil. */
+/** Décomposition affichée pour une part de fournisseur donnée (unités atomiques, prix par jour × jours) et un profil. */
 export function providerPriceBreakdown(
   tariff: PublishedTariff,
   modelId: ModelId,

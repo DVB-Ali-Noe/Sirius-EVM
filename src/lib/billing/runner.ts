@@ -14,6 +14,7 @@ import { runnerBudget } from "@/lib/runner/budget";
 import { QUOTE_LIFETIME_SECONDS } from "@/lib/runner/budget-ledger";
 import { billingPolicy } from "./config";
 import { computeQuoteHash, parseComputeQuote, quoteAuthorizationTypedData, verifyComputeQuote, type ComputeQuote, type SignedComputeQuote } from "./quote";
+import { datasetAmountFor, isValidRentalDays } from "./rental";
 
 export function loanWorkflowId(loanId: string, borrower: string, binding = evmEscrowBinding()): string {
   return `loan:${binding.chainId}:${binding.escrow.toLowerCase()}:${loanKeyFor(borrower, loanId)}`;
@@ -49,9 +50,15 @@ async function reclaimExpiredUnpaidQuotes(): Promise<void> {
   }
 }
 
+/**
+ * Devis contre le dataset vérifié par le reçu runner. Prix par jour × `rentalDays` (D-29), durée
+ * bornée par `maxRentalDays` du reçu ; un devis hérité (`rentalDays` nul) vaut le prix forfaitaire.
+ */
 export function assertQuoteDataset(quote: ComputeQuote, dataset: DatasetRef, receipt: string, borrower: string, loanId: string): void {
+  const datasetAmount = quote.rentalDays === null ? dataset.priceUsdcAtomic
+    : isValidRentalDays(quote.rentalDays, dataset.maxRentalDays) ? datasetAmountFor(dataset.priceUsdcAtomic, quote.rentalDays) : null;
   if (quote.loanId !== loanId || quote.borrower !== borrower.toLowerCase() || quote.datasetId !== dataset.datasetId
-    || quote.datasetReceiptHash !== keccak256(toHex(receipt)) || quote.datasetAmount !== dataset.priceUsdcAtomic
+    || quote.datasetReceiptHash !== keccak256(toHex(receipt)) || quote.datasetAmount !== datasetAmount
     || quote.challengeDays !== dataset.challengeDays || quote.modelId !== dataset.modelId || quote.modelVersion !== dataset.modelVersion) {
     throw new AppError("Devis compute hors scope", 409);
   }
@@ -66,10 +73,19 @@ export async function runnerComputeQuote(value: unknown, requireUnexpired = fals
   return signed;
 }
 
+/**
+ * Devis d'un emprunt (`rentalDays` jours) ou d'une prolongation (`extendsLoanId`) : celle-ci ne
+ * réentraîne rien, son compute vaut le minimum de la politique (le contrat refuse 0) et elle
+ * n'expose aucun frais d'échec.
+ */
 export async function prepareComputeQuote(input: {
   dataset: DatasetRef; datasetReceipt: string; borrower: string; provider: string;
   loanId: string; onChainDatasetId: Hex; hashlock: Hex; authorizationDeadline: number;
+  rentalDays: number; extendsLoanId?: string;
 }): Promise<SignedComputeQuote> {
+  if (!isValidRentalDays(input.rentalDays, input.dataset.maxRentalDays)) {
+    throw new AppError("Durée de location invalide", 400);
+  }
   const binding = evmEscrowBinding();
   const ledger = requireBillingBudget();
   const existing = ledger.workflowPayload(loanWorkflowId(input.loanId, input.borrower));
@@ -77,7 +93,8 @@ export async function prepareComputeQuote(input: {
     const signed = await runnerComputeQuote(JSON.parse(existing), true);
     assertQuoteDataset(signed.quote, input.dataset, input.datasetReceipt, input.borrower, input.loanId);
     if (signed.quote.onChainDatasetId !== input.onChainDatasetId || signed.quote.hashlock !== input.hashlock
-      || signed.quote.provider !== input.provider.toLowerCase()) throw new AppError("Devis compute hors scope", 409);
+      || signed.quote.provider !== input.provider.toLowerCase() || signed.quote.rentalDays !== input.rentalDays
+      || signed.quote.extendsLoanId !== input.extendsLoanId) throw new AppError("Devis compute hors scope", 409);
     return signed;
   }
   await reclaimExpiredUnpaidQuotes();
@@ -98,11 +115,14 @@ export async function prepareComputeQuote(input: {
     runner: settlementAccount().address.toLowerCase(), loanId: input.loanId, datasetId: input.dataset.datasetId,
     onChainDatasetId: input.onChainDatasetId, datasetReceiptHash: keccak256(toHex(input.datasetReceipt)),
     borrower: input.borrower.toLowerCase(), provider: input.provider.toLowerCase(), computeRecipient: policy.computeRecipient,
-    datasetAmount: input.dataset.priceUsdcAtomic, computeAmount: String(configured > minimum ? configured : minimum),
-    maxFailureFee: profile.maxFailureFee, executionRateAtomicPerMs: profile.executionRateAtomicPerMs,
+    datasetAmount: datasetAmountFor(input.dataset.priceUsdcAtomic, input.rentalDays),
+    computeAmount: String(input.extendsLoanId === undefined && configured > minimum ? configured : minimum),
+    maxFailureFee: input.extendsLoanId === undefined ? profile.maxFailureFee : "0",
+    executionRateAtomicPerMs: profile.executionRateAtomicPerMs,
     maxExecutionMs: profile.maxExecutionMs, maxDatasetBytes: MAX_DATASET_BYTES, hashlock: input.hashlock,
     challengeDays: input.dataset.challengeDays, modelId: input.dataset.modelId, modelVersion: input.dataset.modelVersion,
-    tariffVersion: policy.tariffVersion, expiresAt, failurePolicy: "consumed-execution-only",
+    tariffVersion: policy.tariffVersion, expiresAt, failurePolicy: "consumed-execution-only", rentalDays: input.rentalDays,
+    ...(input.extendsLoanId === undefined ? {} : { extendsLoanId: input.extendsLoanId }),
   });
   const signature = await settlementAccount().signTypedData(quoteAuthorizationTypedData(quote));
   const signed: SignedComputeQuote = { quote, authorization: { deadline: quote.expiresAt, signature } };

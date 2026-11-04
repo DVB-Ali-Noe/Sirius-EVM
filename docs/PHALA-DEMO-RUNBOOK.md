@@ -108,6 +108,7 @@ Le fichier privé `PHALA_DEMO_FUNDING_FILE` est lu lors d’une commande **Activ
 - Plafond positif, couvert par les sources et supérieur aux engagements + réserve fixe. Date de relevé réelle. Les quotas ne créent aucun droit de dépense supplémentaire.
 - La mise à jour est refusée tant que la session est ouverte ou qu’une réservation reste incertaine. Ancienne/nouvelle politique et acteur sont conservés dans SQLite ; les compteurs financiers ne sont jamais effacés.
 - La commande ne renouvelle ni la date de validité des prix ni leurs montants. Une politique expirée demande une maintenance comptable contrôlée ; ne pas fabriquer un nouveau registre pour continuer.
+- **Relever le plafond en pratique** (fait le 2 novembre 2026, 9 puis 11 puis 16 USD) : session **fermée**, relever le solde Phala (`phala api /auth/me`), sauvegarder puis modifier `PHALA_DEMO_FUNDING_FILE` sous `<CONFIG_OPS>` (`ceilingUsdMicros` et `creditsUsdMicros` cumulés, `observedAtMs` = l'heure du relevé). Rien ne change avant le prochain **Activer**, qui applique la politique puis ouvre. Indice de dépassement : session `open` mais `available: false`, entraînement refusé sous le minimum des coûts (0,41 USD au tarif actuel).
 
 Ce mécanisme autorise une enveloppe interne. Il ne choisit pas le solde que Phala prélève et ne garantit pas un plafond fournisseur. **La machine allumée continue de coûter même sans entraînement ; le disque continue après arrêt.** Prévoir cette réserve et vérifier le relevé fournisseur avant/après chaque ouverture. L’estimation automatique de l’hébergement et les notifications externes ne sont pas encore intégrées au panneau : surveillance opérateur requise avant toute ouverture publique.
 
@@ -132,6 +133,19 @@ Les essais unitaires/navigateur locaux ne remplacent pas cette répétition rés
 4. Réussite attendue : résultat de 30 000 lignes, prédiction signée disponible, aucune interruption du worker ni 503, marge réelle sur les 15 s de calcul et sur la mémoire de la CVM. Un rejet à 31 251 lignes avec 31 variables doit rester explicite côté navigateur, sans nouveau calcul facturé ; ne pas envoyer un CSV tiers pour cette vérification.
 5. Fermer manuellement en drainant les opérations et confirmer l’arrêt chez Phala. Relever le coût et le solde avant/après. Si mémoire ou délai manquent, analyser leur cause sur la CVM avant de proposer 256 Mio d’old-gen ou 30 s ; un changement de délai du parcours facturé v7 exige également un devis signé cohérent. Consigner les mesures dans la PR avant toute fusion.
 
+## Mettre à jour le runner de la démo
+
+Procédure suivie trois fois les 1er et 2 novembre 2026. Une fusion dans `staging` publie l'image runner mais ne touche jamais la CVM : cette mise à jour reste un geste opérateur, session fermée.
+
+1. **Image.** Relever le digest publié pour le commit de `staging` (`gh api orgs/DVB-Ali-Noe/packages/container/sirius-runner/versions`, tag `staging-<commit>`).
+2. **Compose.** `pnpm phala:compose-v7 demo-active <image@digest> <fichier> --opt-in-models=gradient_boosted_trees` (sans `--origin` : la démo lit son origine dans l'environnement chiffré). Comparer au Compose en service : seule l'image doit changer, et les volumes `sirius_phala_demo_*` rester identiques.
+3. **Déploiement.** Copier le Compose sous `<ETAT_OPS>/phala-demo/runner/` (`sirius-ops`, 0600), arrêter le contrôleur, puis, en tant que `<COMPTE_OPS>` : `pnpm dlx phala@1.1.22 deploy --profile sirius --cvm-id <cvm> -c <compose> -e <ETAT_OPS>/phala-demo/runner/runner.trees-active.env --no-public-logs --no-public-sysinfo --public-tcbinfo --wait`. Les journaux étant privés, contrôler avec `phala ps --cvm-id <cvm>` (conteneur `Up` stable, pas `Restarting`) et `phala logs --cvm-id <cvm> --serial`.
+4. **Attestation.** `phala cvms attestation <app> --json` : SHA-256 de `tcb_info.app_compose` = `compose_hash`, image = digest attendu. Puis `DOTENV_CONFIG_PATH=/dev/null RUNNER_URL=<url> pnpm runner:capture-ra-tls` : « Quote matérielle vérifiée — mode actif » ; seule l'empreinte du Compose doit changer (MRTD, RTMR0–2, `SIRIUS_EXPECTED_OS_IMAGE_HASH`, `SIRIUS_EXPECTED_APP_ID`, chaîne KMS, empreinte d'ingestion, `SIRIUS_LOCK_AUTHORIZER`, `RUNNER_DEPLOYMENT_ID` identiques). Un changement d'OS dstack ou de taille de VM change RTMR0–2 et `os-image-hash` : vérifier la nouvelle image OS avant de réépingler ces valeurs partout.
+5. **Pins.** Sauvegarder puis remplacer `SIRIUS_EXPECTED_COMPOSE_HASH` dans le contrôleur et le moniteur (`<CONFIG_OPS>`) et dans `.env.vps` du reaper (`<DOSSIER_STAGING>`, puis `docker compose -p sirius-staging --env-file .env.vps up --detach`) ; redémarrer le contrôleur. Vercel staging : `vercel env add SIRIUS_EXPECTED_COMPOSE_HASH production --force --type config` (garder le type `Config`), puis relancer le job « Front Vercel » du dernier run staging. Vérifier `/api/phala-demo/attestation` (`composeHash` = nouvelle empreinte).
+6. **Déclaration.** PR : `src/lib/phala-demo/composes/<hash>.json` (octets exacts de `tcb_info.app_compose`) et entrée `DECLARED_RELEASES` (image, commit), pour que la page d'attestation affiche une version prouvée plutôt que « non répertoriée ».
+
+**En service au 2 novembre 2026** : Compose `df933bc1fe346a9c0695623a847131cdde7d17265cf47307b44674c552233b53`, image `sirius-runner@sha256:58f153a9b0f66a15ff887397d84d9027cde3fdb6204257d722ccf8f5943c5679`, commit `2b57014`. Les trois modèles ont été entraînés puis interrogés en réel (valeur arrondie pour la linéaire, décision pour la logistique et les arbres sur 30 000 lignes).
+
 ## Incident et reprise
 
 - Erreur de commande/attestation : page indisponible ; consulter l’état fournisseur. Aucune garantie que la machine soit arrêtée tant que Phala ne le confirme pas. Utiliser Arrêt d’urgence si nécessaire.
@@ -139,6 +153,9 @@ Les essais unitaires/navigateur locaux ne remplacent pas cette répétition rés
 - Perte de réponse Next avant persistance : un résultat peut rester scellé dans le runner sans job `DONE` en base ; la prédiction n’est alors pas garantie. Le drainage normal protège les jobs RUNNING, pas une panne arbitraire de Next.
 - Volume runner perdu : les modèles scellés sont perdus ; aucun autre exemplaire n’existe. Ne pas promettre le contraire.
 - Pause longue : fermer manuellement puis confirmer l’arrêt, vérifier charges disque et sauvegardes. Aucun minuteur ne le fait à votre place.
+- Conteneur absent, CVM en `error` au démarrage, `Docker login failed: ghcr.io … denied` dans `phala logs --serial` : le jeton de lecture du registre (`DSTACK_DOCKER_USERNAME` / `DSTACK_DOCKER_PASSWORD` de l'environnement chiffré) a expiré. Créer un jeton classique **`read:packages` seul**, le déposer sur le VPS sans l'afficher, mettre à jour le fichier d'environnement avec sauvegarde, redéployer. Noter son échéance : aucune alerte ne prévient.
+- Runner en redémarrage permanent (`Restarting (1)`) : vérifier d'abord le RPC de l'environnement runner. Un `429 Monthly capacity limit exceeded` d'Alchemy empêche la vérification des contrats au démarrage ; le même RPC sert au contrôleur et au moniteur.
+- Prêt remboursé ou réglé mais encore ouvert en base : le reaper lit l'état au bloc **finalisé**, environ 30 minutes derrière la tête de chaîne sur Robinhood testnet. Attendre la finalité avant de conclure à une panne.
 
 ## Travail restant sans attribution nominative
 

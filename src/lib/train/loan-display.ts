@@ -1,5 +1,6 @@
 import { addressesEqual } from "@/lib/evm/address";
 import { isServedModelFingerprint } from "@/lib/models/registry";
+import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 
 /**
  * Logique d'affichage de la page Train pour les emprunts (docs/passage-mainnet/09-train-et-certificat.md,
@@ -31,6 +32,49 @@ export interface LoanDisplayInput {
   refundable?: boolean;
   /** Lu sur `GET /api/loans/[id]/finality` : lock pas encore sous le bloc stable, lancement refusé. */
   lockFinalityPending?: boolean;
+  /** Durée de location signée (D-29). Nulle : prêt hérité, sans échéance. */
+  rentalDays?: number | null;
+  /** Fin de l'accès aux prédictions (ISO), posée au règlement puis repoussée par chaque prolongation. */
+  rentalExpiresAt?: string | null;
+  /** Prêt de prolongation : identifiant du prêt d'origine. Il n'a ni modèle ni prédiction propres. */
+  extendsLoanId?: string | null;
+}
+
+/** Échéance de location connue et atteinte (`now` en ms). Un prêt hérité n'expire jamais. */
+export function isLoanRentalExpired(loan: LoanDisplayInput, now: number): boolean {
+  if (!loan.rentalExpiresAt) return false;
+  const expiresAt = Date.parse(loan.rentalExpiresAt);
+  return Number.isFinite(expiresAt) && now >= expiresAt;
+}
+
+/**
+ * Modèle scellé supprimé par le runner : `RENTAL_GRACE_DAYS` jours après l'échéance (même règle que
+ * la purge du runner). Plus rien à prolonger.
+ */
+export function isLoanModelDeleted(loan: LoanDisplayInput, now: number): boolean {
+  if (!loan.rentalExpiresAt) return false;
+  const expiresAt = Date.parse(loan.rentalExpiresAt);
+  return Number.isFinite(expiresAt) && now >= expiresAt + RENTAL_GRACE_DAYS * DAY_MS;
+}
+
+/**
+ * « Prolonger » : prêt ordinaire réglé (hors revue de finalité) à durée signée, par son emprunteur,
+ * tant que son modèle n'est pas supprimé. Proposé avant comme après l'échéance ; jamais sur un prêt
+ * hérité ni sur une prolongation. Le serveur revérifie tout (`/api/loans/[id]/extend`).
+ */
+export function canExtendLoan(loan: LoanDisplayInput, viewer: string | null | undefined, now: number): boolean {
+  return (
+    loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
+    typeof loan.rentalDays === "number" &&
+    Boolean(loan.rentalExpiresAt) &&
+    Boolean(loan.settleTxHash) &&
+    Boolean(loan.runnerReceipt) &&
+    !loan.cancelTxHash &&
+    !loan.finalityReview &&
+    !isLoanModelDeleted(loan, now) &&
+    isBorrower(loan, viewer)
+  );
 }
 
 export const LOAN_DISPLAY_STATES = [
@@ -135,11 +179,13 @@ export function loanDisplayState(loan: LoanDisplayInput): LoanDisplayState {
 
 /**
  * « Ré-entraîner » : seulement sur un emprunt terminé et réglé, par son emprunteur. Un fournisseur
- * qui voit le prêt de quelqu'un d'autre ne l'obtient pas ; un prêt remboursé ou échoué non plus.
+ * qui voit le prêt de quelqu'un d'autre ne l'obtient pas ; un prêt remboursé ou échoué non plus, ni
+ * une prolongation (qui n'a rien entraîné).
  */
 export function canRetrain(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
   return (
     loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
     Boolean(loan.settleTxHash) &&
     !loan.cancelTxHash &&
     Boolean(loan.datasetId) &&
@@ -179,16 +225,19 @@ export function canResumeSettlement(loan: LoanDisplayInput): boolean {
 
 /**
  * Zone de prédiction : seulement sur un emprunt réglé (release miné, reçu enclave présent, hors revue
- * de finalité), pour son emprunteur. Le modèle reste scellé dans le runner ; chaque prédiction est
- * demandée au clic et consomme le quota quotidien. Le serveur reste l'autorité (`assertOwner`).
+ * de finalité), pour son emprunteur, avant l'échéance de sa location. Le modèle reste scellé dans le
+ * runner ; chaque prédiction est demandée au clic et consomme le quota quotidien. Une prolongation n'a
+ * pas de modèle propre. Le serveur reste l'autorité (`assertOwner`, échéance).
  */
-export function canPredictLoan(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+export function canPredictLoan(loan: LoanDisplayInput, viewer: string | null | undefined, now: number = Date.now()): boolean {
   return (
     loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
     Boolean(loan.settleTxHash) &&
     Boolean(loan.runnerReceipt) &&
     !loan.cancelTxHash &&
     !loan.finalityReview &&
+    !isLoanRentalExpired(loan, now) &&
     isBorrower(loan, viewer)
   );
 }

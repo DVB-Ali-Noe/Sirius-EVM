@@ -23,6 +23,8 @@ export interface IngestInput {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  /** Durée maximale de location choisie par le fournisseur (1–365 jours), signée dans le reçu. */
+  maxRentalDays: number;
   model: ModelSelection;
 }
 
@@ -32,6 +34,7 @@ export interface AuthorizedDatasetUpload extends RunnerProvenance {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  maxRentalDays: number;
   model: ModelSelection;
 }
 
@@ -46,6 +49,7 @@ export async function beginDatasetIngestion({
   sizeBytes,
   priceUsdcAtomic,
   challengeDays,
+  maxRentalDays,
   model,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
@@ -82,6 +86,7 @@ export async function beginDatasetIngestion({
         sizeBytes,
         priceUsdcAtomic,
         challengeDays,
+        maxRentalDays,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
         ...runner,
@@ -95,6 +100,7 @@ export async function beginDatasetIngestion({
       ingressKey,
       priceUsdcAtomic: dataset.priceUsdcAtomic!,
       challengeDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       sizeBytes: dataset.sizeBytes,
       model,
     };
@@ -120,6 +126,7 @@ export async function authorizeDatasetUpload(
       sizeBytes: true,
       priceUsdcAtomic: true,
       challengeDays: true,
+      maxRentalDays: true,
       modelId: true,
       modelVersion: true,
       ipfsCid: true,
@@ -163,6 +170,7 @@ export async function authorizeDatasetUpload(
     sizeBytes: dataset.sizeBytes,
     priceUsdcAtomic: dataset.priceUsdcAtomic,
     challengeDays: dataset.challengeDays,
+    maxRentalDays: dataset.maxRentalDays,
     model,
     ...runner,
   };
@@ -184,6 +192,7 @@ export async function completeDatasetIngestion(
       envelope,
       authorization,
       dataset.model,
+      dataset.maxRentalDays,
     );
   } catch (error) {
     // Un refus du runner (fichier invalide, quota de démonstration, session fermée, grant

@@ -40,9 +40,19 @@ retenue = min(durée mesurée entière en ms × executionRateAtomicPerMs,
 remboursement = datasetAmount + computeAmount - retenue
 ```
 
-Le prix forfaitaire complet est crédité uniquement lors du `release` ; une réussite locale seule ne l’acquiert pas. La mesure utilise une horloge monotone ; le registre conserve le début, la durée bornée, le résultat et l’empreinte du devis. Aucun dataset, préimage ou clé en clair n’y est stocké. Le résultat d'ingestion n'est plus mis en cache ; l'ouverture du registre purge les anciennes copies actives de clé enveloppée, sans effacer les sauvegardes antérieures. Le premier reçu final fixe aussi l’horodatage de chaîne : si la reprise atteint l’adaptateur, elle ne fabrique pas une autre transaction avec un nouveau timestamp. L’EVM vérifie la signature et les bornes, pas la facture fournisseur.
+Le prix du dataset (prix par jour × jours loués, D-29) est crédité uniquement lors du `release` ; une réussite locale seule ne l’acquiert pas. La mesure utilise une horloge monotone ; le registre conserve le début, la durée bornée, le résultat et l’empreinte du devis. Aucun dataset, préimage ou clé en clair n’y est stocké. Le résultat d'ingestion n'est plus mis en cache ; l'ouverture du registre purge les anciennes copies actives de clé enveloppée, sans effacer les sauvegardes antérieures. Le premier reçu final fixe aussi l’horodatage de chaîne : si la reprise atteint l’adaptateur, elle ne fabrique pas une autre transaction avec un nouveau timestamp. L’EVM vérifie la signature et les bornes, pas la facture fournisseur.
 
 Chaque job v7 est borné par une durée configurée entre 1 et **30 secondes**, qui couvre récupération, calcul et upload. Le calcul tourne dans un worker terminable, avec limites de heap 128/16 Mio ; le processus parent termine ce worker sur interruption. La limite dataset est de 3 Mio, et les limites IPFS existantes restent applicables. Ce mécanisme ne remplace pas un superviseur externe de la CVM, des plafonds de mémoire du conteneur ou un arrêt de facturation fournisseur.
+
+## Location (D-29) : prix par jour et prolongation
+
+Depuis [D-29](DECISIONS.md#d-29--location-des-modèles-de-prêt--prix-par-jour-durée-bornée-prolongation), `Dataset.priceUsdcAtomic` est un **prix par jour**, et `Dataset.maxRentalDays` (1 à 365, 30 par défaut) borne la durée choisie par l’emprunteur. Les deux valeurs sont signées dans le reçu dataset v4 ; un reçu v3 vaut 30 jours.
+
+- **Devis :** `rentalDays` fait partie du manifeste canonique (donc de `quoteHash` et du `termsHash`). Le runner refuse un devis où `datasetAmount ≠ prix par jour × rentalDays` ou `rentalDays > maxRentalDays` du reçu. Le compute reste celui du profil, payé une fois par emprunt.
+- **Devis hérités :** un devis stocké sans `rentalDays` reste lisible, avec `rentalDays = null` : le prêt n’expire pas. Tout nouveau devis porte `rentalDays`.
+- **Échéance :** horodatage du bloc du `release` + `rentalDays × 86 400 s`, stockée dans `Loan.rentalExpiresAt` et dans les métadonnées du modèle scellé. Next et le runner refusent ensuite les prédictions ; le contrat n’en sait rien (voir les limites de D-29).
+- **Prolongation :** `POST /api/loans/[id]/extend` avec `{ rentalDays }` crée un prêt de prolongation (`extendsLoanId`) et le même parcours devis → approve → lock. Son devis porte `extendsLoanId`, le même profil et le même modèle que le prêt d’origine ; `datasetAmount = prix par jour × jours ajoutés` et `computeAmount = minimumComputeAmount` de la politique, car l’escrow refuse un compute nul. La retenue maximale en échec est nulle : aucun calcul n’est exécuté. L’opération runner `extend-loan` vérifie le lock, le même emprunteur et le même dataset, puis appelle `release` sans entraînement ; elle est idempotente, et le reaper reprend une prolongation verrouillée non réglée.
+- **Délai de grâce :** le modèle scellé reste 30 jours après l’échéance, puis le runner le supprime ; une prolongation est alors refusée avant tout `release` (409), et l’emprunteur récupère ses fonds après l’échéance de l’escrow.
 
 ## Réserver jusqu’à la clôture
 

@@ -100,6 +100,7 @@ test.beforeEach(async ({ page }) => {
             description: dataset.description,
             provider: PROVIDER,
             challengeDays: 3,
+            maxRentalDays: 30,
             settledCount: 1,
             refundedCount: 0,
             successRate: 1,

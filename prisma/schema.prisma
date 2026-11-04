@@ -26,8 +26,9 @@ model Dataset {
   wrappedKey     String? // DEK enveloppée ; sa suppression active ne purge pas les sauvegardes.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
-  priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
+  priceUsdcAtomic String // prix de location PAR JOUR en unités atomiques USDC (D-29 ; précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
   challengeDays  Int           @default(7) // délai avant remboursement possible
+  maxRentalDays  Int           @default(30) // durée de location maximale (1–365 j), signée dans le reçu runner
   modelId        String?
   modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
@@ -104,6 +105,7 @@ model TrainingJob {
 
   modelCid      String? // empreinte du modèle scellé (`sm1…`, servedModelFingerprint) ; ancien CID IPFS sur l'historique
   servedModelId String? @unique // modèle gardé exclusivement par le runner ; identique à l'id du job
+  modelFeatures String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   metrics       Json? // métriques en clair (R², RMSE…)
   runnerReceipt String? // reçu enclave du job, jamais renvoyé au client
   deliveryPublicKey String? // historique, plus lu ni écrit
@@ -139,6 +141,13 @@ model Loan {
   modelId   String @default("linear_regression")
   modelVersion String @default("1.0.0")
 
+  // Location (D-29) : durée signée dans le devis. Null = prêt hérité, sans expiration.
+  rentalDays      Int?
+  rentalExpiresAt DateTime? // bloc du release du prêt d'origine + rentalDays jours, prolongations comprises
+  extendsLoanId   String? // prêt de prolongation → prêt d'origine
+  extendsLoan     Loan?   @relation("LoanExtensions", fields: [extendsLoanId], references: [id], onDelete: Restrict)
+  extensions      Loan[]  @relation("LoanExtensions")
+
   // Escrow USDC conditionnel
   evmLoanKey       String? @unique // clé bytes32 du prêt EVM
   evmHashlock      String? // SHA-256 du préimage TEE
@@ -154,6 +163,7 @@ model Loan {
   // Empreinte du modèle scellé dans le runner (`sm1…`, servedModelFingerprint) ; ancien CID IPFS
   // sur l'historique. Non nulle = modèle produit : remboursement, reaper et attestation en dépendent.
   modelCid               String?
+  modelFeatures          String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   attestationHash        String? // SHA-256 du payload TEE attesté
   attestationPayload     String? // payload canonique lié au modèle et au scope du prêt
   attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)
@@ -190,6 +200,7 @@ model Loan {
   @@index([provider, status])
   @@index([borrower, status])
   @@index([finalityTier, status])
+  @@index([extendsLoanId])
 }
 
 /// Octroi de la clé de déchiffrement au TEE pour un job donné.

@@ -3,7 +3,7 @@ import { keccak256, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { predictionOutput } from "@/lib/models/predict";
-import { hasSealedLoanModel, loadServedModel } from "@/lib/tee/served-models";
+import { extendableLoanModel, extendLoanRental, hasSealedLoanModel, loadServedModel, recordLoanExpiry, servedModelFingerprint } from "@/lib/tee/served-models";
 import { reservePrediction } from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
@@ -61,7 +61,8 @@ import { checkDemoOperation, demoGrantScope, predictionSessionRevision, withDemo
 import type { RunnerOperation, RunnerScope } from "@/lib/runner/capability";
 import { fastFinalityPolicy } from "@/lib/evm/finality";
 import { enclaveFinalityTier, type FinalityTier } from "@/lib/evm/fast-finality";
-import { totalQuoteAmount, type ComputeQuote } from "@/lib/billing/quote";
+import { parseComputeQuote, requireRentalQuote, totalQuoteAmount, type ComputeQuote } from "@/lib/billing/quote";
+import { DAY_MS, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RunnerRetryLater } from "@/lib/runner/failure-policy";
 import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 
@@ -132,6 +133,7 @@ function datasetRef(body: Record<string, unknown>, admission: ProfileAdmission =
     merkleRoot: text(body, "merkleRoot", 128),
     priceUsdcAtomic: usdcAmount(body, "priceUsdcAtomic"),
     challengeDays: boundedInteger(body, "challengeDays", 1, 30),
+    maxRentalDays: boundedInteger(body, "maxRentalDays", MIN_RENTAL_DAYS, MAX_RENTAL_DAYS),
     ...trainingModel(body, admission),
   };
 }
@@ -191,6 +193,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
     case "run-loan-job":
       return { op, scope: { datasetId: text(body, "datasetId"), loanId: text(body, "loanId") } };
     case "settle-loan":
+    case "extend-loan":
     case "recover-loan-job":
       return { op, scope: { loanId: text(body, "loanId") } };
     case "run-training":
@@ -218,7 +221,7 @@ export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ing
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
-  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "recover-loan-job")) return executeRunnerOp(op, body);
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "extend-loan" || op === "recover-loan-job")) return executeRunnerOp(op, body);
   if (UNCHARGED_OPS.has(op)) {
     runnerBudget();
     return executeRunnerOp(op, body);
@@ -235,6 +238,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const datasetId = text(body, "datasetId");
       const priceUsdcAtomic = usdcAmount(body, "priceUsdcAtomic");
       const challengeDays = boundedInteger(body, "challengeDays", 1, 30);
+      const maxRentalDays = boundedInteger(body, "maxRentalDays", MIN_RENTAL_DAYS, MAX_RENTAL_DAYS);
       const sizeBytes = boundedInteger(body, "sizeBytes", 1, MAX_DATASET_BYTES);
       const envelope = ingressEnvelope(body);
       const model = trainingModel(body);
@@ -251,11 +255,12 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           envelope.ciphertext,
           model.modelId,
           model.modelVersion,
+          String(maxRentalDays),
         ],
       });
       const result = await withDemoAdmission(`seal:${datasetId}`, canonicalSubject(subject),
-        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays }, () => budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
-        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays },
+        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays, maxRentalDays }, () => budgetRunnerJob("seal", [evmEscrowBinding(), canonicalSubject(subject), datasetId],
+        { envelope, sizeBytes, model, priceUsdcAtomic, challengeDays, maxRentalDays },
         () => sealDatasetEnvelope(datasetId, envelope, sizeBytes, model)), demoScope.demoSessionRevision);
       return {
         ...result,
@@ -266,6 +271,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           merkleRoot: result.merkleRoot,
           priceUsdcAtomic,
           challengeDays,
+          maxRentalDays,
           ...model,
         }),
       };
@@ -287,9 +293,18 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       });
       const hashlock = escrowHashlock(loanId, borrower);
       if (billingEnabled()) {
+        const rentalDays = boundedInteger(body, "rentalDays", MIN_RENTAL_DAYS, MAX_RENTAL_DAYS);
+        const extendsLoanId = body.extendsLoanId === undefined ? undefined : text(body, "extendsLoanId");
+        if (extendsLoanId !== undefined) {
+          // Refus avant tout lock : une prolongation n'est payée que pour un modèle encore scellé à l'emprunteur.
+          const original = extendableLoanModel(extendsLoanId);
+          if (original.owner !== borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
+          if (original.model.algo !== dataset.modelId) throw new AppError("Prolongation hors scope", 409);
+        }
         const billingQuote = await prepareComputeQuote({
           dataset, datasetReceipt: text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), borrower, provider, loanId,
           onChainDatasetId, hashlock, authorizationDeadline: boundedInteger(body, "authorizationDeadline", 1, 2 ** 40 - 1),
+          rentalDays, ...(extendsLoanId === undefined ? {} : { extendsLoanId }),
         });
         return { hashlock, authorization: billingQuote.authorization, billingQuote };
       }
@@ -318,6 +333,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const hashlock = escrowHashlock(loanId, borrower);
       const signedQuote = billingEnabled() ? await runnerComputeQuote(body.billingQuote) : undefined;
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
+      // Une prolongation ne paie que la durée (compute minimal) : elle ne lance jamais d'entraînement.
+      if (signedQuote?.quote.extendsLoanId !== undefined) throw new AppError("Prolongation : aucun entraînement", 409);
       assertLockedProfile(dataset, signedQuote);
       const candidateTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
       const loanScope = (finalityTier: FinalityTier) => assertLoanScope({
@@ -393,6 +410,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         const loanResult: LoanJobResult = {
           modelCid: result.modelCid,
           metrics: result.metrics,
+          features: result.features,
           attestation,
           loanKey,
           hashlock,
@@ -454,15 +472,54 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
         }
         const finalityTier = loanFinalityTier(body.finalityTier, signedQuote.quote);
-        return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => ({
-          settleTxHash: await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock, finalityTier),
-        })));
+        return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => {
+          const settleTxHash = await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock, finalityTier);
+          const expiresAt = await recordRentalExpiry(loanId, signedQuote.quote, settleTxHash);
+          return { settleTxHash, ...(expiresAt === undefined ? {} : { expiresAt }) };
+        }));
       }
       const { subject } = await verifyRunnerGrant(body.authorization, {
         operation: op, loanId, intentParts: [loanId, loanReceiptToken],
       });
       if (canonicalSubject(subject) !== receipt.borrower) throw new AppError("Règlement réservé au borrower", 403);
       return { settleTxHash: await settleEscrow(receipt.loanKey as `0x${string}`, preimage, lockBlock) };
+    }
+
+    case "extend-loan": {
+      if (!billingEnabled()) throw new AppError("Prolongation réservée aux prêts v7", 409);
+      const loanId = text(body, "loanId");
+      const originalLoanId = text(body, "originalLoanId");
+      const original = verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), originalLoanId);
+      if (!original.billingQuote || parseComputeQuote(original.billingQuote.quote).rentalDays === null) {
+        throw new AppError("Prêt sans durée de location : prolongation impossible", 409);
+      }
+      const quote = requireRentalQuote((await runnerComputeQuote(body.billingQuote)).quote);
+      if (quote.loanId !== loanId || quote.extendsLoanId !== originalLoanId || quote.datasetId !== original.datasetId
+        || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Prolongation hors scope", 409);
+      if (quote.borrower !== original.borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
+      if (body.authorization) {
+        const { subject } = await verifyRunnerGrant(body.authorization, {
+          operation: op, loanId, intentParts: [loanId, originalLoanId],
+        });
+        if (canonicalSubject(subject) !== original.borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
+      }
+      // Modèle d'origine purgé (ou au-delà du délai de grâce) : refus avant tout release, le lock
+      // de prolongation reste remboursable à son échéance.
+      const sealed = extendableLoanModel(originalLoanId);
+      if (sealed.owner !== original.borrower || servedModelFingerprint(sealed.model) !== original.modelCid) {
+        throw new AppError("Prolongation hors scope", 409);
+      }
+      const lockBlock = BigInt(text(body, "lockBlock", 20));
+      const finalityTier = loanFinalityTier(body.finalityTier, quote);
+      const { preimage } = escrowLock(loanId, quote.borrower);
+      const loanKey = loanKeyFor(quote.borrower, loanId);
+      // Release immédiat, sans entraînement, puis échéance repoussée : `settleBilledEscrow` vérifie
+      // le lock on-chain (termsHash du devis) et rejoue la même transaction après une coupure ;
+      // `extendLoanRental` n'applique qu'une fois chaque prolongation.
+      return withWorkflowBudget(quoteWorkflow(quote), () => budgetRunnerRequest(async () => {
+        const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier);
+        return { settleTxHash, expiresAt: extendLoanRental(originalLoanId, loanId, await releaseTimeMs(settleTxHash), quote.rentalDays) };
+      }));
     }
 
     case "run-training": {
@@ -475,6 +532,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         ...demoScope,
         operation: op,
         datasetId: dataset.datasetId,
+        jobId,
         intentParts: [dataset.datasetId, jobId, datasetReceiptToken, dataset.modelId, dataset.modelVersion, "served"],
       });
       if (canonicalSubject(subject) !== canonicalSubject(datasetReceipt.owner)) {
@@ -522,6 +580,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         if (!served) throw new AppError("Modèle indisponible", 404);
         if (served.owner !== caller) throw new AppError("Prédiction réservée au propriétaire", 403);
         if (loanReceipt && served.model.algo !== loanReceipt.modelId) throw new AppError("Modèle indisponible", 409);
+        // Échéance de location (horloge système de la CVM) : refus avant tout décompte de quota.
+        if (served.expiresAt !== undefined && Date.now() >= served.expiresAt) throw new AppError("Location expirée : prolonge pour continuer", 403);
         const names = served.model.features;
         if (Object.keys(features).length !== names.length || names.some((name) => !Object.hasOwn(features, name))) {
           throw new AppError("Variables de prédiction hors modèle", 400);
@@ -560,7 +620,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
 
 /**
  * Le modèle d'un prêt ne sert qu'après règlement confirmé : v7, la transaction `release` publiée
- * à la profondeur du palier ; v6, le préimage publié par l'escrow. Sinon 409.
+ * à la profondeur du palier ; v6, le préimage publié par l'escrow. Sinon 409. Un prêt v7 loué
+ * reçoit à cette occasion son échéance, si son règlement ne l'a pas déjà fixée.
  */
 async function assertLoanSettled(receipt: LoanReceipt, body: Record<string, unknown>): Promise<void> {
   if (receipt.billingQuote) {
@@ -570,5 +631,25 @@ async function assertLoanSettled(receipt: LoanReceipt, body: Record<string, unkn
     await publishedFinalizedPreimage(receipt.loanKey as `0x${string}`,
       settleTxHash as `0x${string}`, signed.quote,
       requireBillingBudget().policy.gas.confirmations, loanFinalityTier(body.finalityTier, signed.quote));
+    await recordRentalExpiry(receipt.loanId, signed.quote, settleTxHash);
   } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
+}
+
+/** Horodatage (ms) du bloc d'une transaction `release` déjà vérifiée : départ de la location. */
+async function releaseTimeMs(settleTxHash: string): Promise<number> {
+  const client = getPublicClient();
+  const { blockNumber } = await client.getTransactionReceipt({ hash: settleTxHash as `0x${string}` });
+  return Number((await client.getBlock({ blockNumber })).timestamp) * 1_000;
+}
+
+/**
+ * Échéance d'un prêt v7 réglé : bloc du `release` + `rentalDays` jours, enregistrée une fois dans
+ * les métadonnées du modèle scellé (jamais écrasée : les prolongations la repoussent). Devis
+ * hérité (sans durée) : aucune échéance.
+ */
+async function recordRentalExpiry(loanId: string, quote: ComputeQuote, settleTxHash: string): Promise<number | undefined> {
+  if (quote.rentalDays === null) return undefined;
+  const recorded = loadServedModel({ kind: "loan", id: loanId })?.expiresAt;
+  if (recorded !== undefined) return recorded;
+  return recordLoanExpiry(loanId, await releaseTimeMs(settleTxHash) + quote.rentalDays * DAY_MS);
 }

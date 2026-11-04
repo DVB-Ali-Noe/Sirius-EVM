@@ -8,6 +8,7 @@ import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { modelFeaturesFromRunner } from "@/lib/sirius/prediction";
 
 export interface SelfTrainResult {
   jobId: string;
@@ -94,6 +95,7 @@ export async function runSelfTrain(
       merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       jobId: job.id,
       ...model,
     };
@@ -101,6 +103,7 @@ export async function runSelfTrain(
     if (out.servedModelId !== job.id || typeof out.modelCid !== "string" || !out.modelCid || typeof out.runnerReceipt !== "string") {
       throw new AppError("Résultat de modèle servi invalide", 502);
     }
+    const modelFeatures = modelFeaturesFromRunner(out.features);
     const completed = await prisma.trainingJob.updateMany({
       where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },
       data: {
@@ -108,6 +111,7 @@ export async function runSelfTrain(
         servedModelId: job.id,
         // Empreinte du modèle scellé (`servedModelFingerprint`), jamais un CID IPFS.
         modelCid: out.modelCid,
+        modelFeatures,
         metrics: out.metrics,
         runnerReceipt: out.runnerReceipt,
         completedAt: new Date(),

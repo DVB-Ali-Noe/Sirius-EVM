@@ -7,10 +7,16 @@ import { datasetRegistryAddress, escrowAddress } from "@/lib/evm/addresses";
 import { datasetIdHash } from "@/lib/evm/dataset-key";
 import { loanIdHash } from "@/lib/evm/loan-key";
 import { chainForNetwork, resolveClientNetwork } from "@/lib/evm/networks";
-import { approveUsdcTransaction, lockUsdcTransaction } from "@/lib/evm/transaction";
+import { approveUsdcTransaction, lockUsdcTransaction, type EvmTransactionRequest } from "@/lib/evm/transaction";
 import { getExternalWallet } from "@/lib/wallet/manager";
 
 interface LockRequest { to: string; data: Hex }
+
+/** Transactions d'un emprunt sur l'escrow v6 hérité (sans devis) : approbation, puis lock renouvelé. */
+export interface LegacyBorrowTransactions {
+  approve: EvmTransactionRequest;
+  lock(renewedLock: unknown, authorizationDeadline: number): EvmTransactionRequest;
+}
 
 function lockTerms(value: unknown, loanId: string) {
   const request = value as LockRequest | null;
@@ -30,7 +36,7 @@ export async function legacyBorrowTransactions(input: {
   datasetId: string;
   priceUsdcAtomic: string;
   initialLock: unknown;
-}) {
+}): Promise<LegacyBorrowTransactions> {
   const initial = lockTerms(input.initialLock, input.loanId);
   if (!/^[1-9][0-9]*$/.test(input.priceUsdcAtomic) || initial.amount !== BigInt(input.priceUsdcAtomic)) {
     throw new Error("Prix du dataset modifié. Recharge le catalogue.");

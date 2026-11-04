@@ -18,7 +18,7 @@ const escrow = `0x${"33".repeat(20)}` as const;
 const datasetId = `0x${"44".repeat(32)}` as const;
 const dataset = {
   datasetId: "dataset-permit", cid: "bafy-test", wrappedKey: "wrapped-test", merkleRoot: "55".repeat(32),
-  priceUsdcAtomic: "1000000000000000000", challengeDays: 7,
+  priceUsdcAtomic: "1000000000000000000", challengeDays: 7, maxRentalDays: 30,
   modelId: "linear_regression", modelVersion: "1.0.0",
 } as const;
 let live = true;

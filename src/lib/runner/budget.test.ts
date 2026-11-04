@@ -365,7 +365,7 @@ test("le handler et le calcul en processus refusent les opérations de productio
   await assert.rejects(handleRunnerOp("dataset-ingress-key", {}), /RUNNER_BUDGET_FILE obligatoire/);
   await assert.rejects(runSelfTraining({
     datasetId: "test", cid: "bafy-test", wrappedKey: "unused", merkleRoot: "unused",
-    priceUsdcAtomic: "1000", challengeDays: 1, modelId: "linear_regression", modelVersion: "1.0.0",
+    priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, modelId: "linear_regression", modelVersion: "1.0.0",
     jobId: "job-test", owner: `0x${"12".repeat(20)}`,
   }), /RUNNER_BUDGET_FILE obligatoire/);
 });

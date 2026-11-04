@@ -22,6 +22,7 @@ export function row(overrides: Partial<MarketplaceDatasetRow> = {}): Marketplace
     sizeBytes: 13_517,
     priceUsdcAtomic: "20000000",
     challengeDays: 3,
+    maxRentalDays: 14,
     status: "LISTED",
     listedAt: new Date("2026-10-01T00:00:00.000Z"),
     listingExpiresAt: null,

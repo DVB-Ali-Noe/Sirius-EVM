@@ -60,6 +60,7 @@ async function mockPublicationApi(page: Page, options: { challengeDays?: number 
             ingressKey: { version: 1, publicKey: ingressPublicKey(), origin: new URL(request.url()).origin },
             priceUsdcAtomic: usdc("12.5"),
             challengeDays: options.challengeDays ?? 3,
+            maxRentalDays: 60,
             sizeBytes: EXAMPLE.byteLength,
             model: { modelId: "linear_regression", modelVersion: "1.0.0" },
             category: "Finance",
@@ -148,7 +149,7 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(page.getByRole("heading", { name: "Securing on your device" })).toBeVisible();
   const started = Date.now();
   await expect(page.getByText(/Local fingerprint: [0-9a-f]{64}/)).toBeVisible();
-  const priceField = page.getByLabel("What I want to earn per loan (USDC)");
+  const priceField = page.getByLabel("What I want to earn per rental day (USDC)");
   await expect(priceField).toBeVisible({ timeout: 10_000 });
   expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
   await expect(page.getByText("Step 2 of 2")).toBeVisible();
@@ -163,6 +164,17 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(breakdown.getByText("Borrower pays").locator("..").getByText("12.50 USDC")).toBeVisible();
   await expect(breakdown.getByText("Minimum set by the tariff: 0.001 USDC.")).toBeVisible();
   await expect(page.getByText(/escrow safety delay is set by Sirius to 3 days/)).toBeVisible();
+  // Durée maximale de location (D-29) : 30 jours par défaut, bornée à 1–365, publication bloquée sinon.
+  const rentalField = page.getByLabel("Maximum rental duration (days)");
+  await expect(rentalField).toHaveValue("30");
+  await rentalField.fill("0");
+  await expect(page.getByText("Invalid duration: a whole number of days between 1 and 365.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish the dataset" })).toBeDisabled();
+  await expect(page.getByText("Enter a valid maximum rental duration to publish.")).toBeVisible();
+  await rentalField.fill("366");
+  await expect(page.getByRole("button", { name: "Publish the dataset" })).toBeDisabled();
+  await rentalField.fill("60");
+  await expect(page.getByText("Invalid duration: a whole number of days between 1 and 365.")).toHaveCount(0);
   await expect(page.getByRole("radio", { name: "30 days (default)" })).toBeChecked();
   await page.getByRole("radio", { name: "90 days", exact: true }).check();
   await expect(page.getByText(/Sirius currently trains three models on tabular data/)).toBeVisible();
@@ -179,6 +191,7 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
     sizeBytes: EXAMPLE.byteLength,
     priceUsdc: "12.5",
     category: "Finance",
+    maxRentalDays: 60,
     listingDays: 90,
     trainingConsent: true,
     modelId: "linear_regression",
@@ -200,9 +213,10 @@ test("un délai de sécurité renvoyé différent de 3 jours arrête la publicat
   await page.goto("/datasets/new");
   await fillStepOne(page);
   await page.getByRole("button", { name: "Continue to pricing" }).click();
-  const priceField = page.getByLabel("What I want to earn per loan (USDC)");
+  const priceField = page.getByLabel("What I want to earn per rental day (USDC)");
   await expect(priceField).toBeVisible({ timeout: 10_000 });
   await priceField.fill("12.5");
+  await page.getByLabel("Maximum rental duration (days)").fill("60");
   await page.getByRole("button", { name: "Publish the dataset" }).click();
   await expect(page.locator("main").getByRole("alert")).toContainText("Inconsistent escrow safety delay");
   await expect(page.getByRole("list", { name: "Publication progress" }).locator("li").first()).toHaveAttribute("data-state", "failed");

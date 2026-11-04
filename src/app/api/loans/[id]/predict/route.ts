@@ -11,6 +11,7 @@ import { assertSignedPrediction, parsePredictionRequest, predictionSessionRevisi
 import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { predictInRunner } from "@/lib/tee/runner-client";
+import { loanRentalExpiry, RENTAL_EXPIRED } from "@/lib/sirius/rental";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     assertOwner(session, loan.borrower);
     if (loan.status !== "SETTLED" || loan.finalityReview || !loan.runnerReceipt || !loan.settleTxHash) {
       return NextResponse.json({ error: "Règlement du prêt non confirmé" }, { status: 409 });
+    }
+    // Location échue (D-29) : refus avant tout appel au runner, qui applique la même échéance.
+    const rentalExpiresAt = await loanRentalExpiry(loan);
+    if (rentalExpiresAt && Date.now() >= rentalExpiresAt.getTime()) {
+      return NextResponse.json({ error: RENTAL_EXPIRED }, { status: 403 });
     }
     const model = modelSelection(loan.modelId, loan.modelVersion);
     if (!isServedModelFingerprint(loan.modelCid) || !model) {

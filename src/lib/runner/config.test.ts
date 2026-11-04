@@ -57,6 +57,15 @@ test("Next exige les mesures Phala et refuse la master key historique", () => {
   assert.throws(assertApplicationRunnerConfiguration, /SIRIUS_EXPECTED_MRTD/);
   process.env.SIRIUS_EXPECTED_MRTD = "11".repeat(48);
   for (const key of ["SIRIUS_EXPECTED_COMPOSE_HASH", "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256"]) process.env[key] = "22".repeat(32);
+  // #112 : l'OS dstack et l'application sont épinglés aussi ; un seul manquant suffit à refuser.
+  assert.throws(assertApplicationRunnerConfiguration, /SIRIUS_EXPECTED_RTMR0/);
+  Object.assign(process.env, { SIRIUS_EXPECTED_RTMR0: "33".repeat(48), SIRIUS_EXPECTED_RTMR1: "34".repeat(48), SIRIUS_EXPECTED_RTMR2: "35".repeat(48) });
+  assert.throws(assertApplicationRunnerConfiguration, /SIRIUS_EXPECTED_OS_IMAGE_HASH/);
+  process.env.SIRIUS_EXPECTED_OS_IMAGE_HASH = "36".repeat(32);
+  assert.throws(assertApplicationRunnerConfiguration, /SIRIUS_EXPECTED_APP_ID/);
+  process.env.SIRIUS_EXPECTED_APP_ID = "37".repeat(19);
+  assert.throws(assertApplicationRunnerConfiguration, /SIRIUS_EXPECTED_APP_ID/, "app id de 38 caractères refusé");
+  process.env.SIRIUS_EXPECTED_APP_ID = "37".repeat(20);
   // RTMR3 change à chaque redémarrage de la CVM : il n'est plus épinglé (audit A-01).
   delete process.env.SIRIUS_EXPECTED_RTMR3;
   assert.doesNotThrow(assertApplicationRunnerConfiguration);
@@ -72,6 +81,8 @@ test("le reaper v7 exige le runner distant et ses mesures avant de démarrer", (
   assert.throws(assertReaperRunnerConfiguration, /SIRIUS_EXPECTED_MRTD/);
   process.env.SIRIUS_EXPECTED_MRTD = "11".repeat(48);
   for (const key of ["SIRIUS_EXPECTED_COMPOSE_HASH", "SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", "NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256"]) process.env[key] = "22".repeat(32);
+  Object.assign(process.env, { SIRIUS_EXPECTED_RTMR0: "33".repeat(48), SIRIUS_EXPECTED_RTMR1: "34".repeat(48), SIRIUS_EXPECTED_RTMR2: "35".repeat(48),
+    SIRIUS_EXPECTED_OS_IMAGE_HASH: "36".repeat(32), SIRIUS_EXPECTED_APP_ID: "37".repeat(20) });
   delete process.env.SIRIUS_EXPECTED_RTMR3;
   assert.doesNotThrow(assertReaperRunnerConfiguration);
   process.env.SIRIUS_MASTER_KEY = "ancienne-cle";

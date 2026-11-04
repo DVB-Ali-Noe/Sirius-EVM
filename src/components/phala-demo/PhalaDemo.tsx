@@ -19,7 +19,7 @@ import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
-interface Job { id: string; status: string; metrics: Record<string, number> | null; servedModelId: string | null; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
+interface Job { id: string; status: string; metrics: Record<string, number> | null; servedModelId: string | null; modelFeatures: string[]; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
 /** `table` : le fichier lu, gardé dans la page pour le rapport de qualité ; jamais envoyé ni stocké. */
 interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; table: string[][]; target: string; model: ModelId }
 const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: "linear_regression" };
@@ -170,7 +170,8 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
           <p className="text-xs text-muted">{t("Entraîné le {date}", { date: new Date(job.completedAt ?? job.createdAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })}</p></div>
         <span className="text-sm text-muted">{t("Modèle privé · sans téléchargement")}</span></div>
         {job.metrics && <dl className="mt-4 flex flex-wrap gap-5">{Object.entries(job.metrics).map(([name, value]) => <div key={name}><dt className="text-xs text-muted">{name}</dt><dd className="font-mono text-sm">{Number.isFinite(value) ? Number(value.toPrecision(4)) : "—"}</dd></div>)}</dl>}
-        {job.status === "DONE" && <PredictionBox id={job.id} disabled={!available} predict={(features) => predictDemoModel(job.id, features)} />}
+        {/* Une prédiction ne coûte qu'une requête : elle reste ouverte tant que la session l'est, même sans capacité d'entraînement. */}
+        {job.status === "DONE" && <PredictionBox id={job.id} features={job.modelFeatures} disabled={session?.phase !== "open"} predict={(features) => predictDemoModel(job.id, features)} />}
       </Card>)}
     </section>}
   </Page>;

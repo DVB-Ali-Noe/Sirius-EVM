@@ -6,24 +6,40 @@ import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { parsePredictionFeatures, type PredictionResult } from "@/lib/train/prediction-client";
 
+const FIELD = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent";
+
 /**
  * Prédiction privée : le modèle reste scellé dans le runner, seule la sortie signée (décision 0/1
- * ou valeur arrondie) revient avec son numéro d'appel.
+ * ou valeur arrondie) revient avec son numéro d'appel. Une case numérique par colonne du modèle ;
+ * un modèle entraîné avant l'enregistrement de ses colonnes garde la saisie JSON libre.
  */
 export function PredictionBox({
   id,
   disabled = false,
+  features = [],
   predict,
 }: {
   id: string;
   disabled?: boolean;
+  features?: string[];
   predict: (features: Record<string, number>) => Promise<PredictionResult>;
 }) {
   const { t } = useLocale();
-  const [input, setInput] = useState("{}");
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(features.map((name) => [name, ""])));
+  const [json, setJson] = useState("{}");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function collect(): Record<string, number> {
+    if (!features.length) return parsePredictionFeatures(json);
+    return Object.fromEntries(features.map((name) => {
+      const raw = values[name]?.trim().replace(",", ".") ?? "";
+      const value = Number(raw);
+      if (!raw || !Number.isFinite(value)) throw new Error("Saisis une valeur numérique pour chaque variable");
+      return [name, value];
+    }));
+  }
 
   async function submit() {
     const revision = useWalletStore.getState().revision;
@@ -31,7 +47,7 @@ export function PredictionBox({
     setError(null);
     setResult(null);
     try {
-      const output = await predict(parsePredictionFeatures(input));
+      const output = await predict(collect());
       if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
       setResult(output);
     } catch (cause) {
@@ -42,22 +58,43 @@ export function PredictionBox({
   }
 
   return (
-    <div className="mt-3 space-y-2" data-testid="prediction-box">
-      <label className="block text-xs text-muted" htmlFor={`features-${id}`}>
-        {t("Variables numériques (JSON, noms identiques aux colonnes d’entraînement)")}
-      </label>
-      <textarea
-        id={`features-${id}`}
-        rows={3}
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        className="w-full rounded-lg border border-border bg-background p-2 font-mono text-xs text-foreground outline-none focus:border-accent"
-      />
+    <div className="mt-3 space-y-3" data-testid="prediction-box">
+      {features.length ? (
+        <fieldset className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <legend className="mb-2 text-xs text-muted">{t("Variables du modèle")}</legend>
+          {features.map((name) => (
+            <label key={name} className="space-y-1">
+              <span className="block truncate font-mono text-xs text-muted" title={name}>{name}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={values[name] ?? ""}
+                onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))}
+                className={FIELD}
+              />
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <>
+          <label className="block text-xs text-muted" htmlFor={`features-${id}`}>
+            {t("Variables numériques (JSON, noms identiques aux colonnes d’entraînement)")}
+          </label>
+          <textarea
+            id={`features-${id}`}
+            rows={3}
+            value={json}
+            onChange={(event) => setJson(event.target.value)}
+            className={`${FIELD} font-mono text-xs`}
+          />
+        </>
+      )}
       <button
         type="button"
         onClick={() => void submit()}
         disabled={disabled || busy}
-        className="rounded-lg border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
+        className="rounded-md border border-positive/30 px-3 py-1.5 text-xs font-medium text-positive transition-colors hover:border-positive disabled:opacity-50"
       >
         {busy ? t("Prédiction…") : t("Demander une prédiction")}
       </button>

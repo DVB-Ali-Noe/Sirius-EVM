@@ -40,6 +40,10 @@ export const SHARED_MESSAGES_EN: Record<string, string> = {
   "Minimum imposé par le tarif : {minimum}.": "Minimum set by the tariff: {minimum}.",
   "Sous le minimum imposé par le tarif : {minimum}.": "Below the minimum set by the tariff: {minimum}.",
   "Montant indisponible : valeur invalide.": "Amount unavailable: invalid value.",
+  "{days} j × {price} par jour": "{days} d × {price} per day",
+  "Le fournisseur reçoit par jour": "Provider receives per day",
+  "Prix pour un jour de location": "Price for one rental day",
+  "Durée de location (jours)": "Rental duration (days)",
 
   // Carte de dataset ("Profil absent", "{count} lignes" et "{count} colonnes" existent déjà)
   "Emprunts": "Borrows",

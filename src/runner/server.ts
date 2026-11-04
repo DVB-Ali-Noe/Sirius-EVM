@@ -26,6 +26,19 @@ import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitorin
 import { demoControl, demoControlAuthorized, demoEnabled, recoverDemoAfterRestart } from "@/lib/phala-demo/runner-session";
 import { FreeOpsGuard, freeOpsPolicyFromEnv } from "./free-ops-guard";
 import { UNCHARGED_OPS } from "./handler";
+import { sweepExpiredLoanModels } from "@/lib/tee/served-models";
+
+const RENTAL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Purge des locations closes (D-29) ; un échec est signalé sans arrêter le runner. */
+function sweepRentals(): void {
+  try {
+    const deleted = sweepExpiredLoanModels();
+    if (deleted > 0) console.log(`[runner] purge des locations closes : ${deleted} modèle(s) supprimé(s)`);
+  } catch {
+    console.warn("[runner] purge des locations closes impossible : nouvel essai dans une heure");
+  }
+}
 
 function boundedSetting(name: string, fallback: number, maximum: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -236,6 +249,7 @@ export async function startRunner(
   const enclaveIdentity = process.env.TEE_MODE === "phala" ? await initEnclave() : null;
   if (!bootstrapOnly) admittedRequests = admittedRequestLimit(MAX_CONCURRENT_REQUESTS, runnerBudget()?.policy.maxActive);
   if (!bootstrapOnly && demoEnabled()) recoverDemoAfterRestart();
+  if (!bootstrapOnly) sweepRentals();
   if (process.env.NODE_ENV === "production" && !bootstrapOnly) {
     await verifyRunnerDeployment(runnerSettlementAddress());
   }
@@ -275,6 +289,11 @@ export async function startRunner(
   server.maxRequestsPerSocket = 20;
   server.maxConnections = MAX_CONNECTIONS;
   server.setTimeout(65_000, (socket) => socket.destroy());
+  if (!bootstrapOnly) {
+    const sweep = setInterval(sweepRentals, RENTAL_SWEEP_INTERVAL_MS);
+    sweep.unref();
+    server.once("close", () => clearInterval(sweep));
+  }
 
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);

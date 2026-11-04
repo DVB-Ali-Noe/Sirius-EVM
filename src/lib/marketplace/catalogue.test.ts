@@ -250,6 +250,7 @@ test("fiche : seul un dataset en ligne est servi ; tout autre état donne la mê
   assert.equal(detail.dataset.description, "Trajets agrégés par zone");
   assert.equal(detail.dataset.provider, VERIFIED);
   assert.equal(detail.dataset.challengeDays, 3);
+  assert.equal(detail.dataset.maxRentalDays, 14);
   assert.equal(detail.dataset.successRate, 0.75);
   assert.deepEqual(detail.dataset.computeFee, { kind: "quoted", atomic: "3000000" });
   assert.deepEqual(detail.token, { symbol: "USDG", decimals: 6 });

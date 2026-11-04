@@ -4,21 +4,22 @@ import { mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { encodeFunctionResult, keccak256, stringToHex, verifyTypedData, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionResult, keccak256, stringToHex, verifyTypedData, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { useWalletStore } from "@/stores/wallet";
 import { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { buildDelegationMessage } from "@/lib/runner/authorization-contract";
 import { initializeBudgetLedger, type BudgetPolicy } from "@/lib/runner/budget-ledger";
 import { runnerBudget } from "@/lib/runner/budget";
-import { issueLoanReceipt } from "@/lib/runner/receipt";
+import { issueDatasetReceipt, issueLoanReceipt } from "@/lib/runner/receipt";
 import { demoSessions } from "@/lib/phala-demo/runner-session";
 import { generateKey, encrypt, wrapKey, primeMasterKey } from "@/lib/crypto/encryption";
 import { buildMerkleTree } from "@/lib/crypto/merkle";
 import { robinhoodTestnet } from "@/lib/evm/networks";
 import { siriusescrowAbi } from "@/lib/evm/abi/siriusescrow";
+import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { evmEscrowBinding } from "@/lib/tee/evm-binding";
-import { saveServedModel, servedModelFingerprint } from "@/lib/tee/served-models";
+import { extendLoanRental, recordLoanExpiry, saveServedModel, servedModelFingerprint } from "@/lib/tee/served-models";
 import { runSelfTraining } from "@/lib/tee/core";
 import type { GradientBoostedTreesModel, LinearRegressionModel, LogisticRegressionModel } from "@/lib/models/registry";
 import { PREDICTION_EIP712_TYPES, type SignedPrediction } from "@/lib/tee/contract";
@@ -83,16 +84,16 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
     let attemptedUploads = 0;
     globalThis.fetch = async () => { attemptedUploads++; throw new Error("IPFS must not receive a sealed model"); };
     const retry = await runSelfTraining({ jobId: "job-1", owner, datasetId: "dataset-1", cid: "not-fetched",
-      wrappedKey: "not-delivered", merkleRoot: "not-fetched", priceUsdcAtomic: "1", challengeDays: 1,
+      wrappedKey: "not-delivered", merkleRoot: "not-fetched", priceUsdcAtomic: "1", challengeDays: 1, maxRentalDays: 30,
       modelId: "gradient_boosted_trees", modelVersion: "1.1.0" });
-    assert.deepEqual(retry, { servedModelId: "job-1", modelCid: servedModelFingerprint(trees), metrics: trees.metrics });
+    assert.deepEqual(retry, { servedModelId: "job-1", modelCid: servedModelFingerprint(trees), metrics: trees.metrics, features: ["age"] });
     assert.match(retry.modelCid, /^sm1[0-9a-f]{64}$/);
     assert.equal(attemptedUploads, 0);
     const plaintext = readFileSync(join(process.cwd(), "public/examples/classification/credit-risk-train.csv"));
     const dek = generateKey();
     const dataset = { jobId: "job-2", owner, datasetId: "dataset-2", cid: "dataset-cid",
       wrappedKey: wrapKey(dek, "wrap:dataset:v1:dataset-2"), merkleRoot: buildMerkleTree(plaintext).root,
-      priceUsdcAtomic: "1", challengeDays: 1, modelId: "gradient_boosted_trees" as const,
+      priceUsdcAtomic: "1", challengeDays: 1, maxRentalDays: 30, modelId: "gradient_boosted_trees" as const,
       modelVersion: "1.1.0" as const };
     const encryptedDataset = JSON.stringify(encrypt(plaintext, dek));
     let fetchedDataset = 0;
@@ -115,7 +116,7 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
     // --- Prédiction : un faux RPC publie (ou non) le préimage du prêt. ---
     let preimageRevealed = false;
     const preimage: Hex = `0x${"77".repeat(32)}`;
-    globalThis.fetch = async (input, init) => {
+    const rpcFetch: typeof fetch = async (input, init) => {
       assert.equal(String(input), RPC_URL, "aucun appel réseau hors RPC pendant une prédiction");
       const rpc = JSON.parse(String(init?.body)) as { id: number; method: string };
       assert.equal(rpc.method, "eth_call");
@@ -124,6 +125,7 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
         result: preimageRevealed ? [true, preimage] : [false, `0x${"00".repeat(32)}`],
       }) });
     };
+    globalThis.fetch = rpcFetch;
     saveServedModel({ kind: "job", id: "job-lin" }, owner, linear);
     saveServedModel({ kind: "loan", id: "loan-1" }, owner, logistic);
 
@@ -143,6 +145,33 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
       message: { ...result.signedMessage, counter: BigInt(result.signedMessage.counter), sessionRevision: BigInt(result.signedMessage.sessionRevision) },
       signature: result.signature,
     });
+
+    // --- Entraînement par l'opération runner : le grant du navigateur porte datasetId et jobId. ---
+    const trainingDataset = { datasetId: "dataset-2", cid: "dataset-cid", wrappedKey: dataset.wrappedKey,
+      merkleRoot: dataset.merkleRoot, priceUsdcAtomic: "1000000000000000000", challengeDays: 1, maxRentalDays: 30,
+      modelId: "logistic_regression" as const, modelVersion: "1.0.0" as const };
+    const datasetReceipt = issueDatasetReceipt(owner, trainingDataset);
+    const trainingGrant = (jobId: string, scopeJobId = jobId) => issueRunnerGrant("run-training",
+      { datasetId: "dataset-2", jobId: scopeJobId, demoSessionRevision: 1 },
+      ["dataset-2", jobId, datasetReceipt, "logistic_regression", "1.0.0", "served"]);
+    globalThis.fetch = async (input, init) => {
+      if (String(input) !== RPC_URL) return new Response(encryptedDataset, { status: 200 });
+      const rpc = JSON.parse(String(init?.body)) as { id: number; params: [{ data: Hex }] };
+      const call = decodeFunctionData({ abi: siriusdatasetregistryAbi, data: rpc.params[0].data });
+      const result = call.functionName === "datasetIdOf"
+        ? encodeFunctionResult({ abi: siriusdatasetregistryAbi, functionName: "datasetIdOf", result: `0x${"67".repeat(32)}` })
+        : encodeFunctionResult({ abi: siriusdatasetregistryAbi, functionName: "matchesScope", result: true });
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
+    };
+    process.env.SIRIUS_DATASET_ADDRESS = `0x${"56".repeat(20)}`;
+    const served = await handleRunnerOp("run-training", { ...trainingDataset, jobId: "job-3", datasetReceipt,
+      authorization: await trainingGrant("job-3") }) as { servedModelId: string; modelCid: string; runnerReceipt: string };
+    assert.equal(served.servedModelId, "job-3");
+    assert.match(served.modelCid, /^sm1[0-9a-f]{64}$/);
+    assert.equal(typeof served.runnerReceipt, "string");
+    await assert.rejects(handleRunnerOp("run-training", { ...trainingDataset, jobId: "job-4", datasetReceipt,
+      authorization: await trainingGrant("job-4", "job-other") }), /hors scope/);
+    globalThis.fetch = rpcFetch;
 
     // Arbres : décision « 1 » si score ≥ 0.
     const features = { age: 12 };
@@ -188,9 +217,9 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
       provider: `0x${"56".repeat(20)}`, modelCid: servedModelFingerprint(logistic), loanKey: `0x${"ab".repeat(32)}`,
       chainId, escrow, amountUsdcAtomic: "1", challengeDays: 1, modelId: "logistic_regression", modelVersion: "1.0.0",
       attestationHash: "a".repeat(64) });
-    const predictLoan = async (loanFeatures: Record<string, number>, receipt = loanReceipt) =>
-      handleRunnerOp("predict", { modelRef: { kind: "loan", id: "loan-1" }, features: loanFeatures,
-        authorization: await grant("loan", "loan-1", loanFeatures), loanReceipt: receipt, settleTxHash: `0x${"cd".repeat(32)}` }) as Promise<SignedPrediction>;
+    const predictLoan = async (loanFeatures: Record<string, number>, receipt = loanReceipt, loanId = "loan-1") =>
+      handleRunnerOp("predict", { modelRef: { kind: "loan", id: loanId }, features: loanFeatures,
+        authorization: await grant("loan", loanId, loanFeatures), loanReceipt: receipt, settleTxHash: `0x${"cd".repeat(32)}` }) as Promise<SignedPrediction>;
     await assert.rejects(handleRunnerOp("predict", { modelRef: { kind: "loan", id: "loan-1" }, features: { x: 3, y: 0 },
       authorization: await grant("loan", "loan-1", { x: 3, y: 0 }) }), /loanReceipt invalide/);
     const otherLoan = issueLoanReceipt({ loanId: "loan-2", datasetId: "dataset-1", borrower: owner,
@@ -205,6 +234,24 @@ test("modèles scellés sans livraison, prédictions signées par profil, prêts
       ["loan:loan-1", "logistic_regression", "decision", "1", 1], "quota et compteur propres au prêt");
     assert.equal(await verified(loanDecision), true);
     assert.equal((await predictLoan({ x: 1, y: 0 })).output, "0");
+
+    // Location (D-29) : servie avant l'échéance, refusée après (avant tout décompte), servie de
+    // nouveau après prolongation.
+    recordLoanExpiry("loan-1", Date.now() + 60_000);
+    assert.equal((await predictLoan({ x: 3, y: 0 })).counter, 3, "avant l'échéance : prédiction servie");
+    saveServedModel({ kind: "loan", id: "loan-3" }, owner, logistic);
+    const rentedReceipt = issueLoanReceipt({ loanId: "loan-3", datasetId: "dataset-1", borrower: owner,
+      provider: `0x${"56".repeat(20)}`, modelCid: servedModelFingerprint(logistic), loanKey: `0x${"ef".repeat(32)}`,
+      chainId, escrow, amountUsdcAtomic: "1", challengeDays: 1, modelId: "logistic_regression", modelVersion: "1.0.0",
+      attestationHash: "a".repeat(64) });
+    recordLoanExpiry("loan-3", Date.now() - 1);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(predictLoan({ x: 3, y: 0 }, rentedReceipt, "loan-3"), (error: Error & { status?: number }) =>
+        error.status === 403 && error.message === "Location expirée : prolonge pour continuer");
+    }
+    extendLoanRental("loan-3", "loan-3-extension", Date.now(), 1);
+    assert.equal((await predictLoan({ x: 3, y: 0 }, rentedReceipt, "loan-3")).counter, 1,
+      "après prolongation : servie, les refus n'ont consommé aucun quota");
 
     // Un autre wallet : ni le modèle d'un job, ni celui d'un prêt dont il n'est pas l'emprunteur.
     const stranger = privateKeyToAccount(`0x${"11".repeat(32)}`);

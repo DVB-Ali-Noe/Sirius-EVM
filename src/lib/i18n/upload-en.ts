@@ -91,15 +91,15 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Empreinte locale : {fingerprint}": "Local fingerprint: {fingerprint}",
 
   // Étape 2 — prix
-  "Ce que je veux gagner par emprunt ({symbol})": "What I want to earn per loan ({symbol})",
+  "Ce que je veux gagner par jour de location ({symbol})": "What I want to earn per rental day ({symbol})",
   "Entre {minimum} et {maximum} {symbol}, au plus {decimals} décimales. Aucune commission supplémentaire pendant la bêta.":
     "Between {minimum} and {maximum} {symbol}, up to {decimals} decimals. No extra commission during the beta.",
   "Montant invalide : vérifie les bornes et le nombre de décimales.": "Invalid amount: check the bounds and the number of decimals.",
-  "Frais de calcul du tarif en vigueur ({version}) pour le profil {model}. L’emprunteur paie ta part plus ces frais ; tu reçois ta part à chaque emprunt réglé.":
-    "Compute fee of the tariff in force ({version}) for the {model} profile. The borrower pays your share plus this fee; you receive your share for each settled loan.",
+  "Montants pour un jour de location. Frais de calcul du tarif en vigueur ({version}) pour le profil {model}, payés une fois par emprunt. L’emprunteur paie ta part par jour × le nombre de jours choisi, plus ces frais ; tu reçois ta part à chaque emprunt réglé.":
+    "Amounts for one rental day. Compute fee of the tariff in force ({version}) for the {model} profile, paid once per loan. The borrower pays your daily share × the number of days they choose, plus this fee; you receive your share for each settled loan.",
   "Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. La publication est suspendue tant que la décomposition du prix ne peut pas être montrée. Réessaie dans quelques instants ou contacte-nous.":
     "The tariff in force could not be loaded, so the compute fee cannot be shown. Publication is paused until the price breakdown can be displayed. Try again shortly or contact us.",
-  "Tu recevrais {amount} par emprunt réglé.": "You would receive {amount} per settled loan.",
+  "Tu recevrais {amount} par jour de location réglé.": "You would receive {amount} per settled rental day.",
   "Indique ton gain pour voir ce que paiera l’emprunteur. Minimum imposé par le tarif : {minimum}.": "Enter your share to see what the borrower will pay. Minimum set by the tariff: {minimum}.",
   "Publication suspendue : tarif indisponible.": "Publication paused: tariff unavailable.",
   "Aucun frais de calcul avec l’escrow actuel : l’emprunteur bloque exactement ta part, que tu reçois à chaque emprunt réglé.":
@@ -107,6 +107,13 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Reprendre l’inscription on-chain": "Resume the on-chain registration",
   "Le gain doit atteindre le minimum imposé par le tarif.": "Your share must reach the minimum set by the tariff.",
   "Indique un gain valide pour publier.": "Enter a valid amount to publish.",
+  "Indique une durée maximale de location valide pour publier.": "Enter a valid maximum rental duration to publish.",
+
+  // Étape 2 — durée maximale de location (D-29)
+  "Durée maximale de location (jours)": "Maximum rental duration (days)",
+  "Entre {min} et {max} jours. L’emprunteur choisit sa durée dans cette limite et paie ton prix par jour pour chaque jour. À l’échéance, ses prédictions s’arrêtent ; il peut prolonger en payant de nouveaux jours. Durée non modifiable après publication.":
+    "Between {min} and {max} days. The borrower picks a duration within this limit and pays your daily price for each day. At expiry their predictions stop; they can extend by paying for more days. Cannot be changed after publication.",
+  "Durée invalide : un nombre entier de jours entre {min} et {max}.": "Invalid duration: a whole number of days between {min} and {max}.",
 
   // Étape 2 — durée et estimations
   "Durée de publication": "Listing duration",
@@ -141,7 +148,9 @@ export const UPLOAD_MESSAGES_EN: Record<string, string> = {
   "Catégorie obligatoire": "Category required",
   "Durée de publication invalide (7, 30 ou 90 jours)": "Invalid listing duration (7, 30 or 90 days)",
   "Consentement invalide": "Invalid consent value",
-  "Prix invalide (0.001 à 1 000 000 par emprunt)": "Invalid price (0.001 to 1,000,000 per loan)",
+  "Prix invalide (0.001 à 1 000 000 par jour)": "Invalid price (0.001 to 1,000,000 per day)",
+  "Durée maximale de location invalide (1 à 365 jours)": "Invalid maximum rental duration (1 to 365 days)",
+  "Le serveur a renvoyé une autre durée maximale de location": "The server returned a different maximum rental duration",
   "Délai de sécurité incohérent": "Inconsistent escrow safety delay",
   "Le brouillon a changé pendant sa création": "The draft changed while it was being created",
   "Le serveur a renvoyé un autre profil d’entraînement": "The server returned a different training profile",

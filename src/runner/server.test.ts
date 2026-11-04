@@ -134,6 +134,7 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     merkleRoot: "a".repeat(64),
     priceUsdcAtomic: "1000000000000000000",
     challengeDays: 7,
+    maxRentalDays: 30,
     modelId: "other",
     modelVersion: "1.0.0",
     datasetReceipt: "not-read-before-model-validation",

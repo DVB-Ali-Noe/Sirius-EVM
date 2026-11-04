@@ -6,6 +6,7 @@ import * as crypto from "node:crypto";
 import { test } from "node:test";
 import * as viem from "viem";
 import * as appError from "../../src/lib/app-error";
+import * as rental from "../../src/lib/billing/rental";
 import { siriusescrowAbi } from "../../src/lib/evm/abi/siriusescrow";
 import { siriusescrowv7Abi } from "../../src/lib/evm/abi/siriusescrowv7";
 import * as address from "../../src/lib/evm/address";
@@ -28,6 +29,7 @@ function receiptsUnderMasterKey() {
   const encryption = loadModule<Encryption>("src/lib/crypto/encryption.ts", { "server-only": serverOnly, "node:crypto": crypto }, { process: { env } });
   const receipts = loadModule<Receipts>("src/lib/runner/receipt.ts", {
     "server-only": serverOnly, "node:crypto": crypto, "@/lib/app-error": appError, "@/lib/crypto/encryption": encryption,
+    "@/lib/billing/rental": rental,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: CURRENT }) },
     "@/lib/evm/history": { trustedEscrowBinding: (binding: { chainId: number; escrow: string }) => {
       if (![CURRENT, OLD].includes(binding.escrow.toLowerCase())) throw new appError.AppError("Déploiement historique non autorisé", 409);
@@ -46,11 +48,16 @@ function receiptsUnderMasterKey() {
 test("un reçu de dataset v2 est refusé : un dataset scellé sous l'ancien format doit être réimporté", () => {
   const { receipts, historical } = receiptsUnderMasterKey();
   const dataset = { datasetId: "ds-1", cid: "bafy-ds", wrappedKey: "wk", merkleRoot: "root", priceUsdcAtomic: "10", challengeDays: 7,
-    modelId: "linear_regression" as const, modelVersion: "1.0.0" as const };
+    maxRentalDays: 30, modelId: "linear_regression" as const, modelVersion: "1.0.0" as const };
   const legacy = historical({ version: 2, kind: "dataset", datasetId: "ds-1", owner: PROVIDER, cid: "bafy-ds",
     wrappedKeyHash: crypto.createHash("sha256").update("wk").digest("hex"), merkleRoot: "root", priceUsdcAtomic: "10", challengeDays: 7 });
   assert.throws(() => receipts.verifyDatasetReceipt(legacy, dataset), /Reçu runner invalide/);
-  assert.equal(receipts.verifyDatasetReceipt(receipts.issueDatasetReceipt(PROVIDER, dataset), dataset).version, 3);
+  assert.equal(receipts.verifyDatasetReceipt(receipts.issueDatasetReceipt(PROVIDER, dataset), dataset).version, 4);
+  // Reçu v3 d'avant la location (D-29) : accepté, durée maximale lue à 30 jours.
+  const v3 = historical({ version: 3, kind: "dataset", datasetId: "ds-1", owner: PROVIDER, cid: "bafy-ds",
+    wrappedKeyHash: crypto.createHash("sha256").update("wk").digest("hex"), merkleRoot: "root", priceUsdcAtomic: "10", challengeDays: 7,
+    modelId: "linear_regression", modelVersion: "1.0.0" }, 3);
+  assert.equal(receipts.verifyDatasetReceipt(v3, dataset).maxRentalDays, 30);
 });
 
 test("un reçu de prêt v3 d'un escrow historique déclaré prouve son règlement, sans autoriser de nouvel usage", () => {

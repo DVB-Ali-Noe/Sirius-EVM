@@ -10,6 +10,7 @@ import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import type { CsvSummary } from "@/lib/datasets/csv-check";
 import { MAX_PROVIDER_PRICE_WHOLE, minimumProviderPriceAtomic } from "@/lib/datasets/price-input";
+import { MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import {
   DEFAULT_LISTING_DURATION_DAYS,
   ESCROW_CHALLENGE_DAYS,
@@ -39,6 +40,10 @@ interface PricingStepProps {
   /** Gain en unités atomiques, `null` si la saisie est invalide. */
   providerAtomic: bigint | null;
   belowMinimum: boolean;
+  /** Durée maximale de location saisie (jours, texte brut). */
+  maxRentalDays: string;
+  onMaxRentalDays: (value: string) => void;
+  maxRentalDaysInvalid: boolean;
   listingDays: ListingDurationDays;
   onListingDays: (days: ListingDurationDays) => void;
   consent: boolean;
@@ -77,6 +82,9 @@ export function PricingStep({
   onPrice,
   providerAtomic,
   belowMinimum,
+  maxRentalDays,
+  onMaxRentalDays,
+  maxRentalDaysInvalid,
   listingDays,
   onListingDays,
   consent,
@@ -91,7 +99,7 @@ export function PricingStep({
   onPublish,
 }: PricingStepProps) {
   const { t } = useLocale();
-  const ids = { price: useId(), priceHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
+  const ids = { price: useId(), priceHint: useId(), rental: useId(), rentalHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
   // Sans tarif chargé, le plancher reste celui que la route impose (0,001 jeton) : il est connu localement.
   const minimum = formatTokenWithSymbol(tariff ? tariff.minimumProviderAtomic : minimumProviderPriceAtomic(token.decimals) ?? "", token) ?? "—";
   // Date indicative : la vraie échéance part de l’inscription on-chain (rebase côté serveur).
@@ -114,7 +122,7 @@ export function PricingStep({
     >
       <div className="flex flex-col gap-1.5" data-guide="page:upload:price">
         <label className="text-sm font-medium" htmlFor={ids.price}>
-          {t("Ce que je veux gagner par emprunt ({symbol})", { symbol: token.symbol })}
+          {t("Ce que je veux gagner par jour de location ({symbol})", { symbol: token.symbol })}
         </label>
         <input
           id={ids.price}
@@ -143,6 +151,35 @@ export function PricingStep({
         )}
       </div>
 
+      <div className="flex flex-col gap-1.5" data-guide="page:upload:rental">
+        <label className="text-sm font-medium" htmlFor={ids.rental}>
+          {t("Durée maximale de location (jours)")}
+        </label>
+        <input
+          id={ids.rental}
+          name="maxRentalDays"
+          type="text"
+          inputMode="numeric"
+          value={maxRentalDays}
+          required
+          autoComplete="off"
+          aria-describedby={ids.rentalHint}
+          aria-invalid={maxRentalDaysInvalid ? true : undefined}
+          disabled={frozen}
+          onChange={(event) => onMaxRentalDays(event.target.value)}
+          className={`${INPUT_CLASS} font-mono tabular-nums`}
+        />
+        <p id={ids.rentalHint} className="text-xs text-muted">
+          {t("Entre {min} et {max} jours. L’emprunteur choisit sa durée dans cette limite et paie ton prix par jour pour chaque jour. À l’échéance, ses prédictions s’arrêtent ; il peut prolonger en payant de nouveaux jours. Durée non modifiable après publication.", {
+            min: MIN_RENTAL_DAYS,
+            max: MAX_RENTAL_DAYS,
+          })}
+        </p>
+        {maxRentalDaysInvalid && (
+          <p role="alert" className="text-xs text-negative">{t("Durée invalide : un nombre entier de jours entre {min} et {max}.", { min: MIN_RENTAL_DAYS, max: MAX_RENTAL_DAYS })}</p>
+        )}
+      </div>
+
       {tariff && tariff.computeFeeAtomic[modelId] !== undefined ? (
         <div className="flex flex-col gap-2">
           {providerAtomic !== null ? (
@@ -162,7 +199,7 @@ export function PricingStep({
           <p className="text-xs text-muted">
             {tariff.version === "legacy-v6"
               ? t("Aucun frais de calcul avec l’escrow actuel : l’emprunteur bloque exactement ta part, que tu reçois à chaque emprunt réglé.")
-              : t("Frais de calcul du tarif en vigueur ({version}) pour le profil {model}. L’emprunteur paie ta part plus ces frais ; tu reçois ta part à chaque emprunt réglé.", {
+              : t("Montants pour un jour de location. Frais de calcul du tarif en vigueur ({version}) pour le profil {model}, payés une fois par emprunt. L’emprunteur paie ta part par jour × le nombre de jours choisi, plus ces frais ; tu reçois ta part à chaque emprunt réglé.", {
                 version: tariff.version,
                 model: MODEL_REGISTRY[modelId].label,
               })}
@@ -172,7 +209,7 @@ export function PricingStep({
         <div role="note" className="rounded-xl border border-yellow-400/40 bg-yellow-400/5 p-4 text-xs text-foreground/90">
           <p>{t("Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. La publication est suspendue tant que la décomposition du prix ne peut pas être montrée. Réessaie dans quelques instants ou contacte-nous.")}</p>
           <p className="mt-2">
-            {t("Tu recevrais {amount} par emprunt réglé.", {
+            {t("Tu recevrais {amount} par jour de location réglé.", {
               amount: providerAtomic === null ? "—" : formatTokenWithSymbol(providerAtomic, token) ?? "—",
             })}
           </p>
@@ -310,7 +347,9 @@ export function PricingStep({
               ? t("Publication suspendue : tarif indisponible.")
               : belowMinimum
                 ? t("Le gain doit atteindre le minimum imposé par le tarif.")
-                : t("Indique un gain valide pour publier.")}
+                : maxRentalDaysInvalid
+                  ? t("Indique une durée maximale de location valide pour publier.")
+                  : t("Indique un gain valide pour publier.")}
           </p>
         )}
       </div>

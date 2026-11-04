@@ -7,9 +7,14 @@ import type { DatasetRef } from "@/lib/tee/contract";
 import type { ModelId } from "@/lib/models/registry";
 import { trustedEscrowBinding } from "@/lib/evm/history";
 import type { SignedComputeQuote } from "@/lib/billing/quote";
+import { DEFAULT_MAX_RENTAL_DAYS, isValidRentalDays } from "@/lib/billing/rental";
 
+/**
+ * Reçu de scellement d'un dataset. v4 (D-29) signe `maxRentalDays` ; un reçu v3, émis avant, reste
+ * valide et `verifyDatasetReceipt` le lit avec `maxRentalDays = DEFAULT_MAX_RENTAL_DAYS` (30 jours).
+ */
 export interface DatasetReceipt {
-  version: 3;
+  version: 3 | 4;
   kind: "dataset";
   datasetId: string;
   owner: string;
@@ -20,6 +25,7 @@ export interface DatasetReceipt {
   challengeDays: number;
   modelId: ModelId;
   modelVersion: string;
+  maxRentalDays: number;
 }
 
 export interface TrainingReceipt {
@@ -80,7 +86,7 @@ function verify<T extends Receipt["kind"]>(token: string, kind: T): Extract<Rece
   } catch {
     throw new AppError("Reçu runner invalide", 401);
   }
-  if (!receipt || receipt.version !== 3 || receipt.kind !== kind) {
+  if (!receipt || !(receipt.version === 3 || (receipt.kind === "dataset" && receipt.version === 4)) || receipt.kind !== kind) {
     throw new AppError("Reçu runner invalide", 401);
   }
   const expected = createHmac("sha256", receiptKey()).update(body).digest();
@@ -94,7 +100,7 @@ function wrappedKeyHash(wrappedKey: string): string {
 
 export function issueDatasetReceipt(owner: string, dataset: DatasetRef): string {
   return issue({
-    version: 3,
+    version: 4,
     kind: "dataset",
     datasetId: dataset.datasetId,
     owner,
@@ -105,11 +111,15 @@ export function issueDatasetReceipt(owner: string, dataset: DatasetRef): string 
     challengeDays: dataset.challengeDays,
     modelId: dataset.modelId,
     modelVersion: dataset.modelVersion,
+    maxRentalDays: dataset.maxRentalDays,
   });
 }
 
 export function verifyDatasetReceipt(token: string, dataset: DatasetRef): DatasetReceipt {
-  const receipt = verify(token, "dataset");
+  const signed = verify(token, "dataset");
+  const legacy = signed.version === 3 && signed.maxRentalDays === undefined;
+  if (!legacy && !(signed.version === 4 && isValidRentalDays(signed.maxRentalDays))) throw new AppError("Reçu runner invalide", 401);
+  const receipt: DatasetReceipt = legacy ? { ...signed, maxRentalDays: DEFAULT_MAX_RENTAL_DAYS } : signed;
   if (
     receipt.datasetId !== dataset.datasetId ||
     receipt.cid !== dataset.cid ||
@@ -117,6 +127,7 @@ export function verifyDatasetReceipt(token: string, dataset: DatasetRef): Datase
     receipt.merkleRoot !== dataset.merkleRoot ||
     receipt.priceUsdcAtomic !== dataset.priceUsdcAtomic ||
     receipt.challengeDays !== dataset.challengeDays ||
+    receipt.maxRentalDays !== dataset.maxRentalDays ||
     receipt.modelId !== dataset.modelId ||
     receipt.modelVersion !== dataset.modelVersion
   ) {
