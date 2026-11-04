@@ -1,0 +1,302 @@
+import assert from "node:assert/strict";
+import { before, test } from "node:test";
+import { privateKeyToAccount } from "viem/accounts";
+import { useWalletStore } from "@/stores/wallet";
+import { AppError } from "@/lib/app-error";
+import { buildMerkleTree } from "@/lib/crypto/merkle";
+import { priceUsdcToAtomic } from "@/lib/evm/usdc";
+import { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } from "@/lib/runner/authorization-client";
+import { buildDelegationMessage } from "@/lib/runner/authorization-contract";
+import { verifyDatasetReceipt } from "@/lib/runner/receipt";
+import type { R2Config } from "@/lib/storage/r2";
+import type * as UploadsModule from "@/lib/sirius/chunked-upload";
+import type * as TransferModule from "./chunked-transfer";
+import type * as IngressClientModule from "@/lib/tee/ingress-client";
+
+/**
+ * Bout en bout sans réseau ni base : le module d'envoi du site et de la CLI, les routes d'envoi
+ * (logique serveur, base simulée), le runner réel (grant, scellement en arrière-plan) et un R2 en
+ * mémoire, que le navigateur remplit par URL pré-signée et que le runner relit.
+ */
+
+const ORIGIN = "http://localhost:3000";
+const PROVIDER_KEY = "0x59c6995e998f97a5a0044966f094538b2927f5fc5a8c7e1b3e49b920e33e9f8a";
+const R2 = {
+  R2_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+  R2_ACCESS_KEY_ID: "site",
+  R2_SECRET_ACCESS_KEY: "secret",
+  R2_BUCKET: "sirius-test",
+};
+const CONFIG: R2Config = { accountId: R2.R2_ACCOUNT_ID, accessKeyId: "site", secretAccessKey: "secret", bucket: R2.R2_BUCKET };
+const CHUNK = 64 * 1024;
+
+let uploads: typeof UploadsModule;
+let transfer: typeof TransferModule;
+let ingress: typeof IngressClientModule;
+let provider = "";
+
+before(async () => {
+  Object.assign(process.env, {
+    DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://test:test@localhost:5432/test",
+    TEE_MODE: "stub",
+    SIRIUS_MASTER_KEY: Buffer.alloc(32, 13).toString("base64"),
+    EVM_NETWORK: "testnet",
+    SIRIUS_APP_ORIGIN: ORIGIN,
+    NEXT_PUBLIC_SIRIUS_APP_ORIGIN: ORIGIN,
+    SIRIUS_ESCROW_ADDRESS: `0x${"34".repeat(20)}`,
+    ...R2,
+  });
+  delete process.env.RUNNER_URL;
+  uploads = await import("@/lib/sirius/chunked-upload");
+  transfer = await import("./chunked-transfer");
+  ingress = await import("@/lib/tee/ingress-client");
+
+  const account = privateKeyToAccount(PROVIDER_KEY);
+  provider = account.address.toLowerCase();
+  useWalletStore.getState().setConnected(account.address, "testnet", "external");
+  const sessionPublicKey = await beginRunnerDelegation();
+  const now = Date.now();
+  const message = buildDelegationMessage({
+    origin: ORIGIN,
+    address: account.address,
+    sessionPublicKey,
+    network: "testnet",
+    issuedAt: now,
+    expiresAt: now + 10 * 60_000,
+    challengeToken: "challenge.signature",
+  });
+  await activateRunnerDelegation({ message, walletSignature: await account.signMessage({ message }), sessionPublicKey });
+});
+
+type Row = Record<string, unknown>;
+
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    const value = row[key];
+    if (condition && typeof condition === "object" && !(condition instanceof Date)) {
+      const c = condition as { in?: unknown[]; gt?: Date; gte?: Date };
+      return (!c.in || c.in.includes(value)) && (!c.gt || (value as Date) > c.gt) && (!c.gte || (value as Date) >= c.gte);
+    }
+    return value === condition;
+  });
+}
+
+function table(rows: Row[]) {
+  return {
+    rows,
+    findUnique: async ({ where }: { where: Row }) => rows.find((row) => matches(row, where)) ?? null,
+    findFirst: async ({ where }: { where: Row }) => rows.filter((row) => matches(row, where)).at(-1) ?? null,
+    count: async ({ where }: { where: Row }) => rows.filter((row) => matches(row, where)).length,
+    aggregate: async ({ where }: { where: Row }) => ({
+      _sum: { sizeBytes: rows.filter((row) => matches(row, where)).reduce((sum, row) => sum + Number(row.sizeBytes), 0) || null },
+    }),
+    create: async ({ data }: { data: Row }) => {
+      const row = { id: `upload${rows.length + 1}`, state: "OPEN", manifestSha256: null, error: null, createdAt: new Date(), ...data };
+      rows.push(row);
+      return row;
+    },
+    updateMany: async ({ where, data }: { where: Row; data: Row }) => {
+      const hit = rows.filter((row) => matches(row, where));
+      for (const row of hit) Object.assign(row, data);
+      return { count: hit.length };
+    },
+  };
+}
+
+const TERMS = {
+  priceUsdcAtomic: "",
+  challengeDays: 7,
+  maxRentalDays: 30,
+  model: { modelId: "linear_regression", modelVersion: "1.0.0" },
+};
+
+function world(datasetId: string, sizeBytes: number) {
+  const bucket = new Map<string, Uint8Array<ArrayBuffer>>();
+  const datasets = table([
+    { id: datasetId, provider, status: "DRAFT", ipfsCid: null, wrappedKey: null, keyDestroyedAt: null, runnerKind: "DEVELOPMENT", runnerDeploymentId: null },
+  ]);
+  const datasetUpload = table([]);
+  const db = { dataset: datasets, datasetUpload, $transaction: async (action: (tx: unknown) => Promise<unknown>) => action(db) };
+  const deps = {
+    ...uploads.defaultChunkedUploadDeps,
+    db,
+    storage: () => CONFIG,
+    list: async (_config: R2Config, prefix: string) =>
+      [...bucket].filter(([key]) => key.startsWith(prefix)).map(([key, object]) => ({ key, size: object.length })),
+    put: async (_config: R2Config, key: string, body: Uint8Array<ArrayBuffer>) => {
+      bucket.set(key, body);
+    },
+    deletePrefix: async (_config: R2Config, prefix: string) => {
+      for (const key of [...bucket.keys()]) if (key.startsWith(prefix)) bucket.delete(key);
+      return 0;
+    },
+    authorize: async (id: string, who: string) => {
+      if (who !== provider) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
+      return { id, provider: who, sizeBytes, ...TERMS, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
+    },
+    assertRunner: async () => ({}),
+  } as unknown as UploadsModule.ChunkedUploadDeps;
+
+  const keyOf = (url: string) => new URL(url).pathname.replace(`/${R2.R2_BUCKET}/`, "");
+  const puts: string[] = [];
+  let putFailures: Record<number, number[]> = {};
+  const reply = async (action: () => Promise<unknown>, status = 200) => {
+    try {
+      return Response.json(await action(), { status });
+    } catch (error) {
+      if (error instanceof AppError) return Response.json({ error: error.message }, { status: error.status });
+      throw error;
+    }
+  };
+  const api: TransferModule.ChunkedTransferApi = {
+    async request(path, init) {
+      const body = init.body ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+      const match = /^\/api\/datasets\/([^/]+)\/uploads(?:\/([^/]+))?(?:\/(parts|complete))?$/.exec(path);
+      assert.ok(match, path);
+      const [, id, uploadId, action] = match;
+      if (!uploadId) return reply(() => uploads.openDatasetUpload(id, provider, { chunkBytes: body.chunkBytes }, deps), 201);
+      if (action === "parts") return reply(() => uploads.presignUploadParts(id, uploadId, provider, body.indexes, deps));
+      if (action === "complete") {
+        const header = init.headers?.["x-sirius-runner-grant"] ?? "";
+        const { parseRunnerGrantHeader } = await import("@/lib/runner/authorization-contract");
+        return reply(() => uploads.completeDatasetUpload(id, uploadId, provider, body.manifest, parseRunnerGrantHeader(header)!, deps), 202);
+      }
+      if (init.method === "DELETE") return reply(() => uploads.abortDatasetUpload(id, uploadId, provider, deps));
+      return reply(() => uploads.datasetUploadStatus(id, uploadId, provider, deps));
+    },
+    async put(url, body) {
+      const key = keyOf(url);
+      puts.push(key);
+      const index = Number(key.split("/").at(-1));
+      const failures = putFailures[index];
+      if (failures?.length) return new Response("<Error/>", { status: failures.shift() });
+      const signed = Number(new URL(url).searchParams.get("X-Amz-SignedHeaders")?.includes("content-length"));
+      assert.equal(signed, 1, "la taille doit être signée");
+      bucket.set(key, body);
+      return new Response(null, { status: 200 });
+    },
+  };
+  return {
+    bucket,
+    datasets,
+    datasetUpload,
+    api,
+    puts,
+    failPuts: (plan: Record<number, number[]>) => (putFailures = plan),
+  };
+}
+
+/** Le runner relit R2 par `fetch` : on le sert depuis le bucket en mémoire. */
+async function withRunnerStorage<T>(bucket: Map<string, Uint8Array<ArrayBuffer>>, action: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const key = new URL(String(input)).pathname.replace(`/${R2.R2_BUCKET}/`, "");
+    const object = bucket.get(key);
+    return object ? new Response(object) : new Response("<Error/>", { status: 404 });
+  }) as typeof fetch;
+  try {
+    return await action();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+function csv(rows: number): Buffer {
+  const lines = ["surface,pieces,quartier,prix"];
+  for (let i = 0; i < rows; i++) lines.push(`${20 + (i % 180)},${1 + (i % 6)},q${i % 9},${(i * 1.7) % 900}`);
+  return Buffer.from(`${lines.join("\n")}\n`);
+}
+
+function source(file: Buffer): TransferModule.ChunkedFileSource {
+  return { sizeBytes: file.length, read: async (offset, length) => new Uint8Array(file.subarray(offset, offset + length)) };
+}
+
+function transferDeps(api: TransferModule.ChunkedTransferApi, progress: TransferModule.ChunkedTransferProgress[] = []) {
+  return {
+    api,
+    verifyIngressKey: ingress.verifyIngressKey,
+    issueGrant: (datasetId: string, parts: readonly string[]) => issueRunnerGrant("seal-chunked-dataset", { datasetId }, parts),
+    onProgress: (event: TransferModule.ChunkedTransferProgress) => progress.push(event),
+    chunkBytes: CHUNK,
+    pollMs: 5,
+    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 5))),
+  };
+}
+
+test("un gros fichier part en morceaux chiffrés, l'enclave le scelle et le brouillon reçoit son titre", async () => {
+  TERMS.priceUsdcAtomic = priceUsdcToAtomic("10")!;
+  const file = csv(12_000);
+  assert.ok(file.length > 4 * CHUNK);
+  const w = world("dataset-e2e", file.length);
+  const progress: TransferModule.ChunkedTransferProgress[] = [];
+
+  const { uploadId } = await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-e2e", sizeBytes: file.length, ...TERMS }, source(file), transferDeps(w.api, progress)),
+  );
+
+  const chunkCount = Math.ceil(file.length / CHUNK);
+  const dataset = w.datasets.rows[0];
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.match(String(dataset.ipfsCid), new RegExp(`^sirius-chunked:v1:${uploadId}:[0-9a-f]{64}$`));
+  assert.equal(dataset.merkleRoot, buildMerkleTree(file).root);
+  assert.deepEqual(dataset.metrics, { rowCount: 12_000, columnCount: 4 });
+  const receipt = verifyDatasetReceipt(String(dataset.runnerReceipt), {
+    datasetId: "dataset-e2e",
+    cid: String(dataset.ipfsCid),
+    wrappedKey: String(dataset.wrappedKey),
+    merkleRoot: String(dataset.merkleRoot),
+    priceUsdcAtomic: TERMS.priceUsdcAtomic,
+    challengeDays: TERMS.challengeDays,
+    maxRentalDays: TERMS.maxRentalDays,
+    modelId: "linear_regression",
+    modelVersion: "1.0.0",
+  });
+  assert.equal(receipt.owner, provider);
+  // R2 ne contient que du chiffré : aucun morceau ne ressemble au CSV.
+  assert.equal(w.bucket.size, chunkCount + 1);
+  for (const object of w.bucket.values()) assert.ok(!Buffer.from(object).includes("surface,pieces"));
+  const uploadsDone = progress.filter((event) => event.phase === "upload");
+  assert.equal(uploadsDone.at(-1)?.phase === "upload" && uploadsDone.at(-1)?.sentBytes, file.length);
+  assert.equal(progress.at(-1)?.phase, "seal");
+});
+
+test("un envoi refusé par R2 est réessayé, avec une nouvelle URL si la sienne a expiré", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-retry", file.length);
+  w.failPuts({ 1: [500, 403], 3: [503] });
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-retry", sizeBytes: file.length, ...TERMS }, source(file), transferDeps(w.api)),
+  );
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.equal(w.puts.filter((key) => key.endsWith("/chunks/1")).length, 3);
+  assert.equal(w.puts.filter((key) => key.endsWith("/chunks/3")).length, 2);
+});
+
+test("un fichier refusé par l'enclave renvoie son message et ne laisse aucun morceau dans R2", async () => {
+  // Assez gros pour plusieurs morceaux, mais une colonne cible incomplète.
+  const lines = ["a,b,cible"];
+  for (let i = 0; i < 9_000; i++) lines.push(`${i % 7},${i % 11},${i === 4 ? "" : i % 5}`);
+  const file = Buffer.from(`${lines.join("\n")}\n`);
+  const w = world("dataset-refused", file.length);
+  await assert.rejects(
+    withRunnerStorage(w.bucket, () =>
+      transfer.sendChunkedDataset({ datasetId: "dataset-refused", sizeBytes: file.length, ...TERMS }, source(file), transferDeps(w.api)),
+    ),
+    /cible/,
+  );
+  assert.ok(["FAILED", "ABORTED"].includes(String(w.datasetUpload.rows[0].state)));
+  assert.equal(w.bucket.size, 0);
+  assert.equal(w.datasets.rows[0].ipfsCid, null);
+});
+
+test("une coupure pendant l'envoi ferme l'envoi et libère le quota du fournisseur", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-cut", file.length);
+  w.failPuts({ 2: [500, 500, 500, 500] });
+  await assert.rejects(
+    transfer.sendChunkedDataset({ datasetId: "dataset-cut", sizeBytes: file.length, ...TERMS }, source(file), transferDeps(w.api)),
+    /Envoi du morceau 3 impossible \(HTTP 500\)/,
+  );
+  assert.equal(w.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(w.bucket.size, 0);
+});

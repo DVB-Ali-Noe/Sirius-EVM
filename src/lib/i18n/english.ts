@@ -12,6 +12,7 @@ import { FUNDING_MESSAGES_EN } from "./funding-en";
 import { ONBOARDING_MESSAGES_EN } from "./onboarding-en";
 import { ASSISTANT_MESSAGES_EN } from "./assistant-en";
 import { GUIDE_MESSAGES_EN } from "./guide-en";
+import { UPLOAD_CHUNKED_DYNAMIC_EN, UPLOAD_CHUNKED_MESSAGES_EN } from "./upload-chunked-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ASSISTANT_MESSAGES_EN,
@@ -22,6 +23,7 @@ export const EN_MESSAGES: Record<string, string> = {
   ...LEGAL_MESSAGES_EN,
   ...DATASETS_MESSAGES_EN,
   ...UPLOAD_MESSAGES_EN,
+  ...UPLOAD_CHUNKED_MESSAGES_EN,
   ...PROFILE_MESSAGES_EN,
   ...MARKETPLACE_MESSAGES_EN,
   ...TRAIN_MESSAGES_EN,
@@ -413,6 +415,7 @@ export const EN_MESSAGES: Record<string, string> = {
 export type TranslationVariables = Record<string, string | number>;
 
 const DYNAMIC_MESSAGES_EN: readonly [RegExp, string][] = [
+  ...UPLOAD_CHUNKED_DYNAMIC_EN,
   [/^trop de colonnes CSV \(max (\d+)\)$/, "Too many CSV columns (maximum $1)"],
   [/^trop de lignes CSV \(max (\d+)\)$/, "Too many CSV rows (maximum $1)"],
   [/^CSV invalide ligne (\d+) : retour chariot isolé \(\\r sans \\n\)$/, "Invalid CSV at line $1: lone carriage return (\\r without \\n)"],

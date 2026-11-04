@@ -22,12 +22,20 @@ import {
 } from "@/lib/datasets/publication";
 import type { PublishedTariff } from "@/lib/datasets/tariff";
 import { UPLOAD_STEPS, type UploadStep } from "@/lib/datasets/upload-client";
+import { UPLOAD_CHUNK_BYTES } from "@/lib/upload/chunked";
 import type { PublishDatasetStage } from "@/lib/datasets/client";
 import { MODEL_REGISTRY, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, type LoadedFile, type StepState } from "./wizard-types";
 
 /** Étiquette AES-GCM ajoutée au contenu chiffré ; l'enveloppe JSON et le base64 s'ajoutent sur le fil. */
 const AES_GCM_TAG_BYTES = 16;
+/** Gros fichier : chaque morceau stocké porte son IV (12 octets) et son tag (16 octets). */
+const CHUNK_OVERHEAD_BYTES = 12 + AES_GCM_TAG_BYTES;
+
+function encryptedBytes(file: LoadedFile): number {
+  if (!file.large) return file.sizeBytes + AES_GCM_TAG_BYTES;
+  return file.sizeBytes + Math.ceil(file.sizeBytes / UPLOAD_CHUNK_BYTES) * CHUNK_OVERHEAD_BYTES;
+}
 
 interface PricingStepProps {
   token: TokenInfo;
@@ -52,6 +60,8 @@ interface PricingStepProps {
   publishing: boolean;
   progress: Record<UploadStep, StepState>;
   stage: PublishDatasetStage | null;
+  /** Gros fichier : part chiffrée et envoyée, de 0 à 1, pendant le chiffrement. */
+  uploadSent?: number | null;
   error: string | null;
   sealedDatasetId: string | null;
   onBack: () => void;
@@ -93,6 +103,7 @@ export function PricingStep({
   publishing,
   progress,
   stage,
+  uploadSent = null,
   error,
   sealedDatasetId,
   onBack,
@@ -262,7 +273,7 @@ export function PricingStep({
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted">{t("Taille chiffrée (environ)")}</dt>
-            <dd className="tabular-nums">{formatBytes(file.sizeBytes + AES_GCM_TAG_BYTES)}</dd>
+            <dd className="tabular-nums">{formatBytes(encryptedBytes(file))}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted">{t("Modèle")}</dt>
@@ -323,6 +334,9 @@ export function PricingStep({
                 <span className="min-w-0">
                   {t(STEP_LABEL_KEYS[step])}
                   {step === "register" && state === "active" && stage && <span className="text-muted"> — {t(STAGE_LABEL_KEYS[stage])}</span>}
+                  {step === "encrypt" && state === "active" && uploadSent !== null && (
+                    <span className="text-muted tabular-nums"> — {t("{percent} % envoyé", { percent: Math.floor(uploadSent * 100) })}</span>
+                  )}
                   <span className="sr-only">
                     {" "}
                     {state === "done" ? t("terminé") : state === "failed" ? t("échoué") : state === "active" ? t("en cours") : t("en attente")}

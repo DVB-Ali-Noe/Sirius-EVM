@@ -1,6 +1,7 @@
 import { publishedTariff } from "@/lib/datasets/tariff-server";
 import { settlementToken } from "@/lib/datasets/token";
 import { resolveServerNetwork } from "@/lib/evm/networks";
+import { largeUploadLimit } from "@/lib/sirius/chunked-upload";
 import { NewDatasetWizard } from "./NewDatasetWizard";
 
 // Le tarif en vigueur et le jeton sont lus sur le serveur à chaque affichage : la page ne
@@ -18,5 +19,5 @@ export const dynamic = "force-dynamic";
 export default function NewDatasetPage() {
   const tariff = publishedTariff();
   const token = settlementToken(resolveServerNetwork().network);
-  return <NewDatasetWizard tariff={tariff} token={token} />;
+  return <NewDatasetWizard tariff={tariff} token={token} largeUploadMaxBytes={largeUploadLimit()} />;
 }

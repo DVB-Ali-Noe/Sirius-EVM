@@ -30,7 +30,8 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function verifyIngressKey(ingressKey: DatasetIngressKey): Promise<Uint8Array<ArrayBuffer>> {
+/** Vérifie l’origine et l’empreinte épinglée de la clé d’ingestion ; partagée avec l’envoi en morceaux. */
+export async function verifyIngressKey(ingressKey: DatasetIngressKey): Promise<Uint8Array<ArrayBuffer>> {
   if (ingressKey.version !== 1) throw new Error("Version de clé d’ingestion incompatible");
   const expectedOrigin = process.env.NEXT_PUBLIC_SIRIUS_APP_ORIGIN?.trim() || globalThis.location?.origin;
   if (expectedOrigin && ingressKey.origin !== expectedOrigin) {

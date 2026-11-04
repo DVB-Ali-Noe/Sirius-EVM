@@ -139,6 +139,23 @@ export function requireChunkedUploads(
   }
 }
 
+/**
+ * Limite affichée par le formulaire de publication : `null` si l'envoi en morceaux n'est pas
+ * disponible sur cette instance (stockage non configuré ou réglage invalide).
+ */
+export function largeUploadLimit(
+  deps: Pick<ChunkedUploadDeps, "storage"> = defaultChunkedUploadDeps,
+  env: Record<string, string | undefined> = process.env,
+): number | null {
+  try {
+    const max = chunkedUploadMaxBytes(env);
+    deps.storage();
+    return max;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Lecture
 
