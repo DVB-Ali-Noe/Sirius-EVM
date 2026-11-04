@@ -33,7 +33,7 @@ async function fixture() {
   const publicClient = await hre.viem.getPublicClient();
   const client = { public: publicClient, wallet: admin };
   const kybDeployment = await hre.viem.deployContract("SiriusKybRegistry", [admin.account.address, verifier.account.address]);
-  const registryDeployment = await hre.viem.deployContract("SiriusDatasetRegistry", [kybDeployment.address, admin.account.address]);
+  const registryDeployment = await hre.viem.deployContract("SiriusDatasetRegistry", [kybDeployment.address, admin.account.address, "0x0000000000000000000000000000000000000000"]);
   const token = await hre.viem.deployContract("MockEscrowToken", [6]);
   const kyb = getContract({ address: kybDeployment.address, abi: siriuskybregistryAbi, client });
   const registry = getContract({ address: registryDeployment.address, abi: siriusdatasetregistryAbi, client });
@@ -139,14 +139,15 @@ describe("SiriusDatasetRegistry v5 : comportement figé (audit REP-11 à REP-13)
       }
       // Pas d'événement d'installation de l'admin : seul le getter `admin()` le dit.
       const events = abi.filter((entry: { type: string }) => entry.type === "event").map((entry: { name?: string }) => entry.name ?? "");
-      assert.deepEqual(events.sort(), ["DatasetDestroyed", "DatasetMinted", "EscrowBound", "TrainingProfileAdded"]);
+      // v6 : réglage de la taille maximale et import des titres v5, tous deux réservés à l'admin.
+      assert.deepEqual(events.sort(), ["DatasetDestroyed", "DatasetImported", "DatasetMinted", "EscrowBound", "MaxSizeChanged", "TrainingProfileAdded"]);
     });
 
     it("REP-B6 : refuse admin nul et KYB nul au constructeur, mais accepte une clé simple (EOA) comme admin", async () => {
       const ctx = await loadFixture(fixture);
-      await assert.rejects(hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, zeroAddress]), /ZeroAddress/);
-      await assert.rejects(hre.viem.deployContract("SiriusDatasetRegistry", [zeroAddress, ctx.admin.account.address]), /KybRequired/);
-      const eoaAdmin = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, ctx.other.account.address]);
+      await assert.rejects(hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, zeroAddress, "0x0000000000000000000000000000000000000000"]), /ZeroAddress/);
+      await assert.rejects(hre.viem.deployContract("SiriusDatasetRegistry", [zeroAddress, ctx.admin.account.address, "0x0000000000000000000000000000000000000000"]), /KybRequired/);
+      const eoaAdmin = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, ctx.other.account.address, "0x0000000000000000000000000000000000000000"]);
       const code = await ctx.publicClient.getBytecode({ address: ctx.other.account.address });
       assert.equal(code ?? "0x", "0x");
       const admin = await ctx.publicClient.readContract({ address: eoaAdmin.address, abi: siriusdatasetregistryAbi, functionName: "admin" });
@@ -214,7 +215,7 @@ describe("garde-fous hors chaîne de la liaison (scripts/dataset-binding.ts)", (
   it("REP-12 : refuse un escrow qui pointe vers un autre registre, ou un contrat qui n'est pas un escrow", async () => {
     const ctx = await loadFixture(fixture);
     const admin = ctx.admin.account.address as Address;
-    const otherRegistry = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, admin]);
+    const otherRegistry = await hre.viem.deployContract("SiriusDatasetRegistry", [ctx.kyb.address, admin, "0x0000000000000000000000000000000000000000"]);
     const foreign = await ctx.deployEscrow(otherRegistry.address);
     const state = await readBinding(ctx.reader, ctx.registry.address, foreign);
     assert.throws(() => assertCanBind(state, { admin }), /pointe vers le registre/);

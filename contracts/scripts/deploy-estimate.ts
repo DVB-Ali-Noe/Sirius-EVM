@@ -33,6 +33,8 @@ export interface DeploymentEstimateInput {
    * sont alors signés et payés par lui, pas par la clé de déploiement, et sortent de l'estimation.
    */
   adminCallsByDeployer?: boolean;
+  /** Registre v5 dont le registre v6 pourra importer les titres ; absent : aucun. */
+  previousRegistry?: Address;
 }
 
 /** Estimations `eth_estimateGas`, sans signature ni transaction, dans l'ordre du déploiement. */
@@ -43,7 +45,8 @@ export async function estimateDeploymentGas(client: EstimateClient, input: Deplo
   if ("deploy" in input.kyb) estimates.push([input.kyb.deploy, await deployGas(input.kyb.deploy, input.kyb.args)]);
   // Le constructeur du registre ne refuse que l'adresse nulle : le déployeur tient lieu de KYB à venir.
   const registryKyb = "existing" in input.kyb ? input.kyb.existing : input.account;
-  estimates.push(["SiriusDatasetRegistry", await deployGas("SiriusDatasetRegistry", [registryKyb, input.datasetAdmin ?? input.account])]);
+  estimates.push(["SiriusDatasetRegistry", await deployGas("SiriusDatasetRegistry",
+    [registryKyb, input.datasetAdmin ?? input.account, input.previousRegistry ?? "0x0000000000000000000000000000000000000000"])]);
   let referenceKyb: Address;
   try {
     referenceKyb = await client.readContract({ address: input.referenceDatasets, abi: registryKybAbi, functionName: "kyb" });

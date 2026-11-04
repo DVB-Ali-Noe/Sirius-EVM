@@ -59,7 +59,11 @@ export const MAX_UPLOAD_CHUNKS = 1024;
 export const MAX_COMPLETE_BODY_BYTES = 192 * 1024;
 export const MAX_OPEN_UPLOADS_PER_PROVIDER = 2;
 export const DAILY_UPLOAD_BYTES_PER_PROVIDER = 5 * 1024 * 1024 * 1024;
-/** Plafond du registre v5 (`MAX_SIZE_BYTES`) : au-delà, le mint serait refusé. Relevé avec le registre v6. */
+/**
+ * Plafond du registre v5 et taille maximale initiale du v6 : au-delà, le mint serait refusé. Une fois
+ * le registre v6 relevé par le Safe (`setMaxSizeBytes`, `pnpm contracts:dataset-admin prepare-max-size`),
+ * `SIRIUS_CHUNKED_MAX_BYTES` suit la même valeur.
+ */
 export const DEFAULT_CHUNKED_MAX_BYTES = 16 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60_000;
 

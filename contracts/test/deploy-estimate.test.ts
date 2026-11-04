@@ -14,7 +14,7 @@ describe("estimation du déploiement (simulation de deploy.ts)", () => {
     const publicClient = await hre.viem.getPublicClient();
     const usdc = await hre.viem.deployContract("MockEscrowToken", [18]);
     const kyb = await hre.viem.deployContract("SiriusOpenKybRegistry", []);
-    const reference = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, deployer.account.address]);
+    const reference = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, deployer.account.address, "0x0000000000000000000000000000000000000000"]);
     const input = {
       account: deployer.account.address, artifact, kyb: { existing: kyb.address as Address },
       referenceDatasets: reference.address as Address, escrowContract: "SiriusEscrowV7", usdc: usdc.address as Address,
@@ -29,7 +29,7 @@ describe("estimation du déploiement (simulation de deploy.ts)", () => {
     expect([...estimates.keys()]).to.deep.equal(["SiriusDatasetRegistry", "SiriusEscrowV7", "bindEscrow", "addTrainingProfile(gradient_boosted_trees)"]);
 
     // Déploiement réel de la même paire : l'estimation ne doit pas sous-évaluer le coût.
-    const registryHash = await deployer.deployContract({ ...artifact("SiriusDatasetRegistry"), args: [kyb.address, deployer.account.address] });
+    const registryHash = await deployer.deployContract({ ...artifact("SiriusDatasetRegistry"), args: [kyb.address, deployer.account.address, "0x0000000000000000000000000000000000000000"] });
     const registryReceipt = await publicClient.waitForTransactionReceipt({ hash: registryHash });
     const escrowHash = await deployer.deployContract({ ...artifact("SiriusEscrowV7"), args: [usdc.address, kyb.address, registryReceipt.contractAddress!, signer.account.address] });
     const escrowReceipt = await publicClient.waitForTransactionReceipt({ hash: escrowHash });

@@ -13,6 +13,11 @@ export const siriusdatasetregistryAbi = [
         "internalType": "address",
         "name": "admin_",
         "type": "address"
+      },
+      {
+        "internalType": "contract ISiriusPreviousDatasetRegistry",
+        "name": "previousRegistry_",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -62,12 +67,22 @@ export const siriusdatasetregistryAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidBatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidCid",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "InvalidMerkleRoot",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidPreviousRegistry",
     "type": "error"
   },
   {
@@ -87,7 +102,23 @@ export const siriusdatasetregistryAbi = [
   },
   {
     "inputs": [],
+    "name": "NoPreviousRegistry",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotAdmin",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "datasetId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "NotImportable",
     "type": "error"
   },
   {
@@ -174,6 +205,55 @@ export const siriusdatasetregistryAbi = [
         "internalType": "bytes32",
         "name": "trainingProfile",
         "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint40",
+        "name": "mintedAt",
+        "type": "uint40"
+      }
+    ],
+    "name": "DatasetImported",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "datasetId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "provider",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "cidHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "merkleRoot",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "sizeBytes",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "trainingProfile",
+        "type": "bytes32"
       }
     ],
     "name": "DatasetMinted",
@@ -190,6 +270,25 @@ export const siriusdatasetregistryAbi = [
       }
     ],
     "name": "EscrowBound",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "previousMaxSizeBytes",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "maxSizeBytes",
+        "type": "uint64"
+      }
+    ],
+    "name": "MaxSizeChanged",
     "type": "event"
   },
   {
@@ -213,6 +312,19 @@ export const siriusdatasetregistryAbi = [
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "INITIAL_MAX_SIZE_BYTES",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",
@@ -246,12 +358,38 @@ export const siriusdatasetregistryAbi = [
   },
   {
     "inputs": [],
-    "name": "MAX_SIZE_BYTES",
+    "name": "MAX_IMPORT_BATCH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_SIZE_CEILING",
     "outputs": [
       {
         "internalType": "uint64",
         "name": "",
         "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PREVIOUS_VERSION",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -424,6 +562,19 @@ export const siriusdatasetregistryAbi = [
   {
     "inputs": [
       {
+        "internalType": "bytes32[]",
+        "name": "ids",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "importTitles",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bytes32",
         "name": "id",
         "type": "bytes32"
@@ -584,6 +735,19 @@ export const siriusdatasetregistryAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "maxSizeBytes",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -619,6 +783,32 @@ export const siriusdatasetregistryAbi = [
         "type": "bytes32"
       }
     ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "previousRegistry",
+    "outputs": [
+      {
+        "internalType": "contract ISiriusPreviousDatasetRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "maxSizeBytes_",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMaxSizeBytes",
+    "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   }

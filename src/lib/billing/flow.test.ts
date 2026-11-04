@@ -83,7 +83,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   }
   const token = await deploy("MockEscrowToken", [18]);
   const kyb = await deploy("SiriusOpenKybRegistry");
-  const datasets = await deploy("SiriusDatasetRegistry", [kyb, admin]);
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, admin, "0x0000000000000000000000000000000000000000"]);
   const escrow = await deploy("SiriusEscrowV7", [token, kyb, datasets, runner.address]);
   await write("SiriusDatasetRegistry", datasets, "bindEscrow", [escrow]);
   Object.assign(process.env, { SIRIUS_ESCROW_ADDRESS: escrow, SIRIUS_USDC_ADDRESS: token, SIRIUS_KYB_ADDRESS: kyb, SIRIUS_DATASET_ADDRESS: datasets });

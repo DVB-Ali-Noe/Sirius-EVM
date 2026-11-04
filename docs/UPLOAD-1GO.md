@@ -114,7 +114,17 @@ Aucune route ne lit de clair ni de clé. Les tables Prisma ajoutées sont additi
 
 ## 10. Contrats qui ne perdent plus les datasets (proposé)
 
-### Registre v6
+### Décision du 4 novembre
+Pour le 7 : **registre v6 seul**, et l'escrow v7 actuel redéployé tel quel (même code), lié au v6. L'escrow v8 (registre et autorisateur modifiables par le Safe) ajoute un administrateur à un contrat qui garde l'argent et touche le code de l'escrow côté application : il passe à la semaine suivante, avec la relecture de Noé.
+
+### Registre v6 (fait)
+- `maxSizeBytes` réglable par l'admin (le Safe), 16 Mio au déploiement, plafond gravé `MAX_SIZE_CEILING` = 1 Gio ; seuls les mints suivants sont concernés.
+- `importTitles(ids)` (admin, lots de 100) recopie à l'identique les titres vivants du registre v5 fixé au constructeur (`previousRegistry`, version vérifiée) : même identifiant, même fournisseur, mêmes empreintes, même date de mint. L'admin déplace des titres, il n'en crée ni n'en modifie aucun. Événement `DatasetImported`, pas `DatasetMinted`.
+- Pas de champ `ciphertextRoot` : le `cidHash` d'un envoi en morceaux s'engage sur le manifeste, qui s'engage sur chaque morceau.
+- Déploiement : `SIRIUS_PREVIOUS_DATASET_REGISTRY=<v5>` pour `pnpm contracts:deploy:testnet` ; puis `pnpm contracts:dataset-admin prepare-max-size` (`SIRIUS_DATASET_MAX_SIZE_BYTES`) et `prepare-import` (`SIRIUS_DATASET_IMPORT_IDS`) impriment les lots Safe, vérifiés avant signature. Ensuite `SIRIUS_CHUNKED_MAX_BYTES` du site suit `maxSizeBytes`.
+- À traiter à la migration (étape 9) : rattacher en base les datasets importés au nouveau registre (pas de transaction de mint propre) ; prêts en cours sur l'ancien escrow à clore avant la bascule ; un titre importé n'est plus protégé par les prêts actifs de l'ancien escrow au moment d'une destruction.
+
+### Plan initial (v6)
 - `maxSizeBytes` devient un réglage modifiable par l'admin (le Safe), sous un plafond gravé (par exemple 10 Gio).
 - Nouveau champ `ciphertextRoot` à côté de `merkleRoot`.
 - `importTitle(...)`, **réservé au Safe**, recopie un titre de l'ancien registre (même fournisseur, mêmes empreintes) ; un événement par import.
@@ -173,7 +183,7 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 | Routes du site, table `DatasetUpload`, opérations du runner | Fait, testé | ci-dessous |
 | Envoi par le site et CLI | Fait, testé (bout en bout sans réseau ; navigateur réel à faire) | `src/lib/upload/chunked-transfer.ts`, formulaire `datasets/new`, `scripts/sirius-upload.ts` |
 | Entraînement des gros fichiers | **Décidé (4 nov.)** : sur un échantillon pour le 7, testé en réel (R2) ; entraînement complet en arrière-plan la semaine suivante, avec Noé | `src/lib/tee/chunked-sample.ts` |
-| Registre v6 et escrow v8 | À faire : le registre v5 refuse plus de 16 Mio au mint | — |
+| Registre v6 | Fait, testé (Hardhat + scripts sur nœud local) ; **escrow v8 reporté** (décidé le 4 nov.) | `contracts/src/SiriusDatasetRegistry.sol`, `contracts:dataset-admin` |
 
 **Routes** (toutes authentifiées, réservées au fournisseur du brouillon) :
 
