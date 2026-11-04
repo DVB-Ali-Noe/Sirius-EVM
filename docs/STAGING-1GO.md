@@ -13,6 +13,19 @@ Légende : 👤 Ali · 🧑‍💻 Noé · 🤖 Claude · ✅ critère de réuss
 - [ ] 🧑‍💻 Aucun prêt en cours sur l'escrow de staging (les nouveaux contrats remplacent l'escrow : un prêt
   verrouillé sur l'ancien doit être réglé ou remboursé avant).
 
+## Préparé le 4 novembre (hors staging)
+
+- **Mesures sur le PC d'Ali**, même limite mémoire que le runner (`--max-old-space-size=384`) : 1 Gio, 24,3 M lignes,
+  12 colonnes. Chiffrement côté fournisseur 9 s (pic 255 Mo) ; **scellement 61 s, pic 203 Mo** (limite CVM 768 Mo) ;
+  échantillon 0,6 s ; entraînement sur l'échantillon : linéaire 0,3 s, logistique 1,3 s, arbres 4,8 s. La CVM a 1 vCPU :
+  compter 1,5 à 2 fois plus lent, bien sous le délai de 20 min du scellement en arrière-plan.
+- **Envoi vers R2** : 24 Mio envoyés en moins de 5 s depuis le PC lors du test réel, soit environ 3 à 5 min pour 1 Go.
+- **Fichiers de test** dans `C:\Users\byezz\Desktop\hackathon\Sirius\fichiers-test-1go\` :
+  `sirius-1go-credit.csv` (1 Gio, valide, cible `defaut` 0/1), `sirius-20mo-credit.csv` (valide, 480 000 lignes),
+  `sirius-5mo-invalide-cible-incomplete.csv` (refusé : cible incomplète, une cellule vide).
+- **Image du runner** : elle copie tout `src` ; le graphe d'import du runner (82 modules) n'utilise ni la base ni Prisma.
+- **Branche** à jour de `staging` (fusion du 4 nov.) : la fusion inverse vendredi ne doit pas avoir de conflit.
+
 ## 1. R2 (Cloudflare)
 
 - [ ] 👤 Bucket `sirius-staging` → Settings → CORS policy :
