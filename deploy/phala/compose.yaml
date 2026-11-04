@@ -36,6 +36,12 @@ services:
       RUNNER_FREE_OPS_BREAKER_BUSY_MS: ${RUNNER_FREE_OPS_BREAKER_BUSY_MS:-3000}
       RUNNER_FREE_OPS_BREAKER_COOLDOWN_MS: ${RUNNER_FREE_OPS_BREAKER_COOLDOWN_MS:-30000}
       RUNNER_TRAINING_TIMEOUT_MS: ${RUNNER_TRAINING_TIMEOUT_MS:-15000}
+      # Gros datasets envoyés en morceaux (docs/UPLOAD-1GO.md) : jeton R2 en LECTURE SEULE, sur le seul
+      # bucket de l'environnement. Absents : le runner refuse ces datasets, rien d'autre ne change.
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
     ports:
       - "4100:4100"
     volumes:
