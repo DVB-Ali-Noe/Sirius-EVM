@@ -56,6 +56,11 @@ export const DECLARED_RELEASES: Readonly<Record<string, { image: string; commit:
     image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:58f153a9b0f66a15ff887397d84d9027cde3fdb6204257d722ccf8f5943c5679",
     commit: "2b57014",
   },
+  // 3 nov. 2026 : location des modèles de prêt (D-29), reçu dataset v4 lié à `maxRentalDays`.
+  "d8e8f0d120380ba41f1b2c1c5951cd565543469eb84c943fd012cc3f48822049": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:1005433e338142daea3800061c05184b682689bac6b5b106e6d76f8e4378a1a1",
+    commit: "3379391",
+  },
 };
 
 /**
