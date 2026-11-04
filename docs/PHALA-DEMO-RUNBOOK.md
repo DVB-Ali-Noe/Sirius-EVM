@@ -144,7 +144,9 @@ Procédure suivie trois fois les 1er et 2 novembre 2026. Une fusion dans `stagin
 5. **Pins.** Sauvegarder puis remplacer `SIRIUS_EXPECTED_COMPOSE_HASH` dans le contrôleur et le moniteur (`<CONFIG_OPS>`) et dans `.env.vps` du reaper (`<DOSSIER_STAGING>`, puis `docker compose -p sirius-staging --env-file .env.vps up --detach`) ; redémarrer le contrôleur. Vercel staging : `vercel env add SIRIUS_EXPECTED_COMPOSE_HASH production --force --type config` (garder le type `Config`), puis relancer le job « Front Vercel » du dernier run staging. Vérifier `/api/phala-demo/attestation` (`composeHash` = nouvelle empreinte).
 6. **Déclaration.** PR : `src/lib/phala-demo/composes/<hash>.json` (octets exacts de `tcb_info.app_compose`) et entrée `DECLARED_RELEASES` (image, commit), pour que la page d'attestation affiche une version prouvée plutôt que « non répertoriée ».
 
-**En service au 2 novembre 2026** : Compose `df933bc1fe346a9c0695623a847131cdde7d17265cf47307b44674c552233b53`, image `sirius-runner@sha256:58f153a9b0f66a15ff887397d84d9027cde3fdb6204257d722ccf8f5943c5679`, commit `2b57014`. Les trois modèles ont été entraînés puis interrogés en réel (valeur arrondie pour la linéaire, décision pour la logistique et les arbres sur 30 000 lignes).
+**En service au 3 novembre 2026** : Compose `d8e8f0d120380ba41f1b2c1c5951cd565543469eb84c943fd012cc3f48822049`, image `sirius-runner@sha256:1005433e338142daea3800061c05184b682689bac6b5b106e6d76f8e4378a1a1`, commit `3379391` (location des modèles de prêt, D-29). Seule l'empreinte du Compose a changé ; un entraînement suivi d'une prédiction a été refait en réel (session 59). La location elle-même (jours, échéance, prolongation) ne s'exerce pas sur la démo, qui refuse les prêts.
+
+Pour `vercel env add` hors pipeline, le `.vercel/project.json` temporaire doit reprendre l'`orgId` exact de `.github/workflows/pipeline.yml` (la casse compte) ; sinon la CLI répond « Could not retrieve Project Settings ».
 
 ## Incident et reprise
 
