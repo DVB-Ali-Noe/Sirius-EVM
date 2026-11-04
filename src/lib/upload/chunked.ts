@@ -148,6 +148,11 @@ export function chunkPlainBytes(index: number, plainBytes: number, chunkBytes = 
   return index === count - 1 ? plainBytes - chunkBytes * (count - 1) : chunkBytes;
 }
 
+/** Taille de l'objet stocké pour un morceau : IV ‖ chiffré ‖ tag. */
+export function storedChunkBytes(plainBytes: number): number {
+  return IV_BYTES + plainBytes + TAG_BYTES;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Clé d'envoi
 

@@ -118,18 +118,22 @@ export function signedHeaders(request: SigningRequest): Record<string, string> {
   return { ...headers, authorization };
 }
 
-/** URL pré-signée : la signature est dans la requête, le corps n'est pas signé. */
-export function presignedQuery(request: Omit<SigningRequest, "payloadHash" | "headers">, expiresSeconds: number): string {
+/**
+ * URL pré-signée : la signature est dans la requête, le corps n'est pas signé. Les en-têtes de
+ * `headers` (noms en minuscules) sont signés : le client doit envoyer exactement ces valeurs.
+ */
+export function presignedQuery(request: Omit<SigningRequest, "payloadHash">, expiresSeconds: number): string {
   const { day, amzDate } = amzDates(request.now);
+  const headers: Record<string, string> = { host: request.host, ...request.headers };
   const query: Record<string, string> = {
     ...request.query,
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${request.accessKeyId}/${day}/${request.region}/s3/aws4_request`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(expiresSeconds),
-    "X-Amz-SignedHeaders": "host",
+    "X-Amz-SignedHeaders": Object.keys(headers).sort().join(";"),
   };
-  const sig = signature({ ...request, payloadHash: UNSIGNED_PAYLOAD }, query, { host: request.host });
+  const sig = signature({ ...request, payloadHash: UNSIGNED_PAYLOAD }, query, headers);
   return `${canonicalQuery(query)}&X-Amz-Signature=${sig}`;
 }
 
@@ -142,7 +146,8 @@ function r2Host(config: R2Config): string {
 
 /**
  * URL d'envoi d'un objet, valable `expiresSeconds` : le navigateur y fait un `PUT` du corps brut.
- * Avec `uploadId` et `partNumber`, c'est une partie d'un envoi multipart R2.
+ * Avec `uploadId` et `partNumber`, c'est une partie d'un envoi multipart R2. Avec `contentLength`,
+ * la taille est signée : R2 refuse un corps d'une autre taille.
  */
 export function presignR2Put(
   config: R2Config,
@@ -150,6 +155,7 @@ export function presignR2Put(
   expiresSeconds: number,
   multipart?: { uploadId: string; partNumber: number },
   now = new Date(),
+  contentLength?: number,
 ): string {
   if (!Number.isInteger(expiresSeconds) || expiresSeconds < 1 || expiresSeconds > MAX_PRESIGN_SECONDS) {
     throw new Error("Durée de validité invalide");
@@ -157,8 +163,12 @@ export function presignR2Put(
   const host = r2Host(config);
   const path = `/${config.bucket}/${key}`;
   const query = multipart ? { partNumber: String(multipart.partNumber), uploadId: multipart.uploadId } : undefined;
+  if (contentLength !== undefined && (!Number.isSafeInteger(contentLength) || contentLength < 1)) {
+    throw new Error("Taille d'envoi invalide");
+  }
+  const headers = contentLength === undefined ? undefined : { "content-length": String(contentLength) };
   const signed = presignedQuery(
-    { method: "PUT", host, path, query, region: "auto", accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, now },
+    { method: "PUT", host, path, query, headers, region: "auto", accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, now },
     expiresSeconds,
   );
   return `https://${host}${encodePath(path)}?${signed}`;
@@ -233,4 +243,71 @@ export async function r2DeleteObject(config: R2Config, key: string, signal?: Abo
   const response = await r2Request(config, "DELETE", key, { signal });
   await response.body?.cancel();
   if (!response.ok && response.status !== 404) throw new Error(`Suppression refusée (HTTP ${response.status})`);
+}
+
+export interface R2ObjectSummary {
+  key: string;
+  size: number;
+}
+
+const MAX_LIST_PAGES = 50;
+
+function xmlValues(xml: string, tag: string): string[] {
+  return [...xml.matchAll(new RegExp(`<${tag}>([^<]*)</${tag}>`, "g"))].map((match) => match[1]);
+}
+
+/**
+ * Liste les objets sous un préfixe (ListObjectsV2, pages de 1 000). Les clés de Sirius n'ont que
+ * des caractères sûrs : aucune entité XML à décoder. Au plus 50 000 objets.
+ */
+export async function r2ListObjects(
+  config: R2Config,
+  prefix: string,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+): Promise<R2ObjectSummary[]> {
+  const host = r2Host(config);
+  const path = `/${config.bucket}`;
+  const objects: R2ObjectSummary[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const query: Record<string, string> = { "list-type": "2", prefix, ...(token ? { "continuation-token": token } : {}) };
+    const headers = signedHeaders({
+      method: "GET",
+      host,
+      path,
+      query,
+      payloadHash: EMPTY_SHA256,
+      region: "auto",
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+      now: new Date(),
+    });
+    const response = await (options.fetchImpl ?? fetch)(`https://${host}${encodePath(path)}?${canonicalQuery(query)}`, {
+      headers,
+      signal: options.signal,
+    });
+    const xml = await response.text();
+    if (!response.ok) throw new Error(`Liste du stockage refusée (HTTP ${response.status})`);
+    for (const block of xmlValuesBlocks(xml)) {
+      const [key] = xmlValues(block, "Key");
+      const [size] = xmlValues(block, "Size");
+      if (key !== undefined && size !== undefined && /^\d+$/.test(size)) objects.push({ key, size: Number(size) });
+    }
+    if (xmlValues(xml, "IsTruncated")[0] !== "true") return objects;
+    token = xmlValues(xml, "NextContinuationToken")[0];
+    if (!token) return objects;
+  }
+  throw new Error("Trop d'objets sous ce préfixe");
+}
+
+function xmlValuesBlocks(xml: string): string[] {
+  return [...xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)].map((match) => match[1]);
+}
+
+/** Supprime tous les objets d'un préfixe (envoi abandonné ou refusé). Renvoie leur nombre. */
+export async function r2DeletePrefix(config: R2Config, prefix: string, signal?: AbortSignal): Promise<number> {
+  if (!prefix.endsWith("/") || prefix.length < 3) throw new Error("Préfixe de suppression invalide");
+  const objects = await r2ListObjects(config, prefix, { signal });
+  for (const { key } of objects) await r2DeleteObject(config, key, signal);
+  return objects.length;
 }

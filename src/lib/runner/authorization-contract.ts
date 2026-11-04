@@ -6,7 +6,8 @@ export type AuthorizedRunnerOperation =
   | "run-loan-job"
   | "settle-loan"
   | "extend-loan"
-  | "predict";
+  | "predict"
+  | "seal-chunked-dataset";
 
 export interface RunnerGrantScope {
   demoSessionRevision?: number;

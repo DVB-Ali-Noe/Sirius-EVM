@@ -163,7 +163,38 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 - La migration mainnet ne se fait que si tout a marché sur staging le vendredi.
 - **Plan B** : le 7, seule l'API de Noé passe en production ; l'upload et la migration suivent la semaine d'après.
 
-## 16. Questions ouvertes
+## 16. Avancement (branche `feat/upload-1go`)
+
+| Étape | État | Où |
+|---|---|---|
+| Format des morceaux, manifeste, racines | Fait, testé | `src/lib/upload/chunked.ts` |
+| Lecteur CSV en flux, validation identique aux petits fichiers | Fait, testé | `src/lib/upload/csv-stream.ts`, `src/lib/tee/chunked-validation.ts` |
+| Scellement dans l'enclave depuis R2 | Fait, testé en réel (25 Mio, 700 000 lignes, 5,2 s) | `sealChunkedDataset` (`src/lib/tee/core.ts`), `src/lib/storage/r2.ts` |
+| Routes du site, table `DatasetUpload`, opérations du runner | Fait, testé | ci-dessous |
+| Envoi par le site et CLI | À faire | — |
+| Entraînement des gros fichiers | À faire : un dataset en morceaux se scelle et se publie, mais ne s'entraîne pas encore | — |
+| Registre v6 et escrow v8 | À faire : le registre v5 refuse plus de 16 Mio au mint | — |
+
+**Routes** (toutes authentifiées, réservées au fournisseur du brouillon) :
+
+| Route | Rôle |
+|---|---|
+| `POST /api/datasets` avec `transfer: "chunked"` | brouillon d'un gros fichier (jusqu'à `SIRIUS_CHUNKED_MAX_BYTES`, 16 Mio par défaut tant que le registre v5 reste en place, 1 Gio au plus) |
+| `POST /api/datasets/[id]/uploads` | ouvre ou reprend l'envoi : `uploadId`, découpage, clé d'ingestion |
+| `POST …/uploads/[uploadId]/parts` | URL d'envoi de 15 min, **taille du morceau signée** (R2 refuse un autre corps : vérifié en réel) |
+| `GET …/uploads/[uploadId]` | morceaux déjà reçus (reprise), puis suivi du scellement ; pose la référence, la clé et le reçu sur le brouillon |
+| `POST …/uploads/[uploadId]/complete` | grant du fournisseur + manifeste ; vérifie chaque morceau, écrit le manifeste, lance le scellement (202) |
+| `DELETE …/uploads/[uploadId]` | abandon, morceaux supprimés |
+
+**Runner** (opérations ajoutées, rien de modifié dans les autres) :
+- `seal-chunked-dataset` : grant `seal-chunked-dataset` dont l'intention porte l'empreinte du manifeste ; le scellement tourne **en arrière-plan** (relire 1 Gio dépasse les 65 s d'une requête du runner), un seul à la fois ; budget par tentative, un stockage injoignable rend la réservation.
+- `seal-chunked-status` : lecture de l'état, gratuite (comme la clé d'ingestion).
+- Le runner lit R2 avec ses propres variables `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (jeton en lecture seule) : à ajouter à la configuration de la CVM avant le test sur staging.
+- L'instance de démonstration Phala refuse ces opérations.
+
+**Restes connus** : les morceaux d'un brouillon supprimé sans abandon restent dans R2 (nettoyage à prévoir) ; un runner redémarré oublie ses scellements en cours (le fournisseur relance la clôture, sans renvoyer ses morceaux).
+
+## 17. Questions ouvertes
 
 1. Phala (mail à Wenfeng du 2 nov.) : migration d'une app de Cloud KMS vers Onchain KMS ; récupération du volume si le nœud tombe ; taille et délai maximum d'une requête via la passerelle.
 2. Taille de morceau définitive (8 Mio proposés) selon la réponse sur la passerelle.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { presignR2Put, presignedQuery, r2ConfigFromEnv, r2GetObject, signedHeaders, type R2Config } from "./r2";
+import { presignR2Put, presignedQuery, r2ConfigFromEnv, r2GetObject, r2ListObjects, signedHeaders, type R2Config } from "./r2";
 
 // Exemples publiés par AWS (« Signature Calculations for the Authorization Header » et « Query
 // String Authentication ») : mêmes identifiants, même date, signatures attendues connues.
@@ -85,4 +85,34 @@ test("la lecture réessaie les erreurs passagères mais pas un refus", async () 
   };
   await assert.rejects(r2GetObject(CONFIG, "k", { fetchImpl: forbidden, retryDelayMs: 1 }), /refusée \(HTTP 403\)/);
   assert.equal(denied, 1);
+});
+
+test("une URL d'envoi peut signer la taille exacte du corps", () => {
+  const url = new URL(presignR2Put(CONFIG, "datasets/d1/u1/chunks/0", 600, undefined, new Date("2026-11-04T00:00:00Z"), 8_388_636));
+  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "content-length;host");
+  const unsized = new URL(presignR2Put(CONFIG, "datasets/d1/u1/chunks/0", 600, undefined, new Date("2026-11-04T00:00:00Z")));
+  assert.equal(unsized.searchParams.get("X-Amz-SignedHeaders"), "host");
+  assert.notEqual(url.searchParams.get("X-Amz-Signature"), unsized.searchParams.get("X-Amz-Signature"));
+  assert.throws(() => presignR2Put(CONFIG, "k", 60, undefined, new Date(), 0), /Taille d'envoi invalide/);
+});
+
+test("la liste suit les pages de R2 et ignore ce qui n'est pas un objet", async () => {
+  const pages = [
+    "<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>t2</NextContinuationToken>" +
+      "<Contents><Key>p/chunks/0</Key><Size>10</Size></Contents><Contents><Key>p/chunks/1</Key><Size>11</Size></Contents></ListBucketResult>",
+    "<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>p/chunks/2</Key><Size>12</Size></Contents></ListBucketResult>",
+  ];
+  const urls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    urls.push(String(input));
+    return new Response(pages[urls.length - 1]);
+  };
+  assert.deepEqual(await r2ListObjects(CONFIG, "p/chunks/", { fetchImpl }), [
+    { key: "p/chunks/0", size: 10 },
+    { key: "p/chunks/1", size: 11 },
+    { key: "p/chunks/2", size: 12 },
+  ]);
+  assert.match(urls[0], /\?list-type=2&prefix=p%2Fchunks%2F$/);
+  assert.match(urls[1], /continuation-token=t2/);
+  await assert.rejects(r2ListObjects(CONFIG, "p/", { fetchImpl: async () => new Response("<Error/>", { status: 403 }) }), /HTTP 403/);
 });

@@ -7,6 +7,7 @@ import { readJson } from "@/lib/http/body";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
 import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { parseCreateDatasetRequest } from "@/lib/datasets/create-request";
+import { requireChunkedUploads } from "@/lib/sirius/chunked-upload";
 import { createDatasetDraft } from "@/lib/datasets/draft";
 import { billingEnabled } from "@/lib/billing/config";
 import { publishedTariff } from "@/lib/datasets/tariff-server";
@@ -95,6 +96,8 @@ export async function POST(req: Request) {
     const session = requireAuth(req);
     const parsed = parseCreateDatasetRequest(await readJson(req), { v7: billingEnabled(), tariff: publishedTariff() });
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    // Gros fichier : l'envoi en morceaux doit être disponible avant de créer le brouillon.
+    if (parsed.value.transfer === "chunked") requireChunkedUploads(parsed.value.sizeBytes);
     // Avant tout scellement : les contrats doivent être compatibles et accepter le profil au mint.
     await requireCurrentEvmDeployment();
     const upload = await createDatasetDraft(parsed.value, session.address);

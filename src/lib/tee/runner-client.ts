@@ -208,3 +208,32 @@ export async function predictInRunner(
   const finalityTier = loanContext?.finalityTier;
   return dispatchRunner("predict", scope, { modelRef: ref, features, authorization, ...loan, ...finalityTierField(finalityTier) });
 }
+
+/** État d'un scellement en morceaux, tel que le runner le renvoie (voir `src/runner/chunked-seal-jobs.ts`). */
+export type ChunkedSealStatus =
+  | { state: "sealing"; startedAt: number }
+  | { state: "sealed"; result: AuthorizedSealDatasetResult }
+  | { state: "failed"; error: string; status: number; retryable: boolean };
+
+/**
+ * Lance le scellement d'un dataset envoyé en morceaux dans R2 (jusqu'à 1 Gio). Le runner rend la
+ * main tout de suite ; l'état se lit ensuite avec `chunkedSealStatusInRunner`.
+ */
+export async function startChunkedSealInRunner(input: {
+  datasetId: string;
+  uploadId: string;
+  priceUsdcAtomic: string;
+  challengeDays: number;
+  maxRentalDays: number;
+  sizeBytes: number;
+  manifest: unknown;
+  authorization: RunnerGrant;
+  model: ModelSelection;
+}): Promise<ChunkedSealStatus> {
+  const { model, ...rest } = input;
+  return dispatchRunner("seal-chunked-dataset", { datasetId: input.datasetId }, { ...rest, ...model });
+}
+
+export async function chunkedSealStatusInRunner(datasetId: string, uploadId: string): Promise<ChunkedSealStatus> {
+  return dispatchRunner("seal-chunked-status", { datasetId }, { datasetId, uploadId });
+}

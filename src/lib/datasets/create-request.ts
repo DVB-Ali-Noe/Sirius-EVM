@@ -1,4 +1,5 @@
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { MAX_CHUNKED_DATASET_BYTES } from "@/lib/upload/chunked";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { MODEL_REGISTRY, isModelOffered, modelSelectionForId, type ModelSelection } from "@/lib/models/registry";
 import { isValidRentalDays } from "@/lib/billing/rental";
@@ -29,6 +30,11 @@ export interface CreateDatasetRequest {
   model: ModelSelection;
   /** Toujours `ESCROW_CHALLENGE_DAYS` : la valeur reçue, s'il y en a une, est ignorée. */
   challengeDays: typeof ESCROW_CHALLENGE_DAYS;
+  /**
+   * `chunked` : gros fichier envoyé en morceaux vers R2 (`/api/datasets/[id]/uploads`, jusqu'à
+   * 1 Gio). Absent : l'envoi historique en une seule enveloppe (3 Mio).
+   */
+  transfer?: "chunked";
 }
 
 export type ParsedCreateDatasetRequest =
@@ -66,13 +72,17 @@ export function parseCreateDatasetRequest(body: unknown, billing: CreateDatasetB
   ) {
     return { ok: false, status: 400, error: "Description invalide" };
   }
+  if (input.transfer !== undefined && input.transfer !== "chunked") {
+    return { ok: false, status: 400, error: "Mode d’envoi invalide" };
+  }
+  const chunked = input.transfer === "chunked";
   if (
     typeof input.sizeBytes !== "number" ||
     !Number.isSafeInteger(input.sizeBytes) ||
     input.sizeBytes <= 0 ||
-    input.sizeBytes > MAX_DATASET_BYTES
+    input.sizeBytes > (chunked ? MAX_CHUNKED_DATASET_BYTES : MAX_DATASET_BYTES)
   ) {
-    return { ok: false, status: 413, error: "Fichier vide ou trop volumineux (max 3 Mo)" };
+    return { ok: false, status: 413, error: chunked ? "Fichier vide ou trop volumineux (max 1 Go)" : "Fichier vide ou trop volumineux (max 3 Mo)" };
   }
   const priceUsdcAtomic = priceUsdcToAtomic(input.priceUsdc);
   if (!priceUsdcAtomic) return { ok: false, status: 400, error: "Prix invalide (0.001 à 1 000 000 par jour)" };
@@ -106,6 +116,7 @@ export function parseCreateDatasetRequest(body: unknown, billing: CreateDatasetB
       trainingConsent,
       model,
       challengeDays: ESCROW_CHALLENGE_DAYS,
+      ...(chunked ? { transfer: "chunked" as const } : {}),
     },
   };
 }

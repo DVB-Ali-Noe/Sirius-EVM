@@ -54,9 +54,32 @@ model Dataset {
   keyGrants    KeyGrant[]
   trainingJobs TrainingJob[]
   accessLogs   DatasetAccessLog[]
+  uploads      DatasetUpload[]
 
   @@index([provider])
   @@index([status])
+}
+
+/// Envoi en morceaux d'un gros dataset (jusqu'à 1 Gio, voir docs/UPLOAD-1GO.md). Le navigateur ou la
+/// CLI envoie les morceaux chiffrés directement dans R2 par des URL pré-signées : le site ne voit
+/// ni clair ni clé, seulement le manifeste (empreintes) qu'il transmet à l'enclave pour scellement.
+model DatasetUpload {
+  id             String              @id @default(cuid())
+  datasetId      String
+  dataset        Dataset             @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  provider       String // adresse EVM du provider, en minuscules
+  sizeBytes      Int // taille claire annoncée, égale à `Dataset.sizeBytes`
+  chunkBytes     Int
+  chunkCount     Int
+  state          DatasetUploadState  @default(OPEN)
+  manifestSha256 String? // posé à la clôture ; la référence publiée du dataset s'y engage
+  error          String? // dernier refus de l'enclave, affiché au fournisseur
+  expiresAt      DateTime // au-delà, plus d'URL d'envoi ni de clôture
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([datasetId])
+  @@index([provider, createdAt])
 }
 
 /// Journal historique des livraisons de modèle (qui a reçu quel modèle, pour quel prêt). Plus
@@ -321,6 +344,14 @@ model Reputation {
   updatedAt      DateTime        @updatedAt
 
   @@unique([address, role])
+}
+
+enum DatasetUploadState {
+  OPEN // morceaux en cours d'envoi
+  SEALING // manifeste transmis, l'enclave relit et scelle
+  SEALED // scellé : le dataset porte sa référence, sa clé enveloppée et son reçu
+  FAILED // refusé par l'enclave (fichier invalide) ; un nouvel envoi reste possible
+  ABORTED // abandonné ou expiré, morceaux supprimés
 }
 
 enum DatasetStatus {
