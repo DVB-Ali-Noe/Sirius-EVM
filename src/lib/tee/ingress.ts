@@ -8,6 +8,7 @@ import {
   type DatasetIngressEnvelope,
   type DatasetIngressKey,
 } from "./contract";
+import { UPLOAD_KEY_INFO_PREFIX } from "@/lib/upload/chunked";
 
 const P256_ORDER = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
 const ONE = BigInt(1);
@@ -105,4 +106,26 @@ export function decryptDatasetIngress(datasetId: string, envelope: DatasetIngres
   } catch {
     throw new AppError("Enveloppe dataset invalide", 400);
   }
+}
+
+/**
+ * Clé d'un envoi en morceaux (`@/lib/upload/chunked`), recalculée dans l'enclave : même ECDH avec
+ * la clé d'ingestion que l'enveloppe v1, puis le HKDF de `uploadKeyFromSharedSecret`. Renvoyée
+ * brute pour être enveloppée par la master key au scellement ; elle ne quitte jamais le runner.
+ */
+export function deriveUploadKey(
+  ids: { datasetId: string; uploadId: string },
+  key: { ephemeralPublicKey: string; salt: string },
+): Buffer {
+  const ephemeralPublicKey = decodeField(key.ephemeralPublicKey, "Clé éphémère", 65, 65);
+  const salt = decodeField(key.salt, "Sel", 16, 16);
+  let sharedSecret: Buffer;
+  try {
+    sharedSecret = ingressEcdh().computeSecret(ephemeralPublicKey);
+  } catch {
+    throw new AppError("Clé d'envoi invalide", 400);
+  }
+  return Buffer.from(
+    hkdfSync("sha256", sharedSecret, salt, Buffer.from(`${UPLOAD_KEY_INFO_PREFIX}${ids.datasetId}:${ids.uploadId}`), 32),
+  );
 }

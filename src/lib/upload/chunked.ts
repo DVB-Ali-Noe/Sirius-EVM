@@ -468,3 +468,36 @@ export async function parseChunkedUploadManifest(value: unknown): Promise<Chunke
     ciphertextRoot: value.ciphertextRoot as string,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Emplacements dans le stockage et référence publiée
+
+/** Préfixe de la référence d'un dataset en morceaux, à la place d'un CID IPFS. */
+export const CHUNKED_DATASET_CID_PREFIX = "sirius-chunked:v1:";
+
+export function manifestObjectKey(ids: UploadIds): string {
+  assertIds(ids);
+  return `datasets/${ids.datasetId}/${ids.uploadId}/manifest.json`;
+}
+
+export function chunkObjectKey(ids: UploadIds, index: number): string {
+  assertIds(ids);
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error("Indice de morceau invalide");
+  return `datasets/${ids.datasetId}/${ids.uploadId}/chunks/${index}`;
+}
+
+/**
+ * Référence publiée du dataset (`cid` du titre, dont `cidHash` est inscrit on-chain) : elle désigne
+ * l'envoi et s'engage sur l'empreinte de son manifeste, donc sur chaque morceau stocké.
+ */
+export function chunkedDatasetCid(uploadId: string, manifestSha: string): string {
+  if (!ID_RE.test(uploadId) || !HEX64_RE.test(manifestSha)) throw new Error("Référence de dataset invalide");
+  return `${CHUNKED_DATASET_CID_PREFIX}${uploadId}:${manifestSha}`;
+}
+
+export function parseChunkedDatasetCid(cid: string): { uploadId: string; manifestSha: string } | null {
+  if (!cid.startsWith(CHUNKED_DATASET_CID_PREFIX)) return null;
+  const [uploadId, manifestSha, ...rest] = cid.slice(CHUNKED_DATASET_CID_PREFIX.length).split(":");
+  if (rest.length > 0 || !ID_RE.test(uploadId ?? "") || !HEX64_RE.test(manifestSha ?? "")) return null;
+  return { uploadId, manifestSha };
+}

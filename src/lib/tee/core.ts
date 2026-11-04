@@ -16,7 +16,18 @@ import { fetchFromIpfs, uploadToIpfs } from "@/lib/ipfs/pinata";
 import { trainSelectedModel } from "./model-registry";
 import { DatasetValidationError, trainingTimeoutMs, validateTrainingDataset, type TrainedModel } from "./train";
 import { gateModel } from "./output-gate";
-import { decryptDatasetIngress } from "./ingress";
+import { decryptDatasetIngress, deriveUploadKey } from "./ingress";
+import { validateChunkedDataset } from "./chunked-validation";
+import { StrictCsvStream } from "@/lib/upload/csv-stream";
+import {
+  chunkedDatasetCid,
+  decryptChunk,
+  manifestSha256,
+  merkleRootFromLeaves,
+  parseChunkedUploadManifest,
+  plaintextLeaves,
+  type ChunkedUploadManifest,
+} from "@/lib/upload/chunked";
 import { evmEscrowBinding } from "./evm-binding";
 import { canonicalSubject } from "@/lib/subject";
 import { AppError } from "@/lib/app-error";
@@ -280,4 +291,80 @@ export async function runBilledEvmLoanJob(input: LoanJobInput, quote: ComputeQuo
         result ? JSON.stringify(result) : undefined, result ? true : countsAsRunnerFailure(failure));
     }
   });
+}
+
+/** Lecture d'un morceau stocké : R2 dans le runner, la mémoire dans les tests. */
+export interface ChunkSource {
+  readChunk(index: number): Promise<Uint8Array<ArrayBuffer>>;
+}
+
+/**
+ * Scelle un dataset envoyé en morceaux (jusqu'à 1 Gio), sans jamais le tenir en entier en mémoire :
+ * chaque morceau est relu, comparé à l'empreinte du manifeste, déchiffré avec la clé d'envoi
+ * recalculée ici, puis versé dans la racine du clair et dans le lecteur CSV en flux.
+ *
+ * Rien n'est rechiffré : les morceaux restent tels quels dans le stockage, et la clé d'envoi est
+ * enveloppée par la master key comme une DEK. Le fournisseur connaît cette clé, mais c'est sa
+ * propre donnée ; personne d'autre ne peut la recalculer.
+ */
+export async function sealChunkedDataset(
+  datasetId: string,
+  manifestValue: unknown,
+  expectedSizeBytes: number,
+  model: ModelSelection,
+  source: ChunkSource,
+): Promise<SealDatasetResult> {
+  let manifest: ChunkedUploadManifest;
+  try {
+    manifest = await parseChunkedUploadManifest(manifestValue);
+  } catch (error) {
+    throw new AppError((error as Error).message, 400);
+  }
+  if (manifest.datasetId !== datasetId) throw new AppError("Le manifeste ne correspond pas à ce dataset", 400);
+  if (manifest.plainBytes !== expectedSizeBytes) {
+    throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
+  }
+
+  const uploadKey = deriveUploadKey(manifest, manifest.key);
+  const key = await crypto.subtle.importKey("raw", new Uint8Array(uploadKey), "AES-GCM", false, ["decrypt"]);
+  const csv = new StrictCsvStream();
+  const leaves: string[] = [];
+  try {
+    for (const chunk of manifest.chunks) {
+      const object = await source.readChunk(chunk.index);
+      if (createHash("sha256").update(object).digest("hex") !== chunk.sha256) {
+        throw new AppError(`Morceau ${chunk.index} différent de celui du manifeste`, 400);
+      }
+      let plain: Uint8Array<ArrayBuffer>;
+      try {
+        plain = await decryptChunk(key, manifest, chunk.index, manifest.chunkCount, chunk.plainBytes, object);
+      } catch {
+        throw new AppError(`Morceau ${chunk.index} illisible`, 400);
+      }
+      leaves.push(...(await plaintextLeaves(plain)));
+      csv.pushBytes(plain);
+    }
+  } catch (error) {
+    if (error instanceof CsvValidationError) throw new AppError(error.message, 400);
+    throw error;
+  }
+  if ((await merkleRootFromLeaves(leaves)) !== manifest.plaintextRoot) {
+    throw new AppError("La racine du fichier ne correspond pas au manifeste", 400);
+  }
+
+  // Mêmes règles qu'à l'ingestion d'un petit fichier : le message n'est lu que par le fournisseur.
+  let metrics: DatasetMetrics;
+  try {
+    metrics = validateChunkedDataset(csv.end(), model);
+  } catch (error) {
+    if (error instanceof DatasetValidationError || error instanceof CsvValidationError) throw new AppError(error.message, 400);
+    throw error;
+  }
+  return {
+    cid: chunkedDatasetCid(manifest.uploadId, await manifestSha256(manifest)),
+    wrappedKey: wrapKey(uploadKey, datasetKeyContext(datasetId)),
+    merkleRoot: manifest.plaintextRoot,
+    metrics,
+    sizeBytes: manifest.plainBytes,
+  };
 }

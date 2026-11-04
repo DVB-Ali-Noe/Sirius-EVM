@@ -90,7 +90,7 @@ export class CsvValidationError extends Error {
   }
 }
 
-function syntaxMessage(problem: CsvSyntaxProblem): string {
+export function syntaxMessage(problem: CsvSyntaxProblem): string {
   const where = `CSV invalide ligne ${problem.line} : `;
   switch (problem.kind) {
     case "lone-cr":
