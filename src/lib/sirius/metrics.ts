@@ -1,3 +1,5 @@
+import { MAX_CHUNKED_DATASET_BYTES } from "@/lib/upload/chunked";
+
 export interface DatasetMetrics {
   rowCount: number;
   columnCount: number;
@@ -236,6 +238,13 @@ export function computeMetrics(content: Buffer): DatasetMetrics {
   return { rowCount: dataRows.length, columnCount: header.length };
 }
 
+/**
+ * Plus grand nombre de lignes publiable : celui d'un envoi en morceaux, dont chaque ligne prend
+ * au moins un octet (son retour à la ligne). `MAX_CSV_ROWS` ne borne que les petits fichiers :
+ * appliqué ici, il effaçait le volume affiché de tout gros dataset (1,7 M de lignes → « — »).
+ */
+const MAX_PUBLIC_ROW_COUNT = MAX_CHUNKED_DATASET_BYTES;
+
 /** Élimine les stats détaillées encore présentes sur les datasets créés avant le correctif. */
 export function publicDatasetMetrics(value: unknown): DatasetMetrics | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -246,7 +255,7 @@ export function publicDatasetMetrics(value: unknown): DatasetMetrics | null {
     !Number.isSafeInteger(rowCount) ||
     !Number.isSafeInteger(columnCount) ||
     rowCount < 0 ||
-    rowCount > MAX_CSV_ROWS ||
+    rowCount > MAX_PUBLIC_ROW_COUNT ||
     columnCount < 0 ||
     columnCount > MAX_CSV_COLUMNS
   ) {
