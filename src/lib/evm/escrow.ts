@@ -9,6 +9,7 @@ import { normalizeAddress, type CanonicalAddress } from "./address";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from "./addresses";
 import { getPublicClient } from "./client";
+import { findLatestLog } from "./log-window";
 import { datasetIdHash } from "./dataset-key";
 import { resolveServerNetwork } from "./networks";
 import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
@@ -355,18 +356,21 @@ async function findLifecycleTxHash(
 ): Promise<string> {
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
+  // Fenêtres bornées (log-window.ts) : un `eth_getLogs` ouvert jusqu'au dernier bloc est refusé
+  // au-delà de 10 000 blocs, et le reaper ne pouvait plus clore les prêts réglés ou remboursés tard.
+  const latest = await client.getBlockNumber();
   if (billing) {
-    const logs = await client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock });
-    const txHash = logs.at(-1)?.transactionHash;
+    const last = await findLatestLog(fromBlock, latest, (from, to) =>
+      client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock: from, toBlock: to }));
+    const txHash = last?.transactionHash;
     if (!txHash) throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
     return txHash;
   }
-  const logs =
+  const last = await findLatestLog<{ transactionHash: Hex | null }>(fromBlock, latest, (from, to) =>
     eventName === "LoanReleased"
-      ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })
-      : await client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock });
+      ? client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock: from, toBlock: to })
+      : client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock: from, toBlock: to }));
 
-  const last = logs.at(-1);
   if (!last?.transactionHash) {
     throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
   }
