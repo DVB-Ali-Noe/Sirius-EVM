@@ -47,9 +47,16 @@ Base, contrats testnet dédiés, site Vercel, Neon, R2, Pinata et Web3Auth de te
   `--force`) ; l'exécution à blanc du déploiement des contrats exige `SIRIUS_DEPLOY_ESTIMATE_DATASETS` ;
   `SIRIUS_USDC_CODE_HASH` est obligatoire. Sur le testnet, le site passe en mode démonstration et exige
   `SIRIUS_FAUCET_KEY` et `SIRIUS_KYB_VERIFIER_KEY` (deux comptes distincts). Le faucet est limité par IP.
-- **Restes observés** : un envoi coupé brutalement reste OPEN 24 h (une des 2 places du fournisseur, compté dans son
-  quota de 5 Gio par jour) et ses morceaux restent dans R2 tant que personne ne rouvre le brouillon ; la CLI ne reprend
-  pas un envoi ; `--category` est sensible à la casse ; le formulaire annonce encore « CSV up to 3 MB ».
+- **Restes observés, corrigés le 7 nov. (`5ca865e`, fusionné dans `staging` par la PR #143)** : un envoi coupé
+  brutalement restait ouvert avec ses morceaux dans R2 — le reaper supprime désormais les morceaux des envois expirés
+  (24 h) puis les ferme, **à condition d'avoir `R2_*` dans son environnement** (jeton site, lecture-écriture ; sans eux
+  il ignore ce nettoyage) ; le reaper ne compte plus « runner occupé » comme une erreur ; `--category` accepte `finance`
+  comme `Finance` ; le formulaire annonce la vraie taille maximale quand les gros envois sont ouverts. Reste : la CLI ne
+  reprend pas un envoi interrompu (elle recrée un brouillon ; seul le site relance un scellement interrompu).
+- **État de staging au 7 nov.** : le projet Vercel « staging » sert la démo publique `phala.sirius-data.tech`
+  (`SIRIUS_PHALA_DEMO=true`), dont le runner `sirius-phala-production` est arrêté et qui refuse les gros envois par
+  conception. `R2_*` n'y sont qu'en Preview : pour les visiteurs, rien ne change. Activer le 1 Go sur staging
+  demande une décision sur la démo, de nouveaux contrats testnet (registre v6) et un runner mis à jour.
 
 ## 1. R2 (Cloudflare)
 
