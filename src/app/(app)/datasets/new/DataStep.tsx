@@ -26,6 +26,8 @@ interface DataStepProps {
   readingFile: boolean;
   /** Gros fichier : part déjà lue, de 0 à 1. */
   readProgress?: number | null;
+  /** Taille maximale d’un envoi en morceaux sur cette instance ; absent : petits fichiers seulement. */
+  largeUploadMaxBytes?: number | null;
   onFileSelected: (file: File | null) => void;
   onLoadExample: () => void;
   loadingExample: boolean;
@@ -53,6 +55,7 @@ export function DataStep({
   quality,
   readingFile,
   readProgress = null,
+  largeUploadMaxBytes = null,
   onFileSelected,
   onLoadExample,
   loadingExample,
@@ -85,7 +88,11 @@ export function DataStep({
       }}
       noValidate
     >
-      <DisclaimerNote messages={["dataLimits"]} />
+      <DisclaimerNote messages={["dataLimits"]}>
+        {largeUploadMaxBytes ? (
+          <p>{t("Gros fichiers : cette instance accepte aussi des CSV jusqu’à {maxSize}, chiffrés et envoyés en morceaux ; l’entraînement se fait alors sur un échantillon qui respecte les limites ci-dessous.", { maxSize: formatBytes(largeUploadMaxBytes) })}</p>
+        ) : null}
+      </DisclaimerNote>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium" htmlFor={ids.file}>{t("Fichier CSV")}</label>

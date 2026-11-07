@@ -92,9 +92,9 @@ async function main() {
   const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   const pin = process.env.SIRIUS_INGRESS_KEY_SHA256?.trim().toLowerCase();
   if (!pin && !local) fail("SIRIUS_INGRESS_KEY_SHA256 obligatoire : empreinte de la clé d'ingestion de l'enclave");
-  if (!(DATASET_CATEGORIES as readonly string[]).includes(values.category)) {
-    fail(`Catégorie inconnue. Choix : ${DATASET_CATEGORIES.join(", ")}`);
-  }
+  // Insensible à la casse (`finance` comme `Finance`) : la valeur envoyée est l'écriture exacte de la liste.
+  const category = DATASET_CATEGORIES.find((name) => name.toLowerCase() === values.category!.trim().toLowerCase());
+  if (!category) fail(`Catégorie inconnue. Choix : ${DATASET_CATEGORIES.join(", ")}`);
   if (!MODEL_OPTIONS.some((model) => model.id === values.model)) fail(`Profil inconnu. Choix : ${MODEL_OPTIONS.map((model) => model.id).join(", ")}`);
   const modelId = values.model as ModelId;
   const priceUsdcAtomic = priceUsdcToAtomic(values.price);
@@ -181,7 +181,7 @@ async function main() {
         description: values.description || undefined,
         sizeBytes: source.sizeBytes,
         priceUsdc: values.price,
-        category: values.category,
+        category,
         maxRentalDays,
         listingDays,
         trainingConsent: values.consent,
@@ -192,7 +192,7 @@ async function main() {
         priceUsdcAtomic,
         sizeBytes: source.sizeBytes,
         modelId,
-        category: values.category as DatasetCategory,
+        category: category as DatasetCategory,
         maxRentalDays,
         listingDays,
         trainingConsent: Boolean(values.consent),

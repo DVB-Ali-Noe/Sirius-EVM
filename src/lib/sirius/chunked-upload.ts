@@ -220,6 +220,41 @@ async function abortUpload(deps: ChunkedUploadDeps, upload: DatasetUploadRow, fr
   );
 }
 
+/**
+ * Envois restés ouverts après leur échéance (onglet fermé, CLI coupée, abandon jamais envoyé) :
+ * leurs morceaux sont supprimés de R2, PUIS l'envoi est marqué abandonné. Dans cet ordre, une
+ * suppression ratée laisse l'envoi ouvert et la passe suivante réessaie ; aucun morceau n'est
+ * oublié dans R2. Appelé par le reaper, par lots ; sans accès R2 configuré, rien n'est touché.
+ */
+export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunkedUploadDeps, limit = 20): Promise<number> {
+  let config: R2Config;
+  try {
+    config = deps.storage();
+  } catch {
+    return 0;
+  }
+  const expired = (await deps.db.datasetUpload.findMany({
+    where: { state: "OPEN", expiresAt: { lte: new Date(deps.now()) } },
+    orderBy: { expiresAt: "asc" },
+    take: limit,
+  })) as DatasetUploadRow[];
+  let purged = 0;
+  for (const upload of expired) {
+    try {
+      await deps.deletePrefix(config, uploadPrefix(idsOf(upload)));
+    } catch {
+      console.error(`Nettoyage R2 impossible pour l’envoi expiré ${upload.id}, reprise à la passe suivante`);
+      continue;
+    }
+    const closed = await deps.db.datasetUpload.updateMany({
+      where: { id: upload.id, state: "OPEN" },
+      data: { state: "ABORTED", error: "Envoi expiré" },
+    });
+    purged += closed.count;
+  }
+  return purged;
+}
+
 /** Rafraîchit le brouillon : sinon le nettoyage des brouillons abandonnés (30 min) le supprimerait en plein envoi. */
 async function touchDraft(deps: ChunkedUploadDeps, upload: DatasetUploadRow): Promise<void> {
   await deps.db.dataset.updateMany({

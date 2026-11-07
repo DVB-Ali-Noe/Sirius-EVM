@@ -370,6 +370,7 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
             quality={fileRejection ? null : quality}
             readingFile={readingFile}
             readProgress={readProgress}
+            largeUploadMaxBytes={largeUploadMaxBytes}
             onFileSelected={readFile}
             onLoadExample={loadExample}
             loadingExample={loadingExample}

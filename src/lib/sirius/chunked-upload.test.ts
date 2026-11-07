@@ -21,15 +21,16 @@ const GRANT = { payload: { nonce: "n" } } as unknown as RunnerGrant;
 
 type Row = Record<string, unknown>;
 
-/** Filtre Prisma minimal : égalité, `in`, `gt`, `gte`. */
+/** Filtre Prisma minimal : égalité, `in`, `gt`, `gte`, `lte`. */
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, condition]) => {
     const value = row[key];
     if (condition && typeof condition === "object" && !(condition instanceof Date)) {
-      const c = condition as { in?: unknown[]; gt?: Date; gte?: Date };
+      const c = condition as { in?: unknown[]; gt?: Date; gte?: Date; lte?: Date };
       if (c.in && !c.in.includes(value)) return false;
       if (c.gt && !((value as Date) > c.gt)) return false;
       if (c.gte && !((value as Date) >= c.gte)) return false;
+      if (c.lte && !((value as Date) <= c.lte)) return false;
       return true;
     }
     return value === condition;
@@ -41,6 +42,9 @@ function table(rows: Row[]) {
     rows,
     async findUnique({ where }: { where: Row }) {
       return rows.find((row) => matches(row, where)) ?? null;
+    },
+    async findMany({ where, take }: { where: Row; take?: number }) {
+      return rows.filter((row) => matches(row, where)).slice(0, take ?? rows.length);
     },
     async findFirst({ where }: { where: Row }) {
       return rows.filter((row) => matches(row, where)).at(-1) ?? null;
@@ -337,4 +341,39 @@ test("un envoi expiré ou abandonné est fermé et ses morceaux supprimés", asy
   const expired = await uploads.datasetUploadStatus("ds1", second.uploadId, PROVIDER, h.deps);
   assert.equal(expired.state, "ABORTED");
   assert.equal(h.datasetUpload.rows.find((row) => row.id === second.uploadId)?.state, "ABORTED");
+});
+
+test("le reaper supprime les morceaux des envois expirés, puis les ferme ; sans R2, il ne touche à rien", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const { objects } = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, objects, [2]);
+  assert.ok(h.stored.size > 0);
+
+  // Pas encore expiré : rien ne bouge.
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
+
+  h.advance(uploads.UPLOAD_TTL_MS + 1);
+  // Sans accès R2 configuré (reaper sans R2_*), rien n'est fermé : les morceaux ne seraient plus suivis.
+  assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, storage: () => { throw new Error("R2 non configuré"); } }), 0);
+  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
+
+  // Suppression ratée : l'envoi reste ouvert pour la passe suivante.
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.join(" ")); };
+  try {
+    assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, deletePrefix: async () => { throw new Error("R2 indisponible"); } }), 0);
+  } finally {
+    console.error = original;
+  }
+  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
+  assert.match(errors.join(" "), /reprise à la passe suivante/);
+
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 1);
+  assert.equal(h.stored.size, 0);
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(h.datasetUpload.rows[0].error, "Envoi expiré");
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
 });
