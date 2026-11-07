@@ -10,6 +10,7 @@ import { purgeExpiredAccessLogs } from "@/lib/users/access-log-retention";
 import { databaseAccessLogRetention } from "@/lib/users/access-log-store";
 import { purgeExpiredAutoInvites } from "@/lib/kyb/auto-invite-retention";
 import { databaseAutoInviteRetention } from "@/lib/sirius/kyb-auto-invite";
+import { purgeExpiredUploads } from "@/lib/sirius/chunked-upload";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -122,6 +123,16 @@ async function main(): Promise<void> {
         if (purges > 0) console.log(`[reaper] traces d'accès instantané KYB purgées : lignes=${purges}`);
       } catch {
         console.error("[reaper] purge des traces d'accès instantané KYB échouée, reprise à la suivante");
+      }
+    }
+    // Envois de gros fichiers restés ouverts après 24 h (onglet fermé, CLI coupée) : morceaux
+    // supprimés de R2. Sans R2_* dans l'environnement du reaper, rien n'est fait (chunked-upload.ts).
+    if (!arret) {
+      try {
+        const purges = await purgeExpiredUploads();
+        if (purges > 0) console.log(`[reaper] envois expirés nettoyés : ${purges}`);
+      } catch {
+        console.error("[reaper] nettoyage des envois expirés échoué, reprise à la suivante");
       }
     }
     // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;

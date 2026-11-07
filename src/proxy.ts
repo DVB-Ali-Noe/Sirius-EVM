@@ -10,6 +10,7 @@ import {
   decidePreviewGate,
   readPreviewGateConfig,
 } from "@/lib/preview-gate/gate";
+import { r2BrowserOrigin } from "@/lib/storage/r2-origin";
 
 /**
  * Origines du portefeuille embarqué, ajoutées seulement là où il est proposé.
@@ -40,6 +41,8 @@ const ORIGINES_EMBARQUEES = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim()
 
 function contentSecurityPolicy(nonce: string): string {
   const development = process.env.NODE_ENV !== "production";
+  // Gros envois : le navigateur envoie les morceaux chiffrés directement à R2 (voir r2-origin.ts).
+  const r2 = r2BrowserOrigin(process.env.R2_ACCOUNT_ID);
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
@@ -47,7 +50,7 @@ function contentSecurityPolicy(nonce: string): string {
     `style-src 'self' 'unsafe-inline'${ORIGINES_EMBARQUEES ? " https://fonts.googleapis.com" : ""}`,
     `img-src 'self' data: blob:${ORIGINES_EMBARQUEES ? " https://*.web3auth.io https://images.toruswallet.io" : ""}`,
     `font-src 'self' data:${ORIGINES_EMBARQUEES ? " https://fonts.gstatic.com" : ""}`,
-    `connect-src 'self' https://rpc.mainnet.chain.robinhood.com https://rpc.testnet.chain.robinhood.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com https://buy.moonpay.com https://buy-sandbox.moonpay.com${ORIGINES_EMBARQUEES}`,
+    `connect-src 'self' https://rpc.mainnet.chain.robinhood.com https://rpc.testnet.chain.robinhood.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com https://buy.moonpay.com https://buy-sandbox.moonpay.com${ORIGINES_EMBARQUEES}${r2 ? ` ${r2}` : ""}`,
     `frame-src ${ORIGINES_EMBARQUEES ? "https://*.web3auth.io" : "'none'"}`,
     "worker-src 'self' blob:",
     "media-src 'none'",

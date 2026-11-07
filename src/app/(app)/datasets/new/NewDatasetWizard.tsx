@@ -17,6 +17,10 @@ import { DEFAULT_LISTING_DURATION_DAYS, type ListingDurationDays } from "@/lib/d
 import { providerPriceBreakdown, type PublishedTariff } from "@/lib/datasets/tariff";
 import { UPLOAD_STEPS, UploadError, uploadAndPublishDataset, type UploadStep } from "@/lib/datasets/upload-client";
 import { publishDataset, type PublishDatasetStage } from "@/lib/datasets/client";
+import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-stream";
+import { uploadAndPublishLargeDataset } from "@/lib/datasets/large-upload-client";
+import { blobSource } from "@/lib/upload/chunked-transfer";
+import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { DataStep, exampleDatasetPath } from "./DataStep";
 import { PricingStep } from "./PricingStep";
 import { type DataValues, type LoadedFile, type StepState } from "./wizard-types";
@@ -24,6 +28,8 @@ import { type DataValues, type LoadedFile, type StepState } from "./wizard-types
 interface NewDatasetWizardProps {
   tariff: PublishedTariff | null;
   token: TokenInfo;
+  /** Taille maximale d'un gros fichier envoyé en morceaux ; `null` si l'instance ne le permet pas. */
+  largeUploadMaxBytes?: number | null;
 }
 
 type Phase = "data" | "securing" | "pricing";
@@ -48,7 +54,7 @@ function toHex(bytes: ArrayBuffer): string {
  * Étape 2 : gain, décomposition en direct, durée, estimations, avertissement, consentement,
  * puis publication avec sa progression (brouillon, chiffrement, scellement, titre on-chain).
  */
-export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
+export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: NewDatasetWizardProps) {
   const router = useRouter();
   const { t } = useLocale();
   const [phase, setPhase] = useState<Phase>("data");
@@ -56,6 +62,9 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [fileRejection, setFileRejection] = useState<CsvRejection | null>(null);
   const [readingFile, setReadingFile] = useState(false);
+  const [readProgress, setReadProgress] = useState<number | null>(null);
+  const [uploadSent, setUploadSent] = useState<number | null>(null);
+  const largeRead = useRef<AbortController | null>(null);
   const [loadingExample, setLoadingExample] = useState(false);
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [securingLines, setSecuringLines] = useState(0);
@@ -77,8 +86,19 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
 
   useEffect(() => {
     const pending = timers.current;
-    return () => pending.forEach(clearTimeout);
+    return () => {
+      pending.forEach(clearTimeout);
+      largeRead.current?.abort();
+    };
   }, []);
+
+  // Gros fichier : fermer la page pendant l'envoi l'interromprait, le navigateur demande confirmation.
+  useEffect(() => {
+    if (!publishing || !file?.large) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [publishing, file]);
 
   // Le bouton qui a déclenché le changement d'étape est démonté : le focus clavier repart
   // du panneau de la nouvelle étape plutôt que du corps de la page. Comparer à la phase
@@ -89,10 +109,10 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     if (phase !== "securing") panelRef.current?.focus();
   }, [phase]);
 
-  const table = useMemo(() => (file ? readCsvTable(file.text) : null), [file]);
+  const table = useMemo(() => (file && !file.large ? readCsvTable(file.text) : null), [file]);
   const inspection: CsvInspection | null = useMemo(
-    () => (table ? inspectCsvTable(table, values.modelId) : null),
-    [table, values.modelId],
+    () => (file?.large ? inspectStreamSummary(file.large.summary, values.modelId) : table ? inspectCsvTable(table, values.modelId) : null),
+    [file, table, values.modelId],
   );
   // Indépendant du profil : calculé une fois par fichier, gardé en mémoire de la page.
   const quality = useMemo(() => (table?.ok ? qualityReport(table.table) : null), [table]);
@@ -111,12 +131,19 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   async function readFile(selected: File | null) {
     // Une lecture plus récente rend la précédente caduque : seule la dernière écrit l'état.
     const ticket = ++readToken.current;
+    largeRead.current?.abort();
+    largeRead.current = null;
     setError(null);
     setFile(null);
     setFingerprint(null);
+    setReadProgress(null);
     if (!selected) {
       setFileRejection(null);
       setReadingFile(false);
+      return;
+    }
+    if (largeUploadMaxBytes !== null && selected.size > MAX_DATASET_BYTES) {
+      await readLargeFile(selected, ticket, largeUploadMaxBytes);
       return;
     }
     const rejection = checkFileSize(selected.size);
@@ -136,6 +163,44 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
       if (ticket === readToken.current) setFileRejection({ kind: "unreadable" });
     } finally {
       if (ticket === readToken.current) setReadingFile(false);
+    }
+  }
+
+  /** Gros fichier : lu par tranches (contrôle et racine de Merkle), sans jamais le charger en entier. */
+  async function readLargeFile(selected: File, ticket: number, maxBytes: number) {
+    if (selected.size > maxBytes) {
+      setFileRejection({ kind: "file-too-large", sizeBytes: selected.size, maxBytes });
+      setReadingFile(false);
+      return;
+    }
+    const controller = new AbortController();
+    largeRead.current = controller;
+    setFileRejection(null);
+    setReadingFile(true);
+    setReadProgress(0);
+    try {
+      const read = await readLargeCsv(blobSource(selected), (fraction) => {
+        if (ticket === readToken.current) setReadProgress(fraction);
+      }, controller.signal);
+      if (ticket !== readToken.current) return;
+      if (!read.ok) {
+        setFileRejection(read.reason);
+        return;
+      }
+      setFile({
+        name: selected.name,
+        sizeBytes: selected.size,
+        content: new ArrayBuffer(0),
+        text: "",
+        large: { blob: selected, summary: read.summary, merkleRoot: read.merkleRoot },
+      });
+    } catch {
+      if (ticket === readToken.current) setFileRejection({ kind: "unreadable" });
+    } finally {
+      if (ticket === readToken.current) {
+        setReadingFile(false);
+        setReadProgress(null);
+      }
     }
   }
 
@@ -170,8 +235,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     try {
       // Empreinte réelle du fichier, calculée sur l'appareil : elle sert d'identité locale au
       // contenu jusqu'au chiffrement et prouve que le fichier est bien lu en mémoire ici.
-      const digest = await crypto.subtle.digest("SHA-256", file.content);
-      setFingerprint(toHex(digest));
+      // Gros fichier : la racine de Merkle du clair, calculée à la lecture (celle du titre on-chain).
+      setFingerprint(file.large ? file.large.merkleRoot : toHex(await crypto.subtle.digest("SHA-256", file.content)));
       const elapsed = Date.now() - started;
       schedule(() => setSecuringLines(3), Math.max(0, SECURING_LINE_MS * 3 - elapsed));
       schedule(() => setPhase("pricing"), Math.max(0, SECURING_MIN_MS - elapsed));
@@ -215,33 +280,34 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     setStage(null);
     setProgress(PENDING_PROGRESS);
     setPublishing(true);
+    setUploadSent(null);
+    const onProgress = ({ step, stage: nextStage, sent }: { step: UploadStep; stage?: PublishDatasetStage; sent?: number }) => {
+      setStage(nextStage ?? null);
+      setUploadSent(step === "encrypt" && sent !== undefined ? sent : null);
+      setProgress((current) => {
+        const next = { ...current };
+        for (const candidate of UPLOAD_STEPS) {
+          if (candidate === step) next[candidate] = "active";
+          else if (UPLOAD_STEPS.indexOf(candidate) < UPLOAD_STEPS.indexOf(step)) next[candidate] = "done";
+        }
+        return next;
+      });
+    };
+    const terms = {
+      sizeBytes: file.sizeBytes,
+      name: values.name.trim(),
+      description: values.description.trim(),
+      category: values.category,
+      modelId: values.modelId,
+      priceUsdc: price.trim(),
+      priceUsdcAtomic: providerAtomic.toString(),
+      maxRentalDays: maxRentalDaysValue,
+      listingDays,
+      trainingConsent: consent,
+    };
     try {
-      await uploadAndPublishDataset(
-        {
-          content: file.content,
-          sizeBytes: file.sizeBytes,
-          name: values.name.trim(),
-          description: values.description.trim(),
-          category: values.category,
-          modelId: values.modelId,
-          priceUsdc: price.trim(),
-          priceUsdcAtomic: providerAtomic.toString(),
-          maxRentalDays: maxRentalDaysValue,
-          listingDays,
-          trainingConsent: consent,
-        },
-        ({ step, stage: nextStage }) => {
-          setStage(nextStage ?? null);
-          setProgress((current) => {
-            const next = { ...current };
-            for (const candidate of UPLOAD_STEPS) {
-              if (candidate === step) next[candidate] = "active";
-              else if (UPLOAD_STEPS.indexOf(candidate) < UPLOAD_STEPS.indexOf(step)) next[candidate] = "done";
-            }
-            return next;
-          });
-        },
-      );
+      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress);
+      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress);
       setProgress({ draft: "done", encrypt: "done", seal: "done", register: "done" });
       router.push("/datasets");
     } catch (cause) {
@@ -303,6 +369,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             inspection={inspection}
             quality={fileRejection ? null : quality}
             readingFile={readingFile}
+            readProgress={readProgress}
+            largeUploadMaxBytes={largeUploadMaxBytes}
             onFileSelected={readFile}
             onLoadExample={loadExample}
             loadingExample={loadingExample}
@@ -371,6 +439,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             publishing={publishing}
             progress={progress}
             stage={stage}
+            uploadSent={uploadSent}
             error={error}
             sealedDatasetId={sealedDatasetId}
             onBack={() => {

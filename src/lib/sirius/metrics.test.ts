@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { computeMetrics, CsvValidationError, MAX_CSV_COLUMNS, MAX_CSV_ROWS, parseCsv, publicDatasetMetrics } from "./metrics";
+import { MAX_CHUNKED_DATASET_BYTES } from "@/lib/upload/chunked";
 
 test("ne publie que les volumes globaux du dataset", () => {
   const metrics = computeMetrics(Buffer.from("patient_id,salary\np-001,123456\n"));
@@ -23,7 +24,14 @@ test("retire les statistiques détaillées des datasets historiques", () => {
 
 test("rejette les métriques publiques hors bornes", () => {
   assert.deepEqual(publicDatasetMetrics({ rowCount: MAX_CSV_ROWS, columnCount: 2 }), { rowCount: MAX_CSV_ROWS, columnCount: 2 });
-  assert.equal(publicDatasetMetrics({ rowCount: MAX_CSV_ROWS + 1, columnCount: 2 }), null);
+  assert.equal(publicDatasetMetrics({ rowCount: MAX_CHUNKED_DATASET_BYTES + 1, columnCount: 2 }), null);
+  assert.equal(publicDatasetMetrics({ rowCount: 2, columnCount: MAX_CSV_COLUMNS + 1 }), null);
+  assert.equal(publicDatasetMetrics({ rowCount: -1, columnCount: 2 }), null);
+});
+
+test("le volume d'un gros dataset envoyé en morceaux reste affiché", () => {
+  assert.deepEqual(publicDatasetMetrics({ rowCount: 1_700_000, columnCount: 8 }), { rowCount: 1_700_000, columnCount: 8 });
+  assert.deepEqual(publicDatasetMetrics({ rowCount: MAX_CHUNKED_DATASET_BYTES, columnCount: 1 }), { rowCount: MAX_CHUNKED_DATASET_BYTES, columnCount: 1 });
 });
 
 test("les limites CSV acceptent la borne et rejettent son dépassement avec une erreur typée", () => {

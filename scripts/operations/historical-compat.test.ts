@@ -11,6 +11,7 @@ import { siriusescrowAbi } from "../../src/lib/evm/abi/siriusescrow";
 import { siriusescrowv7Abi } from "../../src/lib/evm/abi/siriusescrowv7";
 import * as address from "../../src/lib/evm/address";
 import * as networks from "../../src/lib/evm/networks";
+import * as logWindow from "../../src/lib/evm/log-window";
 import { loadModule, serverOnly } from "./module-testkit";
 
 const CURRENT = "0xc6a27dd5fdfdeda069b5634ca8d44416dfdb3f4f";
@@ -96,6 +97,7 @@ function escrowUnder(version: string, loan: Record<string, unknown> | null) {
     "@/lib/runner/transaction-recovery": stub("reconcileRunnerTransactions"), "@/lib/runner/gas-policy": stub("boundedGas", "lowGasBalanceAlert"),
     "@/lib/runner/fee-replacement": stub("resignWithFreshFees"),
     "@/lib/runner/transaction-journal": stub("sealRunnerTransaction"), "./finality": stub("assertCanonicalReceipt", "confirmedBlock"),
+    "./log-window": logWindow,
   }, { process: { env } });
 }
 

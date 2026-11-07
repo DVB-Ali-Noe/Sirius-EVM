@@ -17,12 +17,12 @@ import { recoverUnsubmittedLoan } from "./recover-loan";
 import { resolveLoanEscrow } from "@/lib/evm/history";
 import { recoverLoanResult, settlePreparedLoan } from "./settle";
 import { verifyFastSettlement } from "./fast-settlement-review";
-import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { AppError } from "@/lib/app-error";
 import { isServedModelFingerprint } from "@/lib/models/registry";
 import { settleLoanExtension } from "./extend";
 import { loanRentalExpiry, RENTAL_MODEL_DELETED } from "./rental";
 import { EXTENSION_PENDING } from "@/lib/loans/settlement-status";
+import { reaperErrorKind } from "./reaper-errors";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -141,7 +141,9 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
       }
       if (!loan.billingQuoteHash) await reconcileClosedLoan(loan);
     } catch (error) {
-      if (error instanceof RunnerFinalityPending) console.log(`[reaper] prêt EVM ${loan.id} : règlement en attente de finalité`);
+      const kind = reaperErrorKind(error);
+      if (kind === "pending") console.log(`[reaper] prêt EVM ${loan.id} : règlement en attente de finalité`);
+      else if (kind === "busy") console.log(`[reaper] prêt EVM ${loan.id} : runner occupé par un autre règlement, reprise à la passe suivante`);
       else {
         failed += 1;
         console.error(`[reaper] prêt EVM ${loan.id} non réconcilié`);
@@ -150,6 +152,7 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
   }
   return { examined: loans.length, failed };
 }
+
 
 function needsFastReview(loan: Loan, now: Date): boolean {
   return loan.finalityTier === "FAST" && !loan.finalityVerifiedAt && !loan.finalityReview && loan.settledAt !== null

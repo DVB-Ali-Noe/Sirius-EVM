@@ -10,7 +10,9 @@ export type RunnerOperation =
   | "run-loan-job"
   | "recover-loan-job"
   | "settle-loan"
-  | "extend-loan";
+  | "extend-loan"
+  | "seal-chunked-dataset"
+  | "seal-chunked-status";
 
 export interface RunnerScope {
   datasetId?: string;

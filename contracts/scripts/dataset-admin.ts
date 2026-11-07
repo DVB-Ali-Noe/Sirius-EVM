@@ -4,7 +4,8 @@ import { EVM_CHAINS, type EvmNetwork } from "../../src/lib/evm/networks";
 import { MAINNET_CHAIN_ID, parseTrainingProfiles } from "../../scripts/deploy-policy";
 import {
   addTrainingProfileCall, assertBound, assertCanBind, bindEscrowCall, ESCROW_VERSIONS, expectedProfiles, isProfileSupported,
-  profileHashes, readBinding, registryAdminAbi, SAFE_BATCH_END, SAFE_BATCH_START, safeTransactionBatch, DATASET_REGISTRY_VERSION,
+  profileHashes, readBinding, registryAdminAbi, SAFE_BATCH_END, SAFE_BATCH_START, safeTransactionBatch, DATASET_REGISTRY_VERSIONS,
+  DATASET_REGISTRY_VERSION, importTitlesCall, registryV6AdminAbi, setMaxSizeBytesCall,
   type AdminCall, type BindingReader,
 } from "./dataset-binding";
 
@@ -14,11 +15,15 @@ import {
  *
  *   SIRIUS_DEPLOY_NETWORK=mainnet SIRIUS_DATASET_ADDRESS=0x… SIRIUS_ESCROW_ADDRESS=0x… \
  *   SIRIUS_DATASET_ADMIN=0x<Safe> [SIRIUS_DATASET_TRAINING_PROFILES=gradient_boosted_trees] \
- *   pnpm contracts:dataset-admin <prepare-bind | prepare-profiles | verify>
+ *   pnpm contracts:dataset-admin <prepare-bind | prepare-profiles | prepare-max-size | prepare-import | verify>
  *
  * prepare-bind     : contrôle REP-12 (registre non lié, escrow pointant vers ce registre, même KYB,
  *                    versions), puis lot `bindEscrow` + profils manquants.
  * prepare-profiles : lot `addTrainingProfile` pour les seuls profils facultatifs connus et absents.
+ * prepare-max-size : registre v6, lot `setMaxSizeBytes(SIRIUS_DATASET_MAX_SIZE_BYTES)` (au plus 1 Gio).
+ * prepare-import   : registre v6, lots `importTitles` (100 titres chacun) pour les identifiants on-chain
+ *                    de `SIRIUS_DATASET_IMPORT_IDS` (séparés par des virgules), chacun vérifié avant :
+ *                    vivant dans le registre précédent, absent de celui-ci.
  * verify           : après exécution par le Safe, `datasets.escrow() == escrow`, `escrow.datasets()
  *                    == datasets`, admin attendu, tous les profils attendus acceptés.
  *
@@ -50,9 +55,8 @@ function printBatch(chainId: number, safe: Address, name: string, calls: AdminCa
 
 async function main() {
   const command = process.argv[2];
-  if (command !== "prepare-bind" && command !== "prepare-profiles" && command !== "verify") {
-    throw new Error("Commande attendue : prepare-bind, prepare-profiles ou verify");
-  }
+  const commands = ["prepare-bind", "prepare-profiles", "prepare-max-size", "prepare-import", "verify"];
+  if (!commands.includes(command)) throw new Error(`Commande attendue : ${commands.join(", ")}`);
   const network = (process.env.SIRIUS_DEPLOY_NETWORK ?? "testnet") as EvmNetwork;
   const chain = EVM_CHAINS[network];
   if (!chain) throw new Error(`Réseau inconnu : ${network} (attendu testnet ou mainnet)`);
@@ -75,9 +79,58 @@ async function main() {
     return result;
   };
 
-  if (command === "prepare-profiles") {
+  if (command === "prepare-max-size" || command === "prepare-import") {
+    const read = (functionName: string, args?: readonly unknown[]) =>
+      reader.readContract({ address: datasets, abi: registryV6AdminAbi, functionName, args });
     const version = await reader.readContract({ address: datasets, abi: registryAdminAbi, functionName: "VERSION" });
     if (version !== DATASET_REGISTRY_VERSION) throw new Error(`Registre de datasets en ${String(version)}, ${DATASET_REGISTRY_VERSION} attendu`);
+    const onChainAdmin = await reader.readContract({ address: datasets, abi: registryAdminAbi, functionName: "admin" }) as Address;
+    if (onChainAdmin.toLowerCase() !== admin.toLowerCase()) throw new Error(`L'admin du registre est ${onChainAdmin}, pas l'admin attendu ${admin}`);
+
+    if (command === "prepare-max-size") {
+      const raw = process.env.SIRIUS_DATASET_MAX_SIZE_BYTES?.trim() ?? "";
+      if (!/^[1-9][0-9]*$/.test(raw)) throw new Error("SIRIUS_DATASET_MAX_SIZE_BYTES doit être un entier positif (octets)");
+      const wanted = BigInt(raw);
+      const ceiling = await read("MAX_SIZE_CEILING") as bigint;
+      if (wanted > ceiling) throw new Error(`Au plus ${ceiling} octets (plafond gravé du registre)`);
+      const current = await read("maxSizeBytes") as bigint;
+      console.log(`taille max    : ${current} octets aujourd'hui, ${wanted} demandés`);
+      if (current === wanted) {
+        console.log("Déjà à cette valeur : rien à signer.");
+        return;
+      }
+      printBatch(chain.id, admin, "Sirius : taille maximale des datasets", [setMaxSizeBytesCall(datasets, wanted)]);
+      return;
+    }
+
+    const previous = await read("previousRegistry") as Address;
+    if (/^0x0{40}$/i.test(previous)) throw new Error("Ce registre n'a pas de registre précédent : aucun import possible");
+    const ids = (process.env.SIRIUS_DATASET_IMPORT_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+    if (ids.length === 0 || ids.some((id) => !/^0x[0-9a-fA-F]{64}$/.test(id))) {
+      throw new Error("SIRIUS_DATASET_IMPORT_IDS : identifiants on-chain (bytes32) séparés par des virgules");
+    }
+    if (new Set(ids.map((id) => id.toLowerCase())).size !== ids.length) throw new Error("SIRIUS_DATASET_IMPORT_IDS contient des doublons");
+    const datasetAt = (address: Address, id: string) =>
+      reader.readContract({ address, abi: registryV6AdminAbi, functionName: "getDataset", args: [id] }) as Promise<{ provider: Address; destroyedAt: number }>;
+    for (const id of ids) {
+      const source = await datasetAt(previous, id);
+      if (/^0x0{40}$/i.test(source.provider) || Number(source.destroyedAt) !== 0) throw new Error(`${id} n'est pas un titre vivant du registre précédent`);
+      const here = await datasetAt(datasets, id);
+      if (!/^0x0{40}$/i.test(here.provider)) throw new Error(`${id} existe déjà dans ce registre`);
+    }
+    const batchSize = Number(await read("MAX_IMPORT_BATCH"));
+    const calls: AdminCall[] = [];
+    for (let start = 0; start < ids.length; start += batchSize) calls.push(importTitlesCall(datasets, ids.slice(start, start + batchSize) as Hex[]));
+    console.log(`import        : ${ids.length} titre(s) vivant(s) de ${previous}, vérifiés un à un`);
+    printBatch(chain.id, admin, "Sirius : import des titres du registre précédent", calls);
+    return;
+  }
+
+  if (command === "prepare-profiles") {
+    const version = await reader.readContract({ address: datasets, abi: registryAdminAbi, functionName: "VERSION" });
+    if (!DATASET_REGISTRY_VERSIONS.includes(String(version))) {
+      throw new Error(`Registre de datasets en ${String(version)}, ${DATASET_REGISTRY_VERSIONS.join(" ou ")} attendu`);
+    }
     const onChainAdmin = await reader.readContract({ address: datasets, abi: registryAdminAbi, functionName: "admin" }) as Address;
     if (onChainAdmin.toLowerCase() !== admin.toLowerCase()) throw new Error(`L'admin du registre est ${onChainAdmin}, pas l'admin attendu ${admin}`);
     if (profiles.length === 0) throw new Error("SIRIUS_DATASET_TRAINING_PROFILES vide : aucun profil à ajouter");

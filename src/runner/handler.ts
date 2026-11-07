@@ -65,6 +65,10 @@ import { parseComputeQuote, requireRentalQuote, totalQuoteAmount, type ComputeQu
 import { DAY_MS, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RunnerRetryLater } from "@/lib/runner/failure-policy";
 import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { sealChunkedDataset } from "@/lib/tee/core";
+import { MAX_CHUNKED_DATASET_BYTES, manifestSha256, parseChunkedUploadManifest, type ChunkedUploadManifest } from "@/lib/upload/chunked";
+import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { chunkedSeals, chunkedStorageConfig, r2SealSource } from "./chunked-seal-jobs";
 
 const MAX_ID_LENGTH = 128;
 
@@ -151,6 +155,19 @@ function ingressEnvelope(body: Record<string, unknown>): DatasetIngressEnvelope 
   return value as DatasetIngressEnvelope;
 }
 
+async function chunkedManifest(value: unknown, datasetId: string, uploadId: string): Promise<ChunkedUploadManifest> {
+  let manifest: ChunkedUploadManifest;
+  try {
+    manifest = await parseChunkedUploadManifest(value);
+  } catch (error) {
+    throw new AppError((error as Error).message, 400);
+  }
+  if (manifest.datasetId !== datasetId || manifest.uploadId !== uploadId) {
+    throw new AppError("Le manifeste ne correspond pas à cet envoi", 400);
+  }
+  return manifest;
+}
+
 function modelRef(body: Record<string, unknown>): ModelRef {
   const value = body.modelRef;
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2) {
@@ -202,6 +219,9 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
       const ref = modelRef(body);
       return { op, scope: ref.kind === "job" ? { jobId: ref.id } : { loanId: ref.id } };
     }
+    case "seal-chunked-dataset":
+    case "seal-chunked-status":
+      return { op, scope: { datasetId: text(body, "datasetId") } };
     default:
       throw new AppError("Opération runner inconnue", 404);
   }
@@ -217,7 +237,7 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
  * bornés à part, dans le serveur (`free-ops-guard.ts`), sans prendre de place aux opérations
  * payantes.
  */
-export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key"]);
+export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "seal-chunked-status"]);
 
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
@@ -276,6 +296,62 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         }),
       };
     }
+
+    case "seal-chunked-dataset": {
+      // Gros dataset envoyé en morceaux dans R2 (upload 1 Go) : le grant porte l'empreinte du
+      // manifeste, qui s'engage sur chaque morceau stocké. Le scellement tourne en arrière-plan.
+      const datasetId = text(body, "datasetId");
+      const uploadId = text(body, "uploadId");
+      const priceUsdcAtomic = usdcAmount(body, "priceUsdcAtomic");
+      const challengeDays = boundedInteger(body, "challengeDays", 1, 30);
+      const maxRentalDays = boundedInteger(body, "maxRentalDays", MIN_RENTAL_DAYS, MAX_RENTAL_DAYS);
+      const sizeBytes = boundedInteger(body, "sizeBytes", 1, MAX_CHUNKED_DATASET_BYTES);
+      const model = trainingModel(body);
+      const manifest = await chunkedManifest(body.manifest, datasetId, uploadId);
+      const manifestSha = await manifestSha256(manifest);
+      const { subject } = await verifyRunnerGrant(body.authorization, {
+        operation: op,
+        datasetId,
+        intentParts: [
+          datasetId,
+          uploadId,
+          priceUsdcAtomic,
+          String(challengeDays),
+          String(sizeBytes),
+          manifestSha,
+          model.modelId,
+          model.modelVersion,
+          String(maxRentalDays),
+        ],
+      });
+      const storage = chunkedStorageConfig();
+      const owner = canonicalSubject(subject);
+      const nonce = (body.authorization as RunnerGrant).payload.nonce;
+      const ids = { datasetId, uploadId };
+      // Budget propre à chaque tentative (nonce du grant) : un stockage injoignable rend la
+      // réservation, et le fournisseur relance la clôture sans renvoyer ses morceaux.
+      return chunkedSeals.start(ids, (signal) => budgetRunnerJob("seal", [evmEscrowBinding(), owner, datasetId, uploadId, nonce],
+        { manifestSha, sizeBytes, model, priceUsdcAtomic, challengeDays, maxRentalDays },
+        async () => {
+          const result = await sealChunkedDataset(datasetId, manifest, sizeBytes, model, r2SealSource(storage, ids, signal));
+          return {
+            ...result,
+            runnerReceipt: issueDatasetReceipt(subject, {
+              datasetId,
+              cid: result.cid,
+              wrappedKey: result.wrappedKey,
+              merkleRoot: result.merkleRoot,
+              priceUsdcAtomic,
+              challengeDays,
+              maxRentalDays,
+              ...model,
+            }),
+          };
+        }));
+    }
+
+    case "seal-chunked-status":
+      return chunkedSeals.status({ datasetId: text(body, "datasetId"), uploadId: text(body, "uploadId") });
 
     case "prepare-escrow-lock": {
       const dataset = datasetRef(body);

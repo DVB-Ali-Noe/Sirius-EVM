@@ -24,6 +24,10 @@ import {
  * - testnet : la clé de déploiement par défaut, qui envoie elle-même liaison et profils, contrôlés
  *   avant et après. Avec `SIRIUS_DATASET_ADMIN` distinct, même déroulé que mainnet.
  *
+ * Registre v6 : `SIRIUS_PREVIOUS_DATASET_REGISTRY` (facultatif) désigne le registre v5 dont le
+ * Safe pourra importer les titres (`importTitles`). Il est vérifié (code, version v5) avant tout
+ * envoi ; immuable une fois le registre déployé.
+ *
  * Écrit en viem pur plutôt qu'avec les aides de `hardhat-viem`, pour deux raisons.
  * D'abord `hardhat-viem` ne connaît que les chaînes livrées dans `viem/chains`, et
  * Robinhood Chain n'en fait pas partie. Ensuite il appelle `getTransaction`
@@ -36,6 +40,7 @@ import {
  */
 
 const ARTIFACTS = resolve(__dirname, "..", "artifacts", "src");
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 function artifact(name: string): { abi: Abi; bytecode: Hex } {
   const path = resolve(ARTIFACTS, `${name}.sol`, `${name}.json`);
@@ -220,6 +225,24 @@ async function main() {
   }
   const addedProfiles = profileHashes(plan.trainingProfiles);
 
+  // Registre v6 : registre précédent dont les titres pourront être importés, vérifié avant tout envoi.
+  const previousRegistryInput = process.env.SIRIUS_PREVIOUS_DATASET_REGISTRY?.trim();
+  if (previousRegistryInput && !/^0x[0-9a-fA-F]{40}$/.test(previousRegistryInput)) {
+    throw new Error("SIRIUS_PREVIOUS_DATASET_REGISTRY n'est pas une adresse EVM valide");
+  }
+  const previousRegistry = (previousRegistryInput || ZERO_ADDRESS) as Hex;
+  if (previousRegistry !== ZERO_ADDRESS) {
+    const code = await publicClient.getBytecode({ address: previousRegistry });
+    if (!code || code === "0x") throw new Error("SIRIUS_PREVIOUS_DATASET_REGISTRY ne contient aucun contrat");
+    const version = await publicClient.readContract({
+      address: previousRegistry, abi: artifact("SiriusDatasetRegistry").abi, functionName: "VERSION",
+    });
+    if (version !== "sirius-dataset-v5") throw new Error(`Registre précédent en ${String(version)}, sirius-dataset-v5 attendu`);
+  }
+  console.log(previousRegistry === ZERO_ADDRESS
+    ? "registre préc.: aucun (pas d'import de titres possible avec ce registre)"
+    : `registre préc.: ${previousRegistry} (titres importables par l'admin)`);
+
   if (plan.dryRun) {
     if (!plan.estimateDatasets) {
       throw new Error("SIRIUS_DEPLOY_ESTIMATE_DATASETS requis en simulation : registre de datasets déjà déployé servant de référence à l'estimation de l'escrow");
@@ -231,7 +254,7 @@ async function main() {
       kyb: plan.existingKyb ? { existing: plan.existingKyb as Hex } : { deploy: kybName, args: kybOuvert ? [] : [admin, verifier] },
       referenceDatasets: plan.estimateDatasets as Hex, escrowContract, usdc, lockAuthorizer,
       addedProfiles: addedProfiles.map(({ id }) => id),
-      datasetAdmin, adminCallsByDeployer: plan.datasetAdminIsDeployer,
+      datasetAdmin, adminCallsByDeployer: plan.datasetAdminIsDeployer, previousRegistry,
     });
     const total = estimates.reduce((sum, [, gas]) => sum + gas, 0n);
     console.log("");
@@ -282,7 +305,7 @@ async function main() {
   // L'admin du registre est immuable : il lie l'escrow une seule fois et peut ensuite ajouter des
   // profils, jamais en retirer (audit REP-11). Mainnet : le Safe passé dans SIRIUS_DATASET_ADMIN,
   // jamais la clé de déploiement. Testnet : la clé de déploiement, sauf SIRIUS_DATASET_ADMIN.
-  const datasets = await deploy("SiriusDatasetRegistry", [kyb, datasetAdmin]);
+  const datasets = await deploy("SiriusDatasetRegistry", [kyb, datasetAdmin, previousRegistry]);
   const deployedAdmin = (await publicClient.readContract({
     address: datasets, abi: artifact("SiriusDatasetRegistry").abi, functionName: "admin",
   })) as Hex;

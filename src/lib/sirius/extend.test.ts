@@ -13,6 +13,7 @@ import * as rentalRules from "@/lib/billing/rental";
 import * as settlementStatus from "@/lib/loans/settlement-status";
 import * as failurePolicy from "@/lib/runner/failure-policy";
 import * as reaperPolicy from "./reaper-policy";
+import * as reaperErrors from "./reaper-errors";
 import { settlementQueuedError } from "./settlement-queued";
 import type * as Rental from "./rental";
 import type * as Extend from "./extend";
@@ -154,7 +155,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
       "server-only": {}, "@/lib/db": db,
       "@/lib/evm/escrow": { readLoan: async () => null, reconcileLoanEscrow: async () => reaperChain },
       "@/lib/evm/client": { getPublicClient: () => client },
-      "./reaper-policy": reaperPolicy,
+      "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors,
       "./recover-loan": { recoverUnsubmittedLoan: async () => {} },
       "@/lib/evm/history": { resolveLoanEscrow: async () => ({}) },
       "./settle": { recoverLoanResult: async () => false, settlePreparedLoan: async (id: string) => { settled.push(id); } },

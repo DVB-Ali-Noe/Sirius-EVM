@@ -20,7 +20,7 @@ async function fixture() {
     admin.account.address,
     verifier.account.address,
   ]);
-  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address]);
+  const registry = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address, "0x0000000000000000000000000000000000000000"]);
   return { kyb, registry, admin, verifier, provider, other };
 }
 
@@ -250,7 +250,7 @@ describe("SiriusDatasetRegistry", () => {
   describe("allowlist des profils d'entraînement", () => {
     it("active linéaire et logistique au déploiement, pas les arbres boostés", async () => {
       const ctx = await loadFixture(fixture);
-      expect(await ctx.registry.read.VERSION()).to.equal("sirius-dataset-v5");
+      expect(await ctx.registry.read.VERSION()).to.equal("sirius-dataset-v6");
       expect(await ctx.registry.read.isSupportedTrainingProfile([TRAINING_PROFILE])).to.equal(true);
       expect(await ctx.registry.read.isSupportedTrainingProfile([LOGISTIC_TRAINING_PROFILE])).to.equal(true);
       expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(false);
@@ -294,7 +294,8 @@ describe("SiriusDatasetRegistry", () => {
         .map((entry) => ("name" in entry ? entry.name : ""))
         .sort();
 
-      expect(writes).to.deep.equal(["addTrainingProfile", "bindEscrow", "destroy", "mint"]);
+      // v6 : `importTitles` et `setMaxSizeBytes`, réservés à l'admin, ne retirent rien non plus.
+      expect(writes).to.deep.equal(["addTrainingProfile", "bindEscrow", "destroy", "importTitles", "mint", "setMaxSizeBytes"]);
       expect(await ctx.registry.read.isSupportedTrainingProfile([GBDT_TRAINING_PROFILE])).to.equal(true);
       expect(await ctx.registry.read.isSupportedTrainingProfile([TRAINING_PROFILE])).to.equal(true);
     });
