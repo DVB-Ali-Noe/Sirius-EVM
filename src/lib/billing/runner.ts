@@ -12,7 +12,9 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import { MAX_DATASET_BYTES, type DatasetRef } from "@/lib/tee/contract";
 import { runnerBudget } from "@/lib/runner/budget";
 import { QUOTE_LIFETIME_SECONDS } from "@/lib/runner/budget-ledger";
-import { billingPolicy } from "./config";
+import type { ModelId } from "@/lib/models/registry";
+import { isCallPackSize, packDatasetAmount, type CallPackSize } from "./api-pricing";
+import { billingPolicy, type BillingPolicy } from "./config";
 import { computeQuoteHash, parseComputeQuote, quoteAuthorizationTypedData, verifyComputeQuote, type ComputeQuote, type SignedComputeQuote } from "./quote";
 import { datasetAmountFor, isValidRentalDays } from "./rental";
 
@@ -50,15 +52,32 @@ async function reclaimExpiredUnpaidQuotes(): Promise<void> {
   }
 }
 
+/** Quota quotidien d'API d'un profil ; absent (ou linéaire) : ni API ni pack d'appels. */
+function callsPerDayFor(apiCallsPerDay: BillingPolicy["apiCallsPerDay"], modelId: ModelId): number {
+  const calls = apiCallsPerDay[modelId];
+  if (modelId === "linear_regression" || calls === undefined) {
+    throw new AppError("API indisponible pour ce profil de modèle", 409, "api_not_available_for_profile");
+  }
+  return calls;
+}
+
 /**
  * Devis contre le dataset vérifié par le reçu runner. Prix par jour × `rentalDays` (D-29), durée
  * bornée par `maxRentalDays` du reçu ; un devis hérité (`rentalDays` nul) vaut le prix forfaitaire.
+ * Un pack d'appels (D-30) vaut `callPack × ceil(prix par jour / apiCallsPerDay)`, quota lu dans
+ * `apiCallsPerDay` (par défaut la politique installée). Prolongation et pack : aucune retenue d'échec.
  */
-export function assertQuoteDataset(quote: ComputeQuote, dataset: DatasetRef, receipt: string, borrower: string, loanId: string): void {
-  const datasetAmount = quote.rentalDays === null ? dataset.priceUsdcAtomic
-    : isValidRentalDays(quote.rentalDays, dataset.maxRentalDays) ? datasetAmountFor(dataset.priceUsdcAtomic, quote.rentalDays) : null;
+export function assertQuoteDataset(quote: ComputeQuote, dataset: DatasetRef, receipt: string, borrower: string, loanId: string,
+  apiCallsPerDay?: BillingPolicy["apiCallsPerDay"]): void {
+  const days = quote.rentalDays;
+  const datasetAmount = days === null ? dataset.priceUsdcAtomic
+    : !isValidRentalDays(days, dataset.maxRentalDays) ? null
+      : quote.callPack === undefined ? datasetAmountFor(dataset.priceUsdcAtomic, days)
+        : packDatasetAmount(dataset.priceUsdcAtomic, callsPerDayFor(apiCallsPerDay ?? billingPolicy().apiCallsPerDay, dataset.modelId), quote.callPack);
+  const noTraining = quote.extendsLoanId !== undefined || quote.callPack !== undefined;
   if (quote.loanId !== loanId || quote.borrower !== borrower.toLowerCase() || quote.datasetId !== dataset.datasetId
     || quote.datasetReceiptHash !== keccak256(toHex(receipt)) || quote.datasetAmount !== datasetAmount
+    || (noTraining && quote.maxFailureFee !== "0")
     || quote.challengeDays !== dataset.challengeDays || quote.modelId !== dataset.modelId || quote.modelVersion !== dataset.modelVersion) {
     throw new AppError("Devis compute hors scope", 409);
   }
@@ -74,15 +93,45 @@ export async function runnerComputeQuote(value: unknown, requireUnexpired = fals
 }
 
 /**
- * Devis d'un emprunt (`rentalDays` jours) ou d'une prolongation (`extendsLoanId`) : celle-ci ne
- * réentraîne rien, son compute vaut le minimum de la politique (le contrat refuse 0) et elle
- * n'expose aucun frais d'échec.
+ * Montants signés d'un devis. Emprunt : prix par jour × jours, compute du profil relevé au minimum
+ * de la politique. Prolongation (`extendsLoanId`) ou pack d'appels (`callPack`) : rien n'est
+ * entraîné, le compute vaut `noTrainingComputeAmount` (prix coûtant, le contrat refuse 0) et
+ * aucune retenue d'échec n'est possible. Le pack vaut `callPack × ceil(prix par jour / quota)`.
+ */
+export function computeQuoteAmounts(policy: BillingPolicy, input: {
+  dataset: Pick<DatasetRef, "modelId" | "priceUsdcAtomic">; rentalDays: number; extendsLoanId?: string; callPack?: CallPackSize;
+}): { datasetAmount: string; computeAmount: string; maxFailureFee: string } {
+  const profile = policy.profiles[input.dataset.modelId];
+  if (!profile) throw new AppError("Tarif compute absent, invalide ou périmé", 503);
+  if (input.callPack !== undefined) {
+    if (input.extendsLoanId !== undefined) throw new AppError("Pack d’appels du devis invalide", 409);
+    if (!isCallPackSize(input.callPack)) throw new AppError("Taille de pack d’appels invalide", 400);
+    return {
+      datasetAmount: packDatasetAmount(input.dataset.priceUsdcAtomic, callsPerDayFor(policy.apiCallsPerDay, input.dataset.modelId), input.callPack),
+      computeAmount: policy.noTrainingComputeAmount, maxFailureFee: "0",
+    };
+  }
+  const datasetAmount = datasetAmountFor(input.dataset.priceUsdcAtomic, input.rentalDays);
+  if (input.extendsLoanId !== undefined) return { datasetAmount, computeAmount: policy.noTrainingComputeAmount, maxFailureFee: "0" };
+  const minimum = BigInt(policy.minimumComputeAmount);
+  const configured = BigInt(profile.computeAmount);
+  return { datasetAmount, computeAmount: String(configured > minimum ? configured : minimum), maxFailureFee: profile.maxFailureFee };
+}
+
+/**
+ * Devis d'un emprunt (`rentalDays` jours), d'une prolongation (`extendsLoanId`) ou d'un pack
+ * d'appels (`callPack` + `packForLoanId`, `rentalDays` recopié du prêt d'origine) : montants de
+ * `computeQuoteAmounts`.
  */
 export async function prepareComputeQuote(input: {
   dataset: DatasetRef; datasetReceipt: string; borrower: string; provider: string;
   loanId: string; onChainDatasetId: Hex; hashlock: Hex; authorizationDeadline: number;
-  rentalDays: number; extendsLoanId?: string;
+  rentalDays: number; extendsLoanId?: string; callPack?: CallPackSize; packForLoanId?: string;
 }): Promise<SignedComputeQuote> {
+  if ((input.callPack === undefined) !== (input.packForLoanId === undefined)
+    || (input.callPack !== undefined && input.extendsLoanId !== undefined)) {
+    throw new AppError("Pack d’appels du devis invalide", 400);
+  }
   if (!isValidRentalDays(input.rentalDays, input.dataset.maxRentalDays)) {
     throw new AppError("Durée de location invalide", 400);
   }
@@ -94,7 +143,8 @@ export async function prepareComputeQuote(input: {
     assertQuoteDataset(signed.quote, input.dataset, input.datasetReceipt, input.borrower, input.loanId);
     if (signed.quote.onChainDatasetId !== input.onChainDatasetId || signed.quote.hashlock !== input.hashlock
       || signed.quote.provider !== input.provider.toLowerCase() || signed.quote.rentalDays !== input.rentalDays
-      || signed.quote.extendsLoanId !== input.extendsLoanId) throw new AppError("Devis compute hors scope", 409);
+      || signed.quote.extendsLoanId !== input.extendsLoanId || signed.quote.callPack !== input.callPack
+      || signed.quote.packForLoanId !== input.packForLoanId) throw new AppError("Devis compute hors scope", 409);
     return signed;
   }
   await reclaimExpiredUnpaidQuotes();
@@ -106,8 +156,7 @@ export async function prepareComputeQuote(input: {
   }
   const profile = policy.profiles[input.dataset.modelId];
   if (!profile) throw new AppError("Tarif compute absent, invalide ou périmé", 503);
-  const minimum = BigInt(policy.minimumComputeAmount);
-  const configured = BigInt(profile.computeAmount);
+  const amounts = computeQuoteAmounts(policy, input);
   const expiresAt = Math.min(input.authorizationDeadline, Math.floor(Date.now() / 1000) + QUOTE_LIFETIME_SECONDS, Math.floor(policy.validUntil / 1000));
   if (expiresAt * 1000 < Date.now() + 60000) throw new AppError("Devis compute expiré", 409);
   const quote = parseComputeQuote({
@@ -115,14 +164,13 @@ export async function prepareComputeQuote(input: {
     runner: settlementAccount().address.toLowerCase(), loanId: input.loanId, datasetId: input.dataset.datasetId,
     onChainDatasetId: input.onChainDatasetId, datasetReceiptHash: keccak256(toHex(input.datasetReceipt)),
     borrower: input.borrower.toLowerCase(), provider: input.provider.toLowerCase(), computeRecipient: policy.computeRecipient,
-    datasetAmount: datasetAmountFor(input.dataset.priceUsdcAtomic, input.rentalDays),
-    computeAmount: String(input.extendsLoanId === undefined && configured > minimum ? configured : minimum),
-    maxFailureFee: input.extendsLoanId === undefined ? profile.maxFailureFee : "0",
+    ...amounts,
     executionRateAtomicPerMs: profile.executionRateAtomicPerMs,
     maxExecutionMs: profile.maxExecutionMs, maxDatasetBytes: MAX_DATASET_BYTES, hashlock: input.hashlock,
     challengeDays: input.dataset.challengeDays, modelId: input.dataset.modelId, modelVersion: input.dataset.modelVersion,
     tariffVersion: policy.tariffVersion, expiresAt, failurePolicy: "consumed-execution-only", rentalDays: input.rentalDays,
     ...(input.extendsLoanId === undefined ? {} : { extendsLoanId: input.extendsLoanId }),
+    ...(input.callPack === undefined ? {} : { callPack: input.callPack, packForLoanId: input.packForLoanId }),
   });
   const signature = await settlementAccount().signTypedData(quoteAuthorizationTypedData(quote));
   const signed: SignedComputeQuote = { quote, authorization: { deadline: quote.expiresAt, signature } };

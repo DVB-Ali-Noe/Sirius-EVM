@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DEMO_PAGE, demoOnlyRoute, isDemoOnlyHost } from "@/lib/phala-demo/demo-host";
+import { API_HOST_NOT_FOUND, apiHostPath, isApiHost } from "@/lib/http/api-host";
 import {
   CLOSED_API_BODY,
   CLOSED_API_STATUS,
@@ -81,7 +82,13 @@ function forwardedHeaders(request: NextRequest, gateClosed: boolean): Headers {
 }
 
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  // 0. Adresse de l'API développeurs (src/lib/http/api-host.ts) : `/v1/...` y est servi par
+  //    `/api/v1/...`, tout autre chemin répond 404 JSON. La suite (porte d'aperçu) s'applique au
+  //    chemin interne, comme à toute API ; ni page, ni CSP : ce sont des clients programmatiques.
+  const apiHost = isApiHost(request.headers.get("host"));
+  const apiTarget = apiHost ? apiHostPath(request.nextUrl.pathname) : null;
+  if (apiHost && !apiTarget) return NextResponse.json(API_HOST_NOT_FOUND, { status: 404, headers: { "cache-control": "no-store" } });
+  const pathname = apiTarget ?? request.nextUrl.pathname;
 
   // 1. Adresse démo : seule la session de training Phala est servie (src/lib/phala-demo/demo-host.ts).
   //    Avant la porte d'aperçu, et indépendamment d'elle : l'adresse démo est rattachée au
@@ -114,6 +121,13 @@ export async function proxy(request: NextRequest) {
       rewriteToWaiting = true;
     }
     if (decision === "public") gateClosed = true;
+  }
+
+  // 2 bis. Hôte API, porte passée : réécriture vers la route interne, rien d'autre.
+  if (apiTarget) {
+    const url = request.nextUrl.clone();
+    url.pathname = apiTarget;
+    return NextResponse.rewrite(url);
   }
 
   // 3. Préchargements hors porte : inchangés, sans nonce (voir isPrefetch).

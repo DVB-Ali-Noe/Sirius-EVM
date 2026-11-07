@@ -27,22 +27,32 @@ import { assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, EXP
 import { datasetAmountFor, isValidRentalDays, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { requireRentalQuote } from "@/lib/billing/quote";
 import { assertExtendableLoan } from "./rental";
+import { isCallPackSize, packDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
+import { assertApiLoan } from "./api-keys";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
 
-/** Prolongation (D-29) : prêt d'origine prolongé et son profil d'entraînement, repris à l'identique. */
+/**
+ * Prêt rattaché à un prêt d'origine, au profil d'entraînement repris à l'identique : prolongation
+ * (D-29), ou pack de `callPack` appels API prépayés (D-30) quand `callPack` est présent.
+ */
 export interface LoanExtensionTarget {
   originalLoanId: string;
   model: ModelSelection;
+  /** Pack : taille et quota quotidien du profil (`apiCallsPerDay`), d'où le prix par appel. */
+  pack?: { size: CallPackSize; callsPerDay: number };
 }
 
 /**
- * Prépare le lock d'un emprunt de `rentalDays` jours (1 à `maxRentalDays` du dataset), ou d'une
- * prolongation (`extension`). Avec devis (escrow v7), le montant dataset vaut prix par jour × jours,
- * signé dans le devis (`rentalDays`, `extendsLoanId`). Sans devis (escrow v6 hérité), le prix reste
- * forfaitaire et le prêt n'a pas d'échéance ; une prolongation y est impossible.
+ * Prépare le lock d'un emprunt de `rentalDays` jours (1 à `maxRentalDays` du dataset), ou d'un prêt
+ * rattaché à un prêt d'origine (`extension`) : prolongation, ou pack d'appels (`extension.pack`,
+ * D-30). Avec devis (escrow v7), le montant dataset vaut prix par jour × jours, signé dans le devis
+ * (`rentalDays`, `extendsLoanId`) ; pour un pack, taille × prix par appel (`packDatasetAmount`), les
+ * jours du prêt d'origine étant repris sans en ajouter (`callPack`, `packForLoanId`). Sans devis
+ * (escrow v6 hérité), le prix reste forfaitaire et le prêt n'a pas d'échéance ; ni prolongation ni
+ * pack n'y sont possibles.
  */
 export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget) {
   const borrowerAddress = normalizeAddress(borrower);
@@ -68,14 +78,16 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   const model = modelSelection(extension?.model.modelId ?? dataset.modelId, extension?.model.modelVersion ?? dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   if (extension && (dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion)) {
-    throw new AppError("Profil d’entraînement du dataset modifié : prolongation impossible", 409);
+    throw new AppError(`Profil d’entraînement du dataset modifié : ${extension.pack ? "achat d’appels" : "prolongation"} impossible`, 409);
   }
   if (!isValidRentalDays(rentalDays, dataset.maxRentalDays)) {
     throw new AppError(`Durée de location invalide (${MIN_RENTAL_DAYS} à ${Math.min(dataset.maxRentalDays, MAX_RENTAL_DAYS)} jours)`, 400);
   }
   const billed = billingEnabled();
-  if (extension && !billed) throw new AppError("Prolongation indisponible sans devis compute", 503);
-  const amountUsdcAtomic = billed ? datasetAmountFor(dataset.priceUsdcAtomic, rentalDays) : dataset.priceUsdcAtomic;
+  if (extension && !billed) throw new AppError(`${extension.pack ? "Achat d’appels" : "Prolongation"} indisponible sans devis compute`, 503);
+  const pack = extension?.pack ? { ...extension.pack, originalLoanId: extension.originalLoanId } : undefined;
+  const amountUsdcAtomic = !billed ? dataset.priceUsdcAtomic
+    : pack ? packDatasetAmount(dataset.priceUsdcAtomic, pack.callsPerDay, pack.size) : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
   // Plafonds de la bêta : refus avant tout appel au runner, puis de nouveau sur le total du devis.
   const limits = exposureLimits();
   assertLoanWithinCap(amountUsdcAtomic, limits);
@@ -144,7 +156,9 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
         amountUsdcAtomic,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
-        extendsLoanId: extension?.originalLoanId ?? null,
+        extendsLoanId: extension && !pack ? extension.originalLoanId : null,
+        packForLoanId: pack?.originalLoanId ?? null,
+        callPack: pack?.size ?? null,
         ...runner,
       },
     });
@@ -153,7 +167,11 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   try {
     const binding = evmEscrowBinding();
     const preparedBlock = await getPublicClient().getBlockNumber({ cacheTime: 0 });
-    const rental = { rentalDays, ...(extension ? { extendsLoanId: extension.originalLoanId } : {}) };
+    const rental = {
+      rentalDays,
+      ...(extension && !pack ? { extendsLoanId: extension.originalLoanId } : {}),
+      ...(pack ? { callPack: pack.size, packForLoanId: pack.originalLoanId } : {}),
+    };
     const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
       datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, maxRentalDays: dataset.maxRentalDays, ...model,
@@ -163,7 +181,9 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
     const signedQuote = billingQuote ? await verifyPreparedComputeQuote(billingQuote) : undefined;
     if (signedQuote && (signedQuote.quote.datasetAmount !== amountUsdcAtomic || signedQuote.quote.onChainDatasetId !== dataset.evmDatasetId
       || signedQuote.quote.hashlock !== hashlock || signedQuote.quote.rentalDays !== rentalDays
-      || (signedQuote.quote.extendsLoanId ?? null) !== (extension?.originalLoanId ?? null))) throw new AppError("Devis compute hors scope", 409);
+      || (signedQuote.quote.extendsLoanId ?? null) !== (rental.extendsLoanId ?? null)
+      || (signedQuote.quote.callPack ?? null) !== (rental.callPack ?? null)
+      || (signedQuote.quote.packForLoanId ?? null) !== (rental.packForLoanId ?? null))) throw new AppError("Devis compute hors scope", 409);
     const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
     assertLoanWithinCap(total, limits);
     const loanKey = loanKeyFor(borrowerAddress, loan.id);
@@ -239,7 +259,12 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   }
   const deadline = lockAuthorizationDeadline(loan.createdAt);
   const model = modelSelection(loan.modelId, loan.modelVersion);
-  const expectedDatasetAmount = rentalDays === null ? loan.amountUsdcAtomic : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
+  // Pack (D-30) : la location d'origine doit rester active, et le prix suivre la même règle qu'à la préparation.
+  const packOrigin = loan.packForLoanId ? await assertApiLoan(loan.packForLoanId, address, { requireActiveRental: true }) : null;
+  if (packOrigin && !isCallPackSize(loan.callPack)) throw new AppError("Taille de pack d’appels invalide", 409);
+  const expectedDatasetAmount = rentalDays === null ? loan.amountUsdcAtomic
+    : packOrigin ? packDatasetAmount(dataset.priceUsdcAtomic, packOrigin.callsPerDay, loan.callPack as CallPackSize)
+      : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
   if (!model || !isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId || !dataset.ipfsCid ||
     !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt ||
     (signedQuote?.quote.datasetAmount ?? dataset.priceUsdcAtomic) !== expectedDatasetAmount ||
@@ -253,7 +278,11 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   await assertCurrentRunner(loan);
   await assertCurrentRunner(dataset);
   // Sans devis (escrow v6 hérité), la durée n'entre dans aucun terme signé : le runner l'ignore.
-  const rental = { rentalDays: rentalDays ?? MIN_RENTAL_DAYS, ...(loan.extendsLoanId ? { extendsLoanId: loan.extendsLoanId } : {}) };
+  const rental = {
+    rentalDays: rentalDays ?? MIN_RENTAL_DAYS,
+    ...(loan.extendsLoanId ? { extendsLoanId: loan.extendsLoanId } : {}),
+    ...(packOrigin ? { callPack: loan.callPack as CallPackSize, packForLoanId: packOrigin.id } : {}),
+  };
   const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
     datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
     priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays, maxRentalDays: dataset.maxRentalDays, ...model,

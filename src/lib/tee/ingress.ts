@@ -3,8 +3,12 @@ import { createDecipheriv, createECDH, createHash, hkdfSync } from "node:crypto"
 import { AppError } from "@/lib/app-error";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import {
+  API_KEY_ID_PATTERN,
+  API_KEY_INGRESS_INFO_PREFIX,
+  API_KEY_SECRET_BYTES,
   DATASET_INGRESS_INFO_PREFIX,
   MAX_DATASET_BYTES,
+  type ApiKeySecretEnvelope,
   type DatasetIngressEnvelope,
   type DatasetIngressKey,
 } from "./contract";
@@ -87,24 +91,65 @@ export function decryptDatasetIngress(datasetId: string, envelope: DatasetIngres
   if (sealed.length <= AUTH_TAG_BYTES) throw new AppError("Dataset chiffré vide", 400);
 
   try {
-    const sharedSecret = ingressEcdh().computeSecret(ephemeralPublicKey);
-    const key = Buffer.from(
-      hkdfSync(
-        "sha256",
-        sharedSecret,
-        salt,
-        Buffer.from(`${DATASET_INGRESS_INFO_PREFIX}${datasetId}`),
-        32,
-      ),
-    );
-    const ciphertext = sealed.subarray(0, -AUTH_TAG_BYTES);
-    const tag = sealed.subarray(-AUTH_TAG_BYTES);
-    const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: AUTH_TAG_BYTES });
-    decipher.setAAD(Buffer.from(datasetId));
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return openIngressCiphertext(ephemeralPublicKey, salt, iv, sealed, `${DATASET_INGRESS_INFO_PREFIX}${datasetId}`, datasetId);
   } catch {
     throw new AppError("Enveloppe dataset invalide", 400);
+  }
+}
+
+/** ECDH avec la clé d'ingestion, HKDF-SHA256 (`info`), puis AES-256-GCM authentifié sur `aad`. Lève si invalide. */
+function openIngressCiphertext(ephemeralPublicKey: Buffer, salt: Buffer, iv: Buffer, sealed: Buffer, info: string, aad: string): Buffer {
+  const sharedSecret = ingressEcdh().computeSecret(ephemeralPublicKey);
+  const key = Buffer.from(hkdfSync("sha256", sharedSecret, salt, Buffer.from(info), 32));
+  const ciphertext = sealed.subarray(0, -AUTH_TAG_BYTES);
+  const tag = sealed.subarray(-AUTH_TAG_BYTES);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: AUTH_TAG_BYTES });
+  decipher.setAAD(Buffer.from(aad));
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+/** Champs exacts d'une enveloppe de secret de clé API : rien d'autre n'est accepté (empreinte signée dans le grant). */
+const API_KEY_ENVELOPE_FIELDS = ["version", "ephemeralPublicKey", "salt", "iv", "ciphertext"] as const;
+
+/**
+ * Empreinte SHA-256 hexadécimale du JSON canonique de l'enveloppe (clés dans l'ordre
+ * `version, ephemeralPublicKey, salt, iv, ciphertext`), signée par le wallet dans le grant
+ * `register-api-key` : même calcul que `apiKeyEnvelopeSha256` côté navigateur.
+ */
+export function apiKeyEnvelopeDigest(envelope: ApiKeySecretEnvelope): string {
+  const canonical = Object.fromEntries(API_KEY_ENVELOPE_FIELDS.map((field) => [field, envelope[field]]));
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+/** Enveloppe reçue du navigateur : objet aux cinq champs exacts, version 1. */
+export function parseApiKeyEnvelope(value: unknown): ApiKeySecretEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AppError("Enveloppe de clé API manquante", 400);
+  const keys = Object.keys(value);
+  if (keys.length !== API_KEY_ENVELOPE_FIELDS.length || API_KEY_ENVELOPE_FIELDS.some((field) => !keys.includes(field))
+    || (value as ApiKeySecretEnvelope).version !== 1
+    || API_KEY_ENVELOPE_FIELDS.slice(1).some((field) => typeof (value as Record<string, unknown>)[field] !== "string")) {
+    throw new AppError("Enveloppe de clé API incompatible", 400);
+  }
+  return value as ApiKeySecretEnvelope;
+}
+
+/**
+ * Secret d'une clé API (32 octets bruts), chiffré par le navigateur pour l'enclave avec la clé
+ * d'ingestion : HKDF info `sirius-api-key-v1:<keyId>`, AAD = `keyId`. Il ne quitte le runner que
+ * scellé sous la master key (api-keys.ts).
+ */
+export function decryptApiKeySecret(keyId: string, envelope: ApiKeySecretEnvelope): Buffer {
+  if (!API_KEY_ID_PATTERN.test(keyId)) throw new AppError("Identifiant de clé API invalide", 400);
+  const parsed = parseApiKeyEnvelope(envelope);
+  const ephemeralPublicKey = decodeField(parsed.ephemeralPublicKey, "Clé éphémère", 65, 65);
+  const salt = decodeField(parsed.salt, "Sel", 16, 16);
+  const iv = decodeField(parsed.iv, "IV", 12, 12);
+  const sealed = decodeField(parsed.ciphertext, "Secret chiffré", API_KEY_SECRET_BYTES + AUTH_TAG_BYTES, API_KEY_SECRET_BYTES + AUTH_TAG_BYTES);
+  try {
+    return openIngressCiphertext(ephemeralPublicKey, salt, iv, sealed, `${API_KEY_INGRESS_INFO_PREFIX}${keyId}`, keyId);
+  } catch {
+    throw new AppError("Enveloppe de clé API invalide", 400);
   }
 }
 

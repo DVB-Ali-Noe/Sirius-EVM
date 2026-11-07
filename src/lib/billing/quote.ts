@@ -3,6 +3,7 @@ import { AppError } from "@/lib/app-error";
 import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { loanIdHash } from "@/lib/evm/loan-key";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
+import { isCallPackSize, type CallPackSize } from "./api-pricing";
 import { isValidRentalDays } from "./rental";
 
 export type ComputeQuote = ModelSelection & {
@@ -34,6 +35,10 @@ export type ComputeQuote = ModelSelection & {
   rentalDays: number | null;
   /** Prolongation : `loanId` du prêt d'origine. Absent pour un emprunt ordinaire. */
   extendsLoanId?: string;
+  /** Pack d'appels API (D-30) : taille achetée. Présent avec `packForLoanId`, exclusif de `extendsLoanId`. */
+  callPack?: CallPackSize;
+  /** Pack d'appels API : `loanId` du prêt d'origine crédité. */
+  packForLoanId?: string;
 };
 
 export interface SignedComputeQuote {
@@ -42,14 +47,14 @@ export interface SignedComputeQuote {
 }
 
 /**
- * Clés hachées dans `quoteHash`. `rentalDays` puis `extendsLoanId` suivent les clés historiques :
- * un devis hérité (sans ces clés) garde exactement son empreinte d'origine.
+ * Clés hachées dans `quoteHash`. `rentalDays`, `extendsLoanId`, puis `callPack` et `packForLoanId`
+ * suivent les clés historiques : un devis sans ces clés garde exactement son empreinte d'origine.
  */
 const LEGACY_QUOTE_KEYS = ["version", "chainId", "escrow", "usdc", "usdcDecimals", "runner", "loanId", "datasetId",
   "onChainDatasetId", "datasetReceiptHash", "borrower", "provider", "computeRecipient", "datasetAmount",
   "computeAmount", "maxFailureFee", "executionRateAtomicPerMs", "maxExecutionMs", "maxDatasetBytes", "hashlock",
   "challengeDays", "modelId", "modelVersion", "tariffVersion", "expiresAt", "failurePolicy"] as const;
-const QUOTE_KEYS = [...LEGACY_QUOTE_KEYS, "rentalDays", "extendsLoanId"] as const;
+const QUOTE_KEYS = [...LEGACY_QUOTE_KEYS, "rentalDays", "extendsLoanId", "callPack", "packForLoanId"] as const;
 const uint = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]{0,28})$/.test(value);
 const integer = (n: unknown, min: number, max: number): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= min && n <= max;
 const address = (v: unknown): v is Hex => typeof v === "string" && /^0x[0-9a-f]{40}$/.test(v) && !/^0x0{40}$/.test(v);
@@ -74,12 +79,21 @@ export function parseComputeQuote(value: unknown): ComputeQuote {
     || ("extendsLoanId" in q && (rentalDays === null || !text(q.extendsLoanId) || q.extendsLoanId === q.loanId))) {
     throw new AppError("Durée de location du devis invalide", 409);
   }
+  const pack = "callPack" in q || "packForLoanId" in q;
+  if (pack && (!("callPack" in q) || !("packForLoanId" in q) || "extendsLoanId" in q || rentalDays === null
+    || !isCallPackSize(q.callPack) || !text(q.packForLoanId) || q.packForLoanId === q.loanId)) {
+    throw new AppError("Pack d’appels du devis invalide", 409);
+  }
   const total = BigInt(q.datasetAmount) + BigInt(q.computeAmount);
   if (BigInt(q.datasetAmount) === BigInt(0) || BigInt(q.computeAmount) === BigInt(0)
     || total > BigInt(2) ** BigInt(96) - BigInt(1) || total < BigInt(10) ** BigInt(q.usdcDecimals - 3)
     || BigInt(q.maxFailureFee) > BigInt(q.computeAmount)) throw new AppError("Montants du devis invalides", 409);
   const parsed = { ...Object.fromEntries(LEGACY_QUOTE_KEYS.map((key) => [key, q[key]])), rentalDays } as unknown as ComputeQuote;
   if (q.extendsLoanId !== undefined) parsed.extendsLoanId = q.extendsLoanId;
+  if (pack) {
+    parsed.callPack = q.callPack;
+    parsed.packForLoanId = q.packForLoanId;
+  }
   return parsed;
 }
 
@@ -89,7 +103,7 @@ export function requireRentalQuote(quote: ComputeQuote): ComputeQuote & { rental
   return quote as ComputeQuote & { rentalDays: number };
 }
 
-/** Forme canonique hachée : `rentalDays` nul (devis hérité) et `extendsLoanId` absent sont omis. */
+/** Forme canonique hachée : `rentalDays` nul (devis hérité), `extendsLoanId` et pack absents sont omis. */
 export function computeQuoteHash(value: ComputeQuote): Hex {
   const quote = parseComputeQuote(value);
   return keccak256(toHex(JSON.stringify(Object.fromEntries(

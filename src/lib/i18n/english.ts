@@ -13,6 +13,7 @@ import { ONBOARDING_MESSAGES_EN } from "./onboarding-en";
 import { ASSISTANT_MESSAGES_EN } from "./assistant-en";
 import { GUIDE_MESSAGES_EN } from "./guide-en";
 import { UPLOAD_CHUNKED_DYNAMIC_EN, UPLOAD_CHUNKED_MESSAGES_EN } from "./upload-chunked-en";
+import { DEVELOPER_API_MESSAGES_EN } from "./developer-api-en";
 
 export const EN_MESSAGES: Record<string, string> = {
   ...ASSISTANT_MESSAGES_EN,
@@ -30,6 +31,7 @@ export const EN_MESSAGES: Record<string, string> = {
   ...SETTINGS_MESSAGES_EN,
   ...FUNDING_MESSAGES_EN,
   ...ONBOARDING_MESSAGES_EN,
+  ...DEVELOPER_API_MESSAGES_EN,
   "Prix du dataset": "Dataset price",
   "Code d’invitation": "Invitation code",
   "Pendant la bêta, l’accès est sur invitation. Colle le code reçu de l’équipe Sirius, puis confirme dans ton wallet.": "During the beta, access is by invitation. Paste the code you received from the Sirius team, then confirm in your wallet.",

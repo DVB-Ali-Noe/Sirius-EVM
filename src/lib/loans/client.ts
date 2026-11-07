@@ -1,7 +1,9 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
+import { CALLS_PENDING, EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
+import { ENCLAVE_STARTING_CODE, responseError } from "@/lib/train/enclave-wait";
+import type { CallPackSize } from "@/lib/billing/api-pricing";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -25,6 +27,15 @@ interface ExtendInput {
   /** Dataset du prêt d'origine : le devis de prolongation doit le viser. */
   datasetId: string;
   rentalDays: number;
+  confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
+}
+
+interface BuyCallsInput {
+  /** Prêt loué d'origine, crédité du pack. */
+  loanId: string;
+  /** Dataset du prêt d'origine : le devis du pack doit le viser. */
+  datasetId: string;
+  size: CallPackSize;
   confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
 }
 
@@ -181,6 +192,47 @@ export async function cancelExpiredLoan(loanId: string): Promise<void> {
     const result = await confirmed.json() as { error?: string; transaction?: unknown };
     if (!confirmed.ok || result.transaction) throw new Error(result.error ?? "Remboursement à réconcilier");
   }
+}
+
+/**
+ * Achète un pack de `size` appels API pour le prêt loué `loanId` (D-30) : prêt de pack préparé par
+ * le serveur, devis accepté, même lock qu'un emprunt, puis `release` et crédit demandés au runner.
+ * Renvoie `false` si le devis est refusé. Une fois le lock envoyé, tout ce qui reste (finalité,
+ * wallet runner occupé, enclave en démarrage) se résout côté serveur : le reaper crédite le pack, une
+ * seule fois. Avant tout paiement, un 503 `enclave_starting` remonte tel quel (`EnclaveStartingError`).
+ */
+export async function buyCalls(input: BuyCallsInput): Promise<boolean> {
+  const { address, assertCurrent } = walletGuard();
+  const prep = await fetch(`/api/loans/${input.loanId}/calls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ size: input.size }),
+  });
+  if (!prep.ok) throw await responseError(prep, "Préparation de l’achat d’appels échouée");
+  const body = await prep.json() as PreparedLock;
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) throw new Error(body.error ?? "Préparation de l’achat d’appels échouée");
+  const packLoanId = body.loanId;
+  assertCurrent();
+  if (!body.billingQuote || await escrowBillingVersion() !== 7) throw new Error("Devis du pack absent ou incompatible avec l’escrow");
+  const signedQuote = await verifyBorrowQuote(body.billingQuote, { loanId: packLoanId, datasetId: input.datasetId, borrower: address! });
+  if (signedQuote.quote.packForLoanId !== input.loanId || signedQuote.quote.callPack !== input.size || signedQuote.quote.extendsLoanId !== undefined) {
+    throw new Error("Pack d’appels modifié. Relance l’achat.");
+  }
+  if (!await input.confirmQuote(signedQuote.quote)) return false;
+  if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
+  await approveAndLock(packLoanId, signedQuote, undefined, assertCurrent);
+  const authorization = await issueRunnerGrant("buy-calls", { loanId: packLoanId }, [packLoanId, input.loanId]);
+  const response = await fetch(`/api/loans/${input.loanId}/calls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packLoanId, authorization }),
+  });
+  if (response.ok) return true;
+  const result = await response.clone().json().catch(() => ({})) as { error?: string | { code?: string } };
+  // Paiement acquis : le reaper crédite le pack dès que possible, jamais deux fois.
+  if (result.error === CALLS_PENDING || result.error === SETTLEMENT_QUEUED
+    || (typeof result.error === "object" && result.error?.code === ENCLAVE_STARTING_CODE)) return true;
+  throw await responseError(response, "Achat d’appels échoué");
 }
 
 interface RunLoanInput {

@@ -171,6 +171,13 @@ model Loan {
   extendsLoan     Loan?   @relation("LoanExtensions", fields: [extendsLoanId], references: [id], onDelete: Restrict)
   extensions      Loan[]  @relation("LoanExtensions")
 
+  // API développeurs (D-30) : pack d'appels prépayé → prêt d'origine crédité.
+  callPack        Int? // 100, 1 000 ou 10 000 appels ; null hors pack
+  packForLoanId   String? // prêt de pack → prêt d'origine
+  packForLoan     Loan?    @relation("LoanCallPacks", fields: [packForLoanId], references: [id], onDelete: Restrict)
+  callPacks       Loan[]   @relation("LoanCallPacks")
+  apiKeys         ApiKey[]
+
   // Escrow USDC conditionnel
   evmLoanKey       String? @unique // clé bytes32 du prêt EVM
   evmHashlock      String? // SHA-256 du préimage TEE
@@ -224,6 +231,7 @@ model Loan {
   @@index([borrower, status])
   @@index([finalityTier, status])
   @@index([extendsLoanId])
+  @@index([packForLoanId])
 }
 
 /// Octroi de la clé de déchiffrement au TEE pour un job donné.
@@ -331,6 +339,43 @@ model KybAutoInvite {
   @@index([subject, createdAt])
   @@index([ip, createdAt])
   @@index([createdAt])
+}
+
+/// Clé API d'un prêt loué (D-30). Le secret n'existe que dans le navigateur (affiché une fois)
+/// et scellé dans l'enclave : cette ligne ne sert qu'à l'affichage et au contrôleur de disponibilité.
+model ApiKey {
+  id         String        @id // keyId : 16 octets base64url
+  loanId     String
+  loan       Loan          @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  owner      String // adresse EVM de l'emprunteur, minuscules
+  name       String
+  createdAt  DateTime      @default(now())
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  usage      ApiUsageDay[]
+
+  @@index([loanId])
+}
+
+/// Appels d'une clé API par jour UTC, pour l'affichage seulement : le quota fait foi dans l'enclave.
+model ApiUsageDay {
+  keyId   String
+  key     ApiKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+  day     String // AAAA-MM-JJ UTC
+  calls   Int    @default(0)
+  refused Int    @default(0)
+
+  @@id([keyId, day])
+}
+
+/// État de la CVM tenu par le contrôleur de disponibilité (une seule ligne, id = 1).
+/// `requestedUntil` : réveil demandé par une action wallet de l'emprunteur d'un prêt loué.
+model RunnerAvailability {
+  id             Int       @id @default(1)
+  phase          String // stopped | starting | running | stopping
+  since          DateTime
+  requestedUntil DateTime?
+  updatedAt      DateTime  @updatedAt
 }
 
 /// Réputation dérivée des events on-chain (calcul léger au MVP).

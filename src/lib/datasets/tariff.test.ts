@@ -19,6 +19,8 @@ function policy(overrides: Partial<BillingPolicy> = {}): BillingPolicy {
     usdcDecimals: 6,
     computeRecipient: "0xb6acf8a998bb8efa34a954cd6334ccc15da7f919",
     minimumComputeAmount: "2000000",
+    noTrainingComputeAmount: "100000",
+    apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
     profiles: {
       linear_regression: { computeAmount: "3000000", maxFailureFee: "1000000", executionRateAtomicPerMs: "100", maxExecutionMs: 15000 },
       logistic_regression: { computeAmount: "1500000", maxFailureFee: "1000000", executionRateAtomicPerMs: "100", maxExecutionMs: 15000 },

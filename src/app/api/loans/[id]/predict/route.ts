@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
-import { AppError, errorResponse } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { phalaDemoInstance } from "@/lib/sirius/self-training-access";
@@ -12,6 +12,7 @@ import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry"
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { predictInRunner } from "@/lib/tee/runner-client";
 import { loanRentalExpiry, RENTAL_EXPIRED } from "@/lib/sirius/rental";
+import { loanRouteErrorResponse, requireRunnerOrWake } from "@/lib/sirius/availability";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!isServedModelFingerprint(loan.modelCid) || !model) {
       return NextResponse.json({ error: "Modèle indisponible" }, { status: 409 });
     }
+    // Emprunteur d'une location en cours : CVM éteinte ⇒ réveil demandé et 503 `enclave_starting`.
+    await requireRunnerOrWake();
     const ref = { kind: "loan", id } as const;
     const sessionRevision = await predictionSessionRevision(ref, authorization);
     await requireAcceptedKyb(session.address);
@@ -59,6 +62,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
     return NextResponse.json(prediction, { headers: { "cache-control": "private, no-store" } });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

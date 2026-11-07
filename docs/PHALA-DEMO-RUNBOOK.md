@@ -148,6 +148,18 @@ Procédure suivie trois fois les 1er et 2 novembre 2026. Une fusion dans `stagin
 
 Pour `vercel env add` hors pipeline, le `.vercel/project.json` temporaire doit reprendre l'`orgId` exact de `.github/workflows/pipeline.yml` (la casse compte) ; sinon la CLI répond « Could not retrieve Project Settings ».
 
+## API développeurs
+
+L'API développeurs (D-30) sert les modèles loués depuis la CVM runner de **production/staging**, jamais depuis la démonstration : `scripts/operations/api-availability.ts` refuse de démarrer si `SIRIUS_PHALA_DEMO=true` ou si sa CVM est `PHALA_DEMO_CVM_ID`. Sirius paie la machine tant qu'elle est allumée.
+
+**Règle.** Toutes les `SIRIUS_API_AVAILABILITY_POLL_SECONDS` (60 s), le contrôleur lit la base : la CVM est nécessaire s'il existe un prêt `ESCROWED`, `TRAINING` ou `SETTLING` (prolongations et packs compris), un prêt `SETTLED` dont `rentalExpiresAt` est dans le futur et qui porte au moins une clé API non révoquée, ou un réveil demandé par l'emprunteur d'une location active (`RunnerAvailability.requestedUntil`, posé par Next lors d'une création de clé, d'une prédiction depuis le site ou d'un achat d'appels ; jamais par un appel anonyme). Besoin et CVM arrêtée : `cvms start`, phase `starting`, puis `running` seulement quand `GET /health` du runner répond `ok` via RA-TLS. Aucun besoin depuis `SIRIUS_API_AVAILABILITY_IDLE_MINUTES` (30 min) : `cvms stop`, phase `stopping` puis `stopped`. La phase est publiée à chaque tour dans `RunnerAvailability` ; hors `running`, `/api/v1` répond `503 enclave_starting` avec `Retry-After`. Une commande Phala n'est pas répétée avant 5 min ; un redémarrage du contrôleur relance le délai d'inactivité (jamais d'arrêt immédiat) et n'arrête jamais la CVM en quittant.
+
+**Installation.** Même hôte et même compte `<COMPTE_OPS>` que le contrôleur de démonstration, profil Phala CLI 1.1.22 dédié à la CVM de l'API. Fichier `<CONFIG_OPS>/api-availability.env` en 0600 d'après `deploy/operations/api-availability.env.example` : `SIRIUS_API_AVAILABILITY=true`, identité Phala (`SIRIUS_API_PHALA_PROFILE`, `SIRIUS_API_PHALA_CVM_ID`, `SIRIUS_API_PHALA_APP_ID`, contrôlé à chaque lecture), `DATABASE_URL` de l'application (rôle limité à la lecture de `Loan`/`ApiKey` et à l'écriture de `RunnerAvailability` si possible), `RUNNER_URL` et les pins attestés identiques à ceux de Next. Installer `deploy/operations/sirius-api-availability.service`, vérifier le chemin Node, puis `systemctl enable --now sirius-api-availability`. Lancement manuel : `pnpm ops:api-availability`.
+
+**Surveillance.** `journalctl -u sirius-api-availability` : phases, commandes et refus, sans secret ni identifiant de clé. Une ligne `ALERTE` (répétée toutes les 10 min) signale un runner injoignable depuis plus de 10 min alors qu'il est nécessaire : vérifier `phala ps --cvm-id <cvm>`, `phala logs --cvm-id <cvm> --serial` et les pins (un réépinglage oublié après mise à jour bloque `/health` attesté). Base indisponible : aucun changement de la CVM à ce tour. Pour une maintenance, arrêter d'abord le service, puis la CVM à la main ; le contrôleur relancerait sinon la machine au prochain besoin.
+
+**Répétition.** (1) CVM arrêtée, aucune location à clé : rien ne démarre, `/v1` répond 503 `stopped`. (2) Créer une clé sur une location active : démarrage, `starting` puis `running`, prédiction signée par l'API. (3) Révoquer la dernière clé : arrêt après 30 min, confirmé chez Phala. (4) Location expirée avec clé active : aucun démarrage.
+
 ## Incident et reprise
 
 - Erreur de commande/attestation : page indisponible ; consulter l’état fournisseur. Aucune garantie que la machine soit arrêtée tant que Phala ne le confirme pas. Utiliser Arrêt d’urgence si nécessaire.

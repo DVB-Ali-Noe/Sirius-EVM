@@ -21,6 +21,17 @@ export interface DatasetIngressEnvelope {
 }
 
 /**
+ * Clé API (D-30) : `sk_live_<keyId>.<secret>`, générée dans le navigateur. `keyId` : 16 octets
+ * base64url (22 caractères), public. `secret` : 32 octets base64url, chiffré pour l'enclave avec
+ * la clé d'ingestion (enveloppe de même forme que celle d'un dataset, AAD = `keyId`), scellé
+ * ensuite dans le runner ; il n'en ressort jamais.
+ */
+export const API_KEY_INGRESS_INFO_PREFIX = "sirius-api-key-v1:";
+export const API_KEY_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+export const API_KEY_SECRET_BYTES = 32;
+export type ApiKeySecretEnvelope = DatasetIngressEnvelope;
+
+/**
  * Verrou d'escrow EVM : préimage secret et son empreinte publique.
  *
  * Typés `0x${string}` et non `string` : ces valeurs traversent directement viem et le
@@ -178,6 +189,42 @@ export interface SignedPrediction {
     counter: number;
     sessionRevision: number;
   };
+}
+
+/** Appels restants d'un prêt (D-30) : quota inclus du jour (UTC) puis crédits de packs. */
+export interface ApiRemaining {
+  today: number;
+  credits: number;
+}
+
+/** Prédiction servie par l'API développeurs : même signature EIP-712 que `predict`. `expiresAt` en ms epoch. */
+export interface ApiPrediction extends SignedPrediction {
+  remaining: ApiRemaining;
+  expiresAt: number;
+}
+
+export interface ApiModelInfo {
+  loanId: string;
+  modelId: ModelId;
+  modelVersion: string;
+  features: string[];
+  expiresAt: number;
+  remaining: ApiRemaining;
+}
+
+/**
+ * Requête signée par le client (HMAC-SHA256 sous le secret de la clé, sur `apiCanonicalString`) :
+ * `path` est le chemin PUBLIC (`/v1/models/<loanId>/predict` ou `/v1/models/<loanId>`), `body` le
+ * corps brut exact, `timestamp` en secondes, `signature` en hexadécimal minuscule.
+ */
+export interface ApiSignedRequest {
+  keyId: string;
+  method: string;
+  path: string;
+  timestamp: number;
+  nonce: string;
+  signature: string;
+  body: string;
 }
 
 export type RunnerEscrowReconciliation =

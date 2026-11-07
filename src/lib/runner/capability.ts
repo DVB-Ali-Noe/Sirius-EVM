@@ -12,7 +12,12 @@ export type RunnerOperation =
   | "settle-loan"
   | "extend-loan"
   | "seal-chunked-dataset"
-  | "seal-chunked-status";
+  | "seal-chunked-status"
+  | "register-api-key"
+  | "revoke-api-key"
+  | "api-predict"
+  | "api-info"
+  | "buy-calls";
 
 export interface RunnerScope {
   datasetId?: string;

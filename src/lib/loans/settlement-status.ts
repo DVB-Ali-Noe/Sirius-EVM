@@ -32,3 +32,10 @@ export const LOCK_FINALITY_PENDING = "Paiement en attente de finalité du résea
  * applique la prolongation dès que possible, sans autre action de l'emprunteur.
  */
 export const EXTENSION_PENDING = "Prolongation payée : elle s’applique dès la confirmation du réseau, sans autre action de ta part";
+
+/**
+ * Pack d'appels payé (D-30) dont le lock n'est pas encore sous le bloc stable, ou dont le `release`
+ * attend sa finalité : `POST /api/loans/[id]/calls` répond 409 ou 202 avec ce message, et le reaper
+ * crédite le pack dès que possible, sans autre action de l'emprunteur.
+ */
+export const CALLS_PENDING = "Pack d’appels payé : les crédits s’ajoutent dès la confirmation du réseau, sans autre action de ta part";

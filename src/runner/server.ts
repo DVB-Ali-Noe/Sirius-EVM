@@ -219,7 +219,7 @@ export async function handleRunnerRequest(
     if (err instanceof RunnerFinalityPending) {
       return send(202, { state: "pending-finality", transactionHash: err.transactionHash, error: err.message });
     }
-    if (err instanceof AppError) return send(err.status, { error: err.message });
+    if (err instanceof AppError) return send(err.status, { error: err.message, ...(err.code === undefined ? {} : { code: err.code }) });
     console.error("[runner] erreur interne");
     return send(500, { error: "Erreur runner" });
   }

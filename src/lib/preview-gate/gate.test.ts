@@ -163,7 +163,8 @@ test("liste des fichiers racine et dossiers de public/ : exactement ceux du dép
   assert.deepEqual([...ROOT_FILES].sort(), [...publicFiles, ...metadataIcons].sort());
   assert.deepEqual([...PUBLIC_DIRECTORIES].sort(), publicDirectories.sort());
   assert.deepEqual([...ROOT_FILES].sort(), ["/apple-icon.png", "/favicon.ico", "/file.svg", "/globe.svg", "/icon.png", "/next.svg", "/opengraph-image.png", "/twitter-image.png", "/vercel.svg", "/window.svg"]);
-  assert.deepEqual([...PUBLIC_DIRECTORIES], ["/images/", "/examples/"]);
+  assert.deepEqual([...PUBLIC_DIRECTORIES], ["/images/", "/examples/", "/openapi/"]);
+  assert.equal(isStaticFilePath("/openapi/v1.yaml"), true);
   for (const directory of PUBLIC_DIRECTORIES) assert.match(directory, /^\/[a-z]+\/$/);
   for (const file of ROOT_FILES) assert.match(file, /^\/[a-z-]+\.[a-z]+$/);
   // Une extension en majuscules reste un fichier ; un segment ne commence jamais par un point.

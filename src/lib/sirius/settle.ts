@@ -142,10 +142,12 @@ export async function prepareLoanResult(
 ): Promise<PreparedLoanResult> {
   const lock = await prisma.loan.findUnique({
     where: { id: loanId },
-    select: { id: true, status: true, evmLockBlock: true, evmLockTxHash: true, evmLoanKey: true, amountUsdcAtomic: true, finalityTier: true, extendsLoanId: true },
+    select: { id: true, status: true, evmLockBlock: true, evmLockTxHash: true, evmLoanKey: true, amountUsdcAtomic: true, finalityTier: true, extendsLoanId: true, packForLoanId: true },
   });
-  // Une prolongation (D-29) ne réentraîne rien : elle se règle par `extend-loan` (extend.ts).
+  // Une prolongation (D-29) ou un pack d'appels (D-30) ne réentraîne rien : ils se règlent par
+  // `extend-loan` (extend.ts) ou `buy-calls` (calls.ts).
   if (lock?.extendsLoanId) throw new AppError("Une prolongation ne lance aucun entraînement", 409);
+  if (lock?.packForLoanId) throw new AppError("Un pack d’appels ne lance aucun entraînement", 409);
   if (lock?.status === "ESCROWED" && lock.evmLockBlock) {
     // Palier de finalité décidé ici, au moment où l'entraînement peut démarrer (finality-tier.ts) :
     // le montant est relu sur le contrat avant tout passage en rapide, et la somme des prêts rapides

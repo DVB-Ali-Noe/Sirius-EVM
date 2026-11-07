@@ -7,6 +7,7 @@ import { readJson } from "@/lib/http/body";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { isValidRentalDays } from "@/lib/billing/rental";
+import { loanApiCallsPerDay } from "@/lib/sirius/api-keys";
 
 export const runtime = "nodejs";
 
@@ -19,22 +20,35 @@ export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
     // N'expose que les prêts où le compte est partie prenante (borrower ou provider). Les colonnes de
-    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`) partent telles quelles ; le prix par
-    // jour et la durée maximale du dataset servent au choix des jours d'une prolongation.
+    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`) et de pack d'appels (`callPack`,
+    // `packForLoanId`, D-30) partent telles quelles ; le prix par jour et la durée maximale du dataset
+    // servent au choix des jours d'une prolongation et au prix des packs. Pour un prêt d'origine,
+    // `apiEnabled` et `callsPerDay` disent si son profil a une API (quota quotidien inclus).
     const loans = await prisma.loan.findMany({
       where: { OR: [{ borrower: session.address }, { provider: session.address }] },
       orderBy: { createdAt: "desc" },
       include: { dataset: { select: { name: true, runnerReceipt: true, maxRentalDays: true, priceUsdcAtomic: true } } },
     });
     const now = Date.now();
-    return NextResponse.json(loans.map((loan) => ({
-      ...loan,
-      usdcDecimals: loanBillingQuote(loan)?.quote.usdcDecimals,
-      refundable:
-        (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
-        loan.evmDeadline !== null &&
-        loan.evmDeadline.getTime() <= now,
-    })));
+    const callsPerDayByModel = new Map<string, number | null>();
+    const callsPerDayFor = (modelId: string) => {
+      if (!callsPerDayByModel.has(modelId)) callsPerDayByModel.set(modelId, loanApiCallsPerDay(modelId));
+      return callsPerDayByModel.get(modelId) ?? null;
+    };
+    return NextResponse.json(loans.map((loan) => {
+      const origin = !loan.extendsLoanId && !loan.packForLoanId;
+      const callsPerDay = origin ? callsPerDayFor(loan.modelId) : null;
+      return {
+        ...loan,
+        usdcDecimals: loanBillingQuote(loan)?.quote.usdcDecimals,
+        apiEnabled: callsPerDay !== null,
+        callsPerDay,
+        refundable:
+          (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
+          loan.evmDeadline !== null &&
+          loan.evmDeadline.getTime() <= now,
+      };
+    }));
   } catch (err) {
     return errorResponse(err);
   }

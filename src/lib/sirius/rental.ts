@@ -18,7 +18,7 @@ import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 export const RENTAL_EXPIRED = "Location expirée : prolonge pour continuer";
 export const RENTAL_MODEL_DELETED = "Modèle supprimé : location close";
 
-type RentalLoan = Pick<Loan, "id" | "status" | "settleTxHash" | "rentalDays" | "rentalExpiresAt" | "extendsLoanId">;
+type RentalLoan = Pick<Loan, "id" | "status" | "settleTxHash" | "rentalDays" | "rentalExpiresAt" | "extendsLoanId" | "packForLoanId">;
 
 /** Échéance d'une location réglée par la transaction `settleTxHash` (bloc du `release`). */
 export async function rentalExpiryFromRelease(settleTxHash: string, rentalDays: number): Promise<Date> {
@@ -31,12 +31,13 @@ export async function rentalExpiryFromRelease(settleTxHash: string, rentalDays: 
 
 /**
  * Échéance enregistrée du prêt, ou relue du bloc de `release` puis enregistrée si elle manque
- * (règlement réconcilié sans réponse du runner). `null` : prêt hérité, prolongation ou prêt non réglé.
+ * (règlement réconcilié sans réponse du runner). `null` : prêt hérité, prolongation, pack d'appels
+ * (D-30 : il reprend les jours du prêt d'origine sans échéance propre) ou prêt non réglé.
  * L'écriture ne remplace jamais une échéance déjà posée (une prolongation a pu la repousser).
  */
 export async function loanRentalExpiry(loan: RentalLoan): Promise<Date | null> {
   if (loan.rentalExpiresAt) return loan.rentalExpiresAt;
-  if (loan.extendsLoanId || typeof loan.rentalDays !== "number" || loan.status !== "SETTLED" || !loan.settleTxHash) return null;
+  if (loan.extendsLoanId || loan.packForLoanId || typeof loan.rentalDays !== "number" || loan.status !== "SETTLED" || !loan.settleTxHash) return null;
   const expiresAt = await rentalExpiryFromRelease(loan.settleTxHash, loan.rentalDays);
   const written = await prisma.loan.updateMany({ where: { id: loan.id, rentalExpiresAt: null }, data: { rentalExpiresAt: expiresAt } });
   if (written.count === 1) return expiresAt;
@@ -59,6 +60,7 @@ export async function assertExtendableLoan(loanId: string, borrower: string, now
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   if (loan.extendsLoanId) throw new AppError("Une prolongation ne se prolonge pas : prolonge le prêt d’origine", 409);
+  if (loan.packForLoanId) throw new AppError("Un pack d’appels ne se prolonge pas : prolonge le prêt d’origine", 409);
   if (typeof loan.rentalDays !== "number") throw new AppError("Prêt sans durée de location : rien à prolonger", 409);
   if (loan.status !== "SETTLED" || loan.finalityReview || !loan.settleTxHash || !loan.runnerReceipt) {
     throw new AppError("Règlement du prêt non confirmé", 409);

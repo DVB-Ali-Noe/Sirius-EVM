@@ -94,6 +94,6 @@ export const TRAIN_MESSAGES_EN: Record<string, string> = {
   "Jours à ajouter": "Days to add",
   "Prolongation…": "Extending…",
   "Voir le devis et prolonger": "See the quote and extend",
-  "Chaque jour ajouté est payé au prix par jour du dataset, plus le calcul minimal d’un emprunt. Le total exact est affiché dans le devis, avant tout paiement.":
-    "Each added day is paid at the dataset’s daily price, plus the minimum compute fee of a loan. The exact total is shown in the quote, before any payment.",
+  "Chaque jour ajouté est payé au prix par jour du dataset, plus les frais de calcul de Sirius à prix coûtant. Le total exact est affiché dans le devis, avant tout paiement.":
+    "Each added day is paid at the dataset’s daily price, plus Sirius compute fees at cost. The exact total is shown in the quote, before any payment.",
 };
