@@ -181,7 +181,9 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 | Lecteur CSV en flux, validation identique aux petits fichiers | Fait, testé | `src/lib/upload/csv-stream.ts`, `src/lib/tee/chunked-validation.ts` |
 | Scellement dans l'enclave depuis R2 | Fait, testé en réel (25 Mio, 700 000 lignes, 5,2 s) | `sealChunkedDataset` (`src/lib/tee/core.ts`), `src/lib/storage/r2.ts` |
 | Routes du site, table `DatasetUpload`, opérations du runner | Fait, testé | ci-dessous |
-| Envoi par le site et CLI | Fait, testé (bout en bout sans réseau ; navigateur réel à faire) | `src/lib/upload/chunked-transfer.ts`, formulaire `datasets/new`, `scripts/sirius-upload.ts` |
+| Envoi par le site et CLI | Fait, **testé en réel les 6-7 nov.** sur un environnement séparé : 1 Go en 4 min 08 s (site), environ 5 min (CLI) ; la CSP bloquait l'envoi navigateur vers R2, corrigé (`aad68d8`) | `src/lib/upload/chunked-transfer.ts`, formulaire `datasets/new`, `scripts/sirius-upload.ts`, `src/lib/storage/r2-origin.ts` |
+| Parcours complet sur le gros dataset | Testé en réel : prêt, entraînement sur échantillon, prédictions, prolongations, retrait, redémarrage de la CVM ; détails dans `docs/STAGING-1GO.md` (répétition des 6 et 7 nov.) | — |
+| Reaper : lecture des événements d'escrow | Corrigé (`157d62a`) : par fenêtres de 10 000 blocs, sinon refusée par Alchemy et prêts réglés tard jamais clos ; bug aussi présent sur `main` | `src/lib/evm/log-window.ts`, `src/lib/evm/escrow.ts` |
 | Entraînement des gros fichiers | **Décidé (4 nov.)** : sur un échantillon pour le 7, testé en réel (R2) ; entraînement complet en arrière-plan la semaine suivante, avec Noé | `src/lib/tee/chunked-sample.ts` |
 | Registre v6 | Fait, testé (Hardhat + scripts sur nœud local) ; **escrow v8 reporté** (décidé le 4 nov.) | `contracts/src/SiriusDatasetRegistry.sol`, `contracts:dataset-admin` |
 
@@ -208,7 +210,7 @@ Ces changements touchent des contrats qui tiennent de l'argent : tests Hardhat c
 
 **Entraînement (échantillon)** : relire 1 Gio dépasse les 65 s d'une requête du runner. En attendant l'entraînement complet en arrière-plan, un gros dataset s'entraîne dans le parcours actuel (prêt et self-train, mêmes limites que les petits fichiers : 3 Mio, 49 999 lignes) sur un échantillon déterministe : des lignes entières prises dans des morceaux répartis sur tout le fichier (8 morceaux de 8 Mio), le fichier entier s'il tient dans les limites, le début du fichier s'il contient des retours à la ligne entre guillemets. Chaque morceau lu est vérifié contre le manifeste scellé (empreinte, puis AES-GCM). Le nombre de lignes utilisées figure dans les métriques du modèle (`n`) ; la fiche marketplace l'annonce.
 
-**Restes connus** : un scellement n'est finalisé que si quelqu'un suit l'envoi (page ouverte ou CLI) ; les morceaux d'un brouillon supprimé sans abandon restent dans R2 (nettoyage à prévoir) ; un runner redémarré oublie ses scellements en cours (le fournisseur relance la clôture, sans renvoyer ses morceaux).
+**Restes connus** : un scellement n'est finalisé que si quelqu'un suit l'envoi (page ouverte ou CLI) ; les morceaux d'un brouillon supprimé sans abandon restent dans R2 (nettoyage à prévoir) ; un runner redémarré oublie ses scellements en cours (le fournisseur relance la clôture, sans renvoyer ses morceaux) ; un envoi coupé brutalement reste ouvert 24 h et ses morceaux restent dans R2 tant que personne ne rouvre le brouillon (nettoyage des envois expirés à confier au reaper) ; la CLI ne reprend pas un envoi interrompu ; le formulaire annonce encore « CSV up to 3 MB ».
 
 ## 17. Questions ouvertes
 

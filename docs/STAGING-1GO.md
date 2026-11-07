@@ -26,6 +26,31 @@ Légende : 👤 Ali · 🧑‍💻 Noé · 🤖 Claude · ✅ critère de réuss
 - **Image du runner** : elle copie tout `src` ; le graphe d'import du runner (82 modules) n'utilise ni la base ni Prisma.
 - **Branche** à jour de `staging` (fusion du 4 nov.) : la fusion inverse vendredi ne doit pas avoir de conflit.
 
+## Répétition des 6 et 7 novembre (environnement de test séparé)
+
+Staging étant occupé, le parcours complet a été répété sur un environnement à part (CVM Phala sur le KMS on-chain de
+Base, contrats testnet dédiés, site Vercel, Neon, R2, Pinata et Web3Auth de test ; environ 0,38 $ de Phala).
+
+- **Mesures réelles** : 1 Go (34,18 M lignes, 127 morceaux de 8 Mio) envoyé et scellé en **4 min 08 s** par le site,
+  **5 min 10 s** et 4 min 49 s par la CLI ; petit CSV (1,2 Mo) par le parcours classique ; prêt réglé 78 s après le lock
+  (finalité rapide) ; prolongations en finalité complète, environ 20 min.
+- **Scénarios** : 1, 3, 4, 5 (coupure brutale par la CLI à 23 %, puis nouvel envoi), 6, 7, 8, 9 et 11 (redémarrage
+  de la CVM : mêmes mesures, mêmes clés, transaction en attente reprise sans double règlement) passent. Non testés :
+  2 (pas de titre importé sur un environnement neuf), 10 (self-train réservé à `SIRIUS_ADMIN_ADDRESSES`), et le
+  remboursement à 3 jours.
+- **Trois bugs corrigés** sur la branche : la CSP n'autorisait pas l'origine R2 (`aad68d8` : sans lui, l'envoi par le
+  site échoue sur « Chunk 1 could not be sent ») ; les métriques publiques bornées à 50 000 lignes (`2c200f3`) ; le
+  reaper lisait les événements de l'escrow sans borne de fin et Alchemy refuse au-delà de 10 000 blocs (`157d62a` :
+  sans lui, les prolongations restent en SETTLING et les remboursements ne sont jamais clos en base ; bug présent sur `main`).
+- **Pièges de configuration** : Vercel refuse une variable vide (supprimer la ligne) et n'accepte pas les
+  `NEXT_PUBLIC_*` en « Sensitive » ; un build Vercel servi depuis le cache saute `prisma generate` (redéployer avec
+  `--force`) ; l'exécution à blanc du déploiement des contrats exige `SIRIUS_DEPLOY_ESTIMATE_DATASETS` ;
+  `SIRIUS_USDC_CODE_HASH` est obligatoire. Sur le testnet, le site passe en mode démonstration et exige
+  `SIRIUS_FAUCET_KEY` et `SIRIUS_KYB_VERIFIER_KEY` (deux comptes distincts). Le faucet est limité par IP.
+- **Restes observés** : un envoi coupé brutalement reste OPEN 24 h (une des 2 places du fournisseur, compté dans son
+  quota de 5 Gio par jour) et ses morceaux restent dans R2 tant que personne ne rouvre le brouillon ; la CLI ne reprend
+  pas un envoi ; `--category` est sensible à la casse ; le formulaire annonce encore « CSV up to 3 MB ».
+
 ## 1. R2 (Cloudflare)
 
 - [ ] 👤 Bucket `sirius-staging` → Settings → CORS policy :
