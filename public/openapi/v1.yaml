@@ -218,7 +218,8 @@ components:
         → 404; `replayed_request`, `api_not_available_for_profile`, `model_unavailable` (loan not
         settled) → 409; `invalid_features`, `invalid_request` → 400; `payload_too_large` (body
         over 16 KiB) → 413; `unsupported_media_type` → 415; `quota_exceeded` (daily quota used up
-        and no credits) and `rate_limited` (120 requests per minute per key, `Retry-After`) → 429;
+        and no credits) and `rate_limited` (120 requests per minute per key and per model, at most 60 of them
+        `GET /v1/models/{loanId}`, `Retry-After`) → 429;
         `runner_error` → 502; `runner_unavailable` → 503; `internal_error` → 500.
       content:
         application/json:

@@ -9,6 +9,7 @@ import {
   extendableLoanModel, extendLoanRental, hasSealedLoanModel, loadServedModel, recordLoanExpiry, saveServedModel,
   servedModelFingerprint, sweepExpiredLoanModels,
 } from "./served-models";
+import { creditCallPack, predictionAllowance } from "@/lib/runner/prediction-usage";
 
 const owner = `0x${"12".repeat(20)}`;
 const model: GradientBoostedTreesModel = {
@@ -98,9 +99,10 @@ test("un prêt n'est réglable que si son modèle est scellé à l'emprunteur so
 
 test("location : échéance scellée, prolongation idempotente, purge des seuls prêts échus après le délai de grâce", () => {
   const root = mkdtempSync(join(tmpdir(), "sirius-served-rental-"));
-  const previous = { directory: process.env.RUNNER_SERVED_MODELS_DIR, master: process.env.SIRIUS_MASTER_KEY };
+  const previous = { directory: process.env.RUNNER_SERVED_MODELS_DIR, master: process.env.SIRIUS_MASTER_KEY, usage: process.env.RUNNER_PREDICT_USAGE_FILE };
   process.env.RUNNER_SERVED_MODELS_DIR = join(root, "private");
   process.env.SIRIUS_MASTER_KEY = Buffer.alloc(32, 29).toString("base64");
+  process.env.RUNNER_PREDICT_USAGE_FILE = join(root, "usage.sqlite");
   try {
     const released = Date.UTC(2026, 10, 3);
     const grace = RENTAL_GRACE_DAYS * DAY_MS;
@@ -121,20 +123,28 @@ test("location : échéance scellée, prolongation idempotente, purge des seuls 
     // Prolongation avant l'échéance : repart de l'échéance ; rejouée : aucun effet.
     assert.equal(extendLoanRental("loan-rented", "ext-1", released + DAY_MS, 2, released + DAY_MS), released + 5 * DAY_MS);
     assert.equal(extendLoanRental("loan-rented", "ext-1", released + DAY_MS, 2, released + DAY_MS), released + 5 * DAY_MS);
+    // Pack crédité avant l'échéance (D-30) : ses crédits survivent à l'échéance et reviennent avec
+    // une prolongation pendant la grâce.
+    assert.equal(creditCallPack({ packLoanId: "pack-1", originalLoanId: "loan-rented", subject: owner, calls: 100 }), 100);
     // Après l'échéance (pendant la grâce) : repart du release de la prolongation.
     const late = released + 10 * DAY_MS;
     assert.equal(extendableLoanModel("loan-rented", late).expiresAt, released + 5 * DAY_MS);
     assert.equal(extendLoanRental("loan-rented", "ext-2", late, 1, late), late + DAY_MS);
     assert.equal(extendLoanRental("loan-rented", "ext-1", released + DAY_MS, 2, late), late + DAY_MS, "une prolongation déjà appliquée ne s'ajoute pas");
     assert.equal(loadServedModel(loan)?.expiresAt, late + DAY_MS);
+    assert.equal(predictionAllowance(owner, loan, 10).credits, 100, "crédits gardés après une prolongation pendant la grâce");
 
     // Purge : rien avant `expiresAt + grâce`, puis le seul prêt échu ; ni job, ni prêt hérité.
     const deadline = late + DAY_MS + grace;
     assert.equal(sweepExpiredLoanModels(deadline - 1), 0);
     assert.equal(loadServedModel(loan)?.expiresAt, late + DAY_MS);
+    assert.equal(predictionAllowance(owner, loan, 10).credits, 100, "crédits intacts tant que le modèle existe");
     assert.throws(() => extendableLoanModel("loan-rented", deadline), /Modèle supprimé : location close/,
       "au-delà de la grâce, la prolongation est refusée même avant le passage de la purge");
     assert.equal(sweepExpiredLoanModels(deadline), 1);
+    assert.equal(predictionAllowance(owner, loan, 10).credits, 0, "crédits perdus avec le modèle");
+    assert.equal(creditCallPack({ packLoanId: "pack-1", originalLoanId: "loan-rented", subject: owner, calls: 100 }), 0,
+      "un buy-calls rejoué après la purge ne recrédite pas");
     assert.equal(loadServedModel(loan), null);
     assert.deepEqual(loadServedModel({ kind: "job", id: "job-kept" }), { owner, model });
     assert.deepEqual(loadServedModel({ kind: "loan", id: "loan-legacy" }), { owner, model: linear });
@@ -147,6 +157,8 @@ test("location : échéance scellée, prolongation idempotente, purge des seuls 
     else process.env.RUNNER_SERVED_MODELS_DIR = previous.directory;
     if (previous.master === undefined) delete process.env.SIRIUS_MASTER_KEY;
     else process.env.SIRIUS_MASTER_KEY = previous.master;
+    if (previous.usage === undefined) delete process.env.RUNNER_PREDICT_USAGE_FILE;
+    else process.env.RUNNER_PREDICT_USAGE_FILE = previous.usage;
     rmSync(root, { recursive: true, force: true });
   }
 });

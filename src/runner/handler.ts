@@ -355,10 +355,19 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
  */
 export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "seal-chunked-status"]);
 
+/**
+ * API développeurs (D-30) : aucune réservation dans le registre de budget global non plus. Une
+ * prédiction API est payée par le quota du prêt ou ses packs (`noTrainingComputeAmount` au
+ * règlement), pas par la marge de Sirius : sans exemption, le trafic signé d'un seul emprunteur
+ * épuisait le budget de toutes les opérations sponsorisées. Débit par prêt et concurrence propre
+ * sont bornés dans le serveur (`ApiOpsGuard`, `free-ops-guard.ts`).
+ */
+export const API_OPS: ReadonlySet<RunnerOperation> = new Set(["api-predict", "api-info", "register-api-key", "revoke-api-key"]);
+
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
   if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "extend-loan" || op === "recover-loan-job" || op === "buy-calls")) return executeRunnerOp(op, body);
-  if (UNCHARGED_OPS.has(op)) {
+  if (UNCHARGED_OPS.has(op) || API_OPS.has(op)) {
     runnerBudget();
     return executeRunnerOp(op, body);
   }
@@ -706,6 +715,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       if (quote.loanId !== loanId || quote.extendsLoanId !== originalLoanId || quote.datasetId !== original.datasetId
         || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Prolongation hors scope", 409);
       if (quote.borrower !== original.borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
+      if (canonicalSubject(quote.provider) !== canonicalSubject(original.provider)) {
+        throw new AppError("Prolongation : fournisseur différent du prêt d’origine", 409);
+      }
       if (body.authorization) {
         const { subject } = await verifyRunnerGrant(body.authorization, {
           operation: op, loanId, intentParts: [loanId, originalLoanId],
@@ -743,6 +755,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         || quote.extendsLoanId !== undefined || quote.rentalDays !== originalRentalDays || quote.datasetId !== original.datasetId
         || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Pack d’appels hors scope", 409);
       if (quote.borrower !== original.borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
+      if (canonicalSubject(quote.provider) !== canonicalSubject(original.provider)) {
+        throw new AppError("Pack d’appels : fournisseur différent du prêt d’origine", 409);
+      }
       if (body.authorization) {
         const { subject } = await verifyRunnerGrant(body.authorization, {
           operation: op, loanId, intentParts: [loanId, originalLoanId],
@@ -769,7 +784,7 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       // Release engagée (signée ou publiée) : un rejeu la mène à son terme puis crédite `callPack`
       // appels une seule fois (journal des packs, clé = loanId du pack), même si la location a
       // expiré ou si la politique a changé depuis le paiement. Un pack payé n'est jamais perdu ;
-      // ses crédits expirent avec la location.
+      // ses crédits servent pendant la location et disparaissent avec le modèle (purge après la grâce).
       return withWorkflowBudget(quoteWorkflow(quote), () => budgetRunnerRequest(async () => {
         const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier, beforeRelease);
         return { settleTxHash, credits: creditCallPack({ packLoanId: loanId, originalLoanId, subject: quote.borrower, calls }) };

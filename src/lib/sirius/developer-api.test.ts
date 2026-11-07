@@ -192,6 +192,8 @@ interface SystemOptions {
   phase?: string | null;
   fast?: boolean;
   runner?: Partial<Record<"apiPredict" | "apiInfo" | "register" | "revoke" | "buyCalls" | "extend", (input: Row) => Promise<unknown>>>;
+  /** `false` : aucune politique de facturation lisible côté Next (conteneur reaper). */
+  policy?: false;
 }
 
 function system(options: SystemOptions = {}) {
@@ -276,7 +278,10 @@ function system(options: SystemOptions = {}) {
   });
   const apiKeysModule = load<typeof import("./api-keys")>("src/lib/sirius/api-keys.ts", {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
-    "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => ({ apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE }) },
+    "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => {
+      if (options.policy === false) throw new Error("Politique de facturation absente");
+      return { apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE };
+    } },
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/provenance": provenance,
     "@/lib/tee/contract": contract, "@/lib/tee/runner-client": runnerClient, "./access": { requireAcceptedKyb: async () => {} },
     "./availability": availabilityModule, "./finality-tier": finalityTier, "./rental": rental,
@@ -332,7 +337,7 @@ function system(options: SystemOptions = {}) {
     "./release-tier": releaseTier, "./settlement-evidence": { recordSettlementEvidence: async (id: string) => { calls.evidence.push(id); return true; } },
     "./settlement-queued": { settlementQueuedError },
   };
-  const callsModule = load<typeof import("./calls")>("src/lib/sirius/calls.ts", { ...shared, "./api-keys": apiKeysModule, "./availability": availabilityModule });
+  const callsModule = load<typeof import("./calls")>("src/lib/sirius/calls.ts", { ...shared, "./api-keys": apiKeysModule, "./availability": availabilityModule, "./rental": rental });
   const extend = load<typeof import("./extend")>("src/lib/sirius/extend.ts", { ...shared, "./rental": rental });
   const routes = {
     predict: load<typeof import("../../app/api/v1/models/[loanId]/predict/route")>("src/app/api/v1/models/[loanId]/predict/route.ts", { "@/lib/sirius/public-api": publicApi }),
@@ -730,6 +735,40 @@ test("reaper : un pack verrouillé non réglé est repris sans autorisation ; lo
   const overdue = system({ loans: [origin(), attached("pack", { evmDeadline: new Date(Date.now() - 1) })] });
   await overdue.reaper().runLoanReaper(new Date());
   assert.equal(overdue.calls.runner.length, 0);
+});
+
+test("reaper : pack réglé sans politique de facturation dans l'environnement Next, le runner restant l'autorité", async () => {
+  const sys = system({ loans: [origin(), attached("pack")], policy: false });
+  const pass = await sys.reaper().runLoanReaper(new Date());
+  assert.equal(pass.failed, 0);
+  assert.equal(sys.calls.runner.filter(([op]) => op === "buyCalls").length, 1);
+  assert.equal(sys.prisma.loan.rows.find((row) => row.id === "pack-9")!.status, "SETTLED");
+
+  // L'emprunteur, lui, reste soumis au contrôle de profil avant tout release.
+  const signed = system({ loans: [origin(), attached("pack")], policy: false });
+  assert.equal((await signed.manage.calls({ packLoanId: "pack-9", authorization: grant })).status, 409);
+  assert.equal(signed.calls.runner.length, 0);
+});
+
+test("pack SETTLING avec release diffusé : terminé après l'échéance de la location, sans politique, scope toujours vérifié", async () => {
+  const settling = (overrides: Row = {}) => attached("pack", { status: "SETTLING", settleTxHash: PACK_TX, updatedAt: new Date(0), ...overrides });
+  const expired = { rentalExpiresAt: new Date(Date.now() - 1) };
+  const sys = system({ loans: [origin(expired), settling()], policy: false });
+  const pass = await sys.reaper().runLoanReaper(new Date());
+  assert.equal(pass.failed, 0);
+  assert.equal(sys.calls.runner.filter(([op]) => op === "buyCalls").length, 1);
+  assert.equal(sys.prisma.loan.rows.find((row) => row.id === "pack-9")!.status, "SETTLED");
+
+  // Même chemin par l'emprunteur : la location échue n'empêche pas de finir le règlement.
+  const borrower = system({ loans: [origin(expired), settling()] });
+  assert.equal((await borrower.manage.calls({ packLoanId: "pack-9", authorization: grant })).status, 200);
+
+  // Autre emprunteur ou autre dataset que le prêt d'origine : refus, aucun appel au runner.
+  const foreign = system({ loans: [origin({ ...expired, borrower: OTHER }), settling()], policy: false });
+  await assert.rejects(foreign.callsModule.settleCallPack("pack-9"), (error: AppError) => error.status === 403);
+  const otherDataset = system({ loans: [origin({ ...expired, datasetId: "dataset-2" }), settling()], policy: false });
+  await assert.rejects(otherDataset.callsModule.settleCallPack("pack-9"), (error: AppError) => error.status === 409);
+  assert.equal(foreign.calls.runner.length + otherDataset.calls.runner.length, 0);
 });
 
 // --- Finalité rapide --------------------------------------------------------------------------

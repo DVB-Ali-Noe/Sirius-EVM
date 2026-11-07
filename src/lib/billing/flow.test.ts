@@ -339,6 +339,23 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   await assert.rejects(extend(lastExtension, lastLock), (error: Error & { status?: number }) =>
     error.status === 403 && /réservée à l’emprunteur/.test(error.message));
   await delegate(borrower);
+  // Fournisseur complice (Next compromis) : même identifiant de dataset enregistré sous un autre
+  // wallet. Le devis est signé, le lock posé, mais le runner refuse avant tout release.
+  const colluder = accounts[4];
+  const colludingQuote = async (target: DatasetRef, loanId: string, rental: Record<string, unknown>) => {
+    const receipt = issueDatasetReceipt(colluder.toLowerCase(), target);
+    return (await handleRunnerOp("prepare-escrow-lock", { ...target, datasetReceipt: receipt, loanId, borrower: borrower.address,
+      authorizationDeadline: Math.floor(Date.now() / 1000) + 300, ...rental }) as { billingQuote: SignedComputeQuote }).billingQuote;
+  };
+  await write("SiriusDatasetRegistry", datasets, "mint", [datasetIdHash(dataset.datasetId), cidHash(dataset.cid), `0x${dataset.merkleRoot}`, BigInt(csv.length), trainingProfileHash(dataset)], colluder);
+  const colludingExtension = await colludingQuote(dataset, "ext-colluder", { rentalDays: 1, extendsLoanId: "success" });
+  assert.equal(colludingExtension.quote.provider, colluder.toLowerCase());
+  const colludingExtensionLock = await lock(colludingExtension);
+  const colluderBefore = await credit(colluder);
+  await assert.rejects(extend(colludingExtension, colludingExtensionLock), (error: Error & { status?: number }) =>
+    error.status === 409 && error.message === "Prolongation : fournisseur différent du prêt d’origine");
+  assert.equal(await credit(colluder), colluderBefore, "aucun release vers un autre fournisseur");
+  assert.equal((await readLoan(loanKeyFor(borrower.address, "ext-colluder")))!.status, lockedStatus, "prolongation toujours verrouillée");
   const deletion = extended.expiresAt + RENTAL_GRACE_DAYS * DAY_MS;
   assert.equal(sweepExpiredLoanModels(deletion - 1), 0, "gardé scellé pendant le délai de grâce");
   assert.equal(sweepExpiredLoanModels(deletion), 1);
@@ -398,6 +415,16 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   await assert.rejects(buyCalls(secondPack, secondLock), (error: Error & { status?: number }) =>
     error.status === 403 && /réservé à l’emprunteur/.test(error.message));
   await delegate(borrower);
+  // Pack payé à un fournisseur complice : refusé avant tout release, aucun crédit.
+  await write("SiriusDatasetRegistry", datasets, "mint", [datasetIdHash(apiDataset.datasetId), cidHash(apiDataset.cid),
+    `0x${apiDataset.merkleRoot}`, BigInt(apiCsv.length), trainingProfileHash(apiDataset)], colluder);
+  const colludingPack = await colludingQuote(apiDataset, "pack-colluder", { rentalDays: 1, callPack: 100, packForLoanId: "api-loan" });
+  const colludingPackLock = await lock(colludingPack);
+  const colluderBeforePack = await credit(colluder);
+  await assert.rejects(buyCalls(colludingPack, colludingPackLock), (error: Error & { status?: number }) =>
+    error.status === 409 && error.message === "Pack d’appels : fournisseur différent du prêt d’origine");
+  assert.equal(await credit(colluder), colluderBeforePack, "aucun release vers un autre fournisseur");
+  assert.equal((await readLoan(loanKeyFor(borrower.address, "pack-colluder")))!.status, lockedStatus, "pack toujours verrouillé");
   // Un pack payé n'est jamais perdu : coupure simulée entre la release (publiée par le même code que
   // buy-calls) et le crédit, puis rejeu après un changement de politique ou l'échéance de la location.
   const { settleBilledEscrow } = await import("./settlement");
@@ -471,6 +498,12 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "ext-2")]);
   // timeout (1 + 3) et prolongation ext-2 (1 jour + frais sans entraînement 0,1) remboursés en entier.
   assert.equal(await credit(borrower.address), unit * BigInt(9) + unit / BigInt(10) - fee, "sans exécution ni release, remboursement intégral");
+  // Locks payés aux fournisseurs complices, jamais libérés : remboursés en entier à l'échéance.
+  const beforeColluderRefunds = await credit(borrower.address);
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "ext-colluder")]);
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "pack-colluder")]);
+  assert.equal(await credit(borrower.address), beforeColluderRefunds + BigInt(totalQuoteAmount(colludingExtension.quote))
+    + BigInt(totalQuoteAmount(colludingPack.quote)));
   const [locked, owed, balance] = await client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "accounting" });
   assert.equal(locked, BigInt(0));
   assert.equal(owed, balance);

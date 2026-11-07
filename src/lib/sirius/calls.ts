@@ -1,5 +1,6 @@
 import "server-only";
 import type { Hex } from "viem";
+import type { Loan } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
@@ -17,6 +18,7 @@ import { requireRunnerOrWake } from "./availability";
 import { prepareLoan } from "./borrower";
 import { releaseFinalityTier } from "./release-tier";
 import { recordSettlementEvidence } from "./settlement-evidence";
+import { loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
 import { settlementQueuedError } from "./settlement-queued";
 
 /**
@@ -26,7 +28,8 @@ import { settlementQueuedError } from "./settlement-queued";
  * jours du prêt d'origine repris sans en ajouter), approbation, lock, `submit`. Une fois le lock
  * finalisé — au palier rapide sous les plafonds habituels —, le runner (`buy-calls`) diffuse le
  * `release` et crédite le prêt d'origine une seule fois par pack ; le reaper reprend les packs
- * verrouillés non réglés. Les crédits n'ont pas de date propre : ils expirent avec la location.
+ * verrouillés non réglés. Les crédits n'ont pas de date propre : utilisables pendant la location,
+ * ils reviennent avec une prolongation pendant la grâce et sont perdus avec le modèle.
  */
 
 export interface CallPackResult {
@@ -70,8 +73,7 @@ export async function settleCallPack(packLoanId: string, authorization?: RunnerG
   }
   if (loan.status !== "ESCROWED" && loan.status !== "SETTLING") throw new AppError("Pack d’appels non verrouillé ou déjà clos", 409);
   if (!loan.evmLoanKey || !loan.evmLockTxHash || !loan.evmLockBlock) throw new AppError("Lock de paiement absent", 409);
-  // Même emprunteur, même dataset, location d'origine en cours et profil avec API : refus avant tout `release`.
-  const original = await assertApiLoan(loan.packForLoanId, loan.borrower, { requireActiveRental: true });
+  const original = await packOriginalLoan(loan, loan.packForLoanId, Boolean(authorization));
   if (original.datasetId !== loan.datasetId || !addressesEqual(original.provider, loan.provider)) {
     throw new AppError("Pack d’appels hors scope du prêt d’origine", 409);
   }
@@ -134,4 +136,29 @@ export async function settleCallPack(packLoanId: string, authorization?: RunnerG
     });
     throw settlementQueuedError(error);
   }
+}
+
+/**
+ * Prêt d'origine d'un pack, contrôlé avant `buy-calls`. Toujours : même emprunteur, prêt ordinaire
+ * réglé. Release déjà diffusé (SETTLING avec hash) : rien d'autre, l'argent a bougé et le runner
+ * termine toujours ce qu'il a commencé (`beforeFirstRelease`), même location échue depuis.
+ * Reaper (sans grant) : la location doit être en cours, mais le profil n'est pas relu ici — la
+ * politique de facturation n'existe pas forcément dans l'environnement du reaper, et le runner, qui
+ * applique la sienne, refuse avant tout `release`. Emprunteur : contrôles complets (`assertApiLoan`).
+ */
+async function packOriginalLoan(pack: Loan, originalLoanId: string, signed: boolean) {
+  const released = pack.status === "SETTLING" && Boolean(pack.settleTxHash);
+  if (signed && !released) return assertApiLoan(originalLoanId, pack.borrower, { requireActiveRental: true });
+  const original = await prisma.loan.findUnique({ where: { id: originalLoanId } });
+  if (!original) throw new AppError("Loan introuvable", 404);
+  if (!addressesEqual(original.borrower, pack.borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
+  if (original.extendsLoanId || original.packForLoanId) throw new AppError("Prolongation ou pack d’appels : utilise le prêt d’origine", 409);
+  if (original.status !== "SETTLED" || !original.runnerReceipt || !original.settleTxHash) throw new AppError("Règlement du prêt non confirmé", 409);
+  if (!released) {
+    if (original.finalityReview) throw new AppError("Règlement du prêt non confirmé", 409);
+    const expiresAt = await loanRentalExpiry(original);
+    if (!expiresAt) throw new AppError("Prêt sans durée de location : API indisponible", 409);
+    if (Date.now() >= expiresAt.getTime()) throw new AppError(RENTAL_EXPIRED, 403, "rental_expired");
+  }
+  return { ...original, runnerReceipt: original.runnerReceipt };
 }

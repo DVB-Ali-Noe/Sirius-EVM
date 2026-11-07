@@ -15,6 +15,8 @@ import { buildDelegationMessage } from "@/lib/runner/authorization-contract";
 import { issueRunnerCapability } from "@/lib/runner/capability";
 import { issueLoanReceipt } from "@/lib/runner/receipt";
 import { creditCallPack } from "@/lib/runner/prediction-usage";
+import { runnerBudget } from "@/lib/runner/budget";
+import { initializeBudgetLedger } from "@/lib/runner/budget-ledger";
 import { verifyApiSignature } from "@/lib/runner/api-signature";
 import { apiCanonicalString } from "@/lib/billing/api-pricing";
 import { DAY_MS } from "@/lib/billing/rental";
@@ -85,6 +87,16 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     profiles: { linear_regression: profile, logistic_regression: profile },
   }), { mode: 0o600 });
   robinhoodTestnet.contracts = undefined;
+  // Registre de budget réel : les opérations API n'y réservent rien, la prédiction du site si.
+  process.env.RUNNER_BUDGET_FILE = join(root, "ledger.sqlite");
+  initializeBudgetLedger(process.env.RUNNER_BUDGET_FILE, {
+    version: 1, chainId: evmEscrowBinding().chainId, wallet: owner, accountingReference: "fixture-synthetic-not-revenue",
+    validUntil: Date.now() + DAY_MS, earnedMarginUsdMicros: "1000", cashUsdMicros: "1000", fixedReserveUsdMicros: "100",
+    costsUsdMicros: { request: "1", seal: "50", training: "100" },
+    gas: { totalWei: "200000000000", maxTransactionWei: "100000000000", maxGas: "100000", maxFeePerGasWei: "1000000", ethUsdMicrosUpperBound: "5000000000", confirmations: 2 },
+    maxFailures: 3, maxActive: 8,
+  });
+  const allocated = () => runnerBudget()!.snapshot().allocatedUsd;
   // Prêts hérités réglés : le faux RPC publie leur préimage ; aucun autre appel réseau.
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), RPC_URL, "aucun appel réseau hors RPC");
@@ -228,11 +240,13 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
       expiresAt: expiries["loan-1"], remaining: { today: 0, credits: 99 } });
     assert.deepEqual((await info(signed(key, "loan-1", "info"))).remaining, { today: 0, credits: 99 }, "api-info ne consomme rien");
     await assert.rejects(info(signed(key, "loan-1", "info", { body: "{}" })), /Corps de requête inattendu/);
+    assert.equal(allocated(), BigInt(0), "clés, prédictions et descriptions API : aucune allocation du budget global");
     // Site et API partagent le même compteur de prêt.
     const features = { x: 1, y: 0 };
     const site = await call<SignedPrediction>("predict", { modelRef: { kind: "loan", id: "loan-1" }, features, loanReceipt: receipts["loan-1"],
       settleTxHash, authorization: await issueRunnerGrant("predict", { loanId: "loan-1" }, ["loan", "loan-1", JSON.stringify(features)]) });
     assert.equal(site.counter, 4);
+    assert.equal(allocated(), BigInt(1), "la prédiction du site reste une requête budgétée");
     assert.deepEqual((await info(signed(key, "loan-1", "info"))).remaining, { today: 0, credits: 98 });
 
     // --- Vecteur partagé avec les SDK (sdk/fixtures/api-signing-vector.json). ---
@@ -277,6 +291,7 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     assert.deepEqual(await revoke("loan-1", key.keyId), revoked);
     await assert.rejects(predict(signed(key, "loan-1", "predict")), rejection("key_revoked", 401));
     await assert.rejects(info(signed(key, "loan-1", "info")), rejection("key_revoked", 401));
+    assert.equal(allocated(), BigInt(1), "révocation et refus API : toujours aucune allocation");
 
     // --- HTTP : le code stable traverse le serveur runner. ---
     const unknown = signed(newKey(), "loan-1", "predict");

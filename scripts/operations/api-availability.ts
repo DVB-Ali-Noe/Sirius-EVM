@@ -6,7 +6,8 @@ import { phalaCvm, type CvmPower, type PhalaCvmIO } from "./phala-cvm";
 
 /**
  * Contrôleur de disponibilité de la CVM pour l'API développeurs (D-30), sur le VPS.
- * La CVM reste allumée tant qu'un prêt, une prolongation ou un pack est en cours, ou qu'une
+ * La CVM reste allumée tant qu'un prêt, une prolongation ou un pack est en cours (lock non échu ou
+ * `release` diffusé), ou qu'une
  * location active porte au moins une clé API non révoquée ; elle est arrêtée après une période
  * sans aucun de ces cas. Aucun appel anonyme ne peut la démarrer : seul l'état en base compte.
  */
@@ -15,7 +16,14 @@ export type AvailabilityPhase = "stopped" | "starting" | "running" | "stopping";
 /** `unknown` : l'état fournisseur n'a pas pu être lu à ce tour. */
 export type ObservedCvm = CvmPower | "unknown";
 
-export interface AvailabilityLoanRecord { id: string; status: string; rentalExpiresAt: Date | null }
+export interface AvailabilityLoanRecord {
+  id: string;
+  status: string;
+  rentalExpiresAt: Date | null;
+  /** Échéance du lock on-chain ; au-delà, sans `release` diffusé, seul `refund()` reste possible. */
+  evmDeadline: Date | null;
+  settleTxHash: string | null;
+}
 export interface AvailabilityApiKey { loanId: string; revokedAt: Date | null }
 /** Lecture en base d'un tour : prêts pertinents, clés actives, réveil demandé par un emprunteur. */
 export interface AvailabilityRecords {
@@ -60,13 +68,25 @@ export const DEFAULT_AVAILABILITY_OPTIONS: AvailabilityOptions = {
 };
 
 /**
- * Besoin de la CVM : un prêt (prolongations et packs compris, ce sont des prêts) en
- * ESCROWED/TRAINING/SETTLING, un prêt SETTLED non expiré portant une clé non révoquée, ou un
- * réveil demandé par l'emprunteur d'une location active (`requestedUntil` dans le futur).
+ * Prêt en cours qui justifie la CVM : ESCROWED/TRAINING/SETTLING avec un `release` déjà diffusé
+ * (`settleTxHash`, le runner doit le finir) ou un lock dont l'échéance `evmDeadline` est future.
+ * Un lock échu sans `release` est abandonné : le contrat refuse tout `release`, seul `refund()` par
+ * l'emprunteur libère les fonds, sans le runner. Sans `evmDeadline` (lock pas encore lu), le prêt
+ * compte encore : aucun champ ne permet de le dire abandonné.
+ */
+export function inFlightLoanNeeded(loan: AvailabilityLoanRecord, now: number): boolean {
+  if (!(IN_FLIGHT_LOAN_STATUSES as readonly string[]).includes(loan.status)) return false;
+  return loan.settleTxHash !== null || loan.evmDeadline === null || loan.evmDeadline.getTime() > now;
+}
+
+/**
+ * Besoin de la CVM : un prêt en cours (prolongations et packs compris, ce sont des prêts) au sens
+ * d'`inFlightLoanNeeded`, un prêt SETTLED non expiré portant une clé non révoquée, ou un réveil
+ * demandé par l'emprunteur d'une location active (`requestedUntil` dans le futur).
  */
 export function availabilityNeeded({ loans, apiKeys, requestedUntil }: AvailabilityRecords, now: number): boolean {
   if (requestedUntil !== null && requestedUntil.getTime() > now) return true;
-  if (loans.some((loan) => (IN_FLIGHT_LOAN_STATUSES as readonly string[]).includes(loan.status))) return true;
+  if (loans.some((loan) => inFlightLoanNeeded(loan, now))) return true;
   const keyed = new Set(apiKeys.filter((key) => key.revokedAt === null).map((key) => key.loanId));
   return loans.some((loan) => loan.status === "SETTLED" && loan.rentalExpiresAt !== null
     && loan.rentalExpiresAt.getTime() > now && keyed.has(loan.id));
@@ -208,17 +228,22 @@ async function main() {
   const io: AvailabilityIO = {
     ...phala,
     records: async (now) => {
+      const loanFields = { id: true, status: true, rentalExpiresAt: true, evmDeadline: true, settleTxHash: true } as const;
       const [inFlight, apiKeys, availability] = await Promise.all([
+        // Même règle qu'`inFlightLoanNeeded`, appliquée en base.
         prisma.loan.findMany({
-          where: { status: { in: [...IN_FLIGHT_LOAN_STATUSES] } },
-          select: { id: true, status: true, rentalExpiresAt: true }, take: 1,
+          where: {
+            status: { in: [...IN_FLIGHT_LOAN_STATUSES] },
+            OR: [{ settleTxHash: { not: null } }, { evmDeadline: null }, { evmDeadline: { gt: now } }],
+          },
+          select: loanFields, take: 1,
         }),
         prisma.apiKey.findMany({ where: { revokedAt: null }, select: { loanId: true, revokedAt: true }, distinct: ["loanId"] }),
         prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { requestedUntil: true } }),
       ]);
       const rented = apiKeys.length === 0 ? [] : await prisma.loan.findMany({
         where: { id: { in: apiKeys.map((key) => key.loanId) }, status: "SETTLED", rentalExpiresAt: { gt: now } },
-        select: { id: true, status: true, rentalExpiresAt: true }, take: 1,
+        select: loanFields, take: 1,
       });
       return { loans: [...inFlight, ...rented], apiKeys, requestedUntil: availability?.requestedUntil ?? null };
     },

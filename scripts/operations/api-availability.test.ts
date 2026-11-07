@@ -17,7 +17,9 @@ function memory(phase: AvailabilityPhase = "stopped", overrides: Partial<Availab
 function state(overrides: Partial<AvailabilityState>): AvailabilityState {
   return { memory: memory(), loans: [], apiKeys: [], requestedUntil: null, cvm: "stopped", healthy: false, ...overrides };
 }
-const loan = (id: string, status: string, rentalExpiresAt: Date | null = null): AvailabilityLoanRecord => ({ id, status, rentalExpiresAt });
+const loan = (id: string, status: string, rentalExpiresAt: Date | null = null, overrides: Partial<AvailabilityLoanRecord> = {}): AvailabilityLoanRecord => (
+  { id, status, rentalExpiresAt, evmDeadline: null, settleTxHash: null, ...overrides }
+);
 
 test("un prêt, une prolongation ou un pack en cours démarre la CVM arrêtée", () => {
   for (const status of ["ESCROWED", "TRAINING", "SETTLING"]) {
@@ -32,6 +34,17 @@ test("un prêt, une prolongation ou un pack en cours démarre la CVM arrêtée",
   for (const status of ["PENDING", "SUBMITTING", "CANCELLED"]) {
     assert.equal(availabilityDecision(state({ loans: [loan("x", status)] }), T0).action, null, status);
   }
+});
+
+test("lock échu sans release diffusé : abandonné, la CVM ne démarre pas ; lock non échu ou release diffusé : démarrage", () => {
+  for (const status of ["ESCROWED", "TRAINING", "SETTLING"]) {
+    const abandoned = loan("abandon", status, null, { evmDeadline: past });
+    assert.equal(availabilityDecision(state({ loans: [abandoned] }), T0).action, null, `${status} échu`);
+    assert.equal(availabilityDecision(state({ loans: [loan("p", status, null, { evmDeadline: future })] }), T0).action, "start", `${status} avant échéance`);
+    assert.equal(availabilityDecision(state({ loans: [{ ...abandoned, settleTxHash: `0x${"55".repeat(32)}` }] }), T0).action, "start", `${status} release diffusé`);
+  }
+  // Échéance pile maintenant : échue.
+  assert.equal(availabilityDecision(state({ loans: [loan("p", "ESCROWED", null, { evmDeadline: new Date(T0) })] }), T0).action, null);
 });
 
 test("une location réglée non expirée avec une clé active démarre la CVM", () => {

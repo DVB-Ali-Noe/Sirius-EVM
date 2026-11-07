@@ -194,8 +194,10 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
 /**
  * Pack d'appels verrouillé non réglé (D-30) : reprise de `buy-calls`, idempotent dans le runner (le
  * pack n'est crédité qu'une fois). Remboursé on-chain : clos. Échu sans `release` diffusé : seul
- * `refund()` par l'emprunteur reste possible. Location d'origine échue ou profil sans API : aucune
- * reprise (le runner refuserait avant tout `release`), et un palier rapide est rendu au plafond.
+ * `refund()` par l'emprunteur reste possible. Avant tout `release`, location d'origine échue ou
+ * profil sans API : aucune reprise (le runner refuserait), et un palier rapide est rendu au plafond.
+ * `release` déjà diffusé (SETTLING avec hash) : toujours rejoué jusqu'au règlement, sans contrôle
+ * de location ni de profil côté Next (`settleCallPack`).
  */
 async function reapCallPack(loan: Loan, now: Date): Promise<void> {
   const chain = await reconcileClosedLoan(loan);
@@ -207,7 +209,8 @@ async function reapCallPack(loan: Loan, now: Date): Promise<void> {
   try {
     await settleCallPack(loan.id);
   } catch (error) {
-    if (error instanceof AppError && (error.message === RENTAL_EXPIRED || error.code === "api_not_available_for_profile")) {
+    const released = loan.status === "SETTLING" && Boolean(loan.settleTxHash);
+    if (!released && error instanceof AppError && (error.message === RENTAL_EXPIRED || error.code === "api_not_available_for_profile")) {
       console.log(`[reaper] pack d'appels EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
       if (loan.status === "ESCROWED" && loan.finalityTier === "FAST") {
         await prisma.loan.updateMany({

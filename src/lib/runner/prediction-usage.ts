@@ -236,3 +236,16 @@ export function creditCallPack(input: { packLoanId: string; originalLoanId: stri
     return creditBalance(db, owner, modelRef);
   });
 }
+
+/**
+ * Solde de packs d'un prêt remis à zéro, quel qu'en soit le sujet, à la suppression de son modèle
+ * (`sweepExpiredLoanModels`, D-30) : les crédits survivent à une prolongation pendant le délai de
+ * grâce et sont perdus avec le modèle. Le journal des packs reste : un `buy-calls` rejoué ensuite
+ * ne recrédite rien.
+ */
+export function clearLoanCredits(loanId: string): void {
+  const ref: ModelRef = { kind: "loan", id: loanId };
+  if (!MODEL_REF_ID_PATTERN.test(loanId)) throw new AppError("Scope de prédiction invalide", 400);
+  const modelRef = modelRefString(ref);
+  transaction((db) => { db.prepare("DELETE FROM prediction_credits_v1 WHERE model_ref = ?").run(modelRef); });
+}

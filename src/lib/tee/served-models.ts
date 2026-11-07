@@ -9,6 +9,7 @@ import { AppError } from "@/lib/app-error";
 import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 import { MODEL_REF_ID_PATTERN, modelRefString, type ModelRef } from "./contract";
 import { quantizeModel } from "./output-gate";
+import { clearLoanCredits } from "@/lib/runner/prediction-usage";
 
 const MAX_SEALED_BYTES = 512 * 1024;
 const MAX_INDEX_BYTES = 4 * 1024;
@@ -304,6 +305,14 @@ export function sweepExpiredLoanModels(now = Date.now()): number {
       continue;
     }
     if (sealed && (sealed.expiresAt === undefined || sealed.expiresAt + RENTAL_GRACE_MS > now)) continue;
+    // Crédits de packs perdus avec le modèle (D-30), effacés d'abord : un échec laisse le modèle
+    // en place pour la purge suivante, jamais un modèle supprimé avec des crédits restants.
+    try {
+      clearLoanCredits(ref.id);
+    } catch {
+      console.warn("[served-models] crédits d'appels non effacés : modèle gardé jusqu'à la purge suivante");
+      continue;
+    }
     deleteServedModel(ref);
     if (sealed) deleted++;
   }
