@@ -16,6 +16,7 @@ export interface TocItem {
 const PAGES = [
   { href: "/docs", group: "Protocol", tab: "Documentation", label: "How Sirius works" },
   { href: "/docs/mcp", group: "For developers", tab: "Developers", label: "MCP server" },
+  { href: "/docs/api", group: "For developers", tab: "API", label: "Developer API" },
 ];
 
 /** Section visible en haut de l'écran, pour surligner le sommaire pendant la lecture. */

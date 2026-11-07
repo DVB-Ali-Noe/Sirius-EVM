@@ -53,8 +53,11 @@ test("la politique runner n'est produite qu'après approbation, financement, cal
   assert.deepEqual(report.blockers, []);
   const policy = report.billingPolicy;
   // Format exact attendu par src/lib/billing/config.ts.
-  assert.deepEqual(Object.keys(policy).sort(), ["chainId", "computeRecipient", "costReference", "minimumComputeAmount", "profiles",
-    "tariffVersion", "usdc", "usdcDecimals", "validUntil", "version"]);
+  assert.deepEqual(Object.keys(policy).sort(), ["apiCallsPerDay", "chainId", "computeRecipient", "costReference", "minimumComputeAmount",
+    "noTrainingComputeAmount", "profiles", "tariffVersion", "usdc", "usdcDecimals", "validUntil", "version"]);
+  // Prolongations et packs (D-30) : 0,10 USD à prix coûtant, arrondi vers le haut aux décimales du token.
+  assert.equal(policy.noTrainingComputeAmount, "100000000000000000");
+  assert.deepEqual(policy.apiCallsPerDay, { logistic_regression: 50, gradient_boosted_trees: 100 });
   assert.equal(policy.chainId, 46630);
   assert.equal(policy.computeRecipient, plan.computeRecipient);
   assert.equal(policy.profiles.linear_regression.maxExecutionMs, 30000);
@@ -62,7 +65,9 @@ test("la politique runner n'est produite qu'après approbation, financement, cal
   assert.deepEqual(policy.profiles.gradient_boosted_trees, policy.profiles.logistic_regression);
   const withoutTrees = clone(approved);
   delete withoutTrees.profiles.gradient_boosted_trees;
-  assert.ok(!Object.hasOwn(tariffReport(withoutTrees, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 }).billingPolicy.profiles, "gradient_boosted_trees"));
+  const treeless = tariffReport(withoutTrees, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 }).billingPolicy;
+  assert.ok(!Object.hasOwn(treeless.profiles, "gradient_boosted_trees"));
+  assert.deepEqual(treeless.apiCallsPerDay, { logistic_regression: 50 }, "pas de quota API pour un profil non tarifé");
   const uncalibrated = clone(approved);
   uncalibrated.profiles.gradient_boosted_trees.phalaCalibrated = false;
   assert.deepEqual(tariffReport(uncalibrated, verifiedPlan, { usdc: USDC, usdcDecimals: 18, now: 1_800_000_000_000 }).blockers, ["profil gradient_boosted_trees non calibré sur la CVM"]);
@@ -90,6 +95,10 @@ test("une proposition incohérente est refusée en bloc", () => {
     (p) => { p.currency.usdPerUsdcLowerBoundMicros = "1100000"; },
     (p) => { p.fixedCostCoverage.attemptsPerMonth = 10; },
     (p) => { p.stopScenarios = []; },
+    (p) => { delete p.noTraining; },
+    (p) => { p.noTraining.computeUsdMicros = "0"; },
+    (p) => { p.api.callsPerDay.linear_regression = 10; },
+    (p) => { p.api.callsPerDay.logistic_regression = 10_001; },
   ]) {
     const bad = clone(proposal);
     change(bad);

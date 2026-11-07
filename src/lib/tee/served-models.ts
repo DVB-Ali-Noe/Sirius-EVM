@@ -9,11 +9,13 @@ import { AppError } from "@/lib/app-error";
 import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 import { MODEL_REF_ID_PATTERN, modelRefString, type ModelRef } from "./contract";
 import { quantizeModel } from "./output-gate";
+import { clearLoanCredits } from "@/lib/runner/prediction-usage";
 
 const MAX_SEALED_BYTES = 512 * 1024;
 const MAX_INDEX_BYTES = 4 * 1024;
 const MODEL_SUFFIX = ".enc";
 const INDEX_SUFFIX = ".loan";
+const API_KEYS_SUFFIX = ".keys";
 const RENTAL_GRACE_MS = RENTAL_GRACE_DAYS * DAY_MS;
 
 /** Message unique d'un modèle de prêt purgé (ou purgeable) : aucune prolongation possible. */
@@ -72,6 +74,14 @@ function indexPath(ref: ModelRef): string {
   return join(privateDirectory(), `${name}${INDEX_SUFFIX}`);
 }
 
+/**
+ * Clés API d'un prêt (api-keys.ts) : même volume, même empreinte que son modèle, supprimées avec
+ * lui à la purge de la location.
+ */
+export function loanApiKeysPath(loanId: string): string {
+  return join(privateDirectory(), `${refDigest({ kind: "loan", id: loanId })}${API_KEYS_SUFFIX}`);
+}
+
 function key(ref: ModelRef): Buffer {
   return deriveKey(getMasterKey(), `model:served:v2:${refString(ref)}`);
 }
@@ -81,7 +91,7 @@ function indexKey(): Buffer {
 }
 
 /** Fichier privé du volume : régulier, lien unique, 0600, au runner, borné ; `null` s'il n'existe pas. */
-function readPrivateFile(path: string, maximum: number): Buffer | null {
+export function readPrivateFile(path: string, maximum: number): Buffer | null {
   let fd: number;
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -105,7 +115,7 @@ function syncDirectory(): void {
 }
 
 /** Écriture durable : fichier temporaire synchronisé, puis lien (création seule) ou renommage (remplacement). */
-function writePrivateFile(path: string, payload: Buffer, replace: boolean): void {
+export function writePrivateFile(path: string, payload: Buffer, replace: boolean): void {
   const temporary = `${path}.${randomBytes(16).toString("hex")}.tmp`;
   const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   try {
@@ -259,7 +269,8 @@ export function extendLoanRental(originalLoanId: string, extensionLoanId: string
 export function deleteServedModel(ref: ModelRef): void {
   const removed = unlinkIfPresent(servedPath(ref));
   const indexed = ref.kind === "loan" && unlinkIfPresent(indexPath(ref));
-  if (removed || indexed) syncDirectory();
+  const keys = ref.kind === "loan" && unlinkIfPresent(loanApiKeysPath(ref.id));
+  if (removed || indexed || keys) syncDirectory();
 }
 
 /**
@@ -294,6 +305,14 @@ export function sweepExpiredLoanModels(now = Date.now()): number {
       continue;
     }
     if (sealed && (sealed.expiresAt === undefined || sealed.expiresAt + RENTAL_GRACE_MS > now)) continue;
+    // Crédits de packs perdus avec le modèle (D-30), effacés d'abord : un échec laisse le modèle
+    // en place pour la purge suivante, jamais un modèle supprimé avec des crédits restants.
+    try {
+      clearLoanCredits(ref.id);
+    } catch {
+      console.warn("[served-models] crédits d'appels non effacés : modèle gardé jusqu'à la purge suivante");
+      continue;
+    }
     deleteServedModel(ref);
     if (sealed) deleted++;
   }

@@ -61,7 +61,8 @@ test("la supervision reste accessible sans budget disponible, sans autoriser de 
   const profile = { computeAmount: "7000000", maxFailureFee: "1", executionRateAtomicPerMs: "1", maxExecutionMs: 15000 };
   const tariff = JSON.stringify({ version: 1, tariffVersion: "tarif-monitor", costReference: "synthetic",
     validUntil: Date.now() + 60_000, chainId: 46630, usdc: `0x${"56".repeat(20)}`, usdcDecimals: 18, computeRecipient: `0x${"78".repeat(20)}`,
-    minimumComputeAmount: "1", profiles: { logistic_regression: profile, linear_regression: profile, gradient_boosted_trees: profile } });
+    minimumComputeAmount: "1", noTrainingComputeAmount: "1", apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
+    profiles: { logistic_regression: profile, linear_regression: profile, gradient_boosted_trees: profile } });
   writeFileSync(process.env.RUNNER_BILLING_POLICY_FILE, tariff);
   const billed = await request("GET", `Bearer ${secret}`);
   assert.deepEqual(billed.body.tariff, { version: "tarif-monitor", profiles: ["gradient_boosted_trees", "linear_regression", "logistic_regression"],

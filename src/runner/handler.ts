@@ -1,10 +1,11 @@
 import "server-only";
+import { verifyApiSignature } from "@/lib/runner/api-signature";
 import { keccak256, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { predictionOutput } from "@/lib/models/predict";
-import { extendableLoanModel, extendLoanRental, hasSealedLoanModel, loadServedModel, recordLoanExpiry, servedModelFingerprint } from "@/lib/tee/served-models";
-import { reservePrediction } from "@/lib/runner/prediction-usage";
+import { DELETED_LOAN_MODEL, extendableLoanModel, extendLoanRental, hasSealedLoanModel, loadServedModel, recordLoanExpiry, servedModelFingerprint } from "@/lib/tee/served-models";
+import { creditCallPack, predictionAllowance, reservePrediction } from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
   escrowLock,
@@ -25,13 +26,13 @@ import { datasetRegistryAddress } from "@/lib/evm/addresses";
 import { siriusdatasetregistryAbi } from "@/lib/evm/abi/siriusdatasetregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { canonicalSubject } from "@/lib/subject";
-import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { trainingProfileHash, type DeliveredModel, type ModelId, type ModelSelection } from "@/lib/models/registry";
 import { assertLockedProfile, requestedTrainingProfile, type ProfileAdmission } from "@/lib/runner/profile-admission";
 import { AppError } from "@/lib/app-error";
-import { datasetIngressPublicKey } from "@/lib/tee/ingress";
+import { apiKeyEnvelopeDigest, datasetIngressPublicKey, decryptApiKeySecret, parseApiKeyEnvelope } from "@/lib/tee/ingress";
 import { verifyRunnerGrant } from "@/lib/runner/authorization";
 import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, runnerBudget, withWorkflowBudget } from "@/lib/runner/budget";
-import { billingEnabled } from "@/lib/billing/config";
+import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
 import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
 import { recoverBilledLoanResult } from "@/lib/billing/recovery";
@@ -45,12 +46,15 @@ import {
   type LoanReceipt,
 } from "@/lib/runner/receipt";
 import {
+  API_KEY_ID_PATTERN,
   MAX_DATASET_BYTES,
   MODEL_REF_ID_PATTERN,
   PREDICTION_DOMAIN_NAME,
   PREDICTION_DOMAIN_VERSION,
   PREDICTION_EIP712_TYPES,
   modelRefString,
+  type ApiModelInfo,
+  type ApiPrediction,
   type DatasetIngressEnvelope,
   type DatasetRef,
   type LoanJobResult,
@@ -69,6 +73,9 @@ import { sealChunkedDataset } from "@/lib/tee/core";
 import { MAX_CHUNKED_DATASET_BYTES, manifestSha256, parseChunkedUploadManifest, type ChunkedUploadManifest } from "@/lib/upload/chunked";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { chunkedSeals, chunkedStorageConfig, r2SealSource } from "./chunked-seal-jobs";
+import { loadApiKey, registerApiKey, revokeApiKey } from "@/lib/tee/api-keys";
+import { consumeRunnerReplay } from "@/lib/runner/replay";
+import { API_REQUEST_MAX_SKEW_SECONDS, PACK_MIN_RENTAL_LEFT_MS, isCallPackSize } from "@/lib/billing/api-pricing";
 
 const MAX_ID_LENGTH = 128;
 
@@ -199,6 +206,110 @@ function predictionFeatures(body: Record<string, unknown>): { features: Record<s
   return { features: features as Record<string, number>, serialized };
 }
 
+/** Les variables exactes du modèle, dans son ordre ; sinon 400 `invalid_features`. */
+function modelFeatureValues(names: readonly string[], features: Record<string, number>): number[] {
+  if (Object.keys(features).length !== names.length || names.some((name) => !Object.hasOwn(features, name))) {
+    throw new AppError("Variables de prédiction hors modèle", 400, "invalid_features");
+  }
+  return names.map((name) => features[name]);
+}
+
+/**
+ * Quota quotidien inclus d'un prêt (D-30) : `apiCallsPerDay` de son profil dans la politique de
+ * facturation, partagé par le site et l'API. Jamais pour la régression linéaire (D-27), jamais
+ * hors facturation v7 : `undefined` ⇒ `RUNNER_PREDICT_DAILY_LIMIT`, sans API ni packs.
+ */
+function loanCallsPerDay(modelId: ModelId): number | undefined {
+  if (!billingEnabled() || modelId === "linear_regression") return undefined;
+  return billingPolicy().apiCallsPerDay[modelId];
+}
+
+function apiCallsPerDay(modelId: ModelId): number {
+  const calls = loanCallsPerDay(modelId);
+  if (calls === undefined) throw new AppError("API indisponible pour ce profil de modèle", 409, "api_not_available_for_profile");
+  return calls;
+}
+
+function assertPackRentalOpen(expiresAt: number | undefined): void {
+  const left = expiresAt === undefined ? 0 : expiresAt - Date.now();
+  if (left <= 0) throw new AppError("Location expirée : prolonge avant d’acheter des appels", 403, "rental_expired");
+  if (left < PACK_MIN_RENTAL_LEFT_MS) {
+    throw new AppError("Moins d’une heure de location restante : prolonge avant d’acheter des appels", 409, "rental_ending");
+  }
+}
+
+function apiKeyId(body: Record<string, unknown>): string {
+  const keyId = body.keyId;
+  if (typeof keyId !== "string" || !API_KEY_ID_PATTERN.test(keyId)) throw new AppError("Identifiant de clé API invalide", 400);
+  return keyId;
+}
+
+const API_NONCE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+const MAX_API_BODY_BYTES = 16 * 1024;
+
+function invalidSignature(): AppError {
+  return new AppError("Signature de requête invalide", 401, "invalid_signature");
+}
+
+/**
+ * Requête de l'API développeurs, vérifiée dans l'ordre du contrat D-30 : clé connue, non
+ * révoquée, du prêt `loanId` ; horodatage à ±300 s ; HMAC-SHA256 du secret scellé (comparaison à
+ * temps constant) sur `apiCanonicalString`, avec la méthode et le chemin PUBLICS recalculés depuis
+ * l'opération et le prêt (une signature `api-info` ne vaut pas `api-predict`, ni pour un autre
+ * prêt) ; nonce à usage unique. Le secret ne sort pas de cette fonction.
+ */
+function verifyApiRequest(op: "api-predict" | "api-info", body: Record<string, unknown>): { loanId: string; owner: string; payload: string } {
+  const loanId = text(body, "loanId");
+  if (!MODEL_REF_ID_PATTERN.test(loanId)) throw new AppError("Identifiant de prêt invalide", 400);
+  const keyId = body.keyId;
+  const key = typeof keyId === "string" ? loadApiKey(loanId, keyId) : null;
+  if (!key) throw new AppError("Clé API inconnue pour ce modèle", 401, "unknown_key");
+  try {
+    if (key.revokedAt !== undefined) throw new AppError("Clé API révoquée", 401, "key_revoked");
+    const { timestamp, nonce, signature, method, path, body: payload } = body;
+    if (!Number.isSafeInteger(timestamp)) throw invalidSignature();
+    if (Math.abs(Date.now() / 1_000 - (timestamp as number)) > API_REQUEST_MAX_SKEW_SECONDS) {
+      throw new AppError("Requête expirée : horodatage à plus de 5 minutes de l’horloge de l’enclave", 401, "request_expired");
+    }
+    const expected = op === "api-predict"
+      ? { method: "POST", path: `/v1/models/${loanId}/predict` }
+      : { method: "GET", path: `/v1/models/${loanId}` };
+    if (typeof method !== "string" || method.toUpperCase() !== expected.method || path !== expected.path
+      || typeof nonce !== "string" || !API_NONCE_PATTERN.test(nonce)
+      || typeof signature !== "string" || typeof payload !== "string") throw invalidSignature();
+    if (Buffer.byteLength(payload) > MAX_API_BODY_BYTES) throw new AppError("Corps de requête trop volumineux", 413);
+    if (!verifyApiSignature({ secret: key.secret, ...expected, timestamp: timestamp as number, nonce, body: payload, signature })) {
+      throw invalidSignature();
+    }
+    // Mémorisé tant que l'horodatage reste admissible : au-delà, la requête serait refusée comme expirée.
+    if (!consumeRunnerReplay("api", `${key.keyId}:${nonce}`, ((timestamp as number) + API_REQUEST_MAX_SKEW_SECONDS + 1) * 1_000)) {
+      throw new AppError("Requête déjà reçue : nonce réutilisé", 409, "replayed_request");
+    }
+    return { loanId, owner: key.owner, payload };
+  } finally {
+    key.secret.fill(0);
+  }
+}
+
+/** Corps d'une prédiction API : exactement `{ "features": { … } }`, mêmes bornes que `predict`. */
+function apiPredictionFeatures(payload: string): { features: Record<string, number>; serialized: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    throw new AppError("Corps JSON invalide", 400, "invalid_features");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.keys(parsed).length !== 1 || !Object.hasOwn(parsed, "features")) {
+    throw new AppError("Corps attendu : { \"features\": { … } }", 400, "invalid_features");
+  }
+  try {
+    return predictionFeatures(parsed as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof AppError) throw new AppError(error.message, error.status, "invalid_features");
+    throw error;
+  }
+}
+
 export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { op: RunnerOperation; scope: RunnerScope } {
   switch (op) {
     case "dataset-ingress-key":
@@ -212,6 +323,11 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
     case "settle-loan":
     case "extend-loan":
     case "recover-loan-job":
+    case "register-api-key":
+    case "revoke-api-key":
+    case "api-predict":
+    case "api-info":
+    case "buy-calls":
       return { op, scope: { loanId: text(body, "loanId") } };
     case "run-training":
       return { op, scope: { datasetId: text(body, "datasetId"), jobId: text(body, "jobId") } };
@@ -239,10 +355,19 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
  */
 export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "seal-chunked-status"]);
 
+/**
+ * API développeurs (D-30) : aucune réservation dans le registre de budget global non plus. Une
+ * prédiction API est payée par le quota du prêt ou ses packs (`noTrainingComputeAmount` au
+ * règlement), pas par la marge de Sirius : sans exemption, le trafic signé d'un seul emprunteur
+ * épuisait le budget de toutes les opérations sponsorisées. Débit par prêt et concurrence propre
+ * sont bornés dans le serveur (`ApiOpsGuard`, `free-ops-guard.ts`).
+ */
+export const API_OPS: ReadonlySet<RunnerOperation> = new Set(["api-predict", "api-info", "register-api-key", "revoke-api-key"]);
+
 export async function handleRunnerOp(op: RunnerOperation, body: Record<string, unknown>): Promise<unknown> {
   checkDemoOperation(op);
-  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "extend-loan" || op === "recover-loan-job")) return executeRunnerOp(op, body);
-  if (UNCHARGED_OPS.has(op)) {
+  if (billingEnabled() && (op === "run-loan-job" || op === "settle-loan" || op === "extend-loan" || op === "recover-loan-job" || op === "buy-calls")) return executeRunnerOp(op, body);
+  if (UNCHARGED_OPS.has(op) || API_OPS.has(op)) {
     runnerBudget();
     return executeRunnerOp(op, body);
   }
@@ -377,10 +502,23 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           if (original.owner !== borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
           if (original.model.algo !== dataset.modelId) throw new AppError("Prolongation hors scope", 409);
         }
+        const callPack = body.callPack;
+        const packForLoanId = body.packForLoanId === undefined ? undefined : text(body, "packForLoanId");
+        if ((callPack === undefined) !== (packForLoanId === undefined) || (callPack !== undefined && !isCallPackSize(callPack))
+          || (packForLoanId !== undefined && extendsLoanId !== undefined)) throw new AppError("Pack d’appels invalide", 400);
+        if (packForLoanId !== undefined) {
+          // Refus avant tout lock : un pack n'est payé que pour une location en cours, à l'emprunteur, d'un profil ouvert à l'API.
+          const original = extendableLoanModel(packForLoanId);
+          if (original.owner !== borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
+          if (original.model.algo !== dataset.modelId) throw new AppError("Pack d’appels hors scope", 409);
+          assertPackRentalOpen(original.expiresAt);
+          apiCallsPerDay(dataset.modelId);
+        }
         const billingQuote = await prepareComputeQuote({
           dataset, datasetReceipt: text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), borrower, provider, loanId,
           onChainDatasetId, hashlock, authorizationDeadline: boundedInteger(body, "authorizationDeadline", 1, 2 ** 40 - 1),
           rentalDays, ...(extendsLoanId === undefined ? {} : { extendsLoanId }),
+          ...(packForLoanId === undefined || !isCallPackSize(callPack) ? {} : { callPack, packForLoanId }),
         });
         return { hashlock, authorization: billingQuote.authorization, billingQuote };
       }
@@ -411,6 +549,10 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       if (signedQuote) assertQuoteDataset(signedQuote.quote, dataset, datasetReceiptToken, borrower, loanId);
       // Une prolongation ne paie que la durée (compute minimal) : elle ne lance jamais d'entraînement.
       if (signedQuote?.quote.extendsLoanId !== undefined) throw new AppError("Prolongation : aucun entraînement", 409);
+      // Un pack d'appels ne paie que des prédictions : jamais d'entraînement non plus.
+      if (signedQuote?.quote.callPack !== undefined || signedQuote?.quote.packForLoanId !== undefined) {
+        throw new AppError("Pack d’appels : aucun entraînement", 409);
+      }
       assertLockedProfile(dataset, signedQuote);
       const candidateTier: FinalityTier = signedQuote ? loanFinalityTier(body.finalityTier, signedQuote.quote) : "FULL";
       const loanScope = (finalityTier: FinalityTier) => assertLoanScope({
@@ -573,6 +715,9 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       if (quote.loanId !== loanId || quote.extendsLoanId !== originalLoanId || quote.datasetId !== original.datasetId
         || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Prolongation hors scope", 409);
       if (quote.borrower !== original.borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
+      if (canonicalSubject(quote.provider) !== canonicalSubject(original.provider)) {
+        throw new AppError("Prolongation : fournisseur différent du prêt d’origine", 409);
+      }
       if (body.authorization) {
         const { subject } = await verifyRunnerGrant(body.authorization, {
           operation: op, loanId, intentParts: [loanId, originalLoanId],
@@ -596,6 +741,108 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier);
         return { settleTxHash, expiresAt: extendLoanRental(originalLoanId, loanId, await releaseTimeMs(settleTxHash), quote.rentalDays) };
       }));
+    }
+
+    case "buy-calls": {
+      if (!billingEnabled()) throw new AppError("Packs d’appels réservés aux prêts v7", 409);
+      const loanId = text(body, "loanId");
+      const originalLoanId = text(body, "originalLoanId");
+      const original = verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), originalLoanId);
+      const originalRentalDays = original.billingQuote ? parseComputeQuote(original.billingQuote.quote).rentalDays : null;
+      if (originalRentalDays === null) throw new AppError("Prêt sans durée de location : packs d’appels impossibles", 409);
+      const quote = requireRentalQuote((await runnerComputeQuote(body.billingQuote)).quote);
+      if (quote.loanId !== loanId || quote.packForLoanId !== originalLoanId || !isCallPackSize(quote.callPack)
+        || quote.extendsLoanId !== undefined || quote.rentalDays !== originalRentalDays || quote.datasetId !== original.datasetId
+        || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Pack d’appels hors scope", 409);
+      if (quote.borrower !== original.borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
+      if (canonicalSubject(quote.provider) !== canonicalSubject(original.provider)) {
+        throw new AppError("Pack d’appels : fournisseur différent du prêt d’origine", 409);
+      }
+      if (body.authorization) {
+        const { subject } = await verifyRunnerGrant(body.authorization, {
+          operation: op, loanId, intentParts: [loanId, originalLoanId],
+        });
+        if (canonicalSubject(subject) !== original.borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
+      }
+      const calls = quote.callPack;
+      const lockBlock = BigInt(text(body, "lockBlock", 20));
+      const finalityTier = loanFinalityTier(body.finalityTier, quote);
+      const { preimage } = escrowLock(loanId, quote.borrower);
+      const loanKey = loanKeyFor(quote.borrower, loanId);
+      // Contrôles d'avant paiement, seulement tant qu'aucune release du pack n'est engagée : profil
+      // ouvert à l'API, modèle d'origine scellé sous l'empreinte du reçu, au moins une heure de
+      // location. Refus ⇒ aucun release, le lock du pack reste remboursable à son échéance.
+      const beforeRelease = () => {
+        apiCallsPerDay(quote.modelId);
+        const sealed = loadServedModel({ kind: "loan", id: originalLoanId });
+        if (!sealed) throw new AppError(DELETED_LOAN_MODEL, 409);
+        if (sealed.owner !== original.borrower || servedModelFingerprint(sealed.model) !== original.modelCid) {
+          throw new AppError("Pack d’appels hors scope", 409);
+        }
+        assertPackRentalOpen(sealed.expiresAt);
+      };
+      // Release engagée (signée ou publiée) : un rejeu la mène à son terme puis crédite `callPack`
+      // appels une seule fois (journal des packs, clé = loanId du pack), même si la location a
+      // expiré ou si la politique a changé depuis le paiement. Un pack payé n'est jamais perdu ;
+      // ses crédits servent pendant la location et disparaissent avec le modèle (purge après la grâce).
+      return withWorkflowBudget(quoteWorkflow(quote), () => budgetRunnerRequest(async () => {
+        const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier, beforeRelease);
+        return { settleTxHash, credits: creditCallPack({ packLoanId: loanId, originalLoanId, subject: quote.borrower, calls }) };
+      }));
+    }
+
+    case "register-api-key": {
+      const loanId = text(body, "loanId");
+      const keyId = apiKeyId(body);
+      const envelope = parseApiKeyEnvelope(body.envelope);
+      const receipt = verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), loanId);
+      const { subject } = await verifyRunnerGrant(body.authorization, {
+        operation: op, loanId, intentParts: [loanId, keyId, apiKeyEnvelopeDigest(envelope)],
+      });
+      const owner = canonicalSubject(subject);
+      if (owner !== receipt.borrower) throw new AppError("Clé API réservée à l’emprunteur", 403);
+      // Profil d'abord (aucune lecture on-chain pour une régression linéaire), puis règlement et location.
+      apiCallsPerDay(receipt.modelId);
+      await apiLoanModel(receipt, owner, body);
+      const secret = decryptApiKeySecret(keyId, envelope);
+      try {
+        return registerApiKey({ loanId, keyId, owner, secret });
+      } finally {
+        secret.fill(0);
+      }
+    }
+
+    case "revoke-api-key": {
+      const loanId = text(body, "loanId");
+      const keyId = apiKeyId(body);
+      const { subject } = await verifyRunnerGrant(body.authorization, { operation: op, loanId, intentParts: [loanId, keyId] });
+      return revokeApiKey({ loanId, keyId, owner: canonicalSubject(subject) });
+    }
+
+    case "api-predict": {
+      const { loanId, owner, payload } = verifyApiRequest(op, body);
+      const receipt = verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), loanId);
+      if (receipt.borrower !== owner) throw new AppError("Clé API inconnue pour ce modèle", 401, "unknown_key");
+      const loan = await apiLoanModel(receipt, owner, body);
+      const { features, serialized } = apiPredictionFeatures(payload);
+      const values = modelFeatureValues(loan.model.features, features);
+      const ref: ModelRef = { kind: "loan", id: loanId };
+      const revision = predictionSessionRevision();
+      const { counter, remaining } = reservePrediction(owner, ref, revision, loan.callsPerDay);
+      const prediction = await signPrediction({ ref, model: loan.model, subject: owner, serialized, values, counter, revision });
+      return { ...prediction, remaining, expiresAt: loan.expiresAt } satisfies ApiPrediction;
+    }
+
+    case "api-info": {
+      const { loanId, owner, payload } = verifyApiRequest(op, body);
+      if (payload !== "") throw new AppError("Corps de requête inattendu", 400);
+      const receipt = verifySettledLoanReceipt(text(body, "loanReceipt", MAX_RECEIPT_LENGTH), loanId);
+      if (receipt.borrower !== owner) throw new AppError("Clé API inconnue pour ce modèle", 401, "unknown_key");
+      const loan = await apiLoanModel(receipt, owner, body);
+      return {
+        loanId, modelId: loan.model.algo, modelVersion: loan.model.version, features: [...loan.model.features],
+        expiresAt: loan.expiresAt, remaining: predictionAllowance(owner, { kind: "loan", id: loanId }, loan.callsPerDay),
+      } satisfies ApiModelInfo;
     }
 
     case "run-training": {
@@ -657,37 +904,11 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         if (served.owner !== caller) throw new AppError("Prédiction réservée au propriétaire", 403);
         if (loanReceipt && served.model.algo !== loanReceipt.modelId) throw new AppError("Modèle indisponible", 409);
         // Échéance de location (horloge système de la CVM) : refus avant tout décompte de quota.
-        if (served.expiresAt !== undefined && Date.now() >= served.expiresAt) throw new AppError("Location expirée : prolonge pour continuer", 403);
-        const names = served.model.features;
-        if (Object.keys(features).length !== names.length || names.some((name) => !Object.hasOwn(features, name))) {
-          throw new AppError("Variables de prédiction hors modèle", 400);
-        }
-        const values = names.map((name) => features[name]);
-        const counter = reservePrediction(caller, ref, revision);
-        let output;
-        try {
-          output = predictionOutput(served.model, values);
-        } catch {
-          throw new AppError("Prédiction numérique instable", 422);
-        }
-        const modelRefText = modelRefString(ref);
-        const account = privateKeyToAccount(`0x${deriveKey(getMasterKey(), "prediction:sign:v1").toString("hex")}`);
-        const domain = { name: PREDICTION_DOMAIN_NAME, version: PREDICTION_DOMAIN_VERSION, chainId: evmEscrowBinding().chainId } as const;
-        const signedMessage = {
-          modelRef: modelRefText, modelId: served.model.algo, modelVersion: served.model.version,
-          subject: caller as `0x${string}`, featuresHash: keccak256(stringToHex(serialized)),
-          outputKind: output.outputKind, output: output.output, counter, sessionRevision: revision,
-        };
-        const signature = await account.signTypedData({
-          domain, primaryType: "Prediction", types: PREDICTION_EIP712_TYPES,
-          message: { ...signedMessage, counter: BigInt(counter), sessionRevision: BigInt(revision) },
-        });
-        if (predictionSessionRevision() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
-        return {
-          modelRef: modelRefText, modelId: served.model.algo, modelVersion: served.model.version,
-          outputKind: output.outputKind, output: output.output, counter, signer: account.address, signature,
-          domain, signedMessage,
-        };
+        if (served.expiresAt !== undefined && Date.now() >= served.expiresAt) throw new AppError("Location expirée : prolonge pour continuer", 403, "rental_expired");
+        const values = modelFeatureValues(served.model.features, features);
+        // Prêt : quota du profil (`apiCallsPerDay`) partagé avec l'API, puis crédits de packs.
+        const { counter } = reservePrediction(caller, ref, revision, ref.kind === "loan" ? loanCallsPerDay(served.model.algo) : undefined);
+        return signPrediction({ ref, model: served.model, subject: caller, serialized, values, counter, revision });
       };
       return predict();
     }
@@ -709,6 +930,51 @@ async function assertLoanSettled(receipt: LoanReceipt, body: Record<string, unkn
       requireBillingBudget().policy.gas.confirmations, loanFinalityTier(body.finalityTier, signed.quote));
     await recordRentalExpiry(receipt.loanId, signed.quote, settleTxHash);
   } else await publishedPreimage(receipt.loanKey as `0x${string}`, receipt);
+}
+
+/**
+ * Modèle d'un prêt servi par l'API (D-30) : prêt réglé (même preuve que `predict`), modèle scellé
+ * à l'emprunteur, location en cours (un prêt sans échéance n'a pas d'API), profil admis.
+ */
+async function apiLoanModel(receipt: LoanReceipt, owner: string, body: Record<string, unknown>): Promise<{ model: DeliveredModel; expiresAt: number; callsPerDay: number }> {
+  await assertLoanSettled(receipt, body);
+  const served = loadServedModel({ kind: "loan", id: receipt.loanId });
+  if (!served) throw new AppError(DELETED_LOAN_MODEL, 403, "rental_expired");
+  if (served.owner !== owner || served.model.algo !== receipt.modelId) throw new AppError("Modèle indisponible", 409);
+  if (served.expiresAt === undefined) throw new AppError("Prêt sans durée de location : API indisponible", 409);
+  if (Date.now() >= served.expiresAt) throw new AppError("Location expirée : prolonge pour continuer", 403, "rental_expired");
+  return { model: served.model, expiresAt: served.expiresAt, callsPerDay: apiCallsPerDay(served.model.algo) };
+}
+
+/** Prédiction signée EIP-712 `SiriusPrediction` par la clé de l'enclave, après réservation du quota. */
+async function signPrediction(input: {
+  ref: ModelRef; model: DeliveredModel; subject: string; serialized: string; values: number[]; counter: number; revision: number;
+}): Promise<SignedPrediction> {
+  const { ref, model, subject, serialized, values, counter, revision } = input;
+  let output;
+  try {
+    output = predictionOutput(model, values);
+  } catch {
+    throw new AppError("Prédiction numérique instable", 422);
+  }
+  const modelRefText = modelRefString(ref);
+  const account = privateKeyToAccount(`0x${deriveKey(getMasterKey(), "prediction:sign:v1").toString("hex")}`);
+  const domain = { name: PREDICTION_DOMAIN_NAME, version: PREDICTION_DOMAIN_VERSION, chainId: evmEscrowBinding().chainId } as const;
+  const signedMessage = {
+    modelRef: modelRefText, modelId: model.algo, modelVersion: model.version,
+    subject: subject as `0x${string}`, featuresHash: keccak256(stringToHex(serialized)),
+    outputKind: output.outputKind, output: output.output, counter, sessionRevision: revision,
+  };
+  const signature = await account.signTypedData({
+    domain, primaryType: "Prediction", types: PREDICTION_EIP712_TYPES,
+    message: { ...signedMessage, counter: BigInt(counter), sessionRevision: BigInt(revision) },
+  });
+  if (predictionSessionRevision() !== revision) throw new AppError("Session Phala remplacée ; renouvelle l’autorisation", 409);
+  return {
+    modelRef: modelRefText, modelId: model.algo, modelVersion: model.version,
+    outputKind: output.outputKind, output: output.output, counter, signer: account.address, signature,
+    domain, signedMessage,
+  };
 }
 
 /** Horodatage (ms) du bloc d'une transaction `release` déjà vérifiée : départ de la location. */

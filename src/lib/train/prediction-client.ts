@@ -1,6 +1,7 @@
 "use client";
 
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
+import { responseError } from "./enclave-wait";
 
 /** Modèle scellé dans le runner : job self-train ou prêt réglé. Aucun modèle ne quitte l'enclave. */
 export interface PredictionTarget {
@@ -51,8 +52,9 @@ export async function requestPrediction(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ features, authorization }),
   });
-  const body = await response.json().catch(() => null) as Partial<PredictionResult> & { error?: unknown } | null;
-  if (!response.ok) throw new Error(typeof body?.error === "string" ? body.error : "Prédiction refusée");
+  // 503 `enclave_starting` : `EnclaveStartingError`, que la zone de prédiction attend au lieu d'afficher une panne.
+  if (!response.ok) throw await responseError(response, "Prédiction refusée");
+  const body = await response.json().catch(() => null) as Partial<PredictionResult> | null;
   if (!body || (body.outputKind !== "value" && body.outputKind !== "decision") || typeof body.output !== "string"
     || (body.outputKind === "decision" && body.output !== "0" && body.output !== "1")
     || !Number.isSafeInteger(body.counter) || body.counter! < 1) {

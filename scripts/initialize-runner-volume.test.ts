@@ -21,7 +21,8 @@ function policies() {
   const profile = { computeAmount: "1000", maxFailureFee: "100", executionRateAtomicPerMs: "1", maxExecutionMs: 1000 };
   const billing = { version: 1, chainId: 46630, usdc: `0x${"34".repeat(20)}`, usdcDecimals: 18,
     computeRecipient: `0x${"56".repeat(20)}`, tariffVersion: "synthetic-test-only", costReference: "synthetic-test-only",
-    validUntil, minimumComputeAmount: "1000", profiles: { linear_regression: profile, logistic_regression: profile } };
+    validUntil, minimumComputeAmount: "1000", noTrainingComputeAmount: "100", apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
+    profiles: { linear_regression: profile, logistic_regression: profile } };
   return { budget, billing };
 }
 

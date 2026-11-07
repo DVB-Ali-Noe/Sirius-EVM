@@ -32,6 +32,17 @@
     "note": "Hypothèses du business plan (base 150 USD, 30 réussites, 34 tentatives à 0,10 USD, coussin 25 %). Fréquentation non observée."
   },
   "minimumComputeUsdMicros": "7000000",
+  "noTraining": {
+    "computeUsdMicros": "100000",
+    "note": "Frais Sirius à prix coûtant d'une prolongation ou d'un pack d'appels API (D-30), sans entraînement : coût variable d'une tentative (0,10 USD), sans marge. Le contrat refuse un compute nul."
+  },
+  "api": {
+    "callsPerDay": {
+      "logistic_regression": 50,
+      "gradient_boosted_trees": 100
+    },
+    "note": "Quota quotidien inclus d'un prêt (site + API) et base du prix des packs : prix par appel = ceil(prix par jour / quota). Jamais linear_regression (D-27)."
+  },
   "profiles": {
     "linear_regression": {
       "maxExecutionMs": 30000,

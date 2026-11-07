@@ -1,0 +1,260 @@
+import "server-only";
+import { prisma } from "@/lib/db";
+import { AppError } from "@/lib/errors";
+import { addressesEqual } from "@/lib/evm/address";
+import { billingEnabled, billingPolicy } from "@/lib/billing/config";
+import { API_KEY_MAX_PER_LOAN } from "@/lib/billing/api-pricing";
+import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
+import type { RunnerGrant } from "@/lib/runner/authorization-contract";
+import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { API_KEY_ID_PATTERN, type ApiKeySecretEnvelope, type DatasetIngressKey } from "@/lib/tee/contract";
+import { datasetIngressKeyInRunner, registerApiKeyInRunner, revokeApiKeyInRunner } from "@/lib/tee/runner-client";
+import { requireAcceptedKyb } from "./access";
+import { requireRunnerOrWake, runnerPhase, type RunnerPhase } from "./availability";
+import { effectiveLoanFinalityTier } from "./finality-tier";
+import { loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
+
+/**
+ * Clés API d'un prêt loué (D-30), côté Next. Le secret n'existe que dans le navigateur (affiché une
+ * fois) et scellé dans l'enclave : Next ne voit que l'enveloppe chiffrée qu'il relaie et ne garde
+ * que l'affichage (nom, dates, compteurs indicatifs). Toute création ou révocation passe par le
+ * runner, sur grant wallet de l'emprunteur ; la ligne locale n'est écrite qu'après sa réponse.
+ */
+
+export const API_UNAVAILABLE_LINEAR = "API indisponible pour la régression linéaire (le modèle serait reconstructible)";
+export const API_UNAVAILABLE_PROFILE = "API indisponible pour ce profil de modèle";
+export const API_PROFILE_CODE = "api_not_available_for_profile";
+
+const KEY_NAME_MAX = 64;
+const USAGE_DAYS = 30;
+const DAY_MS = 86_400_000;
+
+/**
+ * Quota quotidien inclus d'un profil (`apiCallsPerDay` de la politique), `null` sans API : profil
+ * absent de la politique, régression linéaire (jamais, D-27), facturation v7 inactive ou politique
+ * illisible ici. Affichage et contrôles préalables seulement : l'enclave applique la sienne.
+ */
+export function loanApiCallsPerDay(modelId: string, env: Record<string, string | undefined> = process.env): number | null {
+  if (modelId === "linear_regression") return null;
+  try {
+    if (!billingEnabled()) return null;
+    const calls = billingPolicy(env).apiCallsPerDay?.[modelId as ModelId];
+    return typeof calls === "number" && Number.isSafeInteger(calls) && calls >= 1 ? calls : null;
+  } catch {
+    return null;
+  }
+}
+
+export function utcDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+interface ApiLoanOptions {
+  /** Création d'une clé, achat d'appels : la location doit être en cours. La liste reste lisible après. */
+  requireActiveRental: boolean;
+  now?: number;
+}
+
+/**
+ * Prêt d'origine réglé de `borrower`, à modèle servi et dont le profil a une API. Refus explicites :
+ * autre compte (403), prolongation ou pack (409), règlement non confirmé (409), linéaire ou profil
+ * sans quota (409 `api_not_available_for_profile`), location échue (403 `rental_expired`).
+ */
+export async function assertApiLoan(loanId: string, borrower: string, options: ApiLoanOptions) {
+  const loan = await prisma.loan.findUnique({ where: { id: loanId } });
+  if (!loan) throw new AppError("Loan introuvable", 404);
+  if (!addressesEqual(loan.borrower, borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
+  if (loan.extendsLoanId || loan.packForLoanId) throw new AppError("Prolongation ou pack d’appels : utilise le prêt d’origine", 409);
+  if (loan.status !== "SETTLED" || loan.finalityReview || !loan.runnerReceipt || !loan.settleTxHash) {
+    throw new AppError("Règlement du prêt non confirmé", 409);
+  }
+  if (loan.modelId === "linear_regression") throw new AppError(API_UNAVAILABLE_LINEAR, 409, API_PROFILE_CODE);
+  const callsPerDay = loanApiCallsPerDay(loan.modelId);
+  if (callsPerDay === null) throw new AppError(API_UNAVAILABLE_PROFILE, 409, API_PROFILE_CODE);
+  if (!isServedModelFingerprint(loan.modelCid)) throw new AppError("Modèle indisponible", 409);
+  const expiresAt = await loanRentalExpiry(loan);
+  if (!expiresAt) throw new AppError("Prêt sans durée de location : API indisponible", 409);
+  if (options.requireActiveRental && (options.now ?? Date.now()) >= expiresAt.getTime()) {
+    throw new AppError(RENTAL_EXPIRED, 403, "rental_expired");
+  }
+  return { ...loan, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash, rentalExpiresAt: expiresAt, callsPerDay };
+}
+
+export interface ApiKeyView {
+  keyId: string;
+  name: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  calls30d: number;
+}
+
+export interface LoanApiKeys {
+  keys: ApiKeyView[];
+  callsPerDay: number;
+  /** Indicatif (journal d'affichage) : le quota et les crédits font foi dans l'enclave. */
+  usage: { apiCallsToday: number; creditsPurchased: number };
+  enclave: RunnerPhase;
+}
+
+/** Clés du prêt (sans secret), appels des 30 derniers jours, crédits achetés et état de la CVM. */
+export async function listLoanApiKeys(loanId: string, borrower: string, now = new Date()): Promise<LoanApiKeys> {
+  const { callsPerDay } = await assertApiLoan(loanId, borrower, { requireActiveRental: false, now: now.getTime() });
+  const today = utcDay(now);
+  const since = utcDay(new Date(now.getTime() - (USAGE_DAYS - 1) * DAY_MS));
+  const [keys, usage, packs, enclave] = await Promise.all([
+    prisma.apiKey.findMany({ where: { loanId }, orderBy: { createdAt: "asc" } }),
+    prisma.apiUsageDay.findMany({ where: { key: { loanId }, day: { gte: since } }, select: { keyId: true, day: true, calls: true } }),
+    prisma.loan.findMany({ where: { packForLoanId: loanId, status: "SETTLED" }, select: { callPack: true } }),
+    runnerPhase(),
+  ]);
+  const calls30d = new Map<string, number>();
+  let apiCallsToday = 0;
+  for (const row of usage) {
+    calls30d.set(row.keyId, (calls30d.get(row.keyId) ?? 0) + row.calls);
+    if (row.day === today) apiCallsToday += row.calls;
+  }
+  return {
+    keys: keys.map((key) => ({
+      keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString(),
+      revokedAt: key.revokedAt?.toISOString() ?? null, lastUsedAt: key.lastUsedAt?.toISOString() ?? null,
+      calls30d: calls30d.get(key.id) ?? 0,
+    })),
+    callsPerDay,
+    usage: { apiCallsToday, creditsPurchased: packs.reduce((sum, pack) => sum + (pack.callPack ?? 0), 0) },
+    enclave,
+  };
+}
+
+/**
+ * Première étape de la création : contrôles d'accès, réveil de la CVM si besoin (503), puis clé
+ * d'ingestion de l'enclave pour que le navigateur y chiffre le secret.
+ */
+export async function prepareLoanApiKey(loanId: string, borrower: string): Promise<{ ingressKey: DatasetIngressKey }> {
+  const loan = await assertApiLoan(loanId, borrower, { requireActiveRental: true });
+  await assertKeyCapacity(loanId);
+  await requireRunnerOrWake();
+  await assertCurrentRunner(loan);
+  return { ingressKey: await datasetIngressKeyInRunner() };
+}
+
+async function assertKeyCapacity(loanId: string, keyId?: string): Promise<void> {
+  const active = await prisma.apiKey.count({ where: { loanId, revokedAt: null, ...(keyId ? { id: { not: keyId } } : {}) } });
+  if (active >= API_KEY_MAX_PER_LOAN) {
+    throw new AppError(`Au plus ${API_KEY_MAX_PER_LOAN} clés API actives par prêt : révoque une clé d’abord`, 409, "key_limit_reached");
+  }
+}
+
+export function parseApiKeyName(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  // Caractères de contrôle exclus : le nom s'affiche tel quel.
+  if (!name || name.length > KEY_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw new AppError(`Nom de clé invalide (1 à ${KEY_NAME_MAX} caractères)`, 400);
+  }
+  return name;
+}
+
+export function parseApiKeyId(value: unknown): string {
+  if (typeof value !== "string" || !API_KEY_ID_PATTERN.test(value)) throw new AppError("Identifiant de clé invalide", 400);
+  return value;
+}
+
+/** Enveloppe relayée telle quelle à l'enclave : exactement les cinq champs signés dans le grant. */
+export function parseApiKeyEnvelope(value: unknown): ApiKeySecretEnvelope {
+  const fields = ["version", "ephemeralPublicKey", "salt", "iv", "ciphertext"] as const;
+  const envelope = value as Record<string, unknown> | null;
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || Object.keys(envelope).length !== fields.length
+    || envelope.version !== 1
+    || fields.slice(1).some((field) => typeof envelope[field] !== "string" || !/^[A-Za-z0-9_-]{1,512}$/.test(envelope[field] as string))) {
+    throw new AppError("Enveloppe de clé invalide", 400);
+  }
+  return {
+    version: 1, ephemeralPublicKey: envelope.ephemeralPublicKey as string, salt: envelope.salt as string,
+    iv: envelope.iv as string, ciphertext: envelope.ciphertext as string,
+  };
+}
+
+export interface RegisterApiKeyInput {
+  loanId: string;
+  borrower: string;
+  keyId: string;
+  name: string;
+  envelope: ApiKeySecretEnvelope;
+  authorization: RunnerGrant;
+}
+
+/**
+ * Scellement de la clé dans l'enclave (`register-api-key`, idempotent : même `keyId` et même
+ * secret ⇒ même réponse), puis ligne d'affichage. Un `keyId` déjà pris par un autre prêt est refusé.
+ */
+export async function registerLoanApiKey(input: RegisterApiKeyInput) {
+  const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
+  const existing = await prisma.apiKey.findUnique({ where: { id: input.keyId } });
+  if (existing && existing.loanId !== input.loanId) throw new AppError("Identifiant de clé déjà utilisé", 409, "key_conflict");
+  if (existing?.revokedAt) throw new AppError("Clé API révoquée", 409, "key_revoked");
+  if (!existing) await assertKeyCapacity(input.loanId, input.keyId);
+  await requireAcceptedKyb(loan.borrower);
+  await requireRunnerOrWake();
+  await assertCurrentRunner(loan);
+  const sealed = await registerApiKeyInRunner({
+    loanId: loan.id, keyId: input.keyId, envelope: input.envelope, loanReceipt: loan.runnerReceipt,
+    settleTxHash: loan.settleTxHash, authorization: input.authorization, finalityTier: effectiveLoanFinalityTier(loan.finalityTier),
+  });
+  if (sealed.keyId !== input.keyId || !Number.isSafeInteger(sealed.createdAt) || sealed.createdAt <= 0) {
+    throw new AppError("Réponse d’enregistrement de clé invalide", 502);
+  }
+  const key = existing ?? await prisma.apiKey.upsert({
+    where: { id: input.keyId },
+    create: { id: input.keyId, loanId: loan.id, owner: loan.borrower.toLowerCase(), name: input.name, createdAt: new Date(sealed.createdAt) },
+    update: {},
+  });
+  return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
+}
+
+export interface RevokeApiKeyInput {
+  loanId: string;
+  borrower: string;
+  keyId: string;
+  authorization: RunnerGrant;
+}
+
+/**
+ * Révocation dans l'enclave (`revoke-api-key`, idempotente), puis date locale. Elle passe toujours
+ * par le runner : une clé marquée révoquée ici mais encore active dans l'enclave resservirait après
+ * une prolongation. CVM éteinte : réveil demandé et 503.
+ */
+export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
+  const loan = await prisma.loan.findUnique({ where: { id: input.loanId }, select: { id: true, borrower: true } });
+  if (!loan) throw new AppError("Loan introuvable", 404);
+  if (!addressesEqual(loan.borrower, input.borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
+  const key = await prisma.apiKey.findUnique({ where: { id: input.keyId } });
+  if (!key || key.loanId !== loan.id) throw new AppError("Clé API introuvable", 404);
+  if (key.revokedAt) return { keyId: key.id, revokedAt: key.revokedAt.toISOString() };
+  await requireRunnerOrWake();
+  const revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
+  if (revoked.keyId !== key.id || !Number.isSafeInteger(revoked.revokedAt) || revoked.revokedAt <= 0) {
+    throw new AppError("Réponse de révocation invalide", 502);
+  }
+  const revokedAt = new Date(revoked.revokedAt);
+  await prisma.apiKey.updateMany({ where: { id: key.id, revokedAt: null }, data: { revokedAt } });
+  const stored = await prisma.apiKey.findUnique({ where: { id: key.id }, select: { revokedAt: true } });
+  return { keyId: key.id, revokedAt: (stored?.revokedAt ?? revokedAt).toISOString() };
+}
+
+/**
+ * Journal d'affichage d'un appel API authentifié : servi (`call`, et dernière utilisation) ou refusé
+ * après authentification (`refused` : quota, variables, location). Au mieux : jamais bloquant.
+ */
+export async function recordApiUsage(keyId: string, outcome: "call" | "refused", now = new Date()): Promise<void> {
+  try {
+    const increment = outcome === "call" ? { calls: { increment: 1 } } : { refused: { increment: 1 } };
+    await prisma.apiUsageDay.upsert({
+      where: { keyId_day: { keyId, day: utcDay(now) } },
+      create: { keyId, day: utcDay(now), calls: outcome === "call" ? 1 : 0, refused: outcome === "refused" ? 1 : 0 },
+      update: increment,
+    });
+    if (outcome === "call") await prisma.apiKey.updateMany({ where: { id: keyId }, data: { lastUsedAt: now } });
+  } catch {
+    console.warn("[api] journal d’usage indisponible");
+  }
+}

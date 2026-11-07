@@ -12,7 +12,7 @@ import { stablecoinSymbol } from "@/lib/evm/stablecoin";
 export function useComputeQuoteConfirmation() {
   const [quote, setQuote] = useState<ComputeQuote | null>(null);
   const resolver = useRef<((accepted: boolean) => void) | null>(null);
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const finish = useCallback((accepted: boolean) => {
     resolver.current?.(accepted);
     resolver.current = null;
@@ -33,10 +33,16 @@ export function useComputeQuoteConfirmation() {
   const token = t(stablecoinSymbol(resolveClientNetwork()));
   const money = (amount: string) => `${formatUnits(BigInt(amount), quote!.usdcDecimals)} ${token}`;
   const dialog = (
-    <Modal open={quote !== null} onClose={() => finish(false)} title={t("Devis d’entraînement")}>
-      {quote && <div className="space-y-5" role="dialog" aria-modal="true" aria-label={t("Devis d’entraînement")}>
+    <Modal open={quote !== null} onClose={() => finish(false)} title={quote?.callPack ? t("Devis du pack d’appels") : t("Devis d’entraînement")}>
+      {quote && <div className="space-y-5" role="dialog" aria-modal="true" aria-label={quote.callPack ? t("Devis du pack d’appels") : t("Devis d’entraînement")}>
         <dl className="space-y-3 text-sm">
-          {quote.rentalDays != null && (
+          {quote.callPack != null && (
+            <div className="flex justify-between gap-4">
+              <dt>{t("Appels achetés")}</dt>
+              <dd className="font-mono">{quote.callPack.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</dd>
+            </div>
+          )}
+          {quote.rentalDays != null && quote.callPack == null && (
             <div className="flex justify-between gap-4">
               <dt>{quote.extendsLoanId ? t("Jours ajoutés") : t("Durée de location")}</dt>
               <dd className="font-mono">{quote.rentalDays === 1 ? t("1 jour") : t("{days} jours", { days: quote.rentalDays })}</dd>
@@ -46,6 +52,9 @@ export function useComputeQuoteConfirmation() {
           <div className="flex justify-between gap-4"><dt>{t("Prix du compute")}</dt><dd className="font-mono">{money(quote.computeAmount)}</dd></div>
           <div className="flex justify-between gap-4 border-t border-border pt-3 font-semibold"><dt>{t("Total à prépayer")}</dt><dd className="font-mono">{money(totalQuoteAmount(quote))}</dd></div>
         </dl>
+        {quote.callPack != null && (
+          <p className="text-xs text-muted">{t("Les appels achetés s’ajoutent à cette location, après le quota inclus de chaque jour. Ils expirent avec la location et ne sont pas remboursables.")}</p>
+        )}
         <div className="rounded-lg border border-border bg-background/40 p-3 text-xs leading-relaxed text-muted">
           <p>{t("En cas d’échec, le dataset et le compute non consommé sont remboursés. Seuls les frais d’exécution mesurés sont retenus.")}</p>
           <p className="mt-2 font-medium text-foreground">{t("Retenue maximale")} : {money(quote.maxFailureFee)}</p>

@@ -9,7 +9,9 @@ import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
 import { trainInWorker } from "@/lib/tee/bounded-training";
 import type { DatasetRef } from "@/lib/tee/contract";
 import { computeQuoteHash, failureFee, parseComputeQuote, quoteAuthorizationTypedData, quoteTermsHash, requireRentalQuote, verifyComputeQuote, type ComputeQuote } from "./quote";
-import { assertQuoteDataset } from "./runner";
+import { assertQuoteDataset, computeQuoteAmounts } from "./runner";
+import type { BillingPolicy } from "./config";
+import { AppError } from "@/lib/app-error";
 import { datasetAmountFor, isValidRentalDays } from "./rental";
 
 const runner = privateKeyToAccount(`0x${"31".repeat(32)}`);
@@ -41,7 +43,7 @@ test("le devis canonique signe aussi le barème, les plafonds et la politique de
     { maxExecutionMs: 5000 }, { maxDatasetBytes: 1000 }, { tariffVersion: "other" },
     { provider: address("6") }, { computeRecipient: address("6") }, { borrower: address("6") },
     { loanId: "other" }, { datasetReceiptHash: `0x${"44".repeat(32)}` as Hex },
-    { rentalDays: 2 }, { extendsLoanId: "loan-origin" },
+    { rentalDays: 2 }, { extendsLoanId: "loan-origin" }, { callPack: 100 as const, packForLoanId: "loan-origin" },
   ]) {
     const changed = { ...signed.quote, ...changes };
     assert.notEqual(quoteTermsHash(changed), quoteTermsHash(signed.quote));
@@ -124,6 +126,95 @@ test("le montant dataset vaut prix par jour × jours, dans la durée maximale du
   const { rentalDays: _rental, ...legacy } = scoped({});
   void _rental;
   check(parseComputeQuote(legacy));
+});
+
+test("un pack d'appels désigne un autre prêt, une taille autorisée, une durée, et jamais une prolongation", () => {
+  const pack = parseComputeQuote({ ...quote(), callPack: 1000, packForLoanId: "loan-origin" });
+  assert.deepEqual([pack.callPack, pack.packForLoanId], [1000, "loan-origin"]);
+  const plain = parseComputeQuote(quote());
+  assert.equal("callPack" in plain || "packForLoanId" in plain, false, "absents hors pack");
+  for (const changes of [
+    { callPack: 100 }, { packForLoanId: "loan-origin" },
+    { callPack: 500, packForLoanId: "loan-origin" }, { callPack: "100", packForLoanId: "loan-origin" },
+    { callPack: 100, packForLoanId: "loan" }, { callPack: 100, packForLoanId: "" }, { callPack: 100, packForLoanId: "x".repeat(129) },
+    { callPack: 100, packForLoanId: "loan-origin", extendsLoanId: "loan-origin" },
+    { callPack: 100, packForLoanId: "loan-origin", rentalDays: null },
+  ]) assert.throws(() => parseComputeQuote({ ...quote(), ...changes }), /invalide/, JSON.stringify(changes));
+  assert.equal(requireRentalQuote(pack).rentalDays, 1, "durée du prêt d'origine recopiée");
+});
+
+test("les empreintes des devis sans pack sont inchangées ; le pack entre dans l'empreinte", () => {
+  // Empreinte d'avant D-30 : JSON des clés historiques puis `rentalDays`, `extendsLoanId`, dans cet ordre.
+  const q = quote();
+  assert.equal(computeQuoteHash(q), keccak256(toHex(JSON.stringify(q))));
+  const extension = { ...q, extendsLoanId: "loan-origin" };
+  assert.equal(computeQuoteHash(extension), keccak256(toHex(JSON.stringify(extension))));
+  const pack = { ...q, callPack: 100 as const, packForLoanId: "loan-origin" };
+  assert.equal(computeQuoteHash(pack), keccak256(toHex(JSON.stringify(pack))));
+  assert.notEqual(computeQuoteHash(pack), computeQuoteHash(q));
+  assert.notEqual(computeQuoteHash(pack), computeQuoteHash({ ...pack, callPack: 1000 }));
+  assert.equal(computeQuoteHash(parseComputeQuote(JSON.parse(JSON.stringify(pack)))), computeQuoteHash(pack));
+});
+
+const billing = (changes: Partial<BillingPolicy> = {}): BillingPolicy => ({
+  version: 1, tariffVersion: "synthetic-v1", costReference: "synthetic", validUntil: Date.now() + 86_400_000,
+  chainId: 46630, usdc: address("2"), usdcDecimals: 6, computeRecipient: address("5"),
+  minimumComputeAmount: "7000000", noTrainingComputeAmount: "100000",
+  apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
+  profiles: {
+    linear_regression: { computeAmount: "8000000", maxFailureFee: "10000", executionRateAtomicPerMs: "2", maxExecutionMs: 10000 },
+    logistic_regression: { computeAmount: "1000", maxFailureFee: "10000", executionRateAtomicPerMs: "2", maxExecutionMs: 10000 },
+  },
+  ...changes,
+});
+
+test("emprunt : compute du profil relevé au minimum ; prolongation et pack : frais sans entraînement, aucune retenue", () => {
+  const logistic = { modelId: "logistic_regression" as const, priceUsdcAtomic: "1000001" };
+  assert.deepEqual(computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7 }),
+    { datasetAmount: "7000007", computeAmount: "7000000", maxFailureFee: "10000" });
+  assert.deepEqual(computeQuoteAmounts(billing(), { dataset: { ...logistic, modelId: "linear_regression" }, rentalDays: 1 }),
+    { datasetAmount: "1000001", computeAmount: "8000000", maxFailureFee: "10000" });
+  assert.deepEqual(computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, extendsLoanId: "loan-origin" }),
+    { datasetAmount: "7000007", computeAmount: "100000", maxFailureFee: "0" });
+  // Pack : 100 × ceil(1 000 001 / 50) = 100 × 20 001 ; les jours du prêt d'origine ne sont pas facturés.
+  assert.deepEqual(computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, callPack: 100 }),
+    { datasetAmount: "2000100", computeAmount: "100000", maxFailureFee: "0" });
+  assert.equal(computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, callPack: 10000 }).datasetAmount, "200010000");
+});
+
+test("pas de pack pour un profil sans quota d'API, la régression linéaire, une taille invalide ou une prolongation", () => {
+  const logistic = { modelId: "logistic_regression" as const, priceUsdcAtomic: "1000000" };
+  assert.throws(() => computeQuoteAmounts(billing({ apiCallsPerDay: {} }), { dataset: logistic, rentalDays: 1, callPack: 100 }), /API indisponible/);
+  assert.throws(() => computeQuoteAmounts(billing({ apiCallsPerDay: { linear_regression: 10 } }),
+    { dataset: { ...logistic, modelId: "linear_regression" }, rentalDays: 1, callPack: 100 }), /API indisponible/);
+  assert.throws(() => computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 1, callPack: 500 as unknown as 100 }),
+    (error: unknown) => error instanceof AppError && error.status === 400 && /Taille de pack/.test(error.message));
+  assert.throws(() => computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 1, callPack: 100, extendsLoanId: "loan-origin" }), /Pack/);
+  assert.throws(() => computeQuoteAmounts(billing(), { dataset: { ...logistic, modelId: "gradient_boosted_trees" }, rentalDays: 1, callPack: 100 }),
+    /Tarif compute absent/, "profil quoté mais non tarifé");
+});
+
+test("le devis d'un pack se vérifie contre le dataset : montant du pack, aucune retenue, profil avec quota", () => {
+  const receipt = "dataset-receipt";
+  const dataset: DatasetRef = { datasetId: "dataset", cid: "cid", wrappedKey: "key", merkleRoot: "root",
+    priceUsdcAtomic: "1000001", challengeDays: 1, maxRentalDays: 10, modelId: "logistic_regression", modelVersion: "1.0.0" };
+  const calls = billing().apiCallsPerDay;
+  const pack = (changes: Partial<ComputeQuote>) => parseComputeQuote({ ...quote(), modelId: "logistic_regression", modelVersion: "1.0.0",
+    datasetReceiptHash: keccak256(toHex(receipt)), rentalDays: 7, callPack: 100, packForLoanId: "loan-origin",
+    datasetAmount: "2000100", maxFailureFee: "0", ...changes });
+  const check = (q: ComputeQuote, quotas = calls) => assertQuoteDataset(q, dataset, receipt, q.borrower, q.loanId, quotas);
+  check(pack({}));
+  check(pack({ callPack: 1000, datasetAmount: "20001000" }));
+  for (const changes of [
+    { datasetAmount: "2000000" }, { datasetAmount: "7000007" }, { callPack: 1000 as const },
+    { maxFailureFee: "1" }, { rentalDays: 11 },
+  ]) assert.throws(() => check(pack(changes)), /hors scope/, JSON.stringify(changes));
+  assert.throws(() => check(pack({}), {}), /API indisponible/);
+  // Prolongation : jamais de retenue non plus.
+  const extension = (changes: Partial<ComputeQuote>) => parseComputeQuote({ ...quote(), modelId: "logistic_regression", modelVersion: "1.0.0",
+    datasetReceiptHash: keccak256(toHex(receipt)), rentalDays: 7, extendsLoanId: "loan-origin", datasetAmount: "7000007", maxFailureFee: "0", ...changes });
+  check(extension({}));
+  assert.throws(() => check(extension({ maxFailureFee: "1" })), /hors scope/);
 });
 
 test("la retenue vient de la durée mesurée et reste plafonnée, jamais du forfait de réussite", () => {

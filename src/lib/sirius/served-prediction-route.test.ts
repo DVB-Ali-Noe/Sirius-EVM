@@ -130,6 +130,8 @@ function harness(kind: Kind, options: HarnessOptions = {}) {
     ? load<typeof TrainPredictRoute>("src/app/api/train/[id]/predict/route.ts", common)
     : load<typeof LoanPredictRoute>("src/app/api/loans/[id]/predict/route.ts", {
       ...common, "@/lib/sirius/finality-tier": { effectiveLoanFinalityTier: (tier: string) => tier },
+      // CVM allumée (la ligne `RunnerAvailability` absente vaut « running ») : voir developer-api.test.ts pour le réveil.
+      "@/lib/sirius/availability": { requireRunnerOrWake: async () => {}, loanRouteErrorResponse: errorResponse },
       "@/lib/sirius/rental": load<typeof Rental>("src/lib/sirius/rental.ts", {
         "server-only": {}, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses, "@/lib/billing/rental": rentalRules,
         "@/lib/db": { prisma: { loan: {

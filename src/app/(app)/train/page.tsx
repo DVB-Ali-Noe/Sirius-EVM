@@ -4,9 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import Link from "next/link";
 import { RetrainPanel } from "@/components/train/RetrainPanel";
+import { ApiPanel } from "@/components/train/ApiPanel";
+import type { PendingCallPack } from "@/components/train/BuyCallsPanel";
+import { WaitSteps } from "@/components/ui/WaitSteps";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import { DEFAULT_MAX_RENTAL_DAYS, MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
+import { PACK_MIN_RENTAL_LEFT_MS } from "@/lib/billing/api-pricing";
 import { Card } from "@/components/ui/Card";
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
@@ -113,7 +117,7 @@ interface Loan {
   modelVersion: string;
   evmDeadline: string | null;
   createdAt: string;
-  dataset: { name: string; runnerReceipt: string | null; maxRentalDays?: number } | null;
+  dataset: { name: string; runnerReceipt: string | null; maxRentalDays?: number; priceUsdcAtomic?: string | null } | null;
   refundable: boolean;
   /** Jours loués (D-29) ; `null` pour un prêt antérieur, sans échéance. */
   rentalDays?: number | null;
@@ -121,6 +125,12 @@ interface Loan {
   rentalExpiresAt?: string | null;
   /** Prêt de prolongation : identifiant du prêt d'origine. */
   extendsLoanId?: string | null;
+  /** Pack d'appels API (D-30) : taille achetée et prêt d'origine crédité. */
+  callPack?: number | null;
+  packForLoanId?: string | null;
+  /** Prêt d'origine : le profil a un quota d'appels API (jamais la régression linéaire). */
+  apiEnabled?: boolean;
+  callsPerDay?: number | null;
 }
 
 interface Job {
@@ -408,8 +418,8 @@ function TrainPageContent() {
 
   async function runJob(loan: Loan) {
     const key = `job:${loan.id}`;
-    // Une prolongation n'entraîne rien : son règlement passe par `extendLoan` ou le reaper.
-    if (loan.extendsLoanId || activeLoanJobs.current.has(key)) return;
+    // Une prolongation ou un pack d'appels n'entraîne rien : son règlement passe par le serveur ou le reaper.
+    if (loan.extendsLoanId || loan.packForLoanId || activeLoanJobs.current.has(key)) return;
     activeLoanJobs.current.add(key);
     setError(null);
     setNotice(null);
@@ -656,9 +666,28 @@ function TrainPageContent() {
             const fastLock = awaitingLock && tracking?.tier === "FAST";
             const secondsLeft = fastLock && localReadyAt !== null ? lockFinalitySecondsLeft(localReadyAt, now) : 0;
             const state = loanDisplayState({ ...l, lockFinalityPending: awaitingLock });
+            const finalityRemainingSeconds = localReadyAt !== null ? lockFinalitySecondsLeft(localReadyAt, now) : null;
             const refundAllowed = canRefund(l, address);
             const rescueRefund = canRescueRefund(l, address);
             const extension = Boolean(l.extendsLoanId);
+            const pack = Boolean(l.packForLoanId);
+            // Ni prolongation ni pack n'ont de modèle propre : mêmes règles d'affichage qu'une prolongation.
+            const noTraining = extension || pack;
+            const money = (atomic: string) => `${l.usdcDecimals !== undefined ? formatUnits(BigInt(atomic), l.usdcDecimals) : formatUsdcAtomic(atomic)} ${token}`;
+            const pendingPacks: PendingCallPack[] = noTraining ? [] : loans
+              .filter((candidate) => candidate.packForLoanId === l.id && !candidate.refundable
+                && ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"].includes(candidate.status)
+                && (candidate.status !== "PENDING" || Boolean(candidate.evmLockTxHash)))
+              .map((candidate) => {
+                const packTracking = finality[candidate.id];
+                const readyAt = packTracking?.phase === "pending" ? lockFinalityLocalReadyAt(packTracking) : null;
+                return {
+                  id: candidate.id,
+                  size: candidate.callPack ?? 0,
+                  stage: candidate.status === "ESCROWED" ? "finality" : candidate.status === "TRAINING" || candidate.status === "SETTLING" ? "crediting" : "payment",
+                  remainingSeconds: readyAt !== null ? lockFinalitySecondsLeft(readyAt, now) : null,
+                };
+              });
             const rentalExpired = isLoanRentalExpired(l, now);
             const modelDeleted = isLoanModelDeleted(l, now);
             const extendAllowed = canExtendLoan(l, address, now);
@@ -674,8 +703,8 @@ function TrainPageContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
-                    <Badge variant="default">{extension ? t("Prolongation") : t("Emprunt")}</Badge>
-                    {!extension && rentalExpired && <Badge variant="negative">{t("Location expirée")}</Badge>}
+                    <Badge variant="default">{pack ? t("Pack d’appels") : extension ? t("Prolongation") : t("Emprunt")}</Badge>
+                    {!noTraining && rentalExpired && <Badge variant="negative">{t("Location expirée")}</Badge>}
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
@@ -689,7 +718,7 @@ function TrainPageContent() {
                     {l.rentalDays != null && (
                       <Field label={t("Durée louée")} value={l.rentalDays === 1 ? t("1 jour") : t("{days} jours", { days: l.rentalDays })} />
                     )}
-                    {!extension && expiryLabel && (
+                    {!noTraining && expiryLabel && (
                       <Field label={rentalExpired ? t("Accès terminé le") : t("Accès jusqu’au")} value={expiryLabel} />
                     )}
                     {advanced && (
@@ -725,7 +754,7 @@ function TrainPageContent() {
                       : (minutesLeft > 0 ? t("Finalité du paiement : ~{minutes} min", { minutes: minutesLeft }) : t("Finalité imminente…"))}
                   </button>
                 )}
-                {!extension && !l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
+                {!noTraining && !l.refundable && !awaitingLock && (l.status === "ESCROWED" || (l.status === "TRAINING" && !l.modelCid)) && (
                   <button
                     onClick={() => runJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -766,7 +795,7 @@ function TrainPageContent() {
                     </button>
                   </div>
                 )}
-                {!extension && canResumeSettlement(l) && (
+                {!noTraining && canResumeSettlement(l) && (
                   <button
                     onClick={() => resumeJob(l)}
                     disabled={busy.has(`job:${l.id}`)}
@@ -781,7 +810,32 @@ function TrainPageContent() {
                 )}
               </div>
 
-              {awaitingLock && (
+              {busy.has(`job:${l.id}`) && !noTraining && (
+                <WaitSteps
+                  testId="training-wait"
+                  steps={[
+                    { id: "authorized", label: t("Autorisation signée par ta session"), status: "done" },
+                    { id: "training", label: t("Entraînement dans l’enclave"), status: "active", detail: t("De quelques secondes à quelques minutes selon la taille du dataset.") },
+                    { id: "settlement", label: t("Règlement on-chain et ouverture des prédictions"), status: "pending" },
+                  ]}
+                  closeNote={t("Garde cette page ouverte. Si tu la fermes, reviens finaliser le règlement ici : inutile de payer à nouveau.")}
+                />
+              )}
+
+              {awaitingLock && noTraining && (
+                <WaitSteps
+                  testId="no-training-finality-wait"
+                  steps={[
+                    { id: "locked", label: t("Paiement verrouillé dans l’escrow"), status: "done" },
+                    { id: "finality", label: t("Confirmation du paiement par le réseau"), status: "active" },
+                    { id: "apply", label: pack ? t("Crédit des appels dans l’enclave") : t("Ajout des jours à la location"), status: "pending" },
+                  ]}
+                  remainingSeconds={finalityRemainingSeconds}
+                  canClose
+                  closeNote={t("Tu peux fermer cette page : le paiement est en sécurité dans l’escrow et le serveur termine seul.")}
+                />
+              )}
+              {awaitingLock && !noTraining && (
                 <div className="mt-4 rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs leading-relaxed" data-testid="lock-finality-wait" data-tier={fastLock ? "FAST" : "FULL"} aria-live="polite">
                   <p className="font-medium text-yellow-400">
                     {fastLock
@@ -797,6 +851,14 @@ function TrainPageContent() {
                       ? t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la confirmation. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")
                       : t("Si cette page reste ouverte, l’entraînement démarre automatiquement dès la finalité. Sinon, reviens lancer le job : inutile d’emprunter à nouveau.")}
                   </p>
+                  <WaitSteps
+                    steps={[
+                      { id: "locked", label: t("Paiement verrouillé dans l’escrow"), status: "done" },
+                      { id: "finality", label: t("Confirmation du paiement par le réseau"), status: "active" },
+                      { id: "training", label: t("Entraînement dans l’enclave"), status: "pending" },
+                    ]}
+                    remainingSeconds={finalityRemainingSeconds}
+                  />
                 </div>
               )}
               {finalityExhausted && (
@@ -816,7 +878,7 @@ function TrainPageContent() {
                   </p>
                 </div>
               )}
-              {!extension && canRetrain(l, address) && (
+              {!noTraining && canRetrain(l, address) && (
                 <RetrainPanel
                   datasetId={l.datasetId}
                   otherActiveLoan={activeLoanOnDataset(loans, l.datasetId, address, l.id)}
@@ -830,7 +892,12 @@ function TrainPageContent() {
                   {t("Prolongation réglée : les jours payés s’ajoutent à l’emprunt d’origine.")}
                 </p>
               )}
-              {l.status === "SETTLED" && !extension && (
+              {l.status === "SETTLED" && pack && (
+                <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive" data-testid="call-pack-settled">
+                  {t("Pack réglé : {count} appels crédités à l’emprunt d’origine.", { count: l.callPack ?? 0 })}
+                </p>
+              )}
+              {l.status === "SETTLED" && !noTraining && (
                 <div className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wider text-positive">{t("Modèle privé")}</div>
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
@@ -888,7 +955,7 @@ function TrainPageContent() {
                           {t("Annuler")}
                         </button>
                         <p className="w-full text-xs text-muted">
-                          {t("Chaque jour ajouté est payé au prix par jour du dataset, plus le calcul minimal d’un emprunt. Le total exact est affiché dans le devis, avant tout paiement.")}
+                          {t("Chaque jour ajouté est payé au prix par jour du dataset, plus les frais de calcul de Sirius à prix coûtant. Le total exact est affiché dans le devis, avant tout paiement.")}
                         </p>
                       </div>
                     ) : (
@@ -903,6 +970,21 @@ function TrainPageContent() {
                   )}
                   {!rentalExpired && canPredictLoan(l, address, now) && (
                     <PredictionBox id={l.id} features={l.modelFeatures} predict={(features) => requestPrediction({ kind: "loan", id: l.id }, features)} />
+                  )}
+                  {!rentalExpired && canPredictLoan(l, address, now) && (
+                    <ApiPanel
+                      loanId={l.id}
+                      datasetId={l.datasetId}
+                      modelId={l.modelId}
+                      apiEnabled={Boolean(l.apiEnabled)}
+                      callsPerDay={l.callsPerDay ?? null}
+                      priceUsdcAtomic={l.dataset?.priceUsdcAtomic}
+                      packsClosed={Boolean(l.rentalExpiresAt) && Date.parse(l.rentalExpiresAt!) - now < PACK_MIN_RENTAL_LEFT_MS}
+                      money={money}
+                      confirmQuote={confirmQuote}
+                      pendingPacks={pendingPacks}
+                      onPurchased={refresh}
+                    />
                   )}
                 </div>
               )}

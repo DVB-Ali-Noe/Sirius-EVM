@@ -111,9 +111,10 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
   const chain = options.chain ?? { state: "active" as const };
   const extend = load<typeof Extend>("src/lib/sirius/extend.ts", {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses,
-    "@/lib/evm/client": { getPublicClient: () => client },
     "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain },
-    "@/lib/evm/finality": { assertLockStable: async () => {} },
+    // Palier : finalité complète ici (garde de profondeur passée) ; le palier rapide est couvert par developer-api.test.ts.
+    "./release-tier": { releaseFinalityTier: async () => "FULL" },
+    "./settlement-evidence": { recordSettlementEvidence: async () => false },
     "@/lib/billing/loan": { loanBillingQuote: (loan: Row) => ({ quote: { loanId: loan.id, extendsLoanId: loan.extendsLoanId, rentalDays: loan.rentalDays } }) },
     "@/lib/models/registry": models,
     "@/lib/runner/failure-policy": failurePolicy,
@@ -162,6 +163,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
       "./fast-settlement-review": { verifyFastSettlement: async () => ({ state: "pending" }) },
       "@/lib/runner/failure-policy": failurePolicy, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
       "./extend": extend, "./rental": rental, "@/lib/loans/settlement-status": settlementStatus,
+      "./calls": { settleCallPack: async () => { throw new Error("aucun pack dans ce scénario"); } },
     });
     return { reaper, settled };
   };

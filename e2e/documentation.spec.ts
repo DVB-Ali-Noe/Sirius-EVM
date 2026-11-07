@@ -125,3 +125,20 @@ test("la page MCP donne l’adresse du serveur et la connexion par client", asyn
   await expect(page.getByRole("tabpanel")).toContainText("claude mcp add --transport http sirius");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 });
+
+test("la page API développeurs explique la signature, les erreurs, les réessais et les limites", async ({ page }) => {
+  await page.route("**/api/**", (route) => route.abort());
+  await openLayoutPage(page, "/docs/api", 16);
+  await expect(page.getByRole("heading", { name: "Developer API" }).first()).toBeVisible();
+  await expect(page.locator("#signature")).toContainText("SIRIUS-HMAC-SHA256");
+  await expect(page.locator("#erreurs")).toContainText("enclave_starting");
+  await expect(page.locator("#erreurs")).toContainText("quota_exceeded");
+  await expect(page.locator("#reessais")).toContainText("Retry-After");
+  await expect(page.locator("#limites")).toContainText("Linear regression has no API");
+  await page.getByRole("tab", { name: "Python" }).click();
+  await expect(page.getByRole("tabpanel")).toContainText("from sirius_api import SiriusClient");
+  await page.getByRole("tab", { name: "curl" }).click();
+  await expect(page.getByRole("tabpanel")).toContainText("Sirius-Signature");
+  await expect(page.getByRole("link", { name: "OpenAPI specification" })).toHaveAttribute("href", "/openapi/v1.yaml");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+});

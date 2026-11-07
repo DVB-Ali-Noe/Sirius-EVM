@@ -7,7 +7,10 @@ export type AuthorizedRunnerOperation =
   | "settle-loan"
   | "extend-loan"
   | "predict"
-  | "seal-chunked-dataset";
+  | "seal-chunked-dataset"
+  | "register-api-key"
+  | "revoke-api-key"
+  | "buy-calls";
 
 export interface RunnerGrantScope {
   demoSessionRevision?: number;

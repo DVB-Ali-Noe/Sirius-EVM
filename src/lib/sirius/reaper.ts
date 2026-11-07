@@ -20,8 +20,9 @@ import { verifyFastSettlement } from "./fast-settlement-review";
 import { AppError } from "@/lib/app-error";
 import { isServedModelFingerprint } from "@/lib/models/registry";
 import { settleLoanExtension } from "./extend";
-import { loanRentalExpiry, RENTAL_MODEL_DELETED } from "./rental";
-import { EXTENSION_PENDING } from "@/lib/loans/settlement-status";
+import { settleCallPack } from "./calls";
+import { loanRentalExpiry, RENTAL_EXPIRED, RENTAL_MODEL_DELETED } from "./rental";
+import { CALLS_PENDING, EXTENSION_PENDING } from "@/lib/loans/settlement-status";
 import { reaperErrorKind } from "./reaper-errors";
 
 const BATCH_SIZE = 50;
@@ -78,7 +79,7 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         { status: "ESCROWED", finalityTier: "FAST", updatedAt: { lte: new Date(now.getTime() - FAST_IDLE_REVERT_MS) } },
         // Location réglée sans échéance enregistrée (règlement réconcilié sans réponse du runner) :
         // l'échéance est relue du bloc de `release` (D-29).
-        { status: "SETTLED", rentalDays: { not: null }, rentalExpiresAt: null, extendsLoanId: null, settleTxHash: { not: null } },
+        { status: "SETTLED", rentalDays: { not: null }, rentalExpiresAt: null, extendsLoanId: null, packForLoanId: null, settleTxHash: { not: null } },
       ],
     },
     orderBy: { id: "asc" },
@@ -93,13 +94,19 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         await recoverUnsubmittedLoan(loan);
         continue;
       }
+      if (loan.status === "SETTLED") {
+        // Prolongations et packs réglés n'ont pas d'échéance propre ; tous passent par la revue
+        // d'un release rapide (palier FAST sous les mêmes plafonds qu'un emprunt).
+        if (typeof loan.rentalDays === "number" && !loan.rentalExpiresAt && !loan.extendsLoanId && !loan.packForLoanId) await loanRentalExpiry(loan);
+        if (needsFastReview(loan, now)) await reviewFastSettledLoan(loan, now);
+        continue;
+      }
       if (loan.extendsLoanId) {
         await reapLoanExtension(loan, now);
         continue;
       }
-      if (loan.status === "SETTLED") {
-        if (typeof loan.rentalDays === "number" && !loan.rentalExpiresAt) await loanRentalExpiry(loan);
-        if (needsFastReview(loan, now)) await reviewFastSettledLoan(loan, now);
+      if (loan.packForLoanId) {
+        await reapCallPack(loan, now);
         continue;
       }
       if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
@@ -180,6 +187,40 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
       return;
     }
     if (error instanceof AppError && error.message === EXTENSION_PENDING) return;
+    throw error;
+  }
+}
+
+/**
+ * Pack d'appels verrouillé non réglé (D-30) : reprise de `buy-calls`, idempotent dans le runner (le
+ * pack n'est crédité qu'une fois). Remboursé on-chain : clos. Échu sans `release` diffusé : seul
+ * `refund()` par l'emprunteur reste possible. Avant tout `release`, location d'origine échue ou
+ * profil sans API : aucune reprise (le runner refuserait), et un palier rapide est rendu au plafond.
+ * `release` déjà diffusé (SETTLING avec hash) : toujours rejoué jusqu'au règlement, sans contrôle
+ * de location ni de profil côté Next (`settleCallPack`).
+ */
+async function reapCallPack(loan: Loan, now: Date): Promise<void> {
+  const chain = await reconcileClosedLoan(loan);
+  if (chain === "closed" || chain === "unbound") return;
+  if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
+    console.log(`[reaper] pack d'appels EVM ${loan.id} échu : release impossible, remboursement à l'initiative de l'emprunteur`);
+    return;
+  }
+  try {
+    await settleCallPack(loan.id);
+  } catch (error) {
+    const released = loan.status === "SETTLING" && Boolean(loan.settleTxHash);
+    if (!released && error instanceof AppError && (error.message === RENTAL_EXPIRED || error.code === "api_not_available_for_profile")) {
+      console.log(`[reaper] pack d'appels EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
+      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST") {
+        await prisma.loan.updateMany({
+          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
+          data: { finalityTier: "FULL" },
+        });
+      }
+      return;
+    }
+    if (error instanceof AppError && error.message === CALLS_PENDING) return;
     throw error;
   }
 }

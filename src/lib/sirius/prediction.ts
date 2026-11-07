@@ -37,19 +37,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Corps `{ features, authorization }` : variables numériques finies, bornées, au plus 31 et 4 Kio. */
-export function parsePredictionRequest(body: unknown): PredictionRequest {
-  const invalid = () => new AppError("Caractéristiques ou autorisation invalides", 400);
-  if (!isPlainObject(body)) throw invalid();
-  const { features, authorization } = body;
-  if (!isPlainObject(features) || !isPlainObject(authorization)) throw invalid();
+/** Variables numériques finies, bornées, au plus 31 et 4 Kio ; `null` si invalides. */
+export function parsePredictionFeatures(features: unknown): Record<string, number> | null {
+  if (!isPlainObject(features)) return null;
   const entries = Object.entries(features);
   if (!entries.length || entries.length > MAX_FEATURES
     || entries.some(([name, value]) => !name || typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_FEATURE_ABS)
     || Buffer.byteLength(JSON.stringify(features), "utf8") > MAX_FEATURES_BYTES) {
-    throw invalid();
+    return null;
   }
-  return { features: features as Record<string, number>, authorization: authorization as unknown as RunnerGrant };
+  return features as Record<string, number>;
+}
+
+/** Corps `{ features, authorization }` : variables comme ci-dessus, autorisation objet. */
+export function parsePredictionRequest(body: unknown): PredictionRequest {
+  const invalid = () => new AppError("Caractéristiques ou autorisation invalides", 400);
+  if (!isPlainObject(body)) throw invalid();
+  const { authorization } = body;
+  const features = parsePredictionFeatures(body.features);
+  if (!features || !isPlainObject(authorization)) throw invalid();
+  return { features, authorization: authorization as unknown as RunnerGrant };
 }
 
 /** Colonnes renvoyées par le runner après entraînement : 1 à 31 noms distincts, sinon réponse invalide. */

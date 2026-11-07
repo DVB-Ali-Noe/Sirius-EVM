@@ -1,0 +1,27 @@
+{
+  "description": "Vecteur de signature partagé (D-30) : SDK JS, SDK Python et vérificateur du runner doivent produire exactement ces valeurs.",
+  "keyId": "oKGio6SlpqeoqaqrrK2urw",
+  "secret": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+  "token": "sk_live_oKGio6SlpqeoqaqrrK2urw.AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+  "loanId": "cmloan0000000000000000001",
+  "predict": {
+    "method": "POST",
+    "path": "/v1/models/cmloan0000000000000000001/predict",
+    "timestamp": 1762500000,
+    "nonce": "bm9uY2UtZml4dHVyZS0wMQ",
+    "body": "{\"features\":{\"age\":42,\"income\":51000.5}}",
+    "bodySha256Hex": "57665e54ca62e7da7eb5f145cd03f39926d866917cbbc315d58693a45618168e",
+    "canonical": "SIRIUS-HMAC-SHA256\nPOST\n/v1/models/cmloan0000000000000000001/predict\n1762500000\nbm9uY2UtZml4dHVyZS0wMQ\n57665e54ca62e7da7eb5f145cd03f39926d866917cbbc315d58693a45618168e",
+    "signature": "6b1bd7134c53ecd4fa8975774b91ba4ea9f71e841315a232ba03bf0e277512d2"
+  },
+  "info": {
+    "method": "GET",
+    "path": "/v1/models/cmloan0000000000000000001",
+    "timestamp": 1762500000,
+    "nonce": "bm9uY2UtZml4dHVyZS0wMQ",
+    "body": "",
+    "bodySha256Hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "canonical": "SIRIUS-HMAC-SHA256\nGET\n/v1/models/cmloan0000000000000000001\n1762500000\nbm9uY2UtZml4dHVyZS0wMQ\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "signature": "6bde1488f90a8dfd96899f48c7c095713b546c690379a8d17deae6630bf3572e"
+  }
+}

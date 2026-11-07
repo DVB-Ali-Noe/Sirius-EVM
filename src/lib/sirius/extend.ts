@@ -3,9 +3,7 @@ import type { Hex } from "viem";
 import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
-import { getPublicClient } from "@/lib/evm/client";
 import { reconcileLoanEscrow } from "@/lib/evm/escrow";
-import { assertLockStable } from "@/lib/evm/finality";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { modelSelection } from "@/lib/models/registry";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
@@ -16,13 +14,16 @@ import { EXTENSION_PENDING } from "@/lib/loans/settlement-status";
 import { prepareLoan } from "./borrower";
 import { assertExtendableLoan } from "./rental";
 import { settlementQueuedError } from "./settlement-queued";
+import { releaseFinalityTier } from "./release-tier";
+import { recordSettlementEvidence } from "./settlement-evidence";
 
 /**
  * Prolongation d'une location (D-29). Un prêt de prolongation (`extendsLoanId` → prêt d'origine)
  * suit le même flux de lock qu'un emprunt (préparation, approbation, lock, `submit`), avec un devis
- * de `rentalDays` jours au prix par jour et le compute minimal de la politique, sans entraînement.
- * Une fois le lock finalisé, le runner (`extend-loan`) vérifie emprunteur, dataset et modèle scellé
- * d'origine, diffuse le `release` et repousse l'échéance ; Next la reporte sur le prêt d'origine.
+ * de `rentalDays` jours au prix par jour et le compute sans entraînement de la politique. Une fois le
+ * lock finalisé — au palier rapide sous les mêmes plafonds qu'un emprunt (release-tier.ts) —, le
+ * runner (`extend-loan`) vérifie emprunteur, dataset et modèle scellé d'origine, diffuse le
+ * `release` et repousse l'échéance ; Next la reporte sur le prêt d'origine.
  */
 
 export interface LoanExtensionResult {
@@ -62,12 +63,20 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
     throw new AppError("Prolongation hors scope du prêt d’origine", 409);
   }
   await assertCurrentRunner(loan);
-  // Le runner lit l'escrow sous la profondeur stable : l'appeler plus tôt ne ferait qu'échouer.
-  await assertLockStable(getPublicClient(), { blockNumber: BigInt(loan.evmLockBlock), txHash: loan.evmLockTxHash as Hex }, "FULL", EXTENSION_PENDING);
+  // Le runner lit l'escrow sous la profondeur stable du palier : l'appeler plus tôt ne ferait qu'échouer.
+  const finalityTier = await releaseFinalityTier(
+    { ...loan, evmLoanKey: loan.evmLoanKey, evmLockBlock: loan.evmLockBlock, evmLockTxHash: loan.evmLockTxHash },
+    EXTENSION_PENDING,
+  );
 
-  const claimedAt = new Date(Math.max(Date.now(), loan.updatedAt.getTime() + 1));
+  // Le marquage FAST vient de toucher la ligne (`updatedAt`) : la garde du claim part de son état actuel.
+  const guard = finalityTier !== loan.finalityTier
+    ? await prisma.loan.findUnique({ where: { id: loanId }, select: { status: true, updatedAt: true } })
+    : loan;
+  if (!guard) throw new AppError("Loan introuvable", 404);
+  const claimedAt = new Date(Math.max(Date.now(), guard.updatedAt.getTime() + 1));
   const claimed = await prisma.loan.updateMany({
-    where: { id: loanId, status: loan.status, updatedAt: loan.updatedAt },
+    where: { id: loanId, status: guard.status, updatedAt: guard.updatedAt },
     data: { status: "SETTLING", updatedAt: claimedAt },
   });
   if (claimed.count !== 1) throw new AppError("Prolongation déjà en cours", 409);
@@ -80,6 +89,7 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
       billingQuote: signed,
       lockBlock: loan.evmLockBlock,
       ...(authorization ? { authorization } : {}),
+      ...(finalityTier === "FAST" ? { finalityTier } : {}),
     });
     if (!Number.isSafeInteger(result.expiresAt) || result.expiresAt <= 0) throw new AppError("Échéance de prolongation invalide", 502);
     const expiresAt = new Date(result.expiresAt);
@@ -94,6 +104,7 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
         data: { rentalExpiresAt: expiresAt },
       });
     });
+    if (finalityTier === "FAST") await recordSettlementEvidence(loanId);
     return { loanId, originalLoanId: original.id, settleTxHash: result.settleTxHash, rentalExpiresAt: expiresAt.toISOString() };
   } catch (error) {
     if (error instanceof RunnerFinalityPending) {

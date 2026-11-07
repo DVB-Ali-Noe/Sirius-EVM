@@ -135,7 +135,8 @@ function consumePersistent(root: string, namespace: string, digest: string, expi
   });
 }
 
-export function consumeRunnerReplay(namespace: "capability" | "grant", id: string, expiresAt: number): boolean {
+/** `api` : nonces des requêtes signées de l'API développeurs, identifiant `<keyId>:<nonce>` (D-30). */
+export function consumeRunnerReplay(namespace: "capability" | "grant" | "api", id: string, expiresAt: number): boolean {
   const now = Date.now();
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > now + MAX_REPLAY_TTL_MS || !id || id.length > 512) {
     return false;

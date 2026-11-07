@@ -8,6 +8,7 @@ import * as provenance from "@/lib/runner/provenance";
 import * as addresses from "@/lib/evm/address";
 import * as models from "@/lib/models/registry";
 import * as rentalRules from "@/lib/billing/rental";
+import * as apiPricing from "@/lib/billing/api-pricing";
 import type * as SelfTraining from "./self-train";
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
@@ -147,6 +148,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     ...common, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => false },
     "@/lib/billing/quote": {}, "@/lib/billing/loan": {}, "@/lib/billing/rental": rentalRules, "./rental": {},
+    "./api-keys": {}, "@/lib/billing/api-pricing": apiPricing,
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},
     "@/lib/evm/client": { getPublicClient: () => ({ readContract: async () => true, getBlockNumber: async () => BigInt(10) }) },

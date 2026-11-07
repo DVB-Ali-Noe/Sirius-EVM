@@ -24,8 +24,8 @@ import { runnerBudget } from "@/lib/runner/budget";
 import { verifyRunnerDeployment } from "@/lib/runner/deployment";
 import { monitoringAuthorized, runnerBudgetReport } from "@/lib/runner/monitoring";
 import { demoControl, demoControlAuthorized, demoEnabled, recoverDemoAfterRestart } from "@/lib/phala-demo/runner-session";
-import { FreeOpsGuard, freeOpsPolicyFromEnv } from "./free-ops-guard";
-import { UNCHARGED_OPS } from "./handler";
+import { ApiOpsGuard, apiOpsPolicy, FreeOpsGuard, freeOpsPolicyFromEnv } from "./free-ops-guard";
+import { API_OPS, UNCHARGED_OPS } from "./handler";
 import { sweepExpiredLoanModels } from "@/lib/tee/served-models";
 
 const RENTAL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -68,6 +68,7 @@ export const RUNNER_KEEP_ALIVE_TIMEOUT_MS = 10_000;
 export const RUNNER_HEADERS_TIMEOUT_MS = 11_000;
 export const RUNNER_REQUEST_TIMEOUT_MS = 30_000;
 const freeOps = new FreeOpsGuard(freeOpsPolicyFromEnv());
+const apiOps = new ApiOpsGuard(apiOpsPolicy(MAX_CONCURRENT_REQUESTS));
 /**
  * Plafond effectif des requêtes payantes simultanées. Chaque requête réserve dans le registre de
  * budget sa propre ligne et, au plus, celle d'un job imbriqué (scellement, entraînement,
@@ -173,18 +174,22 @@ export async function handleRunnerRequest(
     }
     const expectedLength = declaredBodyLength(req, maxBodyBytes(op));
     const isFree = UNCHARGED_OPS.has(verifiedCapability.op);
+    const isApi = API_OPS.has(verifiedCapability.op);
     const isUpload = op === "seal-dataset";
     const isJob = op === "run-training" || op === "run-loan-job";
-    let releaseFree: (() => void) | undefined;
-    if (isFree) {
-      // Débit, concurrence et coupe-circuit propres aux opérations gratuites, vérifiés avant de lire
-      // le corps et avant toute écriture dans l'anti-rejeu : un refus ne coûte qu'une vérification
-      // HMAC, et ces opérations ne prennent jamais la place d'une opération payante.
-      const decision = freeOps.admit(verifiedCapability.op);
+    let releaseOwn: (() => void) | undefined;
+    if (isFree || isApi) {
+      // Débit, concurrence (et coupe-circuit pour les gratuites) propres à ces opérations, vérifiés
+      // avant de lire le corps et avant toute écriture dans l'anti-rejeu : un refus ne coûte qu'une
+      // vérification HMAC, et elles ne prennent jamais la place d'une opération payante.
+      const decision = isFree
+        ? freeOps.admit(verifiedCapability.op)
+        : apiOps.admit(verifiedCapability.op, verifiedCapability.loanId ?? "");
       if (!decision.admitted) {
-        return send(decision.status, { error: decision.error }, { "retry-after": String(decision.retryAfterSeconds) });
+        const code = "code" in decision && decision.code ? { code: decision.code } : {};
+        return send(decision.status, { error: decision.error, ...code }, { "retry-after": String(decision.retryAfterSeconds) });
       }
-      releaseFree = decision.release;
+      releaseOwn = decision.release;
     } else if (
       activeRequests >= admittedRequests ||
       (isUpload && activeUploads >= MAX_CONCURRENT_UPLOADS) ||
@@ -193,7 +198,7 @@ export async function handleRunnerRequest(
       return send(503, { error: "Runner saturé" });
     }
 
-    if (!isFree) activeRequests += 1;
+    if (!releaseOwn) activeRequests += 1;
     if (isUpload) activeUploads += 1;
     if (isJob) activeJobs += 1;
     try {
@@ -210,7 +215,7 @@ export async function handleRunnerRequest(
       }
       send(200, await handleRunnerOp(target.op as RunnerOperation, body));
     } finally {
-      if (releaseFree) releaseFree();
+      if (releaseOwn) releaseOwn();
       else activeRequests -= 1;
       if (isUpload) activeUploads -= 1;
       if (isJob) activeJobs -= 1;
@@ -219,7 +224,7 @@ export async function handleRunnerRequest(
     if (err instanceof RunnerFinalityPending) {
       return send(202, { state: "pending-finality", transactionHash: err.transactionHash, error: err.message });
     }
-    if (err instanceof AppError) return send(err.status, { error: err.message });
+    if (err instanceof AppError) return send(err.status, { error: err.message, ...(err.code === undefined ? {} : { code: err.code }) });
     console.error("[runner] erreur interne");
     return send(500, { error: "Erreur runner" });
   }

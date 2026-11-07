@@ -5,6 +5,8 @@ import { useLocale } from "@/components/i18n/LocaleProvider";
 import { messageOf } from "@/lib/errors-client";
 import { useWalletStore } from "@/stores/wallet";
 import { parsePredictionFeatures, type PredictionResult } from "@/lib/train/prediction-client";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
 
 const FIELD = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent";
 
@@ -30,6 +32,8 @@ export function PredictionBox({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Enclave arrêtée : la route répond 503 `enclave_starting` ; la demande est relancée seule.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
 
   function collect(): Record<string, number> {
     if (!features.length) return parsePredictionFeatures(json);
@@ -47,7 +51,8 @@ export function PredictionBox({
     setError(null);
     setResult(null);
     try {
-      const output = await predict(collect());
+      const input = collect();
+      const output = await retryWhileEnclaveStarts(() => predict(input), { onWaiting: setEnclaveRetry });
       if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
       setResult(output);
     } catch (cause) {
@@ -104,6 +109,14 @@ export function PredictionBox({
             ? t("Décision : {value} · appel n° {count}", { value: result.output, count: result.counter })
             : t("Valeur : {value} · appel n° {count}", { value: result.output, count: result.counter })}
         </p>
+      )}
+      {enclaveRetry !== null && (
+        <EnclaveStartingSteps
+          phase="starting"
+          retryInSeconds={enclaveRetry}
+          testId="prediction-enclave-starting"
+          closeNote={t("Si tu fermes la page, l’enclave continue de démarrer : relance ta prédiction dans quelques minutes, rien n’est décompté.")}
+        />
       )}
       {error && <p role="alert" className="text-xs text-negative">{t(error)}</p>}
     </div>

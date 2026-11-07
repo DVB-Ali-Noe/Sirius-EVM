@@ -1,6 +1,5 @@
 import "server-only";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { phalaCvm } from "./phala-cvm";
 import { createServer } from "node:https";
 import { readFileSync, writeFileSync, renameSync, lstatSync, existsSync, openSync, closeSync, fsyncSync, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -156,17 +155,10 @@ async function main() {
   const profile = required("PHALA_DEMO_PROFILE");
   const cvm = required("PHALA_DEMO_CVM_ID");
   const appId = required("PHALA_DEMO_APP_ID");
-  if (!/^[\w-]+$/.test(profile) || !/^[\w-]+$/.test(cvm) || !/^[a-f0-9]{40}$/.test(appId)) throw new Error("Identité Phala invalide");
+  const phala = phalaCvm({ profile, cvm, appId });
   const runner = new URL(required("RUNNER_URL"));
   const application = new URL(required("SIRIUS_APP_ORIGIN"));
   if ([runner, application].some((url) => url.protocol !== "https:" || url.origin !== url.href.slice(0, -1))) throw new Error("Origines HTTPS requises");
-  const execute = promisify(execFile);
-  const cli = async (operation: "get" | "start" | "stop") => {
-    const { stdout } = await execute("pnpm", ["dlx", "phala@1.1.22", "cvms", operation, cvm,
-      "--profile", profile, "--json", "--timeout", "20"], { timeout: 30_000, maxBuffer: 1024 * 1024 });
-    const result = JSON.parse(stdout);
-    return result.data ?? result.result ?? result;
-  };
   const secret = required("PHALA_DEMO_CONTROLLER_SECRET");
   if (!controllerAuthorized(`Bearer ${secret}`)) throw new Error("Secret contrôleur invalide");
   required("SIRIUS_DEMO_OPERATORS");
@@ -180,13 +172,7 @@ async function main() {
         || value.observedAtMs < Date.now() - 31 * 86400_000) throw new Error("Relevé financier à renouveler");
       return { policy: parseDemoPolicy(value), observedAtMs: value.observedAtMs };
     },
-    getCvm: async () => {
-      const result = await cli("get");
-      if (result.app_id !== appId) throw new Error("Identité CVM inattendue");
-      return result.status === "running" ? "running" : result.status === "stopped" ? "stopped" : "transitioning";
-    },
-    startCvm: async () => { await cli("start"); },
-    stopCvm: async () => { await cli("stop"); },
+    ...phala,
     runner: async (body) => {
       const response = await attestedRunnerFetch(new URL("/operations/demo", runner), {
         method: body ? "POST" : "GET", timeoutMs: 15_000,

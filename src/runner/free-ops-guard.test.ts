@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import {
+  API_INFO_RATE_LIMITED,
+  API_RATE_LIMITED,
+  ApiOpsGuard,
+  apiOpsPolicy,
   DEFAULT_FREE_OPS_POLICY,
   FREE_OPS_RATE_LIMITED,
   FREE_OPS_SUSPENDED,
@@ -111,6 +115,46 @@ test("ROB-08 : la politique vient de l’environnement, bornée, avec des valeur
   }
 });
 
+test("API : 120 api-predict + api-info par minute et par prêt, dont 60 api-info, fenêtre glissante", () => {
+  const time = clock();
+  const guard = new ApiOpsGuard(apiOpsPolicy(8), time.now);
+  const admit = (op: string, loanId = "loan-1") => {
+    const decision = guard.admit(op, loanId);
+    if (decision.admitted) decision.release();
+    return decision;
+  };
+  for (let i = 0; i < 60; i++) assert.equal(admit("api-info").admitted, true);
+  const info = admit("api-info");
+  assert.equal(info.admitted, false);
+  if (!info.admitted) assert.deepEqual([info.status, info.code, info.error], [429, "rate_limited", API_INFO_RATE_LIMITED]);
+  for (let i = 0; i < 60; i++) assert.equal(admit("api-predict").admitted, true, "les descriptions refusées ne comptent pas");
+  const predict = admit("api-predict");
+  assert.equal(predict.admitted, false);
+  if (!predict.admitted) {
+    assert.deepEqual([predict.status, predict.code, predict.error], [429, "rate_limited", API_RATE_LIMITED]);
+    assert.equal(predict.retryAfterSeconds, 60);
+  }
+  assert.equal(admit("api-predict", "loan-2").admitted, true, "un autre prêt garde sa propre fenêtre");
+  assert.equal(admit("register-api-key").admitted, true, "clés : hors fenêtre de débit");
+  time.advance(60_000);
+  assert.equal(admit("api-info").admitted, true, "la fenêtre glisse");
+});
+
+test("API : concurrence propre limitée à la moitié des places payantes, rendue une seule fois", () => {
+  assert.equal(apiOpsPolicy(8).concurrency, 4);
+  assert.equal(apiOpsPolicy(1).concurrency, 1);
+  const guard = new ApiOpsGuard(apiOpsPolicy(8), clock().now);
+  const held = Array.from({ length: 4 }, (_, i) => guard.admit(i % 2 ? "api-info" : "revoke-api-key", `loan-${i}`));
+  assert.ok(held.every((decision) => decision.admitted));
+  const refused = guard.admit("api-predict", "loan-9");
+  assert.equal(refused.admitted, false);
+  if (!refused.admitted) assert.deepEqual([refused.status, refused.error], [503, "Runner saturé"]);
+  const first = held[0];
+  if (first.admitted) { first.release(); first.release(); }
+  assert.equal(guard.state().active, 3, "une double libération ne crée pas de place");
+  assert.equal(guard.admit("api-predict", "loan-9").admitted, true);
+});
+
 // --- Intégration dans le serveur runner : seau réduit à 3 pour le test. ---
 
 type Server = typeof import("./server");
@@ -183,4 +227,52 @@ test("ROB-10 : le runner garde une connexion inactive plus longtemps que le clie
   assert.ok(server.RUNNER_KEEP_ALIVE_TIMEOUT_MS >= 10_000);
   assert.ok(server.RUNNER_HEADERS_TIMEOUT_MS > server.RUNNER_KEEP_ALIVE_TIMEOUT_MS);
   assert.ok(server.RUNNER_HEADERS_TIMEOUT_MS < server.RUNNER_REQUEST_TIMEOUT_MS);
+});
+
+test("API : le runner répond 429 rate_limited au-delà de la limite par prêt", async () => {
+  const loanId = "loan-rate";
+  const body = JSON.stringify({ loanId });
+  for (let i = 0; i < 60; i++) assert.notEqual((await call("api-info", { loanId }, body)).status, 429);
+  const info = await call("api-info", { loanId }, body);
+  assert.equal(info.status, 429);
+  assert.deepEqual(info.body, { error: API_INFO_RATE_LIMITED, code: "rate_limited" });
+  assert.ok(Number(info.headers["retry-after"]) >= 1);
+  for (let i = 0; i < 60; i++) assert.notEqual((await call("api-predict", { loanId }, body)).status, 429);
+  const predict = await call("api-predict", { loanId }, body);
+  assert.equal(predict.status, 429);
+  assert.deepEqual(predict.body, { error: API_RATE_LIMITED, code: "rate_limited" });
+  assert.notEqual((await call("api-predict", { loanId: "loan-other" }, JSON.stringify({ loanId: "loan-other" }))).status, 429);
+});
+
+test("API : sous charge API, les opérations payantes gardent leurs places", async () => {
+  // Quatre requêtes API bloquées sur leur corps occupent toute la part API (8 places payantes / 2).
+  const held = Array.from({ length: 4 }, (_, i) => {
+    const loanId = `loan-held-${i}`;
+    const raw = JSON.stringify({ loanId });
+    const req = new PassThrough() as unknown as IncomingMessage & PassThrough;
+    Object.assign(req, { method: "POST", url: "/api-info", headers: {
+      "x-sirius-runner-capability": capability.issueRunnerCapability("api-info", { loanId }),
+      "content-length": String(Buffer.byteLength(raw)),
+    } });
+    let status = 0;
+    const res = {
+      writeHead(code: number) { status = code; return this; },
+      end() { return this; },
+    } as unknown as ServerResponse;
+    const done = server.handleRunnerRequest(req, res).then(() => status);
+    return { finish: () => { req.end(raw); return done; } };
+  });
+  // L'admission est synchrone, avant la lecture du corps : les quatre places sont déjà prises.
+  const saturated = await call("api-info", { loanId: "loan-held-x" }, JSON.stringify({ loanId: "loan-held-x" }));
+  assert.equal(saturated.status, 503);
+  assert.equal(saturated.body.error, "Runner saturé");
+  // Une opération payante est admise et va jusqu'à sa propre validation.
+  const training = await call("run-training", { datasetId: "dataset-2", jobId: "job-2" }, JSON.stringify({
+    datasetId: "dataset-2", jobId: "job-2", cid: "bafy-dataset", wrappedKey: "wrapped-key", merkleRoot: "a".repeat(64),
+    priceUsdcAtomic: "1000000000000000000", challengeDays: 7, maxRentalDays: 30, modelId: "other", modelVersion: "1.0.0", datasetReceipt: "x",
+  }));
+  assert.equal(training.status, 400);
+  assert.deepEqual(training.body, { error: "Modèle ou version non autorisé" });
+  for (const request of held) assert.notEqual(await request.finish(), 503);
+  assert.notEqual((await call("api-info", { loanId: "loan-held-x" }, JSON.stringify({ loanId: "loan-held-x" }))).status, 503, "places API rendues");
 });

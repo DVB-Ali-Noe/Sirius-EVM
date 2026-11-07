@@ -1,7 +1,11 @@
 import { isDemoDeployment } from "@/lib/deployment-mode";
 import {
+  API_KEY_ID_PATTERN,
+  API_KEY_INGRESS_INFO_PREFIX,
+  API_KEY_SECRET_BYTES,
   DATASET_INGRESS_INFO_PREFIX,
   MAX_DATASET_BYTES,
+  type ApiKeySecretEnvelope,
   type DatasetIngressEnvelope,
   type DatasetIngressKey,
 } from "./contract";
@@ -71,6 +75,16 @@ export async function encryptDatasetForRunner(
   if (content.byteLength === 0 || content.byteLength > MAX_DATASET_BYTES) {
     throw new Error("Taille du dataset invalide");
   }
+  return sealForRunner(content, `${DATASET_INGRESS_INFO_PREFIX}${datasetId}`, datasetId, ingressKey);
+}
+
+/** ECDH P-256 éphémère avec la clé d'ingestion vérifiée, HKDF-SHA256 (`info`), AES-256-GCM sur `aad`. */
+async function sealForRunner(
+  content: BufferSource,
+  info: string,
+  aad: string,
+  ingressKey: DatasetIngressKey,
+): Promise<DatasetIngressEnvelope> {
   const publicKey = await verifyIngressKey(ingressKey);
 
   const runnerPublicKey = await crypto.subtle.importKey(
@@ -89,13 +103,12 @@ export async function encryptDatasetForRunner(
   const hkdfKey = await crypto.subtle.importKey("raw", sharedSecret, "HKDF", false, ["deriveKey"]);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aad = encoder.encode(datasetId);
   const encryptionKey = await crypto.subtle.deriveKey(
     {
       name: "HKDF",
       hash: "SHA-256",
       salt,
-      info: encoder.encode(`${DATASET_INGRESS_INFO_PREFIX}${datasetId}`),
+      info: encoder.encode(info),
     },
     hkdfKey,
     { name: "AES-GCM", length: 256 },
@@ -103,7 +116,7 @@ export async function encryptDatasetForRunner(
     ["encrypt"],
   );
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
+    { name: "AES-GCM", iv, additionalData: encoder.encode(aad), tagLength: 128 },
     encryptionKey,
     content,
   );
@@ -116,4 +129,40 @@ export async function encryptDatasetForRunner(
     iv: encodeBase64Url(iv),
     ciphertext: encodeBase64Url(new Uint8Array(ciphertext)),
   };
+}
+
+/**
+ * Secret d'une clé API (D-30), généré dans le navigateur : `secret` est le base64url de ses
+ * 32 octets ; ce sont ces octets bruts qui sont chiffrés pour l'enclave (HKDF info
+ * `sirius-api-key-v1:<keyId>`, AAD = `keyId`). Next ne relaie que l'enveloppe.
+ */
+export async function encryptApiKeySecretForRunner(
+  secret: string,
+  keyId: string,
+  ingressKey: DatasetIngressKey,
+): Promise<ApiKeySecretEnvelope> {
+  if (!API_KEY_ID_PATTERN.test(keyId)) throw new Error("Identifiant de clé API invalide");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(secret)) throw new Error("Secret de clé API invalide");
+  const bytes = decodeBase64Url(secret);
+  if (bytes.length !== API_KEY_SECRET_BYTES) throw new Error("Secret de clé API invalide");
+  try {
+    return await sealForRunner(bytes, `${API_KEY_INGRESS_INFO_PREFIX}${keyId}`, keyId, ingressKey);
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+/**
+ * Empreinte signée dans le grant `register-api-key` : SHA-256 hexadécimal du JSON de l'enveloppe,
+ * clés dans l'ordre `version, ephemeralPublicKey, salt, iv, ciphertext` (même calcul dans l'enclave).
+ */
+export async function apiKeyEnvelopeSha256(envelope: ApiKeySecretEnvelope): Promise<string> {
+  const canonical = JSON.stringify({
+    version: envelope.version,
+    ephemeralPublicKey: envelope.ephemeralPublicKey,
+    salt: envelope.salt,
+    iv: envelope.iv,
+    ciphertext: envelope.ciphertext,
+  });
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(canonical))));
 }
