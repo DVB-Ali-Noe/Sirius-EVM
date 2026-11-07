@@ -61,6 +61,11 @@ export const DECLARED_RELEASES: Readonly<Record<string, { image: string; commit:
     image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:1005433e338142daea3800061c05184b682689bac6b5b106e6d76f8e4378a1a1",
     commit: "3379391",
   },
+  // 7 nov. 2026 : API développeurs (D-30), tarif avec frais sans entraînement et quotas d'appels.
+  "9f796418fb526914ba71e616fda93e729c9bfaa71ff975fdd69fbb4213e08a62": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:7b7f6303548371b7e0e060c3bf5eeb24f63fb7549a0bf6d62993de0da44a00c4",
+    commit: "2bb02f5",
+  },
 };
 
 /**
