@@ -804,17 +804,22 @@ const randomKeyId = (i: number) => `z${String(i).padStart(21, "0")}`;
 const ATTACKER_IP = "203.0.113.9";
 const BORROWER_IP = "198.51.100.7";
 
-test("débit (audit A F1) : des milliers d'identifiants inconnus ne remplissent ni le plafond global ni la fenêtre d'une vraie clé", async () => {
+test("débit (audit A F1, revue B) : des milliers d'identifiants inconnus ne touchent pas la fenêtre d'une vraie clé ; trafic invalide plafonné pour l'instance", async () => {
   const sys = system({ loans: [origin(), origin({ id: "loan-2" })], apiKeys: [activeKey(), activeKey({ id: OTHER_KEY_ID, loanId: "loan-2" })] });
-  // Plus que le plafond global (6 000) et que les clés suivies (4 096), sans ingress de confiance.
-  for (let i = 0; i < 6_100; i++) {
-    const response = await sys.api.info(sys.signedHeaders(randomKeyId(i)));
-    if (response.status !== 401) assert.fail(`identifiant inconnu ${i} : ${response.status}`);
+  assert.equal((await sys.api.info()).status, 200, "clé authentifiée par l'enclave sur cette instance");
+  // Plus que le plafond d'instance du trafic invalide (3 000), sans ingress de confiance.
+  let refusedBeforeBase = 0;
+  for (let i = 0; i < 3_100; i++) {
+    const status = (await sys.api.info(sys.signedHeaders(randomKeyId(i)))).status;
+    if (status === 429) refusedBeforeBase++;
+    else if (status !== 401) assert.fail(`identifiant inconnu ${i} : ${status}`);
   }
-  for (let i = 0; i < 120; i++) assert.equal((await sys.api.info()).status, 200, `appel légitime ${i + 1}`);
+  assert.equal(refusedBeforeBase, 100, "au-delà de 3 000 échecs par minute, refus avant la base");
+  for (let i = 1; i < 120; i++) assert.equal((await sys.api.info()).status, 200, `appel légitime ${i + 1}`);
   assert.equal((await sys.api.info()).status, 429, "la vraie clé garde exactement sa fenêtre de 120");
-  assert.equal((await sys.api.info(sys.signedHeaders(OTHER_KEY_ID), "loan-2")).status, 200);
-  assert.equal(sys.calls.runner.length, 121);
+  // Plafond plein : une clé que l'enclave n'a pas encore servie ici attend la minute suivante.
+  assert.equal((await sys.api.info(sys.signedHeaders(OTHER_KEY_ID), "loan-2")).status, 429);
+  assert.equal(sys.calls.runner.length, 120);
 });
 
 test("débit (audit A F1) : requêtes en échec limitées par IP avant la base ; identifiant inconnu gardé 30 s en cache négatif", async () => {
@@ -865,6 +870,60 @@ test("débit (audit A F2) : un keyId sans son secret (signature refusée par l'e
   });
 });
 
+test("débit (revue A) : attente de démarrage, runner saturé, débit de l'enclave et refus de location ne bloquent jamais l'IP d'une clé valide", async () => {
+  await withTrustedProxy(async () => {
+    let answered = 0;
+    const sys = system({
+      phase: "stopped",
+      loans: [origin(), origin({ id: "loan-2", rentalExpiresAt: new Date(Date.now() - 1) })],
+      apiKeys: [activeKey(), activeKey({ id: OTHER_KEY_ID, loanId: "loan-2" })],
+      runner: { apiInfo: async (input) => {
+        answered++;
+        if (answered <= 70) throw new AppError("Runner saturé", 503);
+        if (answered <= 140) throw new AppError("Trop de requêtes pour ce modèle", 429, "rate_limited");
+        return { loanId: input.loanId, modelId: "logistic_regression", modelVersion: "1.0.0", features: ["income", "debt"], expiresAt: Date.now() + DAY, remaining: { today: 50, credits: 0 } };
+      } },
+    });
+    const from = (keyId = KEY_ID, loanId = "loan-1") => sys.api.info({ ...sys.signedHeaders(keyId), "x-real-ip": BORROWER_IP }, loanId);
+    const expect = async (status: number, code: string, keyId?: string, loanId?: string) => {
+      for (let i = 0; i < 70; i++) {
+        const response = await from(keyId, loanId);
+        if (response.status !== status || (await response.json()).error.code !== code) assert.fail(`${code} ${i + 1} : ${response.status}`);
+      }
+    };
+    await expect(503, "enclave_starting");
+    sys.prisma.runnerAvailability.rows[0].phase = "running";
+    await expect(503, "runner_busy");
+    await expect(429, "rate_limited");
+    await expect(403, "rental_expired", OTHER_KEY_ID, "loan-2");
+    // Plus de 60 de chaque, depuis la même adresse : la requête signée valide passe.
+    assert.equal((await from()).status, 200);
+  });
+});
+
+test("débit (revue B) : IPv6 comptée par /64, seau overflow appliqué", async () => {
+  assert.equal(rateLimit.clientNetworkKey("ip:2001:db8:1:2::a"), "ip6:2001:db8:1:2::/64");
+  assert.equal(rateLimit.clientNetworkKey("ip:2001:0db8:0001:0002:ffff:1:2:3"), "ip6:2001:db8:1:2::/64");
+  assert.equal(rateLimit.clientNetworkKey("ip:::1"), "ip6:0:0:0:0::/64");
+  assert.equal(rateLimit.clientNetworkKey("ip:::ffff:192.0.2.1"), "ip:192.0.2.1");
+  assert.equal(rateLimit.clientNetworkKey("ip:192.0.2.1"), "ip:192.0.2.1");
+
+  const limiter = new rateLimit.FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 2, maxGlobal: 100, maxTrackedKeys: 2 });
+  for (const key of ["a", "b", "c", "d"]) limiter.consume(key, 0);
+  assert.equal(limiter.blockedBy("e", 1), "overflow", "places prises : une nouvelle clé tombe dans le seau commun, plein");
+  assert.equal(limiter.blockedBy("a", 1), null);
+  assert.equal(limiter.blockedBy("e", 60_001), null, "fenêtres échues : une place se libère");
+
+  await withTrustedProxy(async () => {
+    const sys = system({ apiKeys: [activeKey()] });
+    let next = 0;
+    const from = (ip: string) => sys.api.info({ ...sys.signedHeaders(randomKeyId(next++)), "x-real-ip": ip });
+    for (let i = 0; i < 60; i++) assert.equal((await from(`2001:db8:1:2::${(i + 1).toString(16)}`)).status, 401);
+    assert.equal((await from("2001:db8:1:2:ffff::1")).status, 429, "même /64, autre adresse : refusée");
+    assert.equal((await from("2001:db8:1:3::1")).status, 401, "autre /64 : budget à part");
+  });
+});
+
 test("corps invalide (audit A F3) : refusé avant tout réveil de la CVM, sans refus journalisé", async () => {
   const sys = system({ phase: "stopped", apiKeys: [activeKey()] });
   for (const [body, status, code] of [
@@ -893,6 +952,7 @@ test("codes d'erreur (audit A F6) : tout code rendu figure dans l'OpenAPI ; runn
   const cases: [AppError, number, string][] = [
     [new AppError("Règlement on-chain non confirmé", 409), 409, "conflict"],
     [new AppError("Prédiction numérique instable", 422), 422, "prediction_unstable"],
+    [new AppError("Entité non traitable", 422), 422, "invalid_request"],
     [new AppError("Runner saturé", 503), 503, "runner_busy"],
     [new AppError("Runner confidentiel indisponible", 503), 503, "runner_unavailable"],
     [new AppError("Runner confidentiel en échec", 502), 502, "runner_error"],
@@ -910,10 +970,12 @@ test("codes d'erreur (audit A F6) : tout code rendu figure dans l'OpenAPI ; runn
   for (const code of ["invalid_signature", "unknown_key", "rate_limited", "enclave_starting", "internal_error", "unsupported_media_type"]) {
     assert.ok(documented.has(code), code);
   }
-  // Exemple de réponse de la documentation : domaine EIP-712 et décision en texte, comme l'enclave les signe.
-  const page = readFileSync("src/app/docs/api/page.tsx", "utf8");
-  assert.ok(page.includes(`"domain": { "name": "${contract.PREDICTION_DOMAIN_NAME}", "version": "${contract.PREDICTION_DOMAIN_VERSION}", "chainId": 46630 }`));
-  assert.ok(page.includes(`"decision": "1"`));
+  // Réponse servie : domaine EIP-712 et décision en texte, tels que l'OpenAPI les publie.
+  const served = await (await system({ apiKeys: [activeKey()] }).api.predict()).json();
+  const domain = /name: \{ type: string, const: ([A-Za-z]+) \}\n\s+version: \{ type: string, const: "(\d+)" \}/.exec(spec);
+  assert.ok(domain, "domaine EIP-712 absent de l'OpenAPI");
+  assert.deepEqual([served.domain.name, served.domain.version], [domain[1], domain[2]]);
+  assert.equal(typeof served.decision, "string");
 });
 
 // --- Gestion des clés -------------------------------------------------------------------------
@@ -995,11 +1057,16 @@ test("clé d'office sans réponse sûre de l'enclave (réseau, 5xx, réponse ill
     assert.deepEqual(listed.keys.map((key: Row) => [key.keyId, key.name, key.revokedAt]), [[KEY_ID, "Clé par défaut", null]]);
     const second = await sys.manage.create({ keyId: OTHER_KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true });
     assert.equal((await second.json()).code, apiPricing.AUTO_API_KEY_EXISTS_CODE);
-    // Jamais scellée : l'enclave répond « clé inconnue », la révocation réussit quand même.
+    // Réservation récente : le scellement peut encore aboutir, la révocation est refusée sans rien marquer.
+    const early = await sys.manage.revoke(KEY_ID);
+    assert.equal(early.status, 409, await early.clone().text());
+    assert.equal(sys.prisma.apiKey.rows[0].revokedAt ?? null, null);
+    // Jamais scellée (réservation de plus de 2 min) : l'enclave répond « clé inconnue », la révocation réussit.
+    sys.prisma.apiKey.rows[0].createdAt = new Date(Date.now() - 3 * 60_000);
     const revoked = await sys.manage.revoke(KEY_ID);
     assert.equal(revoked.status, 200, await revoked.clone().text());
     assert.ok(sys.prisma.apiKey.rows[0].revokedAt instanceof Date);
-    assert.equal(sys.calls.runner.filter(([op]) => op === "revoke").length, 1, "la révocation passe par l'enclave");
+    assert.equal(sys.calls.runner.filter(([op]) => op === "revoke").length, 2, "la révocation passe par l'enclave");
   }
   // Autre refus de l'enclave à la révocation : remonte, rien n'est marqué.
   const denied = system({ apiKeys: [activeKey()], runner: { revoke: async () => { throw new AppError("Révocation réservée à l’emprunteur", 403); } } });
@@ -1019,6 +1086,7 @@ test("clé manuelle (audit A F4) : réservée avant le scellement ; réponse dou
     assert.equal((await response.json()).error, apiPricing.API_KEY_UNCONFIRMED);
     const listed = await (await sys.manage.list()).json();
     assert.deepEqual(listed.keys.map((key: Row) => [key.keyId, key.name, key.revokedAt]), [[KEY_ID, "prod", null]]);
+    sys.prisma.apiKey.rows[0].createdAt = new Date(Date.now() - 3 * 60_000);
     const revoked = await sys.manage.revoke(KEY_ID);
     assert.equal(revoked.status, 200, await revoked.clone().text());
     assert.ok(sys.prisma.apiKey.rows[0].revokedAt instanceof Date);

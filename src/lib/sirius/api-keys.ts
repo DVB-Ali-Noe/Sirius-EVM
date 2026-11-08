@@ -4,7 +4,7 @@ import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
-  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, API_KEY_UNCONFIRMED, apiAccessComputeAmount, apiAccessDatasetAmount,
+  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, API_KEY_PENDING, API_KEY_UNCONFIRMED, apiAccessComputeAmount, apiAccessDatasetAmount,
   apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, AUTO_API_KEY_UNCONFIRMED, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
@@ -36,6 +36,11 @@ export const RENTAL_API_UNAVAILABLE_PROFILE = "Location indisponible : le tarif 
 const KEY_NAME_MAX = 64;
 const USAGE_DAYS = 30;
 const DAY_MS = 86_400_000;
+/**
+ * Âge au-delà duquel une réservation que l'enclave ne connaît pas est réputée jamais scellée : délai
+ * du client runner (60 s, `runner-client.ts`) plus une marge pour un scellement encore en cours.
+ */
+const KEY_SEALING_SETTLED_MS = 2 * 60_000;
 
 /**
  * Quota quotidien inclus d'un profil (`apiCallsPerDay` de la politique), `null` sans API : profil
@@ -331,7 +336,9 @@ export interface RevokeApiKeyInput {
  * par le runner : une clé marquée révoquée ici mais encore active dans l'enclave resservirait après
  * une prolongation. CVM éteinte : réveil demandé et 503. Clé inconnue de l'enclave (`404 unknown_key`) :
  * réservation d'une clé jamais scellée (réponse perdue au scellement) ; rien n'est actif dans
- * l'enclave, la ligne est donc marquée révoquée maintenant.
+ * l'enclave, la ligne est donc marquée révoquée maintenant, mais seulement si la réservation date
+ * de plus de `KEY_SEALING_SETTLED_MS` : plus jeune, le scellement peut encore aboutir dans l'enclave
+ * (revue de la PR #157), la révocation est refusée en `409 key_pending` sans rien marquer.
  *
  * Avant tout réveil (audit E, F1) : le grant, déjà authentifié par la route, doit viser cette
  * révocation (`revoke-api-key`, ce prêt, intention `[loanId, keyId]`), comme l'exigera l'enclave ;
@@ -358,6 +365,7 @@ export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
     revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
   } catch (error) {
     if (!(error instanceof AppError && error.status === 404 && error.code === "unknown_key")) throw error;
+    if (Date.now() - key.createdAt.getTime() < KEY_SEALING_SETTLED_MS) throw new AppError(API_KEY_PENDING, 409, "key_pending");
     revoked = { keyId: key.id, revokedAt: Date.now() };
   }
   if (revoked.keyId !== key.id || !Number.isSafeInteger(revoked.revokedAt) || revoked.revokedAt <= 0) {

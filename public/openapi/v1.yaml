@@ -43,12 +43,20 @@ info:
     timeout may come after the enclave already counted the call; the official SDKs raise them
     without retrying. Use a client timeout above 60 s: the API waits up to 60 s for the enclave.
 
-    **Rate limits.** 120 requests per minute per key, counted only once the enclave has
-    authenticated the request (served or refused after authentication). Requests that fail before
-    that (malformed headers or body, unknown or revoked key, rejected signature, timestamp or
-    nonce, enclave starting) are limited to 60 per minute per client IP instead; beyond, `429
-    rate_limited` with `Retry-After`. A key identifier alone, without its secret, cannot use up
-    the key's limit.
+    **Rate limits.** Each request counts in exactly one place:
+    - against your key, 120 per minute: answers given by the enclave after authenticating the
+      request (served, or refused for quota, features…), and refusals tied to the key's rental
+      (`rental_expired`, `api_access_required`, `model_unavailable`);
+    - against your client network (IP address, or /64 for IPv6), 60 per minute: invalid traffic
+      only, i.e. malformed headers or body, unknown or revoked key, and `invalid_signature`,
+      `request_expired` or `replayed_request` from the enclave. Beyond that, every request from
+      that network gets `429 rate_limited` with `Retry-After`, valid keys included;
+    - nowhere: `enclave_starting`, `runner_busy` and the enclave's own `rate_limited`.
+
+    The enclave also allows at most 120 calls per minute per model, counted before the signature
+    is checked: someone who knows only your key identifier can still use up that per-model window,
+    but not your key's limit above nor your network's. Under a distributed flood the API may
+    refuse keys it has not served recently with `429 rate_limited`.
 
     **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
     its models have no API access (a few calls would reconstruct them).
@@ -203,7 +211,7 @@ components:
           properties:
             name: { type: string, const: SiriusPrediction }
             version: { type: string, const: "2" }
-            chainId: { type: integer, description: "Chain of the Sirius escrow (46630 on the current network)." }
+            chainId: { type: integer, description: "Chain of the Sirius escrow the server is bound to: 4663 on mainnet, 46630 on testnet." }
         signedMessage: { type: object, description: "`SiriusPrediction` message as signed." }
     Error:
       type: object

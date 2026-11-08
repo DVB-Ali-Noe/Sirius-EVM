@@ -6,7 +6,8 @@ que pendant l'usage : le premier appel après une pause (environ une heure sans
 activité) peut prendre environ 2 minutes, l'API répondant ``503 enclave_starting``
 avec ``Retry-After`` : le client attend et réessaie seul (nouvelle signature)
 jusqu'à ``max_retry_wait_seconds`` (8 min par défaut). Il réessaie aussi
-``503 runner_busy`` (runner saturé, rien n'a été décompté). Aucun autre 503 n'est
+``503 runner_busy`` (runner saturé, rien n'a été décompté), avec un recul exponentiel
+et une gigue, jamais sous ``Retry-After``. Aucun autre 503 n'est
 réessayé : sur ``runner_unavailable``, l'enclave a pu décompter l'appel avant que
 sa réponse se perde. Une erreur réseau ou un délai dépassé lève ``SiriusApiError``
 (code ``network_error``, statut 0), sans réessai pour la même raison.
@@ -24,8 +25,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.client
 import json
 import math
+import random as random_module
 import re
 import secrets
 import sys
@@ -45,6 +48,10 @@ DEFAULT_RETRY_AFTER_SECONDS = 15
 DEFAULT_TIMEOUT_SECONDS = 90
 # 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé).
 _RETRYABLE_CODES = frozenset({"enclave_starting", "runner_busy"})
+# Plafond du recul exponentiel sur runner_busy.
+_MAX_BUSY_BACKOFF_SECONDS = 30.0
+# Échecs de transport : l'appel a pu être décompté, jamais réessayé seul.
+_NETWORK_ERRORS = (urllib.error.URLError, OSError, http.client.HTTPException)
 _API_KEY = re.compile(r"^sk_live_([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$")
 
 
@@ -99,6 +106,7 @@ class SiriusClient:
         now: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         nonce: Callable[[], str] = random_nonce,
+        random: Callable[[], float] = random_module.random,
     ):
         parsed = parse_api_key(api_key)
         self.key_id = parsed["key_id"]
@@ -109,6 +117,7 @@ class SiriusClient:
         self._now = now
         self._sleep = sleep
         self._nonce = nonce
+        self._random = random
 
     def predict(self, loan_id: str, features: Dict[str, float]) -> Dict[str, Any]:
         """Prédiction signée par l'enclave ; consomme un appel (quota du jour, puis crédits)."""
@@ -124,6 +133,7 @@ class SiriusClient:
 
     def _request(self, method: str, path: str, body: str) -> Dict[str, Any]:
         waited = 0.0
+        busy_retries = 0
         while True:
             # Nouvel horodatage et nouveau nonce à chaque essai : l'API refuse le rejeu.
             timestamp = int(self._now())
@@ -145,7 +155,10 @@ class SiriusClient:
                 with urllib.request.urlopen(request, timeout=self._timeout) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as failure:
-                raw = failure.read().decode("utf-8", "replace")
+                try:
+                    raw = failure.read().decode("utf-8", "replace")
+                except _NETWORK_ERRORS as read_failure:
+                    raise _network_error(read_failure) from read_failure
                 try:
                     payload = json.loads(raw) if raw else {}
                 except ValueError:
@@ -156,16 +169,29 @@ class SiriusClient:
                 message = str(error.get("message") or f"Sirius API error {failure.code}")
                 if failure.code == 503 and code in _RETRYABLE_CODES:
                     seconds = _retry_after(failure.headers.get("Retry-After"), payload)
+                    if code == "runner_busy":
+                        seconds = _busy_delay(busy_retries, seconds, self._random)
+                        busy_retries += 1
                     if waited + seconds <= self._max_retry_wait_seconds:
                         waited += seconds
                         self._sleep(seconds)
                         continue
-                    raise SiriusApiError(message, code, failure.code, seconds) from None
+                    raise SiriusApiError(message, code, failure.code, math.ceil(seconds)) from None
                 raise SiriusApiError(message, code, failure.code) from None
-            except (urllib.error.URLError, OSError) as failure:
-                # Réseau, TLS, délai dépassé (socket.timeout, TimeoutError) : l'appel a pu être décompté.
-                reason = getattr(failure, "reason", None) or failure
-                raise SiriusApiError(f"Sirius API unreachable: {reason}", "network_error", 0) from failure
+            except _NETWORK_ERRORS as failure:
+                # Réseau, TLS, délai dépassé, réponse tronquée : l'appel a pu être décompté.
+                raise _network_error(failure) from failure
+
+
+def _network_error(failure: BaseException) -> SiriusApiError:
+    reason = getattr(failure, "reason", None) or failure
+    return SiriusApiError(f"Sirius API unreachable: {reason}", "network_error", 0)
+
+
+def _busy_delay(attempt: int, retry_after: float, random: Callable[[], float]) -> float:
+    """Recul exponentiel (2 s, 4 s, 8 s… jusqu'à 30 s) avec gigue sur la seconde moitié, jamais sous Retry-After."""
+    backoff = min(_MAX_BUSY_BACKOFF_SECONDS, 2.0 ** (attempt + 1))
+    return max(float(retry_after), backoff / 2 + random() * backoff / 2)
 
 
 def _retry_after(header: Optional[str], payload: Any) -> int:

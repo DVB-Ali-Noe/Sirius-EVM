@@ -140,6 +140,7 @@ test("réessai seul sur enclave_starting et runner_busy ; runner_unavailable ou 
         { status: 200, body: ok },
       ], captured),
       sleep: async (ms) => { sleeps.push(ms); },
+      random: () => 0,
     });
     if (retried) {
       assert.deepEqual(await client.predict(vector.loanId, { age: 1 }), ok, code);
@@ -150,6 +151,37 @@ test("réessai seul sur enclave_starting et runner_busy ; runner_unavailable ou 
     assert.equal(captured.length, retried ? 2 : 1, String(code));
     assert.deepEqual(sleeps, retried ? [1000] : [], String(code));
   }
+});
+
+test("runner_busy : recul exponentiel avec gigue, jamais sous Retry-After ; enclave_starting suit Retry-After", async () => {
+  const busy = (retryAfter: string) => ({ status: 503, body: { error: { code: "runner_busy", message: "Runner saturé" } }, headers: { "Retry-After": retryAfter } });
+  const ok = { status: 200, body: { outputKind: "decision", decision: "1" } };
+  for (const [random, retryAfter, expected] of [
+    [0, "1", [1000, 2000, 4000, 8000]],
+    [1, "1", [2000, 4000, 8000, 16000]],
+    [0.5, "1", [1500, 3000, 6000, 12000]],
+    [0, "5", [5000, 5000, 5000, 8000]],
+  ] as const) {
+    const sleeps: number[] = [];
+    const client = new SiriusClient({
+      apiKey: vector.token,
+      fetch: fakeFetch([busy(retryAfter), busy(retryAfter), busy(retryAfter), busy(retryAfter), ok], []),
+      sleep: async (ms) => { sleeps.push(ms); },
+      random: () => random,
+    });
+    await client.info(vector.loanId);
+    assert.deepEqual(sleeps, expected, `gigue ${random}, Retry-After ${retryAfter}`);
+  }
+  // Plafond de 30 s par attente.
+  const sleeps: number[] = [];
+  const long = new SiriusClient({
+    apiKey: vector.token,
+    fetch: fakeFetch([...Array.from({ length: 6 }, () => busy("1")), ok], []),
+    sleep: async (ms) => { sleeps.push(ms); },
+    random: () => 1,
+  });
+  await long.info(vector.loanId);
+  assert.deepEqual(sleeps, [2000, 4000, 8000, 16000, 30000, 30000]);
 });
 
 test("info : GET signé sur le chemin public, corps vide", async () => {

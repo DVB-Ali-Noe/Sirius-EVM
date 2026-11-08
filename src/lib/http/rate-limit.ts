@@ -49,15 +49,20 @@ export class FixedWindowRateLimiter {
   }
 
   /**
-   * Fenêtre de `key` ou plafond global déjà pleins, sans rien compter : refus anticipé quand le
-   * décompte n'est fait qu'après coup. Une clé non suivie (jamais vue, ou partie en `overflow`)
-   * n'est jamais pleine.
+   * Ce qui refuserait `key` maintenant, sans rien compter (refus anticipé quand le décompte n'est
+   * fait qu'après coup) : sa propre fenêtre (`"own"`), le seau commun `overflow` où tomberait une
+   * clé non suivie quand toutes les places sont prises par des fenêtres encore ouvertes
+   * (`"overflow"`), ou le plafond de l'instance (`"global"`) ; `null` si rien ne la refuse.
    */
-  exhausted(key: string, now = Date.now()): boolean {
-    const { windowMs, maxPerKey, maxGlobal } = this.options;
-    if (this.global.startedAt > now - windowMs && this.global.count >= maxGlobal) return true;
-    const window = this.windows.get(key);
-    return window !== undefined && window.startedAt > now - windowMs && window.count >= maxPerKey;
+  blockedBy(key: string | null, now = Date.now()): "own" | "overflow" | "global" | null {
+    const { windowMs, maxPerKey, maxGlobal, maxTrackedKeys = 1_024 } = this.options;
+    const full = (window: Window | undefined, max: number) => window !== undefined && window.startedAt > now - windowMs && window.count >= max;
+    if (full(this.global, maxGlobal)) return "global";
+    if (key === null) return null;
+    if (this.windows.has(key)) return full(this.windows.get(key), maxPerKey) ? "own" : null;
+    if (this.windows.size < maxTrackedKeys) return null;
+    for (const window of this.windows.values()) if (window.startedAt <= now - windowMs) return null;
+    return full(this.windows.get("overflow"), maxPerKey) ? "overflow" : null;
   }
 }
 
@@ -70,6 +75,23 @@ export function requestClientKey(req: Request, fallback?: string): string | null
     throw new AppError("Adresse client transmise par l’ingress invalide", 400);
   }
   return `ip:${value.toLowerCase()}`;
+}
+
+/**
+ * Réseau d'une clé `requestClientKey` : une adresse IPv6 compte pour son /64 (un client en obtient
+ * couramment un entier et y fait tourner ses adresses), une IPv4 (ou IPv4 mappée) pour elle-même.
+ */
+export function clientNetworkKey(client: string): string {
+  if (!client.startsWith("ip:") || !client.includes(":", 3)) return client;
+  const address = client.slice(3);
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(address);
+  if (mapped) return `ip:${mapped[1]}`;
+  const [head, tail] = address.split("::");
+  const groups = (part: string | undefined) => part ? part.split(":").flatMap((group) => group.includes(".") ? ["0", "0"] : [group]) : [];
+  const left = groups(head);
+  const right = tail === undefined ? [] : groups(tail);
+  const all = tail === undefined ? left : [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return `ip6:${all.slice(0, 4).map((group) => (parseInt(group || "0", 16) || 0).toString(16)).join(":")}::/64`;
 }
 
 export function enforceRateLimit(limiter: FixedWindowRateLimiter, key: string | null): void {

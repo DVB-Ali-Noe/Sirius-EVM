@@ -1,5 +1,6 @@
 """Tests du SDK Python : python3 -m unittest sdk/python/test_sirius_api.py"""
 
+import http.client
 import io
 import json
 import os
@@ -109,7 +110,7 @@ class RetryTest(unittest.TestCase):
                     raise answer
                 return answer
 
-            client = sirius_api.SiriusClient(VECTOR["token"], sleep=sleeps.append)
+            client = sirius_api.SiriusClient(VECTOR["token"], sleep=sleeps.append, random=lambda: 0)
             with mock.patch.object(sirius_api.urllib.request, "urlopen", urlopen):
                 if retried:
                     self.assertEqual(client.predict(VECTOR["loanId"], {"age": 1})["decision"], "1", code)
@@ -136,6 +137,43 @@ class RetryTest(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             # Délai par défaut au-delà des 60 s accordées au runner par le serveur.
             self.assertGreaterEqual(calls[0], 75)
+
+    def test_transport_failures_inside_responses_raise_typed_error(self):
+        # Réponse tronquée (http.client), ou délai dépassé en lisant le corps d'une erreur HTTP.
+        class _Unreadable(io.BytesIO):
+            def read(self, *args):
+                raise TimeoutError("timed out")
+
+        for failure in (
+            http.client.IncompleteRead(b"{"),
+            http.client.BadStatusLine("garbage"),
+            urllib.error.HTTPError("https://api.sirius-data.tech", 502, "error", {}, _Unreadable()),
+        ):
+            def urlopen(request, timeout):
+                raise failure
+
+            client = sirius_api.SiriusClient(VECTOR["token"], sleep=lambda seconds: self.fail("no retry"))
+            with mock.patch.object(sirius_api.urllib.request, "urlopen", urlopen):
+                with self.assertRaises(sirius_api.SiriusApiError) as caught:
+                    client.info(VECTOR["loanId"])
+            self.assertEqual((caught.exception.code, caught.exception.status), ("network_error", 0), type(failure).__name__)
+
+    def test_runner_busy_backoff_with_jitter_never_below_retry_after(self):
+        for jitter, retry_after, expected in ((0, "1", [1, 2, 4, 8]), (1, "1", [2, 4, 8, 16]), (0, "5", [5, 5, 5, 8])):
+            sleeps = []
+            answers = [_http_error(503, {"error": {"code": "runner_busy", "message": "busy"}}, {"Retry-After": retry_after}) for _ in range(4)]
+            answers.append(_Response(json.dumps({"loanId": "x"}).encode()))
+
+            def urlopen(request, timeout):
+                answer = answers.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+
+            client = sirius_api.SiriusClient(VECTOR["token"], sleep=sleeps.append, random=lambda: jitter)
+            with mock.patch.object(sirius_api.urllib.request, "urlopen", urlopen):
+                client.info(VECTOR["loanId"])
+            self.assertEqual(sleeps, expected, (jitter, retry_after))
 
 
 if __name__ == "__main__":
