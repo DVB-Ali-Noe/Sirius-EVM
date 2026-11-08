@@ -24,6 +24,12 @@ export interface PublishedTariff {
    * politique fixe `apiAccessDailyComputeAmount`. Absent pour un profil : pas d'API ajoutée.
    */
   apiAccessDailyFeeAtomic: Partial<Record<ModelId, string>>;
+  /**
+   * Profils tarifés dont toute location serait refusée (D-33, même règle que
+   * `newRentalApiAccessDailyFee`) : pas de prix journalier de l'API, ou pas de quota
+   * `apiCallsPerDay` pour le profil. La page d'upload n'annonce alors aucun total emprunteur.
+   */
+  unrentableModels: ModelId[];
   /** Plancher du prix par jour du fournisseur (`MIN_PRICE_USDC_ATOMIC`), refusé en dessous par la route. */
   minimumProviderAtomic: string;
   /** Décimales du jeton de règlement, pour affichage. */
@@ -68,11 +74,14 @@ export function tariffFromPolicy(policy: BillingPolicy, expected: ExpectedTariff
       const fee = computeFee(policy, id);
       return fee === null ? [] : [[id, fee]];
     })),
+    // Profil tarifé doté d'un quota API (jamais la régression linéaire) : toute location inclut l'API.
     apiAccessDailyFeeAtomic: Object.fromEntries(MODEL_IDS.flatMap((id) => {
       const fee = policy.apiAccessDailyComputeAmount;
-      const rented = id !== "linear_regression" && computeFee(policy, id) !== null && policy.apiCallsPerDay[id] !== undefined;
-      return rented && fee !== undefined ? [[id, fee]] : [];
+      const withApi = id !== "linear_regression" && computeFee(policy, id) !== null && policy.apiCallsPerDay[id] !== undefined;
+      return withApi && fee !== undefined ? [[id, fee]] : [];
     })),
+    unrentableModels: MODEL_IDS.filter((id) => computeFee(policy, id) !== null && id !== "linear_regression"
+      && (policy.apiAccessDailyComputeAmount === undefined || policy.apiCallsPerDay[id] === undefined)),
     minimumProviderAtomic: expected.minimumProviderAtomic,
     decimals: expected.decimals,
   };
@@ -85,6 +94,7 @@ export function legacyTariff(decimals: number, minimumProviderAtomic: string): P
     version: "legacy-v6",
     computeFeeAtomic: Object.fromEntries(MODEL_IDS.map((id) => [id, "0"])),
     apiAccessDailyFeeAtomic: {},
+    unrentableModels: [],
     minimumProviderAtomic,
     decimals,
   };

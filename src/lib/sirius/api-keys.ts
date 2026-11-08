@@ -1,11 +1,11 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
   API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount,
-  apiAccessDaysFor, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
+  apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
@@ -197,11 +197,14 @@ export async function listLoanApiKeys(loanId: string, borrower: string, now = ne
 
 /**
  * Première étape de la création : contrôles d'accès, réveil de la CVM si besoin (503), puis clé
- * d'ingestion de l'enclave pour que le navigateur y chiffre le secret.
+ * d'ingestion de l'enclave pour que le navigateur y chiffre le secret. `auto` (clé créée d'office,
+ * D-33) : refus anticipé, sans réveil, si le prêt a déjà une clé ; la garde qui fait foi est celle de
+ * `registerLoanApiKey`.
  */
-export async function prepareLoanApiKey(loanId: string, borrower: string): Promise<{ ingressKey: DatasetIngressKey }> {
+export async function prepareLoanApiKey(loanId: string, borrower: string, auto = false): Promise<{ ingressKey: DatasetIngressKey }> {
   const loan = await assertApiLoan(loanId, borrower, { requireActiveRental: true });
   assertApiAccessPaid(loan);
+  if (auto && await prisma.apiKey.count({ where: { loanId } }) > 0) throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
   await assertKeyCapacity(loanId);
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
@@ -251,11 +254,18 @@ export interface RegisterApiKeyInput {
   name: string;
   envelope: ApiKeySecretEnvelope;
   authorization: RunnerGrant;
+  /** Clé créée d'office après le règlement (D-33) : refusée si le prêt a déjà une clé, même révoquée. */
+  auto?: boolean;
 }
 
 /**
  * Scellement de la clé dans l'enclave (`register-api-key`, idempotent : même `keyId` et même
  * secret ⇒ même réponse), puis ligne d'affichage. Un `keyId` déjà pris par un autre prêt est refusé.
+ *
+ * Clé d'office (`auto`) : sa ligne est réservée AVANT le scellement, dans une transaction
+ * sérialisable qui vérifie que le prêt n'a aucune clé (active ou révoquée) : deux appareils ne
+ * scellent jamais deux clés d'office, le second reçoit `409 api_key_auto_exists`. Échec du
+ * scellement : la réservation est retirée. Création manuelle inchangée.
  */
 export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
@@ -267,16 +277,35 @@ export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   await requireAcceptedKyb(loan.borrower);
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
-  const sealed = await registerApiKeyInRunner({
-    loanId: loan.id, keyId: input.keyId, envelope: input.envelope, loanReceipt: loan.runnerReceipt,
-    settleTxHash: loan.settleTxHash, authorization: input.authorization, finalityTier: effectiveLoanFinalityTier(loan.finalityTier),
-  });
-  if (sealed.keyId !== input.keyId || !Number.isSafeInteger(sealed.createdAt) || sealed.createdAt <= 0) {
-    throw new AppError("Réponse d’enregistrement de clé invalide", 502);
+  const owner = loan.borrower.toLowerCase();
+  const reserved = input.auto === true && !existing;
+  if (reserved) {
+    await serializableTransaction(async (tx) => {
+      if (await tx.apiKey.count({ where: { loanId: loan.id } }) > 0) throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
+      await tx.apiKey.create({ data: { id: input.keyId, loanId: loan.id, owner, name: input.name, revokedAt: null, lastUsedAt: null } });
+    });
+  }
+  let sealed: { keyId: string; createdAt: number };
+  try {
+    sealed = await registerApiKeyInRunner({
+      loanId: loan.id, keyId: input.keyId, envelope: input.envelope, loanReceipt: loan.runnerReceipt,
+      settleTxHash: loan.settleTxHash, authorization: input.authorization, finalityTier: effectiveLoanFinalityTier(loan.finalityTier),
+    });
+    if (sealed.keyId !== input.keyId || !Number.isSafeInteger(sealed.createdAt) || sealed.createdAt <= 0) {
+      throw new AppError("Réponse d’enregistrement de clé invalide", 502);
+    }
+  } catch (error) {
+    // Jamais utilisée : le secret n'a pas été affiché, la réservation disparaît.
+    if (reserved) await prisma.apiKey.deleteMany({ where: { id: input.keyId, loanId: loan.id, lastUsedAt: null } });
+    throw error;
+  }
+  if (reserved) {
+    const key = await prisma.apiKey.update({ where: { id: input.keyId }, data: { createdAt: new Date(sealed.createdAt) } });
+    return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
   }
   const key = existing ?? await prisma.apiKey.upsert({
     where: { id: input.keyId },
-    create: { id: input.keyId, loanId: loan.id, owner: loan.borrower.toLowerCase(), name: input.name, createdAt: new Date(sealed.createdAt) },
+    create: { id: input.keyId, loanId: loan.id, owner, name: input.name, createdAt: new Date(sealed.createdAt) },
     update: {},
   });
   return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };

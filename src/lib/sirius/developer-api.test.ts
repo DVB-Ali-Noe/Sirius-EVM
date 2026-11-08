@@ -284,13 +284,16 @@ function system(options: SystemOptions = {}) {
       const datasetAmount = passDays ? PASS_PROVIDER_SHARE
         : rental.callPack ? (BigInt(Number(rental.callPack)) * perCall).toString() : rentalRules.datasetAmountFor(String(dataset.priceUsdcAtomic), Number(rental.rentalDays));
       const hashlock = `0x${"ab".repeat(32)}`;
+      // API incluse (D-32/D-33) : jours × tarif journalier ajoutés au compute, comme le signe l'enclave.
+      const apiAccessAmount = rental.includeApiAccess ? apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, Number(rental.rentalDays)) : undefined;
       return { hashlock, authorization: { deadline: 1 }, billingQuote: { quote: {
         loanId, datasetId: dataset.datasetId, borrower: borrower.toLowerCase(), onChainDatasetId: `0x${"cd".repeat(32)}`, hashlock,
         rentalDays: rental.rentalDays, datasetAmount, usdcDecimals: DECIMALS, expiresAt: 1, maxFailureFee: "0",
-        computeAmount: passDays ? apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, passDays) : NO_TRAINING_COMPUTE,
+        computeAmount: passDays ? apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, passDays)
+          : apiAccessAmount ? (BigInt(NO_TRAINING_COMPUTE) + BigInt(apiAccessAmount)).toString() : NO_TRAINING_COMPUTE,
         ...(rental.callPack ? { callPack: rental.callPack, packForLoanId: rental.packForLoanId } : {}),
         ...(passDays ? { apiAccessDays: passDays, packForLoanId: rental.packForLoanId } : {}),
-        ...(rental.includeApiAccess ? { apiAccessIncluded: true, apiAccessAmount: apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, Number(rental.rentalDays)) } : {}),
+        ...(apiAccessAmount ? { apiAccessIncluded: true, apiAccessAmount } : {}),
       }, authorization: { deadline: 1, signature: "0x" } } };
     },
   };
@@ -404,7 +407,7 @@ function system(options: SystemOptions = {}) {
     info: load<typeof import("../../app/api/v1/models/[loanId]/route")>("src/app/api/v1/models/[loanId]/route.ts", { "@/lib/sirius/public-api": publicApi }),
     keys: load<typeof import("../../app/api/loans/[id]/api-keys/route")>("src/app/api/loans/[id]/api-keys/route.ts", {
       "next/server": { NextResponse }, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson }, "@/lib/http/rate-limit": noLimit,
-      "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule,
+      "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule, "@/lib/billing/api-pricing": apiPricing, "@/lib/errors": errors,
     }),
     key: load<typeof import("../../app/api/loans/[id]/api-keys/[keyId]/route")>("src/app/api/loans/[id]/api-keys/[keyId]/route.ts", {
       "next/server": { NextResponse }, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson }, "@/lib/http/rate-limit": noLimit,
@@ -810,6 +813,36 @@ test("clés API : création scellée dans l'enclave puis listée sans secret ; r
   const revokedAt = (await revoked.json()).revokedAt;
   assert.equal((await (await sys.manage.revoke(KEY_ID)).json()).revokedAt, revokedAt, "révocation rejouée : même date");
   assert.equal(sys.calls.runner.filter(([name]) => name === "revoke").length, 1);
+});
+
+test("clé créée d'office (D-33) : une seule par prêt, réservée avant le scellement, refusée dès qu'une clé existe", async () => {
+  const sys = system({ apiKeys: [] });
+  assert.equal((await sys.manage.create({ auto: true })).status, 200);
+  const created = await sys.manage.create({ keyId: KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true });
+  assert.equal(created.status, 201, await created.clone().text());
+  assert.deepEqual(sys.prisma.apiKey.rows.map((row) => [row.id, row.name, row.revokedAt]), [[KEY_ID, "Clé par défaut", null]]);
+  // Second appareil : refus distinct, aux deux temps, sans rien sceller dans l'enclave.
+  for (const body of [{ auto: true }, { keyId: OTHER_KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true }]) {
+    const refused = await sys.manage.create(body);
+    assert.equal(refused.status, 409);
+    assert.deepEqual(await refused.json(), { error: apiPricing.AUTO_API_KEY_EXISTS, code: apiPricing.AUTO_API_KEY_EXISTS_CODE });
+  }
+  assert.equal(sys.calls.runner.filter(([op]) => op === "register").length, 1);
+  // Création manuelle inchangée : une seconde clé reste possible.
+  assert.equal((await sys.manage.create({ keyId: OTHER_KEY_ID, name: "prod", envelope, authorization: grant })).status, 201);
+
+  // Toutes les clés révoquées : jamais de clé d'office.
+  const revoked = system({ apiKeys: [activeKey({ revokedAt: new Date(0) })] });
+  const refused = await revoked.manage.create({ keyId: OTHER_KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true });
+  assert.equal((await refused.json()).code, apiPricing.AUTO_API_KEY_EXISTS_CODE);
+  assert.equal(revoked.calls.runner.length, 0);
+  assert.equal(revoked.prisma.apiKey.rows.length, 1);
+
+  // Scellement refusé par l'enclave : la réservation disparaît, une nouvelle tentative reste possible.
+  const failing = system({ apiKeys: [], runner: { register: async () => { throw new AppError("Enclave indisponible", 502); } } });
+  assert.equal((await failing.manage.create({ keyId: KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true })).status, 502);
+  assert.equal(failing.prisma.apiKey.rows.length, 0);
+  assert.equal((await failing.manage.create({ auto: "yes" })).status, 400);
 });
 
 test("clés API refusées à un autre compte, pour la régression linéaire, sur une location échue et au-delà de 5", async () => {
@@ -1476,7 +1509,11 @@ test("emprunt : API toujours incluse (jours × tarif journalier), sans option po
     // 3 jours × 1,5 : part API ajoutée au compute signé, part fournisseur inchangée.
     assert.deepEqual([billingQuote.quote.apiAccessIncluded, billingQuote.quote.apiAccessAmount], [true, "4500000"]);
     const loan = sys.prisma.loan.rows.find((row) => row.id === loanId)!;
-    assert.deepEqual([loan.datasetAmountUsdcAtomic, loan.computeAmountUsdcAtomic], [rentalRules.datasetAmountFor(PRICE_PER_DAY, 3), NO_TRAINING_COMPUTE]);
+    const datasetAmount = rentalRules.datasetAmountFor(PRICE_PER_DAY, 3);
+    const computeAmount = (BigInt(NO_TRAINING_COMPUTE) + BigInt(4_500_000)).toString();
+    assert.equal(billingQuote.quote.computeAmount, computeAmount, "compute = base + 3 × 1,5");
+    assert.deepEqual([loan.datasetAmountUsdcAtomic, loan.computeAmountUsdcAtomic, loan.amountUsdcAtomic],
+      [datasetAmount, computeAmount, (BigInt(datasetAmount) + BigInt(computeAmount)).toString()]);
   }
 });
 

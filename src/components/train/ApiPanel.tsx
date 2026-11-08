@@ -161,7 +161,7 @@ function ApiPanelContent({
     void autoCreateApiKey(loanId, {
       list: () => listApiKeys(loanId),
       create: () => retryWhileEnclaveStarts(
-        () => createApiKey({ loanId, name: t(AUTO_API_KEY_NAME) }),
+        () => createApiKey({ loanId, name: t(AUTO_API_KEY_NAME), auto: true }),
         { onWaiting: setAutoRetry, signal: unmountSignal() },
       ),
       storage: browserStorage(),

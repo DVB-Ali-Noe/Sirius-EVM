@@ -124,7 +124,7 @@ export function ApiAccessPanel({
         <p className="text-muted" data-testid="api-access-not-for-sale">
           {t("L’accès API n’est pas en vente pour le moment : sans pass payé, aucune clé ne peut être créée et l’API refuse les appels.")}
         </p>
-      ) : access.included ? (
+      ) : access.included && !topUp ? (
         <p className="text-muted" data-testid="api-access-included-rental">
           {t("Ta location inclut l’API : {fee} par jour loué, payé avec l’emprunt ; les prolongations la gardent. Les prédictions depuis le site restent incluses.", { fee: money(access.dailyFee) })}
         </p>

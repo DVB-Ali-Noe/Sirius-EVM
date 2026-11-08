@@ -6,9 +6,18 @@ import type { ApiKeysOverview, CreatedApiKey } from "./api-keys-client";
  * par le parcours habituel (génération et scellement dans le navigateur), et en affiche le secret
  * une fois. Jamais deux : le serveur doit lister zéro clé (révoquées comprises, donc jamais après
  * une révocation), un marqueur par prêt dans le navigateur bloque toute nouvelle tentative, un
- * verrou Web Locks sérialise les onglets, et une garde en mémoire couvre le double montage de
- * React. Page fermée avant le règlement : rien d'automatique, le bouton « Créer une clé API » reste.
+ * verrou Web Locks sérialise les onglets, une garde en mémoire couvre le double montage de React,
+ * et le serveur, qui fait foi, refuse une création d'office (`auto: true`) sur un prêt ayant déjà
+ * une clé (`409 api_key_auto_exists`, autre appareil) : ce refus vaut « rien à faire ». Page fermée avant le règlement : rien d'automatique, le bouton « Créer une clé API » reste.
  */
+
+/** Le serveur a refusé la création d'office : le prêt a déjà une clé (autre appareil). Rien à afficher. */
+export class AutoApiKeyExistsError extends Error {
+  constructor() {
+    super("Ce prêt a déjà une clé API : aucune clé n’est créée d’office");
+    this.name = "AutoApiKeyExistsError";
+  }
+}
 
 /** Nom de la clé créée d'office (traduit à l'affichage, puis enregistré tel quel). */
 export const AUTO_API_KEY_NAME = "Clé par défaut";
@@ -74,9 +83,9 @@ function mark(storage: AutoApiKeyDeps["storage"], loanId: string): void {
 
 /**
  * Crée la clé d'office si rien ne s'y oppose ; `null` sinon (déjà tentée, autre onglet en cours,
- * clé existante ou révoquée, API non couverte). Le marqueur est posé AVANT la création : un échec
- * ne relance jamais de création automatique, le bouton manuel prend le relais. Une erreur de
- * création remonte à l'appelant.
+ * clé existante ou révoquée, API non couverte, refus du serveur `AutoApiKeyExistsError`). Le
+ * marqueur est posé AVANT la création : un échec ne relance jamais de création automatique, le
+ * bouton manuel prend le relais. Toute autre erreur de création remonte à l'appelant.
  */
 export async function autoCreateApiKey(loanId: string, deps: AutoApiKeyDeps): Promise<CreatedApiKey | null> {
   if (inFlight.has(loanId)) return null;
@@ -87,7 +96,12 @@ export async function autoCreateApiKey(loanId: string, deps: AutoApiKeyDeps): Pr
       if (!shouldAutoCreateApiKey(await deps.list())) return null;
       if (marked(deps.storage, loanId)) return null;
       mark(deps.storage, loanId);
-      return deps.create();
+      try {
+        return await deps.create();
+      } catch (error) {
+        if (error instanceof AutoApiKeyExistsError) return null;
+        throw error;
+      }
     };
     if (!deps.locks) return await attempt();
     return await deps.locks.request(markerKey(loanId), { ifAvailable: true }, (lock) => (lock ? attempt() : Promise.resolve(null)));

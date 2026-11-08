@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { autoCreateApiKey, newlySettledLoanIds, shouldAutoCreateApiKey, type AutoApiKeyDeps, type ExclusiveLocks } from "./auto-api-key";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
+import { AutoApiKeyExistsError, autoCreateApiKey, newlySettledLoanIds, shouldAutoCreateApiKey, type AutoApiKeyDeps, type ExclusiveLocks } from "./auto-api-key";
 import type { ApiKeySummary, ApiKeysOverview } from "./api-keys-client";
 
 type Overview = Pick<ApiKeysOverview, "keys" | "apiAccess">;
@@ -20,6 +23,16 @@ function overview(changes: { keys?: ApiKeySummary[]; paid?: boolean; included?: 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const values = new Map<string, string>();
   return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => void values.set(key, value) };
+}
+
+/** Instance séparée du module, comme dans un autre onglet : sa garde en mémoire est vierge. */
+function tab(): typeof import("./auto-api-key") {
+  const exports = {};
+  const source = ts.transpileModule(readFileSync("src/lib/train/auto-api-key.ts", "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  runInNewContext(source, { exports, Date, require: () => { throw new Error("aucune dépendance attendue"); } });
+  return exports as typeof import("./auto-api-key");
 }
 
 /** Verrou exclusif `ifAvailable` comme Web Locks : un second demandeur reçoit `null`. */
@@ -73,16 +86,36 @@ test("clé d'office : jamais quand une clé existe ou a été révoquée, ni san
   }
 });
 
-test("clé d'office : double montage (StrictMode) et onglets simultanés ne créent qu'une clé", async () => {
-  const locks = memoryLocks();
-  const shared = memoryStorage();
-  const { state, deps } = server(overview(), locks, shared);
+test("clé d'office : double montage (StrictMode) ne crée qu'une clé", async () => {
+  const { state, deps } = server(overview(), null, memoryStorage());
   const results = await Promise.all([autoCreateApiKey("loan-1", deps), autoCreateApiKey("loan-1", deps)]);
   assert.equal(results.filter(Boolean).length, 1);
-  // Autre onglet : même stockage, même verrou, liste serveur à jour.
-  assert.equal(await autoCreateApiKey("loan-1", { ...deps }), null);
   assert.equal(state.created, 1);
+});
 
+test("clé d'office : deux onglets simultanés, sans stockage commun, sérialisés par Web Locks", async () => {
+  // Deux instances du module (gardes en mémoire distinctes), aucun marqueur : seul le verrou les sépare.
+  const shared = server(overview(), memoryLocks(), memoryStorage());
+  const tabDeps = { ...shared.deps, storage: null };
+  const results = await Promise.all([tab().autoCreateApiKey("loan-1", tabDeps), tab().autoCreateApiKey("loan-1", tabDeps)]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(shared.state.created, 1);
+
+  // Témoin : sans Web Locks, les mêmes onglets créeraient deux clés (le serveur refuse alors la seconde).
+  const unlocked = server(overview(), null, memoryStorage());
+  const bare = { ...unlocked.deps, storage: null };
+  await Promise.all([tab().autoCreateApiKey("loan-1", bare), tab().autoCreateApiKey("loan-1", bare)]);
+  assert.equal(unlocked.state.created, 2);
+});
+
+test("clé d'office : refus serveur (autre appareil) traité comme « déjà une clé », sans erreur", async () => {
+  const { state, deps } = server();
+  const refused = { ...deps, create: async () => { throw new AutoApiKeyExistsError(); } };
+  assert.equal(await autoCreateApiKey("loan-1", refused), null);
+  assert.equal(state.created, 0);
+});
+
+test("clé d'office : liste serveur à jour après création, même sans verrou ni stockage", async () => {
   // Sans Web Locks ni stockage : la liste serveur suffit après la création.
   const bare = server(overview(), null, memoryStorage());
   const noStorage = { ...bare.deps, storage: null };

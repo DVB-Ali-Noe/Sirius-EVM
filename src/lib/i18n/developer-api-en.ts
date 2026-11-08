@@ -235,6 +235,8 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "Accès API inclus": "API access included",
   "Toute location inclut l’accès API développeurs, payé par jour loué.": "Every rental includes developer API access, paid per rented day.",
   "Clé par défaut": "Default key",
+  "Ce prêt a déjà une clé API : aucune clé n’est créée d’office": "This loan already has an API key: no key is created automatically",
+  "Création d’office invalide": "Invalid automatic creation flag",
   "Ta clé API": "Your API key",
   "Ta location inclut l’API : une clé « {name} » vient d’être créée pour ce prêt.":
     "Your rental includes the API: a key “{name}” was just created for this loan.",

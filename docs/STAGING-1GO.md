@@ -64,7 +64,9 @@ Environnement dédié, sans toucher à la démo, à `sirius-mainnet` ni à l'env
 `sirius-api-test` (KMS Phala, `tdx.small`), site Vercel `sirius-api-test.vercel.app`, base Neon dédiée, contrats
 testnet dédiés (DatasetRegistry `0x3788…048e`, EscrowV7 `0x941e…5dcb`), budget runner **standard** (le mode `trial`
 n'est accepté que depuis l'origine de staging), tarif `api-test-2026-11-08`. `api.sirius-data.tech` pointe sur ce
-projet depuis le 8 novembre.
+projet depuis le 8 novembre. Depuis D-33 (API incluse à toute location), cet environnement ne loue que si son tarif
+(Vercel et volume du runner) porte `apiAccessDailyComputeAmount` et les quotas `apiCallsPerDay` : à vérifier avant
+d'y déployer ce code.
 
 - **Validé en conditions réelles** (image `7b7f6303…`, code `staging` `2afc5c8`) :
   - publication, location 1 jour (8 USDC), entraînement scellé et règlement en moins de 20 s, profils logistique

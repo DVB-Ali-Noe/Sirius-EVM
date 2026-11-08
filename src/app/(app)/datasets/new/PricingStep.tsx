@@ -197,7 +197,17 @@ export function PricingStep({
 
       {tariff && tariff.computeFeeAtomic[modelId] !== undefined ? (
         <div className="flex flex-col gap-2">
-          {providerAtomic !== null ? (
+          {tariff.unrentableModels.includes(modelId) ? (
+            // Location refusée par le tarif (D-33) : aucun total emprunteur annoncé.
+            <section role="note" data-testid="pricing-unrentable" className="rounded-xl border border-yellow-400/40 bg-yellow-400/5 p-4 text-xs text-foreground/90">
+              <p>{t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}</p>
+              <p className="mt-2">
+                {t("Tu recevrais {amount} par jour de location réglé.", {
+                  amount: providerAtomic === null ? "—" : formatTokenWithSymbol(providerAtomic, token) ?? "—",
+                })}
+              </p>
+            </section>
+          ) : providerAtomic !== null ? (
             <PriceBreakdown
               providerAtomic={providerAtomic}
               computeAtomic={tariff.computeFeeAtomic[modelId]}
