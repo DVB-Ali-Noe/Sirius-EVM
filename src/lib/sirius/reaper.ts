@@ -103,22 +103,23 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
         if (needsFastReview(loan, now)) await reviewFastSettledLoan(loan, now);
         continue;
       }
+      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
+        // Classé rapide puis laissé sans activité (prêt, prolongation, pack ou pass) : il libère le
+        // plafond et repassera par la décision au prochain lancement ou règlement (finality-tier.ts).
+        // Le reste de la passe le reprendra.
+        const reverted = await prisma.loan.updateMany({
+          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
+          data: { finalityTier: "FULL" },
+        });
+        if (reverted.count === 1) console.log(`[reaper] prêt EVM ${loan.id} : palier rapide rendu après inactivité`);
+        continue;
+      }
       if (loan.extendsLoanId) {
         await reapLoanExtension(loan, now);
         continue;
       }
       if (loan.packForLoanId) {
         await reapCallPack(loan, now);
-        continue;
-      }
-      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST" && loan.updatedAt.getTime() <= now.getTime() - FAST_IDLE_REVERT_MS) {
-        // Classé rapide puis laissé sans activité : il libère le plafond et repassera par la
-        // décision au prochain lancement (finality-tier.ts). Le reste de la passe le reprendra.
-        const reverted = await prisma.loan.updateMany({
-          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
-          data: { finalityTier: "FULL" },
-        });
-        if (reverted.count === 1) console.log(`[reaper] prêt EVM ${loan.id} : palier rapide rendu après inactivité`);
         continue;
       }
       const chain = loan.billingQuoteHash ? await reconcileClosedLoan(loan) : null;
@@ -179,6 +180,7 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
   if (chain === "closed" || chain === "unbound") return;
   if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
     console.log(`[reaper] prolongation EVM ${loan.id} échue : release impossible, remboursement à l'initiative de l'emprunteur`);
+    if (loan.finalityTier === "FAST") await releaseFastTier(loan.id);
     return;
   }
   try {
@@ -186,6 +188,7 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
   } catch (error) {
     if (error instanceof AppError && error.message === RENTAL_MODEL_DELETED) {
       console.log(`[reaper] prolongation EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
+      await releaseFastTier(loan.id);
       return;
     }
     if (error instanceof AppError && error.message === EXTENSION_PENDING) return;
@@ -206,9 +209,13 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
 async function reapCallPack(loan: Loan, now: Date): Promise<void> {
   const chain = await reconcileClosedLoan(loan);
   if (chain === "closed" || chain === "unbound") return;
-  if (loan.apiAccessRefusedAt) return;
+  if (loan.apiAccessRefusedAt) {
+    if (loan.finalityTier === "FAST") await releaseFastTier(loan.id);
+    return;
+  }
   if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
     console.log(`[reaper] pack d'appels EVM ${loan.id} échu : release impossible, remboursement à l'initiative de l'emprunteur`);
+    if (loan.finalityTier === "FAST") await releaseFastTier(loan.id);
     return;
   }
   try {
@@ -220,12 +227,7 @@ async function reapCallPack(loan: Loan, now: Date): Promise<void> {
       console.log(stale
         ? `[reaper] pass d'accès API EVM ${loan.id} caduc (couverture ou échéance changée depuis le devis) : refusé, remboursement à l'échéance`
         : `[reaper] pack d'appels EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
-      if (loan.status === "ESCROWED" && loan.finalityTier === "FAST") {
-        await prisma.loan.updateMany({
-          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", ...(stale ? {} : { updatedAt: loan.updatedAt }) },
-          data: { finalityTier: "FULL" },
-        });
-      }
+      await releaseFastTier(loan.id);
       return;
     }
     if (error instanceof AppError && (error.message === CALLS_PENDING || error.message === API_ACCESS_PENDING)) return;
@@ -234,14 +236,35 @@ async function reapCallPack(loan: Loan, now: Date): Promise<void> {
 }
 
 /**
+ * Achat rendu sans reprise possible (refusé, échu, location close) : un palier rapide encore
+ * marqué sur la ligne ESCROWED rend sa part du plafond FAST en cours (finality-tier.ts). Gardé par
+ * le statut et le palier seuls : une décision concurrente de la page a déjà réclamé la ligne
+ * (SETTLING), ou perdra son claim sur `updatedAt`, touché par cette écriture.
+ */
+async function releaseFastTier(loanId: string): Promise<void> {
+  await prisma.loan.updateMany({ where: { id: loanId, status: "ESCROWED", finalityTier: "FAST" }, data: { finalityTier: "FULL" } });
+}
+
+/**
  * Prêt FAST déjà SETTLED : verdict à finalité complète (fast-settlement-review.ts). Confirmé ⇒
  * `finalityVerifiedAt`. Divergence ⇒ alerte journalisée, `finalityReview` posé (prédiction
  * et certificat suspendus) et erreur comptée dans la passe : le battement du reaper la fait
- * remonter. Rien n'est retenté ni annulé automatiquement : un opérateur tranche (runbook 20).
+ * remonter. Prolongation, pack ou pass : la revue est aussi posée sur le prêt d'origine (s'il
+ * n'en a pas déjà une), seul lu par la prédiction, les clés et l'API publique ; elle s'y écrit en
+ * premier, pour qu'une passe interrompue la rouvre. Rien n'est retenté ni annulé automatiquement :
+ * un opérateur tranche (runbook 20).
  */
 async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
   const open = async (reason: string) => {
     console.error(`[reaper] ALERTE finalité rapide : prêt EVM ${loan.id} — ${reason} ; revue manuelle requise (docs/passage-mainnet/20-finalite-rapide.md)`);
+    const originalLoanId = loan.extendsLoanId ?? loan.packForLoanId;
+    if (originalLoanId) {
+      const kind = loan.extendsLoanId ? "prolongation" : typeof loan.apiAccessDays === "number" ? "pass d'accès API" : "pack d'appels";
+      await prisma.loan.updateMany({
+        where: { id: originalLoanId, finalityReview: null },
+        data: { finalityReview: `${kind} ${loan.id} : ${reason}`, finalityReviewAt: now },
+      });
+    }
     await prisma.loan.updateMany({
       where: { id: loan.id, status: "SETTLED", finalityTier: "FAST", finalityReview: null },
       data: { finalityReview: reason, finalityReviewAt: now },

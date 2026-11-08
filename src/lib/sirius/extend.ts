@@ -58,7 +58,9 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
   if (loan.status !== "ESCROWED" && loan.status !== "SETTLING") throw new AppError("Prolongation non verrouillée ou déjà close", 409);
   if (!loan.evmLoanKey || !loan.evmLockTxHash || !loan.evmLockBlock) throw new AppError("Lock de paiement absent", 409);
   // Même emprunteur, même dataset, modèle d'origine pas encore supprimé : refus avant tout `release`.
-  const original = await assertExtendableLoan(loan.extendsLoanId, loan.borrower);
+  // Release déjà diffusé (SETTLING avec hash) : l'argent a bougé, la reprise termine toujours.
+  const released = loan.status === "SETTLING" && Boolean(loan.settleTxHash);
+  const original = await assertExtendableLoan(loan.extendsLoanId, loan.borrower, { released });
   if (original.datasetId !== loan.datasetId || !addressesEqual(original.provider, loan.provider)) {
     throw new AppError("Prolongation hors scope du prêt d’origine", 409);
   }
@@ -124,15 +126,20 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
       });
       throw error;
     }
-    // Remboursée entre-temps : close. Sinon (y compris réglée on-chain sans réponse), retour à
-    // ESCROWED : la reprise rejoue `extend-loan`, qui rend la même échéance.
-    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, BigInt(loan.evmLockBlock)).catch(() => undefined);
+    // Remboursée entre-temps : close. Réglée on-chain sans réponse : l'argent a bougé, la
+    // prolongation reste en règlement avec le hash du release (comme une finalité en attente) et la
+    // reprise termine le report d'échéance. Sinon, retour à ESCROWED en finalité complète (le
+    // plafond rapide est rendu, le palier sera redécidé) : la reprise rejoue `extend-loan`, qui rend
+    // la même échéance.
+    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, BigInt(loan.evmLockBlock), undefined, finalityTier).catch(() => undefined);
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", updatedAt: claimedAt },
-      data: resolution?.state === "cancelled"
-        ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
-          ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
-        : { status: "ESCROWED" },
+      data: resolution?.state === "settled"
+        ? { settleTxHash: resolution.txHash, updatedAt: new Date() }
+        : resolution?.state === "cancelled"
+          ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
+            ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
+          : { status: "ESCROWED", finalityTier: "FULL" },
     });
     throw settlementQueuedError(error);
   }

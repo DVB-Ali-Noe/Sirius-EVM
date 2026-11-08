@@ -327,3 +327,23 @@ test("API incluse (D-32) : l'échéance relue du bloc de release reflète aussi 
   await plain.rental.loanRentalExpiry(plain.loans.get("loan-1") as never);
   assert.equal(plain.loans.get("loan-1")!.apiPaidUntil, null);
 });
+
+test("prolongation réglée on-chain sans réponse : reste SETTLING avec le hash, terminée même modèle d'origine supprimé depuis", async () => {
+  let lost = true;
+  const expiresAt = Date.now() + 6 * DAY;
+  const context = fixture([original(), extension()], {
+    chain: { state: "settled", txHash: EXTENSION_TX },
+    runner: async () => {
+      if (lost) { lost = false; throw new AppError("Runner confidentiel indisponible", 503); }
+      return { settleTxHash: EXTENSION_TX, expiresAt };
+    },
+  });
+  await assert.rejects(context.extend.settleLoanExtension("loan-2"));
+  const row = context.loans.get("loan-2")!;
+  assert.equal(row.status, "SETTLING");
+  assert.equal(row.settleTxHash, EXTENSION_TX);
+  context.loans.get("loan-1")!.rentalExpiresAt = new Date(Date.now() - 31 * DAY);
+  const result = await context.extend.settleLoanExtension("loan-2");
+  assert.equal(result.rentalExpiresAt, new Date(expiresAt).toISOString());
+  assert.equal(row.status, "SETTLED");
+});

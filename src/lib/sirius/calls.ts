@@ -170,17 +170,22 @@ export async function settleLoanPack(packLoanId: string, authorization?: RunnerG
       });
       throw error;
     }
-    // Remboursé entre-temps : clos. Pass caduc pour l'enclave : marqué refusé, plus jamais rejoué.
-    // Sinon (y compris réglé on-chain sans réponse), retour à ESCROWED : la reprise rejoue
-    // `buy-calls`, qui ne crédite pas deux fois.
-    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, BigInt(loan.evmLockBlock)).catch(() => undefined);
+    // Remboursé entre-temps : clos. Réglé on-chain sans réponse : l'argent a bougé, le pack reste
+    // en règlement avec le hash du release (comme une finalité en attente) ; la reprise ne refait
+    // plus aucun contrôle préalable (location, profil, revue) et termine le crédit, même location
+    // échue depuis. Pass caduc pour l'enclave : marqué refusé, plus jamais rejoué. Sinon, retour à
+    // ESCROWED en finalité complète (le plafond rapide est rendu, le palier sera redécidé) : la
+    // reprise rejoue `buy-calls`, qui ne crédite pas deux fois.
+    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, BigInt(loan.evmLockBlock), undefined, finalityTier).catch(() => undefined);
     const stale = pass && error instanceof AppError && error.code === API_ACCESS_STALE_CODE;
     await prisma.loan.updateMany({
       where: { id: packLoanId, status: "SETTLING", updatedAt: claimedAt },
-      data: resolution?.state === "cancelled"
-        ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
-          ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
-        : { status: "ESCROWED", ...(stale ? { apiAccessRefusedAt: new Date() } : {}) },
+      data: resolution?.state === "settled"
+        ? { settleTxHash: resolution.txHash, updatedAt: new Date() }
+        : resolution?.state === "cancelled"
+          ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
+            ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
+          : { status: "ESCROWED", finalityTier: "FULL", ...(stale ? { apiAccessRefusedAt: new Date() } : {}) },
     });
     throw settlementQueuedError(error);
   }
