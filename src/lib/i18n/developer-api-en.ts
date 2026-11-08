@@ -17,12 +17,16 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "Garde cette page ouverte jusqu’à la fin de l’opération.": "Keep this page open until the operation finishes.",
 
   // Démarrage de l'enclave (EnclaveStartingSteps, enclave-wait.ts)
-  "L’enclave démarre": "The enclave is starting",
+  "Démarrage de l’enclave sécurisée — environ 2 minutes": "Starting the secure enclave — about 2 minutes",
+  "Vos données ne sont traitées que dans une machine confidentielle (TEE Intel TDX). Pour limiter les coûts, elle n’est allumée que lorsqu’on en a besoin : elle démarre, puis prouve son identité (attestation) avant de recevoir quoi que ce soit. Rien n’est payé ni envoyé pendant l’attente ; l’opération reprend toute seule.":
+    "Your data is only processed inside a confidential machine (Intel TDX TEE). To keep costs down, it only runs when needed: it boots, then proves its identity (attestation) before receiving anything. Nothing is paid or sent while you wait; the operation resumes on its own.",
+  "Plus long que d’habitude : le démarrage peut prendre jusqu’à 5 minutes. Garde cette page ouverte.":
+    "Taking longer than usual: the start can take up to 5 minutes. Keep this page open.",
   "Démarrage demandé": "Start requested",
-  "Démarrage de la machine confidentielle": "Booting the confidential machine",
-  "Quelques minutes : Sirius n’allume l’enclave que lorsqu’elle sert, et la paie.":
-    "A few minutes: Sirius only runs the enclave when it is needed, and pays for it.",
-  "Vérification de l’enclave, puis reprise automatique": "Enclave verification, then automatic resume",
+  "Démarrage de la machine confidentielle (≈ 1 min 30)": "Booting the confidential machine (≈ 1 min 30 s)",
+  "Vérification de l’attestation, puis reprise automatique (≈ 30 s)": "Attestation check, then automatic resume (≈ 30 s)",
+  "Attente : {minutes} min {seconds} s": "Waiting: {minutes} min {seconds} s",
+  "Attente : {seconds} s": "Waiting: {seconds} s",
   "Nouvel essai dans ~{seconds} s": "Retrying in ~{seconds} s",
   "L’enclave démarre. La demande reprendra dès qu’elle sera prête.": "The enclave is starting. The request will resume as soon as it is ready.",
   "Si tu fermes la page, l’enclave continue de démarrer : relance ta prédiction dans quelques minutes, rien n’est décompté.":
@@ -60,6 +64,8 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
     "You can close this page: your calls get “503 enclave_starting” with a Retry-After delay, and the SDK retries on its own.",
   "L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.":
     "The enclave is stopped because it was idle. It starts when you create a key or request the next prediction.",
+  "L’enclave est arrêtée faute d’usage. Le premier appel API la redémarre : il reçoit « 503 enclave_starting » avec un délai Retry-After (environ 2 min), et le SDK réessaie seul.":
+    "The enclave is stopped because it was idle. The first API call starts it again: it gets “503 enclave_starting” with a Retry-After delay (about 2 min), and the SDK retries on its own.",
   "L’enclave s’arrête faute d’usage. Elle redémarrera à la prochaine demande.": "The enclave is stopping because it is idle. It will start again on the next request.",
   "Appels API aujourd’hui (indicatif)": "API calls today (indicative)",
   "Appels achetés (packs réglés)": "Purchased calls (settled packs)",

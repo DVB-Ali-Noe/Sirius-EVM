@@ -11,6 +11,7 @@ import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { BuyCallsPanel, type PendingCallPack } from "./BuyCallsPanel";
 import { CreateApiKeyDialog } from "./CreateApiKeyDialog";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 /** Relecture de l'état de l'enclave tant qu'elle n'est pas prête (onglet visible seulement). */
 const ENCLAVE_POLL_MS = 30_000;
@@ -100,6 +101,7 @@ function ApiPanelContent({
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeRetry, setRevokeRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -130,7 +132,7 @@ function ApiPanelContent({
     setRevoking(keyId);
     try {
       // Révoquer passe par l'enclave : si elle démarre, la demande est relancée (sans risque, idempotente).
-      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry });
+      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry, signal: unmountSignal() });
       setConfirmRevoke(null);
       await load();
     } catch (error) {
@@ -161,13 +163,17 @@ function ApiPanelContent({
 
       {overview && (
         <>
-          {enclave === "starting" || (enclave === "stopped" && active.length > 0) ? (
+          {enclave === "starting" ? (
             <EnclaveStartingSteps
               phase={enclave}
               closeNote={t("Tu peux fermer cette page : tes appels reçoivent « 503 enclave_starting » avec un délai Retry-After, et le SDK réessaie seul.")}
             />
           ) : enclave === "stopped" ? (
-            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">{t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}</p>
+            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">
+              {active.length > 0
+                ? t("L’enclave est arrêtée faute d’usage. Le premier appel API la redémarre : il reçoit « 503 enclave_starting » avec un délai Retry-After (environ 2 min), et le SDK réessaie seul.")
+                : t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}
+            </p>
           ) : enclave === "stopping" ? (
             <p className="mt-2 text-xs text-muted" data-testid="enclave-stopping">{t("L’enclave s’arrête faute d’usage. Elle redémarrera à la prochaine demande.")}</p>
           ) : null}

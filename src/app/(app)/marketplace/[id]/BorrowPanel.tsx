@@ -10,6 +10,9 @@ import { connectWallet } from "@/components/wallet/WalletConnector";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import { isModelOffered, modelSelection } from "@/lib/models/registry";
@@ -68,6 +71,9 @@ export function BorrowPanel({
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const { confirmDuplicate, duplicateDialog } = useDuplicateLoanConfirmation();
   const [busy, setBusy] = useState(false);
+  // Enclave à l'arrêt : la préparation du devis la réveille ; secondes avant le prochain essai.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
   // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
@@ -172,7 +178,10 @@ export function BorrowPanel({
     if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
-      if (await borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote })) {
+      if (await retryWhileEnclaveStarts(
+        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }),
+        { onWaiting: setEnclaveRetry, signal: unmountSignal() },
+      )) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
       }
     } catch (err) {
@@ -235,6 +244,14 @@ export function BorrowPanel({
         <p className="text-xs text-negative">
           {t("Emprunt indisponible : l’attestation de vérification du fournisseur est absente ou expirée.")}
         </p>
+      )}
+      {enclaveRetry !== null && (
+        <EnclaveStartingSteps
+          phase="starting"
+          retryInSeconds={enclaveRetry}
+          testId="borrow-enclave-starting"
+          closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+        />
       )}
       {error && (
         <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-3 py-2 text-sm text-negative">

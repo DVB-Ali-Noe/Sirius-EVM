@@ -70,7 +70,7 @@ function fixture() {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
       trainingJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 }; } },
-      loan: { update },
+      loan: { update, count: async () => 0 },
     } },
   };
   return { dataset, records, updates, common };
@@ -167,7 +167,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     ...common, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => false },
     "@/lib/billing/quote": {}, "@/lib/billing/loan": {}, "@/lib/billing/rental": rentalRules, "./rental": {},
-    "./api-keys": {}, "@/lib/billing/api-pricing": apiPricing,
+    "./api-keys": {}, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},
     "@/lib/evm/client": { getPublicClient: () => ({ readContract: async () => true, getBlockNumber: async () => BigInt(10) }) },
@@ -214,6 +214,7 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
   const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
     "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
     "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
     "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }), prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
     "@/lib/tee/runner-client": {
@@ -250,6 +251,7 @@ test("un refus du runner supprime le brouillon vide ; une panne passagère le co
   const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
     "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
     "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
     "@/lib/db": { serializableTransaction: async () => { throw new Error("inutile"); }, prisma: { dataset: datasetStore } },
     "@/lib/tee/runner-client": { sealDatasetInRunner: async () => { throw refusal; } },

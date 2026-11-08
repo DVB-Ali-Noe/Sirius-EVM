@@ -8,6 +8,7 @@ import { messageOf } from "@/lib/errors-client";
 import { API_KEY_NAME_MAX_LENGTH, createApiKey, type ApiKeyCreationStep, type CreatedApiKey } from "@/lib/train/api-keys-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 const STEP_ORDER: readonly ApiKeyCreationStep[] = ["preparing", "sealing", "signing", "registering"];
 
@@ -34,6 +35,7 @@ export function CreateApiKeyDialog({
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const working = step !== null && !failed && !created;
 
   function close() {
@@ -54,7 +56,7 @@ export function CreateApiKeyDialog({
     try {
       const key = await retryWhileEnclaveStarts(
         () => createApiKey({ loanId, name, onStep: setStep }),
-        { onWaiting: setEnclaveRetry },
+        { onWaiting: setEnclaveRetry, signal: unmountSignal() },
       );
       setCreated(key);
       onCreated();

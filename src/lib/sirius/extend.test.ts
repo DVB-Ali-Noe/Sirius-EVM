@@ -140,7 +140,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
         if (!addresses.addressesEqual(current.address, owner)) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
       },
     },
-    "@/lib/errors": { errorResponse }, "@/lib/http/body": { readJson },
+    "@/lib/sirius/availability": { loanRouteErrorResponse: errorResponse }, "@/lib/http/body": { readJson },
     "@/lib/http/rate-limit": { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} },
     "@/lib/billing/rental": rentalRules, "@/lib/runner/failure-policy": failurePolicy,
     "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/extend": extend,

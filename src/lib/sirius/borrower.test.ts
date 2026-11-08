@@ -27,9 +27,12 @@ test("un prêt annulé sans remboursement on-chain reste récupérable", () => {
 });
 
 test("les essais annulés ne consomment pas le quota d’emprunts", () => {
+  // Plafonds communs au contrôle d'avant réveil et à la transaction de `prepareLoan`.
+  const admission = SOURCE.slice(SOURCE.indexOf("async function assertLoanAdmission"), SOURCE.indexOf("export async function prepareLoan"));
   const prepare = SOURCE.slice(SOURCE.indexOf("export async function prepareLoan"), SOURCE.indexOf("export async function finalizeLoan"));
 
-  assert.match(prepare, /status: \{ in: \["ESCROWED", "TRAINING", "SETTLING", "SETTLED"\] \}/);
+  assert.match(admission, /status: \{ in: \["ESCROWED", "TRAINING", "SETTLING", "SETTLED"\] \}/);
+  assert.match(prepare, /await assertLoanAdmission\(tx, borrowerAddress, datasetId\)/);
 });
 
 test("le profil verrouillé est porté dans le lock, sans pré-entraînement", () => {

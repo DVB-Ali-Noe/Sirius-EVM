@@ -21,6 +21,8 @@ import * as apiPricing from "@/lib/billing/api-pricing";
 import * as settlementStatus from "@/lib/loans/settlement-status";
 import * as failurePolicy from "@/lib/runner/failure-policy";
 import { isApiHost, apiHostPath } from "@/lib/http/api-host";
+import * as createRequest from "@/lib/datasets/create-request";
+import * as publication from "@/lib/datasets/publication";
 import { proxy } from "@/proxy";
 import * as reaperPolicy from "./reaper-policy";
 import * as reaperErrors from "./reaper-errors";
@@ -29,6 +31,8 @@ import { settlementQueuedError } from "./settlement-queued";
 // D-30 : API développeurs côté Next. Exécution réelle des routes publiques et de gestion, de
 // `public-api.ts`, `api-keys.ts`, `availability.ts`, `calls.ts`, `borrower.ts`, `extend.ts`,
 // `release-tier.ts`, `finality-tier.ts` et du reaper ; base, chaîne et runner remplacés en mémoire.
+// Réveil de la CVM par le devis (`POST /api/loans`) et la publication (`POST /api/datasets`,
+// `draft.ts`, `pipeline.ts`) : mêmes doubles.
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
@@ -134,6 +138,29 @@ function table(rows: Row[], options: { touch?: boolean; unique?: (where: Where) 
       return { count: before - rows.length };
     },
   };
+}
+
+/**
+ * Double de `wake-budget.ts` : mêmes plafonds et même `Retry-After` (fonctions réelles du module),
+ * fenêtres tenues dans `store`, partageable entre « instances ». L'instruction SQL atomique elle-même
+ * est éprouvée sur PostgreSQL, entre processus, dans `postgres.integration.test.ts`.
+ */
+function wakeBudgetDouble(store = new Map<string, { hourStart: Date; hourCount: number; dayStart: Date; dayCount: number }>()) {
+  const real = load<typeof import("./wake-budget")>("src/lib/sirius/wake-budget.ts", { "server-only": {}, "@/lib/db": { prisma: {} } });
+  const spendWakeBudget = async (subject: string, now: Date) => {
+    const row = store.get(subject);
+    const hourOpen = row !== undefined && row.hourStart.getTime() > now.getTime() - 3_600_000;
+    const dayOpen = row !== undefined && row.dayStart.getTime() > now.getTime() - 86_400_000;
+    if ((hourOpen && row.hourCount >= real.WAKE_WRITES_PER_HOUR) || (dayOpen && row.dayCount >= real.WAKE_WRITES_PER_DAY)) {
+      return { spent: false as const, retryAfterSeconds: real.wakeRetryAfterSeconds(row!, now) };
+    }
+    store.set(subject, {
+      hourStart: hourOpen ? row.hourStart : now, hourCount: hourOpen ? row.hourCount + 1 : 1,
+      dayStart: dayOpen ? row.dayStart : now, dayCount: dayOpen ? row.dayCount + 1 : 1,
+    });
+    return { spent: true as const };
+  };
+  return { store, module: { spendWakeBudget } };
 }
 
 function origin(overrides: Row = {}): Row {
@@ -262,7 +289,7 @@ function system(options: SystemOptions = {}) {
     "@/lib/evm/client": { getPublicClient: () => client }, "@/lib/billing/rental": rentalRules,
   });
   const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
-    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors,
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "./wake-budget": wakeBudgetDouble().module,
   });
   const finalityTier = load<typeof import("./finality-tier")>("src/lib/sirius/finality-tier.ts", {
     "server-only": {}, "@/lib/errors": errors, "@/lib/db": db,
@@ -300,9 +327,14 @@ function system(options: SystemOptions = {}) {
     "./finality-tier": finalityTier, "./prediction": prediction, "./self-training-access": { phalaDemoInstance: () => false },
   });
   const noLimit = { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} };
-  const session = { address: BORROWER };
+  const session: { address: string } = { address: BORROWER };
   const auth = {
-    requireAuth: () => session, assertAuthenticGrant: async () => {},
+    // Adresse vide : requête sans session, refusée avant tout contrôle comme par la vraie garde.
+    requireAuth: () => {
+      if (!session.address) throw new AppError("Authentification requise", 401);
+      return session;
+    },
+    assertAuthenticGrant: async () => {},
     assertOwner: (current: typeof session, owner: string) => {
       if (!addresses.addressesEqual(current.address, owner)) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
     },
@@ -328,6 +360,7 @@ function system(options: SystemOptions = {}) {
     "./recover-loan": {}, "@/lib/evm/history": {}, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "./exposure-limits": { assertAdmissionsOpen: () => {}, assertExposureWithinCap: () => {}, assertLoanWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [], exposureLimits: () => null },
     "@/lib/billing/rental": rentalRules, "./rental": rental, "@/lib/billing/api-pricing": apiPricing, "./api-keys": apiKeysModule,
+    "./availability": availabilityModule,
   });
   const chain = { state: "active" as const };
   const shared = {
@@ -355,6 +388,11 @@ function system(options: SystemOptions = {}) {
       "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
       "@/lib/http/rate-limit": noLimit, "@/lib/billing/api-pricing": apiPricing, "@/lib/runner/failure-policy": failurePolicy,
       "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/availability": availabilityModule, "@/lib/sirius/calls": callsModule,
+    }),
+    loans: load<typeof import("../../app/api/loans/route")>("src/app/api/loans/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/sirius/borrower": borrower, "@/lib/auth/require-auth": auth,
+      "@/lib/errors": errors, "@/lib/http/body": { readJson }, "@/lib/billing/loan": billingLoan, "@/lib/http/rate-limit": noLimit,
+      "@/lib/billing/rental": rentalRules, "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule,
     }),
   };
   const reaper = () => load<typeof import("./reaper")>("src/lib/sirius/reaper.ts", {
@@ -393,6 +431,7 @@ function system(options: SystemOptions = {}) {
       { params: Promise.resolve({ id, keyId }) },
     ),
     calls: (body: unknown, id = "loan-1") => routes.calls.POST(new Request(`https://test.invalid/api/loans/${id}/calls`, json("POST", body)), { params: Promise.resolve({ id }) }),
+    quote: (body: unknown) => routes.loans.POST(new Request("https://test.invalid/api/loans", json("POST", body))),
   };
   return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper };
 }
@@ -528,9 +567,10 @@ test("prédiction publique : refus côté Next avant l'enclave (en-têtes, clé,
   assert.equal(expired.calls.runner.length, 0);
 });
 
-test("CVM pas encore allumée : 503 enclave_starting avec Retry-After, sans appel ni réveil anonyme", async () => {
-  for (const [phase, status, retry] of [["starting", "starting", 60], ["stopped", "stopped", 120], ["stopping", "stopped", 120]] as const) {
+test("CVM pas encore allumée, clé valide d'une location en cours : réveil 15 min et 503 enclave_starting avec Retry-After, rien relayé", async () => {
+  for (const [phase, status, retry] of [["starting", "starting", 30], ["stopped", "stopped", 45], ["stopping", "stopped", 45]] as const) {
     const sys = system({ phase, apiKeys: [activeKey()] });
+    const before = Date.now();
     for (const response of [await sys.api.predict(), await sys.api.info()]) {
       assert.equal(response.status, 503, phase);
       assert.equal(response.headers.get("retry-after"), String(retry), phase);
@@ -542,11 +582,158 @@ test("CVM pas encore allumée : 503 enclave_starting avec Retry-After, sans appe
       assert.equal(typeof body.message, "string");
     }
     assert.equal(sys.calls.runner.length, 0, phase);
-    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "un appel anonyme ne réveille jamais la CVM");
+    const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+    assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000, phase);
   }
-  // Allumée : relayée normalement.
+  // Allumée : relayée normalement, et l'activité garde la CVM voulue.
   const running = system({ phase: "running", apiKeys: [activeKey()] });
   assert.equal((await running.api.predict()).status, 200);
+  assert.ok(running.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date);
+});
+
+test("CVM éteinte : en-têtes invalides, clé inconnue, révoquée ou d'un autre prêt, location échue ne réveillent rien", async () => {
+  const REVOKED = "CCCCCCCCCCCCCCCCCCCCCC";
+  const sys = system({
+    phase: "stopped", loans: [origin(), origin({ id: "loan-2" })],
+    apiKeys: [activeKey({ id: OTHER_KEY_ID, loanId: "loan-2" }), activeKey({ id: REVOKED, revokedAt: new Date(1) })],
+  });
+  assert.equal((await sys.api.predict(undefined, { ...sys.signedHeaders(), "sirius-signature": "" })).status, 401, "en-têtes invalides");
+  assert.equal((await sys.api.predict(undefined, sys.signedHeaders())).status, 401, "clé inconnue");
+  assert.equal((await sys.api.predict(undefined, sys.signedHeaders(OTHER_KEY_ID))).status, 401, "clé d'un autre prêt");
+  assert.equal((await sys.api.info(sys.signedHeaders(REVOKED))).status, 401, "clé révoquée");
+  assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+
+  const expired = system({ phase: "stopped", loans: [origin({ rentalExpiresAt: new Date(Date.now() - 1) })], apiKeys: [activeKey()] });
+  assert.equal((await expired.api.predict()).status, 403);
+  assert.equal(expired.prisma.runnerAvailability.rows[0].requestedUntil, null, "location échue");
+  for (const sys2 of [sys, expired]) assert.equal(sys2.calls.runner.length, 0);
+});
+
+function availabilityHarness(rows: Row[], budget = wakeBudgetDouble()) {
+  const runnerAvailability = table(rows);
+  let writes = 0;
+  const updateMany = runnerAvailability.updateMany;
+  runnerAvailability.updateMany = async (args) => { writes++; return updateMany(args); };
+  const db = { prisma: { runnerAvailability } };
+  const availability = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
+    "./wake-budget": budget.module,
+  });
+  return { availability, rows, budget, writes: () => writes };
+}
+const availabilityRow = (requestedUntil: Date | null, phase = "running"): Row => ({ id: 1, phase, since: new Date(0), requestedUntil });
+const WAKE_NOW = new Date(Date.UTC(2026, 10, 8, 12));
+const MINUTE = 60_000;
+
+test("réveil : écrit seulement s'il reste moins de 10 min, quelle que soit la phase ; jamais raccourci ; sans contrôleur, rien", async () => {
+  for (const phase of ["running", "stopped"]) {
+    for (const [label, current] of [["aucun réveil", null], ["bientôt échu", new Date(WAKE_NOW.getTime() + 9 * MINUTE)], ["échu", new Date(WAKE_NOW.getTime() - MINUTE)]] as const) {
+      const sys = availabilityHarness([availabilityRow(current, phase)]);
+      await sys.availability.requireRunnerOrWake({ now: WAKE_NOW }).catch((error: AppError) => assert.equal(error.status, 503));
+      assert.equal(sys.writes(), 1, `${phase} ${label}`);
+      assert.equal((sys.rows[0].requestedUntil as Date).getTime(), WAKE_NOW.getTime() + sys.availability.RUNNER_WAKE_MS, label);
+    }
+    // Encore frais (plus de 10 min devant lui) : aucune écriture ; les relances d'une même attente n'écrivent pas.
+    for (const minutes of [11, 15, 30]) {
+      const fresh = new Date(WAKE_NOW.getTime() + minutes * MINUTE);
+      const sys = availabilityHarness([availabilityRow(fresh, phase)]);
+      await sys.availability.requireRunnerOrWake({ now: WAKE_NOW }).catch((error: AppError) => assert.equal(error.status, 503));
+      assert.equal(sys.writes(), 0, `${phase} ${minutes} min`);
+      assert.equal(sys.rows[0].requestedUntil, fresh);
+    }
+  }
+  assert.equal(availabilityHarness([]).availability.ACTIVITY_REFRESH_MS, 5 * MINUTE);
+  const none = availabilityHarness([]);
+  await none.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: BORROWER });
+  assert.equal(none.writes(), 0, "sans ligne : aucun contrôleur, rien à écrire");
+});
+
+test("budget de réveil par compte : 6 écritures par heure ; au-delà, 429 sans écrire si éteinte, requête servie sans prolonger si allumée", async () => {
+  const sys = availabilityHarness([availabilityRow(null, "stopped")]);
+  const wake = (subject: string, at = WAKE_NOW) => sys.availability.requireRunnerOrWake({ now: at, wakeSubject: subject });
+  for (let i = 0; i < 6; i++) {
+    sys.rows[0].requestedUntil = null;
+    await assert.rejects(wake(PROVIDER, new Date(WAKE_NOW.getTime() + i * MINUTE)), (error: AppError) => error.status === 503);
+  }
+  assert.equal(sys.writes(), 6);
+  sys.rows[0].requestedUntil = null;
+  await assert.rejects(wake(PROVIDER.toUpperCase().replace("0X", "0x")), (error: AppError & { retryAfterSeconds?: number }) =>
+    error.status === 429 && error instanceof sys.availability.WakeRateLimited && error.retryAfterSeconds === 600);
+  assert.equal(sys.writes(), 6, "budget épuisé : rien d'écrit");
+  assert.equal(sys.rows[0].requestedUntil, null);
+  // Un autre compte garde son budget.
+  await assert.rejects(wake(BORROWER), (error: AppError) => error.status === 503);
+  assert.equal(sys.writes(), 7);
+  // CVM allumée, budget épuisé : la requête passe, sans prolongation.
+  sys.rows[0].phase = "running";
+  sys.rows[0].requestedUntil = null;
+  await wake(PROVIDER);
+  assert.equal(sys.writes(), 7);
+  assert.equal(sys.rows[0].requestedUntil, null);
+  // Allumée avec un réveil encore frais : rien à écrire, rien à refuser.
+  sys.rows[0].requestedUntil = new Date(WAKE_NOW.getTime() + 14 * MINUTE);
+  await wake(PROVIDER);
+  assert.equal(sys.writes(), 7);
+  // L'heure suivante, le budget horaire repart.
+  sys.rows[0].phase = "stopped";
+  sys.rows[0].requestedUntil = null;
+  await assert.rejects(wake(PROVIDER, new Date(WAKE_NOW.getTime() + 61 * MINUTE)), (error: AppError) => error.status === 503);
+  assert.equal(sys.writes(), 8);
+});
+
+test("budget de réveil : Retry-After calculé sur la fin de la fenêtre (au plus 600 s) ; CVM qui démarre déjà ⇒ 503, pas 429", async () => {
+  const sys = availabilityHarness([availabilityRow(null, "stopped")]);
+  for (let i = 0; i < 6; i++) {
+    sys.rows[0].requestedUntil = null;
+    await assert.rejects(sys.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+  }
+  sys.rows[0].requestedUntil = null;
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+    (error: AppError & { retryAfterSeconds?: number }) => error.status === 429 && error.retryAfterSeconds === 300);
+  // Un prêt en cours la fait déjà démarrer : le client attend avec le 503 habituel, sans rien écrire.
+  for (const phase of ["starting"]) {
+    sys.rows[0].phase = phase;
+    await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+      (error: AppError & { code?: string }) => error.status === 503 && error instanceof sys.availability.EnclaveStarting);
+  }
+  sys.rows[0].phase = "stopping";
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+    (error: AppError) => error.status === 429);
+  assert.equal(sys.writes(), 6);
+  assert.equal(sys.rows[0].requestedUntil, null);
+});
+
+test("budget de réveil : partagé par les instances (lu en base à chaque requête, pas en mémoire)", async () => {
+  const shared = wakeBudgetDouble();
+  const first = availabilityHarness([availabilityRow(null, "stopped")], shared);
+  for (let i = 0; i < 6; i++) {
+    first.rows[0].requestedUntil = null;
+    await assert.rejects(first.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+  }
+  // Nouvelle instance (module rechargé, aucun état en mémoire) : même budget, déjà épuisé.
+  const second = availabilityHarness([availabilityRow(null, "stopped")], shared);
+  await assert.rejects(second.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 429);
+  assert.equal(second.writes(), 0);
+  assert.deepEqual(shared.store.get(PROVIDER)?.hourCount, 6);
+});
+
+test("budget de réveil par compte : 12 écritures par jour, indépendamment du budget horaire", async () => {
+  const sys = availabilityHarness([availabilityRow(null, "stopped")]);
+  const at = (minutes: number) => new Date(WAKE_NOW.getTime() + minutes * MINUTE);
+  for (const hour of [0, 1]) {
+    for (let i = 0; i < 6; i++) {
+      sys.rows[0].requestedUntil = null;
+      await assert.rejects(sys.availability.requireRunnerOrWake({ now: at(hour * 61 + i), wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+    }
+  }
+  assert.equal(sys.writes(), 12);
+  // Troisième heure : budget horaire neuf, mais journalier épuisé.
+  sys.rows[0].requestedUntil = null;
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: at(3 * 61), wakeSubject: PROVIDER }), (error: AppError) => error.status === 429);
+  assert.equal(sys.writes(), 12);
+  // Le lendemain, il repart.
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: at(24 * 60 + 1), wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+  assert.equal(sys.writes(), 13);
 });
 
 test("débit : 120 requêtes par minute et par clé, prédiction et description confondues", async () => {
@@ -627,7 +814,7 @@ test("action wallet de l'emprunteur, CVM éteinte : réveil demandé 15 min et 5
   const before = Date.now();
   const response = await sys.manage.create({});
   assert.equal(response.status, 503);
-  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal(response.headers.get("retry-after"), "45");
   assert.equal((await response.json()).error.code, "enclave_starting");
   const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
   assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
@@ -640,6 +827,220 @@ test("action wallet de l'emprunteur, CVM éteinte : réveil demandé 15 min et 5
   stranger.session.address = OTHER;
   assert.equal((await stranger.manage.create({})).status, 403);
   assert.equal(stranger.prisma.runnerAvailability.rows[0].requestedUntil, null);
+});
+
+// --- Réveil par le devis d'emprunt et la publication --------------------------------------------
+
+const pendingLoan = (): Row => origin({
+  id: "pending-1", status: "PENDING", evmLockTxHash: null, settleTxHash: null, runnerReceipt: null, modelCid: null,
+  rentalExpiresAt: null, createdAt: new Date(), updatedAt: new Date(0),
+});
+
+test("devis d'emprunt, CVM éteinte : réveil 15 min et 503 enclave_starting, sans remplacer le PENDING ni réserver ; relance une fois allumée", async () => {
+  const sys = system({ phase: "stopped", loans: [origin(), pendingLoan()] });
+  const before = Date.now();
+  const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("retry-after"), "45");
+  assert.equal((await response.json()).error.code, "enclave_starting");
+  const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+  assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
+  assert.equal(sys.calls.lockRequests.length, 0, "aucun devis demandé à l'enclave");
+  assert.deepEqual(sys.prisma.loan.rows.map((loan) => [loan.id, loan.status]), [["loan-1", "SETTLED"], ["pending-1", "PENDING"]]);
+
+  // Même requête une fois la CVM allumée : un seul nouveau prêt, comme sans réveil.
+  sys.prisma.runnerAvailability.rows[0].phase = "running";
+  const retried = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+  assert.equal(retried.status, 201, await retried.clone().text());
+  assert.equal(sys.calls.lockRequests.length, 1);
+  assert.equal(sys.prisma.loan.rows.length, 3);
+  assert.equal(sys.prisma.loan.rows.find((loan) => loan.id === "pending-1")!.status, "CANCELLED");
+});
+
+test("devis d'emprunt : requête anonyme, invalide ou refusée ne réveille pas la CVM ; CVM allumée : devis inchangé", async () => {
+  const anonymous = system({ phase: "stopped" });
+  anonymous.session.address = "";
+  assert.equal((await anonymous.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 401);
+  const invalid = system({ phase: "stopped" });
+  assert.equal((await invalid.manage.quote({ rentalDays: 7 })).status, 400);
+  assert.equal((await invalid.manage.quote({ datasetId: "dataset-1", rentalDays: 0 })).status, 400);
+  assert.equal((await invalid.manage.quote({ datasetId: "dataset-1", rentalDays: 31 })).status, 400, "au-delà de maxRentalDays du dataset");
+  assert.equal((await invalid.manage.quote({ datasetId: "absent", rentalDays: 7 })).status, 404);
+  const ownDataset = system({ phase: "stopped" });
+  ownDataset.session.address = PROVIDER;
+  assert.equal((await ownDataset.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 400);
+  for (const sys of [anonymous, invalid, ownDataset]) {
+    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+    assert.equal(sys.calls.lockRequests.length, 0);
+  }
+
+  for (const phase of ["running", null]) {
+    const sys = system({ phase });
+    const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+    assert.equal(response.status, 201, String(phase));
+    assert.equal(sys.calls.lockRequests.length, 1);
+    if (phase) assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date, "CVM allumée : l'activité la garde voulue");
+  }
+});
+
+/** `POST /api/datasets` réel (route, brouillon, pipeline) ; base, KYB et runner en mémoire. */
+function publicationSystem(phase: string | null, options: { kybRefused?: boolean } = {}) {
+  const datasets = table([]);
+  const insert = datasets.create;
+  // Valeur par défaut du schéma : un dataset naît brouillon.
+  datasets.create = ({ data }) => insert({ data: { status: "DRAFT", ...data } });
+  const runnerAvailability = table(phase === null ? [] : [{ id: 1, phase, since: new Date(0), requestedUntil: null }]);
+  const prisma = { dataset: datasets, runnerAvailability };
+  const db = { prisma, serializableTransaction: async (fn: (tx: typeof prisma) => unknown) => fn(prisma) };
+  const calls = { ingress: 0 };
+  const session: { address: string } = { address: PROVIDER };
+  const runner = { runnerKind: "PHALA", runnerDeploymentId: "phala:1" };
+  const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
+    "./wake-budget": wakeBudgetDouble().module,
+  });
+  const pipeline = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
+    "server-only": {}, "@/lib/db": db, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
+    "@/lib/tee/runner-client": { datasetIngressKeyInRunner: async () => { calls.ingress++; return { version: 1, publicKey: "ingress", origin: "runner" }; } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => { if (options.kybRefused) throw new AppError("KYB requis", 403); } },
+    "@/lib/sirius/availability": availabilityModule, "@/lib/ipfs/pinata": {},
+    "@/lib/runner/provenance": { currentRunnerProvenance: async () => runner, assertCurrentRunner: async () => runner },
+  });
+  const draft = load<typeof import("../datasets/draft")>("src/lib/datasets/draft.ts", {
+    "server-only": {}, "@/lib/db": db, "@/lib/app-error": { AppError }, "@/lib/sirius/pipeline": pipeline, "./publication": publication,
+  });
+  const route = load<typeof import("../../app/api/datasets/route")>("src/app/api/datasets/route.ts", {
+    "next/server": { NextResponse }, "@/lib/db": db,
+    "@/lib/auth/require-auth": { requireAuth: () => {
+      if (!session.address) throw new AppError("Authentification requise", 401);
+      return session;
+    } },
+    "@/lib/auth/session": {}, "@/lib/errors": { errorResponse }, "@/lib/http/body": { readJson }, "@/lib/sirius/reputation": {},
+    "@/lib/sirius/dataset-response": {}, "@/lib/datasets/create-request": createRequest,
+    "@/lib/sirius/chunked-upload": { requireChunkedUploads: () => {} }, "@/lib/datasets/draft": draft,
+    "@/lib/billing/config": { billingEnabled: () => false }, "@/lib/datasets/tariff-server": { publishedTariff: () => null },
+    "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} }, "@/lib/sirius/availability": availabilityModule,
+  });
+  const publish = (body: unknown) => route.POST(new Request("https://test.invalid/api/datasets", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  return { prisma, calls, session, pipeline, publish };
+}
+
+const publicationBody = {
+  name: "Crédit", sizeBytes: 1200, priceUsdc: "10", category: publication.DATASET_CATEGORIES[0], maxRentalDays: 30,
+  listingDays: 30, trainingConsent: false, modelId: "logistic_regression",
+};
+
+test("publication, CVM éteinte : réveil 15 min et 503 enclave_starting sans brouillon ; la relance crée un seul brouillon", async () => {
+  const sys = publicationSystem("stopped");
+  const before = Date.now();
+  const response = await sys.publish(publicationBody);
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("retry-after"), "45");
+  assert.equal((await response.json()).error.code, "enclave_starting");
+  const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+  assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
+  assert.equal(sys.prisma.dataset.rows.length, 0, "aucun brouillon tant que l'enclave démarre");
+  assert.equal(sys.calls.ingress, 0);
+
+  sys.prisma.runnerAvailability.rows[0].phase = "starting";
+  assert.equal((await sys.publish(publicationBody)).status, 503);
+  sys.prisma.runnerAvailability.rows[0].phase = "running";
+  const created = await sys.publish(publicationBody);
+  assert.equal(created.status, 201, await created.clone().text());
+  assert.equal(sys.prisma.dataset.rows.length, 1);
+  assert.equal(sys.calls.ingress, 1);
+
+  // CVM arrêtée avant le scellement : même réveil, brouillon intact.
+  const draft = sys.prisma.dataset.rows[0];
+  const touched = draft.updatedAt;
+  sys.prisma.runnerAvailability.rows[0].phase = "stopped";
+  sys.prisma.runnerAvailability.rows[0].requestedUntil = null;
+  await assert.rejects(sys.pipeline.authorizeDatasetUpload(String(draft.id), PROVIDER), (error: AppError) => error.status === 503);
+  assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date);
+  assert.equal(draft.updatedAt, touched);
+});
+
+test("publication : requête anonyme, invalide ou sans KYB ne réveille pas la CVM ; CVM allumée : brouillon créé, activité enregistrée", async () => {
+  const anonymous = publicationSystem("stopped");
+  anonymous.session.address = "";
+  assert.equal((await anonymous.publish(publicationBody)).status, 401);
+  const invalid = publicationSystem("stopped");
+  assert.equal((await invalid.publish({ ...publicationBody, category: "" })).status, 400);
+  assert.equal((await invalid.publish({ ...publicationBody, modelId: "inconnu" })).status, 400);
+  assert.equal((await invalid.publish({ ...publicationBody, sizeBytes: 0 })).status, 413);
+  const unverified = publicationSystem("stopped", { kybRefused: true });
+  assert.equal((await unverified.publish(publicationBody)).status, 403);
+  for (const sys of [anonymous, invalid, unverified]) {
+    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+    assert.equal(sys.prisma.dataset.rows.length, 0);
+  }
+
+  for (const phase of ["running", null]) {
+    const sys = publicationSystem(phase);
+    assert.equal((await sys.publish(publicationBody)).status, 201, String(phase));
+    assert.equal(sys.prisma.dataset.rows.length, 1);
+    if (phase) assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date, "CVM allumée : l'activité la garde voulue");
+  }
+});
+
+test("publication : fournisseur au quota de brouillons, aucun réveil ; au-delà du budget de réveil, 429 avec Retry-After, autre compte servi", async () => {
+  const full = publicationSystem("stopped");
+  for (let i = 0; i < 5; i++) {
+    full.prisma.dataset.rows.push({ id: `draft-${i}`, provider: PROVIDER, status: "DRAFT", ipfsCid: null, wrappedKey: null, runnerReceipt: null, createdAt: new Date(), updatedAt: new Date() });
+  }
+  assert.equal((await full.publish(publicationBody)).status, 429);
+  assert.equal(full.prisma.runnerAvailability.rows[0].requestedUntil, null, "quota atteint : la CVM n'est pas réveillée");
+  // Brouillons abandonnés (vides depuis plus de 30 min) : ils ne comptent plus, comme dans la transaction.
+  for (const row of full.prisma.dataset.rows) row.updatedAt = new Date(Date.now() - 31 * 60_000);
+  assert.equal((await full.publish(publicationBody)).status, 503);
+
+  const sys = publicationSystem("stopped");
+  const availability = sys.prisma.runnerAvailability.rows[0];
+  for (let i = 0; i < 6; i++) {
+    availability.requestedUntil = null;
+    assert.equal((await sys.publish(publicationBody)).status, 503, `réveil ${i + 1}`);
+  }
+  availability.requestedUntil = null;
+  const limited = await sys.publish(publicationBody);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "600");
+  assert.equal(typeof (await limited.json()).error, "string");
+  assert.equal(availability.requestedUntil, null, "budget épuisé : rien d'écrit");
+  sys.session.address = OTHER;
+  assert.equal((await sys.publish(publicationBody)).status, 503, "un autre compte garde son budget");
+  assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date);
+  // CVM allumée, budget épuisé : la publication passe, sans prolonger la CVM.
+  sys.session.address = PROVIDER;
+  availability.phase = "running";
+  availability.requestedUntil = null;
+  assert.equal((await sys.publish(publicationBody)).status, 201);
+  assert.equal(availability.requestedUntil, null);
+});
+
+test("devis : emprunteur au plafond de PENDING, aucun réveil ; au-delà du budget de réveil, 429 avec Retry-After, devis servi si la CVM tourne", async () => {
+  const pending = Array.from({ length: 5 }, (_, i) => ({ ...pendingLoan(), id: `pending-${i}` }));
+  const capped = system({ phase: "stopped", loans: [origin(), ...pending] });
+  assert.equal((await capped.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 429);
+  assert.equal(capped.prisma.runnerAvailability.rows[0].requestedUntil, null);
+  assert.ok(capped.prisma.loan.rows.filter((loan) => loan.status === "PENDING").length === 5, "aucun PENDING remplacé");
+
+  const sys = system({ phase: "stopped" });
+  const availability = sys.prisma.runnerAvailability.rows[0];
+  for (let i = 0; i < 6; i++) {
+    availability.requestedUntil = null;
+    assert.equal((await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 503, `réveil ${i + 1}`);
+  }
+  availability.requestedUntil = null;
+  const limited = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "600");
+  assert.equal(availability.requestedUntil, null);
+  availability.phase = "running";
+  assert.equal((await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 201);
+  assert.equal(availability.requestedUntil, null, "servi sans prolonger la CVM");
+  assert.equal(sys.calls.lockRequests.length, 1);
 });
 
 // --- Packs d'appels ---------------------------------------------------------------------------
@@ -821,7 +1222,7 @@ test("GET /api/loans : champs API et packs exposés", async () => {
     "@/lib/sirius/borrower": {}, "@/lib/auth/require-auth": { requireAuth: () => ({ address: BORROWER }) },
     "@/lib/errors": { errorResponse }, "@/lib/http/body": { readJson }, "@/lib/billing/loan": { loanBillingQuote: () => undefined },
     "@/lib/http/rate-limit": { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} }, "@/lib/billing/rental": rentalRules,
-    "@/lib/sirius/api-keys": apiKeys,
+    "@/lib/sirius/api-keys": apiKeys, "@/lib/sirius/availability": { loanRouteErrorResponse: errorResponse },
   });
   const body = await (await route.GET(new Request("https://test.invalid/api/loans"))).json();
   assert.deepEqual(body.map((loan: Row) => [loan.id, loan.apiEnabled, loan.callsPerDay, loan.callPack, loan.packForLoanId]), [

@@ -279,30 +279,34 @@ export async function openDatasetUpload(
   } catch {
     throw new AppError("Taille de morceau invalide", 400);
   }
-  const dataset = await deps.authorize(datasetId, provider);
-  requireChunkedUploads(dataset.sizeBytes, deps);
-  if (chunkCountFor(dataset.sizeBytes, chunkBytes) > MAX_UPLOAD_CHUNKS) {
-    throw new AppError("Morceaux trop petits pour ce fichier", 400);
-  }
-
   const now = deps.now();
-  const existing = (await deps.db.datasetUpload.findFirst({
-    where: { datasetId, provider, state: "OPEN", expiresAt: { gt: new Date(now) } },
-    orderBy: { createdAt: "desc" },
-  })) as DatasetUploadRow | null;
-  // Reprise : le même brouillon garde son envoi ouvert, les morceaux déjà reçus restent valables.
-  if (existing && existing.chunkBytes === chunkBytes && existing.sizeBytes === dataset.sizeBytes) {
-    return { ...publicUpload(existing), ingressKey: await deps.ingressKey() };
-  }
-
-  const [open, recent] = await Promise.all([
-    deps.db.datasetUpload.count({ where: { provider, state: { in: ["OPEN", "SEALING"] }, expiresAt: { gt: new Date(now) } } }),
-    deps.db.datasetUpload.aggregate({ where: { provider, createdAt: { gte: new Date(now - DAY_MS) } }, _sum: { sizeBytes: true } }),
-  ]);
-  if (open >= MAX_OPEN_UPLOADS_PER_PROVIDER) throw new AppError("Trop d’envois en cours : termine ou annule un envoi", 429);
-  if ((recent._sum.sizeBytes ?? 0) + dataset.sizeBytes > DAILY_UPLOAD_BYTES_PER_PROVIDER) {
-    throw new AppError("Quota d’envoi du jour atteint — réessaie demain", 429);
-  }
+  // Contrôles sans écriture (taille, découpage, reprise, quotas) avant le réveil de la CVM par
+  // `authorize` : un envoi invalide ou hors quota ne la réveille pas.
+  const resume: { upload?: DatasetUploadRow } = {};
+  const dataset = await deps.authorize(datasetId, provider, async ({ sizeBytes }) => {
+    requireChunkedUploads(sizeBytes, deps);
+    if (chunkCountFor(sizeBytes, chunkBytes) > MAX_UPLOAD_CHUNKS) {
+      throw new AppError("Morceaux trop petits pour ce fichier", 400);
+    }
+    const existing = (await deps.db.datasetUpload.findFirst({
+      where: { datasetId, provider, state: "OPEN", expiresAt: { gt: new Date(now) } },
+      orderBy: { createdAt: "desc" },
+    })) as DatasetUploadRow | null;
+    // Reprise : le même brouillon garde son envoi ouvert, les morceaux déjà reçus restent valables.
+    if (existing && existing.chunkBytes === chunkBytes && existing.sizeBytes === sizeBytes) {
+      resume.upload = existing;
+      return;
+    }
+    const [open, recent] = await Promise.all([
+      deps.db.datasetUpload.count({ where: { provider, state: { in: ["OPEN", "SEALING"] }, expiresAt: { gt: new Date(now) } } }),
+      deps.db.datasetUpload.aggregate({ where: { provider, createdAt: { gte: new Date(now - DAY_MS) } }, _sum: { sizeBytes: true } }),
+    ]);
+    if (open >= MAX_OPEN_UPLOADS_PER_PROVIDER) throw new AppError("Trop d’envois en cours : termine ou annule un envoi", 429);
+    if ((recent._sum.sizeBytes ?? 0) + sizeBytes > DAILY_UPLOAD_BYTES_PER_PROVIDER) {
+      throw new AppError("Quota d’envoi du jour atteint — réessaie demain", 429);
+    }
+  });
+  if (resume.upload) return { ...publicUpload(resume.upload), ingressKey: await deps.ingressKey() };
   const upload = (await deps.db.datasetUpload.create({
     data: {
       datasetId,
@@ -376,10 +380,9 @@ export async function completeDatasetUpload(
   const upload = await loadUpload(deps, datasetId, uploadId, provider);
   if (upload.state !== "OPEN") throw new AppError("Cet envoi n’attend pas de clôture", 409);
   if (upload.expiresAt.getTime() <= deps.now()) throw new AppError("Envoi expiré : recommence l’envoi", 410);
-  const dataset = await deps.authorize(datasetId, provider);
-  if (dataset.sizeBytes !== upload.sizeBytes) throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
   const config = requireChunkedUploads(upload.sizeBytes, deps);
 
+  // Manifeste et morceaux contrôlés sans écrire, avant le réveil de la CVM par `authorize`.
   let manifest: ChunkedUploadManifest;
   try {
     manifest = await parseChunkedUploadManifest(manifestValue);
@@ -395,6 +398,9 @@ export async function completeDatasetUpload(
   const received = new Set(await receivedChunks(deps, config, upload));
   const missing = Array.from({ length: upload.chunkCount }, (_, index) => index).filter((index) => !received.has(index));
   if (missing.length > 0) throw new AppError(missingMessage(missing), 409);
+  const dataset = await deps.authorize(datasetId, provider, ({ sizeBytes }) => {
+    if (sizeBytes !== upload.sizeBytes) throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
+  });
 
   const sha = await manifestSha256(manifest);
   await deps.put(config, manifestObjectKey(idsOf(upload)), new Uint8Array(new TextEncoder().encode(canonicalManifestJson(manifest))));

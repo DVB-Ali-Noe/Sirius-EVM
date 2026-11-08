@@ -7,6 +7,7 @@ import { useWalletStore } from "@/stores/wallet";
 import { parsePredictionFeatures, type PredictionResult } from "@/lib/train/prediction-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 const FIELD = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent";
 
@@ -34,6 +35,7 @@ export function PredictionBox({
   const [error, setError] = useState<string | null>(null);
   // Enclave arrêtée : la route répond 503 `enclave_starting` ; la demande est relancée seule.
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   function collect(): Record<string, number> {
     if (!features.length) return parsePredictionFeatures(json);
@@ -52,7 +54,7 @@ export function PredictionBox({
     setResult(null);
     try {
       const input = collect();
-      const output = await retryWhileEnclaveStarts(() => predict(input), { onWaiting: setEnclaveRetry });
+      const output = await retryWhileEnclaveStarts(() => predict(input), { onWaiting: setEnclaveRetry, signal: unmountSignal() });
       if (useWalletStore.getState().revision !== revision) throw new Error("Le wallet a changé");
       setResult(output);
     } catch (cause) {
