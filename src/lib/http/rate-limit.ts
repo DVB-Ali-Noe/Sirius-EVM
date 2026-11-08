@@ -47,6 +47,18 @@ export class FixedWindowRateLimiter {
     this.windows.set(effectiveKey, keyWindow);
     return true;
   }
+
+  /**
+   * Fenêtre de `key` ou plafond global déjà pleins, sans rien compter : refus anticipé quand le
+   * décompte n'est fait qu'après coup. Une clé non suivie (jamais vue, ou partie en `overflow`)
+   * n'est jamais pleine.
+   */
+  exhausted(key: string, now = Date.now()): boolean {
+    const { windowMs, maxPerKey, maxGlobal } = this.options;
+    if (this.global.startedAt > now - windowMs && this.global.count >= maxGlobal) return true;
+    const window = this.windows.get(key);
+    return window !== undefined && window.startedAt > now - windowMs && window.count >= maxPerKey;
+  }
 }
 
 export function requestClientKey(req: Request, fallback?: string): string | null {

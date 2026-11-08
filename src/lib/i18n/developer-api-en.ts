@@ -239,6 +239,8 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "Création d’office invalide": "Invalid automatic creation flag",
   "Création de la clé par défaut non confirmée par l’enclave : la clé reste listée sans que tu aies reçu son secret ; révoque-la et crée une clé avec « Créer une clé API »":
     "The enclave did not confirm the default key: it stays listed but you never received its secret; revoke it and create a key with “Create an API key”",
+  "Création de la clé non confirmée par l’enclave : la clé reste listée sans que tu aies reçu son secret ; révoque-la et crée une nouvelle clé":
+    "The enclave did not confirm the key: it stays listed but you never received its secret; revoke it and create a new key",
   "Ta clé API": "Your API key",
   "Ta location inclut l’API : une clé « {name} » vient d’être créée pour ce prêt.":
     "Your rental includes the API: a key “{name}” was just created for this loan.",

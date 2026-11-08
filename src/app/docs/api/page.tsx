@@ -69,18 +69,23 @@ const API_EN: Record<string, string> = {
   "Quota du jour épuisé et plus aucun appel prépayé.": "Today's quota used up and no prepaid call left.",
   "Profil sans API (régression linéaire).": "Profile without API (linear regression).",
   "Variables absentes, en trop ou non numériques.": "Missing, extra or non-numeric features.",
-  "Trop de requêtes : 120 par minute par clé et par modèle, dont 60 descriptions.": "Too many requests: 120 per minute per key and per model, including 60 model descriptions.",
+  "Trop de requêtes : 120 par minute par clé, comptées une fois la requête authentifiée par l’enclave (et 120 par modèle, dont 60 descriptions) ; les requêtes refusées avant (en-têtes, corps, clé, signature) : 60 par minute par adresse IP.": "Too many requests: 120 per minute per key, counted once the enclave has authenticated the request (and 120 per model, including 60 model descriptions); requests refused before that (headers, body, key, signature): 60 per minute per IP address.",
   "L’enclave démarre : réessaie après Retry-After.": "The enclave is starting: retry after Retry-After.",
   "Emprunt inconnu, ou ligne de prolongation ou de pack.": "Unknown loan, or an extension or pack line.",
   "Emprunt pas encore réglé, ou en revue de finalité.": "Loan not settled yet, or under finality review.",
   "Corps de plus de 16 Kio.": "Body larger than 16 KiB.",
   "Requête mal formée (corps non UTF-8, longueur incohérente).": "Malformed request (non UTF-8 body, inconsistent length).",
-  "Enclave injoignable ou en erreur : réessaie plus tard.": "Enclave unreachable or failing: retry later.",
+  "Corps de requête pas reçu à temps.": "Request body not received in time.",
+  "Conflit passager côté enclave (règlement on-chain pas encore confirmé, lecture RPC en échec) : réessaie plus tard avec une nouvelle signature.": "Transient conflict in the enclave (on-chain settlement not confirmed yet, RPC read failure): retry later with a new signature.",
+  "Sortie numériquement instable pour ces variables ; l’appel est décompté.": "Numerically unstable output for these features; the call is counted.",
+  "Enclave saturée : rien n’a été décompté, réessaie après Retry-After.": "Enclave saturated: nothing was counted, retry after Retry-After.",
+  "Enclave injoignable : l’appel a pu être décompté, ne le renvoie pas aveuglément.": "Enclave unreachable: the call may have been counted, do not resend it blindly.",
+  "Réponse de l’enclave invalide ou en erreur : réessaie plus tard.": "Invalid or failing enclave response: retry later.",
   "Pour réduire ses coûts, Sirius n’allume la machine confidentielle que lorsqu’elle sert : elle s’arrête environ une heure après la dernière activité (appel API, prédiction ou paiement sur le site). Le premier appel après une pause la redémarre et peut prendre environ 2 minutes : il reçoit 503 enclave_starting avec Retry-After, et les SDK réessaient seuls. Une clé inconnue ou révoquée, ou une location échue, ne la démarre jamais.":
     "To keep costs down, Sirius only runs the confidential machine while it is used: it stops about one hour after the last activity (API call, prediction or payment on the website). The first call after a pause starts it again and can take about 2 minutes: it gets 503 enclave_starting with Retry-After, and the SDKs retry on their own. An unknown or revoked key, or an expired rental, never starts it.",
   "Pendant un démarrage (environ 2 minutes, jusqu’à 5 exceptionnellement), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.":
     "During a start (about 2 minutes, up to 5 in rare cases), the API answers 503 with code enclave_starting and a Retry-After header in seconds. Wait that long, then send the request again with a new timestamp, a new nonce and a new signature: nothing was counted.",
-  "Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut).": "The SDKs do it for you, up to a configurable maximum wait (8 minutes by default).",
+  "Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut), ainsi que pour 503 runner_busy. Ils ne renvoient jamais seuls un autre 503 (runner_unavailable) ni un appel resté sans réponse : l’enclave a pu le décompter. Prévois un délai client supérieur à 60 s, l’attente maximale de l’API envers l’enclave.": "The SDKs do it for you, up to a configurable maximum wait (8 minutes by default), and also for 503 runner_busy. They never resend another 503 (runner_unavailable) or a call left without an answer on their own: the enclave may have counted it. Use a client timeout above 60 s, the API's maximum wait for the enclave.",
   "Chaque emprunt inclut un quota d’appels par jour (jour UTC), commun au site et à l’API : 50 pour la régression logistique, 100 pour les arbres boostés (valeurs de la politique de facturation en vigueur).":
     "Each loan includes a daily call quota (UTC day), shared by the website and the API: 50 for logistic regression, 100 for boosted trees (values from the current billing policy).",
   "Au-delà, achète des packs de 100, 1 000 ou 10 000 appels depuis la page Train. Ils sont cumulables, consommés après le quota du jour, expirent avec la location et ne sont pas remboursables.":
@@ -98,8 +103,8 @@ const API_EN: Record<string, string> = {
   "Le serveur web de Sirius relaie la requête et voit donc les variables envoyées ; il ne peut pas fabriquer d’appel, faute du secret.":
     "The Sirius web server relays the request and therefore sees the features you send; it cannot forge a call, since it lacks the secret.",
   "L’enclave peut être en cours de démarrage : prévois les réessais (503 + Retry-After).": "The enclave may be starting: plan for retries (503 + Retry-After).",
-  "Deux SDK d’un seul fichier, sans dépendance : ils signent, réessaient sur 503 et renvoient des erreurs typées par code.":
-    "Two single-file SDKs, without dependencies: they sign, retry on 503 and raise errors typed by code.",
+  "Deux SDK d’un seul fichier, sans dépendance : ils signent, réessaient seuls sur 503 enclave_starting et runner_busy (rien n’a été décompté) et renvoient des erreurs typées par code ; une autre erreur, réseau comprise, remonte sans réessai.":
+    "Two single-file SDKs, without dependencies: they sign, retry on their own on 503 enclave_starting and runner_busy (nothing was counted) and raise errors typed by code; any other error, network errors included, is raised without retrying.",
   "Signature à la main (curl et openssl) :": "Signing by hand (curl and openssl):",
   "Spécification complète :": "Full specification:",
   "Comment fonctionne Sirius": "How Sirius works",
@@ -169,7 +174,7 @@ curl -sS "https://api.sirius-data.tech$PATH_" -H 'Content-Type: application/json
 
 const RESPONSE_EXAMPLE = `{
   "outputKind": "decision",
-  "decision": 1,
+  "decision": "1",
   "counter": 12,
   "remaining": { "today": 38, "credits": 1000 },
   "expiresAt": "2026-11-14T08:00:00.000Z",
@@ -177,7 +182,7 @@ const RESPONSE_EXAMPLE = `{
   "modelVersion": "1.0.0",
   "signature": "0x…",
   "signer": "0x…",
-  "domain": { "name": "Sirius", "version": "1", "chainId": 46630 },
+  "domain": { "name": "SiriusPrediction", "version": "2", "chainId": 46630 },
   "signedMessage": { "…": "…" }
 }`;
 
@@ -192,13 +197,18 @@ const ERRORS: readonly [string, string, string][] = [
   ["api_not_available_for_profile", "409", "Profil sans API (régression linéaire)."],
   ["invalid_features", "400", "Variables absentes, en trop ou non numériques."],
   ["quota_exceeded", "429", "Quota du jour épuisé et plus aucun appel prépayé."],
-  ["rate_limited", "429", "Trop de requêtes : 120 par minute par clé et par modèle, dont 60 descriptions."],
+  ["rate_limited", "429", "Trop de requêtes : 120 par minute par clé, comptées une fois la requête authentifiée par l’enclave (et 120 par modèle, dont 60 descriptions) ; les requêtes refusées avant (en-têtes, corps, clé, signature) : 60 par minute par adresse IP."],
   ["not_found", "404", "Emprunt inconnu, ou ligne de prolongation ou de pack."],
   ["model_unavailable", "409", "Emprunt pas encore réglé, ou en revue de finalité."],
   ["payload_too_large", "413", "Corps de plus de 16 Kio."],
   ["invalid_request", "400", "Requête mal formée (corps non UTF-8, longueur incohérente)."],
   ["enclave_starting", "503", "L’enclave démarre : réessaie après Retry-After."],
-  ["runner_unavailable", "503 / 502", "Enclave injoignable ou en erreur : réessaie plus tard."],
+  ["request_timeout", "408", "Corps de requête pas reçu à temps."],
+  ["conflict", "409", "Conflit passager côté enclave (règlement on-chain pas encore confirmé, lecture RPC en échec) : réessaie plus tard avec une nouvelle signature."],
+  ["prediction_unstable", "422", "Sortie numériquement instable pour ces variables ; l’appel est décompté."],
+  ["runner_busy", "503", "Enclave saturée : rien n’a été décompté, réessaie après Retry-After."],
+  ["runner_unavailable", "503", "Enclave injoignable : l’appel a pu être décompté, ne le renvoie pas aveuglément."],
+  ["runner_error", "502", "Réponse de l’enclave invalide ou en erreur : réessaie plus tard."],
 ];
 
 const SDKS = ["JavaScript", "Python", "curl"] as const;
@@ -286,7 +296,7 @@ export default function ApiDocsPage() {
       <DocSection id="reessais" title={d("Délais et réessais")}>
         <p>{d("Pour réduire ses coûts, Sirius n’allume la machine confidentielle que lorsqu’elle sert : elle s’arrête environ une heure après la dernière activité (appel API, prédiction ou paiement sur le site). Le premier appel après une pause la redémarre et peut prendre environ 2 minutes : il reçoit 503 enclave_starting avec Retry-After, et les SDK réessaient seuls. Une clé inconnue ou révoquée, ou une location échue, ne la démarre jamais.")}</p>
         <p>{d("Pendant un démarrage (environ 2 minutes, jusqu’à 5 exceptionnellement), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.")}</p>
-        <p>{d("Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut).")}</p>
+        <p>{d("Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut), ainsi que pour 503 runner_busy. Ils ne renvoient jamais seuls un autre 503 (runner_unavailable) ni un appel resté sans réponse : l’enclave a pu le décompter. Prévois un délai client supérieur à 60 s, l’attente maximale de l’API envers l’enclave.")}</p>
       </DocSection>
 
       <DocSection id="acces" title={d("Accès payé au jour")}>
@@ -317,7 +327,7 @@ export default function ApiDocsPage() {
 
       <DocSection id="sdk" title={d("SDK")}>
         <p>
-          {d("Deux SDK d’un seul fichier, sans dépendance : ils signent, réessaient sur 503 et renvoient des erreurs typées par code.")}{" "}
+          {d("Deux SDK d’un seul fichier, sans dépendance : ils signent, réessaient seuls sur 503 enclave_starting et runner_busy (rien n’a été décompté) et renvoient des erreurs typées par code ; une autre erreur, réseau comprise, remonte sans réessai.")}{" "}
           <code className="font-mono text-xs text-foreground">sdk/js/sirius-api.ts</code> · <code className="font-mono text-xs text-foreground">sdk/python/sirius_api.py</code>
         </p>
         <div role="tablist" aria-label={d("SDK")} className="flex gap-5 overflow-x-auto border-b border-border [scrollbar-width:none]">

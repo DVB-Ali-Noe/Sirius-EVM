@@ -4,11 +4,12 @@ import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
-  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount,
+  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, API_KEY_UNCONFIRMED, apiAccessComputeAmount, apiAccessDatasetAmount,
   apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, AUTO_API_KEY_UNCONFIRMED, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
+import { hashRunnerIntent } from "@/lib/runner/authorization";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { API_KEY_ID_PATTERN, type ApiKeySecretEnvelope, type DatasetIngressKey } from "@/lib/tee/contract";
@@ -22,7 +23,8 @@ import { includesApiAccess, loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
  * Clés API d'un prêt loué (D-30), côté Next. Le secret n'existe que dans le navigateur (affiché une
  * fois) et scellé dans l'enclave : Next ne voit que l'enveloppe chiffrée qu'il relaie et ne garde
  * que l'affichage (nom, dates, compteurs indicatifs). Toute création ou révocation passe par le
- * runner, sur grant wallet de l'emprunteur ; la ligne locale n'est écrite qu'après sa réponse.
+ * runner, sur grant wallet de l'emprunteur ; une nouvelle clé a sa ligne réservée avant le
+ * scellement (voir `registerLoanApiKey`), une révocation n'est datée qu'après la réponse du runner.
  */
 
 export const API_UNAVAILABLE_LINEAR = "API indisponible pour la régression linéaire (le modèle serait reconstructible)";
@@ -211,8 +213,8 @@ export async function prepareLoanApiKey(loanId: string, borrower: string, auto =
   return { ingressKey: await datasetIngressKeyInRunner() };
 }
 
-async function assertKeyCapacity(loanId: string, keyId?: string): Promise<void> {
-  const active = await prisma.apiKey.count({ where: { loanId, revokedAt: null, ...(keyId ? { id: { not: keyId } } : {}) } });
+async function assertKeyCapacity(loanId: string, keyId?: string, db: Pick<typeof prisma, "apiKey"> = prisma): Promise<void> {
+  const active = await db.apiKey.count({ where: { loanId, revokedAt: null, ...(keyId ? { id: { not: keyId } } : {}) } });
   if (active >= API_KEY_MAX_PER_LOAN) {
     throw new AppError(`Au plus ${API_KEY_MAX_PER_LOAN} clés API actives par prêt : révoque une clé d’abord`, 409, "key_limit_reached");
   }
@@ -260,15 +262,18 @@ export interface RegisterApiKeyInput {
 
 /**
  * Scellement de la clé dans l'enclave (`register-api-key`, idempotent : même `keyId` et même
- * secret ⇒ même réponse), puis ligne d'affichage. Un `keyId` déjà pris par un autre prêt est refusé.
+ * secret ⇒ même réponse), puis date d'enregistrement sur la ligne d'affichage. Un `keyId` déjà pris
+ * par un autre prêt est refusé.
  *
- * Clé d'office (`auto`) : sa ligne est réservée AVANT le scellement, dans une transaction
- * sérialisable qui vérifie que le prêt n'a aucune clé (active ou révoquée) : deux appareils ne
- * scellent jamais deux clés d'office, le second reçoit `409 api_key_auto_exists`. Refus net de
- * l'enclave (4xx) : rien n'est scellé, la réservation est retirée. Réponse perdue ou douteuse
- * (réseau, 5xx, réponse illisible) : l'enclave a pu sceller la clé, la ligne reste donc (elle
- * compte dans la capacité, bloque une seconde clé d'office et se révoque depuis le panneau) et
- * l'erreur remonte. Création manuelle inchangée.
+ * Toute nouvelle clé, d'office (`auto`) ou manuelle, a sa ligne réservée AVANT le scellement, dans
+ * une transaction sérialisable qui vérifie la capacité (5 clés actives) et, pour une clé d'office,
+ * que le prêt n'a aucune clé (active ou révoquée) : deux appareils ne scellent jamais deux clés
+ * d'office, le second reçoit `409 api_key_auto_exists`. Refus net de l'enclave (4xx) : rien n'est
+ * scellé, la réservation est retirée. Réponse perdue ou douteuse (réseau, 5xx, réponse illisible) :
+ * l'enclave a pu sceller la clé, la ligne reste donc (elle compte dans la capacité, bloque une
+ * seconde clé d'office et se révoque depuis le panneau, l'enclave répondant `unknown_key` si rien
+ * n'a été scellé) et l'erreur remonte. Sans cette réservation (audit A, F4), une clé scellée sans
+ * ligne n'était ni listée ni révocable et occupait une place dans la limite de l'enclave.
  */
 export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
@@ -281,10 +286,13 @@ export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
   const owner = loan.borrower.toLowerCase();
-  const reserved = input.auto === true && !existing;
+  const reserved = !existing;
   if (reserved) {
     await serializableTransaction(async (tx) => {
-      if (await tx.apiKey.count({ where: { loanId: loan.id } }) > 0) throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
+      if (input.auto === true && await tx.apiKey.count({ where: { loanId: loan.id } }) > 0) {
+        throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
+      }
+      await assertKeyCapacity(loan.id, input.keyId, tx);
       await tx.apiKey.create({ data: { id: input.keyId, loanId: loan.id, owner, name: input.name, revokedAt: null, lastUsedAt: null } });
     });
   }
@@ -304,17 +312,10 @@ export async function registerLoanApiKey(input: RegisterApiKeyInput) {
       await prisma.apiKey.deleteMany({ where: { id: input.keyId, loanId: loan.id, lastUsedAt: null } });
       throw error;
     }
-    throw new AppError(AUTO_API_KEY_UNCONFIRMED, error instanceof AppError ? error.status : 503);
+    throw new AppError(input.auto === true ? AUTO_API_KEY_UNCONFIRMED : API_KEY_UNCONFIRMED, error instanceof AppError ? error.status : 503);
   }
-  if (reserved) {
-    const key = await prisma.apiKey.update({ where: { id: input.keyId }, data: { createdAt: new Date(sealed.createdAt) } });
-    return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
-  }
-  const key = existing ?? await prisma.apiKey.upsert({
-    where: { id: input.keyId },
-    create: { id: input.keyId, loanId: loan.id, owner, name: input.name, createdAt: new Date(sealed.createdAt) },
-    update: {},
-  });
+  if (!reserved) return { keyId: existing.id, name: existing.name, createdAt: existing.createdAt.toISOString() };
+  const key = await prisma.apiKey.update({ where: { id: input.keyId }, data: { createdAt: new Date(sealed.createdAt) } });
   return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
 }
 
@@ -329,17 +330,29 @@ export interface RevokeApiKeyInput {
  * Révocation dans l'enclave (`revoke-api-key`, idempotente), puis date locale. Elle passe toujours
  * par le runner : une clé marquée révoquée ici mais encore active dans l'enclave resservirait après
  * une prolongation. CVM éteinte : réveil demandé et 503. Clé inconnue de l'enclave (`404 unknown_key`) :
- * réservation d'une clé d'office jamais scellée (réponse perdue au scellement) ; rien n'est actif
- * dans l'enclave, la ligne est donc marquée révoquée maintenant.
+ * réservation d'une clé jamais scellée (réponse perdue au scellement) ; rien n'est actif dans
+ * l'enclave, la ligne est donc marquée révoquée maintenant.
+ *
+ * Avant tout réveil (audit E, F1) : le grant, déjà authentifié par la route, doit viser cette
+ * révocation (`revoke-api-key`, ce prêt, intention `[loanId, keyId]`), comme l'exigera l'enclave ;
+ * sans nonce consommé ici. Un grant d'une autre opération ne réveille donc rien. Location échue (ou
+ * sans échéance connue) : le réveil dépense le budget du compte (`wakeSubject`), comme une
+ * publication ou un devis, pour qu'une clé jamais révoquée ne garde pas la CVM allumée après la location.
  */
 export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
-  const loan = await prisma.loan.findUnique({ where: { id: input.loanId }, select: { id: true, borrower: true } });
+  const loan = await prisma.loan.findUnique({ where: { id: input.loanId }, select: { id: true, borrower: true, rentalExpiresAt: true } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, input.borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   const key = await prisma.apiKey.findUnique({ where: { id: input.keyId } });
   if (!key || key.loanId !== loan.id) throw new AppError("Clé API introuvable", 404);
   if (key.revokedAt) return { keyId: key.id, revokedAt: key.revokedAt.toISOString() };
-  await requireRunnerOrWake();
+  const scope = input.authorization?.payload;
+  if (!scope || scope.operation !== "revoke-api-key" || scope.loanId !== loan.id || scope.datasetId !== undefined
+    || scope.jobId !== undefined || scope.demoSessionRevision !== undefined || scope.payloadHash !== hashRunnerIntent([loan.id, key.id])) {
+    throw new AppError("Grant runner hors scope ou expiré", 401);
+  }
+  const rentalOver = !loan.rentalExpiresAt || Date.now() >= loan.rentalExpiresAt.getTime();
+  await requireRunnerOrWake(rentalOver ? { wakeSubject: loan.borrower } : {});
   let revoked: { keyId: string; revokedAt: number };
   try {
     revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });

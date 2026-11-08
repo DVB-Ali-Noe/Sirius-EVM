@@ -12,6 +12,7 @@ import * as profileAdmission from "@/lib/runner/profile-admission";
 import { errorResponse } from "@/lib/errors";
 import { readBody, readJson } from "@/lib/http/body";
 import * as rateLimit from "@/lib/http/rate-limit";
+import { hashRunnerIntent } from "@/lib/runner/authorization";
 import * as addresses from "@/lib/evm/address";
 import * as fastFinality from "@/lib/evm/fast-finality";
 import * as models from "@/lib/models/registry";
@@ -312,8 +313,9 @@ function system(options: SystemOptions = {}) {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
     "@/lib/evm/client": { getPublicClient: () => client }, "@/lib/billing/rental": rentalRules,
   });
+  const wakeBudget = wakeBudgetDouble();
   const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
-    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "./wake-budget": wakeBudgetDouble().module,
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "./wake-budget": wakeBudget.module,
   });
   const finalityTier = load<typeof import("./finality-tier")>("src/lib/sirius/finality-tier.ts", {
     "server-only": {}, "@/lib/errors": errors, "@/lib/db": db,
@@ -338,6 +340,7 @@ function system(options: SystemOptions = {}) {
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "@/lib/evm/networks": { resolveUsdcDecimals: () => DECIMALS },
     "@/lib/tee/contract": contract, "@/lib/tee/runner-client": runnerClient, "./access": { requireAcceptedKyb: async () => {} },
+    "@/lib/runner/authorization": { hashRunnerIntent },
     "./availability": availabilityModule, "./finality-tier": finalityTier, "./rental": rental,
   });
   const prediction = load<typeof import("./prediction")>("src/lib/sirius/prediction.ts", {
@@ -459,19 +462,23 @@ function system(options: SystemOptions = {}) {
   const manage = {
     list: (id = "loan-1") => routes.keys.GET(new Request(`https://test.invalid/api/loans/${id}/api-keys`), { params: Promise.resolve({ id }) }),
     create: (body: unknown, id = "loan-1") => routes.keys.POST(new Request(`https://test.invalid/api/loans/${id}/api-keys`, json("POST", body)), { params: Promise.resolve({ id }) }),
-    revoke: (keyId: string, id = "loan-1") => routes.key.DELETE(
-      new Request(`https://test.invalid/api/loans/${id}/api-keys/${keyId}`, json("DELETE", { authorization: { payload: {}, signature: "signed" } })),
+    revoke: (keyId: string, id = "loan-1", authorization: unknown = revokeGrant(id, keyId)) => routes.key.DELETE(
+      new Request(`https://test.invalid/api/loans/${id}/api-keys/${keyId}`, json("DELETE", { authorization })),
       { params: Promise.resolve({ id, keyId }) },
     ),
     calls: (body: unknown, id = "loan-1") => routes.calls.POST(new Request(`https://test.invalid/api/loans/${id}/calls`, json("POST", body)), { params: Promise.resolve({ id }) }),
     quote: (body: unknown) => routes.loans.POST(new Request("https://test.invalid/api/loans", json("POST", body))),
   };
-  return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper };
+  return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper, wakeBudget: wakeBudget.store };
 }
 
 const activeKey = (overrides: Row = {}): Row => ({ id: KEY_ID, loanId: "loan-1", owner: BORROWER.toLowerCase(), name: "prod", createdAt: new Date(0), revokedAt: null, lastUsedAt: null, ...overrides });
 const envelope = { version: 1, ephemeralPublicKey: "epk", salt: "salt", iv: "iv", ciphertext: "cipher" };
 const grant = { payload: {}, signature: "signed" };
+/** Grant de révocation au périmètre attendu par l'enclave (`revoke-api-key`, prêt, `[loanId, keyId]`). */
+const revokeGrant = (loanId: string, keyId: string, overrides: Row = {}) => ({
+  payload: { operation: "revoke-api-key", loanId, payloadHash: hashRunnerIntent([loanId, keyId]), ...overrides }, signature: "signed",
+});
 
 // --- Adresse publique -------------------------------------------------------------------------
 
@@ -782,6 +789,133 @@ test("débit : 120 requêtes par minute et par clé, prédiction et description 
   assert.equal((await sys.api.info(sys.signedHeaders(OTHER_KEY_ID), "loan-2")).status, 200);
 });
 
+/** Adresse client lue dans `X-Real-IP` (ingress de confiance) le temps de `fn`. */
+async function withTrustedProxy(fn: () => Promise<void>): Promise<void> {
+  const previous = process.env.SIRIUS_TRUST_PROXY_HEADERS;
+  process.env.SIRIUS_TRUST_PROXY_HEADERS = "true";
+  try {
+    await fn();
+  } finally {
+    if (previous === undefined) delete process.env.SIRIUS_TRUST_PROXY_HEADERS;
+    else process.env.SIRIUS_TRUST_PROXY_HEADERS = previous;
+  }
+}
+const randomKeyId = (i: number) => `z${String(i).padStart(21, "0")}`;
+const ATTACKER_IP = "203.0.113.9";
+const BORROWER_IP = "198.51.100.7";
+
+test("débit (audit A F1) : des milliers d'identifiants inconnus ne remplissent ni le plafond global ni la fenêtre d'une vraie clé", async () => {
+  const sys = system({ loans: [origin(), origin({ id: "loan-2" })], apiKeys: [activeKey(), activeKey({ id: OTHER_KEY_ID, loanId: "loan-2" })] });
+  // Plus que le plafond global (6 000) et que les clés suivies (4 096), sans ingress de confiance.
+  for (let i = 0; i < 6_100; i++) {
+    const response = await sys.api.info(sys.signedHeaders(randomKeyId(i)));
+    if (response.status !== 401) assert.fail(`identifiant inconnu ${i} : ${response.status}`);
+  }
+  for (let i = 0; i < 120; i++) assert.equal((await sys.api.info()).status, 200, `appel légitime ${i + 1}`);
+  assert.equal((await sys.api.info()).status, 429, "la vraie clé garde exactement sa fenêtre de 120");
+  assert.equal((await sys.api.info(sys.signedHeaders(OTHER_KEY_ID), "loan-2")).status, 200);
+  assert.equal(sys.calls.runner.length, 121);
+});
+
+test("débit (audit A F1) : requêtes en échec limitées par IP avant la base ; identifiant inconnu gardé 30 s en cache négatif", async () => {
+  await withTrustedProxy(async () => {
+    const sys = system({ apiKeys: [activeKey()] });
+    let lookups = 0;
+    const findUnique = sys.prisma.apiKey.findUnique;
+    sys.prisma.apiKey.findUnique = async (args) => { lookups++; return findUnique(args); };
+    const from = (ip: string, keyId = KEY_ID) => ({ ...sys.signedHeaders(keyId), "x-real-ip": ip });
+    // Même identifiant inconnu répété : une seule lecture en base.
+    assert.equal((await sys.api.info(from(ATTACKER_IP, randomKeyId(0)))).status, 401);
+    assert.equal((await sys.api.info(from(ATTACKER_IP, randomKeyId(0)))).status, 401);
+    assert.equal(lookups, 1);
+    // 60 échecs au total pour cette IP (les deux ci-dessus compris) : le 61e est refusé.
+    for (let i = 1; i < 59; i++) assert.equal((await sys.api.info(from(ATTACKER_IP, randomKeyId(i)))).status, 401);
+    const before = lookups;
+    const blocked = await sys.api.info(from(ATTACKER_IP, randomKeyId(999)));
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers.get("retry-after"), "60");
+    assert.equal((await blocked.json()).error.code, "rate_limited");
+    assert.equal(lookups, before, "IP au-delà de son budget : aucune lecture en base");
+    // L'emprunteur, depuis une autre adresse, est servi ; sa fenêtre n'a rien perdu.
+    for (let i = 0; i < 120; i++) assert.equal((await sys.api.info(from(BORROWER_IP))).status, 200, `appel ${i + 1}`);
+    assert.equal(sys.calls.runner.length, 120);
+  });
+});
+
+test("débit (audit A F2) : un keyId sans son secret (signature refusée par l'enclave) ne consomme pas la fenêtre de la clé", async () => {
+  const FORGED = "b".repeat(64);
+  const runner = { apiInfo: async (input: Row) => {
+    if (input.signature === FORGED) throw new AppError("Signature de requête invalide", 401, "invalid_signature");
+    return { loanId: input.loanId, modelId: "logistic_regression", modelVersion: "1.0.0", features: ["income", "debt"], expiresAt: Date.now() + DAY, remaining: { today: 50, credits: 0 } };
+  } };
+  const sys = system({ apiKeys: [activeKey()], runner });
+  for (let i = 0; i < 200; i++) assert.equal((await sys.api.info({ ...sys.signedHeaders(), "sirius-signature": FORGED })).status, 401);
+  for (let i = 0; i < 120; i++) assert.equal((await sys.api.info()).status, 200, `appel légitime ${i + 1}`);
+  assert.equal((await sys.api.info()).status, 429);
+  assert.equal(sys.prisma.apiUsageDay.rows.length, 0, "signature refusée : jamais journalisée");
+
+  // Derrière l'ingress : l'IP qui envoie des signatures fausses est bornée, pas l'emprunteur.
+  await withTrustedProxy(async () => {
+    const behind = system({ apiKeys: [activeKey()], runner });
+    const forged = () => behind.api.info({ ...behind.signedHeaders(), "sirius-signature": FORGED, "x-real-ip": ATTACKER_IP });
+    for (let i = 0; i < 60; i++) assert.equal((await forged()).status, 401);
+    assert.equal((await forged()).status, 429);
+    assert.equal(behind.calls.runner.length, 60, "au-delà, rien ne part vers l'enclave");
+    assert.equal((await behind.api.info({ ...behind.signedHeaders(), "x-real-ip": BORROWER_IP })).status, 200);
+  });
+});
+
+test("corps invalide (audit A F3) : refusé avant tout réveil de la CVM, sans refus journalisé", async () => {
+  const sys = system({ phase: "stopped", apiKeys: [activeKey()] });
+  for (const [body, status, code] of [
+    ["pas du json", 400, "invalid_features"],
+    [JSON.stringify({ features: { a: "1" } }), 400, "invalid_features"],
+    [JSON.stringify({ features, pad: "x".repeat(17_000) }), 413, "payload_too_large"],
+  ] as const) {
+    const response = await sys.api.predict(body);
+    assert.equal(response.status, status, code);
+    assert.equal((await response.json()).error.code, code);
+  }
+  assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "aucun réveil");
+  assert.equal(sys.prisma.apiUsageDay.rows.length, 0, "refus de Next : jamais compté comme refus authentifié");
+  assert.equal(sys.calls.runner.length, 0);
+  // Corps valide : réveil et 503 enclave_starting, comme avant.
+  assert.equal((await sys.api.predict()).status, 503);
+  const woken: unknown = sys.prisma.runnerAvailability.rows[0].requestedUntil;
+  assert.ok(woken instanceof Date);
+});
+
+test("codes d'erreur (audit A F6) : tout code rendu figure dans l'OpenAPI ; runner saturé ⇒ 503 runner_busy réessayable", async () => {
+  const spec = readFileSync("public/openapi/v1.yaml", "utf8");
+  const enumBlock = /code:\n\s+type: string\n\s+enum:\n((?:\s+- [a-z_]+\n)+)/.exec(spec);
+  assert.ok(enumBlock, "énumération des codes introuvable");
+  const documented = new Set(enumBlock[1].split("\n").map((line) => line.trim().replace(/^- /, "")).filter(Boolean));
+  const cases: [AppError, number, string][] = [
+    [new AppError("Règlement on-chain non confirmé", 409), 409, "conflict"],
+    [new AppError("Prédiction numérique instable", 422), 422, "prediction_unstable"],
+    [new AppError("Runner saturé", 503), 503, "runner_busy"],
+    [new AppError("Runner confidentiel indisponible", 503), 503, "runner_unavailable"],
+    [new AppError("Runner confidentiel en échec", 502), 502, "runner_error"],
+    [new AppError("Clé API réservée à l’emprunteur", 403), 403, "forbidden"],
+    [new AppError("Lecture de requête expirée", 408), 408, "request_timeout"],
+  ];
+  for (const [error, status, code] of cases) {
+    const sys = system({ apiKeys: [activeKey()], runner: { apiPredict: async () => { throw error; } } });
+    const response = await sys.api.predict();
+    assert.equal(response.status, status, code);
+    assert.equal((await response.json()).error.code, code);
+    assert.ok(documented.has(code), `${code} absent de l'OpenAPI`);
+    assert.equal(response.headers.get("retry-after"), code === "runner_busy" ? "1" : null, code);
+  }
+  for (const code of ["invalid_signature", "unknown_key", "rate_limited", "enclave_starting", "internal_error", "unsupported_media_type"]) {
+    assert.ok(documented.has(code), code);
+  }
+  // Exemple de réponse de la documentation : domaine EIP-712 et décision en texte, comme l'enclave les signe.
+  const page = readFileSync("src/app/docs/api/page.tsx", "utf8");
+  assert.ok(page.includes(`"domain": { "name": "${contract.PREDICTION_DOMAIN_NAME}", "version": "${contract.PREDICTION_DOMAIN_VERSION}", "chainId": 46630 }`));
+  assert.ok(page.includes(`"decision": "1"`));
+});
+
 // --- Gestion des clés -------------------------------------------------------------------------
 
 test("clés API : création scellée dans l'enclave puis listée sans secret ; révocation idempotente", async () => {
@@ -871,6 +1005,68 @@ test("clé d'office sans réponse sûre de l'enclave (réseau, 5xx, réponse ill
   const denied = system({ apiKeys: [activeKey()], runner: { revoke: async () => { throw new AppError("Révocation réservée à l’emprunteur", 403); } } });
   assert.equal((await denied.manage.revoke(KEY_ID)).status, 403);
   assert.equal(denied.prisma.apiKey.rows[0].revokedAt, null);
+});
+
+test("clé manuelle (audit A F4) : réservée avant le scellement ; réponse douteuse ⇒ ligne gardée et révocable ; refus net ⇒ retirée", async () => {
+  for (const failure of [
+    async () => { throw new AppError("Runner confidentiel indisponible", 503); },
+    async () => { throw new Error("socket hang up"); },
+    async () => ({ keyId: OTHER_KEY_ID, createdAt: 0 }),
+  ]) {
+    const sys = system({ apiKeys: [], runner: { register: failure, revoke: async () => { throw new AppError("Clé API inconnue", 404, "unknown_key"); } } });
+    const response = await sys.manage.create({ keyId: KEY_ID, name: "prod", envelope, authorization: grant });
+    assert.ok(response.status >= 500, String(response.status));
+    assert.equal((await response.json()).error, apiPricing.API_KEY_UNCONFIRMED);
+    const listed = await (await sys.manage.list()).json();
+    assert.deepEqual(listed.keys.map((key: Row) => [key.keyId, key.name, key.revokedAt]), [[KEY_ID, "prod", null]]);
+    const revoked = await sys.manage.revoke(KEY_ID);
+    assert.equal(revoked.status, 200, await revoked.clone().text());
+    assert.ok(sys.prisma.apiKey.rows[0].revokedAt instanceof Date);
+  }
+  // La ligne existe pendant le scellement : elle compte dans la capacité.
+  let during: Row[] = [];
+  const sealing = system({ apiKeys: [], runner: { register: async (input) => {
+    during = sealing.prisma.apiKey.rows.map((row) => ({ ...row }));
+    return { keyId: input.keyId, createdAt: 1_700_000_000_000 };
+  } } });
+  const created = await sealing.manage.create({ keyId: KEY_ID, name: "prod", envelope, authorization: grant });
+  assert.equal(created.status, 201);
+  assert.deepEqual(during.map((row) => [row.id, row.revokedAt]), [[KEY_ID, null]]);
+  assert.equal((await created.json()).createdAt, new Date(1_700_000_000_000).toISOString(), "date de scellement de l'enclave");
+
+  const refused = system({ apiKeys: [], runner: { register: async () => { throw new AppError("Limite de clés API actives atteinte pour ce prêt : révoque une clé d’abord", 409, "key_limit_reached"); } } });
+  assert.equal((await refused.manage.create({ keyId: KEY_ID, name: "prod", envelope, authorization: grant })).status, 409);
+  assert.equal(refused.prisma.apiKey.rows.length, 0, "refus net : rien de scellé, réservation retirée");
+});
+
+test("révocation (audit E F1) : grant hors périmètre refusé sans réveil ; location échue ⇒ réveil sur le budget du compte", async () => {
+  const sys = system({ phase: "stopped", apiKeys: [activeKey()] });
+  for (const [label, authorization] of [
+    ["autre opération", revokeGrant("loan-1", KEY_ID, { operation: "register-api-key" })],
+    ["autre clé", revokeGrant("loan-1", KEY_ID, { payloadHash: hashRunnerIntent(["loan-1", OTHER_KEY_ID]) })],
+    ["autre prêt", revokeGrant("loan-2", KEY_ID)],
+    ["sans périmètre", grant],
+  ] as const) {
+    const response = await sys.manage.revoke(KEY_ID, "loan-1", authorization);
+    assert.equal(response.status, 401, label);
+  }
+  assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "aucun réveil");
+  assert.equal(sys.calls.runner.length, 0);
+  // Location en cours : réveil hors budget, comme toute action de l'emprunteur.
+  assert.equal((await sys.manage.revoke(KEY_ID)).status, 503);
+  assert.equal(sys.wakeBudget.size, 0);
+
+  const expired = system({ phase: "stopped", loans: [origin({ rentalExpiresAt: new Date(Date.now() - 1) })], apiKeys: [activeKey()] });
+  for (let i = 0; i < 6; i++) {
+    expired.prisma.runnerAvailability.rows[0].requestedUntil = null;
+    assert.equal((await expired.manage.revoke(KEY_ID)).status, 503, `réveil ${i + 1}`);
+  }
+  assert.equal(expired.wakeBudget.get(BORROWER.toLowerCase())?.hourCount, 6);
+  expired.prisma.runnerAvailability.rows[0].requestedUntil = null;
+  const limited = await expired.manage.revoke(KEY_ID);
+  assert.equal(limited.status, 429, "budget épuisé : la CVM n'est plus réveillée");
+  assert.ok(limited.headers.get("retry-after"));
+  assert.equal(expired.prisma.runnerAvailability.rows[0].requestedUntil, null);
 });
 
 test("clés API refusées à un autre compte, pour la régression linéaire, sur une location échue et au-delà de 5", async () => {
@@ -1357,7 +1553,7 @@ test("GET /api/loans : champs API et packs exposés", async () => {
     "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => ({ apiCallsPerDay: API_CALLS_PER_DAY }) },
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": {}, "@/lib/tee/contract": contract,
     "@/lib/evm/networks": { resolveUsdcDecimals: () => DECIMALS },
-    "@/lib/tee/runner-client": {}, "./access": {}, "./availability": {}, "./finality-tier": {}, "./rental": {},
+    "@/lib/tee/runner-client": {}, "./access": {}, "./availability": {}, "./finality-tier": {}, "./rental": {}, "@/lib/runner/authorization": {},
   });
   const rows = [origin(), origin({ id: "linear", modelId: "linear_regression" }), attached("pack"), attached("extension")];
   const route = load<typeof import("../../app/api/loans/route")>("src/app/api/loans/route.ts", {
