@@ -19,14 +19,14 @@ const KEY = `0x${"9".repeat(64)}`;
 const TX = `0x${"e".repeat(64)}`;
 
 const ownDataset = {
-  id: "own-dataset", name: "Équipe dataset", provider: ME, status: "PRIVATE", modelId: "linear_regression", modelVersion: "1.0.0",
+  id: "own-dataset", name: "Équipe dataset", provider: ME, status: "PRIVATE", modelId: "logistic_regression", modelVersion: "1.0.0",
   ipfsCid: "bafy-fixture", runnerReceipt: "receipt", evmDatasetId: `0x${"12".repeat(32)}`, sizeBytes: 100, metrics: { rowCount: 200, columnCount: 4 },
 };
 
 function loan(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id, datasetId: `dataset-${id}`, borrower: ME, provider: OTHER, amountUsdcAtomic: "1000000000000000000",
-    modelId: "linear_regression", modelVersion: "1.0.0", status: "ESCROWED", evmLockTxHash: TX, evmLoanKey: KEY,
+    modelId: "logistic_regression", modelVersion: "1.0.0", status: "ESCROWED", evmLockTxHash: TX, evmLoanKey: KEY,
     settleTxHash: null, cancelTxHash: null, modelCid: null, runnerReceipt: null, evmDeadline: "2026-10-01T10:00:00.000Z",
     createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: `Dataset ${id}`, runnerReceipt: null }, refundable: false, ...overrides,
   };
@@ -137,7 +137,7 @@ test("Retrain n'apparaît que sur un emprunt terminé de l'emprunteur, avec l'av
   await connect(page);
   const done = card(page, "Dataset done");
   await expect(done.getByRole("button", { name: "Retrain", exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(done.getByTestId("retrain-panel")).toContainText("Linear and logistic regression are deterministic: retraining on the same data gives the same model.");
+  await expect(done.getByTestId("retrain-panel")).toContainText("Training is deterministic: retraining on the same data gives the same model.");
   await expect(done.getByTestId("retrain-panel")).toContainText("Retrain only if the dataset has changed.");
   for (const name of ["running", "failed", "refunded", "provider-view"]) {
     await expect(card(page, `Dataset ${name}`).getByRole("button", { name: "Retrain", exact: true })).toHaveCount(0);

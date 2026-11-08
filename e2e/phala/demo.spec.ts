@@ -35,11 +35,11 @@ test("page fermée en anglais, exemple visible et conservé à la connexion, auc
   await page.goto("/phala");
   await expect(page.getByText("Demo closed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Use this example" }).first().click();
-  await expect(page.getByText("✓ housing.csv")).toBeVisible();
+  await expect(page.getByText("✓ credit.csv")).toBeVisible();
   await connect(page);
   await expect(page.getByRole("button", { name: "Example selected ✓" })).toBeVisible();
-  await expect(page.getByText("✓ housing.csv")).toBeVisible();
-  await expect(page.getByLabel("Target column")).toHaveValue("price_eur");
+  await expect(page.getByText("✓ credit.csv")).toBeVisible();
+  await expect(page.getByLabel("Target column")).toHaveValue("defaulted");
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeDisabled();
   await expect(page.getByRole("link", { name: /operator/i })).toHaveCount(0);
 });
@@ -62,7 +62,8 @@ test("aucun mode livré : pas de case « privé », chaque modèle reste dans Ph
   await mock(page, "open", [job("served"), job("legacy", { servedModelId: null })]);
   await page.goto("/phala");
   await connect(page);
-  for (const model of ["linear_regression", "logistic_regression", "gradient_boosted_trees"]) {
+  await expect(page.getByRole("combobox", { name: "Model" }).locator('option[value="linear_regression"]')).toHaveCount(0);
+  for (const model of ["logistic_regression", "gradient_boosted_trees"]) {
     await page.getByRole("combobox", { name: "Model" }).selectOption(model);
     await expect(page.getByRole("checkbox")).toHaveCount(0);
   }
@@ -135,7 +136,7 @@ test("menu de choix du wallet puis signature, sans perdre l’exemple choisi", a
   } });
   await page.goto("/phala");
   await page.getByRole("button", { name: "Use this example" }).first().click();
-  await expect(page.getByText("✓ housing.csv")).toBeVisible();
+  await expect(page.getByText("✓ credit.csv")).toBeVisible();
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Connect", exact: true }).click();
   await main.getByRole("menu").getByRole("button", { name: "Test Wallet", exact: true }).click();
@@ -145,5 +146,5 @@ test("menu de choix du wallet puis signature, sans perdre l’exemple choisi", a
   await signIn.click();
   await expect.poll(wallet.signatureCount).toBe(1);
   await expect(page.getByRole("button", { name: "Train with Phala" })).toBeEnabled();
-  await expect(page.getByText("✓ housing.csv")).toBeVisible();
+  await expect(page.getByText("✓ credit.csv")).toBeVisible();
 });

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "@/lib/app-error";
+import * as profileAdmission from "@/lib/runner/profile-admission";
 import * as addresses from "@/lib/evm/address";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import * as exposureLimits from "./exposure-limits";
@@ -32,7 +33,7 @@ const borrower = addresses.normalizeAddress(`0x${"22".repeat(20)}`);
 const otherBorrower = addresses.normalizeAddress(`0x${"33".repeat(20)}`);
 const thirdBorrower = addresses.normalizeAddress(`0x${"44".repeat(20)}`);
 const runner = { runnerKind: "PHALA" as const, runnerDeploymentId: `phala:${"55".repeat(32)}` };
-const model = { modelId: "linear_regression", modelVersion: "1.0.0" };
+const model = { modelId: "logistic_regression", modelVersion: "1.0.0" };
 const dataset = {
   id: "dataset", provider, status: "LISTED", ...runner, ipfsCid: "bafyDataset", merkleRoot: "66".repeat(32),
   wrappedKey: "wrapped", runnerReceipt: "receipt", priceUsdcAtomic: usdc("50"), evmDatasetId: `0x${"77".repeat(32)}`,
@@ -77,6 +78,8 @@ type RentalTerms = { rentalDays: number; extendsLoanId?: string };
 interface FixtureOptions {
   /** Devis signé par le runner (escrow v7) pour les termes de location reçus ; absent : escrow v6 sans devis. */
   quote?: (rental: RentalTerms) => Record<string, unknown>;
+  /** Profil du dataset ; logistique par défaut. */
+  model?: { modelId: string; modelVersion: string };
 }
 
 function fixture(rows: LoanRow[], options: FixtureOptions = {}) {
@@ -148,13 +151,13 @@ function fixture(rows: LoanRow[], options: FixtureOptions = {}) {
       return { hashlock, authorization: {}, ...(options.quote ? { billingQuote: { quote: { ...options.quote(rental), hashlock }, authorization: {} } } : {}) };
     } },
     "./lock-policy": { lockAuthorizationDeadline: () => 1 },
-    "@/lib/models/registry": { modelSelection: () => model, trainingProfileHash: () => `0x${"aa".repeat(32)}` },
+    "@/lib/models/registry": { modelSelection: () => options.model ?? model, trainingProfileHash: () => `0x${"aa".repeat(32)}` },
     "./access": { requireAcceptedKyb: async () => {}, requireCounterpartyKyb: async () => {} },
     "./provider": { BORROWABLE_STATUSES: ["LISTED", "UNLISTED"], isBorrowableDatasetStatus: () => true },
     "@/lib/datasets/manage": { isListingExpired: () => false },
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: provider }) },
     "./recover-loan": {}, "@/lib/evm/history": {},
-    "@/lib/runner/provenance": { assertCurrentRunner: async () => runner },
+    "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": { assertCurrentRunner: async () => runner },
     // Module réel : les plafonds viennent de l'environnement posé par chaque test.
     "./exposure-limits": exposureLimits,
   });
@@ -265,4 +268,21 @@ test("D-29 : avec devis, le montant dataset vaut prix par jour × jours, et la d
   const tampered = fixture([], { quote: () => quote(9) });
   await assert.rejects(tampered.api.prepareLoan(dataset.id, borrower, 10), /Devis compute hors scope/);
   assert.equal(tampered.loans.length, 0);
+});
+
+test("D-31 : Next refuse un emprunt linéaire tant que le profil n'est pas activé, avant tout prêt ni devis", async () => {
+  const linear = { modelId: "linear_regression", modelVersion: "1.0.0" };
+  for (const optIn of [undefined, "gradient_boosted_trees"]) {
+    if (optIn === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = optIn;
+    const { api, loans, calls } = fixture([], { model: linear });
+    await assert.rejects(api.prepareLoan(dataset.id, borrower, 1), (error: unknown) =>
+      error instanceof AppError && error.status === 400 && error.message === profileAdmission.OPT_IN_PROFILE_DISABLED);
+    assert.equal(loans.length, 0);
+    assert.equal(calls.signatures, 0, "le runner n'est pas sollicité");
+  }
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
+  const enabled = fixture([], { model: linear });
+  await enabled.api.prepareLoan(dataset.id, borrower, 1);
+  assert.equal(enabled.calls.signatures, 1, "réactivé par la seule variable");
 });

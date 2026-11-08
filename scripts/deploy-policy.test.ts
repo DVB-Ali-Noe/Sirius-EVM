@@ -95,7 +95,7 @@ test("le déploiement peut réutiliser un KYB existant et n'ajoute que des profi
   const reuse = deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: kyb, SIRIUS_DATASET_TRAINING_PROFILES: " gradient_boosted_trees " }, TESTNET_CHAIN_ID, deployer);
   assert.equal(reuse.existingKyb, kyb.toLowerCase());
   assert.deepEqual(reuse.trainingProfiles, ["gradient_boosted_trees"]);
-  for (const profiles of ["linear_regression", "unknown_model", "gradient_boosted_trees,gradient_boosted_trees", "__proto__"]) {
+  for (const profiles of ["logistic_regression", "unknown_model", "gradient_boosted_trees,gradient_boosted_trees", "__proto__"]) {
     assert.throws(() => deploymentPlan({ ...base, SIRIUS_DATASET_TRAINING_PROFILES: profiles }, TESTNET_CHAIN_ID, deployer), /SIRIUS_DATASET_TRAINING_PROFILES/, profiles);
   }
   assert.throws(() => deploymentPlan({ ...base, SIRIUS_KYB_EXISTING_ADDRESS: `0x${"0".repeat(40)}` }, TESTNET_CHAIN_ID, deployer), /non nulle/);

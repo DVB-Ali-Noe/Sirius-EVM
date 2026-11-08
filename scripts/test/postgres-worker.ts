@@ -41,7 +41,7 @@ process.once("message", async (message: { task: "ingest" | "loan" | "training" |
     else if (message.task === "training") await runSelfTrain("history", message.provider, randomUUID(), "synthetic", {} as RunnerGrant);
     else if (message.task === "operator-code") await assertOperatorCode(message.provider, "wrong-operator-code", databaseOperatorAttempts);
     else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
-      priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
+      priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, model: { modelId: "logistic_regression", modelVersion: "1.0.0" } });
     process.send?.({ accepted: true });
   } catch (error) {
     process.send?.({ accepted: false, code: (error as { code?: string; status?: number }).code

@@ -46,6 +46,8 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     SIRIUS_MASTER_KEY: Buffer.alloc(32, 19).toString("base64"), PINATA_JWT: "synthetic", PINATA_GATEWAY: "https://ipfs.test.invalid",
     RUNNER_BUDGET_FILE: join(temporary, "budget.sqlite"), RUNNER_BILLING_POLICY_FILE: join(temporary, "tariff.json"),
     RUNNER_SERVED_MODELS_DIR: join(temporary, "models"), RUNNER_PREDICT_USAGE_FILE: join(temporary, "usage.sqlite"),
+    // Parcours linéaire de bout en bout : profil facultatif depuis D-31, activé explicitement.
+    NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "linear_regression",
   });
   const { robinhoodTestnet: chain } = await import("@/lib/evm/networks");
   const contracts = chain.contracts;
@@ -200,6 +202,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const lockBlocks: bigint[] = [];
   for (const signed of quotes) lockBlocks.push(await lock(signed));
   assert.equal(runnerBudget()!.snapshot().failures, 0, "un devis falsifié ou un appel prématuré ne ferme pas la plateforme");
+  // D-31 : interrupteur coupé après le paiement. Le prêt linéaire payé sous devis signé reste
+  // entraîné, réglé (reaper compris) et interrogeable ; seul un nouveau devis serait refusé.
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "";
   const result = await run(quotes[0]) as LoanJobResult;
   assert.match(result.modelCid, /^sm1[0-9a-f]{64}$/, "empreinte du modèle scellé, pas un CID IPFS");
   assert.equal(result.loanKey, loanKeyFor(borrower.address, "success"));
@@ -307,6 +312,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const credit = (account: Address) => client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "creditOf", args: [account] });
   assert.equal(await credit(provider), unit);
   assert.equal(await credit(treasury), unit * BigInt(3));
+
+  // Les prolongations et packs suivants sont de nouveaux devis : profil réactivé pour la suite du parcours.
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "linear_regression";
 
   // --- Prolongation (D-29) : nouveau lock (prix par jour × jours + compute minimal), release
   // immédiat sans entraînement, échéance repoussée une seule fois. ---

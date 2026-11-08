@@ -15,7 +15,7 @@ export function appOrigin(value) {
  * Profils facultatifs que l'image peut proposer. Écrits en clair dans le Compose actif, donc
  * couverts par le hash attesté ; aligné sur `optIn` de src/lib/models/registry.ts (test).
  */
-export const OPT_IN_MODELS = ["gradient_boosted_trees"];
+export const OPT_IN_MODELS = ["linear_regression", "gradient_boosted_trees"];
 
 function optInModels(value) {
   const ids = value.split(",").map((id) => id.trim());

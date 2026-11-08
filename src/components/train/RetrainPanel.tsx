@@ -11,7 +11,7 @@ import { borrowDataset } from "@/lib/loans/client";
 import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
-import { modelSelection } from "@/lib/models/registry";
+import { isModelOffered, modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
 
 type Listing =
@@ -78,7 +78,9 @@ export function RetrainPanel({
   const fee = detail?.dataset.computeFee;
   const maxRentalDays = detail?.dataset.maxRentalDays ?? MIN_RENTAL_DAYS;
   const rentalDays = Math.min(chosenDays, maxRentalDays);
-  const canConfirm = listing.status === "ready" && Boolean(model) && Boolean(price) && !busy;
+  // Profil retiré pour un nouvel usage (D-31) : un nouveau prêt serait refusé.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
+  const canConfirm = listing.status === "ready" && Boolean(model) && !withdrawn && Boolean(price) && !busy;
 
   async function confirm() {
     if (inFlight.current || !detail || !price || !model) return;
@@ -142,6 +144,7 @@ export function RetrainPanel({
             </p>
           )}
           {detail && !model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
+          {withdrawn && <p className="text-xs text-negative">{t("Ce profil d’entraînement n’est plus proposé : ce dataset ne peut plus être emprunté.")}</p>}
           {detail && price && (
             <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={setChosenDays} disabled={busy} />
           )}

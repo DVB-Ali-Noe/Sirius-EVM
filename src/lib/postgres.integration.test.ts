@@ -87,7 +87,7 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
   assert.equal(Number((await client.query('SELECT count(*) FROM "Dataset"')).rows[0].count), 200);
   await client.query(`UPDATE "Dataset" SET status = 'LISTED', "ipfsCid" = 'bafy-synthetic', "wrappedKey" = 'synthetic',
     "runnerReceipt" = 'synthetic', "merkleRoot" = $1, "evmDatasetId" = $2,
-    "modelId" = 'linear_regression', "modelVersion" = '1.0.0' WHERE id = 'history'`, ["ab".repeat(32), `0x${"67".repeat(32)}`]);
+    "modelId" = 'logistic_regression', "modelVersion" = '1.0.0' WHERE id = 'history'`, ["ab".repeat(32), `0x${"67".repeat(32)}`]);
   const borrower = `0x${"78".repeat(20)}`;
   // Quatre prêts déjà payés (hash de lock) : un PENDING sans hash serait remplacé par la préparation
   // suivante du même emprunteur au lieu d'être compté (audit du 5 octobre, A-06).

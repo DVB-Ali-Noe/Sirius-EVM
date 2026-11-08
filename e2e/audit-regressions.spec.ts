@@ -8,7 +8,7 @@ const B = "0x2222222222222222222222222222222222222222";
 const label = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 // Forme tronquée de `truncate()` dans l'Explorer (8 premiers, 6 derniers caractères).
 const shortAddress = (a: string) => `${a.slice(0, 8)}…${a.slice(-6)}`;
-const dataset = (owner: string, provider = A) => ({ id: `dataset-${owner}`, name: `Private dataset ${owner}`, provider, status: "PRIVATE", modelId: "linear_regression", modelVersion: "1.0.0", ipfsCid: "fixture", runnerReceipt: "receipt", evmDatasetId: `0x${"12".repeat(32)}`, sizeBytes: 100 });
+const dataset = (owner: string, provider = A) => ({ id: `dataset-${owner}`, name: `Private dataset ${owner}`, provider, status: "PRIVATE", modelId: "logistic_regression", modelVersion: "1.0.0", ipfsCid: "fixture", runnerReceipt: "receipt", evmDatasetId: `0x${"12".repeat(32)}`, sizeBytes: 100 });
 
 declare global {
   interface Window {
@@ -51,7 +51,7 @@ test("Entraîner ignore la réponse privée d'un compte remplacé", async ({ pag
 });
 
 const explorerLoan = (overrides: Record<string, unknown> = {}) => ({
-  id: "loan-1", borrower: A, provider: B, amountUsdcAtomic: "1000000000000000000", modelId: "linear_regression", modelVersion: "1.0.0",
+  id: "loan-1", borrower: A, provider: B, amountUsdcAtomic: "1000000000000000000", modelId: "logistic_regression", modelVersion: "1.0.0",
   status: "PENDING", evmLockTxHash: null, settleTxHash: null, auditReceipt: null, cancelTxHash: null, attestationHash: null,
   attestationComposeHash: null, evmDeadline: null, createdAt: new Date().toISOString(), settledAt: null,
   dataset: { name: "History", evmDatasetId: null, evmMintTxHash: null }, ...overrides,

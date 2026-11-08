@@ -66,6 +66,7 @@ import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import {
+  isModelOffered,
   modelSelection,
   modelDisplayName,
   type ModelId,
@@ -690,7 +691,9 @@ function TrainPageContent() {
               });
             const rentalExpired = isLoanRentalExpired(l, now);
             const modelDeleted = isLoanModelDeleted(l, now);
-            const extendAllowed = canExtendLoan(l, address, now);
+            // Une prolongation est un nouveau devis : refusée pour un profil retiré (D-31).
+            const extendModel = modelSelection(l.modelId, l.modelVersion);
+            const extendAllowed = canExtendLoan(l, address, now) && extendModel !== null && isModelOffered(extendModel.modelId);
             const maxRentalDays = l.dataset?.maxRentalDays ?? DEFAULT_MAX_RENTAL_DAYS;
             const chosenExtendDays = Math.min(extendDays[l.id] ?? MIN_RENTAL_DAYS, maxRentalDays);
             const expiryLabel = l.rentalExpiresAt
@@ -1020,6 +1023,8 @@ function SelfTrainCard({
 }) {
   const { t } = useLocale();
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  // Profil retiré pour un nouvel usage (D-31) : Next et le runner refuseraient le self-train.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
 
   return (
     <Card className="flex flex-wrap items-center justify-between gap-4">
@@ -1037,8 +1042,8 @@ function SelfTrainCard({
       </div>
       <button
         onClick={() => void onTrain(dataset)}
-        disabled={!model || busy}
-        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+        disabled={!model || withdrawn || busy}
+        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : withdrawn ? t("Profil d’entraînement facultatif non activé sur ce runner") : undefined}
         aria-busy={busy}
         className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
       >

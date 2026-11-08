@@ -2,7 +2,7 @@
 
 **Entraîner sur des datasets confidentiels, interroger le modèle sans jamais le sortir de l'enclave.**
 
-Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE**. Le modèle reste scellé dans le runner : le borrower obtient des **prédictions signées** (valeur arrondie à 3 chiffres significatifs pour la régression linéaire, décision 0/1 pour la logistique et les arbres), jamais le modèle ni sa clé ([D-28](docs/DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)). Les prédictions ne répondent que pendant que le runner tourne. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
+Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE**. Le modèle reste scellé dans le runner : le borrower obtient des **prédictions signées** (décision 0/1 pour la logistique et les arbres ; valeur arrondie à 3 chiffres significatifs pour les modèles linéaires existants), jamais le modèle ni sa clé ([D-28](docs/DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)). Les prédictions ne répondent que pendant que le runner tourne. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
 
 ## Principe
 
@@ -46,7 +46,7 @@ Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-71
 
 Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats et le KYB externe restent à valider. Deux modèles historiques ont été récupérés et restaurés hors ligne ; les onze autres appartiennent à d'anciens wallets de test inaccessibles. Voir [l'état des sauvegardes](docs/BACKUP-RECOVERY.md).
 
-L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
+L'upload impose un profil proposé par l'instance (`logistic_regression` 1.0.0 ; `gradient_boosted_trees` 1.1.0 et `linear_regression` 1.0.0 seulement s'ils figurent dans `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. La régression linéaire est retirée de tout nouvel usage depuis [D-31](docs/DECISIONS.md#d-31--régression-linéaire-retirée-pour-tout-nouvel-usage-profil-facultatif) ; les datasets et prêts linéaires existants restent servis. Le CSV est limité à 3 Mio ; une cible de classification doit être binaire.
 
 Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et accepté, prépaiement, calcul borné, règlement ou remboursement, budget réservé jusqu'à la clôture. Le mode par défaut reste v6 ; v7 exige `SIRIUS_BILLING_VERSION=7`, des politiques et un registre persistants. La migration Prisma est préparée, non appliquée à distance. Aucun tarif commercial n'est fixé.
 

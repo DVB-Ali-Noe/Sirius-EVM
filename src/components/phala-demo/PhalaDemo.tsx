@@ -9,20 +9,21 @@ import { SignInCta } from "@/components/wallet/SignInCta";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useWalletStore } from "@/stores/wallet";
-import { DEMO_EXAMPLES } from "@/lib/phala-demo/examples";
+import { demoExamples, type DemoExample } from "@/lib/phala-demo/examples";
 import { demoQualityReport } from "@/lib/phala-demo/csv";
 import { QualityReportPanel } from "@/components/datasets/QualityReportPanel";
 import { predictDemoModel, trainDemoFile } from "@/lib/phala-demo/training-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
 import { parseCsv } from "@/lib/sirius/metrics";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
-import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
+import { DEFAULT_MODEL_SELECTION, MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { messageOf } from "@/lib/errors-client";
 
 interface Job { id: string; status: string; metrics: Record<string, number> | null; servedModelId: string | null; modelFeatures: string[]; dataset: { name: string } | null; createdAt: string; completedAt: string | null }
 /** `table` : le fichier lu, gardé dans la page pour le rapport de qualité ; jamais envoyé ni stocké. */
 interface Draft { file: File | null; example: string | null; columns: string[]; rows: number; table: string[][]; target: string; model: ModelId }
-const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: "linear_regression" };
+const EMPTY_DRAFT: Draft = { file: null, example: null, columns: [], rows: 0, table: [], target: "", model: DEFAULT_MODEL_SELECTION.modelId };
+const DEMO_EXAMPLES = demoExamples();
 const button = "rounded-xl bg-accent px-5 py-3 font-medium text-background disabled:cursor-not-allowed disabled:opacity-40";
 const selectedButton = "rounded-xl border border-positive/50 px-5 py-3 font-medium text-positive disabled:cursor-not-allowed disabled:opacity-40";
 const field = "w-full rounded-xl border border-border bg-background p-3 text-foreground";
@@ -83,7 +84,7 @@ function Content({ draft, setDraft }: { draft: Draft; setDraft: React.Dispatch<R
     return () => { cancelled = true; };
   }, [authenticated]);
 
-  async function selectFile(selected: File, sample?: (typeof DEMO_EXAMPLES)[number]) {
+  async function selectFile(selected: File, sample?: DemoExample) {
     setDraft((current) => ({ ...EMPTY_DRAFT, model: current.model })); setError("");
     if (!selected.size || selected.size > MAX_DATASET_BYTES) throw new Error("CSV vide ou trop volumineux (max 3 Mo)");
     const table = parseCsv(await selected.text());

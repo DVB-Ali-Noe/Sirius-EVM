@@ -8,6 +8,7 @@ import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { assertOfferedProfile } from "@/lib/runner/profile-admission";
 import { modelFeaturesFromRunner } from "@/lib/sirius/prediction";
 
 export interface SelfTrainResult {
@@ -54,6 +55,7 @@ export async function runSelfTrain(
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
+  assertOfferedProfile(model);
 
   await assertDatasetScope({
     datasetId: dataset.id,

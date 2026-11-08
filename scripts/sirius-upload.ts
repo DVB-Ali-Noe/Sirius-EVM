@@ -7,7 +7,7 @@
  *   SIRIUS_URL=https://… SIRIUS_PRIVATE_KEY=0x… SIRIUS_INGRESS_KEY_SHA256=… \
  *     pnpm upload:cli data.csv --name "Transactions 2025" --category finance --price 10
  *
- * Options : --model (linear_regression par défaut), --description, --max-rental-days (30),
+ * Options : --model (profil par défaut du registre, `logistic_regression`), --description, --max-rental-days (30),
  * --listing-days (30), --consent (consentement à l'amélioration des modèles).
  * `SIRIUS_INGRESS_KEY_SHA256` épingle la clé de l'enclave : obligatoire hors localhost.
  * `SIRIUS_COOKIE` ajoute un cookie (porte d'aperçu d'un déploiement de test).
@@ -21,7 +21,7 @@ import { csvRejectionText } from "@/lib/datasets/csv-check";
 import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-stream";
 import { checkDraftResponse } from "@/lib/datasets/draft-response";
 import { DATASET_CATEGORIES, type DatasetCategory, type ListingDurationDays } from "@/lib/datasets/publication";
-import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
+import { DEFAULT_MODEL_SELECTION, MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { encodeBase64Url } from "@/lib/upload/chunked";
 import { sendChunkedDataset, type ChunkedFileSource, type ChunkedTransferApi } from "@/lib/upload/chunked-transfer";
@@ -75,7 +75,7 @@ async function main() {
       description: { type: "string" },
       category: { type: "string" },
       price: { type: "string" },
-      model: { type: "string", default: "linear_regression" },
+      model: { type: "string", default: DEFAULT_MODEL_SELECTION.modelId },
       "max-rental-days": { type: "string", default: "30" },
       "listing-days": { type: "string", default: "30" },
       consent: { type: "boolean", default: false },

@@ -27,7 +27,8 @@ info:
     answers `503` with `code: enclave_starting` and a `Retry-After` header: wait and send a new
     signed request (new timestamp and nonce). The official SDKs do this for you.
 
-    **Limits.** Linear regression models have no API access (a few calls would reconstruct them).
+    **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
+    its models have no API access (a few calls would reconstruct them).
     Outputs are a 0/1 decision or a rounded value, never a probability. Quota: the profile's
     included calls per day (shared with the website), then prepaid call packs (100 / 1,000 /
     10,000), which expire with the rental and are not refundable.

@@ -15,6 +15,7 @@ import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { assertOfferedProfile } from "@/lib/runner/profile-admission";
 import { rebasedListingExpiry } from "@/lib/datasets/publication";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
@@ -134,6 +135,8 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
     await markDatasetListed(dataset, onChainId);
     return { reconciled: true as const };
   }
+  // Nouveau titre : un profil retiré (D-31) ne se publie plus. Un titre déjà minté reste réconcilié ci-dessus.
+  assertOfferedProfile(modelSelection(dataset.modelId, dataset.modelVersion)!);
   return { transaction: mintDatasetTransaction(terms) };
 }
 

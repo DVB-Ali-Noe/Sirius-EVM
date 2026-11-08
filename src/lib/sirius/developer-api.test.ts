@@ -8,6 +8,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { NextRequest, NextResponse } from "next/server";
 import { AppError } from "@/lib/app-error";
+import * as profileAdmission from "@/lib/runner/profile-admission";
 import { errorResponse } from "@/lib/errors";
 import { readBody, readJson } from "@/lib/http/body";
 import * as rateLimit from "@/lib/http/rate-limit";
@@ -282,7 +283,7 @@ function system(options: SystemOptions = {}) {
       if (options.policy === false) throw new Error("Politique de facturation absente");
       return { apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE };
     } },
-    "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/provenance": provenance,
+    "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "@/lib/tee/contract": contract, "@/lib/tee/runner-client": runnerClient, "./access": { requireAcceptedKyb: async () => {} },
     "./availability": availabilityModule, "./finality-tier": finalityTier, "./rental": rental,
   });
@@ -324,7 +325,7 @@ function system(options: SystemOptions = {}) {
     "./provider": { BORROWABLE_STATUSES: ["LISTED"], isBorrowableDatasetStatus: () => true },
     "@/lib/datasets/manage": { isListingExpired: () => false },
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: CHAIN_ID, escrow: PROVIDER }) },
-    "./recover-loan": {}, "@/lib/evm/history": {}, "@/lib/runner/provenance": provenance,
+    "./recover-loan": {}, "@/lib/evm/history": {}, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "./exposure-limits": { assertAdmissionsOpen: () => {}, assertExposureWithinCap: () => {}, assertLoanWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [], exposureLimits: () => null },
     "@/lib/billing/rental": rentalRules, "./rental": rental, "@/lib/billing/api-pricing": apiPricing, "./api-keys": apiKeysModule,
   });
@@ -332,7 +333,7 @@ function system(options: SystemOptions = {}) {
   const shared = {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
     "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain }, "@/lib/billing/loan": billingLoan,
-    "@/lib/models/registry": models, "@/lib/runner/failure-policy": failurePolicy, "@/lib/runner/provenance": provenance,
+    "@/lib/models/registry": models, "@/lib/runner/failure-policy": failurePolicy, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "@/lib/tee/runner-client": runnerClient, "@/lib/loans/settlement-status": settlementStatus, "./borrower": borrower,
     "./release-tier": releaseTier, "./settlement-evidence": { recordSettlementEvidence: async (id: string) => { calls.evidence.push(id); return true; } },
     "./settlement-queued": { settlementQueuedError },
@@ -811,7 +812,7 @@ test("GET /api/loans : champs API et packs exposés", async () => {
   const apiKeys = load<typeof import("./api-keys")>("src/lib/sirius/api-keys.ts", {
     "server-only": {}, "@/lib/db": { prisma: sys.prisma }, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => ({ apiCallsPerDay: API_CALLS_PER_DAY }) },
-    "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/provenance": {}, "@/lib/tee/contract": contract,
+    "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": {}, "@/lib/tee/contract": contract,
     "@/lib/tee/runner-client": {}, "./access": {}, "./availability": {}, "./finality-tier": {}, "./rental": {},
   });
   const rows = [origin(), origin({ id: "linear", modelId: "linear_regression" }), attached("pack"), attached("extension")];
