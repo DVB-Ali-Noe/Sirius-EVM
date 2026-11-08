@@ -270,7 +270,11 @@ async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
  */
 async function reconcileClosedLoan(loan: Loan): Promise<"closed" | "active" | "settled" | "unbound"> {
   if (!loan.evmLoanKey || !loan.evmLockBlock) return "unbound";
-  const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
+  // Release d'un prêt rapide : accepté au palier rapide (le runner revérifie la profondeur), puis
+  // revu à finalité complète une fois SETTLED (`reviewFastSettledLoan`).
+  const state = await reconcileLoanEscrow(
+    loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan), loan.finalityTier === "FAST" ? "FAST" : "FULL",
+  );
   if (state.state === "active") return "active";
   // La reprise du résultat et la validation de sa preuve précèdent toujours le règlement v7.
   if (state.state === "settled" && loan.billingQuoteHash) return "settled";

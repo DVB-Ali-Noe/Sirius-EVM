@@ -3,7 +3,7 @@ import { keccak256, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { NextRequest, NextResponse } from "next/server";
@@ -233,6 +233,8 @@ interface SystemOptions {
   apiAccessFee?: false;
   /** Jours que l'enclave signe dans le devis d'un pass. */
   passDays?: number;
+  /** Résolution on-chain vue par le reaper selon le palier demandé (défaut : lock actif). */
+  reaperChain?: (releaseTier: string) => Promise<unknown>;
 }
 
 function system(options: SystemOptions = {}) {
@@ -419,7 +421,10 @@ function system(options: SystemOptions = {}) {
   };
   const reaper = () => load<typeof import("./reaper")>("src/lib/sirius/reaper.ts", {
     "server-only": {}, "@/lib/db": db,
-    "@/lib/evm/escrow": { readLoan: async () => null, reconcileLoanEscrow: async () => chain },
+    "@/lib/evm/escrow": {
+      readLoan: async () => null,
+      reconcileLoanEscrow: async (_key: unknown, _block: unknown, _binding: unknown, releaseTier = "FULL") => options.reaperChain ? options.reaperChain(releaseTier) : chain,
+    },
     "@/lib/evm/client": { getPublicClient: () => client },
     "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors, "@/lib/billing/api-pricing": apiPricing,
     "./recover-loan": { recoverUnsubmittedLoan: async () => {} },
@@ -1229,6 +1234,45 @@ test("finalité rapide : prolongation et pack sous les plafonds passent au palie
     const closed = system({ loans: [origin(), attached(kind)] });
     await settle(closed);
     assert.deepEqual(closed.calls.stable, ["FULL"], kind);
+  }
+});
+
+test("reaper : pack, pass ou prolongation FAST au release diffusé, à la profondeur rapide mais non finalisé ⇒ réglé dans la passe ; FULL attend", async () => {
+  // Release vu à la profondeur rapide, pas encore sous le bloc finalisé : seule une demande au
+  // palier FAST l'accepte, comme `assertCanonicalReceipt` (escrow.ts).
+  const tiers: string[] = [];
+  const reaperChain = async (tier: string) => {
+    tiers.push(tier);
+    if (tier !== "FAST") throw new AppError("Transaction on-chain non confirmée ou réorganisée", 409);
+    return { state: "settled", txHash: PACK_TX, preimage: `0x${"01".repeat(32)}` };
+  };
+  for (const kind of ["pack", "pass", "extension"] as const) {
+    const id = kind === "pack" ? "pack-9" : kind === "pass" ? "pass-9" : "ext-9";
+    const op = kind === "extension" ? "extend" : "buyCalls";
+    const settling = (tier: string) => attached(kind, {
+      status: "SETTLING", settleTxHash: PACK_TX, finalityTier: tier, billingQuoteHash: `0x${"bb".repeat(32)}`, updatedAt: new Date(0),
+    });
+
+    tiers.length = 0;
+    const runner = kind === "pass" ? { buyCalls: async () => ({ settleTxHash: PACK_TX, apiPaidUntil: Date.now() + 3 * DAY }) } : undefined;
+    const fast = system({ fast: true, loans: [origin({ apiPaidUntil: null }), settling("FAST")], reaperChain, runner });
+    assert.equal((await fast.reaper().runLoanReaper(new Date())).failed, 0, kind);
+    assert.deepEqual(tiers, ["FAST"], kind);
+    // Toujours FAST avec `settledAt` : la revue à finalité complète (`needsFastReview`) le reprendra.
+    const settled = fast.prisma.loan.rows.find((row) => row.id === id)!;
+    assert.equal(settled.finalityTier, "FAST", kind);
+    assert.ok(settled.settledAt instanceof Date, kind);
+    assert.equal(fast.calls.runner.filter(([name]) => name === op).length, 1, kind);
+    assert.equal(fast.prisma.loan.rows.find((row) => row.id === id)!.status, "SETTLED", kind);
+
+    tiers.length = 0;
+    const errors = mock.method(console, "error", () => {});
+    const full = system({ fast: true, loans: [origin({ apiPaidUntil: null }), settling("FULL")], reaperChain });
+    assert.equal((await full.reaper().runLoanReaper(new Date())).failed, 1, kind);
+    errors.mock.restore();
+    assert.deepEqual(tiers, ["FULL"], kind);
+    assert.equal(full.calls.runner.length, 0, kind);
+    assert.equal(full.prisma.loan.rows.find((row) => row.id === id)!.status, "SETTLING", kind);
   }
 });
 

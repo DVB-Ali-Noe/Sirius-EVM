@@ -444,6 +444,36 @@ test("une panne RPC avant réconciliation v7 ne fabrique aucun remboursement", a
   assert.equal(updates.length, 0);
 });
 
+test("reconcileLoanEscrow : palier FAST accepté pour un release à la profondeur rapide, jamais pour un remboursement ; sans palier, finalité complète", async () => {
+  billedReaperFixture(2);
+  process.env.SIRIUS_EVM_FINALITY = "finalized";
+  process.env.SIRIUS_FAST_FINALITY = "true";
+  process.env.SIRIUS_FAST_FINALITY_CONFIRMATIONS = "30";
+  // Reçu au bloc 10 : tête à 39 (profondeur rapide atteinte), bloc finalisé encore à 5.
+  mock.method(client, "getBlockNumber", async () => BigInt(39));
+  mock.method(client, "getBlock", async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) =>
+    ({ number: blockTag === "finalized" ? BigInt(5) : blockNumber, hash: HASH, timestamp: BigInt(1) }));
+  const { reconcileLoanEscrow } = await import("@/lib/evm/escrow");
+  const key = loanKeyFor(BORROWER, "loan-1");
+  try {
+    assert.deepEqual(await reconcileLoanEscrow(key, BigInt(10), undefined, "FAST"), { state: "settled", txHash: HASH, preimage: HASH });
+    await assert.rejects(reconcileLoanEscrow(key, BigInt(10)), /non confirmée/);
+    await assert.rejects(reconcileLoanEscrow(key, BigInt(10), undefined, "FULL"), /non confirmée/);
+    // Remboursement (3) ou échec (4) : finalité complète même au palier FAST.
+    for (const terminal of [3, 4]) {
+      billedReaperFixture(terminal);
+      process.env.SIRIUS_EVM_FINALITY = "finalized";
+      mock.method(client, "getBlockNumber", async () => BigInt(39));
+      mock.method(client, "getBlock", async ({ blockNumber, blockTag }: { blockNumber?: bigint; blockTag?: string }) =>
+        ({ number: blockTag === "finalized" ? BigInt(5) : blockNumber, hash: HASH, timestamp: BigInt(1) }));
+      await assert.rejects(reconcileLoanEscrow(key, BigInt(10), undefined, "FAST"), /non confirmée/, String(terminal));
+    }
+  } finally {
+    delete process.env.SIRIUS_FAST_FINALITY;
+    delete process.env.SIRIUS_FAST_FINALITY_CONFIRMATIONS;
+  }
+});
+
 
 test("un règlement v7 avec modèle passe encore par la validation de sa preuve", async () => {
   const reads = billedReaperFixture(2);
