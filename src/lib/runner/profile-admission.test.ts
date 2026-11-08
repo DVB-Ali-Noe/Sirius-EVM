@@ -51,6 +51,8 @@ test("PAR-01 : interrupteur coupé après le lock, le prêt payé sous devis sig
     assert.doesNotThrow(() => assertLockedProfile(linear, quoteFor("linear_regression", "1.0.0")));
     assert.throws(() => assertLockedProfile(linear, undefined), { message: OPT_IN_PROFILE_DISABLED });
     assert.throws(() => assertLockedProfile(linear, quoteFor("logistic_regression", "1.0.0")), { message: OPT_IN_PROFILE_DISABLED });
+    // Les profils standard ne dépendent jamais de l'interrupteur, avec ou sans devis (v6).
+    assert.doesNotThrow(() => assertLockedProfile(selectionForModelId("logistic_regression"), undefined));
   });
   assert.doesNotThrow(() => assertLockedProfile(trees, undefined, "gradient_boosted_trees"));
 });
