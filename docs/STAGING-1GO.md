@@ -58,6 +58,48 @@ Base, contrats testnet dédiés, site Vercel, Neon, R2, Pinata et Web3Auth de te
   conception. `R2_*` n'y sont qu'en Preview : pour les visiteurs, rien ne change. Activer le 1 Go sur staging
   demande une décision sur la démo, de nouveaux contrats testnet (registre v6) et un runner mis à jour.
 
+## Test réel de l'API développeurs, 8 novembre (environnement `sirius-api-test`)
+
+Environnement dédié, sans toucher à la démo, à `sirius-mainnet` ni à l'environnement d'Ali : CVM Phala
+`sirius-api-test` (KMS Phala, `tdx.small`), site Vercel `sirius-api-test.vercel.app`, base Neon dédiée, contrats
+testnet dédiés (DatasetRegistry `0x3788…048e`, EscrowV7 `0x941e…5dcb`), budget runner **standard** (le mode `trial`
+n'est accepté que depuis l'origine de staging), tarif `api-test-2026-11-08`. `api.sirius-data.tech` pointe sur ce
+projet depuis le 8 novembre.
+
+- **Validé en conditions réelles** (image `7b7f6303…`, code `staging` `2afc5c8`) :
+  - publication, location 1 jour (8 USDC), entraînement scellé et règlement en moins de 20 s, profils logistique
+    et arbres boostés (10 400 lignes, seuil de 10 000) ;
+  - clé créée dans le navigateur, `info` (~1 s) et `predict` (~600 ms) par le SDK sur `api.sirius-data.tech/v1`,
+    signature EIP-712 vérifiée hors ligne ; refus : signature fausse (401), nonce rejoué (409), autre prêt (401) ;
+  - démarrage à froid : `503 enclave_starting` + `Retry-After`, le SDK réessaie seul, API rétablie en ~2 min ;
+  - pack de 100 appels (2,1 USDC) : quota du jour épuisé (50/50) puis crédits consommés (100 → 99) ;
+  - prolongation +1 jour (1,1 USDC), quota GBDT de 100 appels par jour ;
+  - échec d'entraînement : remboursement automatique de 7,99998 USDC sur 8 (frais mesurés seuls retenus).
+- **Constats, et où ils sont traités** :
+  - publication et devis de location échouaient enclave éteinte, sans réveil : corrigé par la PR #148 (réveil après
+    contrôles, écran d'attente ; publication et devis repassés seuls en ~2 min 10 s, vérifié en réel) ;
+  - une clé d'API gardait la CVM allumée toute la location aux frais de Sirius : PR #148 (CVM allumée seulement
+    à l'usage, arrêt ~1 h après la dernière activité, budget de réveil par compte en base ; vérifié en réel) et
+    PR #149 (accès API payé par jour, D-32) ;
+  - sur un site de démonstration Vercel sans reaper, un pack ou une prolongation payés ne sont jamais appliqués,
+    alors que l'interface annonce « même si vous fermez la page » : ouvert ;
+  - le reaper compte l'attente normale de finalité d'un pack comme une erreur à chaque passe : ouvert ;
+  - le runner règle une opération à la fois (une prolongation a attendu la finalité complète d'un pack, ~26 min) :
+    ouvert ;
+  - les types EIP-712 `Prediction` ne sont publiés ni dans les SDK ni dans l'OpenAPI, et la doc nomme
+    `SiriusPrediction` (nom du domaine) : vérification hors ligne impossible pour un intégrateur, ouvert ;
+  - les devis de pack et de prolongation affichent « If training fails… » sans entraînement : ouvert ;
+  - au tout premier lancement du contrôleur, la phase `stopped` est publiée tant que Phala est illisible : ~1 à
+    2 min de 503 inutiles, ouvert.
+- **Pièges de configuration** : `PINATA_JWT` et `PINATA_GATEWAY` doivent appartenir au **même compte** Pinata (sinon
+  le dépôt réussit et la relecture par l'enclave échoue en 403 « owner does not have this content pinned ») ; un
+  build Vercel servi depuis le cache saute toujours `prisma generate` (`--force`) ; `phala logs` (CLI 1.1.22 et
+  1.2.2) répond 404 sur les passerelles Phala récentes : lire l'état par `phala ps` et la base.
+- **Coût** : Phala ~0,2 USD (estimation, ~3 h de `tdx.small` à 0,058 USD/h ; la CLI n'affiche pas le solde) ;
+  ETH testnet du déployeur, du runner, du faucet et des wallets de test.
+- **État laissé** : CVM `sirius-api-test` arrêtée, contrôleur et reaper locaux arrêtés, `RunnerAvailability` à
+  `stopped` ; secrets de l'environnement hors dépôt.
+
 ## 1. R2 (Cloudflare)
 
 - [ ] 👤 Bucket `sirius-staging` → Settings → CORS policy :
