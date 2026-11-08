@@ -34,19 +34,19 @@ interface Sealed {
   uploadKey: Buffer;
 }
 
-/** Un gros fichier envoyé en morceaux de 64 Kio puis scellé par l'enclave, comme en production. */
-async function sealed(file: Buffer, datasetId = "big-dataset"): Promise<Sealed> {
+/** Un gros fichier envoyé en morceaux (64 Kio par défaut) puis scellé par l'enclave, comme en production. */
+async function sealed(file: Buffer, datasetId = "big-dataset", chunkBytes = MERKLE_LEAF_BYTES): Promise<Sealed> {
   const ids = { datasetId, uploadId: "upload-1" };
   const encryptor = await ChunkedUploadEncryptor.create({
     recipientPublicKey: decodeBase64Url(datasetIngressPublicKey().publicKey),
     ids,
     plainBytes: file.length,
-    chunkBytes: MERKLE_LEAF_BYTES,
+    chunkBytes,
   });
   const objects = new Map<string, Uint8Array<ArrayBuffer>>();
   const chunks: Uint8Array<ArrayBuffer>[] = [];
   for (let i = 0; i < encryptor.chunkCount; i++) {
-    const part = new Uint8Array(file.subarray(i * MERKLE_LEAF_BYTES, Math.min((i + 1) * MERKLE_LEAF_BYTES, file.length)));
+    const part = new Uint8Array(file.subarray(i * chunkBytes, Math.min((i + 1) * chunkBytes, file.length)));
     const { object } = await encryptor.encrypt(i, part);
     chunks.push(object);
     objects.set(chunkObjectKey(ids, i), object);
@@ -146,6 +146,36 @@ test("des retours à la ligne entre guillemets font prendre le début du fichier
     const i = Number(/^ligne (\d+)\nsuite$/.exec(row[0])?.[1]);
     assert.deepEqual(row, [`ligne ${i}\nsuite`, String(20 + (i % 180)), String((i * 1.7) % 900)]);
   }
+});
+
+test("l'échantillon d'un fichier accentué tient en octets, pas seulement en caractères", async () => {
+  // Lignes de ~90 octets pour ~70 caractères : avec des morceaux de 1 Mio, la limite d'octets borne
+  // l'échantillon avant celle des lignes. Compter en caractères l'aurait porté vers 4 Mio.
+  const lines = ["ville,description,surface,prix"];
+  for (let i = 0; i < 200_000; i++) lines.push(`Évry-Besançon ${i},Pièce à côté du château — €€€ çàéèê ${i % 97},${20 + (i % 180)},${((i * 1.7) % 900).toFixed(2)}`);
+  const file = Buffer.from(`${lines.join("\n")}\n`);
+  assert.ok(file.length > 16 * 1024 * 1024 && file.length > 1.25 * file.toString("utf-8").length);
+  const s = await sealed(file, "accented-dataset", 16 * MERKLE_LEAF_BYTES);
+  const sample = await chunkedTrainingSample(s.ref, s.uploadKey, memory(s));
+  assert.ok(sample.length <= SAMPLE_MAX_BYTES, `${sample.length} > ${SAMPLE_MAX_BYTES}`);
+  assert.ok(sample.length > SAMPLE_MAX_BYTES * 0.9, "l'échantillon reste plein");
+  const table = parseCsv(sample.toString("utf-8"));
+  assert.deepEqual(table[0], ["ville", "description", "surface", "prix"]);
+  const ids = table.slice(1).map((row) => Number(row[0].replace("Évry-Besançon ", "")));
+  assert.ok(Math.max(...ids) > 150_000, "la fin du fichier est représentée");
+});
+
+test("l'échantillon de secours d'un fichier accentué tient aussi en octets", async () => {
+  // Retours à la ligne entre guillemets : seul le début du fichier est pris, borné en octets.
+  const lines = ["note,surface,prix"];
+  for (let i = 0; i < 40_000; i++) lines.push(`"€€€€€€€€ ligne ${i}\nsuite €€€€€€€€€€€€€€€€€€€€",${20 + (i % 180)},${(i * 1.7) % 900}`);
+  const file = Buffer.from(`${lines.join("\n")}\n`);
+  assert.ok(file.length > SAMPLE_MAX_BYTES && file.toString("utf-8").length < SAMPLE_MAX_BYTES);
+  const s = await sealed(file, "accented-quoted");
+  const sample = await chunkedTrainingSample(s.ref, s.uploadKey, memory(s));
+  assert.ok(sample.length <= SAMPLE_MAX_BYTES, `${sample.length} > ${SAMPLE_MAX_BYTES}`);
+  const table = parseCsv(sample.toString("utf-8"));
+  assert.equal(table[1][0], "€€€€€€€€ ligne 0\nsuite €€€€€€€€€€€€€€€€€€€€");
 });
 
 test("un self-train sur un gros dataset relu dans R2 s'entraîne sur l'échantillon", { skip: process.platform === "win32" && "volume privé du runner : droits POSIX" }, async () => {

@@ -38,6 +38,11 @@ export const SAMPLE_MAX_BYTES = MAX_DATASET_BYTES;
 export const SAMPLE_MAX_ROWS = MAX_CSV_ROWS - 1;
 const HEADER_MARGIN_BYTES = 1024;
 
+/** Octets UTF-8 d'une ligne de l'échantillon, retour à la ligne compris : la limite se compte en octets, pas en caractères. */
+function lineBytes(line: string): number {
+  return Buffer.byteLength(line, "utf8") + 1;
+}
+
 export interface ChunkedSampleSource {
   readManifest(): Promise<Uint8Array>;
   readChunk(index: number): Promise<Uint8Array<ArrayBuffer>>;
@@ -100,15 +105,15 @@ async function prefixSample(manifest: ChunkedUploadManifest, chunk: (index: numb
     if (lines.length === 0) {
       const head = header.map(quoteField).join(",");
       lines.push(head);
-      bytes += head.length + 1;
+      bytes += lineBytes(head);
     }
     const line = row.map(quoteField).join(",");
-    if (lines.length - 1 >= SAMPLE_MAX_ROWS || bytes + line.length + 1 > SAMPLE_MAX_BYTES) {
+    if (lines.length - 1 >= SAMPLE_MAX_ROWS || bytes + lineBytes(line) > SAMPLE_MAX_BYTES) {
       full = true;
       return;
     }
     lines.push(line);
-    bytes += line.length + 1;
+    bytes += lineBytes(line);
   });
   for (let index = 0; index < manifest.chunkCount && !full; index++) csv.pushBytes(await chunk(index));
   if (!full) csv.end();
@@ -175,7 +180,7 @@ export async function chunkedTrainingSample(
   const headerEnd = firstText.indexOf("\n");
   const header = (headerEnd < 0 ? firstText : firstText.slice(0, headerEnd)).replace(/\r$/, "");
   const rowsPerChunk = Math.floor(SAMPLE_MAX_ROWS / indexes.length);
-  const bytesPerChunk = Math.floor((SAMPLE_MAX_BYTES - header.length - HEADER_MARGIN_BYTES) / indexes.length);
+  const bytesPerChunk = Math.floor((SAMPLE_MAX_BYTES - lineBytes(header) - HEADER_MARGIN_BYTES) / indexes.length);
 
   const lines = [header];
   for (const index of indexes) {
@@ -187,10 +192,11 @@ export async function chunkedTrainingSample(
     let bytes = 0;
     for (const line of candidates) {
       if (line === "") continue;
-      if (rows >= rowsPerChunk || bytes + line.length + 1 > bytesPerChunk) break;
+      const size = lineBytes(line);
+      if (rows >= rowsPerChunk || bytes + size > bytesPerChunk) break;
       lines.push(line);
       rows += 1;
-      bytes += line.length + 1;
+      bytes += size;
     }
   }
   const sample = Buffer.from(`${lines.join("\n")}\n`);
