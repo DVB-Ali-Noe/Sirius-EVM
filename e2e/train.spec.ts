@@ -317,10 +317,10 @@ test("API : enclave en démarrage expliquée par étapes ; animation coupée sou
   await connect(page);
   const panel = card(page, "Dataset starting").getByTestId("api-panel");
   const wait = panel.getByTestId("enclave-starting");
-  await expect(wait).toContainText("The enclave is starting", { timeout: 30_000 });
+  await expect(wait).toContainText("Starting the secure enclave — about 2 minutes", { timeout: 30_000 });
   await expect(wait.locator('[data-step="requested"]')).toHaveAttribute("data-status", "done");
   await expect(wait.locator('[data-step="booting"]')).toHaveAttribute("data-status", "active");
-  await expect(panel.getByTestId("enclave-starting-remaining")).toContainText("Estimated time left: ~");
+  await expect(panel.getByTestId("enclave-starting-progress")).toContainText(/^Waiting: /);
   await expect(panel.getByTestId("enclave-starting-close-note")).toContainText("the SDK retries on its own");
   const spinner = wait.locator('[data-motion="spin"]');
   await expect.poll(() => spinner.evaluate((element) => getComputedStyle(element).animationName)).not.toBe("none");
@@ -393,7 +393,7 @@ test("API : créer une clé (enclave qui démarre puis scellement), secret affic
   const dialog = page.getByTestId("create-api-key-dialog");
   await dialog.getByLabel("Key name").fill("production server");
   await dialog.getByRole("button", { name: "Create key" }).click();
-  await expect(dialog.getByTestId("api-key-enclave-starting")).toContainText("The enclave is starting");
+  await expect(dialog.getByTestId("api-key-enclave-starting")).toContainText("Starting the secure enclave");
   await expect(dialog.getByTestId("api-key-steps").locator('[data-step="preparing"]')).toHaveAttribute("data-status", "active");
 
   const secret = dialog.getByTestId("api-key-secret");

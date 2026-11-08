@@ -23,9 +23,12 @@ info:
     Lines are joined with `\n`, no trailing newline. The timestamp must be within ±300 s of the
     enclave clock; each nonce is accepted once.
 
-    **Enclave start.** The confidential machine is stopped when idle. While it starts, the API
-    answers `503` with `code: enclave_starting` and a `Retry-After` header: wait and send a new
-    signed request (new timestamp and nonce). The official SDKs do this for you.
+    **Enclave start.** The confidential machine only runs while it is used and stops about one hour
+    after the last activity. The first call after a pause starts it and can take about 2 minutes
+    (up to 5 in rare cases): the API answers `503` with `code: enclave_starting` and a
+    `Retry-After` header; wait and send a new signed request (new timestamp and nonce). The
+    official SDKs retry automatically, up to 8 minutes of cumulative wait by default. An unknown
+    or revoked key, or an expired rental, never starts it.
 
     **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
     its models have no API access (a few calls would reconstruct them).

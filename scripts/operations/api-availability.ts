@@ -5,11 +5,12 @@ import { attestedRunnerFetch } from "../../src/lib/tee/ra-tls-client";
 import { phalaCvm, type CvmPower, type PhalaCvmIO } from "./phala-cvm";
 
 /**
- * Contrôleur de disponibilité de la CVM pour l'API développeurs (D-30), sur le VPS.
- * La CVM reste allumée tant qu'un prêt, une prolongation ou un pack est en cours (lock non échu ou
- * `release` diffusé), ou qu'une
- * location active porte au moins une clé API non révoquée ; elle est arrêtée après une période
- * sans aucun de ces cas. Aucun appel anonyme ne peut la démarrer : seul l'état en base compte.
+ * Contrôleur de disponibilité de la CVM runner (D-30), sur le VPS. La CVM reste allumée tant qu'un
+ * prêt, une prolongation ou un pack est en cours (lock non échu ou `release` diffusé), ou qu'un
+ * réveil demandé par Next est encore valable (`requestedUntil`, posé et rafraîchi par chaque action
+ * qui sert le runner) ; elle est arrêtée après `idleMs` (45 min par défaut) sans aucun de ces cas,
+ * soit environ une heure après la dernière activité. Une clé API seule ne la garde plus allumée
+ * (option 1 du 8 novembre 2026). Seul l'état en base compte.
  */
 
 export type AvailabilityPhase = "stopped" | "starting" | "running" | "stopping";
@@ -19,17 +20,14 @@ export type ObservedCvm = CvmPower | "unknown";
 export interface AvailabilityLoanRecord {
   id: string;
   status: string;
-  rentalExpiresAt: Date | null;
   /** Échéance du lock on-chain ; au-delà, sans `release` diffusé, seul `refund()` reste possible. */
   evmDeadline: Date | null;
   settleTxHash: string | null;
 }
-export interface AvailabilityApiKey { loanId: string; revokedAt: Date | null }
-/** Lecture en base d'un tour : prêts pertinents, clés actives, réveil demandé par un wallet authentifié. */
+/** Lecture en base d'un tour : prêts en cours et réveil demandé. */
 export interface AvailabilityRecords {
   loans: AvailabilityLoanRecord[];
-  apiKeys: AvailabilityApiKey[];
-  /** `RunnerAvailability.requestedUntil` : action wallet authentifiée (emprunteur, fournisseur qui publie), voir D-30. */
+  /** `RunnerAvailability.requestedUntil` : dernière activité servie par le runner + 15 min, voir D-30. */
   requestedUntil: Date | null;
 }
 
@@ -62,7 +60,7 @@ export interface AvailabilityDecision {
 
 export const IN_FLIGHT_LOAN_STATUSES = ["ESCROWED", "TRAINING", "SETTLING"] as const;
 export const DEFAULT_AVAILABILITY_OPTIONS: AvailabilityOptions = {
-  idleMs: 30 * 60_000,
+  idleMs: 45 * 60_000,
   alertMs: 10 * 60_000,
   commandRetryMs: 5 * 60_000,
 };
@@ -81,15 +79,11 @@ export function inFlightLoanNeeded(loan: AvailabilityLoanRecord, now: number): b
 
 /**
  * Besoin de la CVM : un prêt en cours (prolongations et packs compris, ce sont des prêts) au sens
- * d'`inFlightLoanNeeded`, un prêt SETTLED non expiré portant une clé non révoquée, ou un réveil
- * demandé par une action wallet authentifiée (`requestedUntil` dans le futur).
+ * d'`inFlightLoanNeeded`, ou un réveil encore valable (`requestedUntil` dans le futur).
  */
-export function availabilityNeeded({ loans, apiKeys, requestedUntil }: AvailabilityRecords, now: number): boolean {
+export function availabilityNeeded({ loans, requestedUntil }: AvailabilityRecords, now: number): boolean {
   if (requestedUntil !== null && requestedUntil.getTime() > now) return true;
-  if (loans.some((loan) => inFlightLoanNeeded(loan, now))) return true;
-  const keyed = new Set(apiKeys.filter((key) => key.revokedAt === null).map((key) => key.loanId));
-  return loans.some((loan) => loan.status === "SETTLED" && loan.rentalExpiresAt !== null
-    && loan.rentalExpiresAt.getTime() > now && keyed.has(loan.id));
+  return loans.some((loan) => inFlightLoanNeeded(loan, now));
 }
 
 /** Décision pure d'un tour : nouvelle mémoire, commande éventuelle et alerte. */
@@ -169,7 +163,7 @@ export function availabilityConfig(env: Readonly<Record<string, string | undefin
     return value;
   };
   return {
-    idleMs: integer("SIRIUS_API_AVAILABILITY_IDLE_MINUTES", 30, 5, 1440) * 60_000,
+    idleMs: integer("SIRIUS_API_AVAILABILITY_IDLE_MINUTES", 45, 5, 1440) * 60_000,
     pollMs: integer("SIRIUS_API_AVAILABILITY_POLL_SECONDS", 60, 10, 600) * 1000,
   };
 }
@@ -228,24 +222,18 @@ async function main() {
   const io: AvailabilityIO = {
     ...phala,
     records: async (now) => {
-      const loanFields = { id: true, status: true, rentalExpiresAt: true, evmDeadline: true, settleTxHash: true } as const;
-      const [inFlight, apiKeys, availability] = await Promise.all([
+      const [loans, availability] = await Promise.all([
         // Même règle qu'`inFlightLoanNeeded`, appliquée en base.
         prisma.loan.findMany({
           where: {
             status: { in: [...IN_FLIGHT_LOAN_STATUSES] },
             OR: [{ settleTxHash: { not: null } }, { evmDeadline: null }, { evmDeadline: { gt: now } }],
           },
-          select: loanFields, take: 1,
+          select: { id: true, status: true, evmDeadline: true, settleTxHash: true }, take: 1,
         }),
-        prisma.apiKey.findMany({ where: { revokedAt: null }, select: { loanId: true, revokedAt: true }, distinct: ["loanId"] }),
         prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { requestedUntil: true } }),
       ]);
-      const rented = apiKeys.length === 0 ? [] : await prisma.loan.findMany({
-        where: { id: { in: apiKeys.map((key) => key.loanId) }, status: "SETTLED", rentalExpiresAt: { gt: now } },
-        select: loanFields, take: 1,
-      });
-      return { loans: [...inFlight, ...rented], apiKeys, requestedUntil: availability?.requestedUntil ?? null };
+      return { loans, requestedUntil: availability?.requestedUntil ?? null };
     },
     health: async () => {
       const response = await attestedRunnerFetch(new URL("/health", runner), { method: "GET", timeoutMs: 15_000 });

@@ -544,9 +544,10 @@ test("prédiction publique : refus côté Next avant l'enclave (en-têtes, clé,
   assert.equal(expired.calls.runner.length, 0);
 });
 
-test("CVM pas encore allumée : 503 enclave_starting avec Retry-After, sans appel ni réveil anonyme", async () => {
+test("CVM pas encore allumée, clé valide d'une location en cours : réveil 15 min et 503 enclave_starting avec Retry-After, rien relayé", async () => {
   for (const [phase, status, retry] of [["starting", "starting", 60], ["stopped", "stopped", 120], ["stopping", "stopped", 120]] as const) {
     const sys = system({ phase, apiKeys: [activeKey()] });
+    const before = Date.now();
     for (const response of [await sys.api.predict(), await sys.api.info()]) {
       assert.equal(response.status, 503, phase);
       assert.equal(response.headers.get("retry-after"), String(retry), phase);
@@ -558,11 +559,66 @@ test("CVM pas encore allumée : 503 enclave_starting avec Retry-After, sans appe
       assert.equal(typeof body.message, "string");
     }
     assert.equal(sys.calls.runner.length, 0, phase);
-    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "un appel anonyme ne réveille jamais la CVM");
+    const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+    assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000, phase);
   }
-  // Allumée : relayée normalement.
+  // Allumée : relayée normalement, et l'activité garde la CVM voulue.
   const running = system({ phase: "running", apiKeys: [activeKey()] });
   assert.equal((await running.api.predict()).status, 200);
+  assert.ok(running.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date);
+});
+
+test("CVM éteinte : en-têtes invalides, clé inconnue, révoquée ou d'un autre prêt, location échue ne réveillent rien", async () => {
+  const REVOKED = "CCCCCCCCCCCCCCCCCCCCCC";
+  const sys = system({
+    phase: "stopped", loans: [origin(), origin({ id: "loan-2" })],
+    apiKeys: [activeKey({ id: OTHER_KEY_ID, loanId: "loan-2" }), activeKey({ id: REVOKED, revokedAt: new Date(1) })],
+  });
+  assert.equal((await sys.api.predict(undefined, { ...sys.signedHeaders(), "sirius-signature": "" })).status, 401, "en-têtes invalides");
+  assert.equal((await sys.api.predict(undefined, sys.signedHeaders())).status, 401, "clé inconnue");
+  assert.equal((await sys.api.predict(undefined, sys.signedHeaders(OTHER_KEY_ID))).status, 401, "clé d'un autre prêt");
+  assert.equal((await sys.api.info(sys.signedHeaders(REVOKED))).status, 401, "clé révoquée");
+  assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+
+  const expired = system({ phase: "stopped", loans: [origin({ rentalExpiresAt: new Date(Date.now() - 1) })], apiKeys: [activeKey()] });
+  assert.equal((await expired.api.predict()).status, 403);
+  assert.equal(expired.prisma.runnerAvailability.rows[0].requestedUntil, null, "location échue");
+  for (const sys2 of [sys, expired]) assert.equal(sys2.calls.runner.length, 0);
+});
+
+test("CVM allumée : l'activité repousse requestedUntil à +15 min, au plus une écriture par tranche de 5 min ; sans contrôleur, rien", async () => {
+  const NOW = new Date(Date.UTC(2026, 10, 8, 12));
+  const MIN = 60_000;
+  const harness = (rows: Row[]) => {
+    const runnerAvailability = table(rows);
+    let writes = 0;
+    const updateMany = runnerAvailability.updateMany;
+    runnerAvailability.updateMany = async (args) => { writes++; return updateMany(args); };
+    const db = { prisma: { runnerAvailability } };
+    const availability = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
+      "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
+    });
+    return { availability, rows, writes: () => writes };
+  };
+  const row = (requestedUntil: Date | null): Row => ({ id: 1, phase: "running", since: new Date(0), requestedUntil });
+  for (const [label, current] of [["aucun réveil", null], ["bientôt échu", new Date(NOW.getTime() + 9 * MIN)], ["échu", new Date(NOW.getTime() - MIN)]] as const) {
+    const sys = harness([row(current)]);
+    await sys.availability.requireRunnerOrWake(NOW);
+    assert.equal(sys.writes(), 1, label);
+    assert.equal((sys.rows[0].requestedUntil as Date).getTime(), NOW.getTime() + sys.availability.RUNNER_WAKE_MS, label);
+  }
+  // Encore frais (plus de 10 min devant lui) : aucune écriture, jamais raccourci.
+  for (const minutes of [11, 15, 30]) {
+    const fresh = new Date(NOW.getTime() + minutes * MIN);
+    const sys = harness([row(fresh)]);
+    await sys.availability.requireRunnerOrWake(NOW);
+    assert.equal(sys.writes(), 0, `${minutes} min`);
+    assert.equal(sys.rows[0].requestedUntil, fresh);
+  }
+  assert.equal(harness([row(null)]).availability.ACTIVITY_REFRESH_MS, 5 * MIN);
+  const none = harness([]);
+  await none.availability.requireRunnerOrWake(NOW);
+  assert.equal(none.writes(), 0, "sans ligne : aucun contrôleur, rien à écrire");
 });
 
 test("débit : 120 requêtes par minute et par clé, prédiction et description confondues", async () => {
@@ -708,7 +764,7 @@ test("devis d'emprunt : requête anonyme, invalide ou refusée ne réveille pas 
     const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
     assert.equal(response.status, 201, String(phase));
     assert.equal(sys.calls.lockRequests.length, 1);
-    if (phase) assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "CVM allumée : aucun réveil écrit");
+    if (phase) assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date, "CVM allumée : l'activité la garde voulue");
   }
 });
 
@@ -790,7 +846,7 @@ test("publication, CVM éteinte : réveil 15 min et 503 enclave_starting sans br
   assert.equal(draft.updatedAt, touched);
 });
 
-test("publication : requête anonyme, invalide ou sans KYB ne réveille pas la CVM ; CVM allumée : brouillon créé sans réveil", async () => {
+test("publication : requête anonyme, invalide ou sans KYB ne réveille pas la CVM ; CVM allumée : brouillon créé, activité enregistrée", async () => {
   const anonymous = publicationSystem("stopped");
   anonymous.session.address = "";
   assert.equal((await anonymous.publish(publicationBody)).status, 401);
@@ -809,7 +865,7 @@ test("publication : requête anonyme, invalide ou sans KYB ne réveille pas la C
     const sys = publicationSystem(phase);
     assert.equal((await sys.publish(publicationBody)).status, 201, String(phase));
     assert.equal(sys.prisma.dataset.rows.length, 1);
-    if (phase) assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "CVM allumée : aucun réveil écrit");
+    if (phase) assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date, "CVM allumée : l'activité la garde voulue");
   }
 });
 

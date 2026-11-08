@@ -4,17 +4,20 @@ import { prisma } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/errors";
 
 /**
- * Disponibilité de la CVM du runner pour l'API développeurs (D-30). Le contrôleur du VPS
+ * Disponibilité de la CVM du runner (D-30). Le contrôleur du VPS
  * (`scripts/operations/api-availability.ts`) tient la ligne `RunnerAvailability` (id = 1) : il
- * allume la CVM tant qu'un prêt est en cours, qu'une location active a une clé API, ou qu'un
- * réveil a été demandé (`requestedUntil`), et l'éteint après 30 minutes sans besoin.
+ * allume la CVM tant qu'un prêt est en cours ou qu'un réveil est encore valable (`requestedUntil`),
+ * et l'éteint après 45 minutes sans besoin. Chaque action servie par le runner repousse
+ * `requestedUntil` de 15 minutes : la CVM s'arrête environ une heure après la dernière activité
+ * (option 1 du 8 novembre 2026 ; une clé API seule ne la garde plus allumée).
  *
  * Sans ligne, aucun contrôleur ne gère la CVM sur ce déploiement (développement, staging sans
- * `SIRIUS_API_AVAILABILITY`) : le runner est réputé allumé, comme avant D-30. Les appels anonymes
- * de l'API publique ne réveillent jamais la CVM ; seules des actions wallet authentifiées, après
- * leurs contrôles d'accès et de validité, le peuvent (`requireRunnerOrWake`) : emprunteur d'un prêt
- * loué (clé API, prédiction, pack d'appels), fournisseur qui publie (brouillon, scellement, envoi en
- * morceaux) et emprunteur qui demande un devis (emprunt, prolongation, pack).
+ * `SIRIUS_API_AVAILABILITY`) : le runner est réputé allumé, comme avant D-30, et rien n'est écrit.
+ * Seules des requêtes qui ont passé leurs contrôles d'accès et de validité réveillent la CVM
+ * (`requireRunnerOrWake`) : emprunteur d'un prêt loué (clé API, prédiction, pack d'appels),
+ * fournisseur qui publie (brouillon, scellement, envoi en morceaux), emprunteur qui demande un devis
+ * (emprunt, prolongation, pack), et appel de l'API publique portant une clé existante, non révoquée,
+ * d'une location en cours (signature vérifiée ensuite par l'enclave seule, voir `public-api.ts`).
  */
 
 export type RunnerPhase = "stopped" | "starting" | "running" | "stopping";
@@ -23,6 +26,8 @@ const PHASES: readonly RunnerPhase[] = ["stopped", "starting", "running", "stopp
 
 /** Réveil demandé : la CVM reste voulue au moins ce temps, puis le besoin ordinaire reprend. */
 export const RUNNER_WAKE_MS = 15 * 60_000;
+/** CVM allumée : `requestedUntil` n'est réécrit que s'il lui reste moins que `RUNNER_WAKE_MS` moins ce délai. */
+export const ACTIVITY_REFRESH_MS = 5 * 60_000;
 
 /** Attente annoncée (`Retry-After`) : démarrage en cours ou CVM encore à allumer. */
 export const ENCLAVE_STARTING_RETRY_SECONDS = 60;
@@ -30,11 +35,14 @@ export const ENCLAVE_STOPPED_RETRY_SECONDS = 120;
 
 export const ENCLAVE_STARTING_CODE = "enclave_starting";
 
-export async function runnerPhase(): Promise<RunnerPhase> {
-  const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true } });
+function phaseOf(row: { phase: string } | null): RunnerPhase {
   if (!row) return "running";
   // Valeur inconnue (écriture d'une autre version) : prudence, rien n'est relayé.
   return PHASES.includes(row.phase as RunnerPhase) ? (row.phase as RunnerPhase) : "stopped";
+}
+
+export async function runnerPhase(): Promise<RunnerPhase> {
+  return phaseOf(await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true } }));
 }
 
 /** Réponse 503 d'une enclave pas encore prête : `starting` quand le démarrage est en cours. */
@@ -77,24 +85,25 @@ export function loanRouteErrorResponse(error: unknown): NextResponse {
   return NextResponse.json(body, { status: 503, headers });
 }
 
-/** API publique : refus sans réveil tant que la CVM n'est pas allumée. */
-export async function assertRunnerRunning(): Promise<void> {
-  const phase = await runnerPhase();
-  if (phase !== "running") throw new EnclaveStarting(phase);
-}
-
 /**
- * Action wallet authentifiée dont les contrôles d'accès et de validité sont déjà faits, avant toute
- * écriture : si la CVM n'est pas allumée, demande son réveil pour `RUNNER_WAKE_MS` (jamais
- * raccourci) et refuse en 503. Rejouable : rien d'autre n'est écrit.
+ * Requête dont les contrôles d'accès et de validité sont déjà faits, avant toute écriture. CVM
+ * allumée : l'activité la garde voulue `RUNNER_WAKE_MS` de plus, avec au plus une écriture par
+ * `ACTIVITY_REFRESH_MS`. CVM pas encore allumée : réveil demandé pour `RUNNER_WAKE_MS` (jamais
+ * raccourci) et refus en 503. Rejouable : rien d'autre n'est écrit. Sans ligne : aucun contrôleur,
+ * rien à écrire.
  */
 export async function requireRunnerOrWake(now = new Date()): Promise<void> {
-  const phase = await runnerPhase();
-  if (phase === "running") return;
+  const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true, requestedUntil: true } });
+  if (!row) return;
+  const phase = phaseOf(row);
   const until = new Date(now.getTime() + RUNNER_WAKE_MS);
-  await prisma.runnerAvailability.updateMany({
-    where: { id: 1, OR: [{ requestedUntil: null }, { requestedUntil: { lt: until } }] },
-    data: { requestedUntil: until },
-  });
-  throw new EnclaveStarting(phase);
+  // Allumée : seulement si le réveil en cours expire dans moins de `RUNNER_WAKE_MS - ACTIVITY_REFRESH_MS`.
+  const staleBefore = phase === "running" ? new Date(until.getTime() - ACTIVITY_REFRESH_MS) : until;
+  if (row.requestedUntil === null || row.requestedUntil < staleBefore) {
+    await prisma.runnerAvailability.updateMany({
+      where: { id: 1, OR: [{ requestedUntil: null }, { requestedUntil: { lt: staleBefore } }] },
+      data: { requestedUntil: until },
+    });
+  }
+  if (phase !== "running") throw new EnclaveStarting(phase);
 }

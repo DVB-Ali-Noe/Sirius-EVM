@@ -9,7 +9,7 @@ import type { Loan } from "@/generated/prisma/client";
 import { API_KEY_ID_PATTERN, type ApiModelInfo, type ApiPrediction, type ApiRemaining } from "@/lib/tee/contract";
 import { apiInfoInRunner, apiPredictInRunner } from "@/lib/tee/runner-client";
 import { recordApiUsage } from "./api-keys";
-import { assertRunnerRunning, EnclaveStarting, enclaveStartingBody } from "./availability";
+import { EnclaveStarting, enclaveStartingBody, requireRunnerOrWake } from "./availability";
 import { effectiveLoanFinalityTier } from "./finality-tier";
 import { assertSignedPrediction, modelFeaturesFromRunner, parsePredictionFeatures } from "./prediction";
 import { phalaDemoInstance } from "./self-training-access";
@@ -20,7 +20,8 @@ import { phalaDemoInstance } from "./self-training-access";
  * dans l'enclave : Next relaie la requête brute (chemin public, méthode, en-têtes, corps exact) au
  * runner, qui seul vérifie la signature, l'anti-rejeu, le quota et signe la prédiction. Next ne peut
  * donc fabriquer aucun appel ; il filtre seulement ce qui ne mérite pas un aller-retour (clé inconnue
- * ou révoquée, prêt non servi, débit, CVM éteinte) et revalide la réponse avant de la rendre.
+ * ou révoquée, prêt non servi, débit) et revalide la réponse avant de la rendre. CVM éteinte : un
+ * appel qui a passé ces filtres la réveille et reçoit `503 enclave_starting` avec `Retry-After`.
  * Erreurs : `{ error: { code, message } }`, `code` stable (celui du runner quand il en donne un).
  */
 
@@ -120,12 +121,18 @@ function expiryIso(value: unknown): string {
 /**
  * Contrôles communs, puis appel du runner. Les refus authentifiés (et les appels servis, par
  * l'appelant) alimentent le journal d'affichage de la clé ; une erreur de signature, jamais.
+ *
+ * Réveil (option 1 du 8 novembre 2026) : seulement après les en-têtes, le débit par clé et
+ * `servedLoan` (clé existante de ce prêt, non révoquée, location réglée et non échue). La signature
+ * HMAC ne se vérifie que dans l'enclave : borne acceptée, quiconque détient un `keyId` valide peut
+ * garder la CVM allumée pour cette location, comme le faisait D-30 avant cette option, et jamais
+ * au-delà de l'échéance de la location ni après la révocation de la clé.
  */
 async function relay<T>(req: Request, loanId: string, call: (loan: ServedLoan, headers: SignedHeaders) => Promise<T>) {
   const headers = signedHeaders(req);
   if (!apiLimiter.consume(`key:${headers.keyId}`)) throw new AppError("Trop de requêtes pour cette clé — réessaie dans une minute", 429, "rate_limited");
   const loan = await servedLoan(loanId, headers.keyId, Date.now());
-  await assertRunnerRunning();
+  await requireRunnerOrWake();
   try {
     return { loan, headers, result: await call(loan, headers) };
   } catch (error) {

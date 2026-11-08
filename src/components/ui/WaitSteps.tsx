@@ -43,14 +43,18 @@ export function formatWaitRemaining(seconds: number): { key: string; params: Rec
 export function WaitSteps({
   steps,
   title,
+  description,
   remainingSeconds,
   canClose,
   closeNote,
   testId,
+  progress,
 }: {
   steps: readonly WaitStep[];
   /** Titre déjà traduit. */
   title?: string;
+  /** Paragraphe d'explication sous le titre (déjà traduit). */
+  description?: string;
   /** Durée restante estimée, en secondes ; rien d'affiché si absente ou écoulée. */
   remainingSeconds?: number | null;
   /** `true` : « tu peux fermer la page » ; `false` : « garde la page ouverte » ; absent : rien. */
@@ -58,6 +62,8 @@ export function WaitSteps({
   /** Remplace la phrase par défaut sur la fermeture de la page (déjà traduite). */
   closeNote?: string;
   testId?: string;
+  /** Ligne d'avancement (déjà traduite), par exemple le temps d'attente écoulé ; hors région `aria-live`. */
+  progress?: string;
 }) {
   const { t } = useLocale();
   const remaining = remainingSeconds == null ? null : formatWaitRemaining(remainingSeconds);
@@ -75,6 +81,7 @@ export function WaitSteps({
       className="mt-4 rounded-lg border border-border bg-surface/40 p-3 text-xs leading-relaxed"
     >
       {title && <p className="mb-2 font-medium text-foreground">{title}</p>}
+      {description && <p className="mb-2 text-muted" data-testid={testId ? `${testId}-description` : undefined}>{description}</p>}
       <ol className="space-y-1.5" aria-live="polite">
         {steps.map((step) => (
           <li key={step.id} data-step={step.id} data-status={step.status} aria-current={step.status === "active" ? "step" : undefined} className="flex items-start gap-2">
@@ -88,6 +95,7 @@ export function WaitSteps({
         ))}
       </ol>
       {remaining && <p className="mt-2 text-muted" data-testid={testId ? `${testId}-remaining` : undefined}>{t(remaining.key, remaining.params)}</p>}
+      {progress && <p className="mt-2 tabular-nums text-muted" data-testid={testId ? `${testId}-progress` : undefined}>{progress}</p>}
       {note && <p className="mt-1 text-muted" data-testid={testId ? `${testId}-close-note` : undefined}>{note}</p>}
     </div>
   );

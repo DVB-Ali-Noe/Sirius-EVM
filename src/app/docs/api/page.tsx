@@ -65,11 +65,11 @@ const API_EN: Record<string, string> = {
   "Corps de plus de 16 Kio.": "Body larger than 16 KiB.",
   "Requête mal formée (corps non UTF-8, longueur incohérente).": "Malformed request (non UTF-8 body, inconsistent length).",
   "Enclave injoignable ou en erreur : réessaie plus tard.": "Enclave unreachable or failing: retry later.",
-  "Pour réduire ses coûts, Sirius arrête la machine confidentielle quand plus rien ne l’utilise depuis 30 minutes. Elle reste allumée tant qu’un emprunt actif a une clé API non révoquée. Un appel anonyme ne la démarre jamais.":
-    "To keep costs down, Sirius stops the confidential machine once nothing has used it for 30 minutes. It stays on while an active loan has a non-revoked API key. An anonymous call never starts it.",
-  "Pendant un démarrage (quelques minutes), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.":
-    "During a start (a few minutes), the API answers 503 with code enclave_starting and a Retry-After header in seconds. Wait that long, then send the request again with a new timestamp, a new nonce and a new signature: nothing was counted.",
-  "Les SDK le font pour toi, jusqu’à un délai maximal réglable (5 minutes par défaut).": "The SDKs do it for you, up to a configurable maximum wait (5 minutes by default).",
+  "Pour réduire ses coûts, Sirius n’allume la machine confidentielle que lorsqu’elle sert : elle s’arrête environ une heure après la dernière activité (appel API, prédiction ou paiement sur le site). Le premier appel après une pause la redémarre et peut prendre environ 2 minutes : il reçoit 503 enclave_starting avec Retry-After, et les SDK réessaient seuls. Une clé inconnue ou révoquée, ou une location échue, ne la démarre jamais.":
+    "To keep costs down, Sirius only runs the confidential machine while it is used: it stops about one hour after the last activity (API call, prediction or payment on the website). The first call after a pause starts it again and can take about 2 minutes: it gets 503 enclave_starting with Retry-After, and the SDKs retry on their own. An unknown or revoked key, or an expired rental, never starts it.",
+  "Pendant un démarrage (environ 2 minutes, jusqu’à 5 exceptionnellement), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.":
+    "During a start (about 2 minutes, up to 5 in rare cases), the API answers 503 with code enclave_starting and a Retry-After header in seconds. Wait that long, then send the request again with a new timestamp, a new nonce and a new signature: nothing was counted.",
+  "Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut).": "The SDKs do it for you, up to a configurable maximum wait (8 minutes by default).",
   "Chaque emprunt inclut un quota d’appels par jour (jour UTC), commun au site et à l’API : 50 pour la régression logistique, 100 pour les arbres boostés (valeurs de la politique de facturation en vigueur).":
     "Each loan includes a daily call quota (UTC day), shared by the website and the API: 50 for logistic regression, 100 for boosted trees (values from the current billing policy).",
   "Au-delà, achète des packs de 100, 1 000 ou 10 000 appels depuis la page Train. Ils sont cumulables, consommés après le quota du jour, expirent avec la location et ne sont pas remboursables.":
@@ -271,9 +271,9 @@ export default function ApiDocsPage() {
       </DocSection>
 
       <DocSection id="reessais" title={d("Délais et réessais")}>
-        <p>{d("Pour réduire ses coûts, Sirius arrête la machine confidentielle quand plus rien ne l’utilise depuis 30 minutes. Elle reste allumée tant qu’un emprunt actif a une clé API non révoquée. Un appel anonyme ne la démarre jamais.")}</p>
-        <p>{d("Pendant un démarrage (quelques minutes), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.")}</p>
-        <p>{d("Les SDK le font pour toi, jusqu’à un délai maximal réglable (5 minutes par défaut).")}</p>
+        <p>{d("Pour réduire ses coûts, Sirius n’allume la machine confidentielle que lorsqu’elle sert : elle s’arrête environ une heure après la dernière activité (appel API, prédiction ou paiement sur le site). Le premier appel après une pause la redémarre et peut prendre environ 2 minutes : il reçoit 503 enclave_starting avec Retry-After, et les SDK réessaient seuls. Une clé inconnue ou révoquée, ou une location échue, ne la démarre jamais.")}</p>
+        <p>{d("Pendant un démarrage (environ 2 minutes, jusqu’à 5 exceptionnellement), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.")}</p>
+        <p>{d("Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut).")}</p>
       </DocSection>
 
       <DocSection id="quotas" title={d("Quotas et packs")}>

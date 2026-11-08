@@ -161,13 +161,17 @@ function ApiPanelContent({
 
       {overview && (
         <>
-          {enclave === "starting" || (enclave === "stopped" && active.length > 0) ? (
+          {enclave === "starting" ? (
             <EnclaveStartingSteps
               phase={enclave}
               closeNote={t("Tu peux fermer cette page : tes appels reçoivent « 503 enclave_starting » avec un délai Retry-After, et le SDK réessaie seul.")}
             />
           ) : enclave === "stopped" ? (
-            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">{t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}</p>
+            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">
+              {active.length > 0
+                ? t("L’enclave est arrêtée faute d’usage. Le premier appel API la redémarre : il reçoit « 503 enclave_starting » avec un délai Retry-After (environ 2 min), et le SDK réessaie seul.")
+                : t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}
+            </p>
           ) : enclave === "stopping" ? (
             <p className="mt-2 text-xs text-muted" data-testid="enclave-stopping">{t("L’enclave s’arrête faute d’usage. Elle redémarrera à la prochaine demande.")}</p>
           ) : null}

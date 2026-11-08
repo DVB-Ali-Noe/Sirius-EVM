@@ -15,10 +15,10 @@ function memory(phase: AvailabilityPhase = "stopped", overrides: Partial<Availab
   return { phase, since: T0 - 60 * MINUTE, lastNeededAt: T0 - 60 * MINUTE, unreachableSince: null, lastAlertAt: null, lastCommand: null, ...overrides };
 }
 function state(overrides: Partial<AvailabilityState>): AvailabilityState {
-  return { memory: memory(), loans: [], apiKeys: [], requestedUntil: null, cvm: "stopped", healthy: false, ...overrides };
+  return { memory: memory(), loans: [], requestedUntil: null, cvm: "stopped", healthy: false, ...overrides };
 }
-const loan = (id: string, status: string, rentalExpiresAt: Date | null = null, overrides: Partial<AvailabilityLoanRecord> = {}): AvailabilityLoanRecord => (
-  { id, status, rentalExpiresAt, evmDeadline: null, settleTxHash: null, ...overrides }
+const loan = (id: string, status: string, overrides: Partial<AvailabilityLoanRecord> = {}): AvailabilityLoanRecord => (
+  { id, status, evmDeadline: null, settleTxHash: null, ...overrides }
 );
 
 test("un prêt, une prolongation ou un pack en cours démarre la CVM arrêtée", () => {
@@ -38,41 +38,27 @@ test("un prêt, une prolongation ou un pack en cours démarre la CVM arrêtée",
 
 test("lock échu sans release diffusé : abandonné, la CVM ne démarre pas ; lock non échu ou release diffusé : démarrage", () => {
   for (const status of ["ESCROWED", "TRAINING", "SETTLING"]) {
-    const abandoned = loan("abandon", status, null, { evmDeadline: past });
+    const abandoned = loan("abandon", status, { evmDeadline: past });
     assert.equal(availabilityDecision(state({ loans: [abandoned] }), T0).action, null, `${status} échu`);
-    assert.equal(availabilityDecision(state({ loans: [loan("p", status, null, { evmDeadline: future })] }), T0).action, "start", `${status} avant échéance`);
+    assert.equal(availabilityDecision(state({ loans: [loan("p", status, { evmDeadline: future })] }), T0).action, "start", `${status} avant échéance`);
     assert.equal(availabilityDecision(state({ loans: [{ ...abandoned, settleTxHash: `0x${"55".repeat(32)}` }] }), T0).action, "start", `${status} release diffusé`);
   }
   // Échéance pile maintenant : échue.
-  assert.equal(availabilityDecision(state({ loans: [loan("p", "ESCROWED", null, { evmDeadline: new Date(T0) })] }), T0).action, null);
+  assert.equal(availabilityDecision(state({ loans: [loan("p", "ESCROWED", { evmDeadline: new Date(T0) })] }), T0).action, null);
 });
 
-test("une location réglée non expirée avec une clé active démarre la CVM", () => {
-  const decision = availabilityDecision(state({
-    loans: [loan("loc", "SETTLED", future)], apiKeys: [{ loanId: "loc", revokedAt: null }, { loanId: "loc", revokedAt: past }],
-  }), T0);
-  assert.equal(decision.needed, true);
-  assert.equal(decision.action, "start");
+test("option 1 : une location réglée, même portant une clé active, ne démarre ni ne retient la CVM", () => {
+  const rented = { loans: [loan("loc", "SETTLED")] };
+  const cold = availabilityDecision(state(rented), T0);
+  assert.equal(cold.needed, false);
+  assert.equal(cold.action, null);
+  assert.equal(cold.memory.phase, "stopped");
+  // Allumée sans autre besoin depuis le délai d'inactivité : arrêt, la location n'y change rien.
+  const idle = availabilityDecision(state({ ...rented, memory: memory("running", { lastNeededAt: T0 - 45 * MINUTE }), cvm: "running", healthy: true }), T0);
+  assert.equal(idle.action, "stop");
 });
 
-test("location expirée, sans échéance, clé révoquée seule ou clé d'un autre prêt : aucun démarrage", () => {
-  const cases: Array<Pick<AvailabilityState, "loans" | "apiKeys">> = [
-    { loans: [loan("loc", "SETTLED", past)], apiKeys: [{ loanId: "loc", revokedAt: null }] },
-    { loans: [loan("loc", "SETTLED", new Date(T0))], apiKeys: [{ loanId: "loc", revokedAt: null }] },
-    { loans: [loan("loc", "SETTLED", null)], apiKeys: [{ loanId: "loc", revokedAt: null }] },
-    { loans: [loan("loc", "SETTLED", future)], apiKeys: [{ loanId: "loc", revokedAt: past }] },
-    { loans: [loan("loc", "SETTLED", future)], apiKeys: [{ loanId: "autre", revokedAt: null }] },
-    { loans: [loan("loc", "SETTLED", future)], apiKeys: [] },
-  ];
-  for (const [index, records] of cases.entries()) {
-    const decision = availabilityDecision(state(records), T0);
-    assert.equal(decision.needed, false, `cas ${index}`);
-    assert.equal(decision.action, null, `cas ${index}`);
-    assert.equal(decision.memory.phase, "stopped", `cas ${index}`);
-  }
-});
-
-test("un réveil demandé par un emprunteur démarre la CVM jusqu'à son échéance seulement", () => {
+test("un réveil demandé démarre la CVM jusqu'à son échéance seulement", () => {
   const decision = availabilityDecision(state({ requestedUntil: new Date(T0 + 15 * MINUTE) }), T0);
   assert.equal(decision.needed, true);
   assert.equal(decision.action, "start");
@@ -81,32 +67,45 @@ test("un réveil demandé par un emprunteur démarre la CVM jusqu'à son échéa
   }
 });
 
-test("arrêt seulement après 30 minutes sans besoin, puis stopping → stopped", () => {
+test("arrêt seulement après 45 minutes sans besoin, puis stopping → stopped", () => {
   const busy = { loans: [loan("p", "TRAINING")] };
   let current = availabilityDecision(state({ ...busy, memory: memory("running"), cvm: "running", healthy: true }), T0).memory;
   assert.equal(current.lastNeededAt, T0);
-  for (const minutes of [1, 15, 29]) {
+  for (const minutes of [1, 15, 30, 44]) {
     const decision = availabilityDecision(state({ memory: current, cvm: "running", healthy: true }), T0 + minutes * MINUTE);
     assert.equal(decision.action, null, `${minutes} min`);
     assert.equal(decision.memory.phase, "running");
     current = decision.memory;
   }
   // Un besoin qui réapparaît remet le compteur à zéro.
-  current = availabilityDecision(state({ ...busy, memory: current, cvm: "running", healthy: true }), T0 + 29 * MINUTE).memory;
-  assert.equal(availabilityDecision(state({ memory: current, cvm: "running", healthy: true }), T0 + 58 * MINUTE).action, null);
-  const stop = availabilityDecision(state({ memory: current, cvm: "running", healthy: true }), T0 + 59 * MINUTE);
+  current = availabilityDecision(state({ ...busy, memory: current, cvm: "running", healthy: true }), T0 + 44 * MINUTE).memory;
+  assert.equal(availabilityDecision(state({ memory: current, cvm: "running", healthy: true }), T0 + 88 * MINUTE).action, null);
+  const stop = availabilityDecision(state({ memory: current, cvm: "running", healthy: true }), T0 + 89 * MINUTE);
   assert.equal(stop.action, "stop");
   assert.equal(stop.memory.phase, "stopping");
   // La CVM s'arrête encore : pas de seconde commande immédiate.
-  const pending = availabilityDecision(state({ memory: stop.memory, cvm: "running", healthy: true }), T0 + 60 * MINUTE);
+  const pending = availabilityDecision(state({ memory: stop.memory, cvm: "running", healthy: true }), T0 + 90 * MINUTE);
   assert.equal(pending.action, null);
   assert.equal(pending.memory.phase, "stopping");
-  const transitioning = availabilityDecision(state({ memory: pending.memory, cvm: "transitioning" }), T0 + 61 * MINUTE);
+  const transitioning = availabilityDecision(state({ memory: pending.memory, cvm: "transitioning" }), T0 + 91 * MINUTE);
   assert.equal(transitioning.memory.phase, "stopping");
-  const stopped = availabilityDecision(state({ memory: transitioning.memory, cvm: "stopped" }), T0 + 62 * MINUTE);
+  const stopped = availabilityDecision(state({ memory: transitioning.memory, cvm: "stopped" }), T0 + 92 * MINUTE);
   assert.equal(stopped.memory.phase, "stopped");
   assert.equal(stopped.action, null);
-  assert.equal(stopped.memory.since, T0 + 62 * MINUTE);
+  assert.equal(stopped.memory.since, T0 + 92 * MINUTE);
+});
+
+test("dernière activité à T0 (réveil jusqu'à T0 + 15 min) : arrêt environ une heure après, pas avant", () => {
+  const requestedUntil = new Date(T0 + 15 * MINUTE);
+  let current = memory("running", { lastNeededAt: T0 });
+  let stoppedAt: number | null = null;
+  for (let minute = 0; minute <= 70 && stoppedAt === null; minute++) {
+    const decision = availabilityDecision(state({ requestedUntil, memory: current, cvm: "running", healthy: true }), T0 + minute * MINUTE);
+    if (decision.action === "stop") stoppedAt = minute;
+    current = decision.memory;
+  }
+  // Dernier tour avec besoin à T0 + 14 min, puis 45 min d'inactivité.
+  assert.equal(stoppedAt, 59);
 });
 
 test("starting → running seulement quand /health répond, sans redemander le démarrage", () => {
@@ -162,9 +161,9 @@ test("refus sur l'instance démo, désactivé par défaut, bornes de configurati
   assert.throws(() => availabilityConfig({}), /SIRIUS_API_AVAILABILITY/);
   assert.throws(() => availabilityConfig({ SIRIUS_API_AVAILABILITY: "1" }), /SIRIUS_API_AVAILABILITY/);
   assert.throws(() => availabilityConfig({ SIRIUS_API_AVAILABILITY: "true", PHALA_DEMO_CVM_ID: "demo", SIRIUS_API_PHALA_CVM_ID: "demo" }), /démonstration/);
-  assert.deepEqual(availabilityConfig({ SIRIUS_API_AVAILABILITY: "true" }), { idleMs: 30 * MINUTE, pollMs: 60_000 });
-  assert.deepEqual(availabilityConfig({ SIRIUS_API_AVAILABILITY: "true", SIRIUS_API_AVAILABILITY_IDLE_MINUTES: "45", SIRIUS_API_AVAILABILITY_POLL_SECONDS: "30" }),
-    { idleMs: 45 * MINUTE, pollMs: 30_000 });
+  assert.deepEqual(availabilityConfig({ SIRIUS_API_AVAILABILITY: "true" }), { idleMs: 45 * MINUTE, pollMs: 60_000 });
+  assert.deepEqual(availabilityConfig({ SIRIUS_API_AVAILABILITY: "true", SIRIUS_API_AVAILABILITY_IDLE_MINUTES: "60", SIRIUS_API_AVAILABILITY_POLL_SECONDS: "30" }),
+    { idleMs: 60 * MINUTE, pollMs: 30_000 });
   for (const value of ["0", "4", "1441", "1.5", "abc"]) {
     assert.throws(() => availabilityConfig({ SIRIUS_API_AVAILABILITY: "true", SIRIUS_API_AVAILABILITY_IDLE_MINUTES: value }), /IDLE_MINUTES/);
   }
@@ -175,7 +174,7 @@ test("un tour publie la phase, ne vérifie la santé que CVM allumée, et réess
   const io: AvailabilityIO = {
     records: async () => {
       if (world.dbDown) throw new Error("base");
-      return { loans: [loan("p", "ESCROWED")], apiKeys: [], requestedUntil: null };
+      return { loans: [loan("p", "ESCROWED")], requestedUntil: null };
     },
     getCvm: async () => world.power,
     startCvm: async () => { world.starts++; if (world.failStart) throw new Error("phala"); world.power = "running"; },
