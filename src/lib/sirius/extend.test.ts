@@ -112,7 +112,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
   const chain = options.chain ?? { state: "active" as const };
   const extend = load<typeof Extend>("src/lib/sirius/extend.ts", {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses,
-    "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain },
+    "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain, releasedTxHashAnyDepth: async () => null },
     // Palier : finalité complète ici (garde de profondeur passée) ; le palier rapide est couvert par developer-api.test.ts.
     "./release-tier": { releaseFinalityTier: async () => "FULL" },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },
@@ -326,4 +326,24 @@ test("API incluse (D-32) : l'échéance relue du bloc de release reflète aussi 
   const plain = fixture([original({ rentalExpiresAt: null, apiPaidUntil: null, billingQuote: quote(false) })]);
   await plain.rental.loanRentalExpiry(plain.loans.get("loan-1") as never);
   assert.equal(plain.loans.get("loan-1")!.apiPaidUntil, null);
+});
+
+test("prolongation réglée on-chain sans réponse : reste SETTLING avec le hash, terminée même modèle d'origine supprimé depuis", async () => {
+  let lost = true;
+  const expiresAt = Date.now() + 6 * DAY;
+  const context = fixture([original(), extension()], {
+    chain: { state: "settled", txHash: EXTENSION_TX },
+    runner: async () => {
+      if (lost) { lost = false; throw new AppError("Runner confidentiel indisponible", 503); }
+      return { settleTxHash: EXTENSION_TX, expiresAt };
+    },
+  });
+  await assert.rejects(context.extend.settleLoanExtension("loan-2"));
+  const row = context.loans.get("loan-2")!;
+  assert.equal(row.status, "SETTLING");
+  assert.equal(row.settleTxHash, EXTENSION_TX);
+  context.loans.get("loan-1")!.rentalExpiresAt = new Date(Date.now() - 31 * DAY);
+  const result = await context.extend.settleLoanExtension("loan-2");
+  assert.equal(result.rentalExpiresAt, new Date(expiresAt).toISOString());
+  assert.equal(row.status, "SETTLED");
 });

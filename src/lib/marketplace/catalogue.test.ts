@@ -102,9 +102,13 @@ test("catalogue : lecture bornée des seuls datasets en ligne, avec la liste bla
   assert.equal(result.total, 3);
   assert.equal(result.truncated, false);
   assertNoPrivateData(result);
-  // Les statistiques de prêts ne portent que sur les datasets affichables.
+  // Les statistiques de prêts ne portent que sur les datasets affichables, et sur les seuls
+  // emprunts : ni prolongation, ni pack, ni pass (un pass caduc remboursé n'est pas un échec).
+  assert.equal(calls.groupBy.length, 3);
   for (const call of calls.groupBy) {
     assert.deepEqual((call.where.datasetId as { in: string[] }).in.sort(), ["future", "listed", "unknown-kyb"]);
+    assert.equal(call.where.extendsLoanId, null);
+    assert.equal(call.where.packForLoanId, null);
   }
 });
 

@@ -65,20 +65,22 @@ export function isRentalModelDeleted(expiresAt: Date, now: number): boolean {
 /**
  * Prêt d'origine prolongeable par `borrower` : prêt ordinaire réglé (release confirmé, hors revue
  * de finalité), à durée signée, dont le modèle scellé n'est pas encore supprimé. Contrôlé avant
- * toute préparation de lock, pour qu'aucun paiement ne vise une location close.
+ * toute préparation de lock, pour qu'aucun paiement ne vise une location close. `released` :
+ * release de la prolongation déjà diffusé (SETTLING avec hash) ; l'argent a bougé, seuls le compte
+ * et la nature du prêt d'origine sont contrôlés, pour que la reprise termine le report d'échéance.
  */
-export async function assertExtendableLoan(loanId: string, borrower: string, now = Date.now()) {
+export async function assertExtendableLoan(loanId: string, borrower: string, options: { now?: number; released?: boolean } = {}) {
   const loan = await prisma.loan.findUnique({ where: { id: loanId } });
   if (!loan) throw new AppError("Loan introuvable", 404);
   if (!addressesEqual(loan.borrower, borrower)) throw new AppError("Accès refusé : emprunt d’un autre compte", 403);
   if (loan.extendsLoanId) throw new AppError("Une prolongation ne se prolonge pas : prolonge le prêt d’origine", 409);
   if (loan.packForLoanId) throw new AppError("Un pack d’appels ne se prolonge pas : prolonge le prêt d’origine", 409);
   if (typeof loan.rentalDays !== "number") throw new AppError("Prêt sans durée de location : rien à prolonger", 409);
-  if (loan.status !== "SETTLED" || loan.finalityReview || !loan.settleTxHash || !loan.runnerReceipt) {
+  if (loan.status !== "SETTLED" || (loan.finalityReview && !options.released) || !loan.settleTxHash || !loan.runnerReceipt) {
     throw new AppError("Règlement du prêt non confirmé", 409);
   }
   const expiresAt = await loanRentalExpiry(loan);
   if (!expiresAt) throw new AppError("Échéance de location inconnue", 409);
-  if (isRentalModelDeleted(expiresAt, now)) throw new AppError(RENTAL_MODEL_DELETED, 409);
+  if (!options.released && isRentalModelDeleted(expiresAt, options.now ?? Date.now())) throw new AppError(RENTAL_MODEL_DELETED, 409);
   return { ...loan, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash, rentalExpiresAt: expiresAt };
 }

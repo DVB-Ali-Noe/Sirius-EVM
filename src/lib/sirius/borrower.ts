@@ -52,10 +52,13 @@ async function assertLoanAdmission(
 ) {
   const [pending, recentRuns] = await Promise.all([
     db.loan.count({ where: { borrower, status: { in: ["PENDING", "SUBMITTING"] } } }),
+    // Emprunts seulement : prolongation, pack et pass sont des achats sur un prêt déjà loué.
     db.loan.count({
       where: {
         borrower,
         datasetId,
+        extendsLoanId: null,
+        packForLoanId: null,
         status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] },
         createdAt: { gte: new Date(Date.now() - RATE_WINDOW_MS) },
       },
@@ -67,10 +70,13 @@ async function assertLoanAdmission(
 
 /**
  * Un seul pass d'accès API à la fois par prêt (D-32), hors passes refusés pour toujours. En
- * paiement : verrouillé ou en cours de règlement. En préparation : PENDING, ou remplacé
- * (CANCELLED sans remboursement), tant que son autorisation de lock peut encore servir
- * (`PENDING_REAPER_TTL_MS`) : deux onglets ne verrouillent pas deux passes sur la même base. Lu
- * avant le réveil de la CVM, puis dans la transaction de création, où il fait foi.
+ * paiement : verrouillé ou en cours de règlement, ou lock soumis sans issue connue (PENDING, ou
+ * CANCELLED sans remboursement) ; un CANCELLED dont le lock ne peut plus aboutir (autorisation
+ * expirée, `PENDING_REAPER_TTL_MS`, ou lock revert) ne compte plus, sinon il bloquerait tout pass
+ * pour toujours. En préparation : PENDING, ou remplacé (CANCELLED sans remboursement), tant que
+ * son autorisation de lock peut encore servir (`PENDING_REAPER_TTL_MS`) : deux onglets ne
+ * verrouillent pas deux passes sur la même base. Lu avant le réveil de la CVM, puis dans la
+ * transaction de création, où il fait foi.
  */
 export async function assertNoApiAccessPassInFlight(
   db: { loan: { count(args: { where: Prisma.LoanWhereInput }): Promise<number> } },
@@ -78,12 +84,14 @@ export async function assertNoApiAccessPassInFlight(
   now = Date.now(),
 ) {
   const pass = { packForLoanId: originalLoanId, apiAccessDays: { not: null }, apiAccessRefusedAt: null } satisfies Prisma.LoanWhereInput;
+  const lockAuthorizationLive = { createdAt: { gte: new Date(now - PENDING_REAPER_TTL_MS) } } satisfies Prisma.LoanWhereInput;
   const [paying, preparing] = await Promise.all([
     db.loan.count({ where: { ...pass, OR: [
-      { status: { in: ["SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } }, { status: { in: ["PENDING", "CANCELLED"] }, evmLockTxHash: { not: null }, cancelTxHash: null },
+      { status: { in: ["SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } },
+      { status: "PENDING", evmLockTxHash: { not: null }, cancelTxHash: null },
+      { status: "CANCELLED", evmLockTxHash: { not: null }, cancelTxHash: null, ...lockAuthorizationLive },
     ] } }),
-    db.loan.count({ where: { ...pass, status: { in: ["PENDING", "CANCELLED"] }, evmLockTxHash: null, cancelTxHash: null,
-      createdAt: { gte: new Date(now - PENDING_REAPER_TTL_MS) } } }),
+    db.loan.count({ where: { ...pass, status: { in: ["PENDING", "CANCELLED"] }, evmLockTxHash: null, cancelTxHash: null, ...lockAuthorizationLive } }),
   ]);
   if (paying > 0) throw new AppError(API_ACCESS_IN_FLIGHT, 409, "api_access_pending");
   if (preparing > 0) throw new AppError(API_ACCESS_PREPARING, 409, "api_access_pending");
