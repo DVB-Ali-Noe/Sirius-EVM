@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { readBody } from "@/lib/http/body";
-import { FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { clientNetworkKey, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
 import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 import type { Loan } from "@/generated/prisma/client";
 import { API_KEY_ID_PATTERN, type ApiModelInfo, type ApiPrediction, type ApiRemaining } from "@/lib/tee/contract";
@@ -33,19 +33,84 @@ const SIGNATURE = /^[0-9a-f]{64}$/;
 const TIMESTAMP = /^[0-9]{1,12}$/;
 const LOAN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** 120 requêtes par minute et par clé, prédiction et description confondues. */
-const apiLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 120, maxGlobal: 6_000, maxTrackedKeys: 4_096 });
+/**
+ * Débit (audit A, F1 et F2, puis revue de la PR #157), par instance. Chaque requête aboutit dans une
+ * seule des trois classes suivantes :
+ * - fenêtre de la clé (`keyLimiter`, 120 par minute et par clé connue, 6 000 pour l'instance) :
+ *   réponses de l'enclave après authentification (servies, ou refusées : quota, variables…, et
+ *   toute réponse sans code), et refus de Next qui tiennent à l'état d'une clé valide (location
+ *   échue, accès API non payé, modèle indisponible). Une clé inconnue n'y entre jamais ;
+ * - trafic invalide (`failureLimiter`) : en-têtes ou corps invalides, clé inconnue ou révoquée,
+ *   signature, horodatage ou nonce refusés par l'enclave. 60 par minute par réseau client
+ *   (`requestClientKey`, IPv6 groupée par /64) : au-delà, ce réseau est refusé avant toute lecture
+ *   en base, même avec une clé valide (il envoie lui-même du trafic invalide). Plafond fini pour
+ *   l'instance (3 000 par minute), et seau commun `overflow` au-delà de 4 096 réseaux suivis : quand
+ *   l'un des deux est plein (adresses tournantes), seules passent les clés que l'enclave a
+ *   authentifiées depuis moins de 10 minutes sur cette instance (`authenticatedKeys`) ;
+ * - rien : attente de démarrage (`enclave_starting`), runner saturé (`runner_busy`) et débit par
+ *   modèle de l'enclave (`rate_limited`). Ces réponses ne disent rien de la requête : elles ne
+ *   bloquent jamais les requêtes d'une clé valide.
+ * Un `keyId` seul, sans le secret, ne consomme donc ni la fenêtre de sa clé dans Next ni le budget
+ * de l'IP de son détenteur ; il peut encore remplir la fenêtre par modèle de l'enclave
+ * (`free-ops-guard.ts`, comptée avant la signature : suite runner ouverte). Ces compteurs sont en
+ * mémoire, par instance : la borne réelle d'un afflux distribué reste la limite de l'ingress
+ * (`SIRIUS_INGRESS_RATE_LIMITED`). Sans adresse transmise (`SIRIUS_TRUST_PROXY_HEADERS`), seul le
+ * plafond d'instance s'applique au trafic invalide.
+ */
+const keyLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 120, maxGlobal: 6_000, maxTrackedKeys: 4_096 });
+const failureLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 60, maxGlobal: 3_000, maxTrackedKeys: 4_096 });
+
+/** Clés authentifiées par l'enclave (servies ou refusées après la signature), 10 min, 4 096 au plus. */
+const AUTHENTICATED_KEY_TTL_MS = 10 * 60_000;
+const authenticatedKeys = new Map<string, number>();
+
+/**
+ * Identifiants absents de la base, gardés 30 s (4 096 au plus, les plus anciens oubliés d'abord) :
+ * un même identifiant répété ne relit pas la base. Sans effet sur une clé réelle : son identifiant
+ * est tiré dans le navigateur et sa ligne écrite avant le scellement, donc avant tout appel.
+ */
+const UNKNOWN_KEY_TTL_MS = 30_000;
+const KEY_CACHE_MAX = 4_096;
+const unknownKeys = new Map<string, number>();
+
+/** Garde `key` jusqu'à `until` dans un cache borné, la plus ancienne entrée oubliée d'abord. */
+function remember(cache: Map<string, number>, key: string, until: number): void {
+  cache.delete(key);
+  if (cache.size >= KEY_CACHE_MAX) cache.delete(cache.keys().next().value!);
+  cache.set(key, until);
+}
 
 /** Refus après authentification par l'enclave : comptés dans le journal d'affichage de la clé. */
 const AUTHENTICATED_REFUSALS: Record<string, true> = {
   quota_exceeded: true, invalid_features: true, rental_expired: true, api_not_available_for_profile: true, api_access_required: true,
 };
 
+/** Réponses de l'enclave à une requête invalide, décidées sans le secret : trafic invalide. */
+const INVALID_REQUEST_RUNNER_CODES: Record<string, true> = {
+  invalid_signature: true, request_expired: true, replayed_request: true, unknown_key: true, key_revoked: true,
+};
+
+/** Réponses de l'enclave qui ne disent rien de la requête : décomptées nulle part. */
+const NEUTRAL_RUNNER_CODES: Record<string, true> = { rate_limited: true, runner_busy: true };
+
+/**
+ * Textes sans code du runner, traduits en codes stables : saturation (`free-ops-guard.ts`,
+ * `server.ts`, 503 réessayable) et sortie numérique instable (`signPrediction`, 422).
+ */
+const RUNNER_MESSAGE_CODES: Record<string, { status: number; code: string }> = {
+  "Runner saturé": { status: 503, code: "runner_busy" },
+  "Prédiction numérique instable": { status: 422, code: "prediction_unstable" },
+};
+
 const STATUS_CODES: Record<number, string> = {
   400: "invalid_request", 401: "unauthorized", 403: "forbidden", 404: "not_found", 408: "request_timeout",
-  409: "conflict", 411: "invalid_request", 413: "payload_too_large", 415: "unsupported_media_type", 429: "rate_limited",
-  502: "runner_error", 503: "runner_unavailable",
+  409: "conflict", 411: "invalid_request", 413: "payload_too_large", 415: "unsupported_media_type",
+  429: "rate_limited", 502: "runner_error", 503: "runner_unavailable",
 };
+
+/** `Retry-After` des refus réessayables : débit (fenêtre d'une minute) et runner saturé. */
+const RETRY_AFTER: Record<string, string> = { rate_limited: "60", runner_busy: "1" };
+const RATE_LIMITED = "Trop de requêtes — réessaie dans une minute";
 
 const noStore = { "cache-control": "no-store" };
 
@@ -56,7 +121,8 @@ export function apiErrorResponse(error: unknown): NextResponse {
   }
   if (error instanceof AppError) {
     const code = error.code ?? STATUS_CODES[error.status] ?? (error.status >= 500 ? "runner_error" : "invalid_request");
-    const headers: Record<string, string> = { ...noStore, ...(error.status === 429 && code === "rate_limited" ? { "retry-after": "60" } : {}) };
+    const retryAfter = error.status === 429 || error.status === 503 ? RETRY_AFTER[code] : undefined;
+    const headers: Record<string, string> = { ...noStore, ...(retryAfter ? { "retry-after": retryAfter } : {}) };
     return NextResponse.json({ error: { code, message: error.message } }, { status: error.status, headers });
   }
   console.error(`[api] erreur interne (${error instanceof Error ? error.name : typeof error})`);
@@ -84,15 +150,26 @@ function signedHeaders(req: Request): SignedHeaders {
 type ServedLoan = Loan & { runnerReceipt: string; settleTxHash: string; model: ModelSelection };
 
 /**
- * Prêt servi par l'API pour la clé `keyId` : clé connue de ce prêt et non révoquée, prêt d'origine
- * réglé, location non échue d'après l'échéance enregistrée, puis pass d'accès API couvrant `now`
- * (D-32) : une clé sans journée payée ne réveille jamais l'enclave. L'enclave refait tous ces contrôles.
+ * Clé connue de ce prêt et non révoquée, avec cache négatif : un identifiant absent de la base n'y
+ * est relu qu'après 30 s. Tout refus ici relève du trafic invalide.
  */
-async function servedLoan(loanId: string, keyId: string, now: number): Promise<ServedLoan> {
+async function assertServedKey(loanId: string, keyId: string, now: number): Promise<void> {
   if (phalaDemoInstance() || !LOAN_ID.test(loanId)) throw new AppError("Modèle introuvable", 404, "not_found");
-  const key = await prisma.apiKey.findUnique({ where: { id: keyId }, select: { loanId: true, revokedAt: true } });
+  const unknownUntil = unknownKeys.get(keyId);
+  const key = unknownUntil !== undefined && unknownUntil > now
+    ? null : await prisma.apiKey.findUnique({ where: { id: keyId }, select: { loanId: true, revokedAt: true } });
+  if (!key) remember(unknownKeys, keyId, now + UNKNOWN_KEY_TTL_MS);
+  else unknownKeys.delete(keyId);
   if (!key || key.loanId !== loanId) throw new AppError("Clé API inconnue", 401, "unknown_key");
   if (key.revokedAt) throw new AppError("Clé API révoquée", 401, "key_revoked");
+}
+
+/**
+ * Prêt servi par l'API pour une clé valide (`assertServedKey`) : prêt d'origine réglé, location non
+ * échue d'après l'échéance enregistrée, puis pass d'accès API couvrant `now` (D-32) : une clé sans
+ * journée payée ne réveille jamais l'enclave. L'enclave refait tous ces contrôles.
+ */
+async function servedLoan(loanId: string, now: number): Promise<ServedLoan> {
   const loan = await prisma.loan.findUnique({ where: { id: loanId } });
   if (!loan || loan.extendsLoanId || loan.packForLoanId) throw new AppError("Modèle introuvable", 404, "not_found");
   const model = modelSelection(loan.modelId, loan.modelVersion);
@@ -121,25 +198,69 @@ function expiryIso(value: unknown): string {
 }
 
 /**
- * Contrôles communs, puis appel du runner. Les refus authentifiés (et les appels servis, par
- * l'appelant) alimentent le journal d'affichage de la clé ; une erreur de signature, jamais.
+ * Contrôles communs, préparation de la requête (corps lu et validé), puis appel du runner. Les refus
+ * renvoyés par l'enclave après authentification (et les appels servis, par l'appelant) alimentent le
+ * journal d'affichage de la clé ; un refus de Next (en-têtes, clé, prêt, corps) ou de signature, jamais.
  *
- * Réveil (option 1 du 8 novembre 2026) : seulement après les en-têtes, le débit par clé et
- * `servedLoan` (clé existante de ce prêt, non révoquée, location réglée et non échue). La signature
- * HMAC ne se vérifie que dans l'enclave : borne acceptée, quiconque détient un `keyId` valide peut
- * garder la CVM allumée pour cette location, comme le faisait D-30 avant cette option, et jamais
- * au-delà de l'échéance de la location ni après la révocation de la clé.
+ * Réveil (option 1 du 8 novembre 2026) : seulement après les en-têtes, le débit, la clé (existante
+ * de ce prêt, non révoquée), `servedLoan` (location réglée et non échue) et la validation du corps.
+ * La signature HMAC ne se vérifie que dans l'enclave : borne acceptée, quiconque détient un `keyId`
+ * valide peut garder la CVM allumée pour cette location, comme le faisait D-30 avant cette option,
+ * et jamais au-delà de l'échéance de la location ni après la révocation de la clé.
+ *
+ * Débit : voir `keyLimiter` et `failureLimiter`. Les fenêtres sont vérifiées avant toute lecture en
+ * base et décomptées une fois l'aboutissement connu (`charge`).
  */
-async function relay<T>(req: Request, loanId: string, call: (loan: ServedLoan, headers: SignedHeaders) => Promise<T>) {
-  const headers = signedHeaders(req);
-  if (!apiLimiter.consume(`key:${headers.keyId}`)) throw new AppError("Trop de requêtes pour cette clé — réessaie dans une minute", 429, "rate_limited");
-  const loan = await servedLoan(loanId, headers.keyId, Date.now());
-  await requireRunnerOrWake();
+async function relay<P, T>(
+  req: Request,
+  loanId: string,
+  prepare: () => Promise<P>,
+  call: (loan: ServedLoan, headers: SignedHeaders, prepared: P) => Promise<T>,
+) {
+  const now = Date.now();
+  const ip = requestClientKey(req);
+  const client = ip === null ? null : clientNetworkKey(ip);
+  let charge: "key" | "invalid" | "none" = "invalid";
+  let keyId = "";
   try {
-    return { loan, headers, result: await call(loan, headers) };
-  } catch (error) {
-    if (error instanceof AppError && error.code && AUTHENTICATED_REFUSALS[error.code]) await recordApiUsage(headers.keyId, "refused");
-    throw error;
+    const headers = signedHeaders(req);
+    keyId = headers.keyId;
+    const blocked = failureLimiter.blockedBy(client, now);
+    const authenticatedUntil = authenticatedKeys.get(keyId);
+    if (blocked === "own" || (blocked !== null && !(authenticatedUntil !== undefined && authenticatedUntil > now))) {
+      charge = "none";
+      throw new AppError(RATE_LIMITED, 429, "rate_limited");
+    }
+    if (keyLimiter.blockedBy(`key:${keyId}`, now) !== null) {
+      charge = "none";
+      throw new AppError(RATE_LIMITED, 429, "rate_limited");
+    }
+    await assertServedKey(loanId, keyId, now);
+    charge = "key";
+    const loan = await servedLoan(loanId, now);
+    charge = "invalid";
+    const prepared = await prepare();
+    charge = "none";
+    await requireRunnerOrWake();
+    try {
+      const result = await call(loan, headers, prepared);
+      charge = "key";
+      remember(authenticatedKeys, keyId, now + AUTHENTICATED_KEY_TTL_MS);
+      return { loan, headers, result };
+    } catch (caught) {
+      const known = caught instanceof AppError && !caught.code ? RUNNER_MESSAGE_CODES[caught.message] : undefined;
+      const error = known && known.status === (caught as AppError).status ? new AppError((caught as AppError).message, known.status, known.code) : caught;
+      const code = error instanceof AppError ? error.code : undefined;
+      charge = code && INVALID_REQUEST_RUNNER_CODES[code] ? "invalid" : code && NEUTRAL_RUNNER_CODES[code] ? "none" : "key";
+      if (code && AUTHENTICATED_REFUSALS[code]) {
+        remember(authenticatedKeys, keyId, now + AUTHENTICATED_KEY_TTL_MS);
+        await recordApiUsage(keyId, "refused");
+      }
+      throw error;
+    }
+  } finally {
+    if (charge === "key") keyLimiter.consume(`key:${keyId}`, now);
+    else if (charge === "invalid") failureLimiter.consume(client, now);
   }
 }
 
@@ -165,9 +286,10 @@ function bodyFeatures(body: string): Record<string, number> {
 
 export async function handleApiPredict(req: Request, loanId: string): Promise<NextResponse> {
   try {
-    const { loan, headers, result } = await relay(req, loanId, async (served, signed) => {
+    const { loan, headers, result } = await relay(req, loanId, async () => {
       const body = await rawBody(req);
-      const features = bodyFeatures(body);
+      return { body, features: bodyFeatures(body) };
+    }, async (served, signed, { body, features }) => {
       const prediction: ApiPrediction = await apiPredictInRunner({
         loanId: served.id, ...signed, method: "POST", path: `/v1/models/${served.id}/predict`, body,
         loanReceipt: served.runnerReceipt, settleTxHash: served.settleTxHash, finalityTier: effectiveLoanFinalityTier(served.finalityTier),
@@ -201,7 +323,7 @@ export async function handleApiPredict(req: Request, loanId: string): Promise<Ne
 
 export async function handleApiInfo(req: Request, loanId: string): Promise<NextResponse> {
   try {
-    const { loan, result } = await relay(req, loanId, (served, signed) => apiInfoInRunner({
+    const { loan, result } = await relay(req, loanId, async () => undefined, (served, signed) => apiInfoInRunner({
       loanId: served.id, ...signed, method: "GET", path: `/v1/models/${served.id}`, body: "",
       loanReceipt: served.runnerReceipt, settleTxHash: served.settleTxHash, finalityTier: effectiveLoanFinalityTier(served.finalityTier),
     }));

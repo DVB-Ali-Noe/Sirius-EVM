@@ -7,7 +7,9 @@
  * un nonce à usage unique. L'enclave ne tourne que pendant l'usage : le premier appel après une
  * pause (environ une heure sans activité) peut prendre environ 2 minutes, l'API répondant
  * `503 enclave_starting` avec `Retry-After` ; le client attend et réessaie seul (nouvelle
- * signature) jusqu'à `maxRetryWaitMs` (8 min par défaut).
+ * signature) jusqu'à `maxRetryWaitMs` (8 min par défaut). Il réessaie aussi `503 runner_busy`
+ * (runner saturé, rien n'a été décompté), avec un recul exponentiel et une gigue, jamais sous `Retry-After`. Aucun autre 503 n'est réessayé : sur `runner_unavailable`,
+ * l'enclave a pu décompter l'appel avant que sa réponse se perde, et un réessai le compterait deux fois.
  *
  * Usage :
  *   const sirius = new SiriusClient({ apiKey: process.env.SIRIUS_API_KEY! });
@@ -21,6 +23,10 @@ export const SIRIUS_SIGNING_PREFIX = "SIRIUS-HMAC-SHA256";
 /** Démarrage à froid mesuré : environ 2 min, jusqu'à 5 min ; marge pour les relances espacées par `Retry-After`. */
 const DEFAULT_MAX_RETRY_WAIT_MS = 8 * 60_000;
 const DEFAULT_RETRY_AFTER_SECONDS = 15;
+/** Plafond du recul exponentiel sur `runner_busy`. */
+const MAX_BUSY_BACKOFF_MS = 30_000;
+/** 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé). */
+const RETRYABLE_CODES: ReadonlySet<string> = new Set(["enclave_starting", "runner_busy"]);
 
 /** Codes d'erreur stables renvoyés par l'API (`{ error: { code, message } }`). */
 export type SiriusErrorCode =
@@ -35,13 +41,21 @@ export type SiriusErrorCode =
   | "api_not_available_for_profile"
   | "invalid_features"
   | "enclave_starting"
+  | "runner_busy"
   | "rate_limited"
   | "payload_too_large"
   | "not_found"
   | "model_unavailable"
   | "invalid_request"
+  | "unsupported_media_type"
+  | "request_timeout"
+  | "conflict"
+  | "prediction_unstable"
+  | "unauthorized"
+  | "forbidden"
   | "runner_unavailable"
   | "runner_error"
+  | "internal_error"
   | (string & {});
 
 export class SiriusApiError extends Error {
@@ -65,8 +79,8 @@ export interface Remaining {
 
 export interface PredictResponse {
   outputKind: "decision" | "value";
-  /** Présent si `outputKind === "decision"` : 0 ou 1. */
-  decision?: number | string;
+  /** Présent si `outputKind === "decision"` : "0" ou "1", en texte comme dans le message signé. */
+  decision?: "0" | "1";
   /** Présent si `outputKind === "value"` : valeur arrondie, en texte. */
   value?: string;
   counter: number;
@@ -173,13 +187,14 @@ export interface SiriusClientOptions {
   apiKey: string;
   /** Défaut `https://api.sirius-data.tech`. Hors de cet hôte : `https://<site>/api`. */
   baseUrl?: string;
-  /** Attente cumulée maximale sur `503 enclave_starting` (défaut 8 min ; 0 = jamais réessayer). */
+  /** Attente cumulée maximale sur `503 enclave_starting` ou `runner_busy` (défaut 8 min ; 0 = jamais réessayer). */
   maxRetryWaitMs?: number;
   fetch?: typeof fetch;
-  /** Horloge et attente injectables (tests). */
+  /** Horloge, attente, nonce et tirage aléatoire (gigue des réessais) injectables (tests). */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   nonce?: () => string;
+  random?: () => number;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -196,6 +211,16 @@ function retryAfterSeconds(header: string | null, body: unknown): number {
   return DEFAULT_RETRY_AFTER_SECONDS;
 }
 
+/**
+ * Attente avant le `attempt`-ième réessai (0, 1, …) d'un `503 runner_busy` : recul exponentiel
+ * (2 s, 4 s, 8 s… jusqu'à 30 s) avec gigue sur la seconde moitié, jamais sous `Retry-After`, pour
+ * que des clients saturés ensemble ne reviennent pas tous à la même seconde.
+ */
+function busyDelayMs(attempt: number, retryAfter: number, random: () => number): number {
+  const backoff = Math.min(MAX_BUSY_BACKOFF_MS, 1000 * 2 ** (attempt + 1));
+  return Math.max(retryAfter * 1000, Math.round(backoff / 2 + random() * backoff / 2));
+}
+
 export class SiriusClient {
   readonly keyId: string;
   readonly #secret: string;
@@ -205,6 +230,7 @@ export class SiriusClient {
   readonly #now: () => number;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #nonce: () => string;
+  readonly #random: () => number;
 
   constructor(options: SiriusClientOptions) {
     const { keyId, secret } = parseApiKey(options.apiKey);
@@ -216,6 +242,7 @@ export class SiriusClient {
     this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#nonce = options.nonce ?? randomNonce;
+    this.#random = options.random ?? Math.random;
   }
 
   /** Prédiction signée par l'enclave ; consomme un appel (quota du jour, puis crédits). */
@@ -233,6 +260,7 @@ export class SiriusClient {
 
   async #request<T>(method: "GET" | "POST", path: string, body: string): Promise<T> {
     let waited = 0;
+    let busyRetries = 0;
     for (;;) {
       // Nouvel horodatage et nouveau nonce à chaque essai : l'API refuse le rejeu.
       const timestamp = Math.floor(this.#now() / 1000);
@@ -250,14 +278,15 @@ export class SiriusClient {
       if (response.ok) return parsed as T;
       const code = parsed?.error?.code ?? `http_${response.status}`;
       const message = parsed?.error?.message ?? `Sirius API error ${response.status}`;
-      if (response.status === 503) {
+      if (response.status === 503 && RETRYABLE_CODES.has(code)) {
         const seconds = retryAfterSeconds(response.headers.get("Retry-After"), parsed);
-        if (waited + seconds * 1000 <= this.#maxRetryWaitMs) {
-          waited += seconds * 1000;
-          await this.#sleep(seconds * 1000);
+        const delayMs = code === "runner_busy" ? busyDelayMs(busyRetries++, seconds, this.#random) : seconds * 1000;
+        if (waited + delayMs <= this.#maxRetryWaitMs) {
+          waited += delayMs;
+          await this.#sleep(delayMs);
           continue;
         }
-        throw new SiriusApiError(message, code, response.status, seconds);
+        throw new SiriusApiError(message, code, response.status, Math.ceil(delayMs / 1000));
       }
       throw new SiriusApiError(message, code, response.status);
     }

@@ -36,7 +36,27 @@ info:
     (up to 5 in rare cases): the API answers `503` with `code: enclave_starting` and a
     `Retry-After` header; wait and send a new signed request (new timestamp and nonce). The
     official SDKs retry automatically, up to 8 minutes of cumulative wait by default. An unknown
-    or revoked key, or an expired rental, never starts it.
+    or revoked key, an expired rental or an invalid body never starts it.
+
+    **Retries.** Only `503 enclave_starting` and `503 runner_busy` are safe to retry blindly:
+    nothing was counted. Any other 503 (`runner_unavailable`), a network error or a client
+    timeout may come after the enclave already counted the call; the official SDKs raise them
+    without retrying. Use a client timeout above 60 s: the API waits up to 60 s for the enclave.
+
+    **Rate limits.** Each request counts in exactly one place:
+    - against your key, 120 per minute: answers given by the enclave after authenticating the
+      request (served, or refused for quota, features…), and refusals tied to the key's rental
+      (`rental_expired`, `api_access_required`, `model_unavailable`);
+    - against your client network (IP address, or /64 for IPv6), 60 per minute: invalid traffic
+      only, i.e. malformed headers or body, unknown or revoked key, and `invalid_signature`,
+      `request_expired` or `replayed_request` from the enclave. Beyond that, every request from
+      that network gets `429 rate_limited` with `Retry-After`, valid keys included;
+    - nowhere: `enclave_starting`, `runner_busy` and the enclave's own `rate_limited`.
+
+    The enclave also allows at most 120 calls per minute per model, counted before the signature
+    is checked: someone who knows only your key identifier can still use up that per-model window,
+    but not your key's limit above nor your network's. Under a distributed flood the API may
+    refuse keys it has not served recently with `429 rate_limited`.
 
     **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
     its models have no API access (a few calls would reconstruct them).
@@ -72,8 +92,10 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "408": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/EnclaveStarting" }
         default: { $ref: "#/components/responses/Error" }
   /v1/models/{loanId}/predict:
@@ -104,9 +126,13 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "408": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/EnclaveStarting" }
         default: { $ref: "#/components/responses/Error" }
 components:
@@ -169,7 +195,7 @@ components:
       required: [outputKind, counter, remaining, expiresAt, modelId, modelVersion, signature, signer, domain, signedMessage]
       properties:
         outputKind: { type: string, enum: [decision, value] }
-        decision: { description: "0 or 1 when outputKind is decision." }
+        decision: { type: string, enum: ["0", "1"], description: "\"0\" or \"1\" (a string, as in the signed message) when outputKind is decision." }
         value: { type: string, description: Rounded value when outputKind is value. }
         counter: { type: integer, description: Call number for this loan. }
         remaining: { $ref: "#/components/schemas/Remaining" }
@@ -178,7 +204,14 @@ components:
         modelVersion: { type: string }
         signature: { type: string, description: EIP-712 signature of `signedMessage` by `signer`. }
         signer: { type: string, description: Enclave signing address. }
-        domain: { type: object, description: EIP-712 domain. }
+        domain:
+          type: object
+          description: EIP-712 domain.
+          required: [name, version, chainId]
+          properties:
+            name: { type: string, const: SiriusPrediction }
+            version: { type: string, const: "2" }
+            chainId: { type: integer, description: "Chain of the Sirius escrow the server is bound to: 4663 on mainnet, 46630 on testnet." }
         signedMessage: { type: object, description: "`SiriusPrediction` message as signed." }
     Error:
       type: object
@@ -202,12 +235,18 @@ components:
                 - api_not_available_for_profile
                 - invalid_features
                 - enclave_starting
+                - runner_busy
                 - rate_limited
                 - payload_too_large
                 - not_found
                 - model_unavailable
                 - invalid_request
                 - unsupported_media_type
+                - request_timeout
+                - conflict
+                - prediction_unstable
+                - unauthorized
+                - forbidden
                 - runner_unavailable
                 - runner_error
                 - internal_error
@@ -227,24 +266,36 @@ components:
     Error:
       description: |
         `invalid_signature` (also missing or malformed `Sirius-*` headers), `request_expired`,
-        `unknown_key`, `key_revoked` → 401; `rental_expired`, `api_access_required` (no paid daily
-        API pass covering now) → 403; `not_found` (unknown loan)
-        → 404; `replayed_request`, `api_not_available_for_profile`, `model_unavailable` (loan not
-        settled) → 409; `invalid_features`, `invalid_request` → 400; `payload_too_large` (body
-        over 16 KiB) → 413; `unsupported_media_type` → 415; `quota_exceeded` (daily quota used up
-        and no credits) and `rate_limited` (120 requests per minute per key and per model, at most 60 of them
-        `GET /v1/models/{loanId}`, `Retry-After`) → 429;
-        `runner_error` → 502; `runner_unavailable` → 503; `internal_error` → 500.
+        `unknown_key`, `key_revoked`, `unauthorized` (other enclave refusal) → 401;
+        `rental_expired`, `api_access_required` (no paid daily API pass covering now),
+        `forbidden` (other enclave refusal) → 403; `not_found` (unknown loan) → 404;
+        `request_timeout` (body not received in time) → 408; `replayed_request`,
+        `api_not_available_for_profile`, `model_unavailable` (loan not settled), `conflict`
+        (transient enclave-side conflict, e.g. on-chain settlement not confirmed yet or an RPC
+        failure; retry later with a new signature) → 409; `invalid_features`, `invalid_request` →
+        400; `payload_too_large` (body over 16 KiB) → 413; `unsupported_media_type` → 415;
+        `prediction_unstable` (the enclave could not compute a numerically stable output for
+        these features; the call was counted) → 422; `quota_exceeded` (daily quota used up and no credits) and `rate_limited`
+        (see Rate limits; also 120 per minute per model in the enclave, at most 60 of them
+        `GET /v1/models/{loanId}`; `Retry-After`) → 429; `runner_error` → 502;
+        `runner_unavailable` (enclave unreachable; the call may have been counted, do not retry
+        blindly) → 503; `internal_error` → 500.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     EnclaveStarting:
-      description: The enclave is starting. Retry after `Retry-After` seconds with a new signature.
+      description: |
+        `enclave_starting` (body below, with `status` and `retryAfterSeconds`) or `runner_busy`
+        (enclave saturated, `Retry-After: 1`): nothing was counted, retry after `Retry-After`
+        seconds with a new signature. `runner_unavailable` (Error body) may come after the enclave
+        counted the call: do not retry it blindly.
       headers:
         Retry-After:
           schema: { type: integer }
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/EnclaveStarting"
+            oneOf:
+              - $ref: "#/components/schemas/EnclaveStarting"
+              - $ref: "#/components/schemas/Error"
