@@ -93,6 +93,8 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "En général quelques secondes": "Usually a few seconds",
   "Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.":
     "Keep this page open: activation completes here as soon as the network confirms.",
+  "Démarrage de l’enclave sécurisée : ton paiement est bien reçu, l’activation reprend toute seule":
+    "Secure enclave starting: your payment has been received, activation resumes on its own",
   "Pack de {count} appels en cours": "Pack of {count} calls in progress",
   "Paiement envoyé à l’escrow": "Payment sent to escrow",
   "Confirmation du paiement par le réseau": "Network payment confirmation",

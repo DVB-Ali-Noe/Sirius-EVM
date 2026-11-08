@@ -286,12 +286,21 @@ export type PaidSettlementStage = "confirming" | "activating";
 /** Achat réglé depuis la page, ou laissé au reaper une fois le budget de la page écoulé. */
 export type PaidSettlement = "settled" | "deferred";
 
+/**
+ * Avancement d'un règlement après paiement. L'attente de l'enclave y figure (`enclaveRetryInSeconds`)
+ * au lieu de passer par l'attente d'avant paiement (`EnclaveStartingSteps`, « rien n'est payé »).
+ */
+export interface PaidSettlementProgress {
+  stage: PaidSettlementStage;
+  /** Enclave en démarrage : prochain essai dans ce délai ; `null` sinon. */
+  enclaveRetryInSeconds: number | null;
+}
+
 export interface PaidSettlementOptions {
   /** Démontage du composant : plus aucun essai, l'attente en cours est coupée. */
   signal?: AbortSignal;
-  onStage?: (stage: PaidSettlementStage) => void;
-  /** Enclave en démarrage pendant le règlement : prochain essai annoncé, `null` à la reprise. */
-  onEnclaveWaiting?: (retryInSeconds: number | null) => void;
+  /** Appelé au départ puis à chaque changement d'avancement. */
+  onProgress?: (progress: PaidSettlementProgress) => void;
   wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
 }
@@ -317,50 +326,50 @@ const PAID_SETTLEMENT_BUSY = new Set<string>([SETTLEMENT_QUEUED, PACK_SETTLEMENT
  */
 export async function finishPaidSettlement(
   request: PaidSettlementRequest,
-  { signal, onStage, onEnclaveWaiting, wait = abortableSleep, now = () => Date.now() }: PaidSettlementOptions = {},
+  { signal, onProgress, wait = abortableSleep, now = () => Date.now() }: PaidSettlementOptions = {},
 ): Promise<PaidSettlement> {
   const deadline = now() + PAID_SETTLEMENT_BUDGET_MS;
-  let stage: PaidSettlementStage = "confirming";
-  onStage?.(stage);
-  try {
-    for (;;) {
-      signal?.throwIfAborted();
-      const authorization = await request.grant();
-      let response: Response | null = null;
-      try {
-        response = await fetch(request.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request.body(authorization)),
-          signal,
-        });
-      } catch (error) {
-        // Réseau du navigateur coupé : l'essai suivant reprend, rien n'est perdu côté serveur.
-        if (signal?.aborted) throw error;
-      }
-      let delayMs = PAID_SETTLEMENT_RETRY_MS;
-      if (response?.ok) {
-        const { pending } = await response.json().catch(() => ({})) as { pending?: unknown };
-        if (response.status !== 202 && pending !== true) return "settled";
-        onEnclaveWaiting?.(null);
-        if (stage !== "activating") onStage?.(stage = "activating");
-      } else if (response) {
-        const error = await responseError(response, request.failure);
-        if (error instanceof EnclaveStartingError) {
-          delayMs = error.retryAfterSeconds * 1000;
-          onEnclaveWaiting?.(error.retryAfterSeconds);
-        } else {
-          onEnclaveWaiting?.(null);
-          if (!PAID_SETTLEMENT_PENDING.has(error.message) && response.status !== 429 && !PAID_SETTLEMENT_BUSY.has(error.message)) {
-            throw error;
-          }
+  let progress: PaidSettlementProgress = { stage: "confirming", enclaveRetryInSeconds: null };
+  onProgress?.(progress);
+  const report = (next: PaidSettlementProgress) => {
+    if (next.stage === progress.stage && next.enclaveRetryInSeconds === progress.enclaveRetryInSeconds) return;
+    progress = next;
+    onProgress?.(next);
+  };
+  for (;;) {
+    signal?.throwIfAborted();
+    const authorization = await request.grant();
+    let response: Response | null = null;
+    try {
+      response = await fetch(request.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.body(authorization)),
+        signal,
+      });
+    } catch (error) {
+      // Réseau du navigateur coupé : l'essai suivant reprend, rien n'est perdu côté serveur.
+      if (signal?.aborted) throw error;
+    }
+    let delayMs = PAID_SETTLEMENT_RETRY_MS;
+    if (response?.ok) {
+      const { pending } = await response.json().catch(() => ({})) as { pending?: unknown };
+      if (response.status !== 202 && pending !== true) return "settled";
+      report({ stage: "activating", enclaveRetryInSeconds: null });
+    } else if (response) {
+      const error = await responseError(response, request.failure);
+      if (error instanceof EnclaveStartingError) {
+        delayMs = error.retryAfterSeconds * 1000;
+        report({ stage: progress.stage, enclaveRetryInSeconds: error.retryAfterSeconds });
+      } else {
+        report({ stage: progress.stage, enclaveRetryInSeconds: null });
+        if (!PAID_SETTLEMENT_PENDING.has(error.message) && response.status !== 429 && !PAID_SETTLEMENT_BUSY.has(error.message)) {
+          throw error;
         }
       }
-      if (now() + delayMs > deadline) return "deferred";
-      await wait(delayMs, signal);
     }
-  } finally {
-    onEnclaveWaiting?.(null);
+    if (now() + delayMs > deadline) return "deferred";
+    await wait(delayMs, signal);
   }
 }
 

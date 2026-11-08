@@ -1,17 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { formatWaitElapsed, WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
+import { WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { CALL_PACK_SIZES, packDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import type { ComputeQuote } from "@/lib/billing/quote";
-import { buyCalls, type PaidSettlementStage } from "@/lib/loans/client";
+import { buyCalls, type PaidSettlementProgress } from "@/lib/loans/client";
 import { isSettlementPending } from "@/lib/loans/settlement-status";
 import { messageOf } from "@/lib/errors-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { PaidSettlementSteps } from "./PaidSettlementSteps";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
-import { useElapsedSeconds } from "@/components/ui/useElapsedSeconds";
 
 /** Pack payé dont les appels ne sont pas encore crédités (prêt de pack non réglé). */
 export interface PendingCallPack {
@@ -22,7 +22,7 @@ export interface PendingCallPack {
   remainingSeconds: number | null;
 }
 
-type BuyPhase = "preparing" | "quote" | "payment" | PaidSettlementStage;
+type BuyPhase = "preparing" | "quote" | "payment";
 
 /** Prix fournisseur d'un pack, ou `null` si le prix du dataset ou le quota est inconnu. */
 export function packPrice(priceUsdcAtomic: string | null | undefined, callsPerDay: number | null | undefined, size: CallPackSize): string | null {
@@ -62,13 +62,13 @@ export function BuyCallsPanel({
   const [open, setOpen] = useState(false);
   const [size, setSize] = useState<CallPackSize>(CALL_PACK_SIZES[0]);
   const [phase, setPhase] = useState<BuyPhase | null>(null);
-  const [settlingSince, setSettlingSince] = useState<number | null>(null);
+  // Paiement envoyé : avancement du règlement que la page termine, et début de son attente.
+  const [settlement, setSettlement] = useState<{ progress: PaidSettlementProgress; since: number } | null>(null);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const unmountSignal = useUnmountSignal();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const running = useRef(false);
-  const elapsed = useElapsedSeconds(settlingSince);
   const count = (value: number) => value.toLocaleString(locale === "fr" ? "fr-FR" : "en-US");
 
   async function buy() {
@@ -84,6 +84,8 @@ export function BuyCallsPanel({
         datasetId,
         size,
         confirmQuote: async (quote) => {
+          // Préparation acceptée : l'attente d'avant paiement (« rien n'est payé ») est terminée.
+          setEnclaveRetry(null);
           setPhase("quote");
           const ok = await confirmQuote(quote);
           if (ok) setPhase("payment");
@@ -91,11 +93,7 @@ export function BuyCallsPanel({
         },
         settlement: {
           signal,
-          onEnclaveWaiting: setEnclaveRetry,
-          onStage: (stage) => {
-            setPhase(stage);
-            setSettlingSince((since) => since ?? Date.now());
-          },
+          onProgress: (progress) => setSettlement((previous) => ({ progress, since: previous?.since ?? Date.now() })),
         },
       }), { onWaiting: setEnclaveRetry, signal });
       if (outcome) setOpen(false);
@@ -113,21 +111,17 @@ export function BuyCallsPanel({
     } finally {
       running.current = false;
       setPhase(null);
-      setSettlingSince(null);
+      setSettlement(null);
     }
   }
 
-  const order: readonly BuyPhase[] = ["preparing", "quote", "payment", "confirming", "activating"];
-  const current = phase ? order.indexOf(phase) : -1;
+  const order: readonly BuyPhase[] = ["preparing", "quote", "payment"];
+  const current = settlement ? order.length : phase ? order.indexOf(phase) : -1;
   const status = (index: number): WaitStep["status"] => (index < current ? "done" : index === current ? "active" : "pending");
-  const settling = phase === "confirming" || phase === "activating";
-  const progress = formatWaitElapsed(elapsed);
-  const steps: WaitStep[] = [
+  const leading: WaitStep[] = [
     { id: "quote", label: t("Devis signé par l’enclave"), status: status(0) },
     { id: "accept", label: t("Acceptation du devis"), status: status(1) },
     { id: "payment", label: t("Paiement dans ton wallet (approbation puis verrouillage)"), status: status(2) },
-    { id: "finality", label: t("Confirmation du paiement par le réseau"), status: status(3), detail: phase === "confirming" ? t("En général quelques secondes") : undefined },
-    { id: "credit", label: t("Crédit des appels dans l’enclave"), status: status(4) },
   ];
 
   return (
@@ -175,13 +169,13 @@ export function BuyCallsPanel({
             {t("Prix d’un appel : prix par jour ÷ {calls} appels inclus par jour, arrondi au supérieur. S’ajoutent les frais de calcul de Sirius, à prix coûtant ; le total exact est dans le devis, avant tout paiement. Les appels expirent avec la location et ne sont pas remboursables.", { calls: callsPerDay })}
           </p>
           {phase && (
-            <WaitSteps
+            <PaidSettlementSteps
               testId="buy-calls-steps"
-              steps={steps}
-              progress={settling ? t(progress.key, progress.params) : undefined}
-              closeNote={settling
-                ? t("Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.")
-                : t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, les appels sont crédités même si tu la fermes.")}
+              leading={leading}
+              progress={settlement?.progress ?? null}
+              since={settlement?.since ?? null}
+              activation={{ id: "credit", label: t("Crédit des appels dans l’enclave") }}
+              prePaymentNote={t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, les appels sont crédités même si tu la fermes.")}
             />
           )}
           {enclaveRetry !== null && <EnclaveStartingSteps phase="starting" retryInSeconds={enclaveRetry} testId="buy-calls-enclave-starting" />}

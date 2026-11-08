@@ -11,7 +11,7 @@ import {
   settleLoan,
   SETTLEMENT_PENDING_RETRY_MS,
   SETTLEMENT_QUEUED_RETRY_MS,
-  type PaidSettlementStage,
+  type PaidSettlementProgress,
 } from "./client";
 import {
   API_ACCESS_PENDING,
@@ -276,11 +276,12 @@ test("achat payé : la page rejoue le règlement en attente, une autorisation ne
     { status: 202, body: { pending: true, error: API_ACCESS_PENDING } },
     { status: 200, body: { loanId: "pack", credits: 1000 } },
   ], time.clock);
-  const stages: PaidSettlementStage[] = [];
+  const reported: PaidSettlementProgress[] = [];
   try {
-    const outcome = await finishPaidSettlement(route.request, { onStage: (stage) => stages.push(stage), wait: time.wait, now: time.now });
+    const outcome = await finishPaidSettlement(route.request, { onProgress: (progress) => reported.push(progress), wait: time.wait, now: time.now });
     assert.equal(outcome, "settled");
-    assert.deepEqual(stages, ["confirming", "activating"], "409 : confirmation du lock ; 202 : release envoyé");
+    assert.deepEqual(reported.map((progress) => progress.stage), ["confirming", "activating"], "409 : confirmation du lock ; 202 : release envoyé");
+    assert.ok(reported.every((progress) => progress.enclaveRetryInSeconds === null));
     assert.equal(route.calls.length, 7);
     assert.equal(new Set(route.calls.map((call) => call.body)).size, 7, "chaque essai porte son propre grant");
     assert.ok(route.calls.every((call) => JSON.parse(call.body).packLoanId === "pack"), "toujours le même règlement");
@@ -338,16 +339,22 @@ test("achat payé : composant démonté, l'attente est coupée et plus aucun ess
   }
 });
 
-test("achat payé : enclave en démarrage, attente Retry-After dans le même budget, jamais remontée comme EnclaveStartingError", async () => {
+test("achat payé : enclave en démarrage, attente annoncée comme suite du paiement, Retry-After dans le même budget", async () => {
   const time = fakeTime();
   const starting = { status: 503, body: { error: { code: ENCLAVE_STARTING_CODE, message: "L’enclave démarre." }, retryAfterSeconds: 30 } };
   const route = paidSettlementRoute([starting, { status: 409, body: { error: CALLS_PENDING } }, { status: 200, body: {} }], time.clock);
-  const announced: (number | null)[] = [];
+  const reported: PaidSettlementProgress[] = [];
   try {
-    const outcome = await finishPaidSettlement(route.request, { onEnclaveWaiting: (seconds) => announced.push(seconds), wait: time.wait, now: time.now });
+    // Seul canal de l'attente après paiement : l'avancement du règlement, jamais celui d'avant paiement
+    // (`retryWhileEnclaveStarts`, « rien n'est payé »), ni une `EnclaveStartingError` levée.
+    const outcome = await finishPaidSettlement(route.request, { onProgress: (progress) => reported.push(progress), wait: time.wait, now: time.now });
     assert.equal(outcome, "settled");
     assert.deepEqual(time.waits, [30_000, PAID_SETTLEMENT_RETRY_MS]);
-    assert.deepEqual(announced, [30, null, null]);
+    assert.deepEqual(reported, [
+      { stage: "confirming", enclaveRetryInSeconds: null },
+      { stage: "confirming", enclaveRetryInSeconds: 30 },
+      { stage: "confirming", enclaveRetryInSeconds: null },
+    ]);
   } finally {
     route.restore();
   }
