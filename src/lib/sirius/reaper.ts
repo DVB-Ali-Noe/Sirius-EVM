@@ -303,10 +303,13 @@ async function appendOriginalReview(originalLoanId: string, purchase: Loan, reas
     console.error(`[reaper] revue du prêt EVM ${originalLoanId} saturée : ${label} non ajouté (déjà gelé)`);
     return;
   }
-  await prisma.loan.updateMany({
+  const written = await prisma.loan.updateMany({
     where: { id: originalLoanId, finalityReview: current },
     data: { finalityReview: next, ...(current ? {} : { finalityReviewAt: now }) },
   });
+  // Revue changée entre la lecture et l'écriture : l'achat n'est pas encore mis en revue (il resterait
+  // sinon hors de la sélection du reaper sans entrée sur le prêt d'origine) ; la passe suivante réessaie.
+  if (written.count !== 1) throw new AppError(`Revue du prêt d'origine ${originalLoanId} modifiée pendant l'ajout de ${label} : nouvel essai à la passe suivante`, 409);
 }
 
 /**

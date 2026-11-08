@@ -1755,3 +1755,26 @@ test("revues de finalité de plusieurs achats : toutes ajoutées à celle du pr�
     "pack d'appels pack-9 : bloc du release réorganisé après le règlement rapide",
   ]);
 });
+
+test("revue du prêt d'origine modifiée pendant l'ajout : l'achat n'est pas mis en revue, la passe suivante ajoute son entrée", async () => {
+  const sys = system({
+    loans: [origin(), attached("pack", { status: "SETTLED", finalityTier: "FAST", settleTxHash: PACK_TX, settledAt: new Date(0) })],
+    fastVerdict: { state: "discrepancy", reason: "bloc du release réorganisé après le règlement rapide" },
+  });
+  const original = sys.prisma.loan.rows.find((row) => row.id === "loan-1")!;
+  const pack = sys.prisma.loan.rows.find((row) => row.id === "pack-9")!;
+  const updateMany = sys.prisma.loan.updateMany;
+  let raced = false;
+  sys.prisma.loan.updateMany = async (args) => {
+    // Écriture concurrente sur la revue du prêt d'origine, entre la lecture et l'écriture du reaper.
+    if (!raced && args.where.id === "loan-1") { raced = true; original.finalityReview = "revue manuelle en cours"; }
+    return updateMany(args);
+  };
+  const errors = mock.method(console, "error", () => {});
+  assert.equal((await sys.reaper().runLoanReaper(new Date())).failed, 1);
+  assert.equal(pack.finalityReview, null, "l'achat reste sélectionné par le reaper");
+  assert.equal((await sys.reaper().runLoanReaper(new Date())).failed, 1);
+  errors.mock.restore();
+  assert.equal(original.finalityReview, "revue manuelle en cours ; pack d'appels pack-9 : bloc du release réorganisé après le règlement rapide");
+  assert.equal(pack.finalityReview, "bloc du release réorganisé après le règlement rapide");
+});
