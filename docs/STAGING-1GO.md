@@ -109,7 +109,12 @@ d'y déployer ce code.
 ```json
 [
   {
-    "AllowedOrigins": ["https://sirius-evm-staging.vercel.app"],
+    "AllowedOrigins": [
+      "https://phala.sirius-data.tech",
+      "https://demo.sirius-data.tech",
+      "https://sirius-evm-staging.vercel.app",
+      "https://sirius-evm-staging-byezzaali-gmailcoms-projects.vercel.app"
+    ],
     "AllowedMethods": ["PUT"],
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["ETag"],
@@ -118,7 +123,7 @@ d'y déployer ce code.
 ]
 ```
 
-  Remplacer l'origine si staging a un autre domaine. Sans cette règle, le navigateur ne peut pas envoyer les morceaux.
+  Origines publique et alias de staging, telles que les fixe `scripts/deployment-target.mjs` : à tenir à jour avec lui. Sans cette règle, le navigateur ne peut pas envoyer les morceaux.
 - [ ] 👤 Jetons : site (lecture-écriture, déjà créé) et runner (**lecture seule**, déjà créé), tous deux limités à `sirius-staging`.
 
 ## 2. Contrats testnet (registre v6 + escrow v7 redéployé)
@@ -150,7 +155,10 @@ ROBINHOOD_DEPLOYER_KEY=… pnpm contracts:deploy:testnet
   `20261104000000_add_dataset_uploads` : table `DatasetUpload`, additive).
   ✅ Pipeline vert, table présente.
 
-## 4. Vercel (projet staging, environnement Preview/Staging)
+## 4. Vercel (projet staging, environnement **Production**)
+
+Le pipeline déploie staging comme environnement **Production** du projet `sirius-evm-staging`
+(`vercel pull --environment=production`) : une variable posée en Preview n'atteint jamais le site déployé.
 
 - [ ] 👤 `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (jeton **site**), `R2_BUCKET=sirius-staging`.
 - [ ] 👤 `SIRIUS_CHUNKED_MAX_BYTES=1073741824` (seulement après le réglage du registre à l'étape 2).
