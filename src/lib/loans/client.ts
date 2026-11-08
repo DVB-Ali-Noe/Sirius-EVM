@@ -1,12 +1,22 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { API_ACCESS_PENDING, CALLS_PENDING, EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
-import { ENCLAVE_STARTING_CODE, responseError } from "@/lib/train/enclave-wait";
+import {
+  API_ACCESS_PENDING,
+  CALLS_PENDING,
+  EXTENSION_PENDING,
+  EXTENSION_SETTLEMENT_BUSY,
+  PACK_SETTLEMENT_BUSY,
+  SETTLEMENT_FINALITY_PENDING,
+  SETTLEMENT_FINALITY_PENDING_FAST,
+  SETTLEMENT_QUEUED,
+} from "./settlement-status";
+import { abortableSleep, EnclaveStartingError, responseError } from "@/lib/train/enclave-wait";
 import { apiAccessDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
+import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import type { ModelSelection } from "@/lib/models/registry";
 import { computeQuoteHash, type ComputeQuote, type SignedComputeQuote } from "@/lib/billing/quote";
 import { escrowBillingVersion, quotedTransactions, verifyBorrowQuote } from "@/lib/billing/client";
@@ -30,6 +40,8 @@ interface ExtendInput {
   datasetId: string;
   rentalDays: number;
   confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
+  /** Suivi du règlement que la page termine elle-même après le paiement. */
+  settlement?: PaidSettlementOptions;
 }
 
 interface BuyCallsInput {
@@ -39,6 +51,8 @@ interface BuyCallsInput {
   datasetId: string;
   size: CallPackSize;
   confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
+  /** Suivi du règlement que la page termine elle-même après le paiement. */
+  settlement?: PaidSettlementOptions;
 }
 
 interface PreparedLock {
@@ -150,11 +164,11 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
 /**
  * Prolonge la location du prêt `loanId` de `rentalDays` jours (D-29) : prêt de prolongation préparé
  * par le serveur, devis accepté, même lock qu'un emprunt, puis `release` demandé au runner. Renvoie
- * `false` si le devis est refusé. Lock pas encore finalisé ou `release` en attente de finalité :
- * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action. Enclave à
- * l'arrêt à la préparation : `EnclaveStartingError`, avant tout paiement, comme `borrowDataset`.
+ * `false` si le devis est refusé. Une fois le lock envoyé, la page termine le règlement elle-même
+ * (`finishPaidSettlement`) ; page fermée ou budget écoulé (`"deferred"`), le reaper l'applique seul.
+ * Enclave à l'arrêt à la préparation : `EnclaveStartingError`, avant tout paiement, comme `borrowDataset`.
  */
-export async function extendLoan(input: ExtendInput): Promise<boolean> {
+export async function extendLoan(input: ExtendInput): Promise<PaidSettlement | false> {
   const { address, assertCurrent } = walletGuard();
   const prep = await fetch(`/api/loans/${input.loanId}/extend`, {
     method: "POST",
@@ -176,17 +190,12 @@ export async function extendLoan(input: ExtendInput): Promise<boolean> {
   if (!await input.confirmQuote(signedQuote.quote)) return false;
   if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
   await approveAndLock(extensionLoanId, signedQuote, undefined, assertCurrent);
-  const authorization = await issueRunnerGrant("extend-loan", { loanId: extensionLoanId }, [extensionLoanId, input.loanId]);
-  const response = await fetch(`/api/loans/${input.loanId}/extend`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ extensionLoanId, authorization }),
-  });
-  const result = await response.json() as { error?: string; pending?: boolean };
-  // Paiement acquis : l'attente de finalité (lock ou release) et un wallet runner occupé se résolvent
-  // côté serveur, la prolongation s'applique alors d'elle-même.
-  if (response.ok || result.error === EXTENSION_PENDING || result.error === SETTLEMENT_QUEUED) return true;
-  throw new Error(result.error ?? "Prolongation échouée");
+  return finishPaidSettlement({
+    url: `/api/loans/${input.loanId}/extend`,
+    grant: () => issueRunnerGrant("extend-loan", { loanId: extensionLoanId }, [extensionLoanId, input.loanId]),
+    body: (authorization) => ({ extensionLoanId, authorization }),
+    failure: "Prolongation échouée",
+  }, input.settlement);
 }
 
 export async function resumeLoanSubmission(loanId: string, lockTxHash?: string): Promise<void> {
@@ -208,11 +217,12 @@ export async function cancelExpiredLoan(loanId: string): Promise<void> {
 /**
  * Achète un pack de `size` appels API pour le prêt loué `loanId` (D-30) : prêt de pack préparé par
  * le serveur, devis accepté, même lock qu'un emprunt, puis `release` et crédit demandés au runner.
- * Renvoie `false` si le devis est refusé. Une fois le lock envoyé, tout ce qui reste (finalité,
- * wallet runner occupé, enclave en démarrage) se résout côté serveur : le reaper crédite le pack, une
- * seule fois. Avant tout paiement, un 503 `enclave_starting` remonte tel quel (`EnclaveStartingError`).
+ * Renvoie `false` si le devis est refusé. Une fois le lock envoyé, la page termine le règlement
+ * elle-même (`finishPaidSettlement`) ; page fermée ou budget écoulé (`"deferred"`), le reaper crédite
+ * le pack, une seule fois. Avant tout paiement, un 503 `enclave_starting` remonte tel quel
+ * (`EnclaveStartingError`).
  */
-export async function buyCalls(input: BuyCallsInput): Promise<boolean> {
+export async function buyCalls(input: BuyCallsInput): Promise<PaidSettlement | false> {
   return buyLoanPack(input, { size: input.size });
 }
 
@@ -220,11 +230,14 @@ export async function buyCalls(input: BuyCallsInput): Promise<boolean> {
  * Achète le pass d'accès API (D-32) du prêt loué `loanId`, jusqu'à son échéance : même parcours
  * qu'un pack, jours comptés et signés par l'enclave dans le devis, couverture enregistrée une fois.
  */
-export async function buyApiAccess(input: Omit<BuyCallsInput, "size">): Promise<boolean> {
+export async function buyApiAccess(input: Omit<BuyCallsInput, "size">): Promise<PaidSettlement | false> {
   return buyLoanPack(input, { apiAccess: true });
 }
 
-async function buyLoanPack(input: Omit<BuyCallsInput, "size">, purchase: { size: CallPackSize } | { apiAccess: true }): Promise<boolean> {
+async function buyLoanPack(
+  input: Omit<BuyCallsInput, "size">,
+  purchase: { size: CallPackSize } | { apiAccess: true },
+): Promise<PaidSettlement | false> {
   const pass = "apiAccess" in purchase;
   const { address, assertCurrent } = walletGuard();
   const prep = await fetch(`/api/loans/${input.loanId}/calls`, {
@@ -250,18 +263,105 @@ async function buyLoanPack(input: Omit<BuyCallsInput, "size">, purchase: { size:
   if (!await input.confirmQuote(quote)) return false;
   if (quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
   await approveAndLock(packLoanId, signedQuote, undefined, assertCurrent);
-  const authorization = await issueRunnerGrant("buy-calls", { loanId: packLoanId }, [packLoanId, input.loanId]);
-  const response = await fetch(`/api/loans/${input.loanId}/calls`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ packLoanId, authorization }),
-  });
-  if (response.ok) return true;
-  const result = await response.clone().json().catch(() => ({})) as { error?: string | { code?: string } };
-  // Paiement acquis : le reaper applique l'achat dès que possible, jamais deux fois.
-  if (result.error === CALLS_PENDING || result.error === API_ACCESS_PENDING || result.error === SETTLEMENT_QUEUED
-    || (typeof result.error === "object" && result.error?.code === ENCLAVE_STARTING_CODE)) return true;
-  throw await responseError(response, pass ? "Activation de l’accès API échouée" : "Achat d’appels échoué");
+  return finishPaidSettlement({
+    url: `/api/loans/${input.loanId}/calls`,
+    grant: () => issueRunnerGrant("buy-calls", { loanId: packLoanId }, [packLoanId, input.loanId]),
+    body: (authorization) => ({ packLoanId, authorization }),
+    failure: pass ? "Activation de l’accès API échouée" : "Achat d’appels échoué",
+  }, input.settlement);
+}
+
+/**
+ * Achat payé (pack, pass, prolongation) : tant qu'elle reste ouverte, la page termine elle-même le
+ * règlement, un essai toutes les 10 s pendant au plus 3 min (palier rapide mesuré : environ 30 s).
+ * Au plus 6 essais par minute, sous le quota de la route (10 par minute et par compte, partagé par
+ * les packs et les passes) ; un refus de quota (429) attend simplement l'essai suivant. Au-delà, ou
+ * page quittée, le reaper termine seul, après ses baux de sécurité.
+ */
+export const PAID_SETTLEMENT_RETRY_MS = 10_000;
+export const PAID_SETTLEMENT_BUDGET_MS = 3 * 60_000;
+
+/** Étape vue par la page : lock en attente de confirmation, puis `release` envoyé (activation). */
+export type PaidSettlementStage = "confirming" | "activating";
+/** Achat réglé depuis la page, ou laissé au reaper une fois le budget de la page écoulé. */
+export type PaidSettlement = "settled" | "deferred";
+
+export interface PaidSettlementOptions {
+  /** Démontage du composant : plus aucun essai, l'attente en cours est coupée. */
+  signal?: AbortSignal;
+  onStage?: (stage: PaidSettlementStage) => void;
+  /** Enclave en démarrage pendant le règlement : prochain essai annoncé, `null` à la reprise. */
+  onEnclaveWaiting?: (retryInSeconds: number | null) => void;
+  wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  now?: () => number;
+}
+
+interface PaidSettlementRequest {
+  url: string;
+  /** Autorisation neuve à chaque essai : le runner refuse le rejeu d'un grant (signé par la clé de session, sans wallet). */
+  grant: () => Promise<RunnerGrant>;
+  body: (authorization: RunnerGrant) => Record<string, unknown>;
+  failure: string;
+}
+
+const PAID_SETTLEMENT_PENDING = new Set<string>([CALLS_PENDING, API_ACCESS_PENDING, EXTENSION_PENDING]);
+// Un autre règlement occupe le wallet du runner ou détient le claim (reaper, autre onglet) : on réessaie.
+const PAID_SETTLEMENT_BUSY = new Set<string>([SETTLEMENT_QUEUED, PACK_SETTLEMENT_BUSY, EXTENSION_SETTLEMENT_BUSY]);
+
+/**
+ * Rejoue le même règlement, idempotent côté serveur (claim sur `updatedAt`, journal du runner), tant
+ * qu'il répond « en attente » (409 : lock pas encore confirmé ; 202 `pending` : `release` envoyé),
+ * occupé, en quota, ou que le réseau du navigateur coupe. Enclave en démarrage : attente `Retry-After`,
+ * comme `retryWhileEnclaveStarts`, dans le même budget, sans jamais remonter `EnclaveStartingError`
+ * (l'appelant relancerait tout l'achat). Toute autre réponse est une erreur définitive, levée telle quelle.
+ */
+export async function finishPaidSettlement(
+  request: PaidSettlementRequest,
+  { signal, onStage, onEnclaveWaiting, wait = abortableSleep, now = () => Date.now() }: PaidSettlementOptions = {},
+): Promise<PaidSettlement> {
+  const deadline = now() + PAID_SETTLEMENT_BUDGET_MS;
+  let stage: PaidSettlementStage = "confirming";
+  onStage?.(stage);
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const authorization = await request.grant();
+      let response: Response | null = null;
+      try {
+        response = await fetch(request.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body(authorization)),
+          signal,
+        });
+      } catch (error) {
+        // Réseau du navigateur coupé : l'essai suivant reprend, rien n'est perdu côté serveur.
+        if (signal?.aborted) throw error;
+      }
+      let delayMs = PAID_SETTLEMENT_RETRY_MS;
+      if (response?.ok) {
+        const { pending } = await response.json().catch(() => ({})) as { pending?: unknown };
+        if (response.status !== 202 && pending !== true) return "settled";
+        onEnclaveWaiting?.(null);
+        if (stage !== "activating") onStage?.(stage = "activating");
+      } else if (response) {
+        const error = await responseError(response, request.failure);
+        if (error instanceof EnclaveStartingError) {
+          delayMs = error.retryAfterSeconds * 1000;
+          onEnclaveWaiting?.(error.retryAfterSeconds);
+        } else {
+          onEnclaveWaiting?.(null);
+          if (!PAID_SETTLEMENT_PENDING.has(error.message) && response.status !== 429 && !PAID_SETTLEMENT_BUSY.has(error.message)) {
+            throw error;
+          }
+        }
+      }
+      if (now() + delayMs > deadline) return "deferred";
+      await wait(delayMs, signal);
+    }
+  } finally {
+    onEnclaveWaiting?.(null);
+  }
 }
 
 interface RunLoanInput {

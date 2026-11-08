@@ -1,16 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
+import { formatWaitElapsed, WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { CALL_PACK_SIZES, packDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import type { ComputeQuote } from "@/lib/billing/quote";
-import { buyCalls } from "@/lib/loans/client";
+import { buyCalls, type PaidSettlementStage } from "@/lib/loans/client";
 import { isSettlementPending } from "@/lib/loans/settlement-status";
 import { messageOf } from "@/lib/errors-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
+import { useElapsedSeconds } from "@/components/ui/useElapsedSeconds";
 
 /** Pack payé dont les appels ne sont pas encore crédités (prêt de pack non réglé). */
 export interface PendingCallPack {
@@ -21,7 +22,7 @@ export interface PendingCallPack {
   remainingSeconds: number | null;
 }
 
-type BuyPhase = "preparing" | "quote" | "payment";
+type BuyPhase = "preparing" | "quote" | "payment" | PaidSettlementStage;
 
 /** Prix fournisseur d'un pack, ou `null` si le prix du dataset ou le quota est inconnu. */
 export function packPrice(priceUsdcAtomic: string | null | undefined, callsPerDay: number | null | undefined, size: CallPackSize): string | null {
@@ -35,7 +36,8 @@ export function packPrice(priceUsdcAtomic: string | null | undefined, callsPerDa
 
 /**
  * Achat d'appels prépayés (D-30) : taille, devis signé, paiement dans le wallet (même lock qu'un
- * emprunt), puis crédit par l'enclave. Les appels s'ajoutent au prêt d'origine, après le quota du jour.
+ * emprunt), puis crédit par l'enclave, que la page termine elle-même tant qu'elle reste ouverte.
+ * Les appels s'ajoutent au prêt d'origine, après le quota du jour.
  */
 export function BuyCallsPanel({
   loanId,
@@ -60,11 +62,13 @@ export function BuyCallsPanel({
   const [open, setOpen] = useState(false);
   const [size, setSize] = useState<CallPackSize>(CALL_PACK_SIZES[0]);
   const [phase, setPhase] = useState<BuyPhase | null>(null);
+  const [settlingSince, setSettlingSince] = useState<number | null>(null);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const unmountSignal = useUnmountSignal();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const running = useRef(false);
+  const elapsed = useElapsedSeconds(settlingSince);
   const count = (value: number) => value.toLocaleString(locale === "fr" ? "fr-FR" : "en-US");
 
   async function buy() {
@@ -73,8 +77,9 @@ export function BuyCallsPanel({
     setError(null);
     setNotice(null);
     setPhase("preparing");
+    const signal = unmountSignal();
     try {
-      const accepted = await retryWhileEnclaveStarts(() => buyCalls({
+      const outcome = await retryWhileEnclaveStarts(() => buyCalls({
         loanId,
         datasetId,
         size,
@@ -84,13 +89,22 @@ export function BuyCallsPanel({
           if (ok) setPhase("payment");
           return ok;
         },
-      }), { onWaiting: setEnclaveRetry, signal: unmountSignal() });
-      if (accepted) {
-        setOpen(false);
-        setNotice(t("Pack payé : les appels sont crédités dès la confirmation du paiement, même si tu fermes la page."));
-      }
+        settlement: {
+          signal,
+          onEnclaveWaiting: setEnclaveRetry,
+          onStage: (stage) => {
+            setPhase(stage);
+            setSettlingSince((since) => since ?? Date.now());
+          },
+        },
+      }), { onWaiting: setEnclaveRetry, signal });
+      if (outcome) setOpen(false);
+      if (outcome === "settled") setNotice(t("Pack réglé : {count} appels crédités à l’emprunt d’origine.", { count: count(size) }));
+      // Budget de la page écoulé : le reaper termine, même page fermée.
+      if (outcome === "deferred") setNotice(t("Pack payé : les appels sont crédités dès la confirmation du paiement, même si tu fermes la page."));
       await onPurchased();
     } catch (cause) {
+      if (signal.aborted) return;
       const message = messageOf(cause);
       // Paiement acquis, règlement en attente : le serveur crédite seul, ce n'est pas un échec.
       if (isSettlementPending(message)) setNotice(message);
@@ -99,17 +113,21 @@ export function BuyCallsPanel({
     } finally {
       running.current = false;
       setPhase(null);
+      setSettlingSince(null);
     }
   }
 
-  const order: readonly BuyPhase[] = ["preparing", "quote", "payment"];
+  const order: readonly BuyPhase[] = ["preparing", "quote", "payment", "confirming", "activating"];
   const current = phase ? order.indexOf(phase) : -1;
   const status = (index: number): WaitStep["status"] => (index < current ? "done" : index === current ? "active" : "pending");
+  const settling = phase === "confirming" || phase === "activating";
+  const progress = formatWaitElapsed(elapsed);
   const steps: WaitStep[] = [
     { id: "quote", label: t("Devis signé par l’enclave"), status: status(0) },
     { id: "accept", label: t("Acceptation du devis"), status: status(1) },
     { id: "payment", label: t("Paiement dans ton wallet (approbation puis verrouillage)"), status: status(2) },
-    { id: "credit", label: t("Confirmation du paiement et crédit des appels"), status: "pending" },
+    { id: "finality", label: t("Confirmation du paiement par le réseau"), status: status(3), detail: phase === "confirming" ? t("En général quelques secondes") : undefined },
+    { id: "credit", label: t("Crédit des appels dans l’enclave"), status: status(4) },
   ];
 
   return (
@@ -160,7 +178,10 @@ export function BuyCallsPanel({
             <WaitSteps
               testId="buy-calls-steps"
               steps={steps}
-              closeNote={t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, les appels sont crédités même si tu la fermes.")}
+              progress={settling ? t(progress.key, progress.params) : undefined}
+              closeNote={settling
+                ? t("Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.")
+                : t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, les appels sont crédités même si tu la fermes.")}
             />
           )}
           {enclaveRetry !== null && <EnclaveStartingSteps phase="starting" retryInSeconds={enclaveRetry} testId="buy-calls-enclave-starting" />}

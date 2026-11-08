@@ -7,7 +7,7 @@ import { RetrainPanel } from "@/components/train/RetrainPanel";
 import { ApiPanel } from "@/components/train/ApiPanel";
 import type { PendingCallPack } from "@/components/train/BuyCallsPanel";
 import type { RefusedPass } from "@/components/train/ApiAccessPanel";
-import { WaitSteps } from "@/components/ui/WaitSteps";
+import { formatWaitElapsed, WaitSteps } from "@/components/ui/WaitSteps";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import { DEFAULT_MAX_RENTAL_DAYS, MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
@@ -56,8 +56,9 @@ import {
   resumeLoanSubmission,
   resumeLoanSettlement,
   runLoanJob,
+  type PaidSettlementStage,
 } from "@/lib/loans/client";
-import { isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { EXTENSION_PENDING, isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { runSelfTrain } from "@/lib/train/client";
 import { requestPrediction } from "@/lib/train/prediction-client";
@@ -65,6 +66,7 @@ import { PredictionBox } from "@/components/train/PredictionBox";
 import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
+import { useElapsedSeconds } from "@/components/ui/useElapsedSeconds";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
@@ -204,6 +206,9 @@ function TrainPageContent() {
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
   // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
   const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
+  // Prolongation payée dont la page termine le règlement : prêt concerné, étape, début de l'attente.
+  const [extendSettlement, setExtendSettlement] = useState<{ loanId: string; stage: PaidSettlementStage; since: number } | null>(null);
+  const extendProgress = formatWaitElapsed(useElapsedSeconds(extendSettlement?.since ?? null));
   const unmountSignal = useUnmountSignal();
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
@@ -532,14 +537,33 @@ function TrainPageContent() {
     setError(null);
     setNotice(null);
     setBusyKey(key, true);
+    const signal = unmountSignal();
+    const onEnclaveWaiting = (seconds: number | null) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds });
     try {
-      const extended = await retryWhileEnclaveStarts(
-        () => extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote }),
-        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }), signal: unmountSignal() },
+      const outcome = await retryWhileEnclaveStarts(
+        () => extendLoan({
+          loanId: loan.id,
+          datasetId: loan.datasetId,
+          rentalDays,
+          confirmQuote,
+          settlement: {
+            signal,
+            onEnclaveWaiting,
+            onStage: (stage) => setExtendSettlement((previous) => ({
+              loanId: loan.id,
+              stage,
+              since: previous?.loanId === loan.id ? previous.since : Date.now(),
+            })),
+          },
+        }),
+        { onWaiting: onEnclaveWaiting, signal },
       );
-      if (extended) setExtending(null);
+      if (outcome) setExtending(null);
+      // Budget de la page écoulé : le reaper applique la prolongation, même page fermée.
+      if (outcome === "deferred") setNotice(EXTENSION_PENDING);
       await refresh();
     } catch (err) {
+      if (signal.aborted) return;
       const message = messageOf(err);
       if (isSettlementPending(message)) setNotice(message);
       else setError(message);
@@ -547,6 +571,7 @@ function TrainPageContent() {
     } finally {
       activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
+      setExtendSettlement((previous) => (previous?.loanId === loan.id ? null : previous));
     }
   }
 
@@ -993,6 +1018,25 @@ function TrainPageContent() {
                         <p className="w-full text-xs text-muted">
                           {t("Chaque jour ajouté est payé au prix par jour du dataset, plus les frais de calcul de Sirius à prix coûtant. Le total exact est affiché dans le devis, avant tout paiement.")}
                         </p>
+                        {extendSettlement?.loanId === l.id && (
+                          <div className="w-full">
+                            <WaitSteps
+                              testId="extend-settlement"
+                              steps={[
+                                { id: "payment", label: t("Paiement envoyé à l’escrow"), status: "done" },
+                                {
+                                  id: "finality",
+                                  label: t("Confirmation du paiement par le réseau"),
+                                  status: extendSettlement.stage === "confirming" ? "active" : "done",
+                                  detail: extendSettlement.stage === "confirming" ? t("En général quelques secondes") : undefined,
+                                },
+                                { id: "apply", label: t("Ajout des jours à la location"), status: extendSettlement.stage === "activating" ? "active" : "pending" },
+                              ]}
+                              progress={t(extendProgress.key, extendProgress.params)}
+                              closeNote={t("Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.")}
+                            />
+                          </div>
+                        )}
                         {extendWait?.loanId === l.id && (
                           <div className="w-full">
                             <EnclaveStartingSteps

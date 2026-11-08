@@ -1,11 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
+import { formatWaitElapsed, WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
+import { useElapsedSeconds } from "@/components/ui/useElapsedSeconds";
 import type { ComputeQuote } from "@/lib/billing/quote";
-import { buyApiAccess } from "@/lib/loans/client";
+import { buyApiAccess, type PaidSettlementStage } from "@/lib/loans/client";
 import { isSettlementPending } from "@/lib/loans/settlement-status";
 import { messageOf } from "@/lib/errors-client";
 import type { ApiKeysOverview } from "@/lib/train/api-keys-client";
@@ -13,7 +14,7 @@ import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
 import type { PendingCallPack } from "./BuyCallsPanel";
 
-type BuyPhase = "preparing" | "quote" | "payment";
+type BuyPhase = "preparing" | "quote" | "payment" | PaidSettlementStage;
 
 /** Pass refusé pour toujours par l'enclave (base du prix changée) : rien versé, remboursable à l'échéance de l'escrow. */
 export interface RefusedPass {
@@ -23,7 +24,8 @@ export interface RefusedPass {
 
 /**
  * Accès API payé au jour (D-32) : état de la couverture, achat du pass jusqu'à l'échéance (devis
- * signé par l'enclave, puis même paiement qu'un pack) et complément après une prolongation.
+ * signé par l'enclave, puis même paiement qu'un pack, activation terminée par la page tant qu'elle
+ * reste ouverte) et complément après une prolongation.
  * Sans pass couvrant l'instant présent, l'API refuse tout appel et aucune clé ne se crée.
  */
 export function ApiAccessPanel({
@@ -50,11 +52,13 @@ export function ApiAccessPanel({
 }) {
   const { locale, t } = useLocale();
   const [phase, setPhase] = useState<BuyPhase | null>(null);
+  const [settlingSince, setSettlingSince] = useState<number | null>(null);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const running = useRef(false);
   const unmountSignal = useUnmountSignal();
+  const elapsed = useElapsedSeconds(settlingSince);
   const date = (iso: string) => new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" });
   const paid = access.paid;
   const topUp = paid && access.daysToBuy > 0;
@@ -65,8 +69,9 @@ export function ApiAccessPanel({
     setError(null);
     setNotice(null);
     setPhase("preparing");
+    const signal = unmountSignal();
     try {
-      const accepted = await retryWhileEnclaveStarts(() => buyApiAccess({
+      const outcome = await retryWhileEnclaveStarts(() => buyApiAccess({
         loanId,
         datasetId,
         confirmQuote: async (quote) => {
@@ -75,10 +80,21 @@ export function ApiAccessPanel({
           if (ok) setPhase("payment");
           return ok;
         },
-      }), { onWaiting: setEnclaveRetry, signal: unmountSignal() });
-      if (accepted) setNotice(t("Accès API payé : il s’active dès la confirmation du paiement, même si tu fermes la page."));
+        settlement: {
+          signal,
+          onEnclaveWaiting: setEnclaveRetry,
+          onStage: (stage) => {
+            setPhase(stage);
+            setSettlingSince((since) => since ?? Date.now());
+          },
+        },
+      }), { onWaiting: setEnclaveRetry, signal });
+      // Réglé : la couverture rechargée (« API payée jusqu’au … ») le montre. Budget de la page
+      // écoulé : le reaper termine, même page fermée.
+      if (outcome === "deferred") setNotice(t("Accès API payé : il s’active dès la confirmation du paiement, même si tu fermes la page."));
       await onPurchased();
     } catch (cause) {
+      if (signal.aborted) return;
       const message = messageOf(cause);
       if (isSettlementPending(message)) setNotice(message);
       else setError(message);
@@ -86,12 +102,15 @@ export function ApiAccessPanel({
     } finally {
       running.current = false;
       setPhase(null);
+      setSettlingSince(null);
     }
   }
 
-  const order: readonly BuyPhase[] = ["preparing", "quote", "payment"];
+  const order: readonly BuyPhase[] = ["preparing", "quote", "payment", "confirming", "activating"];
   const current = phase ? order.indexOf(phase) : -1;
   const status = (index: number): WaitStep["status"] => (index < current ? "done" : index === current ? "active" : "pending");
+  const settling = phase === "confirming" || phase === "activating";
+  const progress = formatWaitElapsed(elapsed);
   const days = access.daysToBuy === 1 ? t("1 jour") : t("{days} jours", { days: access.daysToBuy });
 
   return (
@@ -154,9 +173,13 @@ export function ApiAccessPanel({
             { id: "quote", label: t("Devis signé par l’enclave"), status: status(0) },
             { id: "accept", label: t("Acceptation du devis"), status: status(1) },
             { id: "payment", label: t("Paiement dans ton wallet (approbation puis verrouillage)"), status: status(2) },
-            { id: "activate", label: t("Confirmation du paiement et activation de l’accès API"), status: "pending" },
+            { id: "finality", label: t("Confirmation du paiement par le réseau"), status: status(3), detail: phase === "confirming" ? t("En général quelques secondes") : undefined },
+            { id: "activate", label: t("Activation de l’accès API dans l’enclave"), status: status(4) },
           ]}
-          closeNote={t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, l’accès API s’active même si tu la fermes.")}
+          progress={settling ? t(progress.key, progress.params) : undefined}
+          closeNote={settling
+            ? t("Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.")
+            : t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, l’accès API s’active même si tu la fermes.")}
         />
       )}
       {enclaveRetry !== null && <EnclaveStartingSteps phase="starting" retryInSeconds={enclaveRetry} testId="api-access-enclave-starting" />}

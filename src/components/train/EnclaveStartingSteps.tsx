@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { WaitSteps } from "@/components/ui/WaitSteps";
+import { useState } from "react";
+import { formatWaitElapsed, WaitSteps } from "@/components/ui/WaitSteps";
+import { useElapsedSeconds } from "@/components/ui/useElapsedSeconds";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 /** Au-delà, l'explication cède la place à un message rassurant (démarrage mesuré : environ 2 min). */
@@ -28,14 +29,8 @@ export function EnclaveStartingSteps({
   const { t } = useLocale();
   const requested = phase === "starting" || retryInSeconds != null;
   const [startedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(startedAt);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const minutes = Math.floor(elapsed / 60);
-  const seconds = elapsed % 60;
+  const elapsed = useElapsedSeconds(startedAt);
+  const progress = formatWaitElapsed(elapsed);
   return (
     <WaitSteps
       testId={testId}
@@ -53,7 +48,7 @@ export function EnclaveStartingSteps({
           detail: retryInSeconds != null ? t("Nouvel essai dans ~{seconds} s", { seconds: retryInSeconds }) : undefined,
         },
       ]}
-      progress={minutes > 0 ? t("Attente : {minutes} min {seconds} s", { minutes, seconds }) : t("Attente : {seconds} s", { seconds })}
+      progress={t(progress.key, progress.params)}
       canClose
       closeNote={closeNote}
     />

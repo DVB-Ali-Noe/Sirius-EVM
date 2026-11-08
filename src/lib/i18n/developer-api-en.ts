@@ -90,7 +90,9 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "Devis signé par l’enclave": "Quote signed by the enclave",
   "Acceptation du devis": "Accepting the quote",
   "Paiement dans ton wallet (approbation puis verrouillage)": "Payment in your wallet (approval, then lock)",
-  "Confirmation du paiement et crédit des appels": "Payment confirmation and call crediting",
+  "En général quelques secondes": "Usually a few seconds",
+  "Garde cette page ouverte : l’activation se termine ici dès la confirmation du réseau.":
+    "Keep this page open: activation completes here as soon as the network confirms.",
   "Pack de {count} appels en cours": "Pack of {count} calls in progress",
   "Paiement envoyé à l’escrow": "Payment sent to escrow",
   "Confirmation du paiement par le réseau": "Network payment confirmation",
@@ -175,7 +177,6 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
   "Accès API terminé le {date}": "API access ended on {date}",
   "Activation de l’accès API dans l’enclave": "Activating API access in the enclave",
   "Activer l’API — {amount} pour {days}": "Activate the API — {amount} for {days}",
-  "Confirmation du paiement et activation de l’accès API": "Payment confirmation and API access activation",
   "Garde la page ouverte jusqu’à la signature du paiement ; ensuite, l’accès API s’active même si tu la fermes.":
     "Keep the page open until the payment is signed; after that, API access activates even if you close it.",
   "La location a été prolongée : l’API s’arrête le {date}. Paie les jours ajoutés pour la garder active jusqu’au {end}.":
