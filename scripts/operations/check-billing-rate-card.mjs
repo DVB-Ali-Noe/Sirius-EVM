@@ -12,7 +12,11 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-/** Lecture minimale du format écrit par `vercel pull` (KEY="valeur échappée"), sans dépendance. */
+/**
+ * Lecture minimale du format écrit par `vercel pull` (vercel@59) : `KEY="valeur"` où seuls les
+ * retours à la ligne sont échappés (`\n`, `\r`) ; guillemets et barres obliques inverses restent
+ * bruts. La valeur va donc du premier au DERNIER guillemet de la ligne, sans autre déséchappement.
+ */
 export function parseEnvFile(text) {
   const env = {};
   for (const raw of text.split(/\r?\n/)) {
@@ -22,16 +26,8 @@ export function parseEnvFile(text) {
     if (!match) continue;
     const [, key, rest] = match;
     let value = rest;
-    if (rest.startsWith("\"")) {
-      value = "";
-      for (let i = 1; i < rest.length; i++) {
-        const c = rest[i];
-        if (c === "\"") break;
-        if (c === "\\" && i + 1 < rest.length) {
-          const n = rest[++i];
-          value += n === "n" ? "\n" : n === "r" ? "\r" : n === "t" ? "\t" : n;
-        } else value += c;
-      }
+    if (rest.startsWith("\"") && rest.lastIndexOf("\"") > 0) {
+      value = rest.slice(1, rest.lastIndexOf("\"")).replace(/\\n/g, "\n").replace(/\\r/g, "\r");
     } else if (rest.startsWith("'")) {
       const end = rest.indexOf("'", 1);
       value = rest.slice(1, end === -1 ? undefined : end);
@@ -43,8 +39,15 @@ export function parseEnvFile(text) {
   return env;
 }
 
+/** Variables lues par la porte : `vercel pull` écrit `[SENSITIVE]` à la place d'une variable Sensitive. */
+const GATE_VARIABLES = ["SIRIUS_BILLING_VERSION", "SIRIUS_BILLING_POLICY_JSON", "SIRIUS_PHALA_DEMO"];
+
 /** Renvoie la liste des problèmes (vide = déploiement autorisé) et si la porte s'applique. */
 export function checkRateCard(env) {
+  const hidden = GATE_VARIABLES.filter((key) => env[key] === "[SENSITIVE]");
+  if (hidden.length > 0) {
+    return { applies: true, problems: hidden.map((key) => `${key} est marquée Sensitive sur Vercel : illisible par la porte, la repasser en non-Sensitive (ce n'est pas un secret)`) };
+  }
   const version = env.SIRIUS_BILLING_VERSION ?? "";
   if (version !== "7") return { applies: false, reason: `facturation ${version || "v6 (défaut)"} : porte D-33 sans objet`, problems: [] };
   if (env.SIRIUS_PHALA_DEMO === "true") return { applies: false, reason: "instance de démonstration Phala (SIRIUS_PHALA_DEMO=true) : aucune location", problems: [] };

@@ -369,6 +369,8 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 
 ### 3.1 Next sur Vercel (projet `sirius-evm`, Production)
 
+`SIRIUS_BILLING_VERSION`, `SIRIUS_BILLING_POLICY_JSON` et `SIRIUS_PHALA_DEMO` ne doivent **pas** être marquées Sensitive : `vercel pull` les remplace alors par `[SENSITIVE]`, et la porte tarif D-33 de la pipeline (`scripts/operations/check-billing-rate-card.mjs`) refuse le déploiement en nommant la variable. Aucune n'est un secret.
+
 | Variable | Valeur attendue | Source | Obligatoire | `.env.example` |
 |---|---|---|---|---|
 | `EVM_NETWORK`, `NEXT_PUBLIC_EVM_NETWORK` | `mainnet` | décision | oui | oui |
