@@ -55,6 +55,17 @@ const API_EN: Record<string, string> = {
   "Clé inconnue ou rattachée à un autre emprunt.": "Unknown key, or one attached to another loan.",
   "Clé révoquée.": "Revoked key.",
   "Location expirée : prolonge-la depuis la page Train.": "Rental expired: extend it from the Train page.",
+  "Accès API non payé pour cette période : active l’API (pass journalier) depuis la page Entraîner.":
+    "API access not paid for this period: activate the API (daily pass) from the Train page.",
+  "Accès payé au jour": "Daily paid access",
+  "L’API est payée au jour : sur la page Entraîner, active l’API en achetant un pass journalier, payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle, Sirius retient ce minimum). Le devis signé affiche le nombre de jours et le total avant tout paiement.":
+    "The API is paid per day: on the Train page, activate the API by buying a daily pass, paid to Sirius at the daily price of the current tariff (plus 0.001 USDC to the provider: the contract refuses a zero provider share, so Sirius uses this minimum). The signed quote shows the number of days and the total before any payment.",
+  "Tu peux aussi inclure l’API dès l’emprunt (option du panneau d’emprunt) : un seul devis et un seul paiement, jours × prix journalier de l’API en plus des frais de calcul, remboursés avec le reste si l’entraînement échoue.":
+    "You can also include the API when renting (option in the borrow panel): one quote and one payment, days × the API daily price on top of the compute fees, refunded with the rest if training fails.",
+  "Le pass couvre la location jusqu’à sa fin. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée. Une prolongation inclut d’office l’API pour les jours ajoutés quand l’accès payé (inclus à l’emprunt ou par passes) atteint l’échéance en cours ; sinon, l’API s’arrête à l’ancienne échéance et les nouveaux jours se paient par un pass complémentaire.":
+    "The pass covers the rental up to its end. Without paid access covering the current time, the API answers 403 api_access_required and no key can be created. An extension automatically includes the API for the added days when paid access (included at rental or through passes) reaches the current end; otherwise the API stops at the previous end date and the new days are paid with a top-up pass.",
+  "Les prédictions depuis le site restent incluses sans pass. Le quota du jour et les packs s’appliquent en plus du pass.":
+    "Predictions from the website stay included without a pass. The daily quota and packs apply on top of the pass.",
   "Quota du jour épuisé et plus aucun appel prépayé.": "Today's quota used up and no prepaid call left.",
   "Profil sans API (régression linéaire).": "Profile without API (linear regression).",
   "Variables absentes, en trop ou non numériques.": "Missing, extra or non-numeric features.",
@@ -103,6 +114,7 @@ const TOC = [
   { id: "routes", label: "Routes" },
   { id: "erreurs", label: "Codes d’erreur" },
   { id: "reessais", label: "Délais et réessais" },
+  { id: "acces", label: "Accès payé au jour" },
   { id: "quotas", label: "Quotas et packs" },
   { id: "limites", label: "Limites" },
   { id: "sdk", label: "SDK" },
@@ -175,6 +187,7 @@ const ERRORS: readonly [string, string, string][] = [
   ["unknown_key", "401", "Clé inconnue ou rattachée à un autre emprunt."],
   ["key_revoked", "401", "Clé révoquée."],
   ["rental_expired", "403", "Location expirée : prolonge-la depuis la page Train."],
+  ["api_access_required", "403", "Accès API non payé pour cette période : active l’API (pass journalier) depuis la page Entraîner."],
   ["replayed_request", "409", "Nonce déjà utilisé : chaque requête en demande un nouveau."],
   ["api_not_available_for_profile", "409", "Profil sans API (régression linéaire)."],
   ["invalid_features", "400", "Variables absentes, en trop ou non numériques."],
@@ -274,6 +287,13 @@ export default function ApiDocsPage() {
         <p>{d("Pour réduire ses coûts, Sirius n’allume la machine confidentielle que lorsqu’elle sert : elle s’arrête environ une heure après la dernière activité (appel API, prédiction ou paiement sur le site). Le premier appel après une pause la redémarre et peut prendre environ 2 minutes : il reçoit 503 enclave_starting avec Retry-After, et les SDK réessaient seuls. Une clé inconnue ou révoquée, ou une location échue, ne la démarre jamais.")}</p>
         <p>{d("Pendant un démarrage (environ 2 minutes, jusqu’à 5 exceptionnellement), l’API répond 503 avec le code enclave_starting et un en-tête Retry-After en secondes. Attends ce délai, puis renvoie la requête avec un nouvel horodatage, un nouveau nonce et une nouvelle signature : rien n’a été décompté.")}</p>
         <p>{d("Les SDK le font pour toi, jusqu’à un délai maximal réglable (8 minutes par défaut).")}</p>
+      </DocSection>
+
+      <DocSection id="acces" title={d("Accès payé au jour")}>
+        <p>{d("L’API est payée au jour : sur la page Entraîner, active l’API en achetant un pass journalier, payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle, Sirius retient ce minimum). Le devis signé affiche le nombre de jours et le total avant tout paiement.")}</p>
+        <p>{d("Tu peux aussi inclure l’API dès l’emprunt (option du panneau d’emprunt) : un seul devis et un seul paiement, jours × prix journalier de l’API en plus des frais de calcul, remboursés avec le reste si l’entraînement échoue.")}</p>
+        <p>{d("Le pass couvre la location jusqu’à sa fin. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée. Une prolongation inclut d’office l’API pour les jours ajoutés quand l’accès payé (inclus à l’emprunt ou par passes) atteint l’échéance en cours ; sinon, l’API s’arrête à l’ancienne échéance et les nouveaux jours se paient par un pass complémentaire.")}</p>
+        <p>{d("Les prédictions depuis le site restent incluses sans pass. Le quota du jour et les packs s’appliquent en plus du pass.")}</p>
       </DocSection>
 
       <DocSection id="quotas" title={d("Quotas et packs")}>

@@ -54,6 +54,7 @@ Le [business plan et récapitulatif des coûts](BUSINESS-PLAN.md) centralise dé
 - [ ] API développeurs (D-30) : sur un environnement facturé (environnement de test d'Ali, puis mainnet), configurer le DNS et le certificat de `api.sirius-data.tech` vers ce projet, installer le contrôleur (`SIRIUS_API_AVAILABILITY=true`, CVM de cet environnement, jamais celle de la démo), puis valider la création de clé, l'appel signé, le démarrage à froid (`503` + `Retry-After`) et l'achat d'un pack.
 - [x] Retrait de la régression linéaire (D-31) : profil facultatif, refus dans Next et dans l'enclave pour tout nouvel usage, prêts verrouillés servis, interfaces et textes dérivés du registre. Local, non publié.
 - [ ] Retrait de la régression linéaire (D-31) : reconstruire l'image du runner, rendre le Compose, attester et réépingler pour que l'enclave applique le refus ; Next seul ne suffit pas.
+- [x] Pass d'accès API journalier ([D-32](DECISIONS.md#d-32--pass-daccès-api-payé-au-jour)) implémenté localement : champ `apiAccessDailyComputeAmount`, devis `apiAccessDays`, règlement par `buy-calls` et le reaper, journal des passes dans l'enclave, refus `403 api_access_required`, migration `20261108010000_add_api_access_pass`. Non déployé : image du runner à reconstruire (hash Compose et digest à réattester et épingler) et tarif à compléter du nouveau champ.
 
 Spécification de reprise et limites : [COMPUTE-BILLING.md](COMPUTE-BILLING.md).
 

@@ -13,7 +13,10 @@ import { MAX_DATASET_BYTES, type DatasetRef } from "@/lib/tee/contract";
 import { runnerBudget } from "@/lib/runner/budget";
 import { QUOTE_LIFETIME_SECONDS } from "@/lib/runner/budget-ledger";
 import type { ModelId } from "@/lib/models/registry";
-import { isCallPackSize, packDatasetAmount, type CallPackSize } from "./api-pricing";
+import {
+  API_ACCESS_NOT_FOR_SALE, API_ACCESS_NOT_FOR_SALE_CODE, apiAccessComputeAmount, apiAccessDatasetAmount, isApiAccessDays,
+  isCallPackSize, packDatasetAmount, type CallPackSize,
+} from "./api-pricing";
 import { billingPolicy, type BillingPolicy } from "./config";
 import { computeQuoteHash, parseComputeQuote, quoteAuthorizationTypedData, verifyComputeQuote, type ComputeQuote, type SignedComputeQuote } from "./quote";
 import { datasetAmountFor, isValidRentalDays } from "./rental";
@@ -65,16 +68,18 @@ function callsPerDayFor(apiCallsPerDay: BillingPolicy["apiCallsPerDay"], modelId
  * Devis contre le dataset vérifié par le reçu runner. Prix par jour × `rentalDays` (D-29), durée
  * bornée par `maxRentalDays` du reçu ; un devis hérité (`rentalDays` nul) vaut le prix forfaitaire.
  * Un pack d'appels (D-30) vaut `callPack × ceil(prix par jour / apiCallsPerDay)`, quota lu dans
- * `apiCallsPerDay` (par défaut la politique installée). Prolongation et pack : aucune retenue d'échec.
+ * `apiCallsPerDay` (par défaut la politique installée) ; un pass d'accès API (D-32), le minimum du
+ * contrat. Prolongation, pack et pass : aucune retenue d'échec.
  */
 export function assertQuoteDataset(quote: ComputeQuote, dataset: DatasetRef, receipt: string, borrower: string, loanId: string,
   apiCallsPerDay?: BillingPolicy["apiCallsPerDay"]): void {
   const days = quote.rentalDays;
   const datasetAmount = days === null ? dataset.priceUsdcAtomic
     : !isValidRentalDays(days, dataset.maxRentalDays) ? null
-      : quote.callPack === undefined ? datasetAmountFor(dataset.priceUsdcAtomic, days)
-        : packDatasetAmount(dataset.priceUsdcAtomic, callsPerDayFor(apiCallsPerDay ?? billingPolicy().apiCallsPerDay, dataset.modelId), quote.callPack);
-  const noTraining = quote.extendsLoanId !== undefined || quote.callPack !== undefined;
+      : quote.apiAccessDays !== undefined ? apiAccessDatasetAmount(quote.usdcDecimals)
+        : quote.callPack === undefined ? datasetAmountFor(dataset.priceUsdcAtomic, days)
+          : packDatasetAmount(dataset.priceUsdcAtomic, callsPerDayFor(apiCallsPerDay ?? billingPolicy().apiCallsPerDay, dataset.modelId), quote.callPack);
+  const noTraining = quote.extendsLoanId !== undefined || quote.packForLoanId !== undefined;
   if (quote.loanId !== loanId || quote.borrower !== borrower.toLowerCase() || quote.datasetId !== dataset.datasetId
     || quote.datasetReceiptHash !== keccak256(toHex(receipt)) || quote.datasetAmount !== datasetAmount
     || (noTraining && quote.maxFailureFee !== "0")
@@ -97,12 +102,31 @@ export async function runnerComputeQuote(value: unknown, requireUnexpired = fals
  * de la politique. Prolongation (`extendsLoanId`) ou pack d'appels (`callPack`) : rien n'est
  * entraîné, le compute vaut `noTrainingComputeAmount` (prix coûtant, le contrat refuse 0) et
  * aucune retenue d'échec n'est possible. Le pack vaut `callPack × ceil(prix par jour / quota)`.
+ * Pass d'accès API (`apiAccessDays`, D-32) : le fournisseur reçoit le minimum du contrat
+ * (0,001 USDC), Sirius `apiAccessDays × apiAccessDailyComputeAmount` ; tarif sans ce champ : refus.
+ * API incluse (`apiAccessIncluded`, emprunt ou prolongation) : `rentalDays × apiAccessDailyComputeAmount`
+ * s'ajoute au compute (`apiAccessAmount`), retenue d'échec inchangée ; profil sans API ou tarif sans
+ * prix journalier : refus.
  */
 export function computeQuoteAmounts(policy: BillingPolicy, input: {
-  dataset: Pick<DatasetRef, "modelId" | "priceUsdcAtomic">; rentalDays: number; extendsLoanId?: string; callPack?: CallPackSize;
-}): { datasetAmount: string; computeAmount: string; maxFailureFee: string } {
+  dataset: Pick<DatasetRef, "modelId" | "priceUsdcAtomic">; rentalDays: number; extendsLoanId?: string;
+  callPack?: CallPackSize; apiAccessDays?: number; apiAccessIncluded?: boolean;
+}): { datasetAmount: string; computeAmount: string; maxFailureFee: string; apiAccessIncluded?: true; apiAccessAmount?: string } {
   const profile = policy.profiles[input.dataset.modelId];
   if (!profile) throw new AppError("Tarif compute absent, invalide ou périmé", 503);
+  if (input.apiAccessIncluded && (input.apiAccessDays !== undefined || input.callPack !== undefined)) {
+    throw new AppError("Accès API inclus du devis invalide", 409);
+  }
+  if (input.apiAccessDays !== undefined) {
+    if (input.extendsLoanId !== undefined || input.callPack !== undefined) throw new AppError("Pack d’appels du devis invalide", 409);
+    if (!isApiAccessDays(input.apiAccessDays)) throw new AppError("Nombre de jours d’accès API invalide", 400);
+    const fee = policy.apiAccessDailyComputeAmount;
+    if (fee === undefined) throw new AppError(API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
+    return {
+      datasetAmount: apiAccessDatasetAmount(policy.usdcDecimals),
+      computeAmount: apiAccessComputeAmount(fee, input.apiAccessDays), maxFailureFee: "0",
+    };
+  }
   if (input.callPack !== undefined) {
     if (input.extendsLoanId !== undefined) throw new AppError("Pack d’appels du devis invalide", 409);
     if (!isCallPackSize(input.callPack)) throw new AppError("Taille de pack d’appels invalide", 400);
@@ -112,24 +136,37 @@ export function computeQuoteAmounts(policy: BillingPolicy, input: {
     };
   }
   const datasetAmount = datasetAmountFor(input.dataset.priceUsdcAtomic, input.rentalDays);
-  if (input.extendsLoanId !== undefined) return { datasetAmount, computeAmount: policy.noTrainingComputeAmount, maxFailureFee: "0" };
   const minimum = BigInt(policy.minimumComputeAmount);
   const configured = BigInt(profile.computeAmount);
-  return { datasetAmount, computeAmount: String(configured > minimum ? configured : minimum), maxFailureFee: profile.maxFailureFee };
+  const base = input.extendsLoanId !== undefined
+    ? { datasetAmount, computeAmount: policy.noTrainingComputeAmount, maxFailureFee: "0" }
+    : { datasetAmount, computeAmount: String(configured > minimum ? configured : minimum), maxFailureFee: profile.maxFailureFee };
+  if (!input.apiAccessIncluded) return base;
+  callsPerDayFor(policy.apiCallsPerDay, input.dataset.modelId);
+  const fee = policy.apiAccessDailyComputeAmount;
+  if (fee === undefined) throw new AppError(API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
+  const apiAccessAmount = apiAccessComputeAmount(fee, input.rentalDays);
+  return { ...base, computeAmount: (BigInt(base.computeAmount) + BigInt(apiAccessAmount)).toString(), apiAccessIncluded: true, apiAccessAmount };
 }
 
 /**
- * Devis d'un emprunt (`rentalDays` jours), d'une prolongation (`extendsLoanId`) ou d'un pack
- * d'appels (`callPack` + `packForLoanId`, `rentalDays` recopié du prêt d'origine) : montants de
+ * Devis d'un emprunt (`rentalDays` jours), d'une prolongation (`extendsLoanId`), d'un pack
+ * d'appels (`callPack` + `packForLoanId`) ou d'un pass d'accès API (`apiAccessDays` +
+ * `packForLoanId`), `rentalDays` recopié du prêt d'origine pour ces deux derniers : montants de
  * `computeQuoteAmounts`.
  */
 export async function prepareComputeQuote(input: {
   dataset: DatasetRef; datasetReceipt: string; borrower: string; provider: string;
   loanId: string; onChainDatasetId: Hex; hashlock: Hex; authorizationDeadline: number;
   rentalDays: number; extendsLoanId?: string; callPack?: CallPackSize; packForLoanId?: string;
+  /** Pass : jours, échéance de la location et couverture déjà payée relevées par l'enclave (base du prix). */
+  apiAccessDays?: number; apiAccessRentalEnd?: number; apiAccessCoveredUntil?: number;
+  /** API incluse (emprunt sur demande, prolongation d'un prêt couvert jusqu'à son échéance). */
+  apiAccessIncluded?: boolean;
 }): Promise<SignedComputeQuote> {
-  if ((input.callPack === undefined) !== (input.packForLoanId === undefined)
-    || (input.callPack !== undefined && input.extendsLoanId !== undefined)) {
+  const purchases = Number(input.callPack !== undefined) + Number(input.apiAccessDays !== undefined);
+  if (purchases > 1 || (purchases === 1) !== (input.packForLoanId !== undefined)
+    || (input.packForLoanId !== undefined && input.extendsLoanId !== undefined)) {
     throw new AppError("Pack d’appels du devis invalide", 400);
   }
   if (!isValidRentalDays(input.rentalDays, input.dataset.maxRentalDays)) {
@@ -144,6 +181,8 @@ export async function prepareComputeQuote(input: {
     if (signed.quote.onChainDatasetId !== input.onChainDatasetId || signed.quote.hashlock !== input.hashlock
       || signed.quote.provider !== input.provider.toLowerCase() || signed.quote.rentalDays !== input.rentalDays
       || signed.quote.extendsLoanId !== input.extendsLoanId || signed.quote.callPack !== input.callPack
+      || (signed.quote.apiAccessDays === undefined) !== (input.apiAccessDays === undefined)
+      || (signed.quote.apiAccessIncluded ?? false) !== (input.apiAccessIncluded ?? false)
       || signed.quote.packForLoanId !== input.packForLoanId) throw new AppError("Devis compute hors scope", 409);
     return signed;
   }
@@ -171,6 +210,10 @@ export async function prepareComputeQuote(input: {
     tariffVersion: policy.tariffVersion, expiresAt, failurePolicy: "consumed-execution-only", rentalDays: input.rentalDays,
     ...(input.extendsLoanId === undefined ? {} : { extendsLoanId: input.extendsLoanId }),
     ...(input.callPack === undefined ? {} : { callPack: input.callPack, packForLoanId: input.packForLoanId }),
+    ...(input.apiAccessDays === undefined ? {} : {
+      apiAccessDays: input.apiAccessDays, apiAccessRentalEnd: input.apiAccessRentalEnd, packForLoanId: input.packForLoanId,
+      ...(input.apiAccessCoveredUntil === undefined ? {} : { apiAccessCoveredUntil: input.apiAccessCoveredUntil }),
+    }),
   });
   const signature = await settlementAccount().signTypedData(quoteAuthorizationTypedData(quote));
   const signed: SignedComputeQuote = { quote, authorization: { deadline: quote.expiresAt, signature } };

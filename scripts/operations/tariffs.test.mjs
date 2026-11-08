@@ -53,10 +53,23 @@ test("la politique runner n'est produite qu'après approbation, financement, cal
   assert.deepEqual(report.blockers, []);
   const policy = report.billingPolicy;
   // Format exact attendu par src/lib/billing/config.ts.
-  assert.deepEqual(Object.keys(policy).sort(), ["apiCallsPerDay", "chainId", "computeRecipient", "costReference", "minimumComputeAmount",
-    "noTrainingComputeAmount", "profiles", "tariffVersion", "usdc", "usdcDecimals", "validUntil", "version"]);
+  assert.deepEqual(Object.keys(policy).sort(), ["apiAccessDailyComputeAmount", "apiCallsPerDay", "chainId", "computeRecipient", "costReference",
+    "minimumComputeAmount", "noTrainingComputeAmount", "profiles", "tariffVersion", "usdc", "usdcDecimals", "validUntil", "version"]);
   // Prolongations et packs (D-30) : 0,10 USD à prix coûtant, arrondi vers le haut aux décimales du token.
   assert.equal(policy.noTrainingComputeAmount, "100000000000000000");
+  // Pass d'accès API (D-32) : 1,50 USD par jour proposé, arrondi vers le haut.
+  assert.equal(policy.apiAccessDailyComputeAmount, "1500000000000000000");
+  assert.deepEqual(report.apiAccess, { dailyUsdMicros: "1500000", dailyComputeAmount: "1500000000000000000" });
+  const unsold = clone(approved);
+  delete unsold.api.accessDailyUsdMicros;
+  const unsoldReport = tariffReport(unsold, verifiedPlan, { usdc: USDC, usdcDecimals: 6, now: 1_800_000_000_000 });
+  assert.equal(Object.hasOwn(unsoldReport.billingPolicy, "apiAccessDailyComputeAmount"), false, "sans prix : accès API non vendu");
+  assert.equal(unsoldReport.apiAccess, null);
+  for (const fee of ["0", "1.5", 1500000]) {
+    const invalid = clone(approved);
+    invalid.api.accessDailyUsdMicros = fee;
+    assert.throws(() => tariffReport(invalid, verifiedPlan, { usdc: USDC, usdcDecimals: 6 }), /invalide/, String(fee));
+  }
   assert.deepEqual(policy.apiCallsPerDay, { logistic_regression: 50, gradient_boosted_trees: 100 });
   assert.equal(policy.chainId, 46630);
   assert.equal(policy.computeRecipient, plan.computeRecipient);

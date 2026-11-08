@@ -182,6 +182,32 @@ test("emprunt : compute du profil relevé au minimum ; prolongation et pack : fr
   assert.equal(computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, callPack: 10000 }).datasetAmount, "200010000");
 });
 
+test("API incluse : jours × tarif journalier ajoutés au compute d'un emprunt ou d'une prolongation, retenue et part fournisseur inchangées", () => {
+  const logistic = { modelId: "logistic_regression" as const, priceUsdcAtomic: "1000001" };
+  const priced = billing({ apiAccessDailyComputeAmount: "1500000" });
+  assert.deepEqual(computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 7, apiAccessIncluded: true }),
+    { datasetAmount: "7000007", computeAmount: "17500000", maxFailureFee: "10000", apiAccessIncluded: true, apiAccessAmount: "10500000" });
+  assert.deepEqual(computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 2, extendsLoanId: "loan-origin", apiAccessIncluded: true }),
+    { datasetAmount: "2000002", computeAmount: "3100000", maxFailureFee: "0", apiAccessIncluded: true, apiAccessAmount: "3000000" });
+  assert.deepEqual(computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 7 }),
+    { datasetAmount: "7000007", computeAmount: "7000000", maxFailureFee: "10000" }, "sans l'option : inchangé");
+  assert.throws(() => computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, apiAccessIncluded: true }),
+    (error: unknown) => error instanceof AppError && error.status === 409 && error.code === "api_access_not_for_sale");
+  assert.throws(() => computeQuoteAmounts(priced, { dataset: { ...logistic, modelId: "linear_regression" }, rentalDays: 1, apiAccessIncluded: true }),
+    /API indisponible/);
+  assert.throws(() => computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 7, callPack: 100, apiAccessIncluded: true }), /inclus/);
+  // Devis : drapeau et montant ensemble, montant couvert par le compute au-delà de la retenue maximale.
+  const included = { ...quote(), computeAmount: "1500000", apiAccessIncluded: true, apiAccessAmount: "1000000" };
+  assert.equal(parseComputeQuote(included).apiAccessAmount, "1000000");
+  for (const changes of [{ apiAccessAmount: undefined }, { apiAccessIncluded: undefined }, { apiAccessAmount: "0" },
+    { apiAccessAmount: "1495000" }, { apiAccessIncluded: "true" }, { rentalDays: null }]) {
+    const value: Record<string, unknown> = { ...included, ...changes };
+    for (const [key, field] of Object.entries(value)) if (field === undefined) delete value[key];
+    assert.throws(() => parseComputeQuote(value), /invalide/, JSON.stringify(changes));
+  }
+  assert.notEqual(computeQuoteHash(parseComputeQuote(included)), computeQuoteHash({ ...quote(), computeAmount: "1500000" }));
+});
+
 test("pas de pack pour un profil sans quota d'API, la régression linéaire, une taille invalide ou une prolongation", () => {
   const logistic = { modelId: "logistic_regression" as const, priceUsdcAtomic: "1000000" };
   assert.throws(() => computeQuoteAmounts(billing({ apiCallsPerDay: {} }), { dataset: logistic, rentalDays: 1, callPack: 100 }), /API indisponible/);
@@ -215,6 +241,55 @@ test("le devis d'un pack se vérifie contre le dataset : montant du pack, aucune
     datasetReceiptHash: keccak256(toHex(receipt)), rentalDays: 7, extendsLoanId: "loan-origin", datasetAmount: "7000007", maxFailureFee: "0", ...changes });
   check(extension({}));
   assert.throws(() => check(extension({ maxFailureFee: "1" })), /hors scope/);
+});
+
+test("pass d'accès API : jours × tarif journalier à Sirius, minimum du contrat au fournisseur, aucune retenue", () => {
+  const logistic = { modelId: "logistic_regression" as const, priceUsdcAtomic: "1000001" };
+  const priced = billing({ apiAccessDailyComputeAmount: "1500000" });
+  assert.deepEqual(computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 7, apiAccessDays: 3 }),
+    { datasetAmount: "1000", computeAmount: "4500000", maxFailureFee: "0" });
+  assert.equal(computeQuoteAmounts({ ...priced, usdcDecimals: 18 }, { dataset: logistic, rentalDays: 7, apiAccessDays: 1 }).datasetAmount,
+    "1000000000000000", "0,001 jeton à 18 décimales");
+  // Tarif sans champ d'accès API : pas en vente, jamais gratuit.
+  assert.throws(() => computeQuoteAmounts(billing(), { dataset: logistic, rentalDays: 7, apiAccessDays: 3 }),
+    (error: unknown) => error instanceof AppError && error.status === 409 && error.code === "api_access_not_for_sale");
+  for (const input of [{ apiAccessDays: 0 }, { apiAccessDays: 3, callPack: 100 as const }, { apiAccessDays: 3, extendsLoanId: "loan-origin" }]) {
+    assert.throws(() => computeQuoteAmounts(priced, { dataset: logistic, rentalDays: 7, ...input }), JSON.stringify(input));
+  }
+});
+
+test("le devis d'un pass désigne le prêt d'origine, des jours bornés, exclusif d'un pack et d'une prolongation", () => {
+  const receipt = "dataset-receipt";
+  const dataset: DatasetRef = { datasetId: "dataset", cid: "cid", wrappedKey: "key", merkleRoot: "root",
+    priceUsdcAtomic: "1000001", challengeDays: 1, maxRentalDays: 10, modelId: "logistic_regression", modelVersion: "1.0.0" };
+  const pass = (changes: Record<string, unknown>) => ({ ...quote(), modelId: "logistic_regression", modelVersion: "1.0.0",
+    datasetReceiptHash: keccak256(toHex(receipt)), rentalDays: 7, apiAccessDays: 3, packForLoanId: "loan-origin",
+    apiAccessRentalEnd: 2_000_000_000_000, apiAccessCoveredUntil: 1_999_000_000_000,
+    datasetAmount: "1000", computeAmount: "4500000", maxFailureFee: "0", ...changes });
+  const parsed = parseComputeQuote(pass({}));
+  assert.deepEqual([parsed.apiAccessDays, parsed.packForLoanId, parsed.callPack], [3, "loan-origin", undefined]);
+  assertQuoteDataset(parsed, dataset, receipt, parsed.borrower, parsed.loanId, billing().apiCallsPerDay);
+  for (const changes of [{ datasetAmount: "2000100" }, { maxFailureFee: "1" }]) {
+    assert.throws(() => assertQuoteDataset(parseComputeQuote(pass(changes)), dataset, receipt, parsed.borrower, parsed.loanId), /hors scope/);
+  }
+  for (const changes of [{ apiAccessDays: 0 }, { apiAccessDays: 3651 }, { apiAccessDays: "3" }, { packForLoanId: undefined },
+    { callPack: 100 }, { extendsLoanId: "loan-origin" }, { rentalDays: null },
+    // Base du prix : échéance obligatoire, couverture antérieure strictement avant l'échéance.
+    { apiAccessRentalEnd: undefined }, { apiAccessRentalEnd: 0 }, { apiAccessRentalEnd: "2000000000000" },
+    { apiAccessCoveredUntil: 2_000_000_000_000 }, { apiAccessCoveredUntil: 0 }]) {
+    const value = pass(changes) as Record<string, unknown>;
+    for (const [key, field] of Object.entries(value)) if (field === undefined) delete value[key];
+    assert.throws(() => parseComputeQuote(value), /invalide/, JSON.stringify(changes));
+  }
+  assert.throws(() => parseComputeQuote({ ...quote(), apiAccessRentalEnd: 2_000_000_000_000 }), /invalide/, "base sans pass");
+  const firstPass = pass({}) as Record<string, unknown>;
+  delete firstPass.apiAccessCoveredUntil;
+  assert.equal(parseComputeQuote(firstPass).apiAccessCoveredUntil, undefined, "premier pass : aucune couverture antérieure");
+  const hashed = parseComputeQuote(pass({}));
+  assert.deepEqual([hashed.apiAccessRentalEnd, hashed.apiAccessCoveredUntil], [2_000_000_000_000, 1_999_000_000_000]);
+  assert.notEqual(computeQuoteHash(hashed), computeQuoteHash({ ...hashed, apiAccessDays: 4 }), "les jours entrent dans l'empreinte");
+  assert.notEqual(computeQuoteHash(hashed), computeQuoteHash({ ...hashed, apiAccessRentalEnd: 2_000_000_000_001 }), "l'échéance de base aussi");
+  assert.notEqual(computeQuoteHash(hashed), computeQuoteHash(parseComputeQuote(firstPass)), "la couverture de base aussi");
 });
 
 test("la retenue vient de la durée mesurée et reste plafonnée, jamais du forfait de réussite", () => {

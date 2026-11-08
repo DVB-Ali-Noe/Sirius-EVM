@@ -10,6 +10,7 @@ import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import * as exposureLimits from "./exposure-limits";
 import * as rentalRules from "@/lib/billing/rental";
 import * as apiPricing from "@/lib/billing/api-pricing";
+import * as reaperPolicy from "./reaper-policy";
 
 // Audit du 5 octobre, A-06 / A-18 : un prêt PENDING jamais payé réserve de l'exposition gratuitement,
 // et refuser le devis laissait ce PENDING bloquer le compte ; A-33 : le second contrôle d'exposition
@@ -141,6 +142,7 @@ function fixture(rows: LoanRow[], options: FixtureOptions = {}) {
     "@/lib/billing/loan": { verifyPreparedComputeQuote: async (signed: unknown) => signed, loanBillingQuote: () => undefined },
     "@/lib/billing/rental": rentalRules,
     "./rental": {}, "./api-keys": {}, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
+    "@/lib/evm/networks": { resolveUsdcDecimals: () => 6 }, "./reaper-policy": reaperPolicy,
     "@/lib/tee/runner-client": { prepareEscrowLockInRunner: async (
       datasetRef: { priceUsdcAtomic: string }, _receipt: string, _loanId: string, _borrower: string, _deadline: number, rental: RentalTerms,
     ) => {

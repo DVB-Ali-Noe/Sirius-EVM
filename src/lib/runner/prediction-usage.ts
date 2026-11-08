@@ -5,6 +5,8 @@ import { AppError } from "@/lib/app-error";
 import { canonicalSubject } from "@/lib/subject";
 import { MODEL_REF_ID_PATTERN, modelRefString, type ApiRemaining, type ModelRef } from "@/lib/tee/contract";
 import { predictionSessionRevision } from "@/lib/phala-demo/runner-session";
+import { DAY_MS } from "@/lib/billing/rental";
+import { API_ACCESS_STALE, API_ACCESS_STALE_CODE } from "@/lib/billing/api-pricing";
 
 type SqlValue = string | number;
 interface Database {
@@ -89,6 +91,18 @@ function usageDatabase(): Database {
       CREATE TABLE IF NOT EXISTS prediction_packs_v1 (
         pack_loan_id TEXT PRIMARY KEY, subject TEXT NOT NULL, model_ref TEXT NOT NULL,
         calls INTEGER NOT NULL CHECK(calls >= 1), credited_at INTEGER NOT NULL
+      );
+      -- Passes d'accès API (D-32), clé = loanId du prêt de pass : couverture fixée une fois, jamais retirée.
+      CREATE TABLE IF NOT EXISTS api_access_passes_v1 (
+        pass_loan_id TEXT PRIMARY KEY, subject TEXT NOT NULL, model_ref TEXT NOT NULL,
+        days INTEGER NOT NULL CHECK(days >= 1), paid_until INTEGER NOT NULL, recorded_at INTEGER NOT NULL
+      );
+      -- Pass engagé par prêt d'origine (D-32) : posé avant la release, effacé à l'enregistrement du
+      -- pass. Un second pass sur la même base est refusé tant que la release engagée vit.
+      CREATE TABLE IF NOT EXISTS api_access_engaged_v1 (
+        subject TEXT NOT NULL, model_ref TEXT NOT NULL, pass_loan_id TEXT NOT NULL,
+        release_id TEXT NOT NULL, release_fingerprint TEXT NOT NULL, engaged_at INTEGER NOT NULL,
+        PRIMARY KEY(subject, model_ref)
       );`);
     if (Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0) < USAGE_SCHEMA_VERSION) {
       db.exec("BEGIN IMMEDIATE");
@@ -248,4 +262,101 @@ export function clearLoanCredits(loanId: string): void {
   if (!MODEL_REF_ID_PATTERN.test(loanId)) throw new AppError("Scope de prédiction invalide", 400);
   const modelRef = modelRefString(ref);
   transaction((db) => { db.prepare("DELETE FROM prediction_credits_v1 WHERE model_ref = ?").run(modelRef); });
+}
+
+function coverageEnd(db: Database, owner: string, modelRef: string): number | null {
+  const value = db.prepare("SELECT MAX(paid_until) AS paid_until FROM api_access_passes_v1 WHERE subject = ? AND model_ref = ?")
+    .get(owner, modelRef)?.paid_until;
+  if (value === null || value === undefined) return null;
+  const paidUntil = Number(value);
+  if (!Number.isSafeInteger(paidUntil)) throw new AppError("Couverture d’accès API invalide", 503);
+  return paidUntil;
+}
+
+/** Fin (ms) de la couverture d'accès API payée du prêt `loanId` pour `subject`, `null` sans pass (D-32). */
+export function apiAccessPaidUntil(subject: string, loanId: string): number | null {
+  const owner = canonicalSubject(subject);
+  const ref: ModelRef = { kind: "loan", id: loanId };
+  assertScope(owner, ref);
+  return transaction((db) => coverageEnd(db, owner, modelRefString(ref)));
+}
+
+/** Release de pass engagée : opération du journal des transactions de l'enclave. */
+export interface ApiAccessRelease { id: string; fingerprint: string }
+
+/**
+ * Engage un pass d'accès API avant sa release (D-32), dans une seule transaction : la couverture
+ * doit encore valoir celle de son devis (`coveredUntil`), et aucun autre pass du même prêt ne doit
+ * être engagé avec une release encore vivante (`isLive` : en cours dans ce processus, ou signée dans
+ * le journal des transactions sans échec définitif). Sinon refus `api_access_stale`, avant toute
+ * transaction. Idempotent pour le même pass ; un marqueur d'un pass dont la release n'a jamais été
+ * engagée ou a définitivement échoué est repris. Persistant : survit au redémarrage du runner.
+ */
+export function engageApiAccessPass(input: {
+  passLoanId: string; originalLoanId: string; subject: string; coveredUntil: number | null; release: ApiAccessRelease;
+  isLive: (passLoanId: string, release: ApiAccessRelease) => boolean; now?: number;
+}): void {
+  const owner = canonicalSubject(input.subject);
+  const ref: ModelRef = { kind: "loan", id: input.originalLoanId };
+  assertScope(owner, ref);
+  if (!MODEL_REF_ID_PATTERN.test(input.passLoanId) || input.passLoanId === input.originalLoanId) {
+    throw new AppError("Identifiant de pass invalide", 400);
+  }
+  const modelRef = modelRefString(ref);
+  transaction((db) => {
+    if (coverageEnd(db, owner, modelRef) !== input.coveredUntil) throw new AppError(API_ACCESS_STALE, 409, API_ACCESS_STALE_CODE);
+    const engaged = db.prepare("SELECT pass_loan_id, release_id, release_fingerprint FROM api_access_engaged_v1 WHERE subject = ? AND model_ref = ?")
+      .get(owner, modelRef);
+    if (engaged && engaged.pass_loan_id !== input.passLoanId
+      && input.isLive(String(engaged.pass_loan_id), { id: String(engaged.release_id), fingerprint: String(engaged.release_fingerprint) })) {
+      throw new AppError(API_ACCESS_STALE, 409, API_ACCESS_STALE_CODE);
+    }
+    db.prepare(`INSERT INTO api_access_engaged_v1(subject, model_ref, pass_loan_id, release_id, release_fingerprint, engaged_at)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(subject, model_ref) DO UPDATE SET pass_loan_id = excluded.pass_loan_id,
+      release_id = excluded.release_id, release_fingerprint = excluded.release_fingerprint, engaged_at = excluded.engaged_at`)
+      .run(owner, modelRef, input.passLoanId, input.release.id, input.release.fingerprint, input.now ?? Date.now());
+  });
+}
+
+/** Couverture déjà enregistrée pour ce prêt payant (pass, emprunt ou prolongation à API incluse). */
+export function hasApiAccessPass(passLoanId: string): boolean {
+  if (!MODEL_REF_ID_PATTERN.test(passLoanId)) throw new AppError("Identifiant de pass invalide", 400);
+  return transaction((db) => Boolean(db.prepare("SELECT 1 AS hit FROM api_access_passes_v1 WHERE pass_loan_id = ?").get(passLoanId)));
+}
+
+/**
+ * Enregistre une couverture d'accès API réglée (D-32), une seule fois par prêt payant (clé
+ * `passLoanId`) : pass, ou emprunt et prolongation à API incluse (clé : ce prêt, éventuellement le
+ * prêt d'origine lui-même), dans la même transaction que la lecture de la couverture :
+ * `paid_until = min(échéance de la location, max(release, couverture précédente) + days jours)`.
+ * Rejouable : une couverture déjà enregistrée ne change rien, même après une prolongation ou un
+ * changement de tarif. Le marqueur d'engagement de ce pass est effacé dans la même transaction.
+ * Renvoie la fin de couverture du prêt.
+ */
+export function recordApiAccessPass(input: {
+  passLoanId: string; originalLoanId: string; subject: string; days: number; releasedAt: number; rentalExpiresAt: number; now?: number;
+}): number {
+  const owner = canonicalSubject(input.subject);
+  const ref: ModelRef = { kind: "loan", id: input.originalLoanId };
+  assertScope(owner, ref);
+  if (!MODEL_REF_ID_PATTERN.test(input.passLoanId)) throw new AppError("Identifiant de pass invalide", 400);
+  if (!Number.isSafeInteger(input.days) || input.days < 1 || !Number.isSafeInteger(input.releasedAt)
+    || !Number.isSafeInteger(input.rentalExpiresAt)) throw new AppError("Pass d’accès API invalide", 400);
+  const modelRef = modelRefString(ref);
+  return transaction((db) => {
+    const recorded = db.prepare("SELECT subject, model_ref, days FROM api_access_passes_v1 WHERE pass_loan_id = ?").get(input.passLoanId);
+    if (recorded) {
+      if (recorded.subject !== owner || recorded.model_ref !== modelRef || Number(recorded.days) !== input.days) {
+        throw new AppError("Pass d’accès API hors scope", 409);
+      }
+      db.prepare("DELETE FROM api_access_engaged_v1 WHERE pass_loan_id = ?").run(input.passLoanId);
+      return coverageEnd(db, owner, modelRef)!;
+    }
+    const start = Math.max(input.releasedAt, coverageEnd(db, owner, modelRef) ?? 0);
+    const paidUntil = Math.min(input.rentalExpiresAt, start + input.days * DAY_MS);
+    db.prepare("INSERT INTO api_access_passes_v1(pass_loan_id, subject, model_ref, days, paid_until, recorded_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(input.passLoanId, owner, modelRef, input.days, paidUntil, input.now ?? Date.now());
+    db.prepare("DELETE FROM api_access_engaged_v1 WHERE pass_loan_id = ?").run(input.passLoanId);
+    return coverageEnd(db, owner, modelRef)!;
+  });
 }

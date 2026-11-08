@@ -8,7 +8,7 @@ import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 import type { Loan } from "@/generated/prisma/client";
 import { API_KEY_ID_PATTERN, type ApiModelInfo, type ApiPrediction, type ApiRemaining } from "@/lib/tee/contract";
 import { apiInfoInRunner, apiPredictInRunner } from "@/lib/tee/runner-client";
-import { recordApiUsage } from "./api-keys";
+import { assertApiAccessPaid, recordApiUsage } from "./api-keys";
 import { EnclaveStarting, enclaveStartingBody, requireRunnerOrWake } from "./availability";
 import { effectiveLoanFinalityTier } from "./finality-tier";
 import { assertSignedPrediction, modelFeaturesFromRunner, parsePredictionFeatures } from "./prediction";
@@ -38,7 +38,7 @@ const apiLimiter = new FixedWindowRateLimiter({ windowMs: 60_000, maxPerKey: 120
 
 /** Refus après authentification par l'enclave : comptés dans le journal d'affichage de la clé. */
 const AUTHENTICATED_REFUSALS: Record<string, true> = {
-  quota_exceeded: true, invalid_features: true, rental_expired: true, api_not_available_for_profile: true,
+  quota_exceeded: true, invalid_features: true, rental_expired: true, api_not_available_for_profile: true, api_access_required: true,
 };
 
 const STATUS_CODES: Record<number, string> = {
@@ -85,7 +85,8 @@ type ServedLoan = Loan & { runnerReceipt: string; settleTxHash: string; model: M
 
 /**
  * Prêt servi par l'API pour la clé `keyId` : clé connue de ce prêt et non révoquée, prêt d'origine
- * réglé, location non échue d'après l'échéance enregistrée. L'enclave refait tous ces contrôles.
+ * réglé, location non échue d'après l'échéance enregistrée, puis pass d'accès API couvrant `now`
+ * (D-32) : une clé sans journée payée ne réveille jamais l'enclave. L'enclave refait tous ces contrôles.
  */
 async function servedLoan(loanId: string, keyId: string, now: number): Promise<ServedLoan> {
   if (phalaDemoInstance() || !LOAN_ID.test(loanId)) throw new AppError("Modèle introuvable", 404, "not_found");
@@ -101,6 +102,7 @@ async function servedLoan(loanId: string, keyId: string, now: number): Promise<S
   if (loan.rentalExpiresAt && now >= loan.rentalExpiresAt.getTime()) {
     throw new AppError("Location expirée : l’emprunteur doit la prolonger", 403, "rental_expired");
   }
+  assertApiAccessPaid(loan, now);
   return { ...loan, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash, model };
 }
 

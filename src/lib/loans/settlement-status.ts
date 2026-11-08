@@ -39,3 +39,10 @@ export const EXTENSION_PENDING = "Prolongation payée : elle s’applique dès l
  * crédite le pack dès que possible, sans autre action de l'emprunteur.
  */
 export const CALLS_PENDING = "Pack d’appels payé : les crédits s’ajoutent dès la confirmation du réseau, sans autre action de ta part";
+
+/**
+ * Pass d'accès API payé (D-32) dont le lock n'est pas encore sous le bloc stable, ou dont le
+ * `release` attend sa finalité : même réponse que `CALLS_PENDING`, et le reaper enregistre le pass
+ * dès que possible, sans autre action de l'emprunteur.
+ */
+export const API_ACCESS_PENDING = "Accès API payé : il s’active dès la confirmation du réseau, sans autre action de ta part";

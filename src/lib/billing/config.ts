@@ -40,6 +40,11 @@ export interface BillingPolicy {
    */
   apiCallsPerDay: Partial<Record<ModelId, number>>;
   /**
+   * Tarif journalier de l'accès API (D-32), payé à Sirius par pass. Absent : l'accès API n'est pas
+   * en vente, donc aucune clé ni aucun appel API (jamais gratuit) ; les passes déjà payés restent servis.
+   */
+  apiAccessDailyComputeAmount?: string;
+  /**
    * Un profil ajouté après coup reste facultatif : les politiques déjà installées dans les
    * volumes du runner restent valides sans réinitialisation, et ce profil n'est simplement
    * pas facturable tant que l'opérateur ne l'a pas tarifé.
@@ -58,6 +63,8 @@ export function validateBillingPolicy(value: unknown): BillingPolicy {
       || !Number.isInteger(p.usdcDecimals) || p.usdcDecimals < 3 || p.usdcDecimals > 30
       || !amount(p.minimumComputeAmount) || BigInt(p.minimumComputeAmount) <= BigInt(0)
       || !amount(p.noTrainingComputeAmount) || BigInt(p.noTrainingComputeAmount) <= BigInt(0)
+      || (p.apiAccessDailyComputeAmount !== undefined
+        && (!amount(p.apiAccessDailyComputeAmount) || BigInt(p.apiAccessDailyComputeAmount) <= BigInt(0)))
       || !p.apiCallsPerDay || typeof p.apiCallsPerDay !== "object" || Array.isArray(p.apiCallsPerDay)) throw new Error();
     for (const [id, calls] of Object.entries(p.apiCallsPerDay)) {
       if (id === "linear_regression" || !modelSelectionForId(id) || !Number.isSafeInteger(calls) || calls < 1 || calls > 10_000) throw new Error();

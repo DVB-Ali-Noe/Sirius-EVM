@@ -5,7 +5,9 @@ import { privateKeyToAccount } from "viem/accounts";
 import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 import { predictionOutput } from "@/lib/models/predict";
 import { DELETED_LOAN_MODEL, extendableLoanModel, extendLoanRental, hasSealedLoanModel, loadServedModel, recordLoanExpiry, servedModelFingerprint } from "@/lib/tee/served-models";
-import { creditCallPack, predictionAllowance, reservePrediction } from "@/lib/runner/prediction-usage";
+import {
+  apiAccessPaidUntil, creditCallPack, engageApiAccessPass, hasApiAccessPass, predictionAllowance, recordApiAccessPass, reservePrediction,
+} from "@/lib/runner/prediction-usage";
 import {
   escrowHashlock,
   escrowLock,
@@ -34,7 +36,7 @@ import { verifyRunnerGrant } from "@/lib/runner/authorization";
 import { assertTrialSubject, budgetRunnerJob, budgetRunnerRequest, runnerBudget, withWorkflowBudget } from "@/lib/runner/budget";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import { assertQuoteDataset, prepareComputeQuote, quoteWorkflow, requireBillingBudget, runnerComputeQuote } from "@/lib/billing/runner";
-import { failBilledEscrow, settleBilledEscrow } from "@/lib/billing/settlement";
+import { billedReleaseOperation, failBilledEscrow, isBilledReleaseLive, settleBilledEscrow } from "@/lib/billing/settlement";
 import { recoverBilledLoanResult } from "@/lib/billing/recovery";
 import {
   issueDatasetReceipt,
@@ -75,7 +77,14 @@ import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { chunkedSeals, chunkedStorageConfig, r2SealSource } from "./chunked-seal-jobs";
 import { loadApiKey, registerApiKey, revokeApiKey } from "@/lib/tee/api-keys";
 import { consumeRunnerReplay } from "@/lib/runner/replay";
-import { API_REQUEST_MAX_SKEW_SECONDS, PACK_MIN_RENTAL_LEFT_MS, isCallPackSize } from "@/lib/billing/api-pricing";
+import {
+  API_ACCESS_ALREADY_PAID, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_ACCESS_STALE, API_ACCESS_STALE_CODE,
+  API_REQUEST_MAX_SKEW_SECONDS, PACK_MIN_RENTAL_LEFT_MS,
+  apiAccessDaysFor, isApiAccessDays, isCallPackSize,
+} from "@/lib/billing/api-pricing";
+
+/** Passes d'accès API dont `buy-calls` mène la release dans ce processus (marqueur d'engagement, D-32). */
+const releasingPasses = new Set<string>();
 
 const MAX_ID_LENGTH = 128;
 
@@ -238,6 +247,20 @@ function assertPackRentalOpen(expiresAt: number | undefined): void {
   }
 }
 
+interface ApiAccessBasis { apiAccessDays: number; apiAccessRentalEnd: number; apiAccessCoveredUntil?: number }
+
+/**
+ * Base du prix d'un pass (D-32) : échéance de la location, couverture déjà payée et jours restant
+ * à payer jusqu'à l'échéance. Déjà couverte jusqu'au bout : 409.
+ */
+function apiAccessBasis(owner: string, loanId: string, rentalEnd: number): ApiAccessBasis {
+  const coveredUntil = apiAccessPaidUntil(owner, loanId);
+  const days = apiAccessDaysFor(rentalEnd, coveredUntil, Date.now());
+  if (days < 1) throw new AppError(API_ACCESS_ALREADY_PAID, 409, "api_access_already_paid");
+  if (!isApiAccessDays(days)) throw new AppError("Nombre de jours d’accès API invalide", 409);
+  return { apiAccessDays: days, apiAccessRentalEnd: rentalEnd, ...(coveredUntil === null ? {} : { apiAccessCoveredUntil: coveredUntil }) };
+}
+
 function apiKeyId(body: Record<string, unknown>): string {
   const keyId = body.keyId;
   if (typeof keyId !== "string" || !API_KEY_ID_PATTERN.test(keyId)) throw new AppError("Identifiant de clé API invalide", 400);
@@ -356,9 +379,9 @@ export function scopeForRunnerOp(op: string, body: Record<string, unknown>): { o
 export const UNCHARGED_OPS: ReadonlySet<RunnerOperation> = new Set(["dataset-ingress-key", "seal-chunked-status"]);
 
 /**
- * API développeurs (D-30) : aucune réservation dans le registre de budget global non plus. Une
- * prédiction API est payée par le quota du prêt ou ses packs (`noTrainingComputeAmount` au
- * règlement), pas par la marge de Sirius : sans exemption, le trafic signé d'un seul emprunteur
+ * API développeurs (D-30) : aucune réservation dans le registre de budget global non plus. L'accès
+ * est payé par jour au pass d'accès API (D-32), les appels par le quota du prêt ou ses packs, pas
+ * par la marge de Sirius : sans exemption, le trafic signé d'un seul emprunteur
  * épuisait le budget de toutes les opérations sponsorisées. Débit par prêt et concurrence propre
  * sont bornés dans le serveur (`ApiOpsGuard`, `free-ops-guard.ts`).
  */
@@ -496,29 +519,45 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       if (billingEnabled()) {
         const rentalDays = boundedInteger(body, "rentalDays", MIN_RENTAL_DAYS, MAX_RENTAL_DAYS);
         const extendsLoanId = body.extendsLoanId === undefined ? undefined : text(body, "extendsLoanId");
+        const includeApiAccess = body.includeApiAccess === undefined ? false : body.includeApiAccess;
+        if (typeof includeApiAccess !== "boolean" || (includeApiAccess && extendsLoanId !== undefined)) {
+          throw new AppError("Accès API inclus du devis invalide", 400);
+        }
+        // API incluse (D-32) : sur demande pour un emprunt ; d'office pour la prolongation d'un prêt
+        // dont la couverture API atteint l'échéance (API incluse ou passes), si le tarif la vend.
+        let apiAccessIncluded = includeApiAccess;
         if (extendsLoanId !== undefined) {
           // Refus avant tout lock : une prolongation n'est payée que pour un modèle encore scellé à l'emprunteur.
           const original = extendableLoanModel(extendsLoanId);
           if (original.owner !== borrower) throw new AppError("Prolongation réservée à l’emprunteur", 403);
           if (original.model.algo !== dataset.modelId) throw new AppError("Prolongation hors scope", 409);
+          const coveredUntil = loanCallsPerDay(dataset.modelId) === undefined ? null : apiAccessPaidUntil(borrower, extendsLoanId);
+          apiAccessIncluded = coveredUntil !== null && coveredUntil >= original.expiresAt
+            && billingPolicy().apiAccessDailyComputeAmount !== undefined;
         }
         const callPack = body.callPack;
+        const apiAccess = body.apiAccess === undefined ? false : body.apiAccess;
         const packForLoanId = body.packForLoanId === undefined ? undefined : text(body, "packForLoanId");
-        if ((callPack === undefined) !== (packForLoanId === undefined) || (callPack !== undefined && !isCallPackSize(callPack))
-          || (packForLoanId !== undefined && extendsLoanId !== undefined)) throw new AppError("Pack d’appels invalide", 400);
+        if (typeof apiAccess !== "boolean" || (callPack !== undefined && apiAccess)
+          || ((callPack !== undefined || apiAccess) !== (packForLoanId !== undefined)) || (callPack !== undefined && !isCallPackSize(callPack))
+          || (packForLoanId !== undefined && (extendsLoanId !== undefined || includeApiAccess))) throw new AppError("Pack d’appels invalide", 400);
+        let passBasis: ApiAccessBasis | undefined;
         if (packForLoanId !== undefined) {
-          // Refus avant tout lock : un pack n'est payé que pour une location en cours, à l'emprunteur, d'un profil ouvert à l'API.
+          // Refus avant tout lock : un pack ou un pass n'est payé que pour une location en cours, à l'emprunteur, d'un profil ouvert à l'API.
           const original = extendableLoanModel(packForLoanId);
           if (original.owner !== borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
           if (original.model.algo !== dataset.modelId) throw new AppError("Pack d’appels hors scope", 409);
           assertPackRentalOpen(original.expiresAt);
           apiCallsPerDay(dataset.modelId);
+          if (apiAccess) passBasis = apiAccessBasis(borrower, packForLoanId, original.expiresAt);
         }
         const billingQuote = await prepareComputeQuote({
           dataset, datasetReceipt: text(body, "datasetReceipt", MAX_RECEIPT_LENGTH), borrower, provider, loanId,
           onChainDatasetId, hashlock, authorizationDeadline: boundedInteger(body, "authorizationDeadline", 1, 2 ** 40 - 1),
           rentalDays, ...(extendsLoanId === undefined ? {} : { extendsLoanId }),
           ...(packForLoanId === undefined || !isCallPackSize(callPack) ? {} : { callPack, packForLoanId }),
+          ...(packForLoanId === undefined || passBasis === undefined ? {} : { ...passBasis, packForLoanId }),
+          ...(apiAccessIncluded ? { apiAccessIncluded: true } : {}),
         });
         return { hashlock, authorization: billingQuote.authorization, billingQuote };
       }
@@ -693,7 +732,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
         return withWorkflowBudget(quoteWorkflow(signedQuote.quote), () => budgetRunnerRequest(async () => {
           const settleTxHash = await settleBilledEscrow(signedQuote.quote, receipt.loanKey as `0x${string}`, preimage, lockBlock, finalityTier);
           const expiresAt = await recordRentalExpiry(loanId, signedQuote.quote, settleTxHash);
-          return { settleTxHash, ...(expiresAt === undefined ? {} : { expiresAt }) };
+          const apiPaidUntil = signedQuote.quote.apiAccessIncluded ? apiAccessPaidUntil(receipt.borrower, loanId) : null;
+          return { settleTxHash, ...(expiresAt === undefined ? {} : { expiresAt }), ...(apiPaidUntil === null ? {} : { apiPaidUntil }) };
         }));
       }
       const { subject } = await verifyRunnerGrant(body.authorization, {
@@ -737,9 +777,16 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       // Release immédiat, sans entraînement, puis échéance repoussée : `settleBilledEscrow` vérifie
       // le lock on-chain (termsHash du devis) et rejoue la même transaction après une coupure ;
       // `extendLoanRental` n'applique qu'une fois chaque prolongation.
+      // API incluse (D-32) : la couverture suit la nouvelle échéance, enregistrée une fois par prolongation.
       return withWorkflowBudget(quoteWorkflow(quote), () => budgetRunnerRequest(async () => {
         const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier);
-        return { settleTxHash, expiresAt: extendLoanRental(originalLoanId, loanId, await releaseTimeMs(settleTxHash), quote.rentalDays) };
+        const releasedAt = await releaseTimeMs(settleTxHash);
+        const expiresAt = extendLoanRental(originalLoanId, loanId, releasedAt, quote.rentalDays);
+        if (!quote.apiAccessIncluded) return { settleTxHash, expiresAt };
+        const apiPaidUntil = recordApiAccessPass({
+          passLoanId: loanId, originalLoanId, subject: quote.borrower, days: quote.rentalDays, releasedAt, rentalExpiresAt: expiresAt,
+        });
+        return { settleTxHash, expiresAt, apiPaidUntil };
       }));
     }
 
@@ -751,7 +798,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const originalRentalDays = original.billingQuote ? parseComputeQuote(original.billingQuote.quote).rentalDays : null;
       if (originalRentalDays === null) throw new AppError("Prêt sans durée de location : packs d’appels impossibles", 409);
       const quote = requireRentalQuote((await runnerComputeQuote(body.billingQuote)).quote);
-      if (quote.loanId !== loanId || quote.packForLoanId !== originalLoanId || !isCallPackSize(quote.callPack)
+      const passDays = quote.apiAccessDays;
+      if (quote.loanId !== loanId || quote.packForLoanId !== originalLoanId || (!isCallPackSize(quote.callPack) && !isApiAccessDays(passDays))
         || quote.extendsLoanId !== undefined || quote.rentalDays !== originalRentalDays || quote.datasetId !== original.datasetId
         || quote.modelId !== original.modelId || quote.modelVersion !== original.modelVersion) throw new AppError("Pack d’appels hors scope", 409);
       if (quote.borrower !== original.borrower) throw new AppError("Pack d’appels réservé à l’emprunteur", 403);
@@ -771,7 +819,8 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
       const loanKey = loanKeyFor(quote.borrower, loanId);
       // Contrôles d'avant paiement, seulement tant qu'aucune release du pack n'est engagée : profil
       // ouvert à l'API, modèle d'origine scellé sous l'empreinte du reçu, au moins une heure de
-      // location. Refus ⇒ aucun release, le lock du pack reste remboursable à son échéance.
+      // location ; pour un pass, base du prix inchangée (voir ci-dessous). Refus ⇒ aucun release, le
+      // lock reste remboursable à son échéance.
       const beforeRelease = () => {
         apiCallsPerDay(quote.modelId);
         const sealed = loadServedModel({ kind: "loan", id: originalLoanId });
@@ -780,14 +829,43 @@ async function executeRunnerOp(op: RunnerOperation, body: Record<string, unknown
           throw new AppError("Pack d’appels hors scope", 409);
         }
         assertPackRentalOpen(sealed.expiresAt);
+        if (passDays === undefined) return;
+        // Pass : libéré seulement sur la base de son prix, la couverture payée relevée au devis. Une
+        // autre couverture payée depuis, une échéance signée à moins d'une heure, ou un autre pass du
+        // même prêt engagé avec une release vivante le rendent caduc pour toujours : refus avant
+        // toute transaction, lock remboursable à son échéance. Une prolongation réglée entre-temps ne
+        // gêne pas : la couverture enregistrée reste plafonnée à l'échéance signée.
+        if (quote.apiAccessRentalEnd! - Date.now() < PACK_MIN_RENTAL_LEFT_MS) throw new AppError(API_ACCESS_STALE, 409, API_ACCESS_STALE_CODE);
+        engageApiAccessPass({
+          passLoanId: loanId, originalLoanId, subject: original.borrower, coveredUntil: quote.apiAccessCoveredUntil ?? null,
+          release: billedReleaseOperation(quote, loanKey, preimage),
+          isLive: (passLoanId, release) => releasingPasses.has(passLoanId) || isBilledReleaseLive(release),
+        });
       };
       // Release engagée (signée ou publiée) : un rejeu la mène à son terme puis crédite `callPack`
-      // appels une seule fois (journal des packs, clé = loanId du pack), même si la location a
-      // expiré ou si la politique a changé depuis le paiement. Un pack payé n'est jamais perdu ;
-      // ses crédits servent pendant la location et disparaissent avec le modèle (purge après la grâce).
+      // appels (journal des packs) ou enregistre le pass (journal des passes, D-32) une seule fois,
+      // clé = loanId du pack, même si la location a expiré ou si la politique a changé depuis le
+      // paiement. Un pack ou un pass payé n'est jamais perdu ; crédits et couverture servent pendant
+      // la location et disparaissent avec le modèle (purge après la grâce).
       return withWorkflowBudget(quoteWorkflow(quote), () => budgetRunnerRequest(async () => {
-        const settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier, beforeRelease);
-        return { settleTxHash, credits: creditCallPack({ packLoanId: loanId, originalLoanId, subject: quote.borrower, calls }) };
+        // Pass en cours de release dans ce processus : son marqueur bloque un second pass même avant
+        // que sa transaction n'entre au journal.
+        if (passDays !== undefined) releasingPasses.add(loanId);
+        let settleTxHash: string;
+        try {
+          settleTxHash = await settleBilledEscrow(quote, loanKey, preimage, lockBlock, finalityTier, beforeRelease);
+        } finally {
+          releasingPasses.delete(loanId);
+        }
+        if (calls !== undefined) {
+          return { settleTxHash, credits: creditCallPack({ packLoanId: loanId, originalLoanId, subject: quote.borrower, calls }) };
+        }
+        const releasedAt = await releaseTimeMs(settleTxHash);
+        // Plafond : l'échéance sur laquelle le pass a été payé (une prolongation ultérieure se paie à part).
+        const apiPaidUntil = recordApiAccessPass({
+          passLoanId: loanId, originalLoanId, subject: quote.borrower, days: passDays!, releasedAt, rentalExpiresAt: quote.apiAccessRentalEnd!,
+        });
+        return { settleTxHash, apiPaidUntil };
       }));
     }
 
@@ -934,7 +1012,8 @@ async function assertLoanSettled(receipt: LoanReceipt, body: Record<string, unkn
 
 /**
  * Modèle d'un prêt servi par l'API (D-30) : prêt réglé (même preuve que `predict`), modèle scellé
- * à l'emprunteur, location en cours (un prêt sans échéance n'a pas d'API), profil admis.
+ * à l'emprunteur, location en cours (un prêt sans échéance n'a pas d'API), profil admis, puis
+ * pass d'accès API couvrant l'instant de l'appel (D-32).
  */
 async function apiLoanModel(receipt: LoanReceipt, owner: string, body: Record<string, unknown>): Promise<{ model: DeliveredModel; expiresAt: number; callsPerDay: number }> {
   await assertLoanSettled(receipt, body);
@@ -943,7 +1022,10 @@ async function apiLoanModel(receipt: LoanReceipt, owner: string, body: Record<st
   if (served.owner !== owner || served.model.algo !== receipt.modelId) throw new AppError("Modèle indisponible", 409);
   if (served.expiresAt === undefined) throw new AppError("Prêt sans durée de location : API indisponible", 409);
   if (Date.now() >= served.expiresAt) throw new AppError("Location expirée : prolonge pour continuer", 403, "rental_expired");
-  return { model: served.model, expiresAt: served.expiresAt, callsPerDay: apiCallsPerDay(served.model.algo) };
+  const callsPerDay = apiCallsPerDay(served.model.algo);
+  const paidUntil = apiAccessPaidUntil(owner, receipt.loanId);
+  if (paidUntil === null || Date.now() >= paidUntil) throw new AppError(API_ACCESS_REQUIRED, 403, API_ACCESS_REQUIRED_CODE);
+  return { model: served.model, expiresAt: served.expiresAt, callsPerDay };
 }
 
 /** Prédiction signée EIP-712 `SiriusPrediction` par la clé de l'enclave, après réservation du quota. */
@@ -987,11 +1069,18 @@ async function releaseTimeMs(settleTxHash: string): Promise<number> {
 /**
  * Échéance d'un prêt v7 réglé : bloc du `release` + `rentalDays` jours, enregistrée une fois dans
  * les métadonnées du modèle scellé (jamais écrasée : les prolongations la repoussent). Devis
- * hérité (sans durée) : aucune échéance.
+ * hérité (sans durée) : aucune échéance. API incluse (D-32) : couverture jusqu'à cette première
+ * échéance, enregistrée une fois dans le journal des passes (clé : le prêt lui-même).
  */
 async function recordRentalExpiry(loanId: string, quote: ComputeQuote, settleTxHash: string): Promise<number | undefined> {
   if (quote.rentalDays === null) return undefined;
   const recorded = loadServedModel({ kind: "loan", id: loanId })?.expiresAt;
-  if (recorded !== undefined) return recorded;
-  return recordLoanExpiry(loanId, await releaseTimeMs(settleTxHash) + quote.rentalDays * DAY_MS);
+  const coverageMissing = quote.apiAccessIncluded === true && !hasApiAccessPass(loanId);
+  if (recorded !== undefined && !coverageMissing) return recorded;
+  const releasedAt = await releaseTimeMs(settleTxHash);
+  const rentalEnd = releasedAt + quote.rentalDays * DAY_MS;
+  if (coverageMissing) {
+    recordApiAccessPass({ passLoanId: loanId, originalLoanId: loanId, subject: quote.borrower, days: quote.rentalDays, releasedAt, rentalExpiresAt: rentalEnd });
+  }
+  return recorded ?? recordLoanExpiry(loanId, rentalEnd);
 }

@@ -30,6 +30,7 @@ export type SiriusErrorCode =
   | "key_revoked"
   | "unknown_key"
   | "rental_expired"
+  | "api_access_required"
   | "quota_exceeded"
   | "api_not_available_for_profile"
   | "invalid_features"

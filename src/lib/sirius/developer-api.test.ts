@@ -65,6 +65,9 @@ const features = { income: 45000, debt: 12 };
 const PRICE_PER_DAY = "1000001";
 const API_CALLS_PER_DAY = { logistic_regression: 50, gradient_boosted_trees: 100 };
 const NO_TRAINING_COMPUTE = "100000";
+/** Tarif journalier de l'accès API (D-32) : 1,50 USDC ; part fournisseur d'un pass : 0,001 USDC. */
+const API_ACCESS_DAILY_FEE = "1500000";
+const PASS_PROVIDER_SHARE = "1000";
 
 type Row = Record<string, unknown>;
 type Where = Record<string, unknown>;
@@ -168,7 +171,8 @@ function origin(overrides: Row = {}): Row {
     id: "loan-1", datasetId: "dataset-1", borrower: BORROWER, provider: PROVIDER, status: "SETTLED",
     modelId: "logistic_regression", modelVersion: "1.0.0", modelCid: FINGERPRINT, runnerReceipt: "loan-receipt",
     settleTxHash: SETTLE_TX, finalityReview: null, finalityTier: "FULL", rentalDays: 7, rentalExpiresAt: new Date(Date.now() + DAY),
-    extendsLoanId: null, packForLoanId: null, callPack: null, amountUsdcAtomic: usdc("7"), updatedAt: new Date(0), createdAt: new Date(0),
+    extendsLoanId: null, packForLoanId: null, callPack: null, apiAccessDays: null, apiPaidUntil: new Date(Date.now() + DAY),
+    amountUsdcAtomic: usdc("7"), updatedAt: new Date(0), createdAt: new Date(0),
     runnerKind: "PHALA", runnerDeploymentId: "phala:1", ...overrides,
   };
 }
@@ -177,20 +181,23 @@ function quoteFor(loan: Row): string {
   return JSON.stringify({ quote: {
     loanId: loan.id, datasetId: loan.datasetId, borrower: String(loan.borrower).toLowerCase(), rentalDays: 7,
     datasetAmount: loan.datasetAmountUsdcAtomic, computeAmount: NO_TRAINING_COMPUTE, maxFailureFee: "0",
-    ...(loan.packForLoanId ? { callPack: loan.callPack, packForLoanId: loan.packForLoanId } : {}),
+    ...(loan.packForLoanId && loan.callPack ? { callPack: loan.callPack, packForLoanId: loan.packForLoanId } : {}),
+    ...(loan.packForLoanId && loan.apiAccessDays ? { apiAccessDays: loan.apiAccessDays, packForLoanId: loan.packForLoanId } : {}),
     ...(loan.extendsLoanId ? { extendsLoanId: loan.extendsLoanId } : {}),
   }, authorization: { deadline: 1, signature: "0x" } });
 }
 
-/** Prêt rattaché verrouillé (ESCROWED, lock finalisé) : pack d'appels ou prolongation. */
-function attached(kind: "pack" | "extension", overrides: Row = {}): Row {
+/** Prêt rattaché verrouillé (ESCROWED, lock finalisé) : pack d'appels, pass d'accès API ou prolongation. */
+function attached(kind: "pack" | "pass" | "extension", overrides: Row = {}): Row {
+  const purchase = kind !== "extension";
   const row: Row = {
-    id: kind === "pack" ? "pack-9" : "ext-9", datasetId: "dataset-1", borrower: BORROWER, provider: PROVIDER, status: "ESCROWED",
+    id: kind === "pack" ? "pack-9" : kind === "pass" ? "pass-9" : "ext-9", datasetId: "dataset-1", borrower: BORROWER, provider: PROVIDER, status: "ESCROWED",
     modelId: "logistic_regression", modelVersion: "1.0.0", modelCid: null, runnerReceipt: null, settleTxHash: null,
-    finalityReview: null, finalityTier: "FULL", rentalDays: kind === "pack" ? 7 : 5, rentalExpiresAt: null,
-    extendsLoanId: kind === "extension" ? "loan-1" : null, packForLoanId: kind === "pack" ? "loan-1" : null,
-    callPack: kind === "pack" ? 100 : null, datasetAmountUsdcAtomic: "2000100", amountUsdcAtomic: usdc("5"),
-    evmLoanKey: `0x${(kind === "pack" ? "99" : "98").repeat(32)}`, evmLockTxHash: LOCK_TX, evmLockBlock: "12",
+    finalityReview: null, finalityTier: "FULL", rentalDays: purchase ? 7 : 5, rentalExpiresAt: null,
+    extendsLoanId: kind === "extension" ? "loan-1" : null, packForLoanId: purchase ? "loan-1" : null,
+    callPack: kind === "pack" ? 100 : null, apiAccessDays: kind === "pass" ? 3 : null, apiPaidUntil: null,
+    datasetAmountUsdcAtomic: kind === "pass" ? PASS_PROVIDER_SHARE : "2000100", amountUsdcAtomic: usdc("5"),
+    evmLoanKey: `0x${(kind === "pack" ? "99" : kind === "pass" ? "97" : "98").repeat(32)}`, evmLockTxHash: LOCK_TX, evmLockBlock: "12",
     evmDeadline: new Date(Date.now() + 3 * DAY), updatedAt: new Date(0), createdAt: new Date(0), ...overrides,
   };
   row.billingQuote = quoteFor(row);
@@ -222,6 +229,10 @@ interface SystemOptions {
   runner?: Partial<Record<"apiPredict" | "apiInfo" | "register" | "revoke" | "buyCalls" | "extend", (input: Row) => Promise<unknown>>>;
   /** `false` : aucune politique de facturation lisible côté Next (conteneur reaper). */
   policy?: false;
+  /** `false` : politique sans `apiAccessDailyComputeAmount` (accès API non vendu, D-32). */
+  apiAccessFee?: false;
+  /** Jours que l'enclave signe dans le devis d'un pass. */
+  passDays?: number;
 }
 
 function system(options: SystemOptions = {}) {
@@ -239,7 +250,8 @@ function system(options: SystemOptions = {}) {
     modelId: "logistic_regression", modelVersion: "1.0.0", maxRentalDays: 30, challengeDays: 7, listingExpiresAt: null,
     runnerKind: "PHALA", runnerDeploymentId: "phala:1",
   }]);
-  const prisma = { loan: loans, apiKey: apiKeys, apiUsageDay, runnerAvailability, dataset: datasets };
+  const prisma = { loan: loans, apiKey: apiKeys, apiUsageDay, runnerAvailability, dataset: datasets,
+    $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma) };
   const db = { prisma, serializableTransaction: async (fn: (tx: typeof prisma) => unknown) => fn(prisma) };
   const calls = { runner: [] as [string, Row][], stable: [] as string[], evidence: [] as string[], lockRequests: [] as Row[] };
   const record = (op: string, fallback: (input: Row) => Promise<unknown>) => async (input: Row) => {
@@ -264,12 +276,17 @@ function system(options: SystemOptions = {}) {
     prepareEscrowLockInRunner: async (dataset: Row, _receipt: string, loanId: string, borrower: string, _deadline: number, rental: Row) => {
       calls.lockRequests.push(rental);
       const perCall = (BigInt(String(dataset.priceUsdcAtomic)) + BigInt(49)) / BigInt(50);
-      const datasetAmount = rental.callPack ? (BigInt(Number(rental.callPack)) * perCall).toString() : rentalRules.datasetAmountFor(String(dataset.priceUsdcAtomic), Number(rental.rentalDays));
+      const passDays = rental.apiAccess ? options.passDays ?? 3 : undefined;
+      const datasetAmount = passDays ? PASS_PROVIDER_SHARE
+        : rental.callPack ? (BigInt(Number(rental.callPack)) * perCall).toString() : rentalRules.datasetAmountFor(String(dataset.priceUsdcAtomic), Number(rental.rentalDays));
       const hashlock = `0x${"ab".repeat(32)}`;
       return { hashlock, authorization: { deadline: 1 }, billingQuote: { quote: {
         loanId, datasetId: dataset.datasetId, borrower: borrower.toLowerCase(), onChainDatasetId: `0x${"cd".repeat(32)}`, hashlock,
-        rentalDays: rental.rentalDays, datasetAmount, computeAmount: NO_TRAINING_COMPUTE, maxFailureFee: "0", usdcDecimals: DECIMALS, expiresAt: 1,
+        rentalDays: rental.rentalDays, datasetAmount, usdcDecimals: DECIMALS, expiresAt: 1, maxFailureFee: "0",
+        computeAmount: passDays ? apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, passDays) : NO_TRAINING_COMPUTE,
         ...(rental.callPack ? { callPack: rental.callPack, packForLoanId: rental.packForLoanId } : {}),
+        ...(passDays ? { apiAccessDays: passDays, packForLoanId: rental.packForLoanId } : {}),
+        ...(rental.includeApiAccess ? { apiAccessIncluded: true, apiAccessAmount: apiPricing.apiAccessComputeAmount(API_ACCESS_DAILY_FEE, Number(rental.rentalDays)) } : {}),
       }, authorization: { deadline: 1, signature: "0x" } } };
     },
   };
@@ -308,9 +325,11 @@ function system(options: SystemOptions = {}) {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => {
       if (options.policy === false) throw new Error("Politique de facturation absente");
-      return { apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE };
+      return { apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE,
+        ...(options.apiAccessFee === false ? {} : { apiAccessDailyComputeAmount: API_ACCESS_DAILY_FEE }) };
     } },
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
+    "@/lib/evm/networks": { resolveUsdcDecimals: () => DECIMALS },
     "@/lib/tee/contract": contract, "@/lib/tee/runner-client": runnerClient, "./access": { requireAcceptedKyb: async () => {} },
     "./availability": availabilityModule, "./finality-tier": finalityTier, "./rental": rental,
   });
@@ -360,6 +379,7 @@ function system(options: SystemOptions = {}) {
     "./recover-loan": {}, "@/lib/evm/history": {}, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "./exposure-limits": { assertAdmissionsOpen: () => {}, assertExposureWithinCap: () => {}, assertLoanWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [], exposureLimits: () => null },
     "@/lib/billing/rental": rentalRules, "./rental": rental, "@/lib/billing/api-pricing": apiPricing, "./api-keys": apiKeysModule,
+    "@/lib/evm/networks": { resolveUsdcDecimals: () => DECIMALS }, "./reaper-policy": reaperPolicy,
     "./availability": availabilityModule,
   });
   const chain = { state: "active" as const };
@@ -371,7 +391,9 @@ function system(options: SystemOptions = {}) {
     "./release-tier": releaseTier, "./settlement-evidence": { recordSettlementEvidence: async (id: string) => { calls.evidence.push(id); return true; } },
     "./settlement-queued": { settlementQueuedError },
   };
-  const callsModule = load<typeof import("./calls")>("src/lib/sirius/calls.ts", { ...shared, "./api-keys": apiKeysModule, "./availability": availabilityModule, "./rental": rental });
+  const callsModule = load<typeof import("./calls")>("src/lib/sirius/calls.ts", {
+    ...shared, "@/lib/billing/api-pricing": apiPricing, "./api-keys": apiKeysModule, "./availability": availabilityModule, "./rental": rental,
+  });
   const extend = load<typeof import("./extend")>("src/lib/sirius/extend.ts", { ...shared, "./rental": rental });
   const routes = {
     predict: load<typeof import("../../app/api/v1/models/[loanId]/predict/route")>("src/app/api/v1/models/[loanId]/predict/route.ts", { "@/lib/sirius/public-api": publicApi }),
@@ -399,7 +421,7 @@ function system(options: SystemOptions = {}) {
     "server-only": {}, "@/lib/db": db,
     "@/lib/evm/escrow": { readLoan: async () => null, reconcileLoanEscrow: async () => chain },
     "@/lib/evm/client": { getPublicClient: () => client },
-    "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors,
+    "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors, "@/lib/billing/api-pricing": apiPricing,
     "./recover-loan": { recoverUnsubmittedLoan: async () => {} },
     "@/lib/evm/history": { resolveLoanEscrow: async () => ({}) },
     "./settle": { recoverLoanResult: async () => false, settlePreparedLoan: async () => { throw new Error("règlement ordinaire inattendu"); } },
@@ -1078,7 +1100,9 @@ test("pack d'appels : règlement par le runner puis SETTLED, rejouable sans seco
   const settle = () => sys.manage.calls({ packLoanId: "pack-9", authorization: grant });
   const response = await settle();
   assert.equal(response.status, 200, await response.clone().text());
-  assert.deepEqual(await response.json(), { loanId: "pack-9", originalLoanId: "loan-1", settleTxHash: PACK_TX, callPack: 100, credits: 100 });
+  assert.deepEqual(await response.json(), {
+    loanId: "pack-9", originalLoanId: "loan-1", settleTxHash: PACK_TX, callPack: 100, apiAccessDays: null, credits: 100, apiPaidUntil: null,
+  });
   const buys = sys.calls.runner.filter(([op]) => op === "buyCalls");
   assert.equal(buys.length, 1);
   const input = JSON.parse(JSON.stringify(buys[0][1]));
@@ -1167,9 +1191,9 @@ test("pack SETTLING avec release diffusé : terminé après l'échéance de la l
 
   // Autre emprunteur ou autre dataset que le prêt d'origine : refus, aucun appel au runner.
   const foreign = system({ loans: [origin({ ...expired, borrower: OTHER }), settling()], policy: false });
-  await assert.rejects(foreign.callsModule.settleCallPack("pack-9"), (error: AppError) => error.status === 403);
+  await assert.rejects(foreign.callsModule.settleLoanPack("pack-9"), (error: AppError) => error.status === 403);
   const otherDataset = system({ loans: [origin({ ...expired, datasetId: "dataset-2" }), settling()], policy: false });
-  await assert.rejects(otherDataset.callsModule.settleCallPack("pack-9"), (error: AppError) => error.status === 409);
+  await assert.rejects(otherDataset.callsModule.settleLoanPack("pack-9"), (error: AppError) => error.status === 409);
   assert.equal(foreign.calls.runner.length + otherDataset.calls.runner.length, 0);
 });
 
@@ -1177,7 +1201,7 @@ test("pack SETTLING avec release diffusé : terminé après l'échéance de la l
 
 test("finalité rapide : prolongation et pack sous les plafonds passent au palier FAST, au-delà en finalité complète", async () => {
   for (const kind of ["extension", "pack"] as const) {
-    const settle = (sys: ReturnType<typeof system>) => kind === "pack" ? sys.callsModule.settleCallPack("pack-9", grant as never) : sys.extend.settleLoanExtension("ext-9", grant as never);
+    const settle = (sys: ReturnType<typeof system>) => kind === "pack" ? sys.callsModule.settleLoanPack("pack-9", grant as never) : sys.extend.settleLoanExtension("ext-9", grant as never);
     const op = kind === "pack" ? "buyCalls" : "extend";
     const id = kind === "pack" ? "pack-9" : "ext-9";
 
@@ -1214,6 +1238,7 @@ test("GET /api/loans : champs API et packs exposés", async () => {
     "server-only": {}, "@/lib/db": { prisma: sys.prisma }, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => ({ apiCallsPerDay: API_CALLS_PER_DAY }) },
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": {}, "@/lib/tee/contract": contract,
+    "@/lib/evm/networks": { resolveUsdcDecimals: () => DECIMALS },
     "@/lib/tee/runner-client": {}, "./access": {}, "./availability": {}, "./finality-tier": {}, "./rental": {},
   });
   const rows = [origin(), origin({ id: "linear", modelId: "linear_regression" }), attached("pack"), attached("extension")];
@@ -1231,4 +1256,173 @@ test("GET /api/loans : champs API et packs exposés", async () => {
     ["pack-9", false, null, 100, "loan-1"],
     ["ext-9", false, null, null, null],
   ]);
+});
+
+// --- Pass d'accès API payé au jour (D-32) ----------------------------------------------------------
+
+test("pass d'accès API : sans journée payée, l'API publique refuse avant l'enclave et ne réveille pas la CVM", async () => {
+  for (const apiPaidUntil of [null, new Date(Date.now() - 1)]) {
+    const sys = system({ phase: "stopped", loans: [origin({ apiPaidUntil })], apiKeys: [activeKey()] });
+    for (const response of [await sys.api.predict(), await sys.api.info()]) {
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: { code: apiPricing.API_ACCESS_REQUIRED_CODE, message: apiPricing.API_ACCESS_REQUIRED } });
+    }
+    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "aucun réveil");
+    assert.equal(sys.calls.runner.length, 0, "rien relayé");
+  }
+  const paid = system({ phase: "running", loans: [origin()], apiKeys: [activeKey()] });
+  assert.equal((await paid.api.predict()).status, 200, "pass couvrant l'instant présent");
+});
+
+test("pass d'accès API : création de clé refusée sans pass couvrant l'instant présent", async () => {
+  const sys = system({ loans: [origin({ apiPaidUntil: null })] });
+  for (const response of [await sys.manage.create({}), await sys.manage.create({ keyId: KEY_ID, name: "prod", envelope, authorization: grant })]) {
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error, apiPricing.API_ACCESS_REQUIRED);
+  }
+  assert.equal(sys.calls.runner.length, 0);
+  assert.equal(sys.prisma.apiKey.rows.length, 0);
+  const list = await (await sys.manage.list()).json();
+  assert.equal(list.apiAccess.paidUntil, null);
+  assert.equal(list.apiAccess.dailyFee, API_ACCESS_DAILY_FEE);
+});
+
+test("pass d'accès API : devis jusqu'à l'échéance (jour entamé compté), part fournisseur minimale, refus avant tout paiement", async () => {
+  const rentalExpiresAt = new Date(Date.now() + 2.5 * DAY);
+  const sys = system({ loans: [origin({ rentalExpiresAt, apiPaidUntil: null })] });
+  const listed = await (await sys.manage.list()).json();
+  // ceil(2,5 jours) = 3 jours × 1,50 + 0,001 au fournisseur.
+  assert.equal(listed.apiAccess.daysToBuy, 3);
+  assert.equal(listed.apiAccess.price, "4501000");
+  const response = await sys.manage.calls({ apiAccess: true });
+  assert.equal(response.status, 201, await response.clone().text());
+  const prepared = await response.json();
+  assert.deepEqual(JSON.parse(JSON.stringify(sys.calls.lockRequests)), [{ rentalDays: 7, apiAccess: true, packForLoanId: "loan-1" }]);
+  const pass = sys.prisma.loan.rows.find((row) => row.id === prepared.loanId)!;
+  assert.deepEqual([pass.packForLoanId, pass.apiAccessDays, pass.callPack, pass.extendsLoanId], ["loan-1", 3, null, null]);
+  assert.deepEqual([pass.datasetAmountUsdcAtomic, pass.computeAmountUsdcAtomic, pass.maxFailureFeeUsdcAtomic, pass.amountUsdcAtomic],
+    [PASS_PROVIDER_SHARE, "4500000", "0", "4501000"]);
+
+  // Tarif sans `apiAccessDailyComputeAmount` : pas en vente, jamais gratuit.
+  const notForSale = system({ apiAccessFee: false, loans: [origin({ apiPaidUntil: null })] });
+  const refused = await notForSale.manage.calls({ apiAccess: true });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, apiPricing.API_ACCESS_NOT_FOR_SALE);
+  assert.equal((await (await notForSale.manage.list()).json()).apiAccess.price, null);
+  // Location déjà couverte jusqu'à l'échéance, pass déjà en paiement, requêtes mal formées.
+  const covered = system({ loans: [origin({ rentalExpiresAt, apiPaidUntil: rentalExpiresAt })] });
+  assert.equal((await covered.manage.calls({ apiAccess: true })).status, 409);
+  const inFlight = system({ loans: [origin({ apiPaidUntil: null }), attached("pass")] });
+  assert.equal((await inFlight.manage.calls({ apiAccess: true })).status, 409);
+  for (const body of [{ apiAccess: "yes" }, { apiAccess: true, size: 100 }]) assert.equal((await sys.manage.calls(body)).status, 400);
+  for (const other of [notForSale, covered, inFlight]) assert.equal(other.calls.lockRequests.length, 0);
+});
+
+test("pass d'accès API : complément après prolongation, jours ajoutés seulement", async () => {
+  const oldEnd = new Date(Date.now() + DAY);
+  const sys = system({ loans: [origin({ apiPaidUntil: oldEnd, rentalExpiresAt: new Date(oldEnd.getTime() + 5 * DAY) })] });
+  const listed = await (await sys.manage.list()).json();
+  assert.equal(listed.apiAccess.daysToBuy, 5, "couverture repartant de l'ancienne date payée");
+  assert.equal(listed.apiAccess.paidUntil, oldEnd.toISOString());
+});
+
+test("pass d'accès API : règlement par le runner, couverture reflétée sur le prêt d'origine, rejouable et jamais en arrière", async () => {
+  const paidUntil = Date.now() + 3 * DAY;
+  const sys = system({
+    loans: [origin({ apiPaidUntil: null }), attached("pass")],
+    runner: { buyCalls: async () => ({ settleTxHash: PACK_TX, apiPaidUntil: paidUntil }) },
+  });
+  const settle = () => sys.manage.calls({ packLoanId: "pass-9", authorization: grant });
+  const response = await settle();
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.deepEqual(await response.json(), {
+    loanId: "pass-9", originalLoanId: "loan-1", settleTxHash: PACK_TX, callPack: null, apiAccessDays: 3, credits: null,
+    apiPaidUntil: new Date(paidUntil).toISOString(),
+  });
+  const rows = sys.prisma.loan.rows;
+  assert.equal(rows.find((row) => row.id === "pass-9")!.status, "SETTLED");
+  assert.equal((rows.find((row) => row.id === "loan-1")!.apiPaidUntil as Date).getTime(), paidUntil);
+  assert.equal((await (await settle()).json()).apiPaidUntil, new Date(paidUntil).toISOString());
+  assert.equal(sys.calls.runner.filter(([op]) => op === "buyCalls").length, 1, "aucun second appel au runner");
+
+  const later = new Date(paidUntil + DAY);
+  const monotonic = system({ loans: [origin({ apiPaidUntil: later }), attached("pass")], runner: { buyCalls: async () => ({ settleTxHash: PACK_TX, apiPaidUntil: paidUntil }) } });
+  assert.equal((await monotonic.manage.calls({ packLoanId: "pass-9", authorization: grant })).status, 200);
+  assert.equal(monotonic.prisma.loan.rows.find((row) => row.id === "loan-1")!.apiPaidUntil, later);
+
+  const pending = system({ loans: [origin(), attached("pass")], runner: { buyCalls: async () => { throw new failurePolicy.RunnerFinalityPending(PACK_TX); } } });
+  const waiting = await pending.manage.calls({ packLoanId: "pass-9", authorization: grant });
+  assert.equal(waiting.status, 202);
+  assert.deepEqual(await waiting.json(), { pending: true, settleTxHash: PACK_TX, error: settlementStatus.API_ACCESS_PENDING });
+});
+
+test("reaper : un pass verrouillé non réglé est enregistré sans autorisation", async () => {
+  const paidUntil = Date.now() + 2 * DAY;
+  const sys = system({ loans: [origin({ apiPaidUntil: null }), attached("pass")], runner: { buyCalls: async () => ({ settleTxHash: PACK_TX, apiPaidUntil: paidUntil }) } });
+  assert.equal((await sys.reaper().runLoanReaper(new Date())).failed, 0);
+  assert.equal(sys.prisma.loan.rows.find((row) => row.id === "pass-9")!.status, "SETTLED");
+  assert.equal((sys.prisma.loan.rows.find((row) => row.id === "loan-1")!.apiPaidUntil as Date).getTime(), paidUntil);
+});
+
+test("pass caduc (base du prix changée) : refusé pour toujours, jamais rejoué ni libéré, même après une prolongation", async () => {
+  let stale = true;
+  const sys = system({ loans: [origin(), attached("pass")], runner: { buyCalls: async () => {
+    if (stale) throw new AppError(apiPricing.API_ACCESS_STALE, 409, apiPricing.API_ACCESS_STALE_CODE);
+    return { settleTxHash: PACK_TX, apiPaidUntil: Date.now() + 7 * DAY };
+  } } });
+  const refused = await sys.manage.calls({ packLoanId: "pass-9", authorization: grant });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, apiPricing.API_ACCESS_STALE);
+  const pass = sys.prisma.loan.rows.find((row) => row.id === "pass-9")!;
+  assert.equal(pass.status, "ESCROWED", "fonds toujours dans l'escrow, remboursables à l'échéance");
+  assert.ok(pass.apiAccessRefusedAt instanceof Date);
+  // Prolongation d'un jour : même si l'enclave ne refusait plus, rien n'est rejoué.
+  stale = false;
+  sys.prisma.loan.rows.find((row) => row.id === "loan-1")!.rentalExpiresAt = new Date(Date.now() + 2 * DAY);
+  assert.equal((await sys.reaper().runLoanReaper(new Date())).failed, 0);
+  assert.equal((await sys.manage.calls({ packLoanId: "pass-9", authorization: grant })).status, 409);
+  assert.equal(sys.calls.runner.filter(([op]) => op === "buyCalls").length, 1, "une seule tentative, jamais de release");
+  assert.equal(pass.status, "ESCROWED");
+  // Le pass refusé ne bloque pas un nouvel achat.
+  const fresh = system({ loans: [origin({ apiPaidUntil: null }), attached("pass", { apiAccessRefusedAt: new Date() })] });
+  assert.equal((await fresh.manage.calls({ apiAccess: true })).status, 201);
+  // Reaper seul : refus marqué de la même façon.
+  const reaped = system({ loans: [origin(), attached("pass")], runner: { buyCalls: async () => {
+    throw new AppError(apiPricing.API_ACCESS_STALE, 409, apiPricing.API_ACCESS_STALE_CODE);
+  } } });
+  assert.equal((await reaped.reaper().runLoanReaper(new Date())).failed, 0);
+  assert.ok(reaped.prisma.loan.rows.find((row) => row.id === "pass-9")!.apiAccessRefusedAt instanceof Date);
+  await reaped.reaper().runLoanReaper(new Date());
+  assert.equal(reaped.calls.runner.filter(([op]) => op === "buyCalls").length, 1);
+});
+
+test("pass en préparation (PENDING ou remplacé, sans lock) : aucun second pass tant que son autorisation de lock vaut", async () => {
+  const preparing = (overrides: Row) => attached("pass", { status: "PENDING", evmLockTxHash: null, createdAt: new Date(), ...overrides });
+  for (const row of [preparing({}), preparing({ status: "CANCELLED", cancelTxHash: null })]) {
+    const sys = system({ loans: [origin({ apiPaidUntil: null }), row] });
+    const response = await sys.manage.calls({ apiAccess: true });
+    assert.equal(response.status, 409, String(row.status));
+    assert.equal((await response.json()).error, apiPricing.API_ACCESS_PREPARING);
+    assert.equal(sys.calls.lockRequests.length, 0);
+  }
+  const stalePreparation = system({ loans: [origin({ apiPaidUntil: null }), preparing({ createdAt: new Date(Date.now() - reaperPolicy.PENDING_REAPER_TTL_MS - 1) })] });
+  assert.equal((await stalePreparation.manage.calls({ apiAccess: true })).status, 201, "autorisation de lock expirée : plus de risque");
+});
+
+test("emprunt avec API incluse : demandé au runner, refusé sans tarif d'API ou pour un profil sans API, avant tout devis", async () => {
+  const sys = system({ loans: [] });
+  const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: true });
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.deepEqual(JSON.parse(JSON.stringify(sys.calls.lockRequests)), [{ rentalDays: 3, includeApiAccess: true }]);
+  const { billingQuote } = await response.json();
+  assert.deepEqual([billingQuote.quote.apiAccessIncluded, billingQuote.quote.apiAccessAmount], [true, "4500000"]);
+  const plain = system({ loans: [] });
+  assert.equal((await plain.manage.quote({ datasetId: "dataset-1", rentalDays: 3 })).status, 201);
+  assert.deepEqual(JSON.parse(JSON.stringify(plain.calls.lockRequests)), [{ rentalDays: 3 }], "sans option : devis inchangé");
+  const unsold = system({ loans: [], apiAccessFee: false });
+  const refused = await unsold.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: true });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, apiPricing.API_ACCESS_NOT_FOR_SALE);
+  assert.equal((await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: "yes" })).status, 400);
+  assert.equal(unsold.calls.lockRequests.length, 0);
 });

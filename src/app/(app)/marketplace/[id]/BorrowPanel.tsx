@@ -47,6 +47,7 @@ export function BorrowPanel({
   modelId,
   modelVersion,
   providerVerified,
+  apiAccessDailyFee,
 }: {
   datasetId: string;
   /**
@@ -64,8 +65,11 @@ export function BorrowPanel({
   onRentalDays: (days: number) => void;
   modelId: string | null;
   modelVersion: string | null;
+  /** Tarif journalier de l'API incluse (D-32), déjà formaté ; `null` : option non proposée. */
+  apiAccessDailyFee: string | null;
 }) {
   const { t } = useLocale();
+  const [includeApiAccess, setIncludeApiAccess] = useState(false);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
@@ -179,7 +183,7 @@ export function BorrowPanel({
     setBusy(true);
     try {
       if (await retryWhileEnclaveStarts(
-        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }),
+        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, includeApiAccess: Boolean(apiAccessDailyFee) && includeApiAccess, confirmQuote }),
         { onWaiting: setEnclaveRetry, signal: unmountSignal() },
       )) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
@@ -213,6 +217,16 @@ export function BorrowPanel({
           })}
         </p>
       </div>
+      {apiAccessDailyFee && (
+        <label className="flex items-start gap-2 text-xs text-muted" data-testid="include-api-access">
+          <input type="checkbox" checked={includeApiAccess} onChange={(event) => setIncludeApiAccess(event.target.checked)} disabled={busy} className="mt-0.5" />
+          <span>
+            <span className="font-medium text-foreground">{t("Inclure l’accès API (+{fee} par jour)", { fee: apiAccessDailyFee })}</span>
+            {" "}
+            {t("Appelle le modèle depuis ton code pendant toute la location, payé avec l’emprunt ; les prolongations le gardent. Sans cette option, l’API reste activable plus tard depuis la page Entraîner.")}
+          </span>
+        </label>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"

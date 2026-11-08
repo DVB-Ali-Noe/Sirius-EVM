@@ -73,3 +73,13 @@ test("frais sans entraînement et quotas d'API sont obligatoires et bornés ; ja
     assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(invalid) }), /Tarif compute/, JSON.stringify(invalid).slice(-80));
   }
 });
+
+test("tarif journalier de l'accès API facultatif : absent, l'accès n'est pas en vente ; présent, strictement positif", () => {
+  assert.equal(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()) }).apiAccessDailyComputeAmount, undefined);
+  assert.equal(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), apiAccessDailyComputeAmount: "1500000" }) })
+    .apiAccessDailyComputeAmount, "1500000");
+  for (const fee of ["0", "1.5", 1500000, "", null]) {
+    assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), apiAccessDailyComputeAmount: fee }) }),
+      /Tarif compute/, String(fee));
+  }
+});
