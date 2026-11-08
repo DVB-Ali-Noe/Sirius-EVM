@@ -31,14 +31,27 @@ test("ligne réelle d'un fichier vercel pull : tarif v7 complet accepté", () =>
   assert.deepEqual(checkRateCard(env), { applies: true, problems: [] });
 });
 
-test("variable Sensitive ([SENSITIVE]) : refus en la nommant", () => {
-  for (const key of ["SIRIUS_BILLING_VERSION", "SIRIUS_BILLING_POLICY_JSON", "SIRIUS_PHALA_DEMO"]) {
-    const env = { SIRIUS_BILLING_VERSION: "7", SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()), SIRIUS_PHALA_DEMO: "true", [key]: "[SENSITIVE]" };
+test("variable Sensitive ([SENSITIVE]) lue par la porte : refus en la nommant", () => {
+  const S = "[SENSITIVE]";
+  const full = JSON.stringify(policy());
+  const cases = [
+    ["SIRIUS_BILLING_VERSION", { SIRIUS_BILLING_VERSION: S, SIRIUS_BILLING_POLICY_JSON: full }],
+    ["SIRIUS_PHALA_DEMO", { SIRIUS_BILLING_VERSION: "7", SIRIUS_PHALA_DEMO: S, SIRIUS_BILLING_POLICY_JSON: full }],
+    ["SIRIUS_BILLING_POLICY_JSON", { SIRIUS_BILLING_VERSION: "7", SIRIUS_PHALA_DEMO: "false", SIRIUS_BILLING_POLICY_JSON: S }],
+  ];
+  for (const [key, env] of cases) {
     const r = checkRateCard(env);
     assert.equal(r.applies, true);
     assert.equal(r.problems.length, 1);
     assert.match(r.problems[0], new RegExp(`^${key} est marquée Sensitive`));
   }
+});
+
+test("cibles v6 et démonstration : variables Sensitive inutilisées sans effet", () => {
+  const S = "[SENSITIVE]";
+  assert.equal(checkRateCard({ SIRIUS_BILLING_VERSION: "6", SIRIUS_BILLING_POLICY_JSON: S, SIRIUS_PHALA_DEMO: S }).applies, false);
+  assert.equal(checkRateCard({ SIRIUS_BILLING_POLICY_JSON: S }).applies, false);
+  assert.equal(checkRateCard({ SIRIUS_BILLING_VERSION: "7", SIRIUS_PHALA_DEMO: "true", SIRIUS_BILLING_POLICY_JSON: S }).applies, false);
 });
 
 test("v7 complet : déploiement autorisé", () => {

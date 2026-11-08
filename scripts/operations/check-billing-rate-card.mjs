@@ -39,18 +39,22 @@ export function parseEnvFile(text) {
   return env;
 }
 
-/** Variables lues par la porte : `vercel pull` écrit `[SENSITIVE]` à la place d'une variable Sensitive. */
-const GATE_VARIABLES = ["SIRIUS_BILLING_VERSION", "SIRIUS_BILLING_POLICY_JSON", "SIRIUS_PHALA_DEMO"];
+/** `vercel pull` écrit `[SENSITIVE]` à la place d'une variable Sensitive : illisible, donc refusée. */
+const SENSITIVE = "[SENSITIVE]";
+const hidden = (key) => ({ applies: true, problems: [`${key} est marquée Sensitive sur Vercel : illisible par la porte, la repasser en non-Sensitive (ce n'est pas un secret)`] });
 
-/** Renvoie la liste des problèmes (vide = déploiement autorisé) et si la porte s'applique. */
+/**
+ * Renvoie la liste des problèmes (vide = déploiement autorisé) et si la porte s'applique.
+ * Chaque variable n'est exigée lisible que si la porte en a besoin : une cible v6 ou de
+ * démonstration n'est jamais bloquée par un tarif Sensitive qu'elle n'utilise pas.
+ */
 export function checkRateCard(env) {
-  const hidden = GATE_VARIABLES.filter((key) => env[key] === "[SENSITIVE]");
-  if (hidden.length > 0) {
-    return { applies: true, problems: hidden.map((key) => `${key} est marquée Sensitive sur Vercel : illisible par la porte, la repasser en non-Sensitive (ce n'est pas un secret)`) };
-  }
+  if (env.SIRIUS_BILLING_VERSION === SENSITIVE) return hidden("SIRIUS_BILLING_VERSION");
   const version = env.SIRIUS_BILLING_VERSION ?? "";
   if (version !== "7") return { applies: false, reason: `facturation ${version || "v6 (défaut)"} : porte D-33 sans objet`, problems: [] };
+  if (env.SIRIUS_PHALA_DEMO === SENSITIVE) return hidden("SIRIUS_PHALA_DEMO");
   if (env.SIRIUS_PHALA_DEMO === "true") return { applies: false, reason: "instance de démonstration Phala (SIRIUS_PHALA_DEMO=true) : aucune location", problems: [] };
+  if (env.SIRIUS_BILLING_POLICY_JSON === SENSITIVE) return hidden("SIRIUS_BILLING_POLICY_JSON");
   const raw = env.SIRIUS_BILLING_POLICY_JSON;
   if (!raw) return { applies: true, problems: ["SIRIUS_BILLING_POLICY_JSON absent"] };
   let policy;
