@@ -25,11 +25,11 @@ export interface AvailabilityLoanRecord {
   settleTxHash: string | null;
 }
 export interface AvailabilityApiKey { loanId: string; revokedAt: Date | null }
-/** Lecture en base d'un tour : prêts pertinents, clés actives, réveil demandé par un emprunteur. */
+/** Lecture en base d'un tour : prêts pertinents, clés actives, réveil demandé par un wallet authentifié. */
 export interface AvailabilityRecords {
   loans: AvailabilityLoanRecord[];
   apiKeys: AvailabilityApiKey[];
-  /** `RunnerAvailability.requestedUntil` : action wallet authentifiée d'un emprunteur sur une location active. */
+  /** `RunnerAvailability.requestedUntil` : action wallet authentifiée (emprunteur, fournisseur qui publie), voir D-30. */
   requestedUntil: Date | null;
 }
 
@@ -82,7 +82,7 @@ export function inFlightLoanNeeded(loan: AvailabilityLoanRecord, now: number): b
 /**
  * Besoin de la CVM : un prêt en cours (prolongations et packs compris, ce sont des prêts) au sens
  * d'`inFlightLoanNeeded`, un prêt SETTLED non expiré portant une clé non révoquée, ou un réveil
- * demandé par l'emprunteur d'une location active (`requestedUntil` dans le futur).
+ * demandé par une action wallet authentifiée (`requestedUntil` dans le futur).
  */
 export function availabilityNeeded({ loans, apiKeys, requestedUntil }: AvailabilityRecords, now: number): boolean {
   if (requestedUntil !== null && requestedUntil.getTime() > now) return true;

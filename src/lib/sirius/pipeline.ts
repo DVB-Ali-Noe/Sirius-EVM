@@ -6,6 +6,7 @@ import { datasetIngressKeyInRunner, sealDatasetInRunner } from "@/lib/tee/runner
 import type { DatasetIngressEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
+import { requireRunnerOrWake } from "@/lib/sirius/availability";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 import { assertCurrentRunner, currentRunnerProvenance, type RunnerProvenance } from "@/lib/runner/provenance";
@@ -53,6 +54,9 @@ export async function beginDatasetIngestion({
   model,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
+  // Fournisseur authentifié, requête validée, KYB accepté : CVM éteinte ⇒ réveil demandé et 503
+  // `enclave_starting` avant toute écriture (ni brouillon, ni nettoyage) ; le navigateur relance.
+  await requireRunnerOrWake();
   const runner = await currentRunnerProvenance();
   const dataset = await serializableTransaction(async (tx) => {
     const now = Date.now();
@@ -151,6 +155,8 @@ export async function authorizeDatasetUpload(
     throw new AppError("Ce dataset ne peut plus recevoir de fichier", 409);
   }
   await requireAcceptedKyb(provider);
+  // Scellement ou envoi en morceaux du brouillon de ce fournisseur : même réveil, avant de le toucher.
+  await requireRunnerOrWake();
   const runner = await assertCurrentRunner(dataset);
   const claimed = await prisma.dataset.updateMany({
     where: {

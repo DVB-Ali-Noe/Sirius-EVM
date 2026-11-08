@@ -21,6 +21,8 @@ import * as apiPricing from "@/lib/billing/api-pricing";
 import * as settlementStatus from "@/lib/loans/settlement-status";
 import * as failurePolicy from "@/lib/runner/failure-policy";
 import { isApiHost, apiHostPath } from "@/lib/http/api-host";
+import * as createRequest from "@/lib/datasets/create-request";
+import * as publication from "@/lib/datasets/publication";
 import { proxy } from "@/proxy";
 import * as reaperPolicy from "./reaper-policy";
 import * as reaperErrors from "./reaper-errors";
@@ -29,6 +31,8 @@ import { settlementQueuedError } from "./settlement-queued";
 // D-30 : API développeurs côté Next. Exécution réelle des routes publiques et de gestion, de
 // `public-api.ts`, `api-keys.ts`, `availability.ts`, `calls.ts`, `borrower.ts`, `extend.ts`,
 // `release-tier.ts`, `finality-tier.ts` et du reaper ; base, chaîne et runner remplacés en mémoire.
+// Réveil de la CVM par le devis (`POST /api/loans`) et la publication (`POST /api/datasets`,
+// `draft.ts`, `pipeline.ts`) : mêmes doubles.
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
   const exports = {};
@@ -300,9 +304,14 @@ function system(options: SystemOptions = {}) {
     "./finality-tier": finalityTier, "./prediction": prediction, "./self-training-access": { phalaDemoInstance: () => false },
   });
   const noLimit = { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} };
-  const session = { address: BORROWER };
+  const session: { address: string } = { address: BORROWER };
   const auth = {
-    requireAuth: () => session, assertAuthenticGrant: async () => {},
+    // Adresse vide : requête sans session, refusée avant tout contrôle comme par la vraie garde.
+    requireAuth: () => {
+      if (!session.address) throw new AppError("Authentification requise", 401);
+      return session;
+    },
+    assertAuthenticGrant: async () => {},
     assertOwner: (current: typeof session, owner: string) => {
       if (!addresses.addressesEqual(current.address, owner)) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
     },
@@ -328,6 +337,7 @@ function system(options: SystemOptions = {}) {
     "./recover-loan": {}, "@/lib/evm/history": {}, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "./exposure-limits": { assertAdmissionsOpen: () => {}, assertExposureWithinCap: () => {}, assertLoanWithinCap: () => {}, EXPOSED_LOAN_STATUSES: [], exposureLimits: () => null },
     "@/lib/billing/rental": rentalRules, "./rental": rental, "@/lib/billing/api-pricing": apiPricing, "./api-keys": apiKeysModule,
+    "./availability": availabilityModule,
   });
   const chain = { state: "active" as const };
   const shared = {
@@ -355,6 +365,11 @@ function system(options: SystemOptions = {}) {
       "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
       "@/lib/http/rate-limit": noLimit, "@/lib/billing/api-pricing": apiPricing, "@/lib/runner/failure-policy": failurePolicy,
       "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/availability": availabilityModule, "@/lib/sirius/calls": callsModule,
+    }),
+    loans: load<typeof import("../../app/api/loans/route")>("src/app/api/loans/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/sirius/borrower": borrower, "@/lib/auth/require-auth": auth,
+      "@/lib/errors": errors, "@/lib/http/body": { readJson }, "@/lib/billing/loan": billingLoan, "@/lib/http/rate-limit": noLimit,
+      "@/lib/billing/rental": rentalRules, "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule,
     }),
   };
   const reaper = () => load<typeof import("./reaper")>("src/lib/sirius/reaper.ts", {
@@ -393,6 +408,7 @@ function system(options: SystemOptions = {}) {
       { params: Promise.resolve({ id, keyId }) },
     ),
     calls: (body: unknown, id = "loan-1") => routes.calls.POST(new Request(`https://test.invalid/api/loans/${id}/calls`, json("POST", body)), { params: Promise.resolve({ id }) }),
+    quote: (body: unknown) => routes.loans.POST(new Request("https://test.invalid/api/loans", json("POST", body))),
   };
   return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper };
 }
@@ -642,6 +658,161 @@ test("action wallet de l'emprunteur, CVM éteinte : réveil demandé 15 min et 5
   assert.equal(stranger.prisma.runnerAvailability.rows[0].requestedUntil, null);
 });
 
+// --- Réveil par le devis d'emprunt et la publication --------------------------------------------
+
+const pendingLoan = (): Row => origin({
+  id: "pending-1", status: "PENDING", evmLockTxHash: null, settleTxHash: null, runnerReceipt: null, modelCid: null,
+  rentalExpiresAt: null, createdAt: new Date(), updatedAt: new Date(0),
+});
+
+test("devis d'emprunt, CVM éteinte : réveil 15 min et 503 enclave_starting, sans remplacer le PENDING ni réserver ; relance une fois allumée", async () => {
+  const sys = system({ phase: "stopped", loans: [origin(), pendingLoan()] });
+  const before = Date.now();
+  const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal((await response.json()).error.code, "enclave_starting");
+  const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+  assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
+  assert.equal(sys.calls.lockRequests.length, 0, "aucun devis demandé à l'enclave");
+  assert.deepEqual(sys.prisma.loan.rows.map((loan) => [loan.id, loan.status]), [["loan-1", "SETTLED"], ["pending-1", "PENDING"]]);
+
+  // Même requête une fois la CVM allumée : un seul nouveau prêt, comme sans réveil.
+  sys.prisma.runnerAvailability.rows[0].phase = "running";
+  const retried = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+  assert.equal(retried.status, 201, await retried.clone().text());
+  assert.equal(sys.calls.lockRequests.length, 1);
+  assert.equal(sys.prisma.loan.rows.length, 3);
+  assert.equal(sys.prisma.loan.rows.find((loan) => loan.id === "pending-1")!.status, "CANCELLED");
+});
+
+test("devis d'emprunt : requête anonyme, invalide ou refusée ne réveille pas la CVM ; CVM allumée : devis inchangé", async () => {
+  const anonymous = system({ phase: "stopped" });
+  anonymous.session.address = "";
+  assert.equal((await anonymous.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 401);
+  const invalid = system({ phase: "stopped" });
+  assert.equal((await invalid.manage.quote({ rentalDays: 7 })).status, 400);
+  assert.equal((await invalid.manage.quote({ datasetId: "dataset-1", rentalDays: 0 })).status, 400);
+  assert.equal((await invalid.manage.quote({ datasetId: "dataset-1", rentalDays: 31 })).status, 400, "au-delà de maxRentalDays du dataset");
+  assert.equal((await invalid.manage.quote({ datasetId: "absent", rentalDays: 7 })).status, 404);
+  const ownDataset = system({ phase: "stopped" });
+  ownDataset.session.address = PROVIDER;
+  assert.equal((await ownDataset.manage.quote({ datasetId: "dataset-1", rentalDays: 7 })).status, 400);
+  for (const sys of [anonymous, invalid, ownDataset]) {
+    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+    assert.equal(sys.calls.lockRequests.length, 0);
+  }
+
+  for (const phase of ["running", null]) {
+    const sys = system({ phase });
+    const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
+    assert.equal(response.status, 201, String(phase));
+    assert.equal(sys.calls.lockRequests.length, 1);
+    if (phase) assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "CVM allumée : aucun réveil écrit");
+  }
+});
+
+/** `POST /api/datasets` réel (route, brouillon, pipeline) ; base, KYB et runner en mémoire. */
+function publicationSystem(phase: string | null, options: { kybRefused?: boolean } = {}) {
+  const datasets = table([]);
+  const insert = datasets.create;
+  // Valeur par défaut du schéma : un dataset naît brouillon.
+  datasets.create = ({ data }) => insert({ data: { status: "DRAFT", ...data } });
+  const runnerAvailability = table(phase === null ? [] : [{ id: 1, phase, since: new Date(0), requestedUntil: null }]);
+  const prisma = { dataset: datasets, runnerAvailability };
+  const db = { prisma, serializableTransaction: async (fn: (tx: typeof prisma) => unknown) => fn(prisma) };
+  const calls = { ingress: 0 };
+  const session: { address: string } = { address: PROVIDER };
+  const runner = { runnerKind: "PHALA", runnerDeploymentId: "phala:1" };
+  const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
+  });
+  const pipeline = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
+    "server-only": {}, "@/lib/db": db, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
+    "@/lib/tee/runner-client": { datasetIngressKeyInRunner: async () => { calls.ingress++; return { version: 1, publicKey: "ingress", origin: "runner" }; } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => { if (options.kybRefused) throw new AppError("KYB requis", 403); } },
+    "@/lib/sirius/availability": availabilityModule, "@/lib/ipfs/pinata": {},
+    "@/lib/runner/provenance": { currentRunnerProvenance: async () => runner, assertCurrentRunner: async () => runner },
+  });
+  const draft = load<typeof import("../datasets/draft")>("src/lib/datasets/draft.ts", {
+    "server-only": {}, "@/lib/db": db, "@/lib/app-error": { AppError }, "@/lib/sirius/pipeline": pipeline, "./publication": publication,
+  });
+  const route = load<typeof import("../../app/api/datasets/route")>("src/app/api/datasets/route.ts", {
+    "next/server": { NextResponse }, "@/lib/db": db,
+    "@/lib/auth/require-auth": { requireAuth: () => {
+      if (!session.address) throw new AppError("Authentification requise", 401);
+      return session;
+    } },
+    "@/lib/auth/session": {}, "@/lib/errors": { errorResponse }, "@/lib/http/body": { readJson }, "@/lib/sirius/reputation": {},
+    "@/lib/sirius/dataset-response": {}, "@/lib/datasets/create-request": createRequest,
+    "@/lib/sirius/chunked-upload": { requireChunkedUploads: () => {} }, "@/lib/datasets/draft": draft,
+    "@/lib/billing/config": { billingEnabled: () => false }, "@/lib/datasets/tariff-server": { publishedTariff: () => null },
+    "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} }, "@/lib/sirius/availability": availabilityModule,
+  });
+  const publish = (body: unknown) => route.POST(new Request("https://test.invalid/api/datasets", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  return { prisma, calls, session, pipeline, publish };
+}
+
+const publicationBody = {
+  name: "Crédit", sizeBytes: 1200, priceUsdc: "10", category: publication.DATASET_CATEGORIES[0], maxRentalDays: 30,
+  listingDays: 30, trainingConsent: false, modelId: "linear_regression",
+};
+
+test("publication, CVM éteinte : réveil 15 min et 503 enclave_starting sans brouillon ; la relance crée un seul brouillon", async () => {
+  const sys = publicationSystem("stopped");
+  const before = Date.now();
+  const response = await sys.publish(publicationBody);
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal((await response.json()).error.code, "enclave_starting");
+  const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
+  assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
+  assert.equal(sys.prisma.dataset.rows.length, 0, "aucun brouillon tant que l'enclave démarre");
+  assert.equal(sys.calls.ingress, 0);
+
+  sys.prisma.runnerAvailability.rows[0].phase = "starting";
+  assert.equal((await sys.publish(publicationBody)).status, 503);
+  sys.prisma.runnerAvailability.rows[0].phase = "running";
+  const created = await sys.publish(publicationBody);
+  assert.equal(created.status, 201, await created.clone().text());
+  assert.equal(sys.prisma.dataset.rows.length, 1);
+  assert.equal(sys.calls.ingress, 1);
+
+  // CVM arrêtée avant le scellement : même réveil, brouillon intact.
+  const draft = sys.prisma.dataset.rows[0];
+  const touched = draft.updatedAt;
+  sys.prisma.runnerAvailability.rows[0].phase = "stopped";
+  sys.prisma.runnerAvailability.rows[0].requestedUntil = null;
+  await assert.rejects(sys.pipeline.authorizeDatasetUpload(String(draft.id), PROVIDER), (error: AppError) => error.status === 503);
+  assert.ok(sys.prisma.runnerAvailability.rows[0].requestedUntil instanceof Date);
+  assert.equal(draft.updatedAt, touched);
+});
+
+test("publication : requête anonyme, invalide ou sans KYB ne réveille pas la CVM ; CVM allumée : brouillon créé sans réveil", async () => {
+  const anonymous = publicationSystem("stopped");
+  anonymous.session.address = "";
+  assert.equal((await anonymous.publish(publicationBody)).status, 401);
+  const invalid = publicationSystem("stopped");
+  assert.equal((await invalid.publish({ ...publicationBody, category: "" })).status, 400);
+  assert.equal((await invalid.publish({ ...publicationBody, modelId: "inconnu" })).status, 400);
+  assert.equal((await invalid.publish({ ...publicationBody, sizeBytes: 0 })).status, 413);
+  const unverified = publicationSystem("stopped", { kybRefused: true });
+  assert.equal((await unverified.publish(publicationBody)).status, 403);
+  for (const sys of [anonymous, invalid, unverified]) {
+    assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null);
+    assert.equal(sys.prisma.dataset.rows.length, 0);
+  }
+
+  for (const phase of ["running", null]) {
+    const sys = publicationSystem(phase);
+    assert.equal((await sys.publish(publicationBody)).status, 201, String(phase));
+    assert.equal(sys.prisma.dataset.rows.length, 1);
+    if (phase) assert.equal(sys.prisma.runnerAvailability.rows[0].requestedUntil, null, "CVM allumée : aucun réveil écrit");
+  }
+});
+
 // --- Packs d'appels ---------------------------------------------------------------------------
 
 test("pack d'appels : préparé au prix déduit du prix par jour, jours du prêt d'origine repris", async () => {
@@ -821,7 +992,7 @@ test("GET /api/loans : champs API et packs exposés", async () => {
     "@/lib/sirius/borrower": {}, "@/lib/auth/require-auth": { requireAuth: () => ({ address: BORROWER }) },
     "@/lib/errors": { errorResponse }, "@/lib/http/body": { readJson }, "@/lib/billing/loan": { loanBillingQuote: () => undefined },
     "@/lib/http/rate-limit": { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} }, "@/lib/billing/rental": rentalRules,
-    "@/lib/sirius/api-keys": apiKeys,
+    "@/lib/sirius/api-keys": apiKeys, "@/lib/sirius/availability": { loanRouteErrorResponse: errorResponse },
   });
   const body = await (await route.GET(new Request("https://test.invalid/api/loans"))).json();
   assert.deepEqual(body.map((loan: Row) => [loan.id, loan.apiEnabled, loan.callsPerDay, loan.callPack, loan.packForLoanId]), [

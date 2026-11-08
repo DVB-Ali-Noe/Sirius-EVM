@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
-import { errorResponse } from "@/lib/errors";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 import { readJson } from "@/lib/http/body";
 import { withUploadAdmission } from "@/lib/http/upload-admission";
 import { authorizeDatasetUpload, completeDatasetIngestion } from "@/lib/sirius/pipeline";
@@ -35,6 +35,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json(await completeDatasetIngestion(dataset, envelope, authorization));
     });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

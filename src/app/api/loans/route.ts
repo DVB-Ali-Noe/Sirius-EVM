@@ -8,6 +8,7 @@ import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { isValidRentalDays } from "@/lib/billing/rental";
 import { loanApiCallsPerDay } from "@/lib/sirius/api-keys";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

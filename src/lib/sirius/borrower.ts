@@ -30,6 +30,7 @@ import { requireRentalQuote } from "@/lib/billing/quote";
 import { assertExtendableLoan } from "./rental";
 import { isCallPackSize, packDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import { assertApiLoan } from "./api-keys";
+import { requireRunnerOrWake } from "./availability";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -107,6 +108,11 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
     args: [dataset.evmDatasetId as Hex],
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
+
+  // Emprunteur authentifié, dataset empruntable, deux KYB acceptés : CVM éteinte ⇒ réveil demandé et
+  // 503 `enclave_starting` avant toute écriture (aucun PENDING remplacé, aucune réservation) ; le
+  // navigateur relance la même préparation. Couvre aussi prolongations et packs.
+  await requireRunnerOrWake();
 
   const loan = await serializableTransaction(async (tx) => {
     const [pending, recentRuns] = await Promise.all([

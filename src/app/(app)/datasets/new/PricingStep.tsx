@@ -26,6 +26,7 @@ import { UPLOAD_CHUNK_BYTES } from "@/lib/upload/chunked";
 import type { PublishDatasetStage } from "@/lib/datasets/client";
 import { MODEL_REGISTRY, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, type LoadedFile, type StepState } from "./wizard-types";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
 
 /** Étiquette AES-GCM ajoutée au contenu chiffré ; l'enveloppe JSON et le base64 s'ajoutent sur le fil. */
 const AES_GCM_TAG_BYTES = 16;
@@ -62,6 +63,8 @@ interface PricingStepProps {
   stage: PublishDatasetStage | null;
   /** Gros fichier : part chiffrée et envoyée, de 0 à 1, pendant le chiffrement. */
   uploadSent?: number | null;
+  /** Enclave en démarrage pendant la publication : secondes avant le prochain essai automatique. */
+  enclaveRetry?: number | null;
   error: string | null;
   sealedDatasetId: string | null;
   onBack: () => void;
@@ -104,6 +107,7 @@ export function PricingStep({
   progress,
   stage,
   uploadSent = null,
+  enclaveRetry = null,
   error,
   sealedDatasetId,
   onBack,
@@ -346,6 +350,15 @@ export function PricingStep({
             );
           })}
         </ol>
+      )}
+
+      {enclaveRetry !== null && (
+        <EnclaveStartingSteps
+          phase="starting"
+          retryInSeconds={enclaveRetry}
+          testId="publish-enclave-starting"
+          closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+        />
       )}
 
       <div className="flex flex-wrap items-center gap-3" data-guide="page:upload:publish">

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
-import { errorResponse } from "@/lib/errors";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { isValidRentalDays } from "@/lib/billing/rental";
@@ -55,6 +55,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw err;
     }
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

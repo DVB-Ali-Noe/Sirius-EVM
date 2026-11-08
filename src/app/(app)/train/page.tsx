@@ -61,6 +61,8 @@ import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResp
 import { runSelfTrain } from "@/lib/train/client";
 import { requestPrediction } from "@/lib/train/prediction-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
@@ -194,6 +196,8 @@ function TrainPageContent() {
   // Prolongation : prêt dont le choix de jours est ouvert, et jours choisis par prêt.
   const [extending, setExtending] = useState<string | null>(null);
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
+  // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
+  const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
@@ -522,7 +526,11 @@ function TrainPageContent() {
     setNotice(null);
     setBusyKey(key, true);
     try {
-      if (await extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote })) setExtending(null);
+      const extended = await retryWhileEnclaveStarts(
+        () => extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote }),
+        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }) },
+      );
+      if (extended) setExtending(null);
       await refresh();
     } catch (err) {
       const message = messageOf(err);
@@ -960,6 +968,16 @@ function TrainPageContent() {
                         <p className="w-full text-xs text-muted">
                           {t("Chaque jour ajouté est payé au prix par jour du dataset, plus les frais de calcul de Sirius à prix coûtant. Le total exact est affiché dans le devis, avant tout paiement.")}
                         </p>
+                        {extendWait?.loanId === l.id && (
+                          <div className="w-full">
+                            <EnclaveStartingSteps
+                              phase="starting"
+                              retryInSeconds={extendWait.seconds}
+                              testId="extend-enclave-starting"
+                              closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+                            />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <button

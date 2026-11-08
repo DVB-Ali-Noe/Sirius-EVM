@@ -14,7 +14,6 @@ import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { buyCallsInRunner } from "@/lib/tee/runner-client";
 import { CALLS_PENDING } from "@/lib/loans/settlement-status";
 import { assertApiLoan } from "./api-keys";
-import { requireRunnerOrWake } from "./availability";
 import { prepareLoan } from "./borrower";
 import { releaseFinalityTier } from "./release-tier";
 import { recordSettlementEvidence } from "./settlement-evidence";
@@ -43,13 +42,12 @@ export interface CallPackResult {
 
 /**
  * Prépare le lock d'un pack de `size` appels pour le prêt `originalLoanId`, par son emprunteur.
- * CVM éteinte : réveil demandé et 503 `enclave_starting` avant toute préparation (rien n'est payé).
+ * CVM éteinte : réveil demandé et 503 `enclave_starting` par `prepareLoan`, avant toute préparation (rien n'est payé).
  */
 export async function prepareCallPack(originalLoanId: string, borrower: string, size: CallPackSize) {
   const original = await assertApiLoan(originalLoanId, normalizeAddress(borrower), { requireActiveRental: true });
   const model = modelSelection(original.modelId, original.modelVersion);
   if (!model || typeof original.rentalDays !== "number") throw new AppError("Profil d’entraînement du loan invalide", 409);
-  await requireRunnerOrWake();
   return prepareLoan(original.datasetId, borrower, original.rentalDays, {
     originalLoanId: original.id, model, pack: { size, callsPerDay: original.callsPerDay },
   });

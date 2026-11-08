@@ -104,6 +104,11 @@ async function approveAndLock(
   await submitLoanLock(loanId, lockTxHash);
 }
 
+/**
+ * Emprunt complet sur le devis accepté. Enclave à l'arrêt : la préparation répond 503
+ * `enclave_starting` avant toute écriture et remonte en `EnclaveStartingError`, à relancer par
+ * l'appelant (`retryWhileEnclaveStarts`) ; rien n'est signé ni payé avant elle.
+ */
 export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const { address, assertCurrent } = walletGuard();
   const prep = await fetch("/api/loans", {
@@ -111,8 +116,9 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays }),
   });
+  if (!prep.ok) throw await responseError(prep, "Préparation du lock de paiement échouée");
   const body = await prep.json() as PreparedLock;
-  if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation du lock de paiement échouée");
   }
   assertCurrent();
@@ -142,7 +148,8 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
  * Prolonge la location du prêt `loanId` de `rentalDays` jours (D-29) : prêt de prolongation préparé
  * par le serveur, devis accepté, même lock qu'un emprunt, puis `release` demandé au runner. Renvoie
  * `false` si le devis est refusé. Lock pas encore finalisé ou `release` en attente de finalité :
- * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action.
+ * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action. Enclave à
+ * l'arrêt à la préparation : `EnclaveStartingError`, avant tout paiement, comme `borrowDataset`.
  */
 export async function extendLoan(input: ExtendInput): Promise<boolean> {
   const { address, assertCurrent } = walletGuard();
@@ -151,8 +158,9 @@ export async function extendLoan(input: ExtendInput): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rentalDays: input.rentalDays }),
   });
+  if (!prep.ok) throw await responseError(prep, "Préparation de la prolongation échouée");
   const body = await prep.json() as PreparedLock;
-  if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation de la prolongation échouée");
   }
   const extensionLoanId = body.loanId;

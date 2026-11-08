@@ -11,8 +11,10 @@ import { AppError, errorResponse } from "@/lib/errors";
  *
  * Sans ligne, aucun contrôleur ne gère la CVM sur ce déploiement (développement, staging sans
  * `SIRIUS_API_AVAILABILITY`) : le runner est réputé allumé, comme avant D-30. Les appels anonymes
- * de l'API publique ne réveillent jamais la CVM ; seules les actions wallet de l'emprunteur d'un
- * prêt loué le peuvent (`requestRunnerWake`).
+ * de l'API publique ne réveillent jamais la CVM ; seules des actions wallet authentifiées, après
+ * leurs contrôles d'accès et de validité, le peuvent (`requireRunnerOrWake`) : emprunteur d'un prêt
+ * loué (clé API, prédiction, pack d'appels), fournisseur qui publie (brouillon, scellement, envoi en
+ * morceaux) et emprunteur qui demande un devis (emprunt, prolongation, pack).
  */
 
 export type RunnerPhase = "stopped" | "starting" | "running" | "stopping";
@@ -68,7 +70,7 @@ export function enclaveStartingBody(error: EnclaveStarting) {
   };
 }
 
-/** Routes wallet : 503 `enclave_starting` (même corps que l'API publique), sinon réponse d'erreur habituelle. */
+/** Routes wallet (prêts, publication) : 503 `enclave_starting` (même corps que l'API publique), sinon réponse d'erreur habituelle. */
 export function loanRouteErrorResponse(error: unknown): NextResponse {
   if (!(error instanceof EnclaveStarting)) return errorResponse(error);
   const { body, headers } = enclaveStartingBody(error);
@@ -82,8 +84,9 @@ export async function assertRunnerRunning(): Promise<void> {
 }
 
 /**
- * Action wallet de l'emprunteur d'un prêt loué (contrôles d'accès déjà faits) : si la CVM n'est
- * pas allumée, demande son réveil pour `RUNNER_WAKE_MS` (jamais raccourci) et refuse en 503.
+ * Action wallet authentifiée dont les contrôles d'accès et de validité sont déjà faits, avant toute
+ * écriture : si la CVM n'est pas allumée, demande son réveil pour `RUNNER_WAKE_MS` (jamais
+ * raccourci) et refuse en 503. Rejouable : rien d'autre n'est écrit.
  */
 export async function requireRunnerOrWake(now = new Date()): Promise<void> {
   const phase = await runnerPhase();

@@ -9,7 +9,8 @@ export const ENCLAVE_START_ESTIMATE_SECONDS = 4 * 60;
 
 /**
  * Démarrage de l'enclave (D-30) : la machine confidentielle est arrêtée hors usage ; une action
- * de l'emprunteur ou une clé API active la rallume. `retryInSeconds` : relance automatique prévue.
+ * wallet (emprunteur, fournisseur qui publie) ou une clé API la rallume. `retryInSeconds` : relance
+ * automatique prévue.
  */
 export function EnclaveStartingSteps({
   phase,

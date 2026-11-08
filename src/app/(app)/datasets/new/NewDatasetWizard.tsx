@@ -79,6 +79,8 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
   const [progress, setProgress] = useState<Record<UploadStep, StepState>>(PENDING_PROGRESS);
   const [stage, setStage] = useState<PublishDatasetStage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Enclave à l'arrêt : la création du brouillon la réveille ; secondes avant le prochain essai.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const [sealedDatasetId, setSealedDatasetId] = useState<string | null>(null);
   const readToken = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -307,8 +309,8 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
       trainingConsent: consent,
     };
     try {
-      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress);
-      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress);
+      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress, { onEnclaveWaiting: setEnclaveRetry });
+      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress, { onEnclaveWaiting: setEnclaveRetry });
       setProgress({ draft: "done", encrypt: "done", seal: "done", register: "done" });
       router.push("/datasets");
     } catch (cause) {
@@ -441,6 +443,7 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
             progress={progress}
             stage={stage}
             uploadSent={uploadSent}
+            enclaveRetry={enclaveRetry}
             error={error}
             sealedDatasetId={sealedDatasetId}
             onBack={() => {

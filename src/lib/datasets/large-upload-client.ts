@@ -6,7 +6,8 @@ import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { blobSource, sendChunkedDataset } from "@/lib/upload/chunked-transfer";
 import { publishDataset } from "./client";
 import { checkDraftResponse } from "./draft-response";
-import { UploadError, type UploadInput, type UploadProgress, type UploadStep } from "./upload-client";
+import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { UploadError, type UploadInput, type UploadOptions, type UploadProgress, type UploadStep } from "./upload-client";
 
 /** Gros fichier : le `File` du navigateur, lu par tranches, jamais chargé en entier. */
 export interface LargeUploadInput extends Omit<UploadInput, "content"> {
@@ -22,38 +23,38 @@ export interface LargeUploadProgress extends UploadProgress {
  * Publication d'un gros dataset (jusqu'à 1 Go, docs/UPLOAD-1GO.md) : mêmes étapes que
  * `uploadAndPublishDataset`, mais le fichier part en morceaux chiffrés directement vers le
  * stockage, puis l'enclave les relit et les scelle. Le brouillon, le grant et l'inscription
- * on-chain restent ceux du parcours habituel.
+ * on-chain restent ceux du parcours habituel. Enclave à l'arrêt : le brouillon, l'ouverture et la
+ * clôture de l'envoi attendent son démarrage (`onEnclaveWaiting`), sans perdre les morceaux envoyés.
  */
 export async function uploadAndPublishLargeDataset(
   input: LargeUploadInput,
   onProgress: (progress: LargeUploadProgress) => void,
-  signal?: AbortSignal,
+  { signal, onEnclaveWaiting }: UploadOptions & { signal?: AbortSignal } = {},
 ): Promise<{ datasetId: string }> {
   let step: UploadStep = "draft";
   let sealedDatasetId: string | null = null;
   try {
     onProgress({ step });
-    const initRes = await fetch("/api/datasets", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: input.name,
-        description: input.description || undefined,
-        sizeBytes: input.sizeBytes,
-        priceUsdc: input.priceUsdc,
-        category: input.category,
-        maxRentalDays: input.maxRentalDays,
-        listingDays: input.listingDays,
-        trainingConsent: input.trainingConsent,
-        modelId: input.modelId,
-        transfer: "chunked",
-      }),
-    });
-    const initBody: unknown = await initRes.json().catch(() => ({}));
-    if (!initRes.ok) {
-      const error = initBody && typeof initBody === "object" ? (initBody as { error?: unknown }).error : undefined;
-      throw new Error(typeof error === "string" && error ? error : "Échec de la préparation du dépôt");
-    }
+    const initBody = await retryWhileEnclaveStarts(async () => {
+      const initRes = await fetch("/api/datasets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: input.name,
+          description: input.description || undefined,
+          sizeBytes: input.sizeBytes,
+          priceUsdc: input.priceUsdc,
+          category: input.category,
+          maxRentalDays: input.maxRentalDays,
+          listingDays: input.listingDays,
+          trainingConsent: input.trainingConsent,
+          modelId: input.modelId,
+          transfer: "chunked",
+        }),
+      });
+      if (!initRes.ok) throw await responseError(initRes, "Échec de la préparation du dépôt");
+      return (await initRes.json().catch(() => ({}))) as unknown;
+    }, { onWaiting: onEnclaveWaiting });
     const draft = checkDraftResponse(initBody, {
       priceUsdcAtomic: input.priceUsdcAtomic,
       sizeBytes: input.sizeBytes,
@@ -92,6 +93,7 @@ export async function uploadAndPublishLargeDataset(
           }
         },
         signal,
+        onEnclaveWaiting,
       },
     );
     sealedDatasetId = draft.datasetId;

@@ -1,8 +1,9 @@
 /**
- * Démarrage de l'enclave (D-30) vu du navigateur : les routes de l'emprunteur qui ont besoin du
- * runner (création de clé, prédiction depuis le site, achat d'appels) répondent
+ * Démarrage de l'enclave (D-30) vu du navigateur et de la CLI : les routes wallet qui ont besoin du
+ * runner (création de clé, prédiction depuis le site, achat d'appels, devis d'emprunt ou de
+ * prolongation, publication d'un dataset) répondent
  * `503 { error: { code: "enclave_starting", message }, retryAfterSeconds }` tant que la CVM
- * démarre. La page explique l'attente et relance seule, dans une limite de temps.
+ * démarre, sans rien avoir écrit. L'appelant explique l'attente et relance seul, dans une limite de temps.
  */
 
 export const ENCLAVE_STARTING_CODE = "enclave_starting";

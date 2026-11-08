@@ -4,6 +4,7 @@ import { messageOf } from "@/lib/errors-client";
 import { encryptDatasetForRunner } from "@/lib/tee/ingress-client";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
+import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import type { ModelId } from "@/lib/models/registry";
 import { publishDataset, type PublishDatasetStage } from "./client";
 import { checkDraftResponse } from "./draft-response";
@@ -36,6 +37,14 @@ export interface UploadProgress {
   stage?: PublishDatasetStage;
 }
 
+export interface UploadOptions {
+  /**
+   * CVM en démarrage (`503 enclave_starting`) : secondes avant le prochain essai, puis `null`.
+   * Le brouillon et le scellement sont relancés seuls ; rien n'a été écrit entre-temps.
+   */
+  onEnclaveWaiting?: (retryInSeconds: number | null) => void;
+}
+
 export class UploadError extends Error {
   constructor(
     message: string,
@@ -57,41 +66,41 @@ async function responseJson(response: Response): Promise<Record<string, unknown>
   }
 }
 
-function errorText(body: Record<string, unknown>, fallback: string): string {
-  return typeof body.error === "string" && body.error ? body.error : fallback;
-}
-
 /**
  * Publication complète : brouillon, chiffrement sur l'appareil, scellement par l'enclave,
  * inscription du titre on-chain. Chaque étape est annoncée via `onProgress` avant de
  * commencer. Le fichier n'est chiffré qu'une fois le brouillon créé, car la clé de
  * chiffrement est liée à son identifiant ; la donnée en clair ne quitte jamais ce code.
+ * Enclave à l'arrêt : le brouillon puis le scellement attendent son démarrage (`onEnclaveWaiting`).
  */
 export async function uploadAndPublishDataset(
   input: UploadInput,
   onProgress: (progress: UploadProgress) => void,
+  { onEnclaveWaiting }: UploadOptions = {},
 ): Promise<{ datasetId: string }> {
   let step: UploadStep = "draft";
   let sealedDatasetId: string | null = null;
   try {
     onProgress({ step });
-    const initRes = await fetch("/api/datasets", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: input.name,
-        description: input.description || undefined,
-        sizeBytes: input.sizeBytes,
-        priceUsdc: input.priceUsdc,
-        category: input.category,
-        maxRentalDays: input.maxRentalDays,
-        listingDays: input.listingDays,
-        trainingConsent: input.trainingConsent,
-        modelId: input.modelId,
-      }),
-    });
-    const initBody = await responseJson(initRes);
-    if (!initRes.ok) throw new Error(errorText(initBody, "Échec de la préparation du dépôt"));
+    const initBody = await retryWhileEnclaveStarts(async () => {
+      const initRes = await fetch("/api/datasets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: input.name,
+          description: input.description || undefined,
+          sizeBytes: input.sizeBytes,
+          priceUsdc: input.priceUsdc,
+          category: input.category,
+          maxRentalDays: input.maxRentalDays,
+          listingDays: input.listingDays,
+          trainingConsent: input.trainingConsent,
+          modelId: input.modelId,
+        }),
+      });
+      if (!initRes.ok) throw await responseError(initRes, "Échec de la préparation du dépôt");
+      return responseJson(initRes);
+    }, { onWaiting: onEnclaveWaiting });
     const draft = checkDraftResponse(initBody, {
       priceUsdcAtomic: input.priceUsdcAtomic,
       sizeBytes: input.sizeBytes,
@@ -108,29 +117,32 @@ export async function uploadAndPublishDataset(
 
     step = "seal";
     onProgress({ step });
-    const authorization = await issueRunnerGrant(
-      "seal-dataset",
-      { datasetId: draft.datasetId },
-      [
-        draft.datasetId,
-        draft.priceUsdcAtomic,
-        String(draft.challengeDays),
-        String(draft.sizeBytes),
-        envelope.ciphertext,
-        draft.model.modelId,
-        draft.model.modelVersion,
-        String(draft.maxRentalDays),
-      ],
-    );
-    const uploadRes = await fetch(`/api/datasets/${draft.datasetId}/upload`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-sirius-runner-grant": encodeRunnerGrantHeader(authorization),
-      },
-      body: JSON.stringify({ envelope }),
-    });
-    if (!uploadRes.ok) throw new Error(errorText(await responseJson(uploadRes), "Échec de l’upload confidentiel"));
+    // Un grant par essai : il ne vaut qu'une minute, l'attente du démarrage peut durer plus.
+    await retryWhileEnclaveStarts(async () => {
+      const authorization = await issueRunnerGrant(
+        "seal-dataset",
+        { datasetId: draft.datasetId },
+        [
+          draft.datasetId,
+          draft.priceUsdcAtomic,
+          String(draft.challengeDays),
+          String(draft.sizeBytes),
+          envelope.ciphertext,
+          draft.model.modelId,
+          draft.model.modelVersion,
+          String(draft.maxRentalDays),
+        ],
+      );
+      const uploadRes = await fetch(`/api/datasets/${draft.datasetId}/upload`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sirius-runner-grant": encodeRunnerGrantHeader(authorization),
+        },
+        body: JSON.stringify({ envelope }),
+      });
+      if (!uploadRes.ok) throw await responseError(uploadRes, "Échec de l’upload confidentiel");
+    }, { onWaiting: onEnclaveWaiting });
     sealedDatasetId = draft.datasetId;
 
     step = "register";

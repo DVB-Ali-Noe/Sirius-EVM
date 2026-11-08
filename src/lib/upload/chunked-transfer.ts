@@ -1,6 +1,7 @@
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import type { DatasetIngressKey } from "@/lib/tee/contract";
+import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { ChunkedUploadEncryptor, UPLOAD_CHUNK_BYTES, chunkPlainBytes, manifestSha256 } from "./chunked";
 
 /**
@@ -56,6 +57,11 @@ export interface ChunkedTransferDeps {
   /** Abandon du suivi du scellement au-delà de ce délai. */
   sealTimeoutMs?: number;
   sleep?(ms: number): Promise<void>;
+  /**
+   * CVM en démarrage (`503 enclave_starting`) à l'ouverture ou à la clôture : secondes avant le
+   * prochain essai, puis `null`. L'envoi reste ouvert et ses morceaux valables pendant l'attente.
+   */
+  onEnclaveWaiting?(retryInSeconds: number | null): void;
 }
 
 interface OpenedUpload {
@@ -97,6 +103,19 @@ function post(api: ChunkedTransferApi, path: string, body: unknown, headers: Rec
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Requête relancée tant que l'enclave démarre (`503 enclave_starting`, rien n'a été écrit côté
+ * serveur) ; toute autre erreur remonte avec le message de la route.
+ */
+function untilEnclaveReady<T>(deps: ChunkedTransferDeps, sleep: (ms: number) => Promise<void>, send: () => Promise<Response>, fallback: string): Promise<T> {
+  return retryWhileEnclaveStarts(async () => {
+    deps.signal?.throwIfAborted();
+    const response = await send();
+    if (!response.ok) throw await responseError(response, fallback);
+    return (await response.json().catch(() => ({}))) as T;
+  }, { onWaiting: deps.onEnclaveWaiting, wait: sleep });
+}
+
+/**
  * Chiffre et envoie le fichier, clôt l'envoi, puis attend le scellement par l'enclave. Au retour,
  * le brouillon porte sa référence et son reçu : il se publie comme un petit fichier.
  */
@@ -110,7 +129,7 @@ export async function sendChunkedDataset(
   if (source.sizeBytes !== terms.sizeBytes) throw new Error("La taille du fichier a changé depuis la création du brouillon");
   const base = `/api/datasets/${encodeURIComponent(terms.datasetId)}/uploads`;
 
-  const opened = await json<OpenedUpload>(await post(api, base, { chunkBytes: deps.chunkBytes ?? UPLOAD_CHUNK_BYTES }), "Ouverture de l’envoi refusée");
+  const opened = await untilEnclaveReady<OpenedUpload>(deps, sleep, () => post(api, base, { chunkBytes: deps.chunkBytes ?? UPLOAD_CHUNK_BYTES }), "Ouverture de l’envoi refusée");
   if (opened.sizeBytes !== terms.sizeBytes) throw new Error("Taille de l’envoi incohérente");
   const ids = { datasetId: terms.datasetId, uploadId: opened.uploadId };
   const encryptor = await ChunkedUploadEncryptor.create({
@@ -192,19 +211,23 @@ export async function sendChunkedDataset(
     }
 
     const manifest = await encryptor.manifest();
-    const grant = await deps.issueGrant(terms.datasetId, [
-      terms.datasetId,
-      opened.uploadId,
-      terms.priceUsdcAtomic,
-      String(terms.challengeDays),
-      String(terms.sizeBytes),
-      await manifestSha256(manifest),
-      terms.model.modelId,
-      terms.model.modelVersion,
-      String(terms.maxRentalDays),
-    ]);
+    const manifestSha = await manifestSha256(manifest);
     deps.onProgress?.({ phase: "seal" });
-    await json(await post(api, `${uploadPath}/complete`, { manifest }, { "x-sirius-runner-grant": encodeRunnerGrantHeader(grant) }), "Clôture de l’envoi refusée");
+    // Un grant par essai : il ne vaut qu'une minute, l'attente du démarrage peut durer plus.
+    await untilEnclaveReady(deps, sleep, async () => {
+      const grant = await deps.issueGrant(terms.datasetId, [
+        terms.datasetId,
+        opened.uploadId,
+        terms.priceUsdcAtomic,
+        String(terms.challengeDays),
+        String(terms.sizeBytes),
+        manifestSha,
+        terms.model.modelId,
+        terms.model.modelVersion,
+        String(terms.maxRentalDays),
+      ]);
+      return post(api, `${uploadPath}/complete`, { manifest }, { "x-sirius-runner-grant": encodeRunnerGrantHeader(grant) });
+    }, "Clôture de l’envoi refusée");
 
     const deadline = Date.now() + (deps.sealTimeoutMs ?? DEFAULT_SEAL_TIMEOUT_MS);
     for (;;) {

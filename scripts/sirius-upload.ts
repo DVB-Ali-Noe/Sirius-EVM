@@ -25,6 +25,7 @@ import { DEFAULT_MODEL_SELECTION, MODEL_OPTIONS, type ModelId } from "@/lib/mode
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { encodeBase64Url } from "@/lib/upload/chunked";
 import { sendChunkedDataset, type ChunkedFileSource, type ChunkedTransferApi } from "@/lib/upload/chunked-transfer";
+import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 
 const GRANT_TTL_MS = 60_000;
 
@@ -174,20 +175,28 @@ async function main() {
       return { delegation, payload, signature: encodeBase64Url(new Uint8Array(signature)) };
     };
 
-    // 3. Brouillon, avec relecture des termes avant de chiffrer quoi que ce soit.
+    // 3. Brouillon, avec relecture des termes avant de chiffrer quoi que ce soit. Enclave à l'arrêt :
+    // la route demande son démarrage et répond 503 `enclave_starting` sans rien créer ; on relance.
+    const onEnclaveWaiting = (seconds: number | null) => {
+      if (seconds !== null) console.log(`L'enclave démarre (quelques minutes) : nouvel essai dans ~${seconds} s…`);
+    };
     const draft = checkDraftResponse(
-      await json(await post("/api/datasets", {
-        name: values.name,
-        description: values.description || undefined,
-        sizeBytes: source.sizeBytes,
-        priceUsdc: values.price,
-        category,
-        maxRentalDays,
-        listingDays,
-        trainingConsent: values.consent,
-        modelId,
-        transfer: "chunked",
-      })),
+      await retryWhileEnclaveStarts(async () => {
+        const response = await post("/api/datasets", {
+          name: values.name,
+          description: values.description || undefined,
+          sizeBytes: source.sizeBytes,
+          priceUsdc: values.price,
+          category,
+          maxRentalDays,
+          listingDays,
+          trainingConsent: values.consent,
+          modelId,
+          transfer: "chunked",
+        });
+        if (!response.ok) throw await responseError(response, `Requête refusée (HTTP ${response.status})`);
+        return (await response.json().catch(() => ({}))) as unknown;
+      }, { onWaiting: onEnclaveWaiting }),
       {
         priceUsdcAtomic,
         sizeBytes: source.sizeBytes,
@@ -210,6 +219,7 @@ async function main() {
         api: { request, put: (url, body, signal) => fetch(url, { method: "PUT", body, signal }) },
         verifyIngressKey,
         issueGrant,
+        onEnclaveWaiting,
         onProgress: (progress) => {
           if (progress.phase === "upload") process.stdout.write(`\rEnvoi ${progressBar(progress.sentBytes / progress.totalBytes)}`);
           else if (!sealing) {
