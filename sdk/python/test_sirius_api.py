@@ -95,9 +95,10 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "quota_exceeded")
         self.assertEqual(caught.exception.status, 429)
 
-    def test_only_enclave_starting_and_runner_busy_are_retried(self):
+    def test_only_enclave_starting_runner_busy_and_controller_unavailable_are_retried(self):
         # runner_unavailable : l'enclave a pu décompter l'appel, un réessai le compterait deux fois.
-        for code, retried in (("enclave_starting", True), ("runner_busy", True), ("runner_unavailable", False), ("http_503", False)):
+        # controller_unavailable : refusé par Next avant tout relais vers l'enclave (audit E F4).
+        for code, retried in (("enclave_starting", True), ("runner_busy", True), ("controller_unavailable", True), ("runner_unavailable", False), ("http_503", False)):
             calls = []
             sleeps = []
             body = {"error": {"code": code, "message": code}} if code != "http_503" else {}

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { settlePreparedLoan } from "@/lib/sirius/settle";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
-import { errorResponse } from "@/lib/errors";
+import { loanRouteErrorResponse, requireRunnerServing } from "@/lib/sirius/availability";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST } from "@/lib/loans/settlement-status";
 import { effectiveLoanFinalityTier } from "@/lib/sirius/finality-tier";
@@ -30,9 +30,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Autorisation manquante" }, { status: 400 });
     }
     await assertAuthenticGrant(session, authorization);
-    const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true, finalityTier: true } });
+    const loan = await prisma.loan.findUnique({ where: { id }, select: { borrower: true, finalityTier: true, status: true } });
     if (!loan) return NextResponse.json({ error: "Loan introuvable" }, { status: 404 });
     assertOwner(session, loan.borrower);
+    // Un prêt à régler garde déjà la CVM voulue (D-30) : contrôle de phase sans réveil, pour ne pas
+    // relayer vers une CVM éteinte ou un contrôleur muet (audit E). Le reaper règle sans passer ici.
+    if (loan.status !== "SETTLED") await requireRunnerServing();
     try {
       return NextResponse.json(await settlePreparedLoan(id, authorization));
     } catch (err) {
@@ -45,6 +48,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw err;
     }
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

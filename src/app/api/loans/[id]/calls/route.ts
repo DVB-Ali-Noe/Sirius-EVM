@@ -50,11 +50,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (typeof body.packLoanId !== "string" || !body.packLoanId) return NextResponse.json({ error: "Pack d’appels manquant" }, { status: 400 });
     if (!body.authorization) return NextResponse.json({ error: "Autorisation manquante" }, { status: 400 });
     await assertAuthenticGrant(session, body.authorization);
-    const pack = await prisma.loan.findUnique({ where: { id: body.packLoanId }, select: { borrower: true, packForLoanId: true, apiAccessDays: true } });
+    const pack = await prisma.loan.findUnique({
+      where: { id: body.packLoanId },
+      select: {
+        borrower: true, packForLoanId: true, apiAccessDays: true, status: true, settleTxHash: true,
+        apiAccessRefusedAt: true, evmLoanKey: true, evmLockTxHash: true, evmLockBlock: true,
+      },
+    });
     if (!pack || pack.packForLoanId !== id) return NextResponse.json({ error: "Pack d’appels introuvable" }, { status: 404 });
     assertOwner(session, pack.borrower);
-    // Achat payé : CVM éteinte ⇒ réveil et 503 ; le reaper l'appliquera une fois l'enclave allumée.
-    await requireRunnerOrWake();
+    // Mêmes contrôles en lecture seule que `settleLoanPack`, avant tout réveil (audit E F1) : un
+    // achat déjà réglé ou refusé pour toujours se répond sans le runner, un achat sans lock
+    // (devis annulé, jamais payé) est refusé. Seul un lock en attente de règlement réveille la CVM,
+    // au budget de l'emprunteur ; le reaper l'appliquera sinon une fois l'enclave allumée.
+    const answeredWithoutRunner = Boolean(pack.apiAccessRefusedAt) || (pack.status === "SETTLED" && Boolean(pack.settleTxHash));
+    if (!answeredWithoutRunner) {
+      if ((pack.status !== "ESCROWED" && pack.status !== "SETTLING") || !pack.evmLoanKey || !pack.evmLockTxHash || !pack.evmLockBlock) {
+        return NextResponse.json({ error: "Pack d’appels non verrouillé ou déjà clos" }, { status: 409 });
+      }
+      await requireRunnerOrWake({ wakeSubject: session.address });
+    }
     try {
       return NextResponse.json(await settleLoanPack(body.packLoanId, body.authorization));
     } catch (err) {

@@ -374,11 +374,14 @@ model ApiUsageDay {
 
 /// État de la CVM tenu par le contrôleur de disponibilité (une seule ligne, id = 1).
 /// `requestedUntil` : réveil demandé par une action wallet authentifiée ou l'API publique (D-30).
+/// `validUntil` : phase garantie jusqu'à cette date, repoussée à chaque tour du contrôleur ; au-delà,
+/// Next la tient pour inconnue (contrôleur muet). Null : ligne d'un contrôleur antérieur ou maintenance.
 model RunnerAvailability {
   id             Int       @id @default(1)
-  phase          String // stopped | starting | running | stopping
+  phase          String // stopped | starting | running | stopping | maintenance
   since          DateTime
   requestedUntil DateTime?
+  validUntil     DateTime?
   updatedAt      DateTime  @updatedAt
 }
 

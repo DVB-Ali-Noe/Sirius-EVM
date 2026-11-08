@@ -253,7 +253,7 @@ function system(options: SystemOptions = {}) {
     unique: (where) => (where.keyId_day ?? where) as Where,
     view: (row) => ({ ...row, key: apiKeys.rows.find((key) => key.id === row.keyId) ?? {} }),
   });
-  const availability: Row[] = options.phase === null || options.phase === undefined ? [] : [{ id: 1, phase: options.phase, since: new Date(0), requestedUntil: null }];
+  const availability: Row[] = options.phase === null || options.phase === undefined ? [] : [{ id: 1, phase: options.phase, since: new Date(0), requestedUntil: null, validUntil: null }];
   const runnerAvailability = table(availability);
   const datasets = table([{
     id: "dataset-1", status: "LISTED", provider: PROVIDER, evmDatasetId: `0x${"cd".repeat(32)}`, priceUsdcAtomic: PRICE_PER_DAY,
@@ -436,6 +436,30 @@ function system(options: SystemOptions = {}) {
       "@/lib/errors": errors, "@/lib/http/body": { readJson }, "@/lib/billing/loan": billingLoan, "@/lib/http/rate-limit": noLimit,
       "@/lib/billing/rental": rentalRules, "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule,
     }),
+    run: load<typeof import("../../app/api/loans/[id]/run/route")>("src/app/api/loans/[id]/run/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/runner/authorization": { hashRunnerIntent }, "@/lib/sirius/availability": availabilityModule, "@/lib/models/registry": models,
+      // `prepareLoanResult` (settle.ts) : passage en TRAINING puis job ; tout appel est compté.
+      "@/lib/sirius/settle": { prepareLoanResult: async (loanId: string) => {
+        calls.runner.push(["runLoanJob", { loanId }]);
+        return { loanId, modelCid: FINGERPRINT, runnerReceipt: "receipt" };
+      } },
+    }),
+    settle: load<typeof import("../../app/api/loans/[id]/settle/route")>("src/app/api/loans/[id]/settle/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/http/rate-limit": noLimit, "@/lib/sirius/availability": availabilityModule, "@/lib/runner/failure-policy": failurePolicy,
+      "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/finality-tier": finalityTier,
+      "@/lib/sirius/settle": { settlePreparedLoan: async (loanId: string) => {
+        calls.runner.push(["settleLoan", { loanId }]);
+        return { loanId, modelCid: FINGERPRINT, runnerReceipt: "receipt", settleTxHash: SETTLE_TX };
+      } },
+    }),
+    extend: load<typeof import("../../app/api/loans/[id]/extend/route")>("src/app/api/loans/[id]/extend/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/http/rate-limit": noLimit, "@/lib/sirius/availability": availabilityModule, "@/lib/sirius/rental": rental,
+      "@/lib/billing/rental": rentalRules, "@/lib/runner/failure-policy": failurePolicy, "@/lib/loans/settlement-status": settlementStatus,
+      "@/lib/sirius/extend": extend,
+    }),
   };
   const reaper = () => load<typeof import("./reaper")>("src/lib/sirius/reaper.ts", {
     "server-only": {}, "@/lib/db": db,
@@ -447,11 +471,14 @@ function system(options: SystemOptions = {}) {
     "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors, "@/lib/billing/api-pricing": apiPricing,
     "./recover-loan": { recoverUnsubmittedLoan: async () => {} },
     "@/lib/evm/history": { resolveLoanEscrow: async () => ({}) },
-    "./settle": { recoverLoanResult: async () => false, settlePreparedLoan: async () => { throw new Error("règlement ordinaire inattendu"); } },
+    "./settle": {
+      recoverLoanResult: async (loanId: string) => { calls.runner.push(["recoverLoanJob", { loanId }]); return false; },
+      settlePreparedLoan: async () => { throw new Error("règlement ordinaire inattendu"); },
+    },
     "./fast-settlement-review": { verifyFastSettlement: async () => options.fastVerdict ?? { state: "pending" } },
     "@/lib/runner/failure-policy": failurePolicy, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
     "./extend": extend, "./calls": callsModule, "./rental": rental, "@/lib/loans/settlement-status": settlementStatus,
-    "./finality-tier": finalityTier,
+    "./finality-tier": finalityTier, "./availability": availabilityModule,
   });
 
   const signedHeaders = (keyId = KEY_ID) => ({
@@ -478,6 +505,11 @@ function system(options: SystemOptions = {}) {
     ),
     calls: (body: unknown, id = "loan-1") => routes.calls.POST(new Request(`https://test.invalid/api/loans/${id}/calls`, json("POST", body)), { params: Promise.resolve({ id }) }),
     quote: (body: unknown) => routes.loans.POST(new Request("https://test.invalid/api/loans", json("POST", body))),
+    run: (id: string, authorization: unknown = runGrant(id)) => routes.run.POST(new Request(`https://test.invalid/api/loans/${id}/run`, json("POST", { authorization })), { params: Promise.resolve({ id }) }),
+    settle: (id: string) => routes.settle.POST(new Request(`https://test.invalid/api/loans/${id}/settle`, json("POST", { authorization: grant })), { params: Promise.resolve({ id }) }),
+    settleExtension: (extensionLoanId: string, id = "loan-1") => routes.extend.POST(
+      new Request(`https://test.invalid/api/loans/${id}/extend`, json("POST", { extensionLoanId, authorization: grant })), { params: Promise.resolve({ id }) },
+    ),
   };
   return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper, wakeBudget: wakeBudget.store };
 }
@@ -488,6 +520,14 @@ const grant = { payload: {}, signature: "signed" };
 /** Grant de révocation au périmètre attendu par l'enclave (`revoke-api-key`, prêt, `[loanId, keyId]`). */
 const revokeGrant = (loanId: string, keyId: string, overrides: Row = {}) => ({
   payload: { operation: "revoke-api-key", loanId, payloadHash: hashRunnerIntent([loanId, keyId]), ...overrides }, signature: "signed",
+});
+/** Grant `run-loan-job` au périmètre que vérifiera l'enclave (dataset `dataset-1` du harnais). */
+const runGrant = (loanId: string, overrides: Row = {}) => ({
+  payload: {
+    operation: "run-loan-job", loanId, datasetId: "dataset-1",
+    payloadHash: hashRunnerIntent([loanId, "dataset-1", "dataset-receipt", "logistic_regression", "1.0.0", "served"]), ...overrides,
+  },
+  signature: "signed",
 });
 
 // --- Adresse publique -------------------------------------------------------------------------
@@ -671,7 +711,7 @@ function availabilityHarness(rows: Row[], budget = wakeBudgetDouble()) {
   });
   return { availability, rows, budget, writes: () => writes };
 }
-const availabilityRow = (requestedUntil: Date | null, phase = "running"): Row => ({ id: 1, phase, since: new Date(0), requestedUntil });
+const availabilityRow = (requestedUntil: Date | null, phase = "running"): Row => ({ id: 1, phase, since: new Date(0), requestedUntil, validUntil: null });
 const WAKE_NOW = new Date(Date.UTC(2026, 10, 8, 12));
 const MINUTE = 60_000;
 
@@ -1254,7 +1294,7 @@ function publicationSystem(phase: string | null, options: { kybRefused?: boolean
   const insert = datasets.create;
   // Valeur par défaut du schéma : un dataset naît brouillon.
   datasets.create = ({ data }) => insert({ data: { status: "DRAFT", ...data } });
-  const runnerAvailability = table(phase === null ? [] : [{ id: 1, phase, since: new Date(0), requestedUntil: null }]);
+  const runnerAvailability = table(phase === null ? [] : [{ id: 1, phase, since: new Date(0), requestedUntil: null, validUntil: null }]);
   const prisma = { dataset: datasets, runnerAvailability };
   const db = { prisma, serializableTransaction: async (fn: (tx: typeof prisma) => unknown) => fn(prisma) };
   const calls = { ingress: 0 };
@@ -2041,4 +2081,179 @@ test("revue du prêt d'origine modifiée pendant l'ajout : l'achat n'est pas mis
   errors.mock.restore();
   assert.equal(original.finalityReview, "revue manuelle en cours ; pack d'appels pack-9 : bloc du release réorganisé après le règlement rapide");
   assert.equal(pack.finalityReview, "bloc du release réorganisé après le règlement rapide");
+});
+
+// --- Audit E : bornes du réveil (F1 règlement d'un pack, F2 `/run`, F4 contrôleur muet) ---------------
+
+const requested = (sys: ReturnType<typeof system>) => sys.prisma.runnerAvailability.rows[0].requestedUntil;
+const spent = (sys: ReturnType<typeof system>) => sys.wakeBudget.get(BORROWER.toLowerCase())?.hourCount ?? 0;
+
+test("F1 : règlement d'un pack, CVM éteinte : réglé ou refusé ⇒ réponse sans réveil, sans lock ⇒ 409 sans réveil", async () => {
+  const sys = system({ phase: "stopped", loans: [
+    origin(),
+    attached("pack", { id: "pack-settled", status: "SETTLED", settleTxHash: PACK_TX }),
+    attached("pass", { id: "pass-refused", apiAccessRefusedAt: new Date(0) }),
+    attached("pack", { id: "pack-cancelled", status: "CANCELLED", evmLockTxHash: null, evmLockBlock: null }),
+    attached("pack", { id: "pack-pending", status: "PENDING", evmLockTxHash: null }),
+  ] });
+  const settled = await sys.manage.calls({ packLoanId: "pack-settled", authorization: grant });
+  assert.equal(settled.status, 200);
+  assert.equal((await settled.json()).settleTxHash, PACK_TX);
+  assert.equal((await sys.manage.calls({ packLoanId: "pass-refused", authorization: grant })).status, 409);
+  for (const packLoanId of ["pack-cancelled", "pack-pending"]) {
+    const refused = await sys.manage.calls({ packLoanId, authorization: grant });
+    assert.equal(refused.status, 409, packLoanId);
+    assert.equal((await refused.json()).error, "Pack d’appels non verrouillé ou déjà clos");
+  }
+  assert.equal(requested(sys), null, "aucun réveil");
+  assert.equal(spent(sys), 0, "aucun budget dépensé");
+  assert.equal(sys.calls.runner.length, 0);
+});
+
+test("F1 : règlement d'un pack verrouillé, CVM éteinte : réveil au budget de l'emprunteur, 429 une fois épuisé", async () => {
+  const sys = system({ phase: "stopped", loans: [origin(), attached("pack")] });
+  const response = await sys.manage.calls({ packLoanId: "pack-9", authorization: grant });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "enclave_starting");
+  assert.ok(requested(sys) instanceof Date);
+  assert.equal(spent(sys), 1);
+  assert.equal(sys.calls.runner.length, 0, "rien relayé avant l'enclave");
+
+  const exhausted = system({ phase: "stopped", loans: [origin(), attached("pack")] });
+  exhausted.wakeBudget.set(BORROWER.toLowerCase(), { hourStart: new Date(), hourCount: 6, dayStart: new Date(), dayCount: 6 });
+  const limited = await exhausted.manage.calls({ packLoanId: "pack-9", authorization: grant });
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers.get("retry-after")) > 0);
+  assert.equal(requested(exhausted), null);
+});
+
+const lockedLoan = (overrides: Row = {}) => origin({
+  id: "loan-7", status: "ESCROWED", modelCid: null, runnerReceipt: null, settleTxHash: null, rentalExpiresAt: null,
+  evmDeadline: new Date(Date.now() + 3 * DAY), ...overrides,
+});
+
+test("F2 : /run réveille la CVM pour l'emprunteur d'un prêt verrouillé, au budget de son compte, puis lance une fois allumée", async () => {
+  const sys = system({ phase: "stopped", loans: [origin(), lockedLoan()] });
+  const waiting = await sys.manage.run("loan-7");
+  assert.equal(waiting.status, 503);
+  assert.equal(waiting.headers.get("retry-after"), "45");
+  assert.equal((await waiting.json()).code, "enclave_starting");
+  assert.ok(requested(sys) instanceof Date);
+  assert.equal(spent(sys), 1);
+  assert.equal(sys.calls.runner.length, 0, "aucun entraînement lancé CVM éteinte");
+  sys.prisma.runnerAvailability.rows[0].phase = "running";
+  const run = await sys.manage.run("loan-7");
+  assert.equal(run.status, 200, await run.clone().text());
+  assert.deepEqual(sys.calls.runner.map(([op]) => op), ["runLoanJob"]);
+  assert.equal(spent(sys), 1, "réveil encore frais : rien de plus dépensé");
+});
+
+test("F2 : /run refuse en 409 direct, sans réveil ni passage en TRAINING, un autre compte, un prêt réglé, une prolongation, un pack ou un lock échu", async () => {
+  const sys = system({ phase: "stopped", loans: [
+    origin(), lockedLoan(),
+    lockedLoan({ id: "loan-expired", evmDeadline: new Date(Date.now() - 1) }),
+    attached("extension"), attached("pack"),
+  ] });
+  assert.equal((await sys.manage.run("loan-1")).status, 409, "prêt réglé");
+  const expired = await sys.manage.run("loan-expired");
+  assert.equal(expired.status, 409, "lock échu");
+  assert.equal((await expired.json()).error, "Lock de paiement échu : aucun entraînement possible, rembourse le prêt");
+  assert.equal((await sys.manage.run("ext-9")).status, 409);
+  assert.equal((await sys.manage.run("pack-9")).status, 409);
+  sys.session.address = OTHER;
+  assert.equal((await sys.manage.run("loan-7")).status, 403);
+  assert.equal(requested(sys), null);
+  assert.equal(sys.wakeBudget.size, 0);
+  assert.equal(sys.calls.runner.length, 0, "jamais de prepareLoanResult (ni TRAINING ni runner)");
+});
+
+test("F2 (revue PR #159) : /run avec un grant hors périmètre refusé en 401 avant le réveil et avant TRAINING, même CVM allumée", async () => {
+  for (const phase of ["stopped", "running"]) {
+    const sys = system({ phase, loans: [origin(), lockedLoan()] });
+    const wrong = [
+      { payload: {}, signature: "signed" },
+      runGrant("loan-7", { operation: "revoke-api-key" }),
+      runGrant("loan-7", { loanId: "loan-1" }),
+      runGrant("loan-7", { datasetId: "dataset-2" }),
+      runGrant("loan-7", { jobId: "job-1" }),
+      runGrant("loan-7", { payloadHash: hashRunnerIntent(["loan-7", "dataset-1", "autre-reçu", "logistic_regression", "1.0.0", "served"]) }),
+    ];
+    for (const authorization of wrong) {
+      const refused = await sys.manage.run("loan-7", authorization);
+      assert.equal(refused.status, 401, `${phase} ${JSON.stringify(authorization.payload)}`);
+    }
+    assert.equal(requested(sys), null, `${phase} : aucun réveil`);
+    assert.equal(spent(sys), 0);
+    assert.equal(sys.calls.runner.length, 0, `${phase} : aucun passage en TRAINING`);
+  }
+});
+
+test("audit E : /settle et le règlement d'une prolongation vérifient la phase sans réveiller, le reaper n'y passe pas", async () => {
+  const trained = lockedLoan({ status: "TRAINING", modelCid: FINGERPRINT, runnerReceipt: "receipt" });
+  for (const [row, code] of [
+    [{ phase: "running", validUntil: new Date(Date.now() - 1) }, "controller_unavailable"],
+    [{ phase: "maintenance", validUntil: null }, "controller_unavailable"],
+    [{ phase: "stopped", validUntil: null }, "enclave_starting"],
+  ] as const) {
+    const sys = system({ phase: row.phase, loans: [origin(), trained, attached("extension")] });
+    Object.assign(sys.prisma.runnerAvailability.rows[0], { validUntil: row.validUntil });
+    for (const response of [await sys.manage.settle("loan-7"), await sys.manage.settleExtension("ext-9")]) {
+      assert.equal(response.status, 503, `${row.phase}`);
+      assert.equal((await response.json()).code, code);
+    }
+    assert.equal(requested(sys), null, "aucun réveil écrit");
+    assert.equal(sys.calls.runner.length, 0, "rien relayé");
+    // Le reaper règle toujours la prolongation, sans contrôle de phase (CVM gardée voulue par le prêt).
+    await sys.reaper().runLoanReaper(new Date());
+    assert.deepEqual(sys.calls.runner.map(([op]) => op), ["extend"], `${row.phase} : reaper inchangé`);
+  }
+  // CVM servie : règlement relayé comme avant ; prêt déjà réglé : réponse sans contrôle de phase.
+  const running = system({ phase: "running", loans: [origin(), trained] });
+  Object.assign(running.prisma.runnerAvailability.rows[0], { validUntil: new Date(Date.now() + 60_000) });
+  assert.equal((await running.manage.settle("loan-7")).status, 200);
+  const settled = system({ phase: "stopped", loans: [origin()] });
+  assert.equal((await settled.manage.settle("loan-1")).status, 200);
+  // Prolongation refusée pour toujours (modèle d'origine supprimé) : refus définitif, pas d'attente d'enclave.
+  const deleted = system({ phase: "stopped", loans: [origin({ rentalExpiresAt: new Date(Date.now() - 31 * DAY) }), attached("extension")] });
+  const refused = await deleted.manage.settleExtension("ext-9");
+  assert.equal(refused.status, 409);
+  assert.equal(deleted.calls.runner.length, 0);
+});
+
+test("F2 : le reaper ne reprend pas un prêt verrouillé inactif tant que la CVM est arrêtée, sans compter d'échec", async () => {
+  const idle = lockedLoan({ billingQuoteHash: `0x${"bb".repeat(32)}`, updatedAt: new Date(0) });
+  const stopped = system({ phase: "stopped", loans: [idle] });
+  const pass = await stopped.reaper().runLoanReaper(new Date());
+  assert.equal(pass.examined, 1);
+  assert.equal(pass.failed, 0);
+  assert.equal(stopped.calls.runner.length, 0);
+  const running = system({ phase: "running", loans: [{ ...idle }] });
+  await running.reaper().runLoanReaper(new Date());
+  assert.deepEqual(running.calls.runner.map(([op]) => op), ["recoverLoanJob"]);
+});
+
+test("F4 : contrôleur muet ou en maintenance : 503 controller_unavailable distinct, rien relayé ni réveillé", async () => {
+  for (const row of [{ phase: "running", validUntil: new Date(Date.now() - 1) }, { phase: "stopped", validUntil: new Date(Date.now() - 1) }, { phase: "maintenance", validUntil: null }]) {
+    const sys = system({ phase: row.phase, loans: [origin(), lockedLoan()], apiKeys: [activeKey()] });
+    Object.assign(sys.prisma.runnerAvailability.rows[0], { validUntil: row.validUntil });
+    const wallet = await sys.manage.run("loan-7");
+    assert.equal(wallet.status, 503, row.phase);
+    assert.equal(wallet.headers.get("retry-after"), "60");
+    const body = await wallet.json();
+    assert.equal(body.code, "controller_unavailable");
+    assert.notEqual(body.code, "enclave_starting");
+    const api = await sys.api.predict();
+    assert.equal(api.status, 503);
+    assert.equal(api.headers.get("retry-after"), "60", "/v1 : relance annoncée comme sur les routes wallet");
+    assert.equal((await api.json()).error.code, "controller_unavailable");
+    assert.equal(requested(sys), null, `${row.phase} : aucun réveil écrit`);
+    assert.equal(spent(sys), 0);
+    assert.equal(sys.calls.runner.length, 0);
+  }
+  // Phase encore valable, ou ligne d'un contrôleur antérieur (sans validUntil) : comportement habituel.
+  for (const validUntil of [new Date(Date.now() + 60_000), null]) {
+    const sys = system({ phase: "running", loans: [origin(), lockedLoan()] });
+    Object.assign(sys.prisma.runnerAvailability.rows[0], { validUntil });
+    assert.equal((await sys.manage.run("loan-7")).status, 200);
+  }
 });

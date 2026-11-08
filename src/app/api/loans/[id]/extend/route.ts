@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { assertAuthenticGrant, assertOwner, requireAuth } from "@/lib/auth/require-auth";
-import { loanRouteErrorResponse } from "@/lib/sirius/availability";
+import { loanRouteErrorResponse, requireRunnerServing } from "@/lib/sirius/availability";
+import { isRentalModelDeleted } from "@/lib/sirius/rental";
 import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 import { isValidRentalDays } from "@/lib/billing/rental";
@@ -43,9 +44,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     if (!body.authorization) return NextResponse.json({ error: "Autorisation manquante" }, { status: 400 });
     await assertAuthenticGrant(session, body.authorization);
-    const extension = await prisma.loan.findUnique({ where: { id: body.extensionLoanId }, select: { borrower: true, extendsLoanId: true } });
+    const extension = await prisma.loan.findUnique({
+      where: { id: body.extensionLoanId },
+      select: { borrower: true, extendsLoanId: true, status: true, settleTxHash: true },
+    });
     if (!extension || extension.extendsLoanId !== id) return NextResponse.json({ error: "Prolongation introuvable" }, { status: 404 });
     assertOwner(session, extension.borrower);
+    // Contrôle de phase sans réveil (audit E) quand le runner a encore du travail, comme le contrôleur
+    // le compte : lock à régler, sauf modèle d'origine supprimé avant tout `release` (refus définitif
+    // rendu par `settleLoanExtension` sans le runner). Le reaper règle sans passer ici.
+    if (extension.status === "ESCROWED" || extension.status === "SETTLING") {
+      const origin = extension.settleTxHash ? null : await prisma.loan.findUnique({ where: { id }, select: { rentalExpiresAt: true } });
+      const refused = origin?.rentalExpiresAt ? isRentalModelDeleted(origin.rentalExpiresAt, Date.now()) : false;
+      if (!refused) await requireRunnerServing();
+    }
     try {
       return NextResponse.json(await settleLoanExtension(body.extensionLoanId, body.authorization));
     } catch (err) {

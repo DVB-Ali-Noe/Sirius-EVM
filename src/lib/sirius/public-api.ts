@@ -9,7 +9,9 @@ import type { Loan } from "@/generated/prisma/client";
 import { API_KEY_ID_PATTERN, type ApiModelInfo, type ApiPrediction, type ApiRemaining } from "@/lib/tee/contract";
 import { apiInfoInRunner, apiPredictInRunner } from "@/lib/tee/runner-client";
 import { assertApiAccessPaid, recordApiUsage } from "./api-keys";
-import { EnclaveStarting, enclaveStartingBody, requireRunnerOrWake } from "./availability";
+import {
+  CONTROLLER_UNAVAILABLE_CODE, CONTROLLER_UNAVAILABLE_RETRY_SECONDS, EnclaveStarting, enclaveStartingBody, requireRunnerOrWake,
+} from "./availability";
 import { effectiveLoanFinalityTier } from "./finality-tier";
 import { assertSignedPrediction, modelFeaturesFromRunner, parsePredictionFeatures } from "./prediction";
 import { phalaDemoInstance } from "./self-training-access";
@@ -47,7 +49,8 @@ const LOAN_ID = /^[A-Za-z0-9_-]{1,64}$/;
  *   l'instance (3 000 par minute), et seau commun `overflow` au-delà de 4 096 réseaux suivis : quand
  *   l'un des deux est plein (adresses tournantes), seules passent les clés que l'enclave a
  *   authentifiées depuis moins de 10 minutes sur cette instance (`authenticatedKeys`) ;
- * - rien : attente de démarrage (`enclave_starting`), runner saturé (`runner_busy`) et débit par
+ * - rien : attente de démarrage (`enclave_starting`), contrôleur muet (`controller_unavailable`),
+ *   runner saturé (`runner_busy`) et débit par
  *   modèle de l'enclave (`rate_limited`). Ces réponses ne disent rien de la requête : elles ne
  *   bloquent jamais les requêtes d'une clé valide.
  * Un `keyId` seul, sans le secret, ne consomme donc ni la fenêtre de sa clé dans Next ni le budget
@@ -108,8 +111,13 @@ const STATUS_CODES: Record<number, string> = {
   429: "rate_limited", 502: "runner_error", 503: "runner_unavailable",
 };
 
-/** `Retry-After` des refus réessayables : débit (fenêtre d'une minute) et runner saturé. */
-const RETRY_AFTER: Record<string, string> = { rate_limited: "60", runner_busy: "1" };
+/**
+ * `Retry-After` des refus réessayables : débit (fenêtre d'une minute), runner saturé, et contrôleur
+ * de disponibilité muet ou en maintenance (`controller_unavailable`, audit E F4).
+ */
+const RETRY_AFTER: Record<string, string> = {
+  rate_limited: "60", runner_busy: "1", [CONTROLLER_UNAVAILABLE_CODE]: String(CONTROLLER_UNAVAILABLE_RETRY_SECONDS),
+};
 const RATE_LIMITED = "Trop de requêtes — réessaie dans une minute";
 
 const noStore = { "cache-control": "no-store" };

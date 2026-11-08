@@ -128,9 +128,10 @@ test("503 au-delà du délai maximal : erreur typée enclave_starting ; autres e
   assert.throws(() => refused.predict(vector.loanId, { age: Number.NaN }));
 });
 
-test("réessai seul sur enclave_starting et runner_busy ; runner_unavailable ou 503 sans code remontent sans réessai (appel peut-être décompté)", async () => {
+test("réessai seul sur enclave_starting, runner_busy et controller_unavailable ; runner_unavailable ou 503 sans code remontent sans réessai (appel peut-être décompté)", async () => {
   const ok = { outputKind: "decision", decision: "1" };
-  for (const [code, retried] of [["enclave_starting", true], ["runner_busy", true], ["runner_unavailable", false], [undefined, false]] as const) {
+  // controller_unavailable : refusé par Next avant tout relais vers l'enclave (audit E F4), rien n'a été décompté.
+  for (const [code, retried] of [["enclave_starting", true], ["runner_busy", true], ["controller_unavailable", true], ["runner_unavailable", false], [undefined, false]] as const) {
     const captured: Captured[] = [];
     const sleeps: number[] = [];
     const client = new SiriusClient({

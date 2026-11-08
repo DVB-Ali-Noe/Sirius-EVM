@@ -7,7 +7,9 @@ activité) peut prendre environ 2 minutes, l'API répondant ``503 enclave_starti
 avec ``Retry-After`` : le client attend et réessaie seul (nouvelle signature)
 jusqu'à ``max_retry_wait_seconds`` (8 min par défaut). Il réessaie aussi
 ``503 runner_busy`` (runner saturé, rien n'a été décompté), avec un recul exponentiel
-et une gigue, jamais sous ``Retry-After``. Aucun autre 503 n'est
+et une gigue, jamais sous ``Retry-After``, et ``503 controller_unavailable`` (gestion de
+l'enclave momentanément indisponible ou maintenance, refusé avant tout relais, rien
+n'a été décompté) après ``Retry-After``. Aucun autre 503 n'est
 réessayé : sur ``runner_unavailable``, l'enclave a pu décompter l'appel avant que
 sa réponse se perde. Une erreur réseau ou un délai dépassé lève ``SiriusApiError``
 (code ``network_error``, statut 0), sans réessai pour la même raison.
@@ -46,8 +48,8 @@ DEFAULT_MAX_RETRY_WAIT_SECONDS = 480
 DEFAULT_RETRY_AFTER_SECONDS = 15
 # Au-delà des 60 s que le serveur accorde au runner : une prédiction lente reçoit sa réponse.
 DEFAULT_TIMEOUT_SECONDS = 90
-# 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé).
-_RETRYABLE_CODES = frozenset({"enclave_starting", "runner_busy"})
+# 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé, contrôleur indisponible).
+_RETRYABLE_CODES = frozenset({"enclave_starting", "runner_busy", "controller_unavailable"})
 # Plafond du recul exponentiel sur runner_busy.
 _MAX_BUSY_BACKOFF_SECONDS = 30.0
 # Échecs de transport : l'appel a pu être décompté, jamais réessayé seul.
