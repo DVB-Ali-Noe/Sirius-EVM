@@ -10,6 +10,7 @@ import { isSettlementPending } from "@/lib/loans/settlement-status";
 import { messageOf } from "@/lib/errors-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 /** Pack payé dont les appels ne sont pas encore crédités (prêt de pack non réglé). */
 export interface PendingCallPack {
@@ -60,6 +61,7 @@ export function BuyCallsPanel({
   const [size, setSize] = useState<CallPackSize>(CALL_PACK_SIZES[0]);
   const [phase, setPhase] = useState<BuyPhase | null>(null);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const running = useRef(false);
@@ -82,7 +84,7 @@ export function BuyCallsPanel({
           if (ok) setPhase("payment");
           return ok;
         },
-      }), { onWaiting: setEnclaveRetry });
+      }), { onWaiting: setEnclaveRetry, signal: unmountSignal() });
       if (accepted) {
         setOpen(false);
         setNotice(t("Pack payé : les appels sont crédités dès la confirmation du paiement, même si tu fermes la page."));

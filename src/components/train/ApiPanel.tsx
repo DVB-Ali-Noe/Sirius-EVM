@@ -11,6 +11,7 @@ import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { BuyCallsPanel, type PendingCallPack } from "./BuyCallsPanel";
 import { CreateApiKeyDialog } from "./CreateApiKeyDialog";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 /** Relecture de l'état de l'enclave tant qu'elle n'est pas prête (onglet visible seulement). */
 const ENCLAVE_POLL_MS = 30_000;
@@ -100,6 +101,7 @@ function ApiPanelContent({
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeRetry, setRevokeRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -130,7 +132,7 @@ function ApiPanelContent({
     setRevoking(keyId);
     try {
       // Révoquer passe par l'enclave : si elle démarre, la demande est relancée (sans risque, idempotente).
-      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry });
+      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry, signal: unmountSignal() });
       setConfirmRevoke(null);
       await load();
     } catch (error) {

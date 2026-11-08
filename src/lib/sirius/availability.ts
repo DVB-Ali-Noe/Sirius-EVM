@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/errors";
+import { FixedWindowRateLimiter } from "@/lib/http/rate-limit";
 
 /**
  * Disponibilité de la CVM du runner (D-30). Le contrôleur du VPS
@@ -26,8 +27,32 @@ const PHASES: readonly RunnerPhase[] = ["stopped", "starting", "running", "stopp
 
 /** Réveil demandé : la CVM reste voulue au moins ce temps, puis le besoin ordinaire reprend. */
 export const RUNNER_WAKE_MS = 15 * 60_000;
-/** CVM allumée : `requestedUntil` n'est réécrit que s'il lui reste moins que `RUNNER_WAKE_MS` moins ce délai. */
+/**
+ * `requestedUntil` n'est réécrit que s'il lui reste moins que `RUNNER_WAKE_MS` moins ce délai, quelle
+ * que soit la phase : les relances d'une même attente (toutes les 30 à 45 s) n'écrivent qu'une fois.
+ */
 export const ACTIVITY_REFRESH_MS = 5 * 60_000;
+
+/**
+ * Budget de réveil par compte, sur la publication et le devis (`wakeSubject`) : chaque écriture de
+ * `requestedUntil` coûte une unité. Une écriture garde la CVM voulue au plus ~1 h (15 min de réveil
+ * + 45 min d'inactivité du contrôleur) : 12 par jour bornent un compte KYB à ~12 h de CVM par jour.
+ * L'API publique n'est pas concernée (bornée par sa location).
+ */
+export const WAKE_WRITES_PER_HOUR = 6;
+export const WAKE_WRITES_PER_DAY = 12;
+/** Attente annoncée quand le budget est épuisé et que la CVM n'est pas allumée. */
+export const WAKE_LIMITED_RETRY_SECONDS = 600;
+const wakeHourly = new FixedWindowRateLimiter({ windowMs: 3_600_000, maxPerKey: WAKE_WRITES_PER_HOUR, maxGlobal: Number.MAX_SAFE_INTEGER, maxTrackedKeys: 10_000 });
+const wakeDaily = new FixedWindowRateLimiter({ windowMs: 86_400_000, maxPerKey: WAKE_WRITES_PER_DAY, maxGlobal: Number.MAX_SAFE_INTEGER, maxTrackedKeys: 10_000 });
+
+/** Budget de réveil épuisé alors que la CVM n'est pas allumée : 429, rien n'est écrit. */
+export class WakeRateLimited extends AppError {
+  readonly retryAfterSeconds = WAKE_LIMITED_RETRY_SECONDS;
+  constructor() {
+    super("Trop de démarrages de l’enclave demandés par ce compte — réessaie plus tard", 429);
+  }
+}
 
 /**
  * Attente annoncée (`Retry-After`) : démarrage en cours ou CVM encore à allumer. Mesuré le 8 novembre
@@ -81,32 +106,50 @@ export function enclaveStartingBody(error: EnclaveStarting) {
   };
 }
 
-/** Routes wallet (prêts, publication) : 503 `enclave_starting` (même corps que l'API publique), sinon réponse d'erreur habituelle. */
+/**
+ * Routes wallet (prêts, publication) : 503 `enclave_starting` (même corps que l'API publique), 429
+ * avec `Retry-After` quand le budget de réveil est épuisé, sinon réponse d'erreur habituelle.
+ */
 export function loanRouteErrorResponse(error: unknown): NextResponse {
+  if (error instanceof WakeRateLimited) {
+    const response = errorResponse(error);
+    response.headers.set("retry-after", String(error.retryAfterSeconds));
+    return response;
+  }
   if (!(error instanceof EnclaveStarting)) return errorResponse(error);
   const { body, headers } = enclaveStartingBody(error);
   return NextResponse.json(body, { status: 503, headers });
 }
 
 /**
- * Requête dont les contrôles d'accès et de validité sont déjà faits, avant toute écriture. CVM
- * allumée : l'activité la garde voulue `RUNNER_WAKE_MS` de plus, avec au plus une écriture par
- * `ACTIVITY_REFRESH_MS`. CVM pas encore allumée : réveil demandé pour `RUNNER_WAKE_MS` (jamais
- * raccourci) et refus en 503. Rejouable : rien d'autre n'est écrit. Sans ligne : aucun contrôleur,
- * rien à écrire.
+ * Requête dont les contrôles d'accès et de validité sont déjà faits, avant toute écriture. Le réveil
+ * est écrit (`requestedUntil` = maintenant + `RUNNER_WAKE_MS`, jamais raccourci) seulement s'il lui
+ * reste moins de `RUNNER_WAKE_MS - ACTIVITY_REFRESH_MS`. CVM allumée : la requête passe toujours ;
+ * CVM pas encore allumée : refus en 503 `enclave_starting`. Rejouable : rien d'autre n'est écrit.
+ * Sans ligne : aucun contrôleur, rien à écrire.
+ *
+ * `wakeSubject` (publication, devis) : chaque écriture consomme le budget du compte. Épuisé, il
+ * n'empêche jamais de servir une CVM déjà allumée (l'écriture est seulement sautée, sans
+ * prolongation) ; CVM pas encore allumée, refus en 429 `WakeRateLimited`, rien d'écrit.
  */
-export async function requireRunnerOrWake(now = new Date()): Promise<void> {
+export async function requireRunnerOrWake({ now = new Date(), wakeSubject }: { now?: Date; wakeSubject?: string } = {}): Promise<void> {
   const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true, requestedUntil: true } });
   if (!row) return;
   const phase = phaseOf(row);
   const until = new Date(now.getTime() + RUNNER_WAKE_MS);
-  // Allumée : seulement si le réveil en cours expire dans moins de `RUNNER_WAKE_MS - ACTIVITY_REFRESH_MS`.
-  const staleBefore = phase === "running" ? new Date(until.getTime() - ACTIVITY_REFRESH_MS) : until;
+  const staleBefore = new Date(until.getTime() - ACTIVITY_REFRESH_MS);
   if (row.requestedUntil === null || row.requestedUntil < staleBefore) {
-    await prisma.runnerAvailability.updateMany({
-      where: { id: 1, OR: [{ requestedUntil: null }, { requestedUntil: { lt: staleBefore } }] },
-      data: { requestedUntil: until },
-    });
+    const key = wakeSubject ? `wake:${wakeSubject.toLowerCase()}` : null;
+    // Les deux fenêtres comptent chaque écriture ; la journalière n'est pas consommée si l'horaire refuse.
+    const allowed = key === null || (wakeHourly.consume(key, now.getTime()) && wakeDaily.consume(key, now.getTime()));
+    if (allowed) {
+      await prisma.runnerAvailability.updateMany({
+        where: { id: 1, OR: [{ requestedUntil: null }, { requestedUntil: { lt: staleBefore } }] },
+        data: { requestedUntil: until },
+      });
+    } else if (phase !== "running") {
+      throw new WakeRateLimited();
+    }
   }
   if (phase !== "running") throw new EnclaveStarting(phase);
 }

@@ -75,7 +75,7 @@ function harness(sizeBytes = 200_000) {
   const datasetUpload = table([]);
   const db = { dataset: datasets, datasetUpload, $transaction: async (action: (tx: unknown) => Promise<unknown>) => action(db) };
   const stored = new Map<string, number>();
-  const calls = { started: [] as Row[], presigned: [] as string[], deleted: [] as string[], put: [] as string[] };
+  const calls = { started: [] as Row[], presigned: [] as string[], deleted: [] as string[], put: [] as string[], wakes: 0 };
   let sealStatus: () => Promise<unknown> = async () => ({ state: "sealing", startedAt: 0 });
   let startSeal: (input: Row) => Promise<unknown> = async (input) => {
     calls.started.push(input);
@@ -103,9 +103,13 @@ function harness(sizeBytes = 200_000) {
     ingressKey: async () => ({ publicKey: "ingress" }),
     startSeal: (input: Row) => startSeal(input),
     sealStatus: () => sealStatus(),
-    authorize: async (id: string, provider: string) => {
+    // Comme `authorizeDatasetUpload` : contrôles du brouillon, `validate` de la route, puis réveil.
+    authorize: async (id: string, provider: string, validate?: (terms: Row & { sizeBytes: number }) => Promise<void> | void) => {
       if (provider !== PROVIDER) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
-      return { id, provider, sizeBytes, priceUsdcAtomic: "1000", challengeDays: 7, maxRentalDays: 30, model: { modelId: "linear_regression", modelVersion: "1.0.0" }, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
+      const terms = { id, provider, sizeBytes, priceUsdcAtomic: "1000", challengeDays: 7, maxRentalDays: 30, model: { modelId: "linear_regression", modelVersion: "1.0.0" } };
+      await validate?.(terms);
+      calls.wakes++;
+      return { ...terms, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
     },
     assertRunner: async () => ({}),
     now: () => now,
@@ -186,6 +190,7 @@ test("la taille maximale et la configuration du stockage sont vérifiées avant 
   process.env.SIRIUS_CHUNKED_MAX_BYTES = String(1024 * 1024 * 1024);
   try {
     await assert.rejects(uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, many.deps), /Morceaux trop petits/);
+    assert.equal(many.calls.wakes, 0, "un découpage invalide ne réveille pas la CVM");
   } finally {
     if (saved === undefined) delete process.env.SIRIUS_CHUNKED_MAX_BYTES;
     else process.env.SIRIUS_CHUNKED_MAX_BYTES = saved;
@@ -216,7 +221,10 @@ test("la clôture exige chaque morceau à sa taille, écrit le manifeste et lanc
   const { manifest, objects } = await manifestFor(uploadId, 200_000);
 
   storeAll(h, uploadId, objects, [1, 2]);
+  const wakesBefore = h.calls.wakes;
   await assert.rejects(uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, manifest, GRANT, h.deps), /Morceaux manquants : 1, 2/);
+  await assert.rejects(uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, { ...manifest, chunkCount: 99 }, GRANT, h.deps), (error: unknown) => error instanceof AppError && error.status === 400);
+  assert.equal(h.calls.wakes, wakesBefore, "manifeste invalide ou morceaux manquants : aucun réveil");
   h.stored.set(chunkObjectKey({ datasetId: "ds1", uploadId }, 1), 10);
   h.stored.set(chunkObjectKey({ datasetId: "ds1", uploadId }, 2), objects[2].length);
   await assert.rejects(uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, manifest, GRANT, h.deps), /Morceaux manquants : 1$/);

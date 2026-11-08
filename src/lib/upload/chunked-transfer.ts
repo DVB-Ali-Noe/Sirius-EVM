@@ -108,11 +108,10 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
  */
 function untilEnclaveReady<T>(deps: ChunkedTransferDeps, sleep: (ms: number) => Promise<void>, send: () => Promise<Response>, fallback: string): Promise<T> {
   return retryWhileEnclaveStarts(async () => {
-    deps.signal?.throwIfAborted();
     const response = await send();
     if (!response.ok) throw await responseError(response, fallback);
     return (await response.json().catch(() => ({}))) as T;
-  }, { onWaiting: deps.onEnclaveWaiting, wait: sleep });
+  }, { onWaiting: deps.onEnclaveWaiting, wait: sleep, signal: deps.signal });
 }
 
 /**

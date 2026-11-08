@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
+import { AppError } from "@/lib/errors";
 import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 import { readJson } from "@/lib/http/body";
 import { withUploadAdmission } from "@/lib/http/upload-admission";
@@ -25,14 +26,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     await assertAuthenticGrant(session, authorization);
     return await withUploadAdmission(session.address, async () => {
-      const dataset = await authorizeDatasetUpload(id, session.address);
-      const { envelope } = await readJson<{
-        envelope?: DatasetIngressEnvelope;
-      }>(req, MAX_ENVELOPE_BYTES, { requireContentLength: true, timeoutMs: UPLOAD_TIMEOUT_MS });
-      if (!envelope) {
-        return NextResponse.json({ error: "Enveloppe manquante" }, { status: 400 });
-      }
-      return NextResponse.json(await completeDatasetIngestion(dataset, envelope, authorization));
+      // Corps lu et contrôlé après les contrôles du brouillon et avant le réveil de la CVM.
+      const body: { envelope?: DatasetIngressEnvelope } = {};
+      const dataset = await authorizeDatasetUpload(id, session.address, async () => {
+        Object.assign(body, await readJson<{ envelope?: DatasetIngressEnvelope }>(
+          req, MAX_ENVELOPE_BYTES, { requireContentLength: true, timeoutMs: UPLOAD_TIMEOUT_MS },
+        ));
+        if (!body.envelope) throw new AppError("Enveloppe manquante", 400);
+      });
+      // `validate` a refusé toute requête sans enveloppe.
+      return NextResponse.json(await completeDatasetIngestion(dataset, body.envelope!, authorization));
     });
   } catch (err) {
     return loanRouteErrorResponse(err);

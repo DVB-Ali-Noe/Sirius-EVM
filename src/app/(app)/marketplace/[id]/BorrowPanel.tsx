@@ -12,6 +12,7 @@ import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import { isModelOffered, modelSelection } from "@/lib/models/registry";
@@ -72,6 +73,7 @@ export function BorrowPanel({
   const [busy, setBusy] = useState(false);
   // Enclave à l'arrêt : la préparation du devis la réveille ; secondes avant le prochain essai.
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
   // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
@@ -176,7 +178,10 @@ export function BorrowPanel({
     if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
-      if (await retryWhileEnclaveStarts(() => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }), { onWaiting: setEnclaveRetry })) {
+      if (await retryWhileEnclaveStarts(
+        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }),
+        { onWaiting: setEnclaveRetry, signal: unmountSignal() },
+      )) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
       }
     } catch (err) {

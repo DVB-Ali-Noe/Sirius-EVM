@@ -43,6 +43,8 @@ export interface UploadOptions {
    * Le brouillon et le scellement sont relancés seuls ; rien n'a été écrit entre-temps.
    */
   onEnclaveWaiting?: (retryInSeconds: number | null) => void;
+  /** Page quittée : plus aucune relance ni aucun envoi. */
+  signal?: AbortSignal;
 }
 
 export class UploadError extends Error {
@@ -76,7 +78,7 @@ async function responseJson(response: Response): Promise<Record<string, unknown>
 export async function uploadAndPublishDataset(
   input: UploadInput,
   onProgress: (progress: UploadProgress) => void,
-  { onEnclaveWaiting }: UploadOptions = {},
+  { onEnclaveWaiting, signal }: UploadOptions = {},
 ): Promise<{ datasetId: string }> {
   let step: UploadStep = "draft";
   let sealedDatasetId: string | null = null;
@@ -100,7 +102,7 @@ export async function uploadAndPublishDataset(
       });
       if (!initRes.ok) throw await responseError(initRes, "Échec de la préparation du dépôt");
       return responseJson(initRes);
-    }, { onWaiting: onEnclaveWaiting });
+    }, { onWaiting: onEnclaveWaiting, signal });
     const draft = checkDraftResponse(initBody, {
       priceUsdcAtomic: input.priceUsdcAtomic,
       sizeBytes: input.sizeBytes,
@@ -142,7 +144,7 @@ export async function uploadAndPublishDataset(
         body: JSON.stringify({ envelope }),
       });
       if (!uploadRes.ok) throw await responseError(uploadRes, "Échec de l’upload confidentiel");
-    }, { onWaiting: onEnclaveWaiting });
+    }, { onWaiting: onEnclaveWaiting, signal });
     sealedDatasetId = draft.datasetId;
 
     step = "register";

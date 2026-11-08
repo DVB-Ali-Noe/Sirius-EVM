@@ -132,9 +132,11 @@ function world(datasetId: string, sizeBytes: number) {
       for (const key of [...bucket.keys()]) if (key.startsWith(prefix)) bucket.delete(key);
       return 0;
     },
-    authorize: async (id: string, who: string) => {
+    authorize: async (id: string, who: string, validate?: (terms: { sizeBytes: number }) => Promise<void> | void) => {
       if (who !== provider) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
-      return { id, provider: who, sizeBytes, ...TERMS, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
+      const terms = { id, provider: who, sizeBytes, ...TERMS };
+      await validate?.(terms);
+      return { ...terms, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
     },
     assertRunner: async () => ({}),
   } as unknown as UploadsModule.ChunkedUploadDeps;

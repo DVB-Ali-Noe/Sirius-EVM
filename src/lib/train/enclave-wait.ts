@@ -13,9 +13,22 @@ export const ENCLAVE_WAIT_MAX_MS = 10 * 60_000;
 const DEFAULT_RETRY_SECONDS = 15;
 const MAX_RETRY_SECONDS = 120;
 
-function sleep(ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, ms);
+/** Attente interrompue par `signal` : rejet immédiat avec sa raison, minuterie libérée. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  if (signal?.aborted) {
+    reject(signal.reason);
+    return promise;
+  }
+  const onAbort = () => {
+    clearTimeout(timer);
+    reject(signal!.reason);
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener("abort", onAbort);
+    resolve();
+  }, ms);
+  signal?.addEventListener("abort", onAbort, { once: true });
   return promise;
 }
 
@@ -56,6 +69,7 @@ export async function responseError(response: Response, fallback: string): Promi
 /**
  * Relance `run` tant qu'il échoue sur `EnclaveStartingError`, en respectant `Retry-After`,
  * jusqu'à `maxWaitMs`. `onWaiting(seconds)` annonce chaque attente, `onWaiting(null)` sa fin.
+ * `signal` (démontage du composant, abandon) : plus aucun essai, l'attente en cours est coupée.
  */
 export async function retryWhileEnclaveStarts<T>(
   run: () => Promise<T>,
@@ -64,16 +78,19 @@ export async function retryWhileEnclaveStarts<T>(
     maxWaitMs = ENCLAVE_WAIT_MAX_MS,
     wait = sleep,
     now = () => Date.now(),
+    signal,
   }: {
     onWaiting?: (retryInSeconds: number | null) => void;
     maxWaitMs?: number;
-    wait?: (ms: number) => Promise<void>;
+    wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
     now?: () => number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const deadline = now() + maxWaitMs;
   try {
     for (;;) {
+      signal?.throwIfAborted();
       try {
         return await run();
       } catch (error) {
@@ -81,7 +98,7 @@ export async function retryWhileEnclaveStarts<T>(
         const delayMs = error.retryAfterSeconds * 1000;
         if (now() + delayMs > deadline) throw error;
         onWaiting?.(error.retryAfterSeconds);
-        await wait(delayMs);
+        await wait(delayMs, signal);
       }
     }
   } finally {

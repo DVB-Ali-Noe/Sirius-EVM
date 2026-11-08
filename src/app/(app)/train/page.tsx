@@ -63,6 +63,7 @@ import { requestPrediction } from "@/lib/train/prediction-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
 import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
@@ -198,6 +199,7 @@ function TrainPageContent() {
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
   // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
   const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
@@ -528,7 +530,7 @@ function TrainPageContent() {
     try {
       const extended = await retryWhileEnclaveStarts(
         () => extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote }),
-        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }) },
+        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }), signal: unmountSignal() },
       );
       if (extended) setExtending(null);
       await refresh();

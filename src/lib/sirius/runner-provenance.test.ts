@@ -70,7 +70,7 @@ function fixture() {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
       trainingJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 }; } },
-      loan: { update },
+      loan: { update, count: async () => 0 },
     } },
   };
   return { dataset, records, updates, common };

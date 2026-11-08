@@ -1,5 +1,6 @@
 import "server-only";
 import type { Hex } from "viem";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
@@ -35,6 +36,30 @@ import { requireRunnerOrWake } from "./availability";
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
 const MAX_RUNS_PER_WINDOW = 3;
+
+/**
+ * Plafonds de préparation d'un emprunteur, lus sans écrire : avant le réveil de la CVM (un compte
+ * au plafond ne la réveille pas), puis dans la transaction de préparation, où ils font foi.
+ */
+async function assertLoanAdmission(
+  db: { loan: { count(args: { where: Prisma.LoanWhereInput }): Promise<number> } },
+  borrower: string,
+  datasetId: string,
+) {
+  const [pending, recentRuns] = await Promise.all([
+    db.loan.count({ where: { borrower, status: { in: ["PENDING", "SUBMITTING"] } } }),
+    db.loan.count({
+      where: {
+        borrower,
+        datasetId,
+        status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] },
+        createdAt: { gte: new Date(Date.now() - RATE_WINDOW_MS) },
+      },
+    }),
+  ]);
+  if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
+  if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
+}
 
 /**
  * Prêt rattaché à un prêt d'origine, au profil d'entraînement repris à l'identique : prolongation
@@ -109,25 +134,15 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   });
   if (!live) throw new AppError("Titre EVM du dataset détruit", 409);
 
-  // Emprunteur authentifié, dataset empruntable, deux KYB acceptés : CVM éteinte ⇒ réveil demandé et
-  // 503 `enclave_starting` avant toute écriture (aucun PENDING remplacé, aucune réservation) ; le
-  // navigateur relance la même préparation. Couvre aussi prolongations et packs.
-  await requireRunnerOrWake();
+  // Emprunteur authentifié, dataset empruntable, deux KYB acceptés, plafonds de préparation libres
+  // (lus sans écrire) : CVM éteinte ⇒ réveil demandé (budget du compte) et 503 `enclave_starting`
+  // avant toute écriture (aucun PENDING remplacé, aucune réservation) ; le navigateur relance la même
+  // préparation. Couvre aussi prolongations et packs.
+  await assertLoanAdmission(prisma, borrowerAddress, datasetId);
+  await requireRunnerOrWake({ wakeSubject: borrowerAddress });
 
   const loan = await serializableTransaction(async (tx) => {
-    const [pending, recentRuns] = await Promise.all([
-      tx.loan.count({ where: { borrower: borrowerAddress, status: { in: ["PENDING", "SUBMITTING"] } } }),
-      tx.loan.count({
-        where: {
-          borrower: borrowerAddress,
-          datasetId,
-          status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] },
-          createdAt: { gte: new Date(Date.now() - RATE_WINDOW_MS) },
-        },
-      }),
-    ]);
-    if (pending >= MAX_PENDING_LOANS) throw new AppError("Trop d’emprunts en attente", 429);
-    if (recentRuns >= MAX_RUNS_PER_WINDOW) throw new AppError("Trop d’emprunts récents sur ce dataset", 429);
+    await assertLoanAdmission(tx, borrowerAddress, datasetId);
     // Un prêt PENDING sans hash de lock n'a rien coûté à l'emprunteur mais compte dans le plafond
     // d'exposition de la bêta tant que le reaper ne l'a pas annulé (son autorisation de lock reste
     // renouvelable jusqu'à neuf minutes après sa création, il peut donc encore être verrouillé).

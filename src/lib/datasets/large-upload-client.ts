@@ -29,7 +29,7 @@ export interface LargeUploadProgress extends UploadProgress {
 export async function uploadAndPublishLargeDataset(
   input: LargeUploadInput,
   onProgress: (progress: LargeUploadProgress) => void,
-  { signal, onEnclaveWaiting }: UploadOptions & { signal?: AbortSignal } = {},
+  { signal, onEnclaveWaiting }: UploadOptions = {},
 ): Promise<{ datasetId: string }> {
   let step: UploadStep = "draft";
   let sealedDatasetId: string | null = null;
@@ -54,7 +54,7 @@ export async function uploadAndPublishLargeDataset(
       });
       if (!initRes.ok) throw await responseError(initRes, "Échec de la préparation du dépôt");
       return (await initRes.json().catch(() => ({}))) as unknown;
-    }, { onWaiting: onEnclaveWaiting });
+    }, { onWaiting: onEnclaveWaiting, signal });
     const draft = checkDraftResponse(initBody, {
       priceUsdcAtomic: input.priceUsdcAtomic,
       sizeBytes: input.sizeBytes,

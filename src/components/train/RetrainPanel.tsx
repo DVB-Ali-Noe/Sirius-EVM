@@ -15,6 +15,7 @@ import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { isModelOffered, modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 type Listing =
   | { status: "loading" }
@@ -49,6 +50,7 @@ export function RetrainPanel({
   const [listing, setListing] = useState<Listing>({ status: "loading" });
   const [busy, setBusy] = useState(false);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [chosenDays, setChosenDays] = useState(MIN_RENTAL_DAYS);
   const mounted = useRef(true);
   const inFlight = useRef(false);
@@ -101,7 +103,7 @@ export function RetrainPanel({
     try {
       borrowed = await retryWhileEnclaveStarts(
         () => borrowDataset({ datasetId, priceUsdcAtomic: price, rentalDays, confirmQuote }),
-        { onWaiting: (seconds) => { if (mounted.current) setEnclaveRetry(seconds); } },
+        { onWaiting: (seconds) => { if (mounted.current) setEnclaveRetry(seconds); }, signal: unmountSignal() },
       );
     } catch (err) {
       onError(messageOf(err));
