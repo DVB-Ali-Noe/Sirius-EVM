@@ -307,8 +307,12 @@ export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigi
 /**
  * État d'un prêt on-chain. Le hash de transaction est retrouvé uniquement depuis
  * le bloc du lock persistant ; aucun scan depuis le genesis n'est autorisé.
+ * `releaseTier` ne s'applique qu'à un `release` (prêt déjà classé rapide par l'enclave, revu
+ * ensuite à finalité complète par le reaper) ; un remboursement ou un échec reste à finalité complète.
  */
-export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, binding = evmEscrowBinding()): Promise<EscrowResolution> {
+export async function reconcileLoanEscrow(
+  loanKey: Hex, fromBlock?: bigint, binding = evmEscrowBinding(), releaseTier: FinalityTier = "FULL",
+): Promise<EscrowResolution> {
   const loan = await readLoan(loanKey, binding);
   if (!loan) throw new AppError("Prêt inconnu du contrat escrow", 409);
   if (loan.status === STATUS_LOCKED) return { state: "active" };
@@ -328,7 +332,7 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, bind
     const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
     if (receipt.status !== "success" || receipt.to?.toLowerCase() !== escrowReadAddress(binding)
       || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) throw new AppError("Résolution on-chain non confirmée", 409);
-    await assertCanonicalReceipt(client, receipt);
+    await assertCanonicalReceipt(client, receipt, 1, settled ? releaseTier : "FULL");
   }
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }

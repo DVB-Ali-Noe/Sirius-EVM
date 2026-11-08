@@ -25,6 +25,7 @@ import { loanRentalExpiry, RENTAL_EXPIRED, RENTAL_MODEL_DELETED } from "./rental
 import { API_ACCESS_PENDING, CALLS_PENDING, EXTENSION_PENDING } from "@/lib/loans/settlement-status";
 import { API_ACCESS_STALE_CODE } from "@/lib/billing/api-pricing";
 import { reaperErrorKind } from "./reaper-errors";
+import { effectiveLoanFinalityTier } from "./finality-tier";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -270,7 +271,12 @@ async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
  */
 async function reconcileClosedLoan(loan: Loan): Promise<"closed" | "active" | "settled" | "unbound"> {
   if (!loan.evmLoanKey || !loan.evmLockBlock) return "unbound";
-  const state = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan));
+  // Release d'un prêt rapide : accepté au palier rapide (le runner revérifie la profondeur), puis
+  // revu à finalité complète une fois SETTLED (`reviewFastSettledLoan`). Coupe-circuit fermé
+  // (`SIRIUS_FAST_FINALITY` off) : palier effectif FULL, comme partout ailleurs.
+  const state = await reconcileLoanEscrow(
+    loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock), await resolveLoanEscrow(loan), effectiveLoanFinalityTier(loan.finalityTier),
+  );
   if (state.state === "active") return "active";
   // La reprise du résultat et la validation de sa preuve précèdent toujours le règlement v7.
   if (state.state === "settled" && loan.billingQuoteHash) return "settled";
