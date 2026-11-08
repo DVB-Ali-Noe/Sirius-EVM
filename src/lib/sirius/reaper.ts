@@ -26,6 +26,7 @@ import { API_ACCESS_PENDING, CALLS_PENDING, EXTENSION_PENDING } from "@/lib/loan
 import { API_ACCESS_STALE_CODE } from "@/lib/billing/api-pricing";
 import { reaperErrorKind } from "./reaper-errors";
 import { effectiveLoanFinalityTier } from "./finality-tier";
+import { runnerAwake } from "./availability";
 
 const BATCH_SIZE = 50;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -125,6 +126,9 @@ async function reapBatch(now: Date): Promise<ReaperPassResult> {
       const chain = loan.billingQuoteHash ? await reconcileClosedLoan(loan) : null;
       if (chain === "closed") continue;
       if (!loan.modelCid && loan.billingQuoteHash) {
+        // Prêt verrouillé sans travail en cours : la CVM peut être arrêtée par le contrôleur
+        // (D-30, audit E F2). Sans elle, rien à reprendre ; l'emprunteur la réveille par `/run`.
+        if (loan.status === "ESCROWED" && !(await runnerAwake(now))) continue;
         if (await recoverLoanResult(loan.id)) {
           await settlePreparedLoan(loan.id);
           continue;

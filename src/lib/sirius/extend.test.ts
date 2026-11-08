@@ -168,6 +168,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
       "./calls": { settleLoanPack: async () => { throw new Error("aucun pack dans ce scénario"); } },
       // `reconcileLoanEscrow` est simulé et ignore le palier : le palier effectif passe tel quel.
       "./finality-tier": { effectiveLoanFinalityTier: (tier: string) => tier },
+      "./availability": { runnerAwake: async () => true },
     });
     return { reaper, settled };
   };

@@ -209,6 +209,8 @@ function TrainPageContent() {
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
   // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
   const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
+  // Enclave réveillée par le lancement d'un entraînement (`/run`) : prêt concerné et prochain essai.
+  const [runWait, setRunWait] = useState<{ loanId: string; seconds: number } | null>(null);
   // Prolongations payées dont la page termine le règlement, par prêt d'origine : avancement et début de l'attente.
   const [extendSettlements, setExtendSettlements] = useState<Record<string, { progress: PaidSettlementProgress; since: number }>>({});
   const unmountSignal = useUnmountSignal();
@@ -445,20 +447,22 @@ function TrainPageContent() {
     setError(null);
     setNotice(null);
     setBusyKey(key, true);
+    const signal = unmountSignal();
     try {
       if (!loan.dataset?.runnerReceipt || !loan.evmLockTxHash || !loan.evmLoanKey) {
         throw new Error(t("Preuve d’escrow ou reçu dataset manquant"));
       }
       const model = modelSelection(loan.modelId, loan.modelVersion);
       if (!model) throw new Error(t("Modèle ou version non autorisé"));
-      await runLoanJob({
-        loanId: loan.id,
-        datasetId: loan.datasetId,
-        datasetReceipt: loan.dataset.runnerReceipt,
-        model,
-      });
+      const datasetReceipt = loan.dataset.runnerReceipt;
+      // CVM arrêtée depuis le lock : `/run` la réveille, la page attend puis relance seule.
+      await retryWhileEnclaveStarts(
+        () => runLoanJob({ loanId: loan.id, datasetId: loan.datasetId, datasetReceipt, model }),
+        { onWaiting: (seconds) => setRunWait(seconds === null ? null : { loanId: loan.id, seconds }), signal },
+      );
       await refresh();
     } catch (err) {
+      if (signal.aborted) return;
       const message = messageOf(err);
       if (message === "Loan non verrouillé ou déjà en cours") {
         await refresh().catch(() => {});
@@ -475,6 +479,7 @@ function TrainPageContent() {
         setError(message);
       }
     } finally {
+      setRunWait((current) => (current?.loanId === loan.id ? null : current));
       activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
     }
@@ -869,7 +874,15 @@ function TrainPageContent() {
                 )}
               </div>
 
-              {busy.has(`job:${l.id}`) && !noTraining && (
+              {runWait?.loanId === l.id && !noTraining && (
+                <EnclaveStartingSteps
+                  phase="starting"
+                  retryInSeconds={runWait.seconds}
+                  testId="run-enclave-starting"
+                  closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+                />
+              )}
+              {busy.has(`job:${l.id}`) && !noTraining && runWait?.loanId !== l.id && (
                 <WaitSteps
                   testId="training-wait"
                   steps={[

@@ -398,14 +398,11 @@ export async function runLoanJob(input: RunLoanInput): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ authorization }),
   });
-  const body = await response.json() as {
-    modelCid?: string;
-    runnerReceipt?: string;
-    error?: string;
-  };
-  if (!response.ok || !body.modelCid || !body.runnerReceipt) {
-    throw new Error(body.error ?? "Échec du job confidentiel");
-  }
+  // CVM réveillée par la route : `EnclaveStartingError`, que l'appelant attend (`retryWhileEnclaveStarts`)
+  // avant de relancer avec une nouvelle autorisation ; rien n'a été lancé ni écrit.
+  if (!response.ok) throw await responseError(response, "Échec du job confidentiel");
+  const body = await response.json() as { modelCid?: string; runnerReceipt?: string; error?: string };
+  if (!body.modelCid || !body.runnerReceipt) throw new Error(body.error ?? "Échec du job confidentiel");
   await settleLoan(input.loanId, body.runnerReceipt);
 }
 
