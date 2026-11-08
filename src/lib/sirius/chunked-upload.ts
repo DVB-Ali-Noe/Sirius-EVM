@@ -1,10 +1,10 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { AppError } from "@/lib/app-error";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
-import { authorizeDatasetUpload } from "@/lib/sirius/pipeline";
+import { UPLOAD_QUOTA_WINDOW_MS, authorizeDatasetUpload } from "@/lib/sirius/pipeline";
 import {
   presignR2Put,
   r2ConfigFromEnv,
@@ -35,6 +35,7 @@ import {
   type ChunkedUploadManifest,
   type UploadIds,
 } from "@/lib/upload/chunked";
+import { DEFAULT_SEAL_TIMEOUT_MS } from "@/lib/upload/chunked-transfer";
 
 /**
  * Envoi en morceaux d'un gros dataset (docs/UPLOAD-1GO.md, §5 et §7).
@@ -65,7 +66,8 @@ export const DAILY_UPLOAD_BYTES_PER_PROVIDER = 5 * 1024 * 1024 * 1024;
  * `SIRIUS_CHUNKED_MAX_BYTES` suit la même valeur.
  */
 export const DEFAULT_CHUNKED_MAX_BYTES = 16 * 1024 * 1024;
-const DAY_MS = 24 * 60 * 60_000;
+/** La base ou une transaction : seuls les envois sont lus ou écrits. */
+type UploadDb = Pick<Prisma.TransactionClient, "datasetUpload">;
 
 export type DatasetUploadState = "OPEN" | "SEALING" | "SEALED" | "FAILED" | "ABORTED";
 
@@ -95,6 +97,8 @@ export interface ChunkedUploadDeps {
   authorize: typeof authorizeDatasetUpload;
   assertRunner: typeof assertCurrentRunner;
   now: () => number;
+  /** Transaction sérialisable (contrôle des quotas et création d'un envoi, comme `beginDatasetIngestion`). */
+  serializable: <T>(action: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
 }
 
 export const defaultChunkedUploadDeps: ChunkedUploadDeps = {
@@ -110,6 +114,7 @@ export const defaultChunkedUploadDeps: ChunkedUploadDeps = {
   authorize: authorizeDatasetUpload,
   assertRunner: assertCurrentRunner,
   now: () => Date.now(),
+  serializable: serializableTransaction,
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -210,21 +215,32 @@ async function receivedChunks(deps: ChunkedUploadDeps, config: R2Config, upload:
   return [...received].sort((a, b) => a - b);
 }
 
+/** Envoi abandonné : morceaux supprimés tout de suite ; le reaper repasse après l'expiration des URL signées. */
 async function abortUpload(deps: ChunkedUploadDeps, upload: DatasetUploadRow, from: DatasetUploadState[], error?: string): Promise<void> {
   await deps.db.datasetUpload.updateMany({
     where: { id: upload.id, state: { in: from } },
     data: { state: "ABORTED", ...(error ? { error } : {}) },
   });
   await deps.deletePrefix(deps.storage(), uploadPrefix(idsOf(upload))).catch(() =>
-    console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}`),
+    console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise par le reaper`),
   );
 }
 
 /**
- * Envois restés ouverts après leur échéance (onglet fermé, CLI coupée, abandon jamais envoyé) :
- * leurs morceaux sont supprimés de R2, PUIS l'envoi est marqué abandonné. Dans cet ordre, une
- * suppression ratée laisse l'envoi ouvert et la passe suivante réessaie ; aucun morceau n'est
- * oublié dans R2. Appelé par le reaper, par lots ; sans accès R2 configuré, rien n'est touché.
+ * Morceaux à supprimer de R2, par le reaper et par lots :
+ * - envois ouverts jamais clos, après leur échéance ;
+ * - scellements bloqués, une fois passé le délai de suivi du module d'envoi (30 min) : un
+ *   scellement encore en cours garde ses morceaux ;
+ * - envois abandonnés ou refusés, même déjà nettoyés une fois : la première suppression a pu
+ *   échouer, ou un `PUT` encore en vol a pu recréer un morceau derrière elle ;
+ * - envois d'un dataset supprimé, y compris un envoi resté SEALED si `purgeDeletedDatasetUploads`
+ *   n'a pas abouti.
+ * Toujours après l'expiration des dernières URL d'envoi signées (15 min) : plus aucun morceau ne
+ * peut arriver. Un envoi ouvert, en scellement ou scellé est d'abord passé en ABORTED (s'il n'a
+ * pas changé entre-temps) : un scellement qui finirait ensuite ne pose plus rien sur le brouillon.
+ * Puis les morceaux sont supprimés de R2, PUIS l'envoi est marqué purgé (`purgedAt`) : une
+ * suppression ratée laisse la marque vide et une passe suivante réessaie ; aucun morceau n'est
+ * oublié dans R2. Sans accès R2 configuré, rien n'est touché.
  */
 export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunkedUploadDeps, limit = 20): Promise<number> {
   let config: R2Config;
@@ -233,26 +249,70 @@ export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunk
   } catch {
     return 0;
   }
-  const expired = (await deps.db.datasetUpload.findMany({
-    where: { state: "OPEN", expiresAt: { lte: new Date(deps.now()) } },
-    orderBy: { expiresAt: "asc" },
+  const now = deps.now();
+  const urlsExpired = new Date(now - PART_URL_SECONDS * 1000);
+  const sealStale = new Date(now - DEFAULT_SEAL_TIMEOUT_MS - PART_URL_SECONDS * 1000);
+  const due = (await deps.db.datasetUpload.findMany({
+    where: {
+      purgedAt: null,
+      OR: [
+        { state: "OPEN", expiresAt: { lte: urlsExpired } },
+        { state: "SEALING", expiresAt: { lte: urlsExpired }, updatedAt: { lte: sealStale } },
+        { state: { in: ["FAILED", "ABORTED"] }, updatedAt: { lte: urlsExpired } },
+        { state: "SEALED", dataset: { status: "DELETED" } },
+      ],
+    },
+    orderBy: { updatedAt: "asc" },
     take: limit,
   })) as DatasetUploadRow[];
   let purged = 0;
-  for (const upload of expired) {
+  for (const upload of due) {
+    if (upload.state === "OPEN" || upload.state === "SEALING" || upload.state === "SEALED") {
+      const claimed = await deps.db.datasetUpload.updateMany({
+        where: { id: upload.id, state: upload.state, purgedAt: null },
+        data: { state: "ABORTED", error: upload.state === "SEALED" ? "Dataset supprimé" : "Envoi expiré" },
+      });
+      // Scellé ou relancé entre-temps : l'envoi n'est plus à purger.
+      if (claimed.count !== 1) continue;
+    }
     try {
       await deps.deletePrefix(config, uploadPrefix(idsOf(upload)));
     } catch {
-      console.error(`Nettoyage R2 impossible pour l’envoi expiré ${upload.id}, reprise à la passe suivante`);
+      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise à une passe suivante`);
       continue;
     }
-    const closed = await deps.db.datasetUpload.updateMany({
-      where: { id: upload.id, state: "OPEN" },
-      data: { state: "ABORTED", error: "Envoi expiré" },
+    const marked = await deps.db.datasetUpload.updateMany({
+      where: { id: upload.id, purgedAt: null },
+      data: { purgedAt: new Date(now) },
     });
-    purged += closed.count;
+    purged += marked.count;
   }
   return purged;
+}
+
+/**
+ * Suppression d'un dataset envoyé en morceaux : ses envois quittent R2 (morceaux et manifeste).
+ * La clé enveloppée effacée ne suffit pas : l'enclave recalculerait la clé d'envoi depuis la clé
+ * éphémère et le sel du manifeste. Sans manifeste ni morceaux, plus rien ne se déchiffre.
+ *
+ * Les envois passent d'abord en ABORTED (un envoi encore ouvert n'accepte plus de morceaux), puis
+ * leurs préfixes sont supprimés tout de suite. La purge définitive, marquée par `purgedAt`, revient
+ * au reaper une fois les dernières URL signées expirées ; il reprend aussi une suppression ratée
+ * ici (R2 indisponible, site sans accès R2).
+ */
+export async function purgeDeletedDatasetUploads(datasetId: string, deps: ChunkedUploadDeps = defaultChunkedUploadDeps): Promise<void> {
+  await deps.db.datasetUpload.updateMany({
+    where: { datasetId, state: { in: ["OPEN", "SEALING", "SEALED"] } },
+    data: { state: "ABORTED", error: "Dataset supprimé" },
+  });
+  const uploads = (await deps.db.datasetUpload.findMany({ where: { datasetId, purgedAt: null } })) as DatasetUploadRow[];
+  for (const upload of uploads) {
+    try {
+      await deps.deletePrefix(deps.storage(), uploadPrefix(idsOf(upload)));
+    } catch {
+      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id} du dataset supprimé, reprise par le reaper`);
+    }
+  }
 }
 
 /** Rafraîchit le brouillon : sinon le nettoyage des brouillons abandonnés (30 min) le supprimerait en plein envoi. */
@@ -265,6 +325,32 @@ async function touchDraft(deps: ChunkedUploadDeps, upload: DatasetUploadRow): Pr
 
 // ---------------------------------------------------------------------------------------------------------------
 // 1. Ouverture
+
+/**
+ * Envoi ouvert à reprendre sur ce brouillon, sinon `null` si les quotas du fournisseur permettent
+ * d'en ouvrir un nouveau (deux envois en cours, 5 Gio par 24 h, envois abandonnés compris).
+ */
+async function resumableUploadOrQuota(
+  db: UploadDb,
+  input: { datasetId: string; provider: string; sizeBytes: number; chunkBytes: number; now: number },
+): Promise<DatasetUploadRow | null> {
+  const { datasetId, provider, sizeBytes, chunkBytes, now } = input;
+  const existing = (await db.datasetUpload.findFirst({
+    where: { datasetId, provider, state: "OPEN", expiresAt: { gt: new Date(now) } },
+    orderBy: { createdAt: "desc" },
+  })) as DatasetUploadRow | null;
+  // Reprise : le même brouillon garde son envoi ouvert, les morceaux déjà reçus restent valables.
+  if (existing && existing.chunkBytes === chunkBytes && existing.sizeBytes === sizeBytes) return existing;
+  const [open, recent] = await Promise.all([
+    db.datasetUpload.count({ where: { provider, state: { in: ["OPEN", "SEALING"] }, expiresAt: { gt: new Date(now) } } }),
+    db.datasetUpload.aggregate({ where: { provider, createdAt: { gte: new Date(now - UPLOAD_QUOTA_WINDOW_MS) } }, _sum: { sizeBytes: true } }),
+  ]);
+  if (open >= MAX_OPEN_UPLOADS_PER_PROVIDER) throw new AppError("Trop d’envois en cours : termine ou annule un envoi", 429);
+  if ((recent._sum.sizeBytes ?? 0) + sizeBytes > DAILY_UPLOAD_BYTES_PER_PROVIDER) {
+    throw new AppError("Quota d’envoi du jour atteint — réessaie demain", 429);
+  }
+  return null;
+}
 
 export async function openDatasetUpload(
   datasetId: string,
@@ -282,41 +368,30 @@ export async function openDatasetUpload(
   const now = deps.now();
   // Contrôles sans écriture (taille, découpage, reprise, quotas) avant le réveil de la CVM par
   // `authorize` : un envoi invalide ou hors quota ne la réveille pas.
-  const resume: { upload?: DatasetUploadRow } = {};
   const dataset = await deps.authorize(datasetId, provider, async ({ sizeBytes }) => {
     requireChunkedUploads(sizeBytes, deps);
     if (chunkCountFor(sizeBytes, chunkBytes) > MAX_UPLOAD_CHUNKS) {
       throw new AppError("Morceaux trop petits pour ce fichier", 400);
     }
-    const existing = (await deps.db.datasetUpload.findFirst({
-      where: { datasetId, provider, state: "OPEN", expiresAt: { gt: new Date(now) } },
-      orderBy: { createdAt: "desc" },
-    })) as DatasetUploadRow | null;
-    // Reprise : le même brouillon garde son envoi ouvert, les morceaux déjà reçus restent valables.
-    if (existing && existing.chunkBytes === chunkBytes && existing.sizeBytes === sizeBytes) {
-      resume.upload = existing;
-      return;
-    }
-    const [open, recent] = await Promise.all([
-      deps.db.datasetUpload.count({ where: { provider, state: { in: ["OPEN", "SEALING"] }, expiresAt: { gt: new Date(now) } } }),
-      deps.db.datasetUpload.aggregate({ where: { provider, createdAt: { gte: new Date(now - DAY_MS) } }, _sum: { sizeBytes: true } }),
-    ]);
-    if (open >= MAX_OPEN_UPLOADS_PER_PROVIDER) throw new AppError("Trop d’envois en cours : termine ou annule un envoi", 429);
-    if ((recent._sum.sizeBytes ?? 0) + sizeBytes > DAILY_UPLOAD_BYTES_PER_PROVIDER) {
-      throw new AppError("Quota d’envoi du jour atteint — réessaie demain", 429);
-    }
+    await resumableUploadOrQuota(deps.db, { datasetId, provider, sizeBytes, chunkBytes, now });
   });
-  if (resume.upload) return { ...publicUpload(resume.upload), ingressKey: await deps.ingressKey() };
-  const upload = (await deps.db.datasetUpload.create({
-    data: {
-      datasetId,
-      provider,
-      sizeBytes: dataset.sizeBytes,
-      chunkBytes,
-      chunkCount: chunkCountFor(dataset.sizeBytes, chunkBytes),
-      expiresAt: new Date(now + UPLOAD_TTL_MS),
-    },
-  })) as DatasetUploadRow;
+  // Mêmes contrôles, qui font foi, dans la transaction qui crée l'envoi : deux ouvertures
+  // simultanées (deux brouillons, deux onglets) ne dépassent pas les quotas.
+  const upload = await deps.serializable(async (tx) => {
+    const input = { datasetId, provider, sizeBytes: dataset.sizeBytes, chunkBytes, now };
+    const resumed = await resumableUploadOrQuota(tx, input);
+    if (resumed) return resumed;
+    return (await tx.datasetUpload.create({
+      data: {
+        datasetId,
+        provider,
+        sizeBytes: dataset.sizeBytes,
+        chunkBytes,
+        chunkCount: chunkCountFor(dataset.sizeBytes, chunkBytes),
+        expiresAt: new Date(now + UPLOAD_TTL_MS),
+      },
+    })) as DatasetUploadRow;
+  });
   return { ...publicUpload(upload), ingressKey: await deps.ingressKey() };
 }
 
@@ -508,7 +583,7 @@ export async function datasetUploadStatus(
     // Fichier refusé (format, profil, empreintes) : les morceaux ne serviront plus.
     await deps.db.datasetUpload.updateMany({ where: { id: upload.id, state: "SEALING" }, data: { state: "FAILED", error: status.error } });
     await deps.deletePrefix(deps.storage(), uploadPrefix(idsOf(upload))).catch(() =>
-      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}`),
+      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise par le reaper`),
     );
   }
   upload = await loadUpload(deps, datasetId, uploadId, provider);

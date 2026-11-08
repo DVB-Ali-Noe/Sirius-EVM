@@ -27,6 +27,10 @@ export const UPLOAD_CHUNKED_MESSAGES_EN: Record<string, string> = {
   "Scellement refusé": "Sealing refused",
   "Le scellement prend plus de temps que prévu : reviens plus tard sur ce brouillon":
     "Sealing is taking longer than expected: come back to this draft later",
+  "Clôture impossible pour l’instant (runner ou réseau indisponible) : relance la publication plus tard":
+    "Upload cannot be completed for now (runner or network unavailable): publish again later",
+  "Connexion au site interrompue": "Connection to the site interrupted",
+  "Scellement interrompu": "Sealing interrupted",
 
   // Routes d'envoi
   "Envoi des gros fichiers indisponible pour l’instant": "Large file uploads are unavailable for now",
@@ -47,6 +51,7 @@ export const UPLOAD_CHUNKED_MESSAGES_EN: Record<string, string> = {
   "Scellement en cours : attends sa fin": "Sealing in progress: wait for it to finish",
   "Envoi déjà scellé": "Upload already sealed",
   "Envoi expiré": "Upload expired",
+  "Dataset supprimé": "Dataset deleted",
   "Scellement interrompu : relance la clôture": "Sealing interrupted: complete the upload again",
   "Manifeste manquant": "Missing manifest",
 

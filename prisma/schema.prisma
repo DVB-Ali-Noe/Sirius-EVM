@@ -66,7 +66,9 @@ model Dataset {
 model DatasetUpload {
   id             String              @id @default(cuid())
   datasetId      String
-  dataset        Dataset             @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  // RESTRICT : un envoi survit à toute suppression de son brouillon tant que ses morceaux R2 ne
+  // sont pas purgés ; ses octets restent aussi comptés dans le quota journalier du fournisseur.
+  dataset        Dataset             @relation(fields: [datasetId], references: [id], onDelete: Restrict)
   provider       String // adresse EVM du provider, en minuscules
   sizeBytes      Int // taille claire annoncée, égale à `Dataset.sizeBytes`
   chunkBytes     Int
@@ -75,11 +77,13 @@ model DatasetUpload {
   manifestSha256 String? // posé à la clôture ; la référence publiée du dataset s'y engage
   error          String? // dernier refus de l'enclave, affiché au fournisseur
   expiresAt      DateTime // au-delà, plus d'URL d'envoi ni de clôture
+  purgedAt       DateTime? // morceaux et manifeste supprimés de R2 par le reaper ; vide = à (re)purger
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
   @@index([datasetId])
   @@index([provider, createdAt])
+  @@index([state, purgedAt])
 }
 
 /// Journal historique des livraisons de modèle (qui a reçu quel modèle, pour quel prêt). Plus
@@ -414,7 +418,7 @@ enum DatasetUploadState {
   SEALING // manifeste transmis, l'enclave relit et scelle
   SEALED // scellé : le dataset porte sa référence, sa clé enveloppée et son reçu
   FAILED // refusé par l'enclave (fichier invalide) ; un nouvel envoi reste possible
-  ABORTED // abandonné ou expiré, morceaux supprimés
+  ABORTED // abandonné, expiré ou dataset supprimé ; morceaux supprimés (définitivement une fois `purgedAt` posé)
 }
 
 enum DatasetStatus {

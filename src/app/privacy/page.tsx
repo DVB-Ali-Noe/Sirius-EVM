@@ -14,7 +14,7 @@ import { CONTACT_EMAIL } from "@/lib/copy/disclaimers";
  *   profil (adresse, réglages, blocage)   prisma/schema.prisma (UserProfile), src/lib/users/profile.ts
  *   journal des accès historique, 24 mois prisma/schema.prisma (DatasetAccessLog), /terms ; plus aucune écriture
  *   compteurs de prédiction               src/lib/runner/prediction-usage.ts (wallet, modèle, jour, total)
- *   suppression d'un dataset              src/lib/sirius/provider.ts (deleteDataset : clé détruite, unpin)
+ *   suppression d'un dataset              src/lib/sirius/provider.ts (deleteDataset : clé détruite, unpin IPFS ou purge R2 des gros fichiers)
  *   IP : limitation de débit en mémoire   src/lib/http/rate-limit.ts (requestClientKey), jamais en base
  *   e-mail Google : affichage local seul  src/lib/wallet/embedded.ts (embeddedUserEmail, disableAnalytics)
  *   attestation on-chain                  contracts/src/SiriusKybRegistry.sol (adresse, vérificateur, expiration)
@@ -57,7 +57,7 @@ const PROCESSING: Processing[] = [
     data: "The listing details you enter (name, description, category, price), aggregate statistics computed inside the enclave (size, schema, completeness), the encrypted file and its wrapped key, and your model improvement choice with its date and text version. The file is encrypted in your browser before upload and decrypted only inside the training enclave: Sirius and its hosting providers cannot read its content.",
     purpose: "Listing your dataset and running the loans and trainings you agree to.",
     basis: "Performance of the contract. Use for model improvement relies on your consent, which is optional and can be withdrawn at any time.",
-    retention: "Kept until you delete the dataset. Deleting it destroys the active encryption key and removes the encrypted file from Sirius' IPFS storage; the listing record is kept for the audit ledger. Database backups may keep an older copy of the encrypted key for a limited time.",
+    retention: "Kept until you delete the dataset. Deleting it destroys the active encryption key and removes the encrypted file from Sirius' storage (IPFS, or Cloudflare R2 for large files); the listing record is kept for the audit ledger. Database backups may keep an older copy of the encrypted key for a limited time.",
   },
   {
     title: "Loans and payments",
@@ -114,6 +114,7 @@ const PROCESSORS = [
   "Vercel (web application hosting)",
   "Neon (database)",
   "Pinata (IPFS storage of encrypted files)",
+  "Cloudflare R2 (storage of large encrypted files)",
   "Phala Cloud (confidential compute in Intel TDX enclaves)",
   "OVHcloud (background settlement tasks)",
   "Web3Auth (optional Google sign-in)",

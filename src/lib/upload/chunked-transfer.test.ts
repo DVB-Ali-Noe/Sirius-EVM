@@ -3,6 +3,7 @@ import { before, test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { useWalletStore } from "@/stores/wallet";
 import { AppError } from "@/lib/app-error";
+import { RunnerRetryLater } from "@/lib/runner/failure-policy";
 import { buildMerkleTree } from "@/lib/crypto/merkle";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -139,6 +140,7 @@ function world(datasetId: string, sizeBytes: number) {
       return { ...terms, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
     },
     assertRunner: async () => ({}),
+    serializable: async (action: (tx: unknown) => Promise<unknown>) => action(db),
   } as unknown as UploadsModule.ChunkedUploadDeps;
 
   const keyOf = (url: string) => new URL(url).pathname.replace(`/${R2.R2_BUCKET}/`, "");
@@ -184,6 +186,7 @@ function world(datasetId: string, sizeBytes: number) {
     bucket,
     datasets,
     datasetUpload,
+    deps,
     api,
     puts,
     failPuts: (plan: Record<number, number[]>) => (putFailures = plan),
@@ -337,4 +340,145 @@ test("une coupure pendant l'envoi ferme l'envoi et libère le quota du fournisse
   );
   assert.equal(w.datasetUpload.rows[0].state, "ABORTED");
   assert.equal(w.bucket.size, 0);
+});
+
+/**
+ * Pauses enregistrées sans attendre : les essais de la clôture se comptent sans ralentir les tests.
+ * Chaque pause rend tout de même la main à la boucle d'événements, où le runner scelle en arrière-plan.
+ */
+function countedSleeps() {
+  const sleeps: number[] = [];
+  const sleep = (ms: number) => {
+    sleeps.push(ms);
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setImmediate(resolve);
+    return promise;
+  };
+  return { sleeps, sleep };
+}
+
+test("un autre scellement en cours sur le runner (503) : l'envoi garde ses morceaux et relance la clôture avec un grant neuf", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-busy", file.length);
+  const startSeal = w.deps.startSeal;
+  let busy = 2;
+  w.deps.startSeal = async (input) => {
+    if (busy-- > 0) throw new RunnerRetryLater("Un autre scellement est en cours : réessaie dans quelques minutes");
+    return startSeal(input);
+  };
+  const grants: string[] = [];
+  const methods: string[] = [];
+  const api: TransferModule.ChunkedTransferApi = {
+    ...w.api,
+    async request(path, init) {
+      methods.push(init.method);
+      if (path.endsWith("/complete")) grants.push(init.headers?.["x-sirius-runner-grant"] ?? "");
+      return w.api.request(path, init);
+    },
+  };
+  const { sleeps, sleep } = countedSleeps();
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-busy", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(api), sleep }),
+  );
+  assert.equal(w.datasetUpload.rows.length, 1, "aucun nouvel envoi : le quota n'est pas consommé deux fois");
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.ok(!methods.includes("DELETE"), "l'envoi n'est jamais supprimé");
+  assert.equal(grants.length, 3);
+  assert.equal(new Set(grants).size, 3, "chaque clôture porte un grant neuf");
+  assert.deepEqual(sleeps.slice(0, 2), [5_000, 10_000], "attente croissante entre deux clôtures");
+  assert.equal(w.puts.length, Math.ceil(file.length / CHUNK), "aucun morceau renvoyé");
+});
+
+test("réponse de clôture perdue, 5xx et scellement rouvert pendant le suivi : l'envoi se scelle sans être supprimé", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-flaky", file.length);
+  // Premier scellement perdu : le runner redémarre, il ne le connaît plus et le site rouvre l'envoi.
+  const { startSeal, sealStatus } = w.deps;
+  let restarted = true;
+  w.deps.startSeal = async (input) => (restarted ? { state: "sealing", startedAt: 0 } : startSeal(input));
+  w.deps.sealStatus = async (datasetId, uploadId) => {
+    if (restarted) {
+      restarted = false;
+      throw new AppError("Scellement inconnu de ce runner", 404);
+    }
+    return sealStatus(datasetId, uploadId);
+  };
+  let lostCompletes = 1;
+  let brokenPolls = 2;
+  const calls: string[] = [];
+  const api: TransferModule.ChunkedTransferApi = {
+    ...w.api,
+    async request(path, init) {
+      calls.push(`${init.method} ${path}`);
+      const response = await w.api.request(path, init);
+      // La clôture est acceptée par le site, mais la connexion tombe avant la réponse.
+      if (path.endsWith("/complete") && lostCompletes-- > 0) throw new TypeError("fetch failed");
+      if (init.method === "GET" && brokenPolls-- > 0) return Response.json({ error: "Bad gateway" }, { status: 502 });
+      return response;
+    },
+  };
+  const { sleep } = countedSleeps();
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-flaky", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(api), sleep }),
+  );
+  assert.equal(w.datasetUpload.rows.length, 1);
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.ok(!calls.some((call) => call.startsWith("DELETE")));
+  assert.ok(calls.filter((call) => call.endsWith("/complete")).length >= 2, "clôture relancée");
+});
+
+test("un 409 d'une clôture précédente ne fait pas supprimer l'envoi après une panne passagère", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-conflict", file.length);
+  // Clôture 1 : 409 ; suivi : 502 ; clôture 2 : 503 ; suivi : envoi toujours ouvert ; clôture 3 : acceptée.
+  const completes = [
+    () => Response.json({ error: "Envoi déjà clôturé" }, { status: 409 }),
+    () => Response.json({ error: "Runner saturé : réessaie plus tard" }, { status: 503 }),
+  ];
+  let brokenPolls = 1;
+  const calls: string[] = [];
+  const api: TransferModule.ChunkedTransferApi = {
+    ...w.api,
+    async request(path, init) {
+      calls.push(`${init.method} ${path}`);
+      if (path.endsWith("/complete") && completes.length) return completes.shift()!();
+      if (init.method === "GET" && path.includes("/uploads/") && brokenPolls-- > 0) return Response.json({ error: "Bad gateway" }, { status: 502 });
+      return w.api.request(path, init);
+    },
+  };
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-conflict", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(api), ...countedSleeps() }),
+  );
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.ok(!calls.some((call) => call.startsWith("DELETE")));
+  assert.equal(calls.filter((call) => call.endsWith("/complete")).length, 3);
+});
+
+test("clôture refusée (4xx) ou runner indisponible trop longtemps : seul le refus supprime l'envoi", async () => {
+  const file = csv(9_000);
+  const refused = world("dataset-4xx", file.length);
+  refused.deps.startSeal = async () => {
+    throw new AppError("Grant runner hors scope ou expiré", 403);
+  };
+  await assert.rejects(
+    transfer.sendChunkedDataset({ datasetId: "dataset-4xx", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(refused.api), ...countedSleeps() }),
+    /hors scope/,
+  );
+  assert.equal(refused.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(refused.bucket.size, 0);
+
+  const down = world("dataset-down", file.length);
+  down.deps.startSeal = async () => {
+    throw new RunnerRetryLater("Runner saturé : réessaie plus tard");
+  };
+  const { sleeps, sleep } = countedSleeps();
+  await assert.rejects(
+    transfer.sendChunkedDataset({ datasetId: "dataset-down", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(down.api), sleep }),
+    (error: Error) => /^Clôture impossible pour l’instant/.test(error.message) && /Runner saturé/.test(String((error.cause as Error)?.message)),
+  );
+  assert.equal(sleeps.length, 7, "essais bornés");
+  assert.ok(Math.max(...sleeps) <= 60_000);
+  // Morceaux gardés : le reaper les supprimera à l'échéance de l'envoi.
+  assert.equal(down.datasetUpload.rows[0].state, "OPEN");
+  assert.equal(down.bucket.size, Math.ceil(file.length / CHUNK) + 1);
 });

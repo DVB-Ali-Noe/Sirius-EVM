@@ -16,6 +16,8 @@ const ABANDONED_DRAFT_TTL_MS = 30 * 60_000;
 const MAX_OPEN_DRAFTS_PER_PROVIDER = 5;
 const MAX_DATASETS_PER_PROVIDER_WINDOW = 10;
 const MAX_DATASETS_GLOBAL_WINDOW = 200;
+/** Fenêtre du quota journalier d'envoi en morceaux (`chunked-upload.ts`), calculé sur les lignes `DatasetUpload`. */
+export const UPLOAD_QUOTA_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface IngestInput {
   name: string;
@@ -39,11 +41,24 @@ export interface AuthorizedDatasetUpload extends RunnerProvenance {
   model: ModelSelection;
 }
 
-/** Brouillons vides abandonnés d'un fournisseur : supprimés à la création suivante, jamais comptés. */
+/** Brouillons vides abandonnés d'un fournisseur : jamais comptés dans ses quotas de création. */
 function abandonedDrafts(provider: string, now: number): Prisma.DatasetWhereInput {
   return {
     provider, status: "DRAFT", ipfsCid: null, wrappedKey: null, runnerReceipt: null,
     updatedAt: { lte: new Date(now - ABANDONED_DRAFT_TTL_MS) },
+  };
+}
+
+/**
+ * Brouillons abandonnés supprimés à la création suivante. Un brouillon passé par l'envoi en
+ * morceaux attend que chacun de ses envois soit purgé de R2 par le reaper (`purgedAt`) et sorti
+ * de la fenêtre du quota journalier : sinon ses morceaux resteraient dans R2 sans plus aucune
+ * ligne pour les retrouver, et supprimer ses envois effacerait les octets comptés dans le quota.
+ */
+function deletableDrafts(provider: string, now: number): Prisma.DatasetWhereInput {
+  return {
+    ...abandonedDrafts(provider, now),
+    uploads: { every: { purgedAt: { not: null }, createdAt: { lte: new Date(now - UPLOAD_QUOTA_WINDOW_MS) } } },
   };
 }
 
@@ -95,7 +110,10 @@ export async function beginDatasetIngestion({
   const runner = await currentRunnerProvenance();
   const dataset = await serializableTransaction(async (tx) => {
     const now = Date.now();
-    await tx.dataset.deleteMany({ where: abandonedDrafts(provider, now) });
+    const deletable = deletableDrafts(provider, now);
+    // Clé étrangère RESTRICT : les envois purgés partent d'abord, leur brouillon ensuite.
+    await tx.datasetUpload.deleteMany({ where: { dataset: deletable } });
+    await tx.dataset.deleteMany({ where: deletable });
     await assertIngestionQuota(tx, provider, now);
     return tx.dataset.create({
       data: {

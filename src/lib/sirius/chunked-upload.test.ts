@@ -21,59 +21,78 @@ const GRANT = { payload: { nonce: "n" } } as unknown as RunnerGrant;
 
 type Row = Record<string, unknown>;
 
-/** Filtre Prisma minimal : égalité, `in`, `gt`, `gte`, `lte`. */
-function matches(row: Row, where: Row): boolean {
+/** Filtre Prisma minimal : égalité, `in`, `gt`, `gte`, `lte`, `not`, `OR`, relation `dataset`. */
+function matches(row: Row, where: Row, relation?: (row: Row) => Row | undefined): boolean {
   return Object.entries(where).every(([key, condition]) => {
+    if (key === "OR") return (condition as Row[]).some((branch) => matches(row, branch, relation));
+    if (key === "dataset") {
+      const parent = relation?.(row);
+      return parent !== undefined && matches(parent, condition as Row);
+    }
     const value = row[key];
     if (condition && typeof condition === "object" && !(condition instanceof Date)) {
-      const c = condition as { in?: unknown[]; gt?: Date; gte?: Date; lte?: Date };
+      const c = condition as { in?: unknown[]; gt?: Date; gte?: Date; lte?: Date; not?: unknown };
       if (c.in && !c.in.includes(value)) return false;
       if (c.gt && !((value as Date) > c.gt)) return false;
       if (c.gte && !((value as Date) >= c.gte)) return false;
       if (c.lte && !((value as Date) <= c.lte)) return false;
+      if ("not" in c && value === c.not) return false;
       return true;
     }
     return value === condition;
   });
 }
 
-function table(rows: Row[]) {
+/** Table simulée ; `clock` date `createdAt`/`updatedAt` comme `@default(now())`/`@updatedAt`. */
+function table(rows: Row[], clock: () => number = Date.now, relation?: (row: Row) => Row | undefined) {
+  const hit = (where: Row) => rows.filter((row) => matches(row, where, relation));
   return {
     rows,
     async findUnique({ where }: { where: Row }) {
-      return rows.find((row) => matches(row, where)) ?? null;
+      return hit(where)[0] ?? null;
     },
     async findMany({ where, take }: { where: Row; take?: number }) {
-      return rows.filter((row) => matches(row, where)).slice(0, take ?? rows.length);
+      return hit(where).slice(0, take ?? rows.length);
     },
     async findFirst({ where }: { where: Row }) {
-      return rows.filter((row) => matches(row, where)).at(-1) ?? null;
+      return hit(where).at(-1) ?? null;
     },
     async count({ where }: { where: Row }) {
-      return rows.filter((row) => matches(row, where)).length;
+      return hit(where).length;
     },
     async aggregate({ where }: { where: Row }) {
-      return { _sum: { sizeBytes: rows.filter((row) => matches(row, where)).reduce((sum, row) => sum + Number(row.sizeBytes), 0) || null } };
+      return { _sum: { sizeBytes: hit(where).reduce((sum, row) => sum + Number(row.sizeBytes), 0) || null } };
     },
     async create({ data }: { data: Row }) {
-      const row = { id: `upload${rows.length + 1}`, state: "OPEN", manifestSha256: null, error: null, createdAt: new Date(), ...data };
+      const at = new Date(clock());
+      const row = { id: `upload${rows.length + 1}`, state: "OPEN", manifestSha256: null, error: null, purgedAt: null, createdAt: at, updatedAt: at, ...data };
       rows.push(row);
       return row;
     },
     async updateMany({ where, data }: { where: Row; data: Row }) {
-      const hit = rows.filter((row) => matches(row, where));
-      for (const row of hit) Object.assign(row, data);
-      return { count: hit.length };
+      const matched = hit(where);
+      for (const row of matched) Object.assign(row, { updatedAt: new Date(clock()) }, data);
+      return { count: matched.length };
     },
   };
 }
 
 function harness(sizeBytes = 200_000) {
+  let now = Date.UTC(2026, 10, 4);
+  const clock = () => now;
   const datasets = table([
     { id: "ds1", provider: PROVIDER, status: "DRAFT", ipfsCid: null, wrappedKey: null, keyDestroyedAt: null, runnerKind: "DEVELOPMENT", runnerDeploymentId: null },
-  ]);
-  const datasetUpload = table([]);
+  ], clock);
+  const datasetUpload = table([], clock, (upload) => datasets.rows.find((dataset) => dataset.id === upload.datasetId));
   const db = { dataset: datasets, datasetUpload, $transaction: async (action: (tx: unknown) => Promise<unknown>) => action(db) };
+  // Transaction sérialisable : une seule à la fois, comme Postgres le garantit pour l'issue de deux
+  // transactions concurrentes (l'une échoue et rejoue après l'autre).
+  let serial: Promise<unknown> = Promise.resolve();
+  const serializable = (action: (tx: unknown) => Promise<unknown>) => {
+    const run = serial.then(() => action(db));
+    serial = run.catch(() => undefined);
+    return run;
+  };
   const stored = new Map<string, number>();
   const calls = { started: [] as Row[], presigned: [] as string[], deleted: [] as string[], put: [] as string[], wakes: 0 };
   let sealStatus: () => Promise<unknown> = async () => ({ state: "sealing", startedAt: 0 });
@@ -81,7 +100,6 @@ function harness(sizeBytes = 200_000) {
     calls.started.push(input);
     return { state: "sealing", startedAt: 0 };
   };
-  let now = Date.UTC(2026, 10, 4);
   const deps = {
     db,
     storage: () => CONFIG,
@@ -113,6 +131,7 @@ function harness(sizeBytes = 200_000) {
     },
     assertRunner: async () => ({}),
     now: () => now,
+    serializable,
   } as unknown as Module.ChunkedUploadDeps;
   return {
     deps,
@@ -351,6 +370,23 @@ test("un envoi expiré ou abandonné est fermé et ses morceaux supprimés", asy
   assert.equal(h.datasetUpload.rows.find((row) => row.id === second.uploadId)?.state, "ABORTED");
 });
 
+/** Erreurs console capturées pendant `action` (suppressions R2 ratées attendues). */
+async function quietErrors(action: () => Promise<unknown>): Promise<string> {
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.join(" ")); };
+  try {
+    await action();
+  } finally {
+    console.error = original;
+  }
+  return errors.join(" ");
+}
+
+const failingDelete = async () => {
+  throw new Error("R2 indisponible");
+};
+
 test("le reaper supprime les morceaux des envois expirés, puis les ferme ; sans R2, il ne touche à rien", async () => {
   const h = harness();
   const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
@@ -362,26 +398,150 @@ test("le reaper supprime les morceaux des envois expirés, puis les ferme ; sans
   assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
   assert.equal(h.datasetUpload.rows[0].state, "OPEN");
 
+  // Échu, mais une URL signée juste avant l'échéance peut encore servir 15 min : on attend.
   h.advance(uploads.UPLOAD_TTL_MS + 1);
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
+
+  h.advance(uploads.PART_URL_SECONDS * 1000);
   // Sans accès R2 configuré (reaper sans R2_*), rien n'est fermé : les morceaux ne seraient plus suivis.
   assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, storage: () => { throw new Error("R2 non configuré"); } }), 0);
   assert.equal(h.datasetUpload.rows[0].state, "OPEN");
 
-  // Suppression ratée : l'envoi reste ouvert pour la passe suivante.
-  const errors: string[] = [];
-  const original = console.error;
-  console.error = (...args: unknown[]) => { errors.push(args.join(" ")); };
-  try {
-    assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, deletePrefix: async () => { throw new Error("R2 indisponible"); } }), 0);
-  } finally {
-    console.error = original;
-  }
-  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
-  assert.match(errors.join(" "), /reprise à la passe suivante/);
+  // Suppression ratée : l'envoi est fermé mais pas marqué purgé ; une passe suivante réessaie.
+  const errors = await quietErrors(async () => assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, deletePrefix: failingDelete }), 0));
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(String(h.datasetUpload.rows[0].purgedAt), "null");
+  assert.ok(h.stored.size > 0);
+  assert.match(errors, /reprise à une passe suivante/);
 
+  h.advance(uploads.PART_URL_SECONDS * 1000);
   assert.equal(await uploads.purgeExpiredUploads(h.deps), 1);
   assert.equal(h.stored.size, 0);
   assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
   assert.equal(h.datasetUpload.rows[0].error, "Envoi expiré");
+  assert.ok(h.datasetUpload.rows[0].purgedAt instanceof Date);
   assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+});
+
+test("le reaper laisse finir un scellement lancé juste avant l'échéance et ne touche pas un envoi scellé entre-temps", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const { manifest, objects } = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, objects);
+  h.advance(uploads.UPLOAD_TTL_MS - 60_000);
+  await uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, manifest, GRANT, h.deps);
+  const row = h.datasetUpload.rows[0];
+  const stored = h.stored.size;
+
+  // Échéance et URL signées passées, mais le scellement a 17 min : il continue avec ses morceaux.
+  h.advance(17 * 60_000);
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  assert.equal(row.state, "SEALING");
+  assert.equal(h.stored.size, stored);
+
+  // Scellement bloqué depuis plus d'une heure, mais qui finit pendant la passe du reaper.
+  h.advance(60 * 60_000);
+  const findMany = h.datasetUpload.findMany;
+  h.datasetUpload.findMany = async (args) => {
+    const due = (await findMany(args)).map((upload) => ({ ...upload }));
+    row.state = "SEALED";
+    return due;
+  };
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  h.datasetUpload.findMany = findMany;
+  assert.equal(row.state, "SEALED");
+  assert.equal(h.stored.size, stored, "un envoi scellé garde ses morceaux");
+
+  // Bloqué pour de bon : purgé, et un résultat tardif du runner ne pose plus rien sur le brouillon.
+  row.state = "SEALING";
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 1);
+  assert.equal(row.state, "ABORTED");
+  assert.equal(h.stored.size, 0);
+  assert.equal((await uploads.datasetUploadStatus("ds1", uploadId, PROVIDER, h.deps)).state, "ABORTED");
+  assert.equal(h.datasets.rows[0].ipfsCid, null);
+});
+
+test("un envoi abandonné ou refusé est repurgé après l'expiration des URL signées, même si sa suppression avait échoué", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const { objects } = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, objects);
+  await quietErrors(() => uploads.abortDatasetUpload("ds1", uploadId, PROVIDER, { ...h.deps, deletePrefix: failingDelete }));
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(h.stored.size, objects.length, "première suppression ratée");
+
+  // Refusé par l'enclave, nettoyé tout de suite… puis un PUT signé avant le refus arrive encore.
+  const refused = await sealingHarness();
+  refused.h.setSealStatus(async () => ({ state: "failed", error: "Le dataset doit contenir au moins 100 lignes", status: 400, retryable: false }));
+  await uploads.datasetUploadStatus("ds1", refused.uploadId, PROVIDER, refused.h.deps);
+  assert.equal(refused.h.stored.size, 0);
+  refused.h.stored.set(chunkObjectKey({ datasetId: "ds1", uploadId: refused.uploadId }, 3), 100);
+
+  for (const { deps } of [h, refused.h]) {
+    assert.equal(await uploads.purgeExpiredUploads(deps), 0, "URL encore valables : on attend");
+  }
+  h.advance(uploads.PART_URL_SECONDS * 1000);
+  refused.h.advance(uploads.PART_URL_SECONDS * 1000);
+  for (const { deps, stored, datasetUpload } of [h, refused.h]) {
+    assert.equal(await uploads.purgeExpiredUploads(deps), 1);
+    assert.equal(stored.size, 0);
+    assert.ok(datasetUpload.rows[0].purgedAt instanceof Date);
+    assert.equal(await uploads.purgeExpiredUploads(deps), 0, "purgé une fois pour toutes");
+  }
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(refused.h.datasetUpload.rows[0].state, "FAILED");
+});
+
+test("supprimer un gros dataset efface ses morceaux et son manifeste de R2 ; le reaper reprend une suppression ratée", async () => {
+  const sealed = async () => {
+    const { h, uploadId, result } = await sealingHarness();
+    h.setSealStatus(async () => ({ state: "sealed", result }));
+    assert.equal((await uploads.datasetUploadStatus("ds1", uploadId, PROVIDER, h.deps)).state, "SEALED");
+    assert.ok(h.stored.has(manifestObjectKey({ datasetId: "ds1", uploadId })));
+    // `deleteDataset` : clé enveloppée effacée, dataset DELETED.
+    Object.assign(h.datasets.rows[0], { status: "DELETED", wrappedKey: null });
+    return h;
+  };
+
+  const h = await sealed();
+  await uploads.purgeDeletedDatasetUploads("ds1", h.deps);
+  assert.equal(h.stored.size, 0, "plus de manifeste : la clé d'envoi ne se recalcule plus");
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(h.datasetUpload.rows[0].error, "Dataset supprimé");
+
+  // R2 indisponible au moment de la suppression : le reaper repasse.
+  const retried = await sealed();
+  await quietErrors(() => uploads.purgeDeletedDatasetUploads("ds1", { ...retried.deps, deletePrefix: failingDelete }));
+  assert.ok(retried.stored.size > 0);
+  retried.advance(uploads.PART_URL_SECONDS * 1000);
+  assert.equal(await uploads.purgeExpiredUploads(retried.deps), 1);
+  assert.equal(retried.stored.size, 0);
+
+  // Base indisponible au moment de la suppression : l'envoi resté SEALED d'un dataset supprimé est purgé aussi.
+  const stuck = await sealed();
+  assert.equal(await uploads.purgeExpiredUploads(stuck.deps), 1);
+  assert.equal(stuck.stored.size, 0);
+  assert.equal(stuck.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(stuck.datasetUpload.rows[0].error, "Dataset supprimé");
+
+  // Un dataset scellé et toujours publié garde évidemment ses morceaux.
+  const live = await sealed();
+  live.datasets.rows[0].status = "LISTED";
+  live.advance(uploads.UPLOAD_TTL_MS * 2);
+  assert.equal(await uploads.purgeExpiredUploads(live.deps), 0);
+  assert.ok(live.stored.size > 0);
+});
+
+test("deux ouvertures simultanées ne dépassent pas le nombre d'envois en cours du fournisseur", async () => {
+  const h = harness();
+  await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const results = await Promise.allSettled([
+    uploads.openDatasetUpload("ds2", PROVIDER, { chunkBytes: CHUNK }, h.deps),
+    uploads.openDatasetUpload("ds3", PROVIDER, { chunkBytes: CHUNK }, h.deps),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const rejected = results.find((result) => result.status === "rejected");
+  assert.match(String(rejected?.reason), /Trop d’envois en cours/);
+  assert.equal(h.datasetUpload.rows.length, uploads.MAX_OPEN_UPLOADS_PER_PROVIDER);
 });

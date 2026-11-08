@@ -218,7 +218,10 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
     "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
     "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
-    "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }), prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
+    "@/lib/db": {
+      serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore, datasetUpload: { deleteMany: async () => ({ count: 0 }) } }),
+      prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) },
+    },
     "@/lib/tee/runner-client": {
       datasetIngressKeyInRunner: async () => ({ publicKey: "public-key" }),
       sealDatasetInRunner: async (...args: unknown[]) => {
@@ -242,6 +245,69 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
   assert.equal(seals, 1);
   assert.equal(sealedMaxRentalDays, 45, "la durée maximale part au runner, qui la signe dans le reçu");
   assert.equal(stored.runnerDeploymentId, runner.runnerDeploymentId);
+});
+
+test("un brouillon abandonné passé par l'envoi en morceaux attend la purge de R2 et la fin du quota journalier", async () => {
+  const now = Date.now();
+  const stale = new Date(now - 60 * 60_000);
+  const draft = (id: string, updatedAt = stale) =>
+    ({ id, provider, status: "DRAFT", ipfsCid: null, wrappedKey: null, runnerReceipt: null, createdAt: stale, updatedAt });
+  type Row = Record<string, unknown>;
+  let datasets: Row[] = [draft("plain"), draft("open-upload"), draft("purged-today"), draft("purged-yesterday"), draft("active", new Date(now))];
+  let uploads: Row[] = [
+    { id: "u-open", datasetId: "open-upload", purgedAt: null, createdAt: stale },
+    { id: "u-today", datasetId: "purged-today", purgedAt: stale, createdAt: stale },
+    { id: "u-yesterday", datasetId: "purged-yesterday", purgedAt: stale, createdAt: new Date(now - 25 * 60 * 60_000) },
+  ];
+  // Les seuls filtres Prisma du nettoyage : égalité, `lte`, `gte`, `not`, relations `every` et `dataset`.
+  const matches = (row: Row, where: Row): boolean => Object.entries(where).every(([key, condition]) => {
+    if (key === "uploads") return uploads.filter((upload) => upload.datasetId === row.id).every((upload) => matches(upload, (condition as { every: Row }).every));
+    if (key === "dataset") return datasets.some((dataset) => dataset.id === row.datasetId && matches(dataset, condition as Row));
+    if (condition === null || typeof condition !== "object") return row[key] === condition;
+    const { lte, gte, not } = condition as { lte?: Date; gte?: Date; not?: unknown };
+    if (lte) return (row[key] as Date) <= lte;
+    if (gte) return (row[key] as Date) >= gte;
+    return row[key] !== not;
+  });
+  const deletions: string[] = [];
+  const datasetStore = {
+    count: async ({ where }: { where: Row }) => datasets.filter((row) => matches(row, where)).length,
+    deleteMany: async ({ where }: { where: Row }) => {
+      const doomed = datasets.filter((row) => matches(row, where));
+      // Clé étrangère RESTRICT : un envoi restant bloque la suppression de son brouillon.
+      if (uploads.some((upload) => doomed.some((row) => row.id === upload.datasetId))) throw new Error("Foreign key constraint violated");
+      datasets = datasets.filter((row) => !doomed.includes(row));
+      deletions.push(...doomed.map((row) => String(row.id)));
+      return { count: doomed.length };
+    },
+    create: async ({ data }: { data: Row }) => {
+      const row = { ...data, id: "new", status: "DRAFT", createdAt: new Date(now), updatedAt: new Date(now) };
+      datasets.push(row);
+      return row;
+    },
+  };
+  const uploadStore = {
+    deleteMany: async ({ where }: { where: Row }) => {
+      const doomed = uploads.filter((row) => matches(row, where));
+      uploads = uploads.filter((row) => !doomed.includes(row));
+      deletions.push(...doomed.map((row) => String(row.id)));
+      return { count: doomed.length };
+    },
+  };
+  const tx = { dataset: datasetStore, datasetUpload: uploadStore };
+  const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
+    "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
+    "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
+    "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
+    "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn(tx), prisma: tx },
+    "@/lib/tee/runner-client": { datasetIngressKeyInRunner: async () => ({ publicKey: "public-key" }) },
+  });
+  await api.beginDatasetIngestion({ name: "Dataset", provider, sizeBytes: 1200, priceUsdcAtomic: "100", challengeDays: 7, maxRentalDays: 30,
+    model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
+  assert.deepEqual(deletions.sort(), ["plain", "purged-yesterday", "u-yesterday"]);
+  assert.deepEqual(datasets.map((row) => row.id).sort(), ["active", "new", "open-upload", "purged-today"]);
+  assert.deepEqual(uploads.map((row) => row.id).sort(), ["u-open", "u-today"], "les envois non purgés ou encore comptés dans le quota restent");
 });
 
 test("un refus du runner supprime le brouillon vide ; une panne passagère le conserve", async () => {
