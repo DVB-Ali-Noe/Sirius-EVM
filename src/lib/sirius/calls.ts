@@ -15,7 +15,7 @@ import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { buyCallsInRunner } from "@/lib/tee/runner-client";
-import { API_ACCESS_PENDING, CALLS_PENDING } from "@/lib/loans/settlement-status";
+import { API_ACCESS_PENDING, CALLS_PENDING, PACK_SETTLEMENT_BUSY } from "@/lib/loans/settlement-status";
 import { assertApiLoan } from "./api-keys";
 import { assertNoApiAccessPassInFlight, prepareLoan } from "./borrower";
 import { releaseFinalityTier } from "./release-tier";
@@ -127,7 +127,7 @@ export async function settleLoanPack(packLoanId: string, authorization?: RunnerG
     where: { id: packLoanId, status: guard.status, updatedAt: guard.updatedAt },
     data: { status: "SETTLING", updatedAt: claimedAt },
   });
-  if (claimed.count !== 1) throw new AppError("Achat d’appels déjà en cours", 409);
+  if (claimed.count !== 1) throw new AppError(PACK_SETTLEMENT_BUSY, 409);
 
   try {
     const result = await buyCallsInRunner({

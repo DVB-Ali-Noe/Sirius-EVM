@@ -46,3 +46,11 @@ export const CALLS_PENDING = "Pack d’appels payé : les crédits s’ajoutent 
  * dès que possible, sans autre action de l'emprunteur.
  */
 export const API_ACCESS_PENDING = "Accès API payé : il s’active dès la confirmation du réseau, sans autre action de ta part";
+
+/**
+ * Refus (409) du règlement d'un pack ou d'un pass, puis d'une prolongation, quand un autre essai
+ * (reaper, autre onglet) en détient le claim. Rien n'est perdu : la page qui termine un achat payé
+ * (`finishPaidSettlement`) réessaie, et le reaper reprend l'achat de toute façon.
+ */
+export const PACK_SETTLEMENT_BUSY = "Achat d’appels déjà en cours";
+export const EXTENSION_SETTLEMENT_BUSY = "Prolongation déjà en cours";

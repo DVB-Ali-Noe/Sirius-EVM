@@ -10,7 +10,7 @@ import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
 import { extendLoanInRunner } from "@/lib/tee/runner-client";
-import { EXTENSION_PENDING } from "@/lib/loans/settlement-status";
+import { EXTENSION_PENDING, EXTENSION_SETTLEMENT_BUSY } from "@/lib/loans/settlement-status";
 import { prepareLoan } from "./borrower";
 import { assertExtendableLoan } from "./rental";
 import { settlementQueuedError } from "./settlement-queued";
@@ -79,7 +79,7 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
     where: { id: loanId, status: guard.status, updatedAt: guard.updatedAt },
     data: { status: "SETTLING", updatedAt: claimedAt },
   });
-  if (claimed.count !== 1) throw new AppError("Prolongation déjà en cours", 409);
+  if (claimed.count !== 1) throw new AppError(EXTENSION_SETTLEMENT_BUSY, 409);
 
   try {
     const result = await extendLoanInRunner({

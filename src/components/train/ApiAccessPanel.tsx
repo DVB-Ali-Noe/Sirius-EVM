@@ -5,12 +5,13 @@ import { WaitSteps, type WaitStep } from "@/components/ui/WaitSteps";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import type { ComputeQuote } from "@/lib/billing/quote";
-import { buyApiAccess } from "@/lib/loans/client";
+import { buyApiAccess, type PaidSettlementProgress } from "@/lib/loans/client";
 import { isSettlementPending } from "@/lib/loans/settlement-status";
 import { messageOf } from "@/lib/errors-client";
 import type { ApiKeysOverview } from "@/lib/train/api-keys-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { PaidSettlementSteps } from "./PaidSettlementSteps";
 import type { PendingCallPack } from "./BuyCallsPanel";
 
 type BuyPhase = "preparing" | "quote" | "payment";
@@ -23,7 +24,8 @@ export interface RefusedPass {
 
 /**
  * Accès API payé au jour (D-32) : état de la couverture, achat du pass jusqu'à l'échéance (devis
- * signé par l'enclave, puis même paiement qu'un pack) et complément après une prolongation.
+ * signé par l'enclave, puis même paiement qu'un pack, activation terminée par la page tant qu'elle
+ * reste ouverte) et complément après une prolongation.
  * Sans pass couvrant l'instant présent, l'API refuse tout appel et aucune clé ne se crée.
  */
 export function ApiAccessPanel({
@@ -50,6 +52,8 @@ export function ApiAccessPanel({
 }) {
   const { locale, t } = useLocale();
   const [phase, setPhase] = useState<BuyPhase | null>(null);
+  // Paiement envoyé : avancement du règlement que la page termine, et début de son attente.
+  const [settlement, setSettlement] = useState<{ progress: PaidSettlementProgress; since: number } | null>(null);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -65,20 +69,30 @@ export function ApiAccessPanel({
     setError(null);
     setNotice(null);
     setPhase("preparing");
+    const signal = unmountSignal();
     try {
-      const accepted = await retryWhileEnclaveStarts(() => buyApiAccess({
+      const outcome = await retryWhileEnclaveStarts(() => buyApiAccess({
         loanId,
         datasetId,
         confirmQuote: async (quote) => {
+          // Préparation acceptée : l'attente d'avant paiement (« rien n'est payé ») est terminée.
+          setEnclaveRetry(null);
           setPhase("quote");
           const ok = await confirmQuote(quote);
           if (ok) setPhase("payment");
           return ok;
         },
-      }), { onWaiting: setEnclaveRetry, signal: unmountSignal() });
-      if (accepted) setNotice(t("Accès API payé : il s’active dès la confirmation du paiement, même si tu fermes la page."));
+        settlement: {
+          signal,
+          onProgress: (progress) => setSettlement((previous) => ({ progress, since: previous?.since ?? Date.now() })),
+        },
+      }), { onWaiting: setEnclaveRetry, signal });
+      // Réglé : la couverture rechargée (« API payée jusqu’au … ») le montre. Budget de la page
+      // écoulé : le reaper termine, même page fermée.
+      if (outcome === "deferred") setNotice(t("Accès API payé : il s’active dès la confirmation du paiement, même si tu fermes la page."));
       await onPurchased();
     } catch (cause) {
+      if (signal.aborted) return;
       const message = messageOf(cause);
       if (isSettlementPending(message)) setNotice(message);
       else setError(message);
@@ -86,11 +100,12 @@ export function ApiAccessPanel({
     } finally {
       running.current = false;
       setPhase(null);
+      setSettlement(null);
     }
   }
 
   const order: readonly BuyPhase[] = ["preparing", "quote", "payment"];
-  const current = phase ? order.indexOf(phase) : -1;
+  const current = settlement ? order.length : phase ? order.indexOf(phase) : -1;
   const status = (index: number): WaitStep["status"] => (index < current ? "done" : index === current ? "active" : "pending");
   const days = access.daysToBuy === 1 ? t("1 jour") : t("{days} jours", { days: access.daysToBuy });
 
@@ -148,15 +163,17 @@ export function ApiAccessPanel({
       {notice && <p role="status" data-testid="api-access-notice" className="text-positive">{t(notice)}</p>}
       {error && <p role="alert" className="text-negative">{t(error)}</p>}
       {phase && (
-        <WaitSteps
+        <PaidSettlementSteps
           testId="api-access-steps"
-          steps={[
+          leading={[
             { id: "quote", label: t("Devis signé par l’enclave"), status: status(0) },
             { id: "accept", label: t("Acceptation du devis"), status: status(1) },
             { id: "payment", label: t("Paiement dans ton wallet (approbation puis verrouillage)"), status: status(2) },
-            { id: "activate", label: t("Confirmation du paiement et activation de l’accès API"), status: "pending" },
           ]}
-          closeNote={t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, l’accès API s’active même si tu la fermes.")}
+          progress={settlement?.progress ?? null}
+          since={settlement?.since ?? null}
+          activation={{ id: "activate", label: t("Activation de l’accès API dans l’enclave") }}
+          prePaymentNote={t("Garde la page ouverte jusqu’à la signature du paiement ; ensuite, l’accès API s’active même si tu la fermes.")}
         />
       )}
       {enclaveRetry !== null && <EnclaveStartingSteps phase="starting" retryInSeconds={enclaveRetry} testId="api-access-enclave-starting" />}

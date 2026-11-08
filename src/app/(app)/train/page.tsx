@@ -56,13 +56,15 @@ import {
   resumeLoanSubmission,
   resumeLoanSettlement,
   runLoanJob,
+  type PaidSettlementProgress,
 } from "@/lib/loans/client";
-import { isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { EXTENSION_PENDING, isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { runSelfTrain } from "@/lib/train/client";
 import { requestPrediction } from "@/lib/train/prediction-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
 import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { PaidSettlementSteps } from "@/components/train/PaidSettlementSteps";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
@@ -204,6 +206,8 @@ function TrainPageContent() {
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
   // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
   const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
+  // Prolongations payées dont la page termine le règlement, par prêt d'origine : avancement et début de l'attente.
+  const [extendSettlements, setExtendSettlements] = useState<Record<string, { progress: PaidSettlementProgress; since: number }>>({});
   const unmountSignal = useUnmountSignal();
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
@@ -532,14 +536,35 @@ function TrainPageContent() {
     setError(null);
     setNotice(null);
     setBusyKey(key, true);
+    const signal = unmountSignal();
+    const onEnclaveWaiting = (seconds: number | null) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds });
     try {
-      const extended = await retryWhileEnclaveStarts(
-        () => extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote }),
-        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }), signal: unmountSignal() },
+      const outcome = await retryWhileEnclaveStarts(
+        () => extendLoan({
+          loanId: loan.id,
+          datasetId: loan.datasetId,
+          rentalDays,
+          // Préparation acceptée : l'attente d'avant paiement (« rien n'est payé ») est terminée.
+          confirmQuote: (quote) => {
+            onEnclaveWaiting(null);
+            return confirmQuote(quote);
+          },
+          settlement: {
+            signal,
+            onProgress: (progress) => setExtendSettlements((previous) => ({
+              ...previous,
+              [loan.id]: { progress, since: previous[loan.id]?.since ?? Date.now() },
+            })),
+          },
+        }),
+        { onWaiting: onEnclaveWaiting, signal },
       );
-      if (extended) setExtending(null);
+      if (outcome) setExtending((current) => (current === loan.id ? null : current));
+      // Budget de la page écoulé : le reaper applique la prolongation, même page fermée.
+      if (outcome === "deferred") setNotice(EXTENSION_PENDING);
       await refresh();
     } catch (err) {
+      if (signal.aborted) return;
       const message = messageOf(err);
       if (isSettlementPending(message)) setNotice(message);
       else setError(message);
@@ -547,6 +572,11 @@ function TrainPageContent() {
     } finally {
       activeLoanJobs.current.delete(key);
       setBusyKey(key, false);
+      setExtendSettlements((previous) => {
+        const next = { ...previous };
+        delete next[loan.id];
+        return next;
+      });
     }
   }
 
@@ -962,6 +992,15 @@ function TrainPageContent() {
                           : t("Les prédictions sont arrêtées. Le modèle reste scellé {grace} jours après l’échéance : prolonge pour retrouver l’accès, sans réentraîner.", { grace: RENTAL_GRACE_DAYS })}
                       </p>
                     </div>
+                  )}
+                  {extendSettlements[l.id] && (
+                    <PaidSettlementSteps
+                      testId="extend-settlement"
+                      leading={[{ id: "payment", label: t("Paiement envoyé à l’escrow"), status: "done" }]}
+                      progress={extendSettlements[l.id].progress}
+                      since={extendSettlements[l.id].since}
+                      activation={{ id: "apply", label: t("Ajout des jours à la location") }}
+                    />
                   )}
                   {extendAllowed && (
                     extending === l.id ? (

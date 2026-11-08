@@ -2,8 +2,29 @@ import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { borrowDataset, settleLoan, SETTLEMENT_PENDING_RETRY_MS, SETTLEMENT_QUEUED_RETRY_MS } from "./client";
-import { isSettlementPending, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
+import { setImmediate as tick } from "node:timers/promises";
+import {
+  borrowDataset,
+  finishPaidSettlement,
+  PAID_SETTLEMENT_BUDGET_MS,
+  PAID_SETTLEMENT_RETRY_MS,
+  settleLoan,
+  SETTLEMENT_PENDING_RETRY_MS,
+  SETTLEMENT_QUEUED_RETRY_MS,
+  type PaidSettlementProgress,
+} from "./client";
+import {
+  API_ACCESS_PENDING,
+  CALLS_PENDING,
+  EXTENSION_PENDING,
+  isSettlementPending,
+  PACK_SETTLEMENT_BUSY,
+  SETTLEMENT_FINALITY_PENDING,
+  SETTLEMENT_FINALITY_PENDING_FAST,
+  SETTLEMENT_QUEUED,
+} from "./settlement-status";
+import { ENCLAVE_STARTING_CODE } from "@/lib/train/enclave-wait";
+import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { AppError } from "@/lib/app-error";
 import { RUNNER_WALLET_BUSY } from "@/lib/runner/failure-policy";
 import { settlementQueuedError } from "@/lib/sirius/settlement-queued";
@@ -213,4 +234,138 @@ test("PAR-02 : côté serveur, seul le refus « wallet runner occupé » (503) d
   assert.equal(settlementQueuedError(conflict), conflict);
   const unavailable = new AppError("Runner confidentiel indisponible", 503);
   assert.equal(settlementQueuedError(unavailable), unavailable);
+});
+
+type Answer = { status: number; body: object } | "network";
+
+/** Route de règlement simulée : réponses dans l'ordre, corps et instants de chaque essai relevés. */
+function paidSettlementRoute(answers: Answer[], clock: { now: number }) {
+  const previousFetch = globalThis.fetch;
+  const calls: { body: string; at: number }[] = [];
+  globalThis.fetch = (async (_url: string, init: { body: string }) => {
+    calls.push({ body: init.body, at: clock.now });
+    const answer = answers.shift();
+    if (!answer) throw new Error("essai de trop");
+    if (answer === "network") throw new TypeError("Failed to fetch");
+    return new Response(JSON.stringify(answer.body), { status: answer.status });
+  }) as unknown as typeof fetch;
+  let issued = 0;
+  const request = {
+    url: "/api/loans/origin/calls",
+    grant: async () => ({ nonce: `grant-${issued++}` }) as unknown as RunnerGrant,
+    body: (authorization: RunnerGrant) => ({ packLoanId: "pack", authorization }),
+    failure: "Achat d’appels échoué",
+  };
+  return { calls, request, restore: () => { globalThis.fetch = previousFetch; } };
+}
+
+function fakeTime() {
+  const clock = { now: 0 };
+  const waits: number[] = [];
+  return { clock, waits, now: () => clock.now, wait: async (ms: number) => { waits.push(ms); clock.now += ms; } };
+}
+
+test("achat payé : la page rejoue le règlement en attente, une autorisation neuve à chaque essai, jusqu'à l'activation", async () => {
+  const time = fakeTime();
+  const route = paidSettlementRoute([
+    { status: 409, body: { error: CALLS_PENDING } },
+    { status: 503, body: { error: SETTLEMENT_QUEUED } },
+    { status: 409, body: { error: PACK_SETTLEMENT_BUSY } },
+    { status: 429, body: { error: "Trop de requêtes — réessaie plus tard" } },
+    "network",
+    { status: 202, body: { pending: true, error: API_ACCESS_PENDING } },
+    { status: 200, body: { loanId: "pack", credits: 1000 } },
+  ], time.clock);
+  const reported: PaidSettlementProgress[] = [];
+  try {
+    const outcome = await finishPaidSettlement(route.request, { onProgress: (progress) => reported.push(progress), wait: time.wait, now: time.now });
+    assert.equal(outcome, "settled");
+    assert.deepEqual(reported.map((progress) => progress.stage), ["confirming", "activating"], "409 : confirmation du lock ; 202 : release envoyé");
+    assert.ok(reported.every((progress) => progress.enclaveRetryInSeconds === null));
+    assert.equal(route.calls.length, 7);
+    assert.equal(new Set(route.calls.map((call) => call.body)).size, 7, "chaque essai porte son propre grant");
+    assert.ok(route.calls.every((call) => JSON.parse(call.body).packLoanId === "pack"), "toujours le même règlement");
+    assert.deepEqual(time.waits, Array(6).fill(PAID_SETTLEMENT_RETRY_MS));
+  } finally {
+    route.restore();
+  }
+});
+
+test("achat payé : attente qui dure, la page s'arrête au budget et laisse le reaper terminer, sous le quota de la route", async () => {
+  const time = fakeTime();
+  const pending = { status: 409, body: { error: EXTENSION_PENDING } };
+  const route = paidSettlementRoute(Array.from({ length: 40 }, () => pending), time.clock);
+  try {
+    assert.equal(await finishPaidSettlement(route.request, { wait: time.wait, now: time.now }), "deferred");
+    assert.equal(route.calls.length, PAID_SETTLEMENT_BUDGET_MS / PAID_SETTLEMENT_RETRY_MS + 1);
+    assert.ok(route.calls.at(-1)!.at <= PAID_SETTLEMENT_BUDGET_MS);
+    // Route : 10 règlements par minute et par compte, packs et passes confondus.
+    for (const call of route.calls) {
+      assert.ok(route.calls.filter((other) => other.at >= call.at && other.at < call.at + 60_000).length <= 6);
+    }
+  } finally {
+    route.restore();
+  }
+});
+
+test("achat payé : une erreur définitive s'affiche aussitôt, sans autre essai", async () => {
+  const time = fakeTime();
+  const route = paidSettlementRoute([
+    { status: 409, body: { error: CALLS_PENDING } },
+    { status: 404, body: { error: "Pack d’appels introuvable" } },
+  ], time.clock);
+  try {
+    await assert.rejects(finishPaidSettlement(route.request, { wait: time.wait, now: time.now }), { message: "Pack d’appels introuvable" });
+    assert.equal(route.calls.length, 2);
+    assert.deepEqual(time.waits, [PAID_SETTLEMENT_RETRY_MS]);
+  } finally {
+    route.restore();
+  }
+});
+
+test("achat payé : composant démonté, l'attente est coupée et plus aucun essai ne part", async () => {
+  const controller = new AbortController();
+  const route = paidSettlementRoute([{ status: 409, body: { error: CALLS_PENDING } }], { now: 0 });
+  try {
+    // Attente réelle de 10 s (`abortableSleep`) : le démontage la coupe.
+    const settling = finishPaidSettlement(route.request, { signal: controller.signal });
+    while (route.calls.length === 0) await tick();
+    await tick();
+    controller.abort(new Error("démonté"));
+    await assert.rejects(settling, /démonté/);
+    assert.equal(route.calls.length, 1);
+  } finally {
+    route.restore();
+  }
+});
+
+test("achat payé : enclave en démarrage, attente annoncée comme suite du paiement, Retry-After dans le même budget", async () => {
+  const time = fakeTime();
+  const starting = { status: 503, body: { error: { code: ENCLAVE_STARTING_CODE, message: "L’enclave démarre." }, retryAfterSeconds: 30 } };
+  const route = paidSettlementRoute([starting, { status: 409, body: { error: CALLS_PENDING } }, { status: 200, body: {} }], time.clock);
+  const reported: PaidSettlementProgress[] = [];
+  try {
+    // Seul canal de l'attente après paiement : l'avancement du règlement, jamais celui d'avant paiement
+    // (`retryWhileEnclaveStarts`, « rien n'est payé »), ni une `EnclaveStartingError` levée.
+    const outcome = await finishPaidSettlement(route.request, { onProgress: (progress) => reported.push(progress), wait: time.wait, now: time.now });
+    assert.equal(outcome, "settled");
+    assert.deepEqual(time.waits, [30_000, PAID_SETTLEMENT_RETRY_MS]);
+    assert.deepEqual(reported, [
+      { stage: "confirming", enclaveRetryInSeconds: null },
+      { stage: "confirming", enclaveRetryInSeconds: 30 },
+      { stage: "confirming", enclaveRetryInSeconds: null },
+    ]);
+  } finally {
+    route.restore();
+  }
+
+  // Démarrage qui dure : les attentes de l'enclave consomment le budget de la page, sans le prolonger.
+  const late = fakeTime();
+  const slow = paidSettlementRoute(Array.from({ length: 20 }, () => starting), late.clock);
+  try {
+    assert.equal(await finishPaidSettlement(slow.request, { wait: late.wait, now: late.now }), "deferred");
+    assert.equal(slow.calls.length, PAID_SETTLEMENT_BUDGET_MS / 30_000 + 1);
+  } finally {
+    slow.restore();
+  }
 });

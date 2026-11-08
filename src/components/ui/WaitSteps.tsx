@@ -35,6 +35,15 @@ export function formatWaitRemaining(seconds: number): { key: string; params: Rec
   return { key: "Temps restant estimé : ~{minutes} min", params: { minutes: Math.ceil(whole / 60) } };
 }
 
+/** Temps d'attente écoulé : secondes sous la minute, puis minutes et secondes. */
+export function formatWaitElapsed(seconds: number): { key: string; params: Record<string, number> } {
+  const whole = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(whole / 60);
+  return minutes > 0
+    ? { key: "Attente : {minutes} min {seconds} s", params: { minutes, seconds: whole % 60 } }
+    : { key: "Attente : {seconds} s", params: { seconds: whole } };
+}
+
 /**
  * Attente expliquée (D-30) : étapes nommées, durée estimée facultative et ce qui se passe si la
  * page est fermée. Seule l'étape en cours s'anime, et uniquement sans `prefers-reduced-motion`
