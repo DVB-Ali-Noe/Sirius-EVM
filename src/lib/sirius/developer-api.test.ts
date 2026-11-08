@@ -433,6 +433,7 @@ function system(options: SystemOptions = {}) {
     "./fast-settlement-review": { verifyFastSettlement: async () => ({ state: "pending" }) },
     "@/lib/runner/failure-policy": failurePolicy, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
     "./extend": extend, "./calls": callsModule, "./rental": rental, "@/lib/loans/settlement-status": settlementStatus,
+    "./finality-tier": finalityTier,
   });
 
   const signedHeaders = (keyId = KEY_ID) => ({
@@ -1273,6 +1274,16 @@ test("reaper : pack, pass ou prolongation FAST au release diffusé, à la profon
     assert.deepEqual(tiers, ["FULL"], kind);
     assert.equal(full.calls.runner.length, 0, kind);
     assert.equal(full.prisma.loan.rows.find((row) => row.id === id)!.status, "SETTLING", kind);
+
+    // Coupe-circuit fermé (SIRIUS_FAST_FINALITY off) : une ligne restée FAST est vérifiée à finalité
+    // complète, comme partout ailleurs (`effectiveLoanFinalityTier`) ; jamais au palier rapide désactivé.
+    tiers.length = 0;
+    const offErrors = mock.method(console, "error", () => {});
+    const off = system({ fast: false, loans: [origin({ apiPaidUntil: null }), settling("FAST")], reaperChain });
+    assert.equal((await off.reaper().runLoanReaper(new Date())).failed, 1, kind);
+    offErrors.mock.restore();
+    assert.deepEqual(tiers, ["FULL"], kind);
+    assert.equal(off.calls.runner.length, 0, kind);
   }
 });
 
