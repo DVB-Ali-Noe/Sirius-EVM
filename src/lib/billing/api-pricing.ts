@@ -33,6 +33,8 @@ export const RENTAL_API_ACCESS_NOT_FOR_SALE = "Location indisponible : le tarif 
  */
 export const AUTO_API_KEY_EXISTS_CODE = "api_key_auto_exists";
 export const AUTO_API_KEY_EXISTS = "Ce prêt a déjà une clé API : aucune clé n’est créée d’office";
+/** Clé d'office sans réponse sûre de l'enclave : elle a pu être scellée, sa ligne reste listée et révocable. */
+export const AUTO_API_KEY_UNCONFIRMED = "Création de la clé par défaut non confirmée par l’enclave : la clé reste listée sans que tu aies reçu son secret ; révoque-la et crée une clé avec « Créer une clé API »";
 export const API_ACCESS_ALREADY_PAID = "Accès API déjà payé jusqu’à l’échéance de la location";
 export const API_ACCESS_IN_FLIGHT = "Un pass d’accès API est déjà en cours de paiement : il s’active dès la confirmation du réseau";
 export const API_ACCESS_PREPARING = "Un pass d’accès API est déjà en préparation : termine ou abandonne son paiement, puis réessaie dans quelques minutes";

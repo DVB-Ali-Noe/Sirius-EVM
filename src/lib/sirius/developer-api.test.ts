@@ -838,11 +838,39 @@ test("clé créée d'office (D-33) : une seule par prêt, réservée avant le sc
   assert.equal(revoked.calls.runner.length, 0);
   assert.equal(revoked.prisma.apiKey.rows.length, 1);
 
-  // Scellement refusé par l'enclave : la réservation disparaît, une nouvelle tentative reste possible.
-  const failing = system({ apiKeys: [], runner: { register: async () => { throw new AppError("Enclave indisponible", 502); } } });
-  assert.equal((await failing.manage.create({ keyId: KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true })).status, 502);
-  assert.equal(failing.prisma.apiKey.rows.length, 0);
-  assert.equal((await failing.manage.create({ auto: "yes" })).status, 400);
+  // Refus net de l'enclave (4xx) : rien de scellé, la réservation disparaît, une nouvelle tentative reste possible.
+  const refusedSeal = system({ apiKeys: [], runner: { register: async () => { throw new AppError("Enveloppe de clé API invalide", 400); } } });
+  assert.equal((await refusedSeal.manage.create({ keyId: KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true })).status, 400);
+  assert.equal(refusedSeal.prisma.apiKey.rows.length, 0);
+  assert.equal((await refusedSeal.manage.create({ auto: "yes" })).status, 400);
+});
+
+test("clé d'office sans réponse sûre de l'enclave (réseau, 5xx, réponse illisible) : réservation gardée, révocable", async () => {
+  for (const failure of [
+    async () => { throw new AppError("Runner confidentiel indisponible", 503); },
+    async () => { throw new AppError("Runner confidentiel en échec", 500); },
+    async () => { throw new Error("socket hang up"); },
+    async () => ({ keyId: OTHER_KEY_ID, createdAt: 0 }),
+  ]) {
+    const sys = system({ apiKeys: [], runner: { register: failure, revoke: async () => { throw new AppError("Clé API inconnue", 404, "unknown_key"); } } });
+    const response = await sys.manage.create({ keyId: KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true });
+    assert.ok(response.status >= 500, String(response.status));
+    assert.equal((await response.json()).error, apiPricing.AUTO_API_KEY_UNCONFIRMED);
+    // La ligne reste : listée sous son nom, elle bloque une seconde clé d'office.
+    const listed = await (await sys.manage.list()).json();
+    assert.deepEqual(listed.keys.map((key: Row) => [key.keyId, key.name, key.revokedAt]), [[KEY_ID, "Clé par défaut", null]]);
+    const second = await sys.manage.create({ keyId: OTHER_KEY_ID, name: "Clé par défaut", envelope, authorization: grant, auto: true });
+    assert.equal((await second.json()).code, apiPricing.AUTO_API_KEY_EXISTS_CODE);
+    // Jamais scellée : l'enclave répond « clé inconnue », la révocation réussit quand même.
+    const revoked = await sys.manage.revoke(KEY_ID);
+    assert.equal(revoked.status, 200, await revoked.clone().text());
+    assert.ok(sys.prisma.apiKey.rows[0].revokedAt instanceof Date);
+    assert.equal(sys.calls.runner.filter(([op]) => op === "revoke").length, 1, "la révocation passe par l'enclave");
+  }
+  // Autre refus de l'enclave à la révocation : remonte, rien n'est marqué.
+  const denied = system({ apiKeys: [activeKey()], runner: { revoke: async () => { throw new AppError("Révocation réservée à l’emprunteur", 403); } } });
+  assert.equal((await denied.manage.revoke(KEY_ID)).status, 403);
+  assert.equal(denied.prisma.apiKey.rows[0].revokedAt, null);
 });
 
 test("clés API refusées à un autre compte, pour la régression linéaire, sur une location échue et au-delà de 5", async () => {

@@ -5,7 +5,7 @@ import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
   API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount,
-  apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
+  apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, AUTO_API_KEY_UNCONFIRMED, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
@@ -264,8 +264,11 @@ export interface RegisterApiKeyInput {
  *
  * Clé d'office (`auto`) : sa ligne est réservée AVANT le scellement, dans une transaction
  * sérialisable qui vérifie que le prêt n'a aucune clé (active ou révoquée) : deux appareils ne
- * scellent jamais deux clés d'office, le second reçoit `409 api_key_auto_exists`. Échec du
- * scellement : la réservation est retirée. Création manuelle inchangée.
+ * scellent jamais deux clés d'office, le second reçoit `409 api_key_auto_exists`. Refus net de
+ * l'enclave (4xx) : rien n'est scellé, la réservation est retirée. Réponse perdue ou douteuse
+ * (réseau, 5xx, réponse illisible) : l'enclave a pu sceller la clé, la ligne reste donc (elle
+ * compte dans la capacité, bloque une seconde clé d'office et se révoque depuis le panneau) et
+ * l'erreur remonte. Création manuelle inchangée.
  */
 export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
@@ -295,9 +298,13 @@ export async function registerLoanApiKey(input: RegisterApiKeyInput) {
       throw new AppError("Réponse d’enregistrement de clé invalide", 502);
     }
   } catch (error) {
-    // Jamais utilisée : le secret n'a pas été affiché, la réservation disparaît.
-    if (reserved) await prisma.apiKey.deleteMany({ where: { id: input.keyId, loanId: loan.id, lastUsedAt: null } });
-    throw error;
+    if (!reserved) throw error;
+    if (error instanceof AppError && error.status >= 400 && error.status < 500) {
+      // Refus de l'enclave : rien de scellé, le secret n'a pas été affiché.
+      await prisma.apiKey.deleteMany({ where: { id: input.keyId, loanId: loan.id, lastUsedAt: null } });
+      throw error;
+    }
+    throw new AppError(AUTO_API_KEY_UNCONFIRMED, error instanceof AppError ? error.status : 503);
   }
   if (reserved) {
     const key = await prisma.apiKey.update({ where: { id: input.keyId }, data: { createdAt: new Date(sealed.createdAt) } });
@@ -321,7 +328,9 @@ export interface RevokeApiKeyInput {
 /**
  * Révocation dans l'enclave (`revoke-api-key`, idempotente), puis date locale. Elle passe toujours
  * par le runner : une clé marquée révoquée ici mais encore active dans l'enclave resservirait après
- * une prolongation. CVM éteinte : réveil demandé et 503.
+ * une prolongation. CVM éteinte : réveil demandé et 503. Clé inconnue de l'enclave (`404 unknown_key`) :
+ * réservation d'une clé d'office jamais scellée (réponse perdue au scellement) ; rien n'est actif
+ * dans l'enclave, la ligne est donc marquée révoquée maintenant.
  */
 export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
   const loan = await prisma.loan.findUnique({ where: { id: input.loanId }, select: { id: true, borrower: true } });
@@ -331,7 +340,13 @@ export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
   if (!key || key.loanId !== loan.id) throw new AppError("Clé API introuvable", 404);
   if (key.revokedAt) return { keyId: key.id, revokedAt: key.revokedAt.toISOString() };
   await requireRunnerOrWake();
-  const revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
+  let revoked: { keyId: string; revokedAt: number };
+  try {
+    revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
+  } catch (error) {
+    if (!(error instanceof AppError && error.status === 404 && error.code === "unknown_key")) throw error;
+    revoked = { keyId: key.id, revokedAt: Date.now() };
+  }
   if (revoked.keyId !== key.id || !Number.isSafeInteger(revoked.revokedAt) || revoked.revokedAt <= 0) {
     throw new AppError("Réponse de révocation invalide", 502);
   }
