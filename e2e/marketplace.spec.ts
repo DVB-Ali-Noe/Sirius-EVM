@@ -10,7 +10,7 @@ const COMPUTE = (BigInt(3) * E18).toString();
 const TOKEN = { symbol: "USDC", decimals: DECIMALS };
 
 const item = {
-  id: "dataset-public", name: "Mobilité urbaine Europe", category: "mobility", modelId: "linear_regression", modelVersion: "1.0.0",
+  id: "dataset-public", name: "Mobilité urbaine Europe", category: "mobility", modelId: "logistic_regression", modelVersion: "1.0.0",
   rowCount: 4_800, columnCount: 24, sizeBytes: 1_250_000, providerPriceAtomic: PRICE,
   priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 7, verified: true,
   listedAt: "2026-10-01T00:00:00.000Z",

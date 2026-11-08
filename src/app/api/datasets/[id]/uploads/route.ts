@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { errorResponse } from "@/lib/errors";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 import { readJson } from "@/lib/http/body";
 import { openDatasetUpload } from "@/lib/sirius/chunked-upload";
 
@@ -17,6 +17,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { chunkBytes } = await readJson<{ chunkBytes?: unknown }>(req);
     return NextResponse.json(await openDatasetUpload(id, session.address, { chunkBytes }), { status: 201 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

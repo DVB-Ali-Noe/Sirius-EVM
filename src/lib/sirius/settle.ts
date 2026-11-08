@@ -377,9 +377,13 @@ export async function settlePreparedLoan(
     // de `release` juste après, ou plus tard par le reaper (jamais bloquant : le paiement est acquis).
     const rented = typeof loan.rentalDays === "number" && !loan.extendsLoanId;
     const runnerExpiry = rented && settlement.expiresAt ? new Date(settlement.expiresAt) : null;
+    // API incluse (D-32) : couverture jusqu'à l'échéance, reflétée dans la même écriture que SETTLED.
+    const included = rented && loanBillingQuote(loan)?.quote.apiAccessIncluded === true;
+    const apiPaidUntil = included && (settlement.apiPaidUntil ?? settlement.expiresAt) ? new Date(settlement.apiPaidUntil ?? settlement.expiresAt!) : null;
     const updated = await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
-      data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date(), ...(runnerExpiry ? { rentalExpiresAt: runnerExpiry } : {}) },
+      data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date(),
+        ...(runnerExpiry ? { rentalExpiresAt: runnerExpiry } : {}), ...(apiPaidUntil ? { apiPaidUntil } : {}) },
     });
     if (updated.count !== 1) throw new AppError("Règlement de l’escrow confirmé mais état local incohérent", 409);
     if (rented && !runnerExpiry) {

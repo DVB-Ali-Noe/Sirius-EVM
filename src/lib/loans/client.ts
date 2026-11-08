@@ -1,9 +1,9 @@
 "use client";
 
 import { useWalletStore } from "@/stores/wallet";
-import { CALLS_PENDING, EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
+import { API_ACCESS_PENDING, CALLS_PENDING, EXTENSION_PENDING, SETTLEMENT_FINALITY_PENDING, SETTLEMENT_FINALITY_PENDING_FAST, SETTLEMENT_QUEUED } from "./settlement-status";
 import { ENCLAVE_STARTING_CODE, responseError } from "@/lib/train/enclave-wait";
-import type { CallPackSize } from "@/lib/billing/api-pricing";
+import { apiAccessDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
@@ -18,6 +18,8 @@ interface BorrowInput {
   priceUsdcAtomic: string;
   /** Durée choisie, 1 à `maxRentalDays` du dataset ; signée dans le devis. */
   rentalDays: number;
+  /** API incluse dans la location (D-32) : jours × tarif journalier ajoutés au compute du devis. */
+  includeApiAccess?: boolean;
   confirmQuote?: (quote: ComputeQuote) => Promise<boolean>;
 }
 
@@ -104,15 +106,21 @@ async function approveAndLock(
   await submitLoanLock(loanId, lockTxHash);
 }
 
+/**
+ * Emprunt complet sur le devis accepté. Enclave à l'arrêt : la préparation répond 503
+ * `enclave_starting` avant toute écriture et remonte en `EnclaveStartingError`, à relancer par
+ * l'appelant (`retryWhileEnclaveStarts`) ; rien n'est signé ni payé avant elle.
+ */
 export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const { address, assertCurrent } = walletGuard();
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays }),
+    body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays, ...(input.includeApiAccess ? { includeApiAccess: true } : {}) }),
   });
+  if (!prep.ok) throw await responseError(prep, "Préparation du lock de paiement échouée");
   const body = await prep.json() as PreparedLock;
-  if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation du lock de paiement échouée");
   }
   assertCurrent();
@@ -122,7 +130,8 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
     ? await verifyBorrowQuote(body.billingQuote, { loanId: body.loanId, datasetId: input.datasetId, borrower: address! }) : undefined;
   // Prix par jour × jours choisis (D-29) : un devis sur une autre durée ou un autre prix est refusé.
   if (signedQuote && (signedQuote.quote.rentalDays !== input.rentalDays || signedQuote.quote.extendsLoanId !== undefined
-    || signedQuote.quote.datasetAmount !== datasetAmountFor(input.priceUsdcAtomic, input.rentalDays))) {
+    || signedQuote.quote.datasetAmount !== datasetAmountFor(input.priceUsdcAtomic, input.rentalDays)
+    || (signedQuote.quote.apiAccessIncluded === true) !== (input.includeApiAccess === true))) {
     throw new Error("Prix du dataset modifié. Recharge le catalogue.");
   }
   const legacy = signedQuote ? undefined : await legacyBorrowTransactions({
@@ -142,7 +151,8 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
  * Prolonge la location du prêt `loanId` de `rentalDays` jours (D-29) : prêt de prolongation préparé
  * par le serveur, devis accepté, même lock qu'un emprunt, puis `release` demandé au runner. Renvoie
  * `false` si le devis est refusé. Lock pas encore finalisé ou `release` en attente de finalité :
- * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action.
+ * la prolongation est payée et le serveur (reaper) l'applique seul, sans autre action. Enclave à
+ * l'arrêt à la préparation : `EnclaveStartingError`, avant tout paiement, comme `borrowDataset`.
  */
 export async function extendLoan(input: ExtendInput): Promise<boolean> {
   const { address, assertCurrent } = walletGuard();
@@ -151,8 +161,9 @@ export async function extendLoan(input: ExtendInput): Promise<boolean> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rentalDays: input.rentalDays }),
   });
+  if (!prep.ok) throw await responseError(prep, "Préparation de la prolongation échouée");
   const body = await prep.json() as PreparedLock;
-  if (!prep.ok || !body.loanId || !body.approveTransaction || !body.lockTransaction) {
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) {
     throw new Error(body.error ?? "Préparation de la prolongation échouée");
   }
   const extensionLoanId = body.loanId;
@@ -202,24 +213,42 @@ export async function cancelExpiredLoan(loanId: string): Promise<void> {
  * seule fois. Avant tout paiement, un 503 `enclave_starting` remonte tel quel (`EnclaveStartingError`).
  */
 export async function buyCalls(input: BuyCallsInput): Promise<boolean> {
+  return buyLoanPack(input, { size: input.size });
+}
+
+/**
+ * Achète le pass d'accès API (D-32) du prêt loué `loanId`, jusqu'à son échéance : même parcours
+ * qu'un pack, jours comptés et signés par l'enclave dans le devis, couverture enregistrée une fois.
+ */
+export async function buyApiAccess(input: Omit<BuyCallsInput, "size">): Promise<boolean> {
+  return buyLoanPack(input, { apiAccess: true });
+}
+
+async function buyLoanPack(input: Omit<BuyCallsInput, "size">, purchase: { size: CallPackSize } | { apiAccess: true }): Promise<boolean> {
+  const pass = "apiAccess" in purchase;
   const { address, assertCurrent } = walletGuard();
   const prep = await fetch(`/api/loans/${input.loanId}/calls`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ size: input.size }),
+    body: JSON.stringify(purchase),
   });
-  if (!prep.ok) throw await responseError(prep, "Préparation de l’achat d’appels échouée");
+  const preparationFailed = pass ? "Préparation de l’accès API échouée" : "Préparation de l’achat d’appels échouée";
+  if (!prep.ok) throw await responseError(prep, preparationFailed);
   const body = await prep.json() as PreparedLock;
-  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) throw new Error(body.error ?? "Préparation de l’achat d’appels échouée");
+  if (!body.loanId || !body.approveTransaction || !body.lockTransaction) throw new Error(body.error ?? preparationFailed);
   const packLoanId = body.loanId;
   assertCurrent();
   if (!body.billingQuote || await escrowBillingVersion() !== 7) throw new Error("Devis du pack absent ou incompatible avec l’escrow");
   const signedQuote = await verifyBorrowQuote(body.billingQuote, { loanId: packLoanId, datasetId: input.datasetId, borrower: address! });
-  if (signedQuote.quote.packForLoanId !== input.loanId || signedQuote.quote.callPack !== input.size || signedQuote.quote.extendsLoanId !== undefined) {
+  const { quote } = signedQuote;
+  if (quote.packForLoanId !== input.loanId || quote.extendsLoanId !== undefined
+    || (pass ? quote.apiAccessDays === undefined || quote.callPack !== undefined || quote.maxFailureFee !== "0"
+        || quote.datasetAmount !== apiAccessDatasetAmount(quote.usdcDecimals)
+      : quote.callPack !== purchase.size || quote.apiAccessDays !== undefined)) {
     throw new Error("Pack d’appels modifié. Relance l’achat.");
   }
-  if (!await input.confirmQuote(signedQuote.quote)) return false;
-  if (signedQuote.quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
+  if (!await input.confirmQuote(quote)) return false;
+  if (quote.expiresAt * 1000 <= Date.now()) throw new Error("Devis compute expiré");
   await approveAndLock(packLoanId, signedQuote, undefined, assertCurrent);
   const authorization = await issueRunnerGrant("buy-calls", { loanId: packLoanId }, [packLoanId, input.loanId]);
   const response = await fetch(`/api/loans/${input.loanId}/calls`, {
@@ -229,10 +258,10 @@ export async function buyCalls(input: BuyCallsInput): Promise<boolean> {
   });
   if (response.ok) return true;
   const result = await response.clone().json().catch(() => ({})) as { error?: string | { code?: string } };
-  // Paiement acquis : le reaper crédite le pack dès que possible, jamais deux fois.
-  if (result.error === CALLS_PENDING || result.error === SETTLEMENT_QUEUED
+  // Paiement acquis : le reaper applique l'achat dès que possible, jamais deux fois.
+  if (result.error === CALLS_PENDING || result.error === API_ACCESS_PENDING || result.error === SETTLEMENT_QUEUED
     || (typeof result.error === "object" && result.error?.code === ENCLAVE_STARTING_CODE)) return true;
-  throw await responseError(response, "Achat d’appels échoué");
+  throw await responseError(response, pass ? "Activation de l’accès API échouée" : "Achat d’appels échoué");
 }
 
 interface RunLoanInput {

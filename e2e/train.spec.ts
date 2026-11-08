@@ -19,14 +19,14 @@ const KEY = `0x${"9".repeat(64)}`;
 const TX = `0x${"e".repeat(64)}`;
 
 const ownDataset = {
-  id: "own-dataset", name: "Équipe dataset", provider: ME, status: "PRIVATE", modelId: "linear_regression", modelVersion: "1.0.0",
+  id: "own-dataset", name: "Équipe dataset", provider: ME, status: "PRIVATE", modelId: "logistic_regression", modelVersion: "1.0.0",
   ipfsCid: "bafy-fixture", runnerReceipt: "receipt", evmDatasetId: `0x${"12".repeat(32)}`, sizeBytes: 100, metrics: { rowCount: 200, columnCount: 4 },
 };
 
 function loan(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id, datasetId: `dataset-${id}`, borrower: ME, provider: OTHER, amountUsdcAtomic: "1000000000000000000",
-    modelId: "linear_regression", modelVersion: "1.0.0", status: "ESCROWED", evmLockTxHash: TX, evmLoanKey: KEY,
+    modelId: "logistic_regression", modelVersion: "1.0.0", status: "ESCROWED", evmLockTxHash: TX, evmLoanKey: KEY,
     settleTxHash: null, cancelTxHash: null, modelCid: null, runnerReceipt: null, evmDeadline: "2026-10-01T10:00:00.000Z",
     createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: `Dataset ${id}`, runnerReceipt: null }, refundable: false, ...overrides,
   };
@@ -137,7 +137,7 @@ test("Retrain n'apparaît que sur un emprunt terminé de l'emprunteur, avec l'av
   await connect(page);
   const done = card(page, "Dataset done");
   await expect(done.getByRole("button", { name: "Retrain", exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(done.getByTestId("retrain-panel")).toContainText("Linear and logistic regression are deterministic: retraining on the same data gives the same model.");
+  await expect(done.getByTestId("retrain-panel")).toContainText("Training is deterministic: retraining on the same data gives the same model.");
   await expect(done.getByTestId("retrain-panel")).toContainText("Retrain only if the dataset has changed.");
   for (const name of ["running", "failed", "refunded", "provider-view"]) {
     await expect(card(page, `Dataset ${name}`).getByRole("button", { name: "Retrain", exact: true })).toHaveCount(0);
@@ -283,8 +283,12 @@ const settledApiLoan = (id: string, overrides: Record<string, unknown> = {}) => 
   usdcDecimals: 18, ...overrides,
 });
 
+// Pass d'accès API (D-32) payé jusqu'à l'échéance : création de clé ouverte.
 const keysOverview = (overrides: Record<string, unknown> = {}) => ({
-  keys: [], callsPerDay: 50, usage: { apiCallsToday: 3, creditsPurchased: 0 }, enclave: "running", ...overrides,
+  keys: [], callsPerDay: 50, usage: { apiCallsToday: 3, creditsPurchased: 0 }, enclave: "running",
+  apiAccess: { dailyFee: "1500000000000000000", paidUntil: new Date(Date.now() + 3 * DAY_MS).toISOString(), paid: true,
+    rentalExpiresAt: new Date(Date.now() + 3 * DAY_MS).toISOString(), daysToBuy: 0, price: null, included: false },
+  ...overrides,
 });
 
 test("API : panneau absent pour la régression linéaire, avec l'explication ; absent sans quota d'API", async ({ page }) => {
@@ -317,10 +321,10 @@ test("API : enclave en démarrage expliquée par étapes ; animation coupée sou
   await connect(page);
   const panel = card(page, "Dataset starting").getByTestId("api-panel");
   const wait = panel.getByTestId("enclave-starting");
-  await expect(wait).toContainText("The enclave is starting", { timeout: 30_000 });
+  await expect(wait).toContainText("Starting the secure enclave — about 2 minutes", { timeout: 30_000 });
   await expect(wait.locator('[data-step="requested"]')).toHaveAttribute("data-status", "done");
   await expect(wait.locator('[data-step="booting"]')).toHaveAttribute("data-status", "active");
-  await expect(panel.getByTestId("enclave-starting-remaining")).toContainText("Estimated time left: ~");
+  await expect(panel.getByTestId("enclave-starting-progress")).toContainText(/^Waiting: /);
   await expect(panel.getByTestId("enclave-starting-close-note")).toContainText("the SDK retries on its own");
   const spinner = wait.locator('[data-motion="spin"]');
   await expect.poll(() => spinner.evaluate((element) => getComputedStyle(element).animationName)).not.toBe("none");
@@ -393,7 +397,7 @@ test("API : créer une clé (enclave qui démarre puis scellement), secret affic
   const dialog = page.getByTestId("create-api-key-dialog");
   await dialog.getByLabel("Key name").fill("production server");
   await dialog.getByRole("button", { name: "Create key" }).click();
-  await expect(dialog.getByTestId("api-key-enclave-starting")).toContainText("The enclave is starting");
+  await expect(dialog.getByTestId("api-key-enclave-starting")).toContainText("Starting the secure enclave");
   await expect(dialog.getByTestId("api-key-steps").locator('[data-step="preparing"]')).toHaveAttribute("data-status", "active");
 
   const secret = dialog.getByTestId("api-key-secret");

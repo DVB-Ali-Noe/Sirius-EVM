@@ -44,6 +44,8 @@ before(async () => {
     SIRIUS_APP_ORIGIN: ORIGIN,
     NEXT_PUBLIC_SIRIUS_APP_ORIGIN: ORIGIN,
     SIRIUS_ESCROW_ADDRESS: `0x${"34".repeat(20)}`,
+    // Fixture linéaire : profil facultatif depuis D-31, activé explicitement.
+    NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "linear_regression",
     ...R2,
   });
   delete process.env.RUNNER_URL;
@@ -130,9 +132,11 @@ function world(datasetId: string, sizeBytes: number) {
       for (const key of [...bucket.keys()]) if (key.startsWith(prefix)) bucket.delete(key);
       return 0;
     },
-    authorize: async (id: string, who: string) => {
+    authorize: async (id: string, who: string, validate?: (terms: { sizeBytes: number }) => Promise<void> | void) => {
       if (who !== provider) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
-      return { id, provider: who, sizeBytes, ...TERMS, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
+      const terms = { id, provider: who, sizeBytes, ...TERMS };
+      await validate?.(terms);
+      return { ...terms, runnerKind: "DEVELOPMENT", runnerDeploymentId: null };
     },
     assertRunner: async () => ({}),
   } as unknown as UploadsModule.ChunkedUploadDeps;
@@ -270,6 +274,40 @@ test("un envoi refusé par R2 est réessayé, avec une nouvelle URL si la sienne
   assert.equal(w.datasetUpload.rows[0].state, "SEALED");
   assert.equal(w.puts.filter((key) => key.endsWith("/chunks/1")).length, 3);
   assert.equal(w.puts.filter((key) => key.endsWith("/chunks/3")).length, 2);
+});
+
+test("enclave en démarrage à l'ouverture puis à la clôture : l'envoi attend, garde ses morceaux et se scelle avec un grant neuf", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-wake", file.length);
+  const starting = new Set(["open", "complete"]);
+  const grants: string[] = [];
+  const api: TransferModule.ChunkedTransferApi = {
+    ...w.api,
+    async request(path, init) {
+      const step = path.endsWith("/complete") ? "complete" : path.endsWith("/uploads") ? "open" : null;
+      if (step === "complete") grants.push(init.headers?.["x-sirius-runner-grant"] ?? "");
+      // Réponse de la route quand la CVM démarre : rien n'est écrit côté serveur.
+      if (step && starting.delete(step)) {
+        return Response.json(
+          { error: { code: "enclave_starting", message: "Enclave à l’arrêt" }, code: "enclave_starting", retryAfterSeconds: 120 },
+          { status: 503, headers: { "retry-after": "120" } },
+        );
+      }
+      return w.api.request(path, init);
+    },
+  };
+  const waits: (number | null)[] = [];
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-wake", sizeBytes: file.length, ...TERMS }, source(file), {
+      ...transferDeps(api),
+      onEnclaveWaiting: (seconds) => waits.push(seconds),
+    }),
+  );
+  assert.equal(w.datasetUpload.rows.length, 1, "un seul envoi ouvert");
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.deepEqual(waits, [120, null, 120, null]);
+  assert.equal(grants.length, 2);
+  assert.notEqual(grants[0], grants[1], "chaque essai de clôture porte un grant neuf");
 });
 
 test("un fichier refusé par l'enclave renvoie son message et ne laisse aucun morceau dans R2", async () => {

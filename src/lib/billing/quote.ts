@@ -3,7 +3,7 @@ import { AppError } from "@/lib/app-error";
 import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
 import { loanIdHash } from "@/lib/evm/loan-key";
 import type { LockAuthorization } from "@/lib/evm/lock-authorization";
-import { isCallPackSize, type CallPackSize } from "./api-pricing";
+import { isApiAccessDays, isCallPackSize, type CallPackSize } from "./api-pricing";
 import { isValidRentalDays } from "./rental";
 
 export type ComputeQuote = ModelSelection & {
@@ -35,10 +35,25 @@ export type ComputeQuote = ModelSelection & {
   rentalDays: number | null;
   /** Prolongation : `loanId` du prêt d'origine. Absent pour un emprunt ordinaire. */
   extendsLoanId?: string;
-  /** Pack d'appels API (D-30) : taille achetée. Présent avec `packForLoanId`, exclusif de `extendsLoanId`. */
+  /** Pack d'appels API (D-30) : taille achetée. Présent avec `packForLoanId`, exclusif de `extendsLoanId` et `apiAccessDays`. */
   callPack?: CallPackSize;
-  /** Pack d'appels API : `loanId` du prêt d'origine crédité. */
+  /** Pass d'accès API (D-32) : jours payés au tarif journalier. Présent avec `packForLoanId`, exclusif de `callPack`. */
+  apiAccessDays?: number;
+  /**
+   * Pass : base du prix, relevée par l'enclave au devis. `apiAccessRentalEnd` : échéance de la
+   * location (ms) ; `apiAccessCoveredUntil` : fin de la couverture déjà payée (ms), absente sans
+   * pass antérieur. Le pass n'est libéré que si ces deux valeurs n'ont pas changé.
+   */
+  apiAccessRentalEnd?: number;
+  apiAccessCoveredUntil?: number;
+  /** Pack d'appels ou pass d'accès API : `loanId` du prêt d'origine crédité. */
   packForLoanId?: string;
+  /**
+   * API incluse (D-32) dans un emprunt ou une prolongation : `apiAccessAmount` (jours × tarif
+   * journalier de l'API) fait partie de `computeAmount`, en plus des frais de calcul. Toujours ensemble.
+   */
+  apiAccessIncluded?: true;
+  apiAccessAmount?: string;
 };
 
 export interface SignedComputeQuote {
@@ -47,14 +62,15 @@ export interface SignedComputeQuote {
 }
 
 /**
- * Clés hachées dans `quoteHash`. `rentalDays`, `extendsLoanId`, puis `callPack` et `packForLoanId`
- * suivent les clés historiques : un devis sans ces clés garde exactement son empreinte d'origine.
+ * Clés hachées dans `quoteHash`. `rentalDays`, `extendsLoanId`, `callPack`, `packForLoanId`, puis
+ * les clés du pass suivent les clés historiques : un devis sans ces clés garde exactement son empreinte d'origine.
  */
 const LEGACY_QUOTE_KEYS = ["version", "chainId", "escrow", "usdc", "usdcDecimals", "runner", "loanId", "datasetId",
   "onChainDatasetId", "datasetReceiptHash", "borrower", "provider", "computeRecipient", "datasetAmount",
   "computeAmount", "maxFailureFee", "executionRateAtomicPerMs", "maxExecutionMs", "maxDatasetBytes", "hashlock",
   "challengeDays", "modelId", "modelVersion", "tariffVersion", "expiresAt", "failurePolicy"] as const;
-const QUOTE_KEYS = [...LEGACY_QUOTE_KEYS, "rentalDays", "extendsLoanId", "callPack", "packForLoanId"] as const;
+const QUOTE_KEYS = [...LEGACY_QUOTE_KEYS, "rentalDays", "extendsLoanId", "callPack", "packForLoanId", "apiAccessDays",
+  "apiAccessRentalEnd", "apiAccessCoveredUntil", "apiAccessIncluded", "apiAccessAmount"] as const;
 const uint = (value: unknown): value is string => typeof value === "string" && /^(0|[1-9][0-9]{0,28})$/.test(value);
 const integer = (n: unknown, min: number, max: number): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= min && n <= max;
 const address = (v: unknown): v is Hex => typeof v === "string" && /^0x[0-9a-f]{40}$/.test(v) && !/^0x0{40}$/.test(v);
@@ -79,10 +95,22 @@ export function parseComputeQuote(value: unknown): ComputeQuote {
     || ("extendsLoanId" in q && (rentalDays === null || !text(q.extendsLoanId) || q.extendsLoanId === q.loanId))) {
     throw new AppError("Durée de location du devis invalide", 409);
   }
-  const pack = "callPack" in q || "packForLoanId" in q;
-  if (pack && (!("callPack" in q) || !("packForLoanId" in q) || "extendsLoanId" in q || rentalDays === null
-    || !isCallPackSize(q.callPack) || !text(q.packForLoanId) || q.packForLoanId === q.loanId)) {
+  const pack = "callPack" in q || "apiAccessDays" in q || "packForLoanId" in q;
+  if (pack && (!("packForLoanId" in q) || "extendsLoanId" in q || rentalDays === null
+    || !text(q.packForLoanId) || q.packForLoanId === q.loanId || ("callPack" in q) === ("apiAccessDays" in q))) {
     throw new AppError("Pack d’appels du devis invalide", 409);
+  }
+  const timestamp = (n: unknown) => integer(n, 1, Number.MAX_SAFE_INTEGER);
+  if (("callPack" in q && !isCallPackSize(q.callPack)) || ("apiAccessDays" in q && !isApiAccessDays(q.apiAccessDays))
+    || ("apiAccessDays" in q) !== ("apiAccessRentalEnd" in q) || ("apiAccessCoveredUntil" in q && !("apiAccessDays" in q))
+    || ("apiAccessRentalEnd" in q && !timestamp(q.apiAccessRentalEnd))
+    || ("apiAccessCoveredUntil" in q && (!timestamp(q.apiAccessCoveredUntil) || q.apiAccessCoveredUntil! >= q.apiAccessRentalEnd!))) {
+    throw new AppError("Pack d’appels du devis invalide", 409);
+  }
+  const included = "apiAccessIncluded" in q || "apiAccessAmount" in q;
+  if (included && (q.apiAccessIncluded !== true || !uint(q.apiAccessAmount) || BigInt(q.apiAccessAmount) === BigInt(0)
+    || pack || rentalDays === null || BigInt(q.apiAccessAmount) + BigInt(q.maxFailureFee) > BigInt(q.computeAmount))) {
+    throw new AppError("Accès API inclus du devis invalide", 409);
   }
   const total = BigInt(q.datasetAmount) + BigInt(q.computeAmount);
   if (BigInt(q.datasetAmount) === BigInt(0) || BigInt(q.computeAmount) === BigInt(0)
@@ -90,8 +118,17 @@ export function parseComputeQuote(value: unknown): ComputeQuote {
     || BigInt(q.maxFailureFee) > BigInt(q.computeAmount)) throw new AppError("Montants du devis invalides", 409);
   const parsed = { ...Object.fromEntries(LEGACY_QUOTE_KEYS.map((key) => [key, q[key]])), rentalDays } as unknown as ComputeQuote;
   if (q.extendsLoanId !== undefined) parsed.extendsLoanId = q.extendsLoanId;
+  if (included) {
+    parsed.apiAccessIncluded = true;
+    parsed.apiAccessAmount = q.apiAccessAmount;
+  }
   if (pack) {
-    parsed.callPack = q.callPack;
+    if (q.callPack !== undefined) parsed.callPack = q.callPack;
+    if (q.apiAccessDays !== undefined) {
+      parsed.apiAccessDays = q.apiAccessDays;
+      parsed.apiAccessRentalEnd = q.apiAccessRentalEnd;
+      if (q.apiAccessCoveredUntil !== undefined) parsed.apiAccessCoveredUntil = q.apiAccessCoveredUntil;
+    }
     parsed.packForLoanId = q.packForLoanId;
   }
   return parsed;

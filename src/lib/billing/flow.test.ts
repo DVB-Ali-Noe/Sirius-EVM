@@ -46,6 +46,8 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     SIRIUS_MASTER_KEY: Buffer.alloc(32, 19).toString("base64"), PINATA_JWT: "synthetic", PINATA_GATEWAY: "https://ipfs.test.invalid",
     RUNNER_BUDGET_FILE: join(temporary, "budget.sqlite"), RUNNER_BILLING_POLICY_FILE: join(temporary, "tariff.json"),
     RUNNER_SERVED_MODELS_DIR: join(temporary, "models"), RUNNER_PREDICT_USAGE_FILE: join(temporary, "usage.sqlite"),
+    // Parcours linéaire de bout en bout : profil facultatif depuis D-31, activé explicitement.
+    NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "linear_regression",
   });
   const { robinhoodTestnet: chain } = await import("@/lib/evm/networks");
   const contracts = chain.contracts;
@@ -93,8 +95,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const { initializeBudgetLedger } = await import("@/lib/runner/budget-ledger");
   const policy: BudgetPolicy = {
     version: 1, chainId: chain.id, wallet: runner.address.toLowerCase(), accountingReference: "synthetic-local-test-only",
-    // Budget synthétique assez large pour les prêts, prolongations et packs du scénario D-30.
-    validUntil: Date.now() + 4 * 86400000, earnedMarginUsdMicros: "10000000000", cashUsdMicros: "10000000000", fixedReserveUsdMicros: "1000000",
+    // Budget synthétique assez large pour les prêts, prolongations et packs du scénario D-30, et assez
+    // long pour que l'horloge de l'enclave dépasse les échéances prolongées des passes (D-32).
+    validUntil: Date.now() + 10 * 86400000, earnedMarginUsdMicros: "10000000000", cashUsdMicros: "10000000000", fixedReserveUsdMicros: "1000000",
     costsUsdMicros: { request: "1", seal: "50", training: "1000" }, maxFailures: 1, maxActive: 8,
     gas: { totalWei: String(unit), maxTransactionWei: String(unit / BigInt(100)), maxGas: "2000000", maxFeePerGasWei: "10000000000", ethUsdMicrosUpperBound: "5000000000", confirmations: 1 },
   };
@@ -200,6 +203,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const lockBlocks: bigint[] = [];
   for (const signed of quotes) lockBlocks.push(await lock(signed));
   assert.equal(runnerBudget()!.snapshot().failures, 0, "un devis falsifié ou un appel prématuré ne ferme pas la plateforme");
+  // D-31 : interrupteur coupé après le paiement. Le prêt linéaire payé sous devis signé reste
+  // entraîné, réglé (reaper compris) et interrogeable ; seul un nouveau devis serait refusé.
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "";
   const result = await run(quotes[0]) as LoanJobResult;
   assert.match(result.modelCid, /^sm1[0-9a-f]{64}$/, "empreinte du modèle scellé, pas un CID IPFS");
   assert.equal(result.loanKey, loanKeyFor(borrower.address, "success"));
@@ -308,6 +314,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   assert.equal(await credit(provider), unit);
   assert.equal(await credit(treasury), unit * BigInt(3));
 
+  // Les prolongations et packs suivants sont de nouveaux devis : profil réactivé pour la suite du parcours.
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "linear_regression";
+
   // --- Prolongation (D-29) : nouveau lock (prix par jour × jours + compute minimal), release
   // immédiat sans entraînement, échéance repoussée une seule fois. ---
   const stranger = privateKeyToAccount(`0x${"43".repeat(32)}`);
@@ -400,7 +409,7 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   const buyCalls = async (signed: SignedComputeQuote, lockBlock: bigint, withGrant = true) => handleRunnerOp("buy-calls", {
     loanId: signed.quote.loanId, originalLoanId: "api-loan", loanReceipt: apiResult.runnerReceipt, billingQuote: signed, lockBlock: String(lockBlock),
     ...(withGrant ? { authorization: await issueRunnerGrant("buy-calls", { loanId: signed.quote.loanId }, [signed.quote.loanId, "api-loan"]) } : {}),
-  }) as Promise<{ settleTxHash: string; credits: number }>;
+  }) as Promise<{ settleTxHash: string; credits?: number; apiPaidUntil?: number }>;
   const apiProviderCredit = await credit(apiProvider);
   const bought = await buyCalls(pack, packLock);
   assert.equal(bought.credits, 100);
@@ -465,30 +474,212 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     assert.equal(await client.getTransactionCount({ address: runner.address }), lateNonce, "aucune transaction");
   } finally { Date.now = enclaveClock; }
   assert.equal((await buyCalls(latePack, lateLock)).credits, 1300, "à plus d'une heure de l'échéance : libéré, packs cumulés");
-  // Clé API sur le prêt v7 réglé : quota du jour du profil d'abord, crédits intacts.
+  // --- Pass d'accès API (D-32) : l'API se paie par jour à Sirius ; sans pass, ni clé ni appel. ---
   const { apiKeyEnvelopeSha256, encryptApiKeySecretForRunner } = await import("@/lib/tee/ingress-client");
   const { datasetIngressPublicKey } = await import("@/lib/tee/ingress");
   const { apiCanonicalString } = await import("./api-pricing");
   const apiKey = { keyId: randomBytes(16).toString("base64url"), secret: randomBytes(32) };
   const envelope = await encryptApiKeySecretForRunner(apiKey.secret.toString("base64url"), apiKey.keyId, datasetIngressPublicKey());
-  await handleRunnerOp("register-api-key", { loanId: "api-loan", keyId: apiKey.keyId, envelope, loanReceipt: apiResult.runnerReceipt,
+  const registerKey = async () => handleRunnerOp("register-api-key", { loanId: "api-loan", keyId: apiKey.keyId, envelope, loanReceipt: apiResult.runnerReceipt,
     settleTxHash: apiSettled.settleTxHash, authorization: await issueRunnerGrant("register-api-key", { loanId: "api-loan" },
       ["api-loan", apiKey.keyId, await apiKeyEnvelopeSha256(envelope)]) });
+  const coded = (code: string, status: number) => (error: Error & { status?: number; code?: string }) => error.code === code && error.status === status;
+  await assert.rejects(prepareApi("pass-unsold", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" }), coded("api_access_not_for_sale", 409),
+    "tarif sans prix journalier : accès API non vendu");
+  await assert.rejects(registerKey(), coded("api_access_required", 403), "aucune clé sans pass");
+  const dailyFee = unit * BigInt(3) / BigInt(2);
+  const tariffWithApi = JSON.stringify({ ...JSON.parse(tariff), apiAccessDailyComputeAmount: String(dailyFee) });
+  writeFileSync(tariffFile, tariffWithApi);
+  // Prolongation devisée sous un tarif sans prix journalier : l'API n'y est pas incluse, même pour
+  // une location couverte (scénarios du pass complémentaire).
+  const withoutApiTariff = async <T>(action: () => Promise<T>) => {
+    writeFileSync(tariffFile, tariff);
+    try { return await action(); } finally { writeFileSync(tariffFile, tariffWithApi); }
+  };
+  // Jours entamés jusqu'à l'échéance (horloge de l'enclave ; l'EVM locale peut avancer sur elle).
+  const passDays = Math.ceil((apiSettled.expiresAt - Date.now()) / DAY_MS);
+  const accessPass = await prepareApi("pass-1", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  assert.deepEqual([accessPass.quote.apiAccessDays, accessPass.quote.datasetAmount, accessPass.quote.computeAmount, accessPass.quote.maxFailureFee],
+    [passDays, String(unit / BigInt(1000)), String(dailyFee * BigInt(passDays)), "0"], "0,001 au fournisseur, jours × 1,50 à Sirius");
+  const passLock = await lock(accessPass);
+  await assert.rejects(runApi(accessPass), /aucun entraînement/);
+  const [providerBeforePass, treasuryBeforePass] = [await credit(apiProvider), await credit(treasury)];
+  const passResult = await buyCalls(accessPass, passLock);
+  assert.equal(passResult.apiPaidUntil, apiSettled.expiresAt, "couvert jusqu'à l'échéance de la location, jamais au-delà");
+  assert.equal(await credit(apiProvider), providerBeforePass + unit / BigInt(1000), "part fournisseur : minimum du contrat");
+  assert.equal(await credit(treasury), treasuryBeforePass + dailyFee * BigInt(passDays), "jours × tarif journalier à Sirius");
+  const passNonce = await client.getTransactionCount({ address: runner.address });
+  assert.deepEqual(await buyCalls(accessPass, passLock, false), passResult, "rejoué sans grant : même couverture, enregistrée une fois");
+  assert.equal(await client.getTransactionCount({ address: runner.address }), passNonce);
+  await assert.rejects(prepareApi("pass-again", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" }), coded("api_access_already_paid", 409));
+  // Clé API sur le prêt v7 réglé, pass payé : quota du jour du profil d'abord, crédits intacts.
+  await registerKey();
   const apiBody = JSON.stringify({ features: { x: 5 } });
-  const apiCall = { method: "POST", path: "/v1/models/api-loan/predict", timestamp: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString("base64url") };
-  const apiPrediction = await handleRunnerOp("api-predict", { ...apiCall, loanId: "api-loan", keyId: apiKey.keyId, body: apiBody,
-    loanReceipt: apiResult.runnerReceipt, settleTxHash: apiSettled.settleTxHash,
-    signature: createHmac("sha256", apiKey.secret).update(apiCanonicalString({ ...apiCall,
-      bodySha256Hex: createHash("sha256").update(apiBody).digest("hex") })).digest("hex") }) as ApiPrediction;
+  const apiRequest = () => {
+    const apiCall = { method: "POST", path: "/v1/models/api-loan/predict", timestamp: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString("base64url") };
+    return { ...apiCall, loanId: "api-loan", keyId: apiKey.keyId, body: apiBody, loanReceipt: apiResult.runnerReceipt, settleTxHash: apiSettled.settleTxHash,
+      signature: createHmac("sha256", apiKey.secret).update(apiCanonicalString({ ...apiCall,
+        bodySha256Hex: createHash("sha256").update(apiBody).digest("hex") })).digest("hex") };
+  };
+  const apiPrediction = await handleRunnerOp("api-predict", apiRequest()) as ApiPrediction;
   assert.deepEqual([apiPrediction.modelRef, apiPrediction.remaining, apiPrediction.expiresAt],
     ["loan:api-loan", { today: 49, credits: 1300 }, apiSettled.expiresAt]);
+  // Prolongation d'un jour, sans frais d'API (tarif sans prix journalier à ce moment) : l'accès
+  // s'arrête à l'ancienne échéance payée, puis un complément paie les seuls jours ajoutés.
+  const apiExtension = await withoutApiTariff(() => prepareApi("ext-api", { rentalDays: 1, extendsLoanId: "api-loan" }));
+  assert.equal(apiExtension.quote.computeAmount, String(unit / BigInt(10)), "aucun frais d'API dans une prolongation");
+  const apiExtensionLock = await lock(apiExtension);
+  const apiExtended = await handleRunnerOp("extend-loan", { loanId: "ext-api", originalLoanId: "api-loan", loanReceipt: apiResult.runnerReceipt,
+    billingQuote: apiExtension, lockBlock: String(apiExtensionLock) }) as { expiresAt: number };
+  assert.equal(apiExtended.expiresAt, apiSettled.expiresAt + DAY_MS);
+  const passClock = Date.now;
+  try {
+    Date.now = () => apiSettled.expiresAt + 1000;
+    await assert.rejects(handleRunnerOp("api-predict", apiRequest()), coded("api_access_required", 403), "après la fin de la couverture payée");
+  } finally { Date.now = passClock; }
+  const topUp = await prepareApi("pass-2", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  assert.deepEqual([topUp.quote.apiAccessDays, topUp.quote.computeAmount], [1, String(dailyFee)], "complément : le jour ajouté seulement");
+  const topUpLock = await lock(topUp);
+  assert.equal((await buyCalls(topUp, topUpLock)).apiPaidUntil, apiExtended.expiresAt);
+  try {
+    Date.now = () => apiSettled.expiresAt + 1000;
+    assert.equal((await handleRunnerOp("api-predict", apiRequest()) as ApiPrediction).expiresAt, apiExtended.expiresAt, "complément payé : accepté");
+  } finally { Date.now = passClock; }
+  // Deux passes verrouillés sur la même base (deux onglets) : le premier est libéré, le second est
+  // caduc pour toujours, même après une nouvelle prolongation (jamais 1 jour payé pour 0 couvert).
+  const extendApi = async (loanId: string) => {
+    const quote = await withoutApiTariff(() => prepareApi(loanId, { rentalDays: 1, extendsLoanId: "api-loan" }));
+    const lockBlock = await lock(quote);
+    return (await handleRunnerOp("extend-loan", { loanId, originalLoanId: "api-loan", loanReceipt: apiResult.runnerReceipt,
+      billingQuote: quote, lockBlock: String(lockBlock) }) as { expiresAt: number }).expiresAt;
+  };
+  const secondEnd = await extendApi("ext-api-2");
+  const passA = await prepareApi("pass-a", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  const passB = await prepareApi("pass-b", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  assert.deepEqual([passB.quote.apiAccessRentalEnd, passB.quote.apiAccessCoveredUntil], [secondEnd, apiExtended.expiresAt],
+    "devis lié à la base de son prix");
+  const [passALock, passBLock] = [await lock(passA), await lock(passB)];
+  assert.equal((await buyCalls(passA, passALock)).apiPaidUntil, secondEnd);
+  const staleCredit = await credit(apiProvider);
+  const staleNonce = await client.getTransactionCount({ address: runner.address });
+  await assert.rejects(buyCalls(passB, passBLock), coded("api_access_stale", 409), "même base déjà couverte : caduc");
+  await extendApi("ext-api-3");
+  const afterExtension = await client.getTransactionCount({ address: runner.address });
+  await assert.rejects(buyCalls(passB, passBLock, false), coded("api_access_stale", 409), "prolongé ensuite : toujours caduc");
+  assert.equal(await credit(apiProvider), staleCredit + unit, "seule la prolongation a payé le fournisseur");
+  assert.equal(await client.getTransactionCount({ address: runner.address }), afterExtension, "aucune release du pass caduc");
+  assert.ok(afterExtension > staleNonce);
+  assert.equal((await readLoan(loanKeyFor(borrower.address, "pass-b")))!.status, lockedStatus, "pass caduc toujours verrouillé, remboursable");
+  // Prolongation réglée pendant qu'un pass attend sa release : la couverture n'a pas bougé, le pass
+  // est libéré et couvre exactement ses jours, jusqu'à l'échéance signée ; le complément suit.
+  const thirdEnd = secondEnd + DAY_MS;
+  const passC = await prepareApi("pass-c", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  assert.deepEqual([passC.quote.apiAccessRentalEnd, passC.quote.apiAccessCoveredUntil, passC.quote.apiAccessDays], [thirdEnd, secondEnd, 1]);
+  const passCLock = await lock(passC);
+  const fourthEnd = await extendApi("ext-api-4");
+  assert.equal((await buyCalls(passC, passCLock)).apiPaidUntil, thirdEnd, "libéré après la prolongation, plafonné à l'échéance signée");
+  const passD = await prepareApi("pass-d", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  assert.equal((await buyCalls(passD, await lock(passD))).apiPaidUntil, fourthEnd, "complément pour le jour ajouté");
+  // Défense en profondeur : deux passes sur la même base, le premier engagé (release signée mais
+  // diffusion perdue). Le second est refusé avant toute transaction ; le marqueur, persistant, ne
+  // dépend pas de la mémoire du processus (l'appel du premier est terminé, comme après un
+  // redémarrage) ; le premier termine ensuite sa release et couvre une seule fois.
+  const fifthEnd = await extendApi("ext-api-5");
+  const passE = await prepareApi("pass-e", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  const passF = await prepareApi("pass-f", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" });
+  const [passELock, passFLock] = [await lock(passE), await lock(passF)];
+  dropNextTransaction = true;
+  await assert.rejects(buyCalls(passE, passELock), "diffusion perdue : release engagée, pas encore publiée");
+  const engagedBroadcasts = runnerBroadcasts.length;
+  const engagedCredit = await credit(apiProvider);
+  await assert.rejects(buyCalls(passF, passFLock), coded("api_access_stale", 409), "autre pass engagé sur la même base");
+  assert.equal(runnerBroadcasts.length, engagedBroadcasts, "aucune transaction pour le second pass");
+  const rebroadcastClock = Date.now;
+  const rebroadcastAt = rebroadcastClock() + 31000;
+  try {
+    // Rediffusion de la transaction perdue, à l'identique, après le délai de reprise.
+    Date.now = () => rebroadcastAt;
+    assert.equal((await buyCalls(passE, passELock, false)).apiPaidUntil, fifthEnd, "le pass engagé termine sa release");
+  } finally { Date.now = rebroadcastClock; }
+  assert.equal(await credit(apiProvider), engagedCredit + unit / BigInt(1000), "une seule part fournisseur");
+  await assert.rejects(buyCalls(passF, passFLock, false), coded("api_access_stale", 409), "couverture déjà payée : caduc");
+  assert.equal((await readLoan(loanKeyFor(borrower.address, "pass-f")))!.status, lockedStatus);
+  // Location couverte par passes jusqu'à son échéance, tarif avec prix journalier : la prolongation
+  // inclut l'API d'office, la couverture suit la nouvelle échéance, l'appel passe après l'ancienne.
+  const passCoveredQuote = await prepareApi("ext-api-6", { rentalDays: 1, extendsLoanId: "api-loan" });
+  assert.deepEqual([passCoveredQuote.quote.apiAccessIncluded, passCoveredQuote.quote.apiAccessAmount, passCoveredQuote.quote.computeAmount],
+    [true, String(dailyFee), String(unit / BigInt(10) + dailyFee)], "couverture par passes jusqu'à l'échéance : API incluse d'office");
+  const passCoveredExtension = await handleRunnerOp("extend-loan", { loanId: "ext-api-6", originalLoanId: "api-loan", loanReceipt: apiResult.runnerReceipt,
+    billingQuote: passCoveredQuote, lockBlock: String(await lock(passCoveredQuote)) }) as { expiresAt: number; apiPaidUntil: number };
+  assert.deepEqual([passCoveredExtension.expiresAt, passCoveredExtension.apiPaidUntil], [fifthEnd + DAY_MS, fifthEnd + DAY_MS]);
+  await assert.rejects(prepareApi("pass-g", { rentalDays: 1, apiAccess: true, packForLoanId: "api-loan" }), coded("api_access_already_paid", 409));
+  const passCoveredClock = Date.now;
+  try {
+    Date.now = () => fifthEnd + 1000;
+    assert.equal((await handleRunnerOp("api-predict", apiRequest()) as ApiPrediction).expiresAt, fifthEnd + DAY_MS, "appel accepté après l'ancienne échéance");
+  } finally { Date.now = passCoveredClock; }
+  // --- API incluse à l'emprunt (D-32) : un seul devis, un seul paiement ; couverture jusqu'à
+  // l'échéance au règlement, prolongée d'office avec la location. ---
+  const [rentProviderBefore, rentTreasuryBefore] = [await credit(apiProvider), await credit(treasury)];
+  const trainingCompute = unit * BigInt(3);
+  const rentQuote = await prepareApi("api-rent", { rentalDays: 2, includeApiAccess: true });
+  assert.deepEqual([rentQuote.quote.apiAccessIncluded, rentQuote.quote.apiAccessAmount, rentQuote.quote.datasetAmount,
+    rentQuote.quote.computeAmount, rentQuote.quote.maxFailureFee],
+  [true, String(dailyFee * BigInt(2)), String(unit * BigInt(2)), String(trainingCompute + dailyFee * BigInt(2)), profile.maxFailureFee]);
+  const rentLock = await lock(rentQuote);
+  const rentResult = await runApi(rentQuote) as LoanJobResult;
+  const settleRent = async () => handleRunnerOp("settle-loan", { loanId: "api-rent", loanReceipt: rentResult.runnerReceipt,
+    lockBlock: String(rentLock) }) as Promise<{ settleTxHash: string; expiresAt: number; apiPaidUntil: number }>;
+  const rentSettled = await settleRent();
+  assert.equal(rentSettled.apiPaidUntil, rentSettled.expiresAt, "API couverte jusqu'à l'échéance de la location");
+  assert.equal(await credit(apiProvider), rentProviderBefore + unit * BigInt(2), "fournisseur : prix par jour × jours");
+  assert.equal(await credit(treasury), rentTreasuryBefore + trainingCompute + dailyFee * BigInt(2), "Sirius : calcul + jours × tarif API");
+  assert.deepEqual(await settleRent(), rentSettled, "règlement rejoué : couverture inchangée");
+  await assert.rejects(prepareApi("pass-rent", { rentalDays: 1, apiAccess: true, packForLoanId: "api-rent" }), coded("api_access_already_paid", 409));
+  const rentKey = { keyId: randomBytes(16).toString("base64url"), secret: randomBytes(32) };
+  const rentEnvelope = await encryptApiKeySecretForRunner(rentKey.secret.toString("base64url"), rentKey.keyId, datasetIngressPublicKey());
+  await handleRunnerOp("register-api-key", { loanId: "api-rent", keyId: rentKey.keyId, envelope: rentEnvelope, loanReceipt: rentResult.runnerReceipt,
+    settleTxHash: rentSettled.settleTxHash, authorization: await issueRunnerGrant("register-api-key", { loanId: "api-rent" },
+      ["api-rent", rentKey.keyId, await apiKeyEnvelopeSha256(rentEnvelope)]) });
+  const rentRequest = () => {
+    const call = { method: "POST", path: "/v1/models/api-rent/predict", timestamp: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString("base64url") };
+    return { ...call, loanId: "api-rent", keyId: rentKey.keyId, body: apiBody, loanReceipt: rentResult.runnerReceipt, settleTxHash: rentSettled.settleTxHash,
+      signature: createHmac("sha256", rentKey.secret).update(apiCanonicalString({ ...call,
+        bodySha256Hex: createHash("sha256").update(apiBody).digest("hex") })).digest("hex") };
+  };
+  assert.equal((await handleRunnerOp("api-predict", rentRequest()) as ApiPrediction).expiresAt, rentSettled.expiresAt, "API sans pass");
+  const rentTreasuryBeforeExtension = await credit(treasury);
+  const rentExtension = await prepareApi("ext-rent", { rentalDays: 1, extendsLoanId: "api-rent" });
+  assert.deepEqual([rentExtension.quote.apiAccessIncluded, rentExtension.quote.apiAccessAmount, rentExtension.quote.computeAmount],
+    [true, String(dailyFee), String(unit / BigInt(10) + dailyFee)], "prolongation d'une location couverte : API incluse d'office");
+  const rentExtended = await handleRunnerOp("extend-loan", { loanId: "ext-rent", originalLoanId: "api-rent", loanReceipt: rentResult.runnerReceipt,
+    billingQuote: rentExtension, lockBlock: String(await lock(rentExtension)) }) as { expiresAt: number; apiPaidUntil: number };
+  assert.deepEqual([rentExtended.expiresAt, rentExtended.apiPaidUntil], [rentSettled.expiresAt + DAY_MS, rentSettled.expiresAt + DAY_MS]);
+  assert.equal(await credit(treasury), rentTreasuryBeforeExtension + unit / BigInt(10) + dailyFee, "prolongation : frais sans entraînement + 1 jour d'API");
+  const rentClock = Date.now;
+  try {
+    Date.now = () => rentSettled.expiresAt + 1000;
+    assert.equal((await handleRunnerOp("api-predict", rentRequest()) as ApiPrediction).expiresAt, rentExtended.expiresAt, "après l'ancienne échéance");
+  } finally { Date.now = rentClock; }
+  // Échec de l'entraînement d'un emprunt à API incluse : tout est remboursé, part API comprise, hors frais mesurés.
+  const failQuote = await prepareApi("api-fail", { rentalDays: 1, includeApiAccess: true });
+  await lock(failQuote);
+  const borrowerBeforeFailure = await credit(borrower.address);
+  failFetch = true;
+  await assert.rejects(runApi(failQuote), /remboursement crédité/);
+  failFetch = false;
+  const apiFailureFee = BigInt((await readLoan(loanKeyFor(borrower.address, "api-fail")))!.billing!.consumedCompute);
+  assert.ok(apiFailureFee <= BigInt(failQuote.quote.maxFailureFee));
+  const apiFailureRefund = BigInt(totalQuoteAmount(failQuote.quote)) - apiFailureFee;
+  assert.equal(await credit(borrower.address), borrowerBeforeFailure + apiFailureRefund, "part API remboursée avec le reste");
+  writeFileSync(tariffFile, tariff);
   failFetch = true;
   await assert.rejects(run(quotes[1]), /remboursement crédité/);
   const failed = await readLoan(loanKeyFor(borrower.address, "failure"));
   assert.equal(failed?.status, 4);
   const fee = BigInt(failed!.billing!.consumedCompute);
   assert.ok(fee > BigInt(0) && fee <= BigInt(quotes[1].quote.maxFailureFee));
-  assert.equal(await credit(borrower.address), unit * BigInt(4) - fee);
+  assert.equal(await credit(borrower.address), unit * BigInt(4) - fee + apiFailureRefund);
   assert.equal(await credit(provider), unit * BigInt(3), "dataset intégralement remboursé après échec");
   const resolution = await reconcileLoanEscrow(loanKeyFor(borrower.address, "failure"), lockBlocks[1]);
   assert.equal(resolution.state, "cancelled");
@@ -497,13 +688,16 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "timeout")]);
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "ext-2")]);
   // timeout (1 + 3) et prolongation ext-2 (1 jour + frais sans entraînement 0,1) remboursés en entier.
-  assert.equal(await credit(borrower.address), unit * BigInt(9) + unit / BigInt(10) - fee, "sans exécution ni release, remboursement intégral");
+  assert.equal(await credit(borrower.address), unit * BigInt(9) + unit / BigInt(10) - fee + apiFailureRefund, "sans exécution ni release, remboursement intégral");
   // Locks payés aux fournisseurs complices, jamais libérés : remboursés en entier à l'échéance.
   const beforeColluderRefunds = await credit(borrower.address);
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "ext-colluder")]);
   await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "pack-colluder")]);
+  // Pass caduc : remboursé en entier à l'échéance de l'escrow.
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "pass-b")]);
+  await write("SiriusEscrowV7", escrow, "refund", [loanKeyFor(borrower.address, "pass-f")]);
   assert.equal(await credit(borrower.address), beforeColluderRefunds + BigInt(totalQuoteAmount(colludingExtension.quote))
-    + BigInt(totalQuoteAmount(colludingPack.quote)));
+    + BigInt(totalQuoteAmount(colludingPack.quote)) + BigInt(totalQuoteAmount(passB.quote)) + BigInt(totalQuoteAmount(passF.quote)));
   const [locked, owed, balance] = await client.readContract({ address: escrow, abi: siriusescrowv7Abi, functionName: "accounting" });
   assert.equal(locked, BigInt(0));
   assert.equal(owed, balance);

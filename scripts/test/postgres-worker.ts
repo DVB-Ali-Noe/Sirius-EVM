@@ -5,6 +5,7 @@ import { prepareLoan } from "../../src/lib/sirius/borrower";
 import { runSelfTrain } from "../../src/lib/sirius/self-train";
 import { assertOperatorCode } from "../../src/lib/phala-demo/operator-code";
 import { databaseOperatorAttempts } from "../../src/lib/phala-demo/operator-attempts";
+import { spendWakeBudget } from "../../src/lib/sirius/wake-budget";
 import { randomUUID } from "node:crypto";
 import type { RunnerGrant } from "../../src/lib/runner/authorization-contract";
 
@@ -35,13 +36,16 @@ globalThis.fetch = async (input, init) => {
 };
 
 process.send?.("ready");
-process.once("message", async (message: { task: "ingest" | "loan" | "training" | "operator-code"; provider: string }) => {
+process.once("message", async (message: { task: "ingest" | "loan" | "training" | "operator-code" | "wake"; provider: string }) => {
   try {
     if (message.task === "loan") await prepareLoan("history", message.provider, 1);
     else if (message.task === "training") await runSelfTrain("history", message.provider, randomUUID(), "synthetic", {} as RunnerGrant);
     else if (message.task === "operator-code") await assertOperatorCode(message.provider, "wrong-operator-code", databaseOperatorAttempts);
-    else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
-      priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
+    else if (message.task === "wake") {
+      // Chaque processus est une instance Next distincte : seul l'état en base est partagé.
+      if (!(await spendWakeBudget(message.provider)).spent) throw Object.assign(new Error("budget"), { status: 429 });
+    } else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
+      priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, model: { modelId: "logistic_regression", modelVersion: "1.0.0" } });
     process.send?.({ accepted: true });
   } catch (error) {
     process.send?.({ accepted: false, code: (error as { code?: string; status?: number }).code

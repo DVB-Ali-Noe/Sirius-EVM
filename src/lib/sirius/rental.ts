@@ -18,7 +18,17 @@ import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 export const RENTAL_EXPIRED = "Location expirée : prolonge pour continuer";
 export const RENTAL_MODEL_DELETED = "Modèle supprimé : location close";
 
-type RentalLoan = Pick<Loan, "id" | "status" | "settleTxHash" | "rentalDays" | "rentalExpiresAt" | "extendsLoanId" | "packForLoanId">;
+type RentalLoan = Pick<Loan, "id" | "status" | "settleTxHash" | "rentalDays" | "rentalExpiresAt" | "extendsLoanId" | "packForLoanId">
+  & Partial<Pick<Loan, "billingQuote">>;
+
+/** Devis stocké (déjà vérifié à la préparation) avec l'API incluse (D-32). */
+export function includesApiAccess(billingQuote: string | null | undefined): boolean {
+  if (!billingQuote) return false;
+  let signed: unknown;
+  try { signed = JSON.parse(billingQuote); } catch { return false; }
+  const quote = signed && typeof signed === "object" && "quote" in signed ? signed.quote : null;
+  return Boolean(quote && typeof quote === "object" && "apiAccessIncluded" in quote && quote.apiAccessIncluded === true);
+}
 
 /** Échéance d'une location réglée par la transaction `settleTxHash` (bloc du `release`). */
 export async function rentalExpiryFromRelease(settleTxHash: string, rentalDays: number): Promise<Date> {
@@ -33,13 +43,15 @@ export async function rentalExpiryFromRelease(settleTxHash: string, rentalDays: 
  * Échéance enregistrée du prêt, ou relue du bloc de `release` puis enregistrée si elle manque
  * (règlement réconcilié sans réponse du runner). `null` : prêt hérité, prolongation, pack d'appels
  * (D-30 : il reprend les jours du prêt d'origine sans échéance propre) ou prêt non réglé.
- * L'écriture ne remplace jamais une échéance déjà posée (une prolongation a pu la repousser).
+ * L'écriture ne remplace jamais une échéance déjà posée (une prolongation a pu la repousser). API
+ * incluse (D-32) : la couverture reflétée suit cette première échéance, dans la même écriture.
  */
 export async function loanRentalExpiry(loan: RentalLoan): Promise<Date | null> {
   if (loan.rentalExpiresAt) return loan.rentalExpiresAt;
   if (loan.extendsLoanId || loan.packForLoanId || typeof loan.rentalDays !== "number" || loan.status !== "SETTLED" || !loan.settleTxHash) return null;
   const expiresAt = await rentalExpiryFromRelease(loan.settleTxHash, loan.rentalDays);
-  const written = await prisma.loan.updateMany({ where: { id: loan.id, rentalExpiresAt: null }, data: { rentalExpiresAt: expiresAt } });
+  const written = await prisma.loan.updateMany({ where: { id: loan.id, rentalExpiresAt: null },
+    data: { rentalExpiresAt: expiresAt, ...(includesApiAccess(loan.billingQuote) ? { apiPaidUntil: expiresAt } : {}) } });
   if (written.count === 1) return expiresAt;
   const stored = await prisma.loan.findUnique({ where: { id: loan.id }, select: { rentalExpiresAt: true } });
   return stored?.rentalExpiresAt ?? expiresAt;

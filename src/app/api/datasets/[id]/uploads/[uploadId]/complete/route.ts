@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertAuthenticGrant, requireAuth } from "@/lib/auth/require-auth";
-import { errorResponse } from "@/lib/errors";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 import { readJson } from "@/lib/http/body";
 import { parseRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import { MAX_COMPLETE_BODY_BYTES, completeDatasetUpload } from "@/lib/sirius/chunked-upload";
@@ -24,6 +24,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!manifest) return NextResponse.json({ error: "Manifeste manquant" }, { status: 400 });
     return NextResponse.json(await completeDatasetUpload(id, uploadId, session.address, manifest, authorization), { status: 202 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

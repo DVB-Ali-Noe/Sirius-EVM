@@ -3,6 +3,7 @@ import { DATASET_CATEGORIES, DEFAULT_LISTING_DURATION_DAYS, ESCROW_CHALLENGE_DAY
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
 import { MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS } from "@/lib/tee/train";
+import { MODEL_OPTIONS } from "@/lib/models/registry";
 
 /**
  * Base de connaissances de l'assistant : tout ce que le modèle sait de Sirius, compilé depuis le
@@ -15,6 +16,8 @@ import { MAX_TRAINING_FEATURES, MIN_TRAINING_ROWS } from "@/lib/tee/train";
  */
 
 const MIB = 1024 * 1024;
+/** Profils proposés par cette instance (registre et `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`, figés au build). */
+const OFFERED_PROFILES = MODEL_OPTIONS.map((model) => model.label.toLowerCase()).join(", ");
 
 export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 
@@ -23,7 +26,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - Training runs inside a hardware enclave (TEE, Phala dstack on Intel TDX). The model stays sealed in the enclave: the borrower never receives it and uses it only through signed predictions; the provider is paid on every settled training run.
 - Payments and the audit trail live on an EVM chain: Robinhood Chain (an Arbitrum Nitro L2). Production uses Robinhood Chain mainnet (chain id 4663) with the USDG stablecoin (Global Dollar, issued by Paxos). The staging/test instance uses Robinhood Chain testnet (chain id 46630) with a valueless "test USDC" token.
 - Gas (network fees) is always paid in ETH on Robinhood Chain, separately from the stablecoin.
-- Sirius is in beta. Models currently supported: linear regression and binary logistic regression on numeric tabular data. More models are in development.
+- Sirius is in beta. Training profiles currently offered: ${OFFERED_PROFILES}, on numeric tabular data. More models are in development.
 - Sirius never holds user funds: funds live on-chain in the user's wallet or in the escrow contract.
 
 ## Getting started: wallet and sign-in
@@ -56,11 +59,11 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - If training fails, the dataset price and the unused compute are refunded; only measured execution fees (capped and announced in the quote) are retained.
 - If the loan is never settled before its deadline, the borrower can recover the escrow with "Recover escrow" on the Train page. The escrow safety delay is fixed by Sirius for every dataset: ${ESCROW_CHALLENGE_DAYS} days (shown on the dataset card as "refundable after ${ESCROW_CHALLENGE_DAYS} d"); the provider does not choose it. Release and refund are mutually exclusive.
 - Self-training (training on your OWN dataset without escrow, Train page, "My data") is reserved to the Sirius team during the beta: other wallets see "Coming soon".
-- Linear and logistic regression are deterministic: retraining on the same data gives the same model. Results depend on the data.
+- Training is deterministic: retraining on the same data gives the same model. Results depend on the data.
 
 ## Publishing a dataset
 - "My datasets" lists the datasets uploaded from this wallet. "Upload" imports a CSV: the file is encrypted in the browser, then opened and re-sealed inside the TEE, and stored on IPFS. The Sirius web server never receives raw data.
-- At upload you give a name, an optional description, a category (${DATASET_CATEGORIES.join(", ")}), the training profile (linear regression, logistic regression or gradient-boosted trees), the price in the stablecoin, and a listing duration of ${LISTING_DURATIONS_DAYS.join(", ").replace(/, (\d+)$/, " or $1")} days (default ${DEFAULT_LISTING_DURATION_DAYS}). The escrow safety delay (${ESCROW_CHALLENGE_DAYS} days) is fixed by Sirius. The target column of a logistic or gradient-boosted trees model must be strictly 0 or 1.
+- At upload you give a name, an optional description, a category (${DATASET_CATEGORIES.join(", ")}), the training profile (${OFFERED_PROFILES}), the price in the stablecoin, and a listing duration of ${LISTING_DURATIONS_DAYS.join(", ").replace(/, (\d+)$/, " or $1")} days (default ${DEFAULT_LISTING_DURATION_DAYS}). The escrow safety delay (${ESCROW_CHALLENGE_DAYS} days) is fixed by Sirius. The target column of a logistic or gradient-boosted trees model must be strictly 0 or 1.
 - Data limits: CSV up to ${Math.round(MAX_DATASET_BYTES / MIB)} MB, between ${MIN_TRAINING_ROWS} and ${MAX_CSV_ROWS} rows, numeric columns, up to ${MAX_TRAINING_FEATURES} explanatory variables. Datasets that are too small are refused to preserve privacy.
 - A dataset becomes borrowable once its EVM title is published ("Publish title") in the SiriusDatasetRegistry contract: a non-transferable title bound to the hash of its content and its training profile. Visibility: Public (in the catalog), Unlisted (borrowable by direct link), Private (self-train only).
 - Providers get paid on each settled loan; the credit is withdrawn from the Wallet page. Deleting a dataset removes its active key and deactivates its title; models already trained are not erased.
@@ -80,7 +83,7 @@ export const SIRIUS_KNOWLEDGE_BASE = `# Sirius — knowledge base
 - Never share a private key, seed phrase or recovery phrase with anyone, including Sirius. Sirius never asks for them.
 
 ## Beta limits
-- Models: linear regression and binary logistic regression only, numeric tabular data.
+- Models: ${OFFERED_PROFILES} only, numeric tabular data.
 - Loan amounts are capped per loan and in total exposure (see /status).
 - Verification is instant on-chain during the beta; invitation codes otherwise.
 - The project is not yet externally audited.

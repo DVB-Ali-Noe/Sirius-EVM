@@ -6,6 +6,7 @@ import Link from "next/link";
 import { RetrainPanel } from "@/components/train/RetrainPanel";
 import { ApiPanel } from "@/components/train/ApiPanel";
 import type { PendingCallPack } from "@/components/train/BuyCallsPanel";
+import type { RefusedPass } from "@/components/train/ApiAccessPanel";
 import { WaitSteps } from "@/components/ui/WaitSteps";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
@@ -61,11 +62,15 @@ import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResp
 import { runSelfTrain } from "@/lib/train/client";
 import { requestPrediction } from "@/lib/train/prediction-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 import { GAP_WARNINGS, gbdtGapVerdict } from "@/lib/models/gbdt-gap";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { stablecoinSymbol, stablecoinTicker } from "@/lib/evm/stablecoin";
 import { resolveClientNetwork } from "@/lib/evm/networks";
 import {
+  isModelOffered,
   modelSelection,
   modelDisplayName,
   type ModelId,
@@ -127,6 +132,10 @@ interface Loan {
   extendsLoanId?: string | null;
   /** Pack d'appels API (D-30) : taille achetée et prêt d'origine crédité. */
   callPack?: number | null;
+  /** Pass d'accès API (D-32) : jours payés ; même `packForLoanId` qu'un pack. */
+  apiAccessDays?: number | null;
+  /** Pass refusé pour toujours par l'enclave (base du prix changée) : remboursable à l'échéance. */
+  apiAccessRefusedAt?: string | null;
   packForLoanId?: string | null;
   /** Prêt d'origine : le profil a un quota d'appels API (jamais la régression linéaire). */
   apiEnabled?: boolean;
@@ -193,6 +202,9 @@ function TrainPageContent() {
   // Prolongation : prêt dont le choix de jours est ouvert, et jours choisis par prêt.
   const [extending, setExtending] = useState<string | null>(null);
   const [extendDays, setExtendDays] = useState<Record<string, number>>({});
+  // Enclave à l'arrêt pendant la préparation d'une prolongation : prêt concerné et prochain essai.
+  const [extendWait, setExtendWait] = useState<{ loanId: string; seconds: number } | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   const activeLoanJobs = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
@@ -521,7 +533,11 @@ function TrainPageContent() {
     setNotice(null);
     setBusyKey(key, true);
     try {
-      if (await extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote })) setExtending(null);
+      const extended = await retryWhileEnclaveStarts(
+        () => extendLoan({ loanId: loan.id, datasetId: loan.datasetId, rentalDays, confirmQuote }),
+        { onWaiting: (seconds) => setExtendWait(seconds === null ? null : { loanId: loan.id, seconds }), signal: unmountSignal() },
+      );
+      if (extended) setExtending(null);
       await refresh();
     } catch (err) {
       const message = messageOf(err);
@@ -674,23 +690,31 @@ function TrainPageContent() {
             // Ni prolongation ni pack n'ont de modèle propre : mêmes règles d'affichage qu'une prolongation.
             const noTraining = extension || pack;
             const money = (atomic: string) => `${l.usdcDecimals !== undefined ? formatUnits(BigInt(atomic), l.usdcDecimals) : formatUsdcAtomic(atomic)} ${token}`;
-            const pendingPacks: PendingCallPack[] = noTraining ? [] : loans
-              .filter((candidate) => candidate.packForLoanId === l.id && !candidate.refundable
+            const pendingPurchases = noTraining ? [] : loans
+              .filter((candidate) => candidate.packForLoanId === l.id && !candidate.refundable && !candidate.apiAccessRefusedAt
                 && ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"].includes(candidate.status)
                 && (candidate.status !== "PENDING" || Boolean(candidate.evmLockTxHash)))
               .map((candidate) => {
                 const packTracking = finality[candidate.id];
                 const readyAt = packTracking?.phase === "pending" ? lockFinalityLocalReadyAt(packTracking) : null;
                 return {
+                  pass: candidate.apiAccessDays != null,
                   id: candidate.id,
-                  size: candidate.callPack ?? 0,
+                  size: candidate.callPack ?? candidate.apiAccessDays ?? 0,
                   stage: candidate.status === "ESCROWED" ? "finality" : candidate.status === "TRAINING" || candidate.status === "SETTLING" ? "crediting" : "payment",
                   remainingSeconds: readyAt !== null ? lockFinalitySecondsLeft(readyAt, now) : null,
-                };
+                } satisfies PendingCallPack & { pass: boolean };
               });
+            const pendingPacks = pendingPurchases.filter((purchase) => !purchase.pass);
+            const pendingPasses = pendingPurchases.filter((purchase) => purchase.pass);
+            const refusedPasses: RefusedPass[] = noTraining ? [] : loans
+              .filter((candidate) => candidate.packForLoanId === l.id && candidate.apiAccessRefusedAt && candidate.status !== "CANCELLED")
+              .map((candidate) => ({ id: candidate.id, refundableAt: candidate.evmDeadline }));
             const rentalExpired = isLoanRentalExpired(l, now);
             const modelDeleted = isLoanModelDeleted(l, now);
-            const extendAllowed = canExtendLoan(l, address, now);
+            // Une prolongation est un nouveau devis : refusée pour un profil retiré (D-31).
+            const extendModel = modelSelection(l.modelId, l.modelVersion);
+            const extendAllowed = canExtendLoan(l, address, now) && extendModel !== null && isModelOffered(extendModel.modelId);
             const maxRentalDays = l.dataset?.maxRentalDays ?? DEFAULT_MAX_RENTAL_DAYS;
             const chosenExtendDays = Math.min(extendDays[l.id] ?? MIN_RENTAL_DAYS, maxRentalDays);
             const expiryLabel = l.rentalExpiresAt
@@ -703,7 +727,7 @@ function TrainPageContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
-                    <Badge variant="default">{pack ? t("Pack d’appels") : extension ? t("Prolongation") : t("Emprunt")}</Badge>
+                    <Badge variant="default">{l.apiAccessDays != null ? t("Accès API") : pack ? t("Pack d’appels") : extension ? t("Prolongation") : t("Emprunt")}</Badge>
                     {!noTraining && rentalExpired && <Badge variant="negative">{t("Location expirée")}</Badge>}
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
@@ -892,9 +916,21 @@ function TrainPageContent() {
                   {t("Prolongation réglée : les jours payés s’ajoutent à l’emprunt d’origine.")}
                 </p>
               )}
-              {l.status === "SETTLED" && pack && (
+              {l.status === "SETTLED" && pack && l.apiAccessDays == null && (
                 <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive" data-testid="call-pack-settled">
                   {t("Pack réglé : {count} appels crédités à l’emprunt d’origine.", { count: l.callPack ?? 0 })}
+                </p>
+              )}
+              {l.status === "SETTLED" && l.apiAccessDays != null && (
+                <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive" data-testid="api-access-settled">
+                  {t("Accès API réglé : {days} payés à l’emprunt d’origine.", { days: l.apiAccessDays === 1 ? t("1 jour") : t("{days} jours", { days: l.apiAccessDays }) })}
+                </p>
+              )}
+              {l.apiAccessRefusedAt && l.status !== "CANCELLED" && (
+                <p className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs text-negative" data-testid="api-access-refused">
+                  {l.evmDeadline
+                    ? t("Accès API refusé : rien n’a été versé, paiement remboursable le {date}.", { date: new Date(l.evmDeadline).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })
+                    : t("Accès API refusé : rien n’a été versé, paiement remboursable à l’échéance de l’escrow.")}
                 </p>
               )}
               {l.status === "SETTLED" && !noTraining && (
@@ -957,6 +993,16 @@ function TrainPageContent() {
                         <p className="w-full text-xs text-muted">
                           {t("Chaque jour ajouté est payé au prix par jour du dataset, plus les frais de calcul de Sirius à prix coûtant. Le total exact est affiché dans le devis, avant tout paiement.")}
                         </p>
+                        {extendWait?.loanId === l.id && (
+                          <div className="w-full">
+                            <EnclaveStartingSteps
+                              phase="starting"
+                              retryInSeconds={extendWait.seconds}
+                              testId="extend-enclave-starting"
+                              closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+                            />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <button
@@ -983,6 +1029,8 @@ function TrainPageContent() {
                       money={money}
                       confirmQuote={confirmQuote}
                       pendingPacks={pendingPacks}
+                      pendingPasses={pendingPasses}
+                      refusedPasses={refusedPasses}
                       onPurchased={refresh}
                     />
                   )}
@@ -1020,6 +1068,8 @@ function SelfTrainCard({
 }) {
   const { t } = useLocale();
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
+  // Profil retiré pour un nouvel usage (D-31) : Next et le runner refuseraient le self-train.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
 
   return (
     <Card className="flex flex-wrap items-center justify-between gap-4">
@@ -1037,8 +1087,8 @@ function SelfTrainCard({
       </div>
       <button
         onClick={() => void onTrain(dataset)}
-        disabled={!model || busy}
-        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
+        disabled={!model || withdrawn || busy}
+        title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : withdrawn ? t("Profil d’entraînement facultatif non activé sur ce runner") : undefined}
         aria-busy={busy}
         className="inline-flex max-w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
       >

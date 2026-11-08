@@ -65,6 +65,21 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
   }, quoteWorkflow(quote));
 }
 
+/** Opération de release d'un prêt facturé dans le registre de l'enclave (journal des transactions). */
+export function billedReleaseOperation(quote: ComputeQuote, loanKey: Hex, preimage: Hex): { id: string; fingerprint: Hex } {
+  const data = encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "release", args: [loanKey, preimage] });
+  return { id: `release:${quote.chainId}:${quote.escrow}:${loanKey}`, fingerprint: keccak256(data) };
+}
+
+/**
+ * Release engagée et pas définitivement échouée : `settleBilledEscrow` la mènera à son terme au
+ * prochain rejeu (transaction signée dans le registre, en attente, rediffusée ou confirmée).
+ */
+export function isBilledReleaseLive(operation: { id: string; fingerprint: string }): boolean {
+  const recorded = requireBillingBudget().find(operation.id, operation.fingerprint);
+  return recorded !== null && recorded.state !== "failed";
+}
+
 /**
  * Release d'un prêt facturé, rejouable. `beforeFirstRelease` (contrôles d'avant paiement, ex. pack
  * d'appels : location encore ouverte) ne s'exécute que si aucune release n'est encore engagée :

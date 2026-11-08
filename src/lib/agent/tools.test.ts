@@ -250,7 +250,7 @@ test("les profils d'entraînement sont ceux du registre", () => {
     result.profiles.map((profile) => profile.id),
     MODEL_OPTIONS.map((entry) => entry.id),
   );
-  assert.deepEqual(result.profiles[1].metrics, [...MODEL_REGISTRY.logistic_regression.metrics]);
+  assert.deepEqual(result.profiles.find((profile) => profile.id === "logistic_regression")?.metrics, [...MODEL_REGISTRY.logistic_regression.metrics]);
   assert.match(result.delivery, /raw rows never leave the enclave/);
 });
 

@@ -9,16 +9,19 @@ import { messageOf } from "@/lib/errors-client";
 import { listApiKeys, revokeApiKey, type ApiKeysOverview } from "@/lib/train/api-keys-client";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { BuyCallsPanel, type PendingCallPack } from "./BuyCallsPanel";
+import { ApiAccessPanel, type RefusedPass } from "./ApiAccessPanel";
 import { CreateApiKeyDialog } from "./CreateApiKeyDialog";
 import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 /** Relecture de l'état de l'enclave tant qu'elle n'est pas prête (onglet visible seulement). */
 const ENCLAVE_POLL_MS = 30_000;
 
 /**
- * Panneau API d'un prêt réglé (D-30) : clés (création, révocation), usage indicatif, achat
- * d'appels et état de l'enclave. Jamais pour la régression linéaire : quelques appels suffiraient
- * à reconstruire le modèle (D-27), d'où le texte d'indisponibilité à la place du panneau.
+ * Panneau API d'un prêt réglé (D-30) : accès payé au jour (pass, D-32), clés (création,
+ * révocation), usage indicatif, achat d'appels et état de l'enclave. Jamais pour la régression
+ * linéaire : quelques appels suffiraient à reconstruire le modèle (D-27), d'où le texte
+ * d'indisponibilité à la place du panneau.
  */
 export function ApiPanel({
   loanId,
@@ -31,6 +34,8 @@ export function ApiPanel({
   money,
   confirmQuote,
   pendingPacks,
+  pendingPasses,
+  refusedPasses,
   onPurchased,
 }: {
   loanId: string;
@@ -44,6 +49,8 @@ export function ApiPanel({
   money: (atomic: string) => string;
   confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
   pendingPacks: readonly PendingCallPack[];
+  pendingPasses: readonly PendingCallPack[];
+  refusedPasses: readonly RefusedPass[];
   onPurchased: () => Promise<void>;
 }) {
   const { t } = useLocale();
@@ -65,6 +72,8 @@ export function ApiPanel({
       money={money}
       confirmQuote={confirmQuote}
       pendingPacks={pendingPacks}
+      pendingPasses={pendingPasses}
+      refusedPasses={refusedPasses}
       onPurchased={onPurchased}
     />
   );
@@ -79,6 +88,8 @@ function ApiPanelContent({
   money,
   confirmQuote,
   pendingPacks,
+  pendingPasses,
+  refusedPasses,
   onPurchased,
 }: {
   loanId: string;
@@ -89,6 +100,8 @@ function ApiPanelContent({
   money: (atomic: string) => string;
   confirmQuote: (quote: ComputeQuote) => Promise<boolean>;
   pendingPacks: readonly PendingCallPack[];
+  pendingPasses: readonly PendingCallPack[];
+  refusedPasses: readonly RefusedPass[];
   onPurchased: () => Promise<void>;
 }) {
   const { locale, t } = useLocale();
@@ -100,6 +113,7 @@ function ApiPanelContent({
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeRetry, setRevokeRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -130,7 +144,7 @@ function ApiPanelContent({
     setRevoking(keyId);
     try {
       // Révoquer passe par l'enclave : si elle démarre, la demande est relancée (sans risque, idempotente).
-      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry });
+      await retryWhileEnclaveStarts(() => revokeApiKey({ loanId, keyId }), { onWaiting: setRevokeRetry, signal: unmountSignal() });
       setConfirmRevoke(null);
       await load();
     } catch (error) {
@@ -143,6 +157,7 @@ function ApiPanelContent({
   const date = (iso: string) => new Date(iso).toLocaleString(dateLocale, { dateStyle: "medium", timeStyle: "short" });
   const active = overview?.keys.filter((key) => !key.revokedAt) ?? [];
   const limitReached = active.length >= API_KEY_MAX_PER_LOAN;
+  const accessPaid = overview?.apiAccess.paid ?? false;
 
   return (
     <section className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-3" data-testid="api-panel" aria-label={t("API développeurs")}>
@@ -153,7 +168,7 @@ function ApiPanelContent({
         </Link>
       </div>
       <p className="text-xs text-muted">
-        {t("Appelle ce modèle depuis ton code avec une clé signée. Le quota de {calls} appels par jour est commun au site et à l’API ; les appels achetés prennent le relais une fois le quota du jour épuisé.", { calls: callsPerDay })}
+        {t("Appelle ce modèle depuis ton code avec une clé signée, pendant les jours d’accès API payés. Le quota de {calls} appels par jour est commun au site et à l’API ; les appels achetés prennent le relais une fois le quota du jour épuisé.", { calls: callsPerDay })}
       </p>
 
       {loadError && <p role="alert" className="mt-2 text-xs text-negative">{t(loadError)}</p>}
@@ -161,17 +176,32 @@ function ApiPanelContent({
 
       {overview && (
         <>
-          {enclave === "starting" || (enclave === "stopped" && active.length > 0) ? (
+          {enclave === "starting" ? (
             <EnclaveStartingSteps
               phase={enclave}
               closeNote={t("Tu peux fermer cette page : tes appels reçoivent « 503 enclave_starting » avec un délai Retry-After, et le SDK réessaie seul.")}
             />
           ) : enclave === "stopped" ? (
-            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">{t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}</p>
+            <p className="mt-2 text-xs text-muted" data-testid="enclave-stopped">
+              {active.length > 0
+                ? t("L’enclave est arrêtée faute d’usage. Le premier appel API la redémarre : il reçoit « 503 enclave_starting » avec un délai Retry-After (environ 2 min), et le SDK réessaie seul.")
+                : t("L’enclave est arrêtée faute d’usage. Elle démarre à la création d’une clé ou à la prochaine prédiction.")}
+            </p>
           ) : enclave === "stopping" ? (
             <p className="mt-2 text-xs text-muted" data-testid="enclave-stopping">{t("L’enclave s’arrête faute d’usage. Elle redémarrera à la prochaine demande.")}</p>
           ) : null}
 
+          <ApiAccessPanel
+            loanId={loanId}
+            datasetId={datasetId}
+            access={overview.apiAccess}
+            closed={packsClosed}
+            money={money}
+            confirmQuote={confirmQuote}
+            pendingPasses={pendingPasses}
+            refusedPasses={refusedPasses}
+            onPurchased={async () => { await onPurchased(); await load(); }}
+          />
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs" data-testid="api-usage">
             <div>
               <dt className="text-muted">{t("Appels API aujourd’hui (indicatif)")}</dt>
@@ -235,12 +265,13 @@ function ApiPanelContent({
             <button
               type="button"
               onClick={() => setCreating(true)}
-              disabled={limitReached}
+              disabled={limitReached || !accessPaid}
               className="rounded-lg border border-accent/40 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent disabled:opacity-50"
             >
               {t("Créer une clé API")}
             </button>
             {limitReached && <span className="text-xs text-muted">{t("{count} clés actives au maximum : révoque une clé pour en créer une autre.", { count: API_KEY_MAX_PER_LOAN })}</span>}
+            {!accessPaid && <span className="text-xs text-muted" data-testid="api-key-needs-access">{t("Active l’API pour créer une clé.")}</span>}
           </div>
           <CreateApiKeyDialog
             open={creating}

@@ -23,7 +23,7 @@ test("les cinq textes anglais sont ceux de 16-socle-technique.md, section 4", ()
   assert.deepEqual([...DISCLAIMER_IDS].sort(), ["betaLimits", "contactUs", "dataLimits", "modelQuality", "retrainDeterministic"]);
   assert.equal(
     disclaimerText("modelQuality", t),
-    "Sirius currently trains three models on tabular data: linear regression, logistic regression and gradient-boosted trees for binary classification. Results depend on the data. New models are in development.",
+    "Sirius currently trains a few simple models on tabular data; the profiles on offer are listed in the documentation. Results depend on the data. New models are in development.",
   );
   assert.equal(
     disclaimerText("contactUs", t),
@@ -32,7 +32,7 @@ test("les cinq textes anglais sont ceux de 16-socle-technique.md, section 4", ()
   assert.equal(disclaimerText("betaLimits", t), "Beta: instant on-chain wallet verification, capped amounts per loan and in total.");
   assert.equal(
     disclaimerText("retrainDeterministic", t),
-    "Linear and logistic regression are deterministic: retraining on the same data gives the same model.",
+    "Training is deterministic: retraining on the same data gives the same model.",
   );
   assert.equal(
     disclaimerText("dataLimits", t),

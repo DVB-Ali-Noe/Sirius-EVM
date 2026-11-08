@@ -39,6 +39,8 @@ before(() => {
     EVM_NETWORK: "testnet",
     SIRIUS_APP_ORIGIN: ORIGIN,
     SIRIUS_ESCROW_ADDRESS: `0x${"34".repeat(20)}`,
+    // Fixture linéaire : profil facultatif depuis D-31, activé explicitement.
+    NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "linear_regression",
     ...R2,
   });
 });

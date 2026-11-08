@@ -171,9 +171,13 @@ model Loan {
   extendsLoan     Loan?   @relation("LoanExtensions", fields: [extendsLoanId], references: [id], onDelete: Restrict)
   extensions      Loan[]  @relation("LoanExtensions")
 
-  // API développeurs (D-30) : pack d'appels prépayé → prêt d'origine crédité.
+  // API développeurs (D-30) : pack d'appels prépayé → prêt d'origine crédité. Pass d'accès API
+  // (D-32) : même prêt rattaché (`packForLoanId`), avec `apiAccessDays` au lieu de `callPack`.
   callPack        Int? // 100, 1 000 ou 10 000 appels ; null hors pack
-  packForLoanId   String? // prêt de pack → prêt d'origine
+  apiAccessDays   Int? // jours d'accès API payés ; null hors pass
+  apiAccessRefusedAt DateTime? // prêt de pass refusé pour toujours par l'enclave (base du prix changée) : jamais repris, remboursable à l'échéance
+  apiPaidUntil    DateTime? // prêt d'origine : fin de l'accès API payé, renvoyée par l'enclave au règlement des passes
+  packForLoanId   String? // prêt de pack ou de pass → prêt d'origine
   packForLoan     Loan?    @relation("LoanCallPacks", fields: [packForLoanId], references: [id], onDelete: Restrict)
   callPacks       Loan[]   @relation("LoanCallPacks")
   apiKeys         ApiKey[]
@@ -369,13 +373,24 @@ model ApiUsageDay {
 }
 
 /// État de la CVM tenu par le contrôleur de disponibilité (une seule ligne, id = 1).
-/// `requestedUntil` : réveil demandé par une action wallet de l'emprunteur d'un prêt loué.
+/// `requestedUntil` : réveil demandé par une action wallet authentifiée ou l'API publique (D-30).
 model RunnerAvailability {
   id             Int       @id @default(1)
   phase          String // stopped | starting | running | stopping
   since          DateTime
   requestedUntil DateTime?
   updatedAt      DateTime  @updatedAt
+}
+
+/// Budget de réveil de la CVM par compte (D-30, « budget de réveil ») : fenêtres fixes d'une heure
+/// et d'un jour, dépensées atomiquement par `spendWakeBudget`. `subject` : adresse en minuscules.
+/// Ligne purgée par le reaper une fois ses deux fenêtres échues (au plus un jour après la dernière dépense).
+model RunnerWakeBudget {
+  subject   String   @id
+  hourStart DateTime
+  hourCount Int
+  dayStart  DateTime
+  dayCount  Int
 }
 
 /// Réputation dérivée des events on-chain (calcul léger au MVP).

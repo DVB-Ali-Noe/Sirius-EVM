@@ -8,11 +8,14 @@ import { useDuplicateLoanConfirmation } from "@/components/loans/DuplicateLoanDi
 import { DisclaimerNote } from "@/components/ui/DisclaimerNote";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
-import { modelSelection } from "@/lib/models/registry";
+import { isModelOffered, modelSelection } from "@/lib/models/registry";
 import { useWalletStore } from "@/stores/wallet";
+import { EnclaveStartingSteps } from "./EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 type Listing =
   | { status: "loading" }
@@ -46,6 +49,8 @@ export function RetrainPanel({
   const [open, setOpen] = useState(false);
   const [listing, setListing] = useState<Listing>({ status: "loading" });
   const [busy, setBusy] = useState(false);
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [chosenDays, setChosenDays] = useState(MIN_RENTAL_DAYS);
   const mounted = useRef(true);
   const inFlight = useRef(false);
@@ -78,7 +83,9 @@ export function RetrainPanel({
   const fee = detail?.dataset.computeFee;
   const maxRentalDays = detail?.dataset.maxRentalDays ?? MIN_RENTAL_DAYS;
   const rentalDays = Math.min(chosenDays, maxRentalDays);
-  const canConfirm = listing.status === "ready" && Boolean(model) && Boolean(price) && !busy;
+  // Profil retiré pour un nouvel usage (D-31) : un nouveau prêt serait refusé.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
+  const canConfirm = listing.status === "ready" && Boolean(model) && !withdrawn && Boolean(price) && !busy;
 
   async function confirm() {
     if (inFlight.current || !detail || !price || !model) return;
@@ -93,10 +100,15 @@ export function RetrainPanel({
     inFlight.current = true;
     setBusy(true);
     let borrowed = false;
+    const signal = unmountSignal();
     try {
-      borrowed = await borrowDataset({ datasetId, priceUsdcAtomic: price, rentalDays, confirmQuote });
+      borrowed = await retryWhileEnclaveStarts(
+        () => borrowDataset({ datasetId, priceUsdcAtomic: price, rentalDays, confirmQuote }),
+        { onWaiting: (seconds) => { if (mounted.current) setEnclaveRetry(seconds); }, signal },
+      );
     } catch (err) {
-      onError(messageOf(err));
+      // Panneau démonté pendant l'attente : rien à signaler au parent, la demande est abandonnée.
+      if (!(signal.aborted && err === signal.reason)) onError(messageOf(err));
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy(false);
@@ -142,6 +154,7 @@ export function RetrainPanel({
             </p>
           )}
           {detail && !model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
+          {withdrawn && <p className="text-xs text-negative">{t("Ce profil d’entraînement n’est plus proposé : ce dataset ne peut plus être emprunté.")}</p>}
           {detail && price && (
             <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={setChosenDays} disabled={busy} />
           )}
@@ -155,6 +168,14 @@ export function RetrainPanel({
             <p className="text-xs text-muted">
               {t("Frais de calcul indicatifs pour ce modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.")}
             </p>
+          )}
+          {enclaveRetry !== null && (
+            <EnclaveStartingSteps
+              phase="starting"
+              retryInSeconds={enclaveRetry}
+              testId="retrain-enclave-starting"
+              closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+            />
           )}
           <div className="flex flex-wrap items-center gap-3">
             <button

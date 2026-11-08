@@ -581,8 +581,9 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Montant par carte invalide : entre 5 et 10 000 USD": "Invalid card amount: between 5 and 10,000 USD",
   "Montant du pont invalide : entre 1 et 100 000 USDC": "Invalid bridge amount: between 1 and 100,000 USDC",
   // API développeurs (D-30) : clés, packs d’appels, API publique, disponibilité de l’enclave
-  "Enclave en cours de démarrage : réessaie dans environ 60 s": "The enclave is starting: try again in about 60 s",
-  "Enclave à l’arrêt, démarrage sous quelques minutes : réessaie dans environ 120 s": "The enclave is stopped and will start within a few minutes: try again in about 120 s",
+  "Enclave en cours de démarrage : réessaie dans environ 30 s": "The enclave is starting: try again in about 30 s",
+  "Enclave à l’arrêt, démarrage sous quelques minutes : réessaie dans environ 45 s": "The enclave is stopped and will start within a few minutes: try again in about 45 s",
+  "Trop de démarrages de l’enclave demandés par ce compte — réessaie plus tard": "Too many enclave starts requested by this account — try again later",
   "API indisponible pour la régression linéaire (le modèle serait reconstructible)": "API unavailable for linear regression (the model could be reconstructed)",
   "Prolongation ou pack d’appels : utilise le prêt d’origine": "Extension or call pack: use the original loan",
   "Prêt sans durée de location : API indisponible": "Loan without a rental duration: API unavailable",

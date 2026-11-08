@@ -288,6 +288,8 @@ export interface DetailResponse {
   kybAvailable: boolean;
   /** Version de facturation : décide du texte « en cas d'échec » (retenue mesurée en v7 seulement). */
   billingMode: BillingMode;
+  /** Tarif journalier de l'API incluse à l'emprunt (D-32), ajouté par la route ; `null` : pas en vente pour ce profil. */
+  apiAccessDailyFeeAtomic?: string | null;
 }
 
 /** Fiche d'un dataset en ligne ; `null` pour tout autre état (pause, expiré, détruit, privé, inconnu). */

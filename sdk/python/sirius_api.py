@@ -1,9 +1,11 @@
 """SDK Python de l'API développeurs Sirius (D-30). Bibliothèque standard uniquement.
 
 Chaque requête est signée en HMAC-SHA256 avec le secret de la clé
-(``sk_live_<keyId>.<secret>``) ; le secret ne voyage jamais. Quand l'enclave
-démarre, l'API répond ``503 enclave_starting`` avec ``Retry-After`` : le client
-attend et réessaie (nouvelle signature) jusqu'à ``max_retry_wait_seconds``.
+(``sk_live_<keyId>.<secret>``) ; le secret ne voyage jamais. L'enclave ne tourne
+que pendant l'usage : le premier appel après une pause (environ une heure sans
+activité) peut prendre environ 2 minutes, l'API répondant ``503 enclave_starting``
+avec ``Retry-After`` : le client attend et réessaie seul (nouvelle signature)
+jusqu'à ``max_retry_wait_seconds`` (8 min par défaut).
 
 Usage ::
 
@@ -32,13 +34,14 @@ from typing import Any, Callable, Dict, Optional
 SIRIUS_API_BASE_URL = "https://api.sirius-data.tech"
 # Doit rester identique à API_SIGNING_PREFIX (src/lib/billing/api-pricing.ts).
 SIRIUS_SIGNING_PREFIX = "SIRIUS-HMAC-SHA256"
-DEFAULT_MAX_RETRY_WAIT_SECONDS = 300
+# Démarrage à froid mesuré : environ 2 min, jusqu'à 5 min ; marge pour les relances espacées par Retry-After.
+DEFAULT_MAX_RETRY_WAIT_SECONDS = 480
 DEFAULT_RETRY_AFTER_SECONDS = 15
 _API_KEY = re.compile(r"^sk_live_([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$")
 
 
 class SiriusApiError(Exception):
-    """Erreur renvoyée par l'API : ``code`` stable (``quota_exceeded``, ``enclave_starting``…)."""
+    """Erreur renvoyée par l'API : ``code`` stable (``quota_exceeded``, ``api_access_required``, ``enclave_starting``…)."""
 
     def __init__(self, message: str, code: str, status: int, retry_after_seconds: Optional[int] = None):
         super().__init__(message)

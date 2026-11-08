@@ -97,7 +97,7 @@ for (const screen of [
       await expect(page.getByRole("heading", { name: "Demo and confidentiality" })).toBeVisible();
       await expect(page.locator("main [role=note]")).toContainText("there is no hardware enclave");
       await expect(page.getByRole("heading", { name: "Dataset training profile" })).toBeVisible();
-      await expect(page.locator("#profils")).toContainText("linear_regression · v1.0.0");
+      await expect(page.locator("#profils")).not.toContainText("linear_regression");
       await expect(page.locator("#profils")).toContainText("logistic_regression · v1.0.0");
       await expect(page.locator("main figure svg")).toHaveCount(3);
       await expectReadableDiagrams(page);
@@ -134,7 +134,7 @@ test("la page API développeurs explique la signature, les erreurs, les réessai
   await expect(page.locator("#erreurs")).toContainText("enclave_starting");
   await expect(page.locator("#erreurs")).toContainText("quota_exceeded");
   await expect(page.locator("#reessais")).toContainText("Retry-After");
-  await expect(page.locator("#limites")).toContainText("Linear regression has no API");
+  await expect(page.locator("#limites")).toContainText("Even if re-enabled, it would have no API");
   await page.getByRole("tab", { name: "Python" }).click();
   await expect(page.getByRole("tabpanel")).toContainText("from sirius_api import SiriusClient");
   await page.getByRole("tab", { name: "curl" }).click();

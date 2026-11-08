@@ -7,6 +7,12 @@ info:
     Programmatic access to the models you rent on Sirius. The model stays sealed in an Intel TDX
     enclave; every answer is signed by the enclave (EIP-712 `SiriusPrediction`).
 
+    **Access (D-32).** API access is paid per day: include it when renting (one quote, one payment)
+    or buy a daily API pass later on the Train page. Without paid access covering the current time,
+    every call answers `403 api_access_required`. A pass covers up to the rental end. An extension
+    automatically includes the API for the added days when paid access (included at rental or
+    through passes) reaches the current rental end; otherwise buy a top-up pass for the new days.
+
     **Authentication.** Every request carries four headers. The signature is a lowercase hex
     HMAC-SHA256 over the canonical string below, keyed with the 32 raw bytes of your secret
     (base64url-decoded). Your full key is shown once when you create it: `sk_live_<keyId>.<secret>`.
@@ -23,11 +29,15 @@ info:
     Lines are joined with `\n`, no trailing newline. The timestamp must be within ±300 s of the
     enclave clock; each nonce is accepted once.
 
-    **Enclave start.** The confidential machine is stopped when idle. While it starts, the API
-    answers `503` with `code: enclave_starting` and a `Retry-After` header: wait and send a new
-    signed request (new timestamp and nonce). The official SDKs do this for you.
+    **Enclave start.** The confidential machine only runs while it is used and stops about one hour
+    after the last activity. The first call after a pause starts it and can take about 2 minutes
+    (up to 5 in rare cases): the API answers `503` with `code: enclave_starting` and a
+    `Retry-After` header; wait and send a new signed request (new timestamp and nonce). The
+    official SDKs retry automatically, up to 8 minutes of cumulative wait by default. An unknown
+    or revoked key, or an expired rental, never starts it.
 
-    **Limits.** Linear regression models have no API access (a few calls would reconstruct them).
+    **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
+    its models have no API access (a few calls would reconstruct them).
     Outputs are a 0/1 decision or a rounded value, never a probability. Quota: the profile's
     included calls per day (shared with the website), then prepaid call packs (100 / 1,000 /
     10,000), which expire with the rental and are not refundable.
@@ -185,6 +195,7 @@ components:
                 - key_revoked
                 - unknown_key
                 - rental_expired
+                - api_access_required
                 - quota_exceeded
                 - api_not_available_for_profile
                 - invalid_features
@@ -214,7 +225,8 @@ components:
     Error:
       description: |
         `invalid_signature` (also missing or malformed `Sirius-*` headers), `request_expired`,
-        `unknown_key`, `key_revoked` → 401; `rental_expired` → 403; `not_found` (unknown loan)
+        `unknown_key`, `key_revoked` → 401; `rental_expired`, `api_access_required` (no paid daily
+        API pass covering now) → 403; `not_found` (unknown loan)
         → 404; `replayed_request`, `api_not_available_for_profile`, `model_unavailable` (loan not
         settled) → 409; `invalid_features`, `invalid_request` → 400; `payload_too_large` (body
         over 16 KiB) → 413; `unsupported_media_type` → 415; `quota_exceeded` (daily quota used up

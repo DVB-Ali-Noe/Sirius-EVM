@@ -14,7 +14,7 @@ import { activateRunnerDelegation, beginRunnerDelegation, issueRunnerGrant } fro
 import { buildDelegationMessage } from "@/lib/runner/authorization-contract";
 import { issueRunnerCapability } from "@/lib/runner/capability";
 import { issueLoanReceipt } from "@/lib/runner/receipt";
-import { creditCallPack } from "@/lib/runner/prediction-usage";
+import { creditCallPack, recordApiAccessPass } from "@/lib/runner/prediction-usage";
 import { runnerBudget } from "@/lib/runner/budget";
 import { initializeBudgetLedger } from "@/lib/runner/budget-ledger";
 import { verifyApiSignature } from "@/lib/runner/api-signature";
@@ -80,7 +80,7 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
   for (const key of ["RUNNER_BUDGET_FILE", "RUNNER_REPLAY_DIR", "RUNNER_URL"]) delete process.env[key];
   const profile = { computeAmount: "7000000", maxFailureFee: "100000", executionRateAtomicPerMs: "1", maxExecutionMs: 10_000 };
   writeFileSync(process.env.RUNNER_BILLING_POLICY_FILE!, JSON.stringify({
-    version: 1, tariffVersion: "api-test", costReference: "synthetic", validUntil: Date.now() + DAY_MS,
+    version: 1, tariffVersion: "api-test", costReference: "synthetic", validUntil: Date.now() + 7 * DAY_MS,
     chainId: evmEscrowBinding().chainId, usdc: `0x${"56".repeat(20)}`, usdcDecimals: 6, computeRecipient: `0x${"78".repeat(20)}`,
     minimumComputeAmount: "7000000", noTrainingComputeAmount: "100000",
     apiCallsPerDay: { logistic_regression: 2, gradient_boosted_trees: 100 },
@@ -91,7 +91,7 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
   process.env.RUNNER_BUDGET_FILE = join(root, "ledger.sqlite");
   initializeBudgetLedger(process.env.RUNNER_BUDGET_FILE, {
     version: 1, chainId: evmEscrowBinding().chainId, wallet: owner, accountingReference: "fixture-synthetic-not-revenue",
-    validUntil: Date.now() + DAY_MS, earnedMarginUsdMicros: "1000", cashUsdMicros: "1000", fixedReserveUsdMicros: "100",
+    validUntil: Date.now() + 7 * DAY_MS, earnedMarginUsdMicros: "1000", cashUsdMicros: "1000", fixedReserveUsdMicros: "100",
     costsUsdMicros: { request: "1", seal: "50", training: "100" },
     gas: { totalWei: "200000000000", maxTransactionWei: "100000000000", maxGas: "100000", maxFeePerGasWei: "1000000", ethUsdMicrosUpperBound: "5000000000", confirmations: 2 },
     maxFailures: 3, maxActive: 8,
@@ -117,9 +117,11 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     const receipts: Record<string, string> = {};
     const expiries: Record<string, number> = {};
     const settleTxHash = `0x${"cd".repeat(32)}`;
-    function loan(loanId: string, model: DeliveredModel, expiresAt = Date.now() + DAY_MS) {
+    // Chaque prêt de la fixture porte un pass d'accès API (D-32) jusqu'à son échéance, sauf `paid = false`.
+    function loan(loanId: string, model: DeliveredModel, expiresAt = Date.now() + DAY_MS, paid = true) {
       saveServedModel({ kind: "loan", id: loanId }, owner, model);
       expiries[loanId] = recordLoanExpiry(loanId, expiresAt);
+      if (paid) recordApiAccessPass({ passLoanId: `pass-${loanId}`, originalLoanId: loanId, subject: owner, days: 1, releasedAt: Date.now(), rentalExpiresAt: expiresAt });
       receipts[loanId] = issueLoanReceipt({ loanId, datasetId: "dataset-1", borrower: owner, provider: `0x${"56".repeat(20)}`,
         modelCid: servedModelFingerprint(model), loanKey: `0x${"ab".repeat(32)}`, chainId, escrow, amountUsdcAtomic: "1",
         challengeDays: 1, modelId: model.algo, modelVersion: model.version, attestationHash: "a".repeat(64) });
@@ -130,6 +132,7 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     loan("loan-short", logistic, Date.now() + 60 * 60_000);
     loan("loan-past", logistic, Date.now() - 1);
     loan(vector.loanId, fixtureModel);
+    loan("loan-unpaid", logistic, Date.now() + 2 * DAY_MS, false);
 
     async function call<T>(op: Parameters<typeof handleRunnerOp>[0], body: Record<string, unknown>): Promise<T> {
       try {
@@ -283,6 +286,32 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     await assert.rejects(predict(signed(linearKey, "loan-lin", "predict")), rejection("api_not_available_for_profile", 409));
     await assert.rejects(info(signed(linearKey, "loan-lin", "info")), rejection("api_not_available_for_profile", 409));
 
+    // --- Pass d'accès API (D-32) : sans journée payée couvrant l'instant, ni clé, ni appel. ---
+    const unpaidKey = newKey();
+    await assert.rejects(register("loan-unpaid", unpaidKey), rejection("api_access_required", 403), "pas de clé sans pass");
+    secrets.push(unpaidKey.secret);
+    registerApiKey({ loanId: "loan-unpaid", keyId: unpaidKey.keyId, owner, secret: unpaidKey.secret });
+    await assert.rejects(predict(signed(unpaidKey, "loan-unpaid", "predict")), rejection("api_access_required", 403));
+    await assert.rejects(info(signed(unpaidKey, "loan-unpaid", "info")), rejection("api_access_required", 403));
+    const siteFeatures = { x: 2, y: 0 };
+    const siteOnly = await call<SignedPrediction>("predict", { modelRef: { kind: "loan", id: "loan-unpaid" }, features: siteFeatures,
+      loanReceipt: receipts["loan-unpaid"], settleTxHash,
+      authorization: await issueRunnerGrant("predict", { loanId: "loan-unpaid" }, ["loan", "loan-unpaid", JSON.stringify(siteFeatures)]) });
+    assert.equal(siteOnly.counter, 1, "la prédiction du site reste incluse sans pass");
+    // Pass d'un jour sur une location de deux : couvert jusqu'à release + 1 jour, refusé au-delà.
+    const releasedAt = Date.now();
+    const coverage = recordApiAccessPass({ passLoanId: "pass-unpaid", originalLoanId: "loan-unpaid", subject: owner, days: 1, releasedAt,
+      rentalExpiresAt: expiries["loan-unpaid"] });
+    assert.equal(coverage, releasedAt + DAY_MS);
+    assert.equal(recordApiAccessPass({ passLoanId: "pass-unpaid", originalLoanId: "loan-unpaid", subject: owner, days: 1, releasedAt: releasedAt + 5,
+      rentalExpiresAt: expiries["loan-unpaid"] }), coverage, "pass rejoué : couverture inchangée");
+    assert.equal((await predict(signed(unpaidKey, "loan-unpaid", "predict"))).counter, 2);
+    assert.equal((await info(signed(unpaidKey, "loan-unpaid", "info"))).loanId, "loan-unpaid");
+    Date.now = () => coverage + 1;
+    assert.ok(Date.now() < expiries["loan-unpaid"], "location encore en cours");
+    await assert.rejects(predict(signed(unpaidKey, "loan-unpaid", "predict")), rejection("api_access_required", 403), "après la fin de la couverture");
+    Date.now = originalNow;
+
     // --- Révocation : grant de l'emprunteur, idempotente, la clé est refusée ensuite. ---
     const revoke = async (loanId: string, keyId: string) => call<{ keyId: string; revokedAt: number }>("revoke-api-key", {
       loanId, keyId, authorization: await issueRunnerGrant("revoke-api-key", { loanId }, [loanId, keyId]) });
@@ -291,7 +320,7 @@ test("API développeurs : clés scellées, requêtes signées HMAC, quota du jou
     assert.deepEqual(await revoke("loan-1", key.keyId), revoked);
     await assert.rejects(predict(signed(key, "loan-1", "predict")), rejection("key_revoked", 401));
     await assert.rejects(info(signed(key, "loan-1", "info")), rejection("key_revoked", 401));
-    assert.equal(allocated(), BigInt(1), "révocation et refus API : toujours aucune allocation");
+    assert.equal(allocated(), BigInt(2), "révocation et refus API : aucune allocation (seules les deux prédictions du site en ont une)");
 
     // --- HTTP : le code stable traverse le serveur runner. ---
     const unknown = signed(newKey(), "loan-1", "predict");

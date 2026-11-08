@@ -4,8 +4,10 @@
  *
  * Chaque requête est signée en HMAC-SHA256 avec le secret de la clé (`sk_live_<keyId>.<secret>`).
  * Le secret ne voyage jamais : seule la signature part, avec l'identifiant de clé, l'horodatage et
- * un nonce à usage unique. Quand l'enclave démarre, l'API répond `503 enclave_starting` avec
- * `Retry-After` ; le client attend et réessaie (nouvelle signature) jusqu'à `maxRetryWaitMs`.
+ * un nonce à usage unique. L'enclave ne tourne que pendant l'usage : le premier appel après une
+ * pause (environ une heure sans activité) peut prendre environ 2 minutes, l'API répondant
+ * `503 enclave_starting` avec `Retry-After` ; le client attend et réessaie seul (nouvelle
+ * signature) jusqu'à `maxRetryWaitMs` (8 min par défaut).
  *
  * Usage :
  *   const sirius = new SiriusClient({ apiKey: process.env.SIRIUS_API_KEY! });
@@ -16,7 +18,8 @@
 export const SIRIUS_API_BASE_URL = "https://api.sirius-data.tech";
 /** Doit rester identique à `API_SIGNING_PREFIX` (src/lib/billing/api-pricing.ts). */
 export const SIRIUS_SIGNING_PREFIX = "SIRIUS-HMAC-SHA256";
-const DEFAULT_MAX_RETRY_WAIT_MS = 5 * 60_000;
+/** Démarrage à froid mesuré : environ 2 min, jusqu'à 5 min ; marge pour les relances espacées par `Retry-After`. */
+const DEFAULT_MAX_RETRY_WAIT_MS = 8 * 60_000;
 const DEFAULT_RETRY_AFTER_SECONDS = 15;
 
 /** Codes d'erreur stables renvoyés par l'API (`{ error: { code, message } }`). */
@@ -27,6 +30,7 @@ export type SiriusErrorCode =
   | "key_revoked"
   | "unknown_key"
   | "rental_expired"
+  | "api_access_required"
   | "quota_exceeded"
   | "api_not_available_for_profile"
   | "invalid_features"
@@ -169,7 +173,7 @@ export interface SiriusClientOptions {
   apiKey: string;
   /** Défaut `https://api.sirius-data.tech`. Hors de cet hôte : `https://<site>/api`. */
   baseUrl?: string;
-  /** Attente cumulée maximale sur `503 enclave_starting` (défaut 5 min ; 0 = jamais réessayer). */
+  /** Attente cumulée maximale sur `503 enclave_starting` (défaut 8 min ; 0 = jamais réessayer). */
   maxRetryWaitMs?: number;
   fetch?: typeof fetch;
   /** Horloge et attente injectables (tests). */

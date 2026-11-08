@@ -15,7 +15,7 @@ const valid = {
   category: "Mobility",
   listingDays: 30,
   trainingConsent: false,
-  modelId: "linear_regression",
+  modelId: "logistic_regression",
 };
 
 function parsed(body: unknown) {
@@ -43,7 +43,7 @@ test("un corps valide est normalisé et le délai de sécurité forcé à 3 jour
     category: "Mobility",
     listingDays: 30,
     trainingConsent: false,
-    model: { modelId: "linear_regression", modelVersion: "1.0.0" },
+    model: { modelId: "logistic_regression", modelVersion: "1.0.0" },
     challengeDays: ESCROW_CHALLENGE_DAYS,
   });
   assert.equal(value.challengeDays, 3);
@@ -104,6 +104,22 @@ test("nom, description, taille, prix et profil gardent leurs bornes", () => {
     refused({ ...valid, modelId }, "Profil d’entraînement obligatoire");
   }
   assert.deepEqual(parsed({ ...valid, modelId: "logistic_regression" }).model, { modelId: "logistic_regression", modelVersion: "1.0.0" });
+});
+
+test("la régression linéaire n'est publiable que si elle est activée (D-31)", () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  try {
+    for (const optIn of [undefined, "gradient_boosted_trees"]) {
+      if (optIn === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+      else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = optIn;
+      refused({ ...valid, modelId: "linear_regression" }, "Profil d’entraînement obligatoire");
+    }
+    process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
+    assert.deepEqual(parsed({ ...valid, modelId: "linear_regression" }).model, { modelId: "linear_regression", modelVersion: "1.0.0" });
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
 });
 
 test("la durée maximale de location est un entier de 1 à 365 jours, obligatoire", () => {

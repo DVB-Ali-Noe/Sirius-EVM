@@ -21,9 +21,11 @@ import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-str
 import { uploadAndPublishLargeDataset } from "@/lib/datasets/large-upload-client";
 import { blobSource } from "@/lib/upload/chunked-transfer";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { DEFAULT_MODEL_SELECTION } from "@/lib/models/registry";
 import { DataStep, exampleDatasetPath } from "./DataStep";
 import { PricingStep } from "./PricingStep";
 import { type DataValues, type LoadedFile, type StepState } from "./wizard-types";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 interface NewDatasetWizardProps {
   tariff: PublishedTariff | null;
@@ -58,7 +60,7 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
   const router = useRouter();
   const { t } = useLocale();
   const [phase, setPhase] = useState<Phase>("data");
-  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: "linear_regression" });
+  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: DEFAULT_MODEL_SELECTION.modelId });
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [fileRejection, setFileRejection] = useState<CsvRejection | null>(null);
   const [readingFile, setReadingFile] = useState(false);
@@ -78,6 +80,9 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
   const [progress, setProgress] = useState<Record<UploadStep, StepState>>(PENDING_PROGRESS);
   const [stage, setStage] = useState<PublishDatasetStage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Enclave à l'arrêt : la création du brouillon la réveille ; secondes avant le prochain essai.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [sealedDatasetId, setSealedDatasetId] = useState<string | null>(null);
   const readToken = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -306,8 +311,10 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
       trainingConsent: consent,
     };
     try {
-      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress);
-      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress);
+      // Page quittée : l'attente de l'enclave et l'envoi s'arrêtent (un gros envoi interrompu est fermé).
+      const options = { onEnclaveWaiting: setEnclaveRetry, signal: unmountSignal() };
+      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress, options);
+      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress, options);
       setProgress({ draft: "done", encrypt: "done", seal: "done", register: "done" });
       router.push("/datasets");
     } catch (cause) {
@@ -440,6 +447,7 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
             progress={progress}
             stage={stage}
             uploadSent={uploadSent}
+            enclaveRetry={enclaveRetry}
             error={error}
             sealedDatasetId={sealedDatasetId}
             onBack={() => {

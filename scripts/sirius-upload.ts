@@ -7,7 +7,7 @@
  *   SIRIUS_URL=https://… SIRIUS_PRIVATE_KEY=0x… SIRIUS_INGRESS_KEY_SHA256=… \
  *     pnpm upload:cli data.csv --name "Transactions 2025" --category finance --price 10
  *
- * Options : --model (linear_regression par défaut), --description, --max-rental-days (30),
+ * Options : --model (profil par défaut du registre, `logistic_regression`), --description, --max-rental-days (30),
  * --listing-days (30), --consent (consentement à l'amélioration des modèles).
  * `SIRIUS_INGRESS_KEY_SHA256` épingle la clé de l'enclave : obligatoire hors localhost.
  * `SIRIUS_COOKIE` ajoute un cookie (porte d'aperçu d'un déploiement de test).
@@ -21,10 +21,11 @@ import { csvRejectionText } from "@/lib/datasets/csv-check";
 import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-stream";
 import { checkDraftResponse } from "@/lib/datasets/draft-response";
 import { DATASET_CATEGORIES, type DatasetCategory, type ListingDurationDays } from "@/lib/datasets/publication";
-import { MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
+import { DEFAULT_MODEL_SELECTION, MODEL_OPTIONS, type ModelId } from "@/lib/models/registry";
 import { priceUsdcToAtomic } from "@/lib/evm/usdc";
 import { encodeBase64Url } from "@/lib/upload/chunked";
 import { sendChunkedDataset, type ChunkedFileSource, type ChunkedTransferApi } from "@/lib/upload/chunked-transfer";
+import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 
 const GRANT_TTL_MS = 60_000;
 
@@ -75,7 +76,7 @@ async function main() {
       description: { type: "string" },
       category: { type: "string" },
       price: { type: "string" },
-      model: { type: "string", default: "linear_regression" },
+      model: { type: "string", default: DEFAULT_MODEL_SELECTION.modelId },
       "max-rental-days": { type: "string", default: "30" },
       "listing-days": { type: "string", default: "30" },
       consent: { type: "boolean", default: false },
@@ -174,20 +175,28 @@ async function main() {
       return { delegation, payload, signature: encodeBase64Url(new Uint8Array(signature)) };
     };
 
-    // 3. Brouillon, avec relecture des termes avant de chiffrer quoi que ce soit.
+    // 3. Brouillon, avec relecture des termes avant de chiffrer quoi que ce soit. Enclave à l'arrêt :
+    // la route demande son démarrage et répond 503 `enclave_starting` sans rien créer ; on relance.
+    const onEnclaveWaiting = (seconds: number | null) => {
+      if (seconds !== null) console.log(`L'enclave démarre (quelques minutes) : nouvel essai dans ~${seconds} s…`);
+    };
     const draft = checkDraftResponse(
-      await json(await post("/api/datasets", {
-        name: values.name,
-        description: values.description || undefined,
-        sizeBytes: source.sizeBytes,
-        priceUsdc: values.price,
-        category,
-        maxRentalDays,
-        listingDays,
-        trainingConsent: values.consent,
-        modelId,
-        transfer: "chunked",
-      })),
+      await retryWhileEnclaveStarts(async () => {
+        const response = await post("/api/datasets", {
+          name: values.name,
+          description: values.description || undefined,
+          sizeBytes: source.sizeBytes,
+          priceUsdc: values.price,
+          category,
+          maxRentalDays,
+          listingDays,
+          trainingConsent: values.consent,
+          modelId,
+          transfer: "chunked",
+        });
+        if (!response.ok) throw await responseError(response, `Requête refusée (HTTP ${response.status})`);
+        return (await response.json().catch(() => ({}))) as unknown;
+      }, { onWaiting: onEnclaveWaiting }),
       {
         priceUsdcAtomic,
         sizeBytes: source.sizeBytes,
@@ -210,6 +219,7 @@ async function main() {
         api: { request, put: (url, body, signal) => fetch(url, { method: "PUT", body, signal }) },
         verifyIngressKey,
         issueGrant,
+        onEnclaveWaiting,
         onProgress: (progress) => {
           if (progress.phase === "upload") process.stdout.write(`\rEnvoi ${progressBar(progress.sentBytes / progress.totalBytes)}`);
           else if (!sealing) {

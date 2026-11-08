@@ -111,13 +111,16 @@ export async function sealDatasetInRunner(
 
 /**
  * Durée de location choisie par l'emprunteur ; `extendsLoanId` pour un prêt de prolongation ;
- * `callPack` et `packForLoanId` (ensemble) pour un pack d'appels du prêt d'origine, dont il
- * reprend `rentalDays`.
+ * `packForLoanId` avec `callPack` (pack d'appels) ou `apiAccess` (pass d'accès API, D-32, jours
+ * calculés par l'enclave) pour un achat rattaché au prêt d'origine, dont il reprend `rentalDays`.
  */
 export interface LoanRentalRequest {
   rentalDays: number;
   extendsLoanId?: string;
   callPack?: CallPackSize;
+  apiAccess?: true;
+  /** Emprunt avec API incluse (D-32) ; pour une prolongation, l'enclave décide d'après la couverture. */
+  includeApiAccess?: true;
   packForLoanId?: string;
 }
 
@@ -133,6 +136,8 @@ export async function prepareEscrowLockInRunner(
     { ...dataset, datasetReceipt, loanId, borrower, authorizationDeadline, rentalDays: rental.rentalDays,
       ...(rental.extendsLoanId === undefined ? {} : { extendsLoanId: rental.extendsLoanId }),
       ...(rental.callPack === undefined ? {} : { callPack: rental.callPack }),
+      ...(rental.apiAccess === undefined ? {} : { apiAccess: true }),
+      ...(rental.includeApiAccess === undefined ? {} : { includeApiAccess: true }),
       ...(rental.packForLoanId === undefined ? {} : { packForLoanId: rental.packForLoanId }) });
 }
 
@@ -156,7 +161,7 @@ export async function settleLoanInRunner(
   lockBlock: string,
   authorization?: RunnerGrant,
   finalityTier?: FinalityTier,
-): Promise<{ settleTxHash: string; expiresAt?: number }> {
+): Promise<{ settleTxHash: string; expiresAt?: number; apiPaidUntil?: number }> {
   return dispatchRunner(
     "settle-loan",
     { loanId },
@@ -167,7 +172,8 @@ export async function settleLoanInRunner(
 /**
  * Prolongation d'une location : `loanReceipt` est le reçu du prêt d'ORIGINE, `billingQuote` le devis
  * du prêt de prolongation, verrouillé au bloc `lockBlock`. Le runner libère ce lock sans
- * entraînement et renvoie l'échéance en vigueur du prêt d'origine (ms epoch). Rejouable.
+ * entraînement et renvoie l'échéance en vigueur du prêt d'origine (ms epoch), et la fin de la
+ * couverture API quand le devis inclut l'API (D-32). Rejouable.
  */
 export async function extendLoanInRunner(input: {
   loanId: string;
@@ -177,7 +183,7 @@ export async function extendLoanInRunner(input: {
   lockBlock: string;
   authorization?: RunnerGrant;
   finalityTier?: FinalityTier;
-}): Promise<{ settleTxHash: string; expiresAt: number }> {
+}): Promise<{ settleTxHash: string; expiresAt: number; apiPaidUntil?: number }> {
   const { authorization, finalityTier, ...payload } = input;
   return dispatchRunner(
     "extend-loan",
@@ -191,9 +197,10 @@ export async function recoverLoanJobInRunner(loanId: string, billingQuote: Signe
 }
 
 /**
- * Pack d'appels (D-30) : `loanId` est le prêt de pack verrouillé au bloc `lockBlock`,
- * `loanReceipt` le reçu du prêt d'ORIGINE. Le runner libère ce lock sans entraînement et crédite
- * `callPack` appels au prêt d'origine une seule fois ; renvoie le solde de crédits. Rejouable.
+ * Pack d'appels (D-30) ou pass d'accès API (D-32) : `loanId` est le prêt de pack verrouillé au
+ * bloc `lockBlock`, `loanReceipt` le reçu du prêt d'ORIGINE. Le runner libère ce lock sans
+ * entraînement, puis crédite `callPack` appels (renvoie le solde `credits`) ou enregistre le pass
+ * (renvoie la fin de couverture `apiPaidUntil`, ms) une seule fois. Rejouable.
  */
 export async function buyCallsInRunner(input: {
   loanId: string;
@@ -203,7 +210,7 @@ export async function buyCallsInRunner(input: {
   lockBlock: string;
   authorization?: RunnerGrant;
   finalityTier?: FinalityTier;
-}): Promise<{ settleTxHash: string; credits: number }> {
+}): Promise<{ settleTxHash: string; credits?: number; apiPaidUntil?: number }> {
   const { authorization, finalityTier, ...payload } = input;
   return dispatchRunner(
     "buy-calls",

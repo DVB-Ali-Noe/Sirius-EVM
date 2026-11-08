@@ -4,11 +4,13 @@ import { afterEach, beforeEach, test } from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "@/lib/app-error";
+import * as profileAdmission from "@/lib/runner/profile-admission";
 import * as provenance from "@/lib/runner/provenance";
 import * as addresses from "@/lib/evm/address";
 import * as models from "@/lib/models/registry";
 import * as rentalRules from "@/lib/billing/rental";
 import * as apiPricing from "@/lib/billing/api-pricing";
+import * as reaperPolicy from "./reaper-policy";
 import type * as SelfTraining from "./self-train";
 
 function load<T>(file: string, dependencies: Record<string, unknown>): T {
@@ -44,7 +46,7 @@ function fixture() {
   const dataset = {
     id: "dataset", provider, status: "LISTED", ...runner, ipfsCid: "bafyDataset", merkleRoot: "44".repeat(32),
     wrappedKey: "wrapped", runnerReceipt: "receipt", priceUsdcAtomic: "100", evmDatasetId: `0x${"55".repeat(32)}`,
-    modelId: "linear_regression", modelVersion: "1.0.0", challengeDays: 7, maxRentalDays: 30,
+    modelId: "logistic_regression", modelVersion: "1.0.0", challengeDays: 7, maxRentalDays: 30,
   };
   const records: Record<string, unknown>[] = [];
   const updates: Record<string, unknown>[] = [];
@@ -61,7 +63,7 @@ function fixture() {
   };
   const common = {
     "server-only": {}, "@/lib/errors": { AppError },
-    "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
+    "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/models/registry": models,
     "@/lib/sirius/prediction": { modelFeaturesFromRunner: (value: string[]) => value },
     "@/lib/sirius/self-training-access": { phalaDemoInstance: () => true },
     "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
@@ -69,7 +71,7 @@ function fixture() {
       $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx),
       dataset: { findUnique: async () => dataset },
       trainingJob: { updateMany: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return { count: 1 }; } },
-      loan: { update },
+      loan: { update, count: async () => 0 },
     } },
   };
   return { dataset, records, updates, common };
@@ -98,6 +100,8 @@ test("le self-train persiste le runner choisi et refuse une autre identité avan
 
 test("le self-train garde le modèle scellé pour les trois profils : empreinte et reçu persistés, rien livré", async () => {
   const fingerprint = `sm1${"b".repeat(64)}`;
+  // Profils facultatifs activés : sans cela, Next refuse le self-train avant le runner (D-31).
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
   for (const [modelId, modelVersion] of [["linear_regression", "1.0.0"], ["logistic_regression", "1.0.0"], ["gradient_boosted_trees", "1.1.0"]]) {
     const { dataset, updates, common } = fixture();
     dataset.modelId = modelId;
@@ -121,6 +125,22 @@ test("le self-train garde le modèle scellé pour les trois profils : empreinte 
     assert.equal(updates[0].runnerReceipt, "job-receipt");
     for (const field of ["deliveryPublicKey", "deliveryEnvelope"]) assert.equal(Object.hasOwn(updates[0], field), false, field);
   }
+});
+
+test("D-31 : Next refuse un self-train linéaire tant que le profil n'est pas activé, avant le runner", async () => {
+  const { dataset, records, common } = fixture();
+  dataset.modelId = "linear_regression";
+  let executions = 0;
+  const api = load<typeof SelfTraining>("src/lib/sirius/self-train.ts", {
+    ...common,
+    "@/lib/tee/runner-client": { runSelfTrainingInRunner: async () => { executions++; } },
+    "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/evm/dataset": { assertDatasetScope: async () => {} },
+  });
+  await assert.rejects(api.runSelfTrain(dataset.id, provider, "job", dataset.runnerReceipt, {} as never),
+    { message: profileAdmission.OPT_IN_PROFILE_DISABLED });
+  assert.equal(executions, 0);
+  assert.equal(records.length, 0);
 });
 
 test("le self-train refuse un résultat runner d'un autre job ou sans empreinte", async () => {
@@ -148,7 +168,8 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     ...common, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => false },
     "@/lib/billing/quote": {}, "@/lib/billing/loan": {}, "@/lib/billing/rental": rentalRules, "./rental": {},
-    "./api-keys": {}, "@/lib/billing/api-pricing": apiPricing,
+    "./api-keys": {}, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
+    "@/lib/evm/networks": { resolveUsdcDecimals: () => 6 }, "./reaper-policy": reaperPolicy,
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},
     "@/lib/evm/client": { getPublicClient: () => ({ readContract: async () => true, getBlockNumber: async () => BigInt(10) }) },
@@ -194,7 +215,8 @@ test("le dépôt conserve l’identité d’ingestion et refuse un changement de
   };
   const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
     "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
-    "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
     "@/lib/db": { serializableTransaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }), prisma: { dataset: datasetStore, $transaction: async (fn: (tx: unknown) => unknown) => fn({ dataset: datasetStore }) } },
     "@/lib/tee/runner-client": {
@@ -230,7 +252,8 @@ test("un refus du runner supprime le brouillon vide ; une panne passagère le co
   };
   const api = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
     "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
-    "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance, "@/lib/sirius/access": { requireAcceptedKyb: async () => {} },
+    "@/lib/sirius/availability": { requireRunnerOrWake: async () => {} },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async () => {} },
     "@/lib/db": { serializableTransaction: async () => { throw new Error("inutile"); }, prisma: { dataset: datasetStore } },
     "@/lib/tee/runner-client": { sealDatasetInRunner: async () => { throw refusal; } },
@@ -260,7 +283,7 @@ test("le préflight de bascule refuse les ressources actives et compte les modè
     },
   }]));
   const api = load<typeof import("./runner-migration")>("src/lib/sirius/runner-migration.ts", {
-    "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/runner/provenance": provenance,
+    "server-only": {}, "@/lib/app-error": { AppError }, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "@/lib/db": { prisma: counters },
     "@/lib/runner/config": { assertApplicationRunnerConfiguration: () => {}, requiresPhalaRunner: () => true },
     "./escrow-upgrade": { checkEscrowUpgrade: async () => { escrowChecks++; } },

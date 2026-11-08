@@ -12,6 +12,7 @@ import { createDatasetDraft } from "@/lib/datasets/draft";
 import { billingEnabled } from "@/lib/billing/config";
 import { publishedTariff } from "@/lib/datasets/tariff-server";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 
 export const runtime = "nodejs";
 
@@ -89,7 +90,8 @@ async function listerDatasets(req: Request) {
  * 7 / 30 / 90 jours, consentement strictement booléen, prix par jour borné, durée maximale de
  * location (1 à 365 jours), profil connu. Le délai de sécurité de l'escrow n'est pas une entrée :
  * il vaut `ESCROW_CHALLENGE_DAYS` quoi que contienne le corps. La réponse renvoie `maxRentalDays`,
- * signé ensuite dans le reçu du runner (non modifiable après publication).
+ * signé ensuite dans le reçu du runner (non modifiable après publication). CVM éteinte : après ces
+ * contrôles et le KYB, réveil demandé et `503 enclave_starting` sans rien créer (`beginDatasetIngestion`).
  */
 export async function POST(req: Request) {
   try {
@@ -103,6 +105,6 @@ export async function POST(req: Request) {
     const upload = await createDatasetDraft(parsed.value, session.address);
     return NextResponse.json(upload, { status: 201 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

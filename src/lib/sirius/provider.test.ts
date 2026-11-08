@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "../app-error";
-import { addressesEqual, normalizeAddress } from "../evm/address";
+import { addressesEqual, isZeroAddress, normalizeAddress } from "../evm/address";
+import * as datasetKey from "../evm/dataset-key";
+import * as models from "../models/registry";
+import * as profileAdmission from "../runner/profile-admission";
+import type * as Provider from "./provider";
 
 /**
  * Deux formes coexistent pour une racine Merkle, et les confondre bloque tout.
@@ -99,6 +103,7 @@ function deletionFixture(options: {
     "@/lib/ipfs/pinata": { unpinFromIpfs: async (cid: string) => { unpins.push(cid); } },
     "@/lib/models/registry": {},
     "@/lib/runner/provenance": {},
+    "@/lib/runner/profile-admission": {},
     "@/lib/datasets/publication": {},
     "./access": {},
   };
@@ -116,6 +121,53 @@ function deletionFixture(options: {
     dataset, updates, reads, unpins,
   };
 }
+
+test("D-31 : un brouillon linéaire scellé ne reçoit plus de transaction de mint tant que le profil n'est pas activé", async () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  const draft = {
+    id: "draft-linear", provider: PROVIDER, status: "DRAFT", evmDatasetId: null, ipfsCid: "bafy-draft", merkleRoot: "ab".repeat(32),
+    wrappedKey: "wrapped", runnerReceipt: "receipt", sizeBytes: 1200, modelId: "linear_regression", modelVersion: "1.0.0",
+  };
+  const mints: unknown[] = [];
+  const dependencies: Record<string, unknown> = {
+    "server-only": {},
+    "@/lib/db": { prisma: { dataset: { findUnique: async () => ({ ...draft }) } } },
+    "@/lib/errors": { AppError },
+    "@/lib/evm/address": { addressesEqual, isZeroAddress, normalizeAddress },
+    "@/lib/evm/addresses": { datasetRegistryAddress: () => REGISTRY },
+    "@/lib/evm/networks": {},
+    "@/lib/evm/abi/siriusdatasetregistry": { siriusdatasetregistryAbi: [] },
+    // Aucun titre on-chain : la publication demanderait un nouveau mint.
+    "@/lib/evm/client": { getPublicClient: () => ({ readContract: async ({ functionName }: { functionName: string }) =>
+      functionName === "datasetIdOf" ? `0x${"c".repeat(64)}` : functionName === "isLive" ? false : { provider: `0x${"0".repeat(40)}` } }) },
+    "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
+    "@/lib/evm/dataset-key": datasetKey,
+    "@/lib/evm/transaction": { mintDatasetTransaction: (terms: unknown) => { mints.push(terms); return { to: REGISTRY, data: "0x" }; } },
+    "@/lib/ipfs/pinata": {},
+    "@/lib/models/registry": models,
+    "@/lib/runner/provenance": { assertCurrentRunner: async () => {} },
+    "@/lib/runner/profile-admission": profileAdmission,
+    "@/lib/datasets/publication": {},
+    "./access": { requireAcceptedKyb: async () => {} },
+  };
+  const exports = {};
+  runInNewContext(COMPILED, { exports, Date, console, process, require: (id: string) => {
+    assert.ok(Object.hasOwn(dependencies, id), `Dépendance non simulée : ${id}`);
+    return dependencies[id];
+  } });
+  const api = exports as Pick<typeof Provider, "prepareDatasetListing">;
+  try {
+    delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    await assert.rejects(api.prepareDatasetListing(draft.id, PROVIDER), { message: profileAdmission.OPT_IN_PROFILE_DISABLED, status: 400 });
+    assert.equal(mints.length, 0);
+    process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
+    assert.ok("transaction" in await api.prepareDatasetListing(draft.id, PROVIDER));
+    assert.equal(mints.length, 1, "réactivé par la seule variable");
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
+});
 
 test("un DELETED sans hash est finalisé après lecture du titre absent ou détruit", async () => {
   const fixture = deletionFixture();

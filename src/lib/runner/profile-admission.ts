@@ -18,8 +18,14 @@ export type ProfileAdmission = "offered" | "locked";
 export function requestedTrainingProfile(body: Record<string, unknown>, admission: ProfileAdmission = "offered"): ModelSelection {
   const selection = modelSelection(body.modelId, body.modelVersion);
   if (!selection) throw new AppError("Modèle ou version non autorisé", 400);
-  if (admission === "offered" && !isModelOffered(selection.modelId)) throw new AppError(OPT_IN_PROFILE_DISABLED, 400);
+  if (admission === "offered") assertOfferedProfile(selection);
   return selection;
+}
+
+/** Nouvel usage (dépôt, emprunt, prolongation, self-train) : même refus dans Next et dans l'enclave. */
+export function assertOfferedProfile(selection: ModelSelection, optInModels?: string): void {
+  // `undefined` laisse `isModelOffered` lire l'environnement.
+  if (!isModelOffered(selection.modelId, optInModels)) throw new AppError(OPT_IN_PROFILE_DISABLED, 400);
 }
 
 /**
@@ -30,7 +36,8 @@ export function requestedTrainingProfile(body: Record<string, unknown>, admissio
  * proposé quand l'acheteur a payé : on livre ce qui a été payé, ou, si le calcul échoue, le
  * remboursement immédiat `Failed` s'applique comme pour tout prêt v7.
  *
- * Un prêt v6 (sans devis) garde le refus : aucun profil facultatif n'y est tarifé.
+ * Un prêt v6 (sans devis) garde le refus (PAR-01), y compris un prêt linéaire payé avant D-31 :
+ * il est remboursé à l'échéance de l'escrow.
  */
 export function assertLockedProfile(
   selection: ModelSelection,

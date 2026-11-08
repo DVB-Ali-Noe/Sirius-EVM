@@ -122,6 +122,7 @@ export const EN_MESSAGES: Record<string, string> = {
   "Profil du dataset verrouillé": "Dataset profile locked",
   "Profil d’entraînement manquant": "Training profile missing",
   "Réimporte ce dataset avec un profil d’entraînement": "Upload this dataset again with a training profile",
+  "Ce profil d’entraînement n’est plus proposé : ce dataset ne peut plus être emprunté.": "This training profile is no longer offered: this dataset can no longer be borrowed.",
   "Modèle ou version non autorisé": "Model or version not allowed",
   "Profil d’entraînement facultatif non activé sur ce runner": "Optional training profile not enabled on this runner",
   "Écart train / held-out anormal : l’AUC held-out dépasse l’AUC d’entraînement au-delà de l’aléa (3 erreurs types). Vérifie l’ordre des lignes et l’absence de fuite de la cible.":

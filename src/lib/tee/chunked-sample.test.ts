@@ -118,7 +118,10 @@ test("un manifeste ou un morceau qui ne correspond pas au titre scellé est refu
   });
   await assert.rejects(chunkedTrainingSample(s.ref, s.uploadKey, flipped), /Intégrité Merkle invalide/);
   await assert.rejects(chunkedTrainingSample({ ...s.ref, merkleRoot: "0".repeat(64) }, s.uploadKey, memory(s)), /Intégrité Merkle invalide/);
-  await assert.rejects(chunkedTrainingSample({ ...s.ref, cid: s.ref.cid.replace(/.$/, "0") }, s.uploadKey, memory(s)), /Intégrité Merkle invalide/);
+  // Le CID change à chaque scellement : remplacer son dernier caractère par un autre, jamais par lui-même.
+  const tamperedCid = s.ref.cid.replace(/.$/, (last) => (last === "0" ? "1" : "0"));
+  assert.notEqual(tamperedCid, s.ref.cid);
+  await assert.rejects(chunkedTrainingSample({ ...s.ref, cid: tamperedCid }, s.uploadKey, memory(s)), /Intégrité Merkle invalide/);
   const rewritten = memory(s, (key, object) => {
     if (key !== manifestObjectKey(ids)) return object;
     const manifest = JSON.parse(Buffer.from(object).toString()) as ChunkedUploadManifest;

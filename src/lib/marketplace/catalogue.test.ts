@@ -283,6 +283,8 @@ function routeDeps(db: MarketplaceDb, extra: Partial<MarketplaceDeps> = {}) {
     "@/lib/marketplace/catalogue": catalogue,
     "@/lib/marketplace/query": query,
     "@/lib/marketplace/server": { marketplaceDeps: () => deps(db, extra) },
+    // API incluse à l'emprunt (D-32) : quota du profil et tarif journalier lus côté Next.
+    "@/lib/sirius/api-keys": { loanApiCallsPerDay: () => 50, loanApiAccessDailyFee: () => "1500000" },
   };
 }
 
@@ -347,6 +349,7 @@ test("GET /api/marketplace/[id] : fiche d'un dataset en ligne, 404 identique pou
   const body = await ok.json();
   assertNoPrivateData(body);
   assert.equal(body.dataset.id, "listed");
+  assert.equal(body.apiAccessDailyFeeAtomic, "1500000", "tarif journalier de l'API incluse exposé");
   assert.deepEqual(await (await call("listed", withCookie("https://test.invalid/api/marketplace/listed"))).json(), body);
 
   for (const id of ["expired", "paused", "private", "destroyed", "key-gone", "draft", "inexistant", "../datasets", "a".repeat(65), "", "x y", "%00"]) {

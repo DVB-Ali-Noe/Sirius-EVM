@@ -16,7 +16,7 @@
     "test:phala-demo": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/phala-demo/*.test.ts scripts/operations/demo-controller.test.ts",
     "upload:cli": "node --import tsx scripts/sirius-upload.ts",
     "test:upload": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/lib/upload/*.test.ts src/lib/storage/*.test.ts src/lib/tee/chunked-seal.test.ts src/runner/chunked-seal.test.ts src/lib/sirius/chunked-upload.test.ts src/lib/datasets/csv-check-stream.test.ts src/lib/tee/chunked-sample.test.ts",
-    "test:private-api": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/runner/served-predict.test.ts src/runner/api-predict.test.ts src/lib/runner/prediction-usage.test.ts src/lib/tee/served-models.test.ts src/lib/tee/api-keys.test.ts src/lib/sirius/served-prediction-route.test.ts",
+    "test:private-api": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx --test src/runner/served-predict.test.ts src/runner/api-predict.test.ts src/lib/runner/prediction-usage.test.ts src/lib/tee/served-models.test.ts src/lib/tee/api-keys.test.ts src/lib/sirius/served-prediction-route.test.ts src/lib/train/enclave-wait.test.ts",
     "ops:demo-controller": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx scripts/operations/demo-controller.ts",
     "ops:demo-operator-code": "NODE_OPTIONS=\"--conditions=react-server\" node --import tsx scripts/operations/demo-operator-code.ts",
     "test:e2e": "playwright test",
