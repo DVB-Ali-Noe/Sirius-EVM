@@ -3,6 +3,8 @@
 import { issueRunnerGrant } from "@/lib/runner/authorization-client";
 import { apiKeyEnvelopeSha256, encryptApiKeySecretForRunner } from "@/lib/tee/ingress-client";
 import type { DatasetIngressKey } from "@/lib/tee/contract";
+import { AUTO_API_KEY_EXISTS_CODE } from "@/lib/billing/api-pricing";
+import { AutoApiKeyExistsError } from "./auto-api-key";
 import { responseError } from "./enclave-wait";
 
 /** Clé API telle que la renvoie `GET /api/loans/[id]/api-keys` : jamais de secret. */
@@ -79,20 +81,32 @@ export type ApiKeyCreationStep = "preparing" | "sealing" | "signing" | "register
  * `register-api-key` lié à l'empreinte de l'enveloppe, et enregistrement. Le secret ne quitte le
  * navigateur que chiffré pour l'enclave.
  */
+/** Refus `409 api_key_auto_exists` d'une création d'office : `AutoApiKeyExistsError`, sinon l'erreur habituelle. */
+async function creationError(response: Response): Promise<Error> {
+  if (response.status === 409) {
+    const body = await response.clone().json().catch(() => null) as { code?: unknown } | null;
+    if (body?.code === AUTO_API_KEY_EXISTS_CODE) return new AutoApiKeyExistsError();
+  }
+  return responseError(response, "Création de la clé API échouée");
+}
+
 export async function createApiKey(input: {
   loanId: string;
   name: string;
   onStep?: (step: ApiKeyCreationStep) => void;
+  /** Clé créée d'office après le règlement (D-33) : le serveur la refuse si le prêt a déjà une clé. */
+  auto?: boolean;
 }): Promise<CreatedApiKey> {
+  const auto = input.auto ? { auto: true } : {};
   const name = input.name.trim();
   if (!name || name.length > API_KEY_NAME_MAX_LENGTH) throw new Error("Nom de clé invalide (1 à 64 caractères)");
   input.onStep?.("preparing");
   const prepared = await fetch(keysPath(input.loanId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(auto),
   });
-  if (!prepared.ok) throw await responseError(prepared, "Création de la clé API échouée");
+  if (!prepared.ok) throw await creationError(prepared);
   const { ingressKey } = await prepared.json() as { ingressKey?: DatasetIngressKey };
   if (!ingressKey) throw new Error("Clé d’ingestion de l’enclave absente");
   const { keyId, secret, token } = generateApiKeyMaterial();
@@ -108,9 +122,9 @@ export async function createApiKey(input: {
   const response = await fetch(keysPath(input.loanId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keyId, name, envelope, authorization }),
+    body: JSON.stringify({ keyId, name, envelope, authorization, ...auto }),
   });
-  if (!response.ok) throw await responseError(response, "Création de la clé API échouée");
+  if (!response.ok) throw await creationError(response);
   const created = await response.json() as { keyId: string; name: string; createdAt: string };
   if (created.keyId !== keyId) throw new Error("Création de la clé API échouée");
   return { keyId, name: created.name, createdAt: created.createdAt, token };

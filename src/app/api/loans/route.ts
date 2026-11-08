@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(preparationLimiter, `subject:${session.address}`);
-    const { datasetId, rentalDays, includeApiAccess } = await readJson<Record<string, unknown>>(req);
+    const { datasetId, rentalDays } = await readJson<Record<string, unknown>>(req);
 
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
@@ -69,12 +69,8 @@ export async function POST(req: Request) {
     if (!isValidRentalDays(rentalDays)) {
       return NextResponse.json({ error: "Durée de location invalide" }, { status: 400 });
     }
-    if (includeApiAccess !== undefined && typeof includeApiAccess !== "boolean") {
-      return NextResponse.json({ error: "Accès API inclus du devis invalide" }, { status: 400 });
-    }
-    // `includeApiAccess` (D-32) : l'API est incluse dans le devis, jours × tarif journalier de l'API.
-    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays, undefined,
-      { includeApiAccess: includeApiAccess === true });
+    // L'API est toujours incluse (D-32, décision du 8 novembre 2026) : aucune option ici, `prepareLoan` décide.
+    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays);
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {

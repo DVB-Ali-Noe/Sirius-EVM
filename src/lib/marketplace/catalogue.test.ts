@@ -31,7 +31,7 @@ interface Calls {
  * champs privés compris, et des datasets hors ligne. C'est le pire cas : la projection et la
  * revérification en mémoire doivent suffire à ne rien laisser passer.
  */
-function fakeDb(rows: ReadonlyArray<MarketplaceDatasetRow | Record<string, unknown>>, options: { quote?: { computeAmountUsdcAtomic: string | null; createdAt: Date } | null } = {}) {
+function fakeDb(rows: ReadonlyArray<MarketplaceDatasetRow | Record<string, unknown>>, options: { quote?: { computeAmountUsdcAtomic: string | null; billingQuote?: string | null; createdAt: Date } | null } = {}) {
   const calls: Calls = { findMany: [], findFirst: [], groupBy: [], loanFindFirst: [] };
   const db: MarketplaceDb = {
     dataset: {
@@ -54,7 +54,8 @@ function fakeDb(rows: ReadonlyArray<MarketplaceDatasetRow | Record<string, unkno
       },
       findFirst: async (args) => {
         calls.loanFindFirst.push(args as { where: Record<string, unknown> });
-        return options.quote === undefined ? { computeAmountUsdcAtomic: "3000000", createdAt: NOW } : options.quote;
+        if (options.quote === undefined) return { computeAmountUsdcAtomic: "3000000", billingQuote: null, createdAt: NOW };
+        return options.quote && { billingQuote: null, ...options.quote };
       },
     },
   };
@@ -126,6 +127,9 @@ test("catalogue : statistiques, frais du dernier devis et prix total", async () 
     modelVersion: MODEL_REGISTRY[modelId].version,
     computeAmountUsdcAtomic: { not: null },
     evmLockTxHash: { not: null },
+    // Emprunts seulement : ni prolongation, ni pack, ni pass.
+    extendsLoanId: null,
+    packForLoanId: null,
     // Un CANCELLED sans transaction de remboursement (lock annulé) n'est jamais lu.
     OR: [{ status: { in: ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] } }, { status: "CANCELLED", cancelTxHash: { not: null } }],
     createdAt: { gte: new Date(NOW.getTime() - COMPUTE_QUOTE_MAX_AGE_MS) },
@@ -242,6 +246,45 @@ test("cache du catalogue : une lecture partagée par période, l'expiration rev�
   assert.equal((await loadCatalogue(q(), deps(failing.db), retry)).total, 3);
 });
 
+/** Devis d'emprunt stocké (`Loan.billingQuote`), API incluse (D-32) : 2 jours × 1,5 ajoutés au calcul de 3. */
+function includedQuote(changes: Record<string, unknown> = {}): string {
+  const address = (n: string) => `0x${n.repeat(40)}`;
+  return JSON.stringify({ quote: {
+    version: 7, chainId: 46630, escrow: address("1"), usdc: address("2"), usdcDecimals: 6, runner: address("6"), loanId: "loan", datasetId: "listed",
+    onChainDatasetId: `0x${"11".repeat(32)}`, datasetReceiptHash: `0x${"22".repeat(32)}`, borrower: address("3"), provider: address("4"),
+    computeRecipient: address("5"), datasetAmount: "40000000", computeAmount: "6000000", maxFailureFee: "10000", executionRateAtomicPerMs: "2",
+    maxExecutionMs: 10000, maxDatasetBytes: 3 * 1024 * 1024, hashlock: `0x${"33".repeat(32)}`, challengeDays: 1, modelId: "linear_regression",
+    modelVersion: "1.0.0", tariffVersion: "synthetic-v1", expiresAt: 1, failurePolicy: "consumed-execution-only", rentalDays: 2,
+    apiAccessIncluded: true, apiAccessAmount: "3000000", ...changes,
+  }, authorization: { deadline: 1, signature: "0x" } });
+}
+
+test("catalogue : l'accès API inclus (D-32) s'ajoute au prix d'un jour, jamais aux frais de calcul", async () => {
+  const included = { apiAccessFee: () => ({ kind: "included", atomic: "1500000" }) as const };
+  const result = await loadCatalogue(q(), deps(fakeDb(ROWS).db, included));
+  const listed = result.items.find((item) => item.id === "listed")!;
+  assert.deepEqual([listed.priceAtomic, listed.priceKind], ["24500000", "borrowerPays"]);
+  assert.deepEqual(result.apiAccessFees.logistic_regression, { kind: "included", atomic: "1500000" });
+
+  // Location refusée faute de tarif API : aucun total annoncé.
+  const refused = await loadCatalogue(q(), deps(fakeDb(ROWS).db, { apiAccessFee: () => ({ kind: "unavailable" }) }));
+  assert.deepEqual(refused.items.filter((item) => item.id === "listed").map((item) => [item.priceAtomic, item.priceKind]), [["20000000", "providerReceives"]]);
+  // Sans règle (v6, profil sans API) : rien n'est ajouté.
+  assert.deepEqual((await loadCatalogue(q(), deps(fakeDb(ROWS).db))).apiAccessFees.linear_regression, { kind: "none" });
+
+  // Dernier devis avec API incluse : seul le calcul (6 − 3) est repris, la part API dépendant des jours.
+  const quoted = await loadCatalogue(q(), deps(fakeDb(ROWS, { quote: { computeAmountUsdcAtomic: "6000000", billingQuote: includedQuote(), createdAt: NOW } }).db));
+  assert.deepEqual(quoted.computeFees.linear_regression, { kind: "quoted", atomic: "3000000" });
+  for (const billingQuote of ["{", includedQuote({ computeAmount: "7000000" }), includedQuote({ apiAccessAmount: "0" })]) {
+    const broken = await loadCatalogue(q(), deps(fakeDb(ROWS, { quote: { computeAmountUsdcAtomic: "6000000", billingQuote, createdAt: NOW } }).db));
+    assert.equal(broken.computeFees.linear_regression.kind, "unknown", billingQuote.slice(0, 40));
+  }
+
+  const detail = await loadListingDetail("listed", deps(fakeDb(ROWS).db, included));
+  assert.deepEqual(detail!.dataset.apiAccessFee, { kind: "included", atomic: "1500000" });
+  assert.equal(detail!.dataset.priceAtomic, "24500000");
+});
+
 test("fiche : seul un dataset en ligne est servi ; tout autre état donne la même absence", async () => {
   const { db, calls } = fakeDb(ROWS);
   const detail = await loadListingDetail("listed", deps(db));
@@ -283,8 +326,6 @@ function routeDeps(db: MarketplaceDb, extra: Partial<MarketplaceDeps> = {}) {
     "@/lib/marketplace/catalogue": catalogue,
     "@/lib/marketplace/query": query,
     "@/lib/marketplace/server": { marketplaceDeps: () => deps(db, extra) },
-    // API incluse à l'emprunt (D-32) : quota du profil et tarif journalier lus côté Next.
-    "@/lib/sirius/api-keys": { loanApiCallsPerDay: () => 50, loanApiAccessDailyFee: () => "1500000" },
   };
 }
 
@@ -339,7 +380,7 @@ test("GET /api/marketplace : une panne de base donne une erreur opaque, sans dé
 
 test("GET /api/marketplace/[id] : fiche d'un dataset en ligne, 404 identique pour tout le reste", async () => {
   const { db } = fakeDb(ROWS);
-  const route = load<DetailRoute>("src/app/api/marketplace/[id]/route.ts", routeDeps(db));
+  const route = load<DetailRoute>("src/app/api/marketplace/[id]/route.ts", routeDeps(db, { apiAccessFee: () => ({ kind: "included", atomic: "1500000" }) }));
   const call = (id: string, request = new Request(`https://test.invalid/api/marketplace/${encodeURIComponent(id)}`)) =>
     route.GET(request, { params: Promise.resolve({ id }) });
 
@@ -349,7 +390,8 @@ test("GET /api/marketplace/[id] : fiche d'un dataset en ligne, 404 identique pou
   const body = await ok.json();
   assertNoPrivateData(body);
   assert.equal(body.dataset.id, "listed");
-  assert.equal(body.apiAccessDailyFeeAtomic, "1500000", "tarif journalier de l'API incluse exposé");
+  assert.deepEqual(body.dataset.apiAccessFee, { kind: "included", atomic: "1500000" }, "tarif journalier de l'API incluse exposé");
+  assert.equal(body.dataset.priceAtomic, "24500000", "un jour : part du fournisseur + calcul + API");
   assert.deepEqual(await (await call("listed", withCookie("https://test.invalid/api/marketplace/listed"))).json(), body);
 
   for (const id of ["expired", "paused", "private", "destroyed", "key-gone", "draft", "inexistant", "../datasets", "a".repeat(65), "", "x y", "%00"]) {

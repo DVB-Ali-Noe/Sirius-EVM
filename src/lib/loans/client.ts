@@ -28,8 +28,6 @@ interface BorrowInput {
   priceUsdcAtomic: string;
   /** Durée choisie, 1 à `maxRentalDays` du dataset ; signée dans le devis. */
   rentalDays: number;
-  /** API incluse dans la location (D-32) : jours × tarif journalier ajoutés au compute du devis. */
-  includeApiAccess?: boolean;
   confirmQuote?: (quote: ComputeQuote) => Promise<boolean>;
 }
 
@@ -130,7 +128,7 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const prep = await fetch("/api/loans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays, ...(input.includeApiAccess ? { includeApiAccess: true } : {}) }),
+    body: JSON.stringify({ datasetId: input.datasetId, rentalDays: input.rentalDays }),
   });
   if (!prep.ok) throw await responseError(prep, "Préparation du lock de paiement échouée");
   const body = await prep.json() as PreparedLock;
@@ -143,9 +141,9 @@ export async function borrowDataset(input: BorrowInput): Promise<boolean> {
   const signedQuote = body.billingQuote
     ? await verifyBorrowQuote(body.billingQuote, { loanId: body.loanId, datasetId: input.datasetId, borrower: address! }) : undefined;
   // Prix par jour × jours choisis (D-29) : un devis sur une autre durée ou un autre prix est refusé.
+  // L'API incluse (D-32) est décidée par le serveur et affichée par le devis lui-même.
   if (signedQuote && (signedQuote.quote.rentalDays !== input.rentalDays || signedQuote.quote.extendsLoanId !== undefined
-    || signedQuote.quote.datasetAmount !== datasetAmountFor(input.priceUsdcAtomic, input.rentalDays)
-    || (signedQuote.quote.apiAccessIncluded === true) !== (input.includeApiAccess === true))) {
+    || signedQuote.quote.datasetAmount !== datasetAmountFor(input.priceUsdcAtomic, input.rentalDays))) {
     throw new Error("Prix du dataset modifié. Recharge le catalogue.");
   }
   const legacy = signedQuote ? undefined : await legacyBorrowTransactions({

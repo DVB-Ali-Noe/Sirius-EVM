@@ -15,16 +15,19 @@ const STEP_ORDER: readonly ApiKeyCreationStep[] = ["preparing", "sealing", "sign
 /**
  * Création d'une clé API (D-30) : nom, puis génération et scellement dans le navigateur,
  * autorisation signée par la session wallet, enregistrement dans l'enclave. La clé complète
- * n'est affichée qu'une fois : fermer la fenêtre l'efface de la page.
+ * n'est affichée qu'une fois : fermer la fenêtre l'efface de la page. `revealed` : clé déjà créée
+ * d'office après le règlement (D-32), affichée directement avec le même avertissement.
  */
 export function CreateApiKeyDialog({
   open,
   loanId,
+  revealed = null,
   onClose,
   onCreated,
 }: {
   open: boolean;
   loanId: string;
+  revealed?: CreatedApiKey | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -36,7 +39,8 @@ export function CreateApiKeyDialog({
   const [copied, setCopied] = useState(false);
   const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
   const unmountSignal = useUnmountSignal();
-  const working = step !== null && !failed && !created;
+  const shown = created ?? revealed;
+  const working = step !== null && !failed && !shown;
 
   function close() {
     if (working) return;
@@ -66,8 +70,8 @@ export function CreateApiKeyDialog({
   }
 
   async function copy() {
-    if (!created) return;
-    await navigator.clipboard?.writeText(created.token).then(() => setCopied(true), () => setCopied(false));
+    if (!shown) return;
+    await navigator.clipboard?.writeText(shown.token).then(() => setCopied(true), () => setCopied(false));
   }
 
   const labels: Record<ApiKeyCreationStep, string> = {
@@ -80,19 +84,24 @@ export function CreateApiKeyDialog({
   const steps: WaitStep[] = STEP_ORDER.map((id, index) => ({
     id,
     label: labels[id],
-    status: created || index < current ? "done" : index === current ? (failed ? "error" : "active") : "pending",
+    status: shown || index < current ? "done" : index === current ? (failed ? "error" : "active") : "pending",
   }));
 
   return (
-    <Modal open={open} onClose={close} title={t("Créer une clé API")}>
-      <div role="dialog" aria-modal="true" aria-label={t("Créer une clé API")} data-testid="create-api-key-dialog" className="space-y-4 text-sm">
-        {created ? (
+    <Modal open={open} onClose={close} title={revealed ? t("Ta clé API") : t("Créer une clé API")}>
+      <div role="dialog" aria-modal="true" aria-label={revealed ? t("Ta clé API") : t("Créer une clé API")} data-testid="create-api-key-dialog" className="space-y-4 text-sm">
+        {shown ? (
           <div className="space-y-3" data-testid="api-key-created">
+            {revealed && (
+              <p className="text-xs text-muted" data-testid="api-key-auto-created">
+                {t("Ta location inclut l’API : une clé « {name} » vient d’être créée pour ce prêt.", { name: revealed.name })}
+              </p>
+            )}
             <p className="rounded-lg border border-yellow-400/30 bg-yellow-400/5 p-3 text-xs text-yellow-400" role="alert">
               {t("Copie cette clé maintenant : elle ne sera plus jamais affichée. Sirius ne la conserve pas en clair ; seule l’enclave en garde le secret.")}
             </p>
             <code data-testid="api-key-secret" className="block break-all rounded-lg border border-border bg-background/60 p-3 font-mono text-xs text-foreground">
-              {created.token}
+              {shown.token}
             </code>
             <div className="flex flex-wrap justify-end gap-3">
               <button type="button" onClick={() => void copy()} className="rounded-lg border border-border px-4 py-2 text-sm">

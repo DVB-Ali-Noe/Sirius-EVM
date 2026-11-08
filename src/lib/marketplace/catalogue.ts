@@ -2,7 +2,9 @@ import "server-only";
 import { MODEL_REGISTRY, type ModelId } from "@/lib/models/registry";
 import type { TokenInfo } from "@/components/datasets/price";
 import type { Prisma } from "@/generated/prisma/client";
+import { parseComputeQuote } from "@/lib/billing/quote";
 import {
+  apiFeeForRow,
   EMPTY_LOAN_STATS,
   feeForRow,
   filterAndSortListings,
@@ -14,6 +16,8 @@ import {
   toPublicDetail,
   toPublicListing,
   UNKNOWN_COMPUTE_FEE,
+  type ApiAccessFee,
+  type ApiAccessFees,
   type ComputeFee,
   type ComputeFees,
   type ListingCandidate,
@@ -55,8 +59,8 @@ export interface MarketplaceDb {
     findFirst(args: {
       where: Prisma.LoanWhereInput;
       orderBy: { createdAt: "desc" };
-      select: { computeAmountUsdcAtomic: true; createdAt: true };
-    }): Promise<{ computeAmountUsdcAtomic: string | null; createdAt: Date } | null>;
+      select: { computeAmountUsdcAtomic: true; billingQuote: true; createdAt: true };
+    }): Promise<{ computeAmountUsdcAtomic: string | null; billingQuote: string | null; createdAt: Date } | null>;
   };
 }
 
@@ -73,6 +77,11 @@ export interface MarketplaceDeps {
    * devis), en unités atomiques du jeton affiché ; `null` si le tarif est indisponible.
    */
   publishedComputeFees?(): Partial<Record<ModelId, string>> | null;
+  /**
+   * Accès API inclus à tout nouvel emprunt d'un profil (D-32), même règle que `prepareLoan`.
+   * Absent : aucun profil n'a d'API (facturation v6 des tests).
+   */
+  apiAccessFee?(modelId: ModelId): ApiAccessFee;
   token: TokenInfo;
   now(): Date;
 }
@@ -153,16 +162,19 @@ export async function computeFeesFor(
         modelVersion: MODEL_REGISTRY[id].version,
         computeAmountUsdcAtomic: { not: null },
         evmLockTxHash: { not: null },
+        // Emprunts seulement : prolongation, pack et pass ont un compute sans entraînement.
+        extendsLoanId: null,
+        packForLoanId: null,
         // Même règle que `borrowCount` : un lock annulé (revert) passe CANCELLED sans transaction
         // de remboursement et garde son `evmLockTxHash` soumis ; il n'est jamais lu.
         OR: [{ status: { in: [...LOCKED_STATUSES] } }, { status: "CANCELLED", cancelTxHash: { not: null } }],
         createdAt: { gte: since },
       },
       orderBy: { createdAt: "desc" },
-      select: { computeAmountUsdcAtomic: true, createdAt: true },
+      select: { computeAmountUsdcAtomic: true, billingQuote: true, createdAt: true },
     });
-    const amount = latest?.computeAmountUsdcAtomic;
-    if (!latest || typeof amount !== "string" || !ATOMIC.test(amount)) {
+    const amount = latest ? trainingComputeAmount(latest) : null;
+    if (!latest || amount === null || !ATOMIC.test(amount)) {
       const tariff = published?.[id];
       return [id, typeof tariff === "string" && ATOMIC.test(tariff) ? { kind: "quoted", atomic: tariff } : UNKNOWN_COMPUTE_FEE];
     }
@@ -170,6 +182,31 @@ export async function computeFeesFor(
     return [id, { kind: "quoted", atomic: amount }];
   }));
   return Object.fromEntries(entries) as ComputeFees;
+}
+
+/**
+ * Frais de calcul d'un devis d'emprunt hors accès API inclus (D-32) : `computeAmount` y ajoute
+ * `apiAccessAmount` (jours loués × tarif journalier), qui dépend de la durée et s'affiche à part.
+ * `null` : montant ou devis illisible.
+ */
+function trainingComputeAmount(loan: { computeAmountUsdcAtomic: string | null; billingQuote: string | null }): string | null {
+  const amount = loan.computeAmountUsdcAtomic;
+  if (typeof amount !== "string" || !ATOMIC.test(amount)) return null;
+  if (!loan.billingQuote) return amount;
+  try {
+    const signed: unknown = JSON.parse(loan.billingQuote);
+    const quote = parseComputeQuote(signed && typeof signed === "object" && "quote" in signed ? signed.quote : null);
+    if (quote.computeAmount !== amount) return null;
+    return quote.apiAccessAmount === undefined ? amount : (BigInt(amount) - BigInt(quote.apiAccessAmount)).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Accès API inclus par profil ; sans règle injectée, aucun profil n'a d'API. */
+function apiAccessFeesFor(deps: MarketplaceDeps): ApiAccessFees {
+  const ids = Object.keys(MODEL_REGISTRY) as ModelId[];
+  return Object.fromEntries(ids.map((id) => [id, deps.apiAccessFee?.(id) ?? { kind: "none" }])) as ApiAccessFees;
 }
 
 async function kybFor(deps: MarketplaceDeps, providers: readonly string[]): Promise<Map<string, boolean | null>> {
@@ -189,6 +226,8 @@ export interface CatalogueResponse extends ListingPage {
   truncated: boolean;
   token: TokenInfo;
   computeFees: ComputeFees;
+  /** Accès API inclus à tout nouvel emprunt, par profil et par jour loué (D-32). */
+  apiAccessFees: ApiAccessFees;
   /** Faux si le statut KYB d'au moins un fournisseur n'a pas pu être lu. */
   kybAvailable: boolean;
 }
@@ -204,6 +243,7 @@ export interface CatalogueSnapshot {
   truncated: boolean;
   stats: Map<string, LoanStats>;
   fees: ComputeFees;
+  apiFees: ApiAccessFees;
   kyb: Map<string, boolean | null>;
 }
 
@@ -226,7 +266,7 @@ export async function readCatalogueSnapshot(deps: MarketplaceDeps): Promise<Cata
     computeFeesFor(deps.db, deps.billingMode(), now, deps.publishedComputeFees?.() ?? null),
     kybFor(deps, providers),
   ]);
-  return { rows: online, truncated, stats, fees, kyb };
+  return { rows: online, truncated, stats, fees, apiFees: apiAccessFeesFor(deps), kyb };
 }
 
 /**
@@ -258,13 +298,13 @@ export async function loadCatalogue(
   deps: MarketplaceDeps,
   snapshot: (deps: MarketplaceDeps) => Promise<CatalogueSnapshot> = readCatalogueSnapshot,
 ): Promise<CatalogueResponse> {
-  const { rows, truncated, stats, fees, kyb } = await snapshot(deps);
+  const { rows, truncated, stats, fees, apiFees, kyb } = await snapshot(deps);
   const now = deps.now();
   // Revérifiée ici : une annonce expirée depuis la lecture mise en cache disparaît aussitôt.
   const online = rows.filter((row) => isOnlineDataset(row, now));
   const providers = [...new Set(online.map((row) => row.provider))];
   const candidates: ListingCandidate[] = online.map((row) => {
-    const listing = toPublicListing(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees));
+    const listing = toPublicListing(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees), apiFeeForRow(row, apiFees));
     const published = row.listedAt ?? row.createdAt;
     return {
       listing,
@@ -278,6 +318,7 @@ export async function loadCatalogue(
     truncated,
     token: deps.token,
     computeFees: fees,
+    apiAccessFees: apiFees,
     kybAvailable: kybAvailable(kyb, providers),
   };
 }
@@ -288,8 +329,6 @@ export interface DetailResponse {
   kybAvailable: boolean;
   /** Version de facturation : décide du texte « en cas d'échec » (retenue mesurée en v7 seulement). */
   billingMode: BillingMode;
-  /** Tarif journalier de l'API incluse à l'emprunt (D-32), ajouté par la route ; `null` : pas en vente pour ce profil. */
-  apiAccessDailyFeeAtomic?: string | null;
 }
 
 /** Fiche d'un dataset en ligne ; `null` pour tout autre état (pause, expiré, détruit, privé, inconnu). */
@@ -308,7 +347,7 @@ export async function loadListingDetail(id: string, deps: MarketplaceDeps): Prom
   ]);
   return {
     billingMode,
-    dataset: toPublicDetail(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees)),
+    dataset: toPublicDetail(row, stats.get(row.id) ?? EMPTY_LOAN_STATS, kyb.get(row.provider) ?? null, feeForRow(row, fees), apiFeeForRow(row, apiAccessFeesFor(deps))),
     token: deps.token,
     kybAvailable: kybAvailable(kyb, [row.provider]),
   };

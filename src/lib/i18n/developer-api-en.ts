@@ -223,14 +223,35 @@ export const DEVELOPER_API_MESSAGES_EN: Record<string, string> = {
     "An API access pass is already being prepared: finish or abandon its payment, then try again in a few minutes",
   "Pass d’accès API caduc : la couverture payée a changé depuis son devis ou un autre pass est en cours de règlement ; rien n’est versé, le paiement est remboursable à l’échéance de l’escrow":
     "API access pass no longer valid: the paid coverage changed since its quote or another pass is being settled; nothing is paid out, the payment is refundable at the escrow deadline",
-  "Appelle le modèle depuis ton code pendant toute la location, payé avec l’emprunt ; les prolongations le gardent. Sans cette option, l’API reste activable plus tard depuis la page Entraîner.":
-    "Call the model from your code for the whole rental, paid with the loan; extensions keep it. Without this option, the API can still be activated later from the Train page.",
-  "Inclure l’accès API (+{fee} par jour)": "Include API access (+{fee} per day)",
+  "Accès API inclus : +{fee} par jour loué.": "API access included: +{fee} per rented day.",
+  "Toute location comprend l’API développeurs pour toute sa durée ; une clé est créée pour toi après le règlement, et les prolongations gardent l’API.":
+    "Every rental includes the developer API for its whole duration; a key is created for you after settlement, and extensions keep the API.",
+  "Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.":
+    "Rental unavailable for now: the current tariff does not set the price of API access, which every rental includes.",
+  "Location indisponible : le tarif en vigueur ne fixe pas le prix journalier de l’accès API, inclus dans toute location":
+    "Rental unavailable: the current tariff does not set the daily price of API access, which every rental includes",
+  "Location indisponible : le tarif en vigueur n’ouvre pas l’API pour ce profil, or toute location inclut l’accès API":
+    "Rental unavailable: the current tariff does not open the API for this profile, and every rental includes API access",
+  "Accès API inclus": "API access included",
+  "Toute location inclut l’accès API développeurs, payé par jour loué.": "Every rental includes developer API access, paid per rented day.",
+  "Clé par défaut": "Default key",
+  "Ce prêt a déjà une clé API : aucune clé n’est créée d’office": "This loan already has an API key: no key is created automatically",
+  "Création d’office invalide": "Invalid automatic creation flag",
+  "Création de la clé par défaut non confirmée par l’enclave : la clé reste listée sans que tu aies reçu son secret ; révoque-la et crée une clé avec « Créer une clé API »":
+    "The enclave did not confirm the default key: it stays listed but you never received its secret; revoke it and create a key with “Create an API key”",
+  "Ta clé API": "Your API key",
+  "Ta location inclut l’API : une clé « {name} » vient d’être créée pour ce prêt.":
+    "Your rental includes the API: a key “{name}” was just created for this loan.",
+  "Création de ta clé API par défaut…": "Creating your default API key…",
+  "Garde cette page ouverte : ta clé API par défaut est créée dès que l’enclave répond. Sinon, crée-la plus tard avec « Créer une clé API ».":
+    "Keep this page open: your default API key is created as soon as the enclave responds. Otherwise, create it later with “Create an API key”.",
+  "Ta location inclut l’API : {fee} par jour loué, payé avec l’emprunt ; les prolongations la gardent. Les prédictions depuis le site restent incluses.":
+    "Your rental includes the API: {fee} per rented day, paid with the loan; extensions keep it. Predictions from the site remain included.",
   "Accès API inclus du devis invalide": "Invalid included API access in the quote",
   "Accès API inclus (1 jour)": "API access included (1 day)",
   "Accès API inclus ({days} jours)": "API access included ({days} days)",
-  "L’accès API est payé avec l’emprunt pour toute la location ; une prolongation le prolonge aussi. En cas d’échec de l’entraînement, il est remboursé avec le reste, hors frais d’exécution mesurés.":
-    "API access is paid with the loan for the whole rental; an extension extends it too. If training fails, it is refunded with the rest, except the measured execution fees.",
+  "Toute location inclut l’accès API pour toute sa durée, au tarif journalier ; une clé est créée pour toi après le règlement et une prolongation garde l’API. En cas d’échec de l’entraînement, il est remboursé avec le reste, hors frais d’exécution mesurés.":
+    "Every rental includes API access for its whole duration, at the daily rate; a key is created for you after settlement and an extension keeps the API. If training fails, it is refunded with the rest, except the measured execution fees.",
   "Ta location a l’accès API jusqu’à son échéance : la prolongation l’inclut pour les jours ajoutés, au tarif journalier de l’API.":
     "Your rental has API access until its end: the extension includes it for the added days, at the API daily rate.",
   "API incluse, payée jusqu’au {date}": "API included, paid until {date}",

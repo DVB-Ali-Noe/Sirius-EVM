@@ -61,6 +61,7 @@ import {
 import { EXTENSION_PENDING, isSettlementPending, LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
 import { lockFinalityMinutesLeft, lockFinalitySecondsLeft, parseLockFinalityResponse } from "@/lib/evm/lock-finality";
 import { runSelfTrain } from "@/lib/train/client";
+import { newlySettledLoanIds } from "@/lib/train/auto-api-key";
 import { requestPrediction } from "@/lib/train/prediction-client";
 import { PredictionBox } from "@/components/train/PredictionBox";
 import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
@@ -194,6 +195,8 @@ function TrainPageContent() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [lockRecoveryHashes, setLockRecoveryHashes] = useState<Record<string, string>>({});
+  // Emprunts dont cette page a suivi le règlement : clé API créée d'office (D-32, `autoCreateApiKey`).
+  const [settledHere, setSettledHere] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   // Règlement envoyé, pas encore confirmé : information, pas une erreur (le prêt n'a pas échoué).
   const [notice, setNotice] = useState<string | null>(null);
@@ -281,6 +284,8 @@ function TrainPageContent() {
     setAdmin(adminKnown ? isAdmin : null);
     setCursor(nextCursor);
     setMine(mineData);
+    const settled = newlySettledLoanIds(loansRef.current, loanData);
+    if (settled.length > 0) setSettledHere((previous) => new Set([...previous, ...settled]));
     setLoans(loanData);
     setNow(Date.now());
     setJobs(jobData);
@@ -1071,6 +1076,7 @@ function TrainPageContent() {
                       pendingPasses={pendingPasses}
                       refusedPasses={refusedPasses}
                       onPurchased={refresh}
+                      autoCreateKey={settledHere.has(l.id)}
                     />
                   )}
                 </div>

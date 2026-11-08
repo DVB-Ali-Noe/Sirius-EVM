@@ -7,12 +7,15 @@ const DECIMALS = 18;
 const E18 = BigInt(10) ** BigInt(DECIMALS);
 const PRICE = (BigInt(175) * E18 / BigInt(100)).toString(); // 1.75 USDC
 const COMPUTE = (BigInt(3) * E18).toString();
+// Accès API inclus à toute location (D-33) : 1,5 USDC par jour loué.
+const API_DAILY = (BigInt(15) * E18 / BigInt(10)).toString();
+const INCLUDED = { kind: "included", atomic: API_DAILY };
 const TOKEN = { symbol: "USDC", decimals: DECIMALS };
 
 const item = {
   id: "dataset-public", name: "Mobilité urbaine Europe", category: "mobility", modelId: "logistic_regression", modelVersion: "1.0.0",
   rowCount: 4_800, columnCount: 24, sizeBytes: 1_250_000, providerPriceAtomic: PRICE,
-  priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 7, verified: true,
+  priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE) + BigInt(API_DAILY)).toString(), priceKind: "borrowerPays", borrowCount: 7, verified: true,
   listedAt: "2026-10-01T00:00:00.000Z",
 };
 const other = { ...item, id: "dataset-finance", name: "Crédit PME France", category: "finance", verified: false, borrowCount: 2 };
@@ -21,6 +24,7 @@ function catalogue(items: unknown[], extra: Record<string, unknown> = {}) {
   return {
     items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false, token: TOKEN, kybAvailable: true,
     computeFees: { linear_regression: { kind: "quoted", atomic: COMPUTE }, logistic_regression: { kind: "quoted", atomic: COMPUTE } },
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: INCLUDED, gradient_boosted_trees: INCLUDED },
     ...extra,
   };
 }
@@ -29,7 +33,7 @@ function detail(overrides: Record<string, unknown> = {}) {
   return {
     dataset: {
       ...item, description: "Trajets agrégés par zone\n<script>alert(1)</script>", provider: PROVIDER, challengeDays: 3, maxRentalDays: 30,
-      settledCount: 3, refundedCount: 1, successRate: 0.75, computeFee: { kind: "quoted", atomic: COMPUTE }, ...overrides,
+      settledCount: 3, refundedCount: 1, successRate: 0.75, computeFee: { kind: "quoted", atomic: COMPUTE }, apiAccessFee: INCLUDED, ...overrides,
     },
     token: TOKEN,
     kybAvailable: true,
@@ -71,7 +75,8 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await page.goto("/marketplace");
   await expect(page.getByRole("heading", { name: "Available datasets" })).toBeVisible();
   const card = page.getByRole("listitem").filter({ hasText: item.name });
-  await expect(card.getByText("4.75 USDC", { exact: true })).toBeVisible();
+  // Prix d'un jour : part du fournisseur + calcul + un jour d'API incluse.
+  await expect(card.getByText("6.25 USDC", { exact: true })).toBeVisible();
   await expect(card.getByText("Verified provider")).toBeVisible();
   await expect(card.getByText("Mobility")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: other.name }).getByText("Unverified provider")).toBeVisible();
@@ -87,15 +92,21 @@ test("sans wallet : la grille et la fiche se lisent, aucun appel privé n'est fa
   await expect(price.getByText("Provider receives")).toBeVisible();
   await expect(price.getByText("1.75 USDC", { exact: true })).toBeVisible();
   await expect(price.getByText("3.00 USDC", { exact: true })).toBeVisible();
-  await expect(price.getByText("4.75 USDC", { exact: true })).toBeVisible();
-  // Location (D-29) : un jour par défaut ; trois jours → part du fournisseur × 3, calcul inchangé.
+  await expect(price.getByText("API access included")).toBeVisible();
+  await expect(price.getByText("1.50 USDC", { exact: true })).toBeVisible();
+  await expect(price.getByText("6.25 USDC", { exact: true })).toBeVisible();
+  // Location (D-29) : un jour par défaut ; trois jours → part du fournisseur et API × 3, calcul inchangé.
   const rentalDays = page.getByLabel("Rental duration (days)");
   await expect(rentalDays).toHaveValue("1");
   await expect(rentalDays).toHaveAttribute("max", "30");
   await rentalDays.fill("3");
   await expect(price.getByText("5.25 USDC", { exact: true })).toBeVisible();
-  await expect(price.getByText("8.25 USDC", { exact: true })).toBeVisible();
+  await expect(price.getByText("4.50 USDC", { exact: true })).toBeVisible();
+  await expect(price.getByText("12.75 USDC", { exact: true })).toBeVisible();
   await expect(price.getByText("3 d × 1.75 USDC per day", { exact: false })).toBeVisible();
+  await expect(price.getByText("3 d × 1.50 USDC per day", { exact: false })).toBeVisible();
+  // Aucune option : toute location inclut l'API (D-33).
+  await expect(page.getByTestId("api-access-included")).toBeVisible();
   await expect(page.getByText("75% (3 of 4 completed loans)")).toBeVisible();
   await expect(page.getByText("If the loan is not settled after 3 days, you can recover your funds from the Train page.")).toBeVisible();
   await expect(page.getByText("Each new training is a new loan.", { exact: false })).toBeVisible();
@@ -181,13 +192,25 @@ test("une erreur de paramètre est affichée, un dataset hors ligne a une fiche 
 
 test("fournisseur sans KYB valide et facturation v6 : emprunt désactivé, texte d'échec adapté", async ({ page }) => {
   await installApi(page, {
-    [`/api/marketplace/${item.id}`]: () => ({ body: { ...detail({ verified: false, computeFee: { kind: "none", atomic: "0" } }), billingMode: "v6" } }),
+    // Facturation v6 : aucun devis, donc ni frais de calcul ni API incluse.
+    [`/api/marketplace/${item.id}`]: () => ({ body: { ...detail({ verified: false, computeFee: { kind: "none", atomic: "0" }, apiAccessFee: { kind: "none" } }), billingMode: "v6" } }),
   });
   await page.goto(`/marketplace/${item.id}`);
   await expect(page.getByRole("button", { name: "Borrow" })).toBeDisabled();
   await expect(page.getByText("Borrowing unavailable: the provider’s verification attestation is missing or expired.")).toBeVisible();
   await expect(page.getByText("No compute fee is charged: the locked amount is returned in full.", { exact: false })).toBeVisible();
   await expect(page.getByText("Only the compute actually consumed is retained", { exact: false })).toHaveCount(0);
+  await expect(page.getByTestId("api-access-included")).toHaveCount(0);
+});
+
+test("accès API absent de la réponse : la fiche reste lisible, sans total ni plantage", async ({ page }) => {
+  const withoutApi = Object.fromEntries(Object.entries(detail().dataset).filter(([key]) => key !== "apiAccessFee"));
+  await installApi(page, { [`/api/marketplace/${item.id}`]: () => ({ body: { ...detail(), dataset: withoutApi } }) });
+  await page.goto(`/marketplace/${item.id}`);
+  await expect(page.getByRole("heading", { name: item.name, level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Shown in the quote", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Price breakdown" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Borrow" })).toBeEnabled();
 });
 
 test("frais de calcul inconnus : la fiche n'invente pas de total et renvoie au devis", async ({ page }) => {
@@ -197,6 +220,8 @@ test("frais de calcul inconnus : la fiche n'invente pas de total et renvoie au d
   await page.goto(`/marketplace/${item.id}`);
   await expect(page.getByText("Shown in the quote", { exact: true })).toBeVisible();
   await expect(page.getByText("1.75 USDC", { exact: true })).toBeVisible();
+  // L'API incluse reste annoncée par jour, sans total inventé.
+  await expect(page.getByText("1.50 USDC per day", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Price breakdown" })).toHaveCount(0);
   await expect(page.getByText("No completed loan yet")).toBeVisible();
   await expect(page.getByText("Status unavailable")).toBeVisible();

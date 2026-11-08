@@ -149,7 +149,7 @@ test("en facturation v7, un profil facultatif absent du tarif publié est refus�
   process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees";
   try {
     const trees = { ...valid, modelId: "gradient_boosted_trees" };
-    const tariff = { version: "t", computeFeeAtomic: { linear_regression: "1", logistic_regression: "1" }, minimumProviderAtomic: "1", decimals: 6 };
+    const tariff = { version: "t", computeFeeAtomic: { linear_regression: "1", logistic_regression: "1" }, apiAccessDailyFeeAtomic: {}, unrentableModels: [], minimumProviderAtomic: "1", decimals: 6 };
     const unpriced = "Profil d’entraînement sans tarif de calcul : publication impossible pour l’instant";
     for (const billing of [{ v7: true, tariff }, { v7: true, tariff: null }]) {
       const result = parseCreateDatasetRequest(trees, billing);

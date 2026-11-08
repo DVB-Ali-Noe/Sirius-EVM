@@ -1,11 +1,11 @@
 import "server-only";
-import { prisma } from "@/lib/db";
+import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
-  API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount, apiAccessDaysFor,
-  isApiAccessDays,
+  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount,
+  apiAccessDaysFor, AUTO_API_KEY_EXISTS, AUTO_API_KEY_EXISTS_CODE, AUTO_API_KEY_UNCONFIRMED, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
@@ -28,6 +28,8 @@ import { includesApiAccess, loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
 export const API_UNAVAILABLE_LINEAR = "API indisponible pour la régression linéaire (le modèle serait reconstructible)";
 export const API_UNAVAILABLE_PROFILE = "API indisponible pour ce profil de modèle";
 export const API_PROFILE_CODE = "api_not_available_for_profile";
+/** Toute location inclut l'API (D-32) : un profil sans quota API dans le tarif n'est pas louable. */
+export const RENTAL_API_UNAVAILABLE_PROFILE = "Location indisponible : le tarif en vigueur n’ouvre pas l’API pour ce profil, or toute location inclut l’accès API";
 
 const KEY_NAME_MAX = 64;
 const USAGE_DAYS = 30;
@@ -61,6 +63,26 @@ export function loanApiAccessDailyFee(env: Record<string, string | undefined> = 
   } catch {
     return null;
   }
+}
+
+/**
+ * Accès API d'un NOUVEL emprunt (décision du 8 novembre 2026, D-32) : toute location l'inclut,
+ * jours loués × tarif journalier, sans option pour s'en passer. Renvoie ce tarif journalier, ou
+ * `null` quand l'API n'existe pas pour cet emprunt : régression linéaire (jamais d'API, D-27) ou
+ * facturation v7 inactive (escrow v6 hérité, sans devis). Tout autre profil sans quota
+ * `apiCallsPerDay` ou un tarif sans `apiAccessDailyComputeAmount` refuse la location (409) :
+ * jamais de location sans API, jamais d'API gratuite. Politique illisible ici : 503.
+ */
+export function newRentalApiAccessDailyFee(modelId: string, env: Record<string, string | undefined> = process.env): string | null {
+  if (modelId === "linear_regression" || !billingEnabled()) return null;
+  const policy = billingPolicy(env);
+  const calls = policy.apiCallsPerDay?.[modelId as ModelId];
+  if (typeof calls !== "number" || !Number.isSafeInteger(calls) || calls < 1) {
+    throw new AppError(RENTAL_API_UNAVAILABLE_PROFILE, 409, API_PROFILE_CODE);
+  }
+  const fee = policy.apiAccessDailyComputeAmount;
+  if (fee === undefined) throw new AppError(RENTAL_API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
+  return fee;
 }
 
 /** Refus de Next, avant tout réveil de l'enclave, d'une API dont aucun pass ne couvre `now` (D-32). */
@@ -175,11 +197,14 @@ export async function listLoanApiKeys(loanId: string, borrower: string, now = ne
 
 /**
  * Première étape de la création : contrôles d'accès, réveil de la CVM si besoin (503), puis clé
- * d'ingestion de l'enclave pour que le navigateur y chiffre le secret.
+ * d'ingestion de l'enclave pour que le navigateur y chiffre le secret. `auto` (clé créée d'office,
+ * D-33) : refus anticipé, sans réveil, si le prêt a déjà une clé ; la garde qui fait foi est celle de
+ * `registerLoanApiKey`.
  */
-export async function prepareLoanApiKey(loanId: string, borrower: string): Promise<{ ingressKey: DatasetIngressKey }> {
+export async function prepareLoanApiKey(loanId: string, borrower: string, auto = false): Promise<{ ingressKey: DatasetIngressKey }> {
   const loan = await assertApiLoan(loanId, borrower, { requireActiveRental: true });
   assertApiAccessPaid(loan);
+  if (auto && await prisma.apiKey.count({ where: { loanId } }) > 0) throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
   await assertKeyCapacity(loanId);
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
@@ -229,11 +254,21 @@ export interface RegisterApiKeyInput {
   name: string;
   envelope: ApiKeySecretEnvelope;
   authorization: RunnerGrant;
+  /** Clé créée d'office après le règlement (D-33) : refusée si le prêt a déjà une clé, même révoquée. */
+  auto?: boolean;
 }
 
 /**
  * Scellement de la clé dans l'enclave (`register-api-key`, idempotent : même `keyId` et même
  * secret ⇒ même réponse), puis ligne d'affichage. Un `keyId` déjà pris par un autre prêt est refusé.
+ *
+ * Clé d'office (`auto`) : sa ligne est réservée AVANT le scellement, dans une transaction
+ * sérialisable qui vérifie que le prêt n'a aucune clé (active ou révoquée) : deux appareils ne
+ * scellent jamais deux clés d'office, le second reçoit `409 api_key_auto_exists`. Refus net de
+ * l'enclave (4xx) : rien n'est scellé, la réservation est retirée. Réponse perdue ou douteuse
+ * (réseau, 5xx, réponse illisible) : l'enclave a pu sceller la clé, la ligne reste donc (elle
+ * compte dans la capacité, bloque une seconde clé d'office et se révoque depuis le panneau) et
+ * l'erreur remonte. Création manuelle inchangée.
  */
 export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
@@ -245,16 +280,39 @@ export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   await requireAcceptedKyb(loan.borrower);
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
-  const sealed = await registerApiKeyInRunner({
-    loanId: loan.id, keyId: input.keyId, envelope: input.envelope, loanReceipt: loan.runnerReceipt,
-    settleTxHash: loan.settleTxHash, authorization: input.authorization, finalityTier: effectiveLoanFinalityTier(loan.finalityTier),
-  });
-  if (sealed.keyId !== input.keyId || !Number.isSafeInteger(sealed.createdAt) || sealed.createdAt <= 0) {
-    throw new AppError("Réponse d’enregistrement de clé invalide", 502);
+  const owner = loan.borrower.toLowerCase();
+  const reserved = input.auto === true && !existing;
+  if (reserved) {
+    await serializableTransaction(async (tx) => {
+      if (await tx.apiKey.count({ where: { loanId: loan.id } }) > 0) throw new AppError(AUTO_API_KEY_EXISTS, 409, AUTO_API_KEY_EXISTS_CODE);
+      await tx.apiKey.create({ data: { id: input.keyId, loanId: loan.id, owner, name: input.name, revokedAt: null, lastUsedAt: null } });
+    });
+  }
+  let sealed: { keyId: string; createdAt: number };
+  try {
+    sealed = await registerApiKeyInRunner({
+      loanId: loan.id, keyId: input.keyId, envelope: input.envelope, loanReceipt: loan.runnerReceipt,
+      settleTxHash: loan.settleTxHash, authorization: input.authorization, finalityTier: effectiveLoanFinalityTier(loan.finalityTier),
+    });
+    if (sealed.keyId !== input.keyId || !Number.isSafeInteger(sealed.createdAt) || sealed.createdAt <= 0) {
+      throw new AppError("Réponse d’enregistrement de clé invalide", 502);
+    }
+  } catch (error) {
+    if (!reserved) throw error;
+    if (error instanceof AppError && error.status >= 400 && error.status < 500) {
+      // Refus de l'enclave : rien de scellé, le secret n'a pas été affiché.
+      await prisma.apiKey.deleteMany({ where: { id: input.keyId, loanId: loan.id, lastUsedAt: null } });
+      throw error;
+    }
+    throw new AppError(AUTO_API_KEY_UNCONFIRMED, error instanceof AppError ? error.status : 503);
+  }
+  if (reserved) {
+    const key = await prisma.apiKey.update({ where: { id: input.keyId }, data: { createdAt: new Date(sealed.createdAt) } });
+    return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
   }
   const key = existing ?? await prisma.apiKey.upsert({
     where: { id: input.keyId },
-    create: { id: input.keyId, loanId: loan.id, owner: loan.borrower.toLowerCase(), name: input.name, createdAt: new Date(sealed.createdAt) },
+    create: { id: input.keyId, loanId: loan.id, owner, name: input.name, createdAt: new Date(sealed.createdAt) },
     update: {},
   });
   return { keyId: key.id, name: key.name, createdAt: key.createdAt.toISOString() };
@@ -270,7 +328,9 @@ export interface RevokeApiKeyInput {
 /**
  * Révocation dans l'enclave (`revoke-api-key`, idempotente), puis date locale. Elle passe toujours
  * par le runner : une clé marquée révoquée ici mais encore active dans l'enclave resservirait après
- * une prolongation. CVM éteinte : réveil demandé et 503.
+ * une prolongation. CVM éteinte : réveil demandé et 503. Clé inconnue de l'enclave (`404 unknown_key`) :
+ * réservation d'une clé d'office jamais scellée (réponse perdue au scellement) ; rien n'est actif
+ * dans l'enclave, la ligne est donc marquée révoquée maintenant.
  */
 export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
   const loan = await prisma.loan.findUnique({ where: { id: input.loanId }, select: { id: true, borrower: true } });
@@ -280,7 +340,13 @@ export async function revokeLoanApiKey(input: RevokeApiKeyInput) {
   if (!key || key.loanId !== loan.id) throw new AppError("Clé API introuvable", 404);
   if (key.revokedAt) return { keyId: key.id, revokedAt: key.revokedAt.toISOString() };
   await requireRunnerOrWake();
-  const revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
+  let revoked: { keyId: string; revokedAt: number };
+  try {
+    revoked = await revokeApiKeyInRunner({ loanId: loan.id, keyId: key.id, authorization: input.authorization });
+  } catch (error) {
+    if (!(error instanceof AppError && error.status === 404 && error.code === "unknown_key")) throw error;
+    revoked = { keyId: key.id, revokedAt: Date.now() };
+  }
   if (revoked.keyId !== key.id || !Number.isSafeInteger(revoked.revokedAt) || revoked.revokedAt <= 0) {
     throw new AppError("Réponse de révocation invalide", 502);
   }

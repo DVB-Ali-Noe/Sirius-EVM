@@ -98,6 +98,10 @@ export default function MarketplaceListingPage() {
   const { dataset, token } = result.data;
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   const fee = dataset.computeFee;
+  // Accès API inclus à toute location (D-32) : tarif par jour loué, ajouté au total affiché.
+  // Champ absent (réponse d'une autre version du serveur) : accès API inconnu, aucun total annoncé.
+  const api = dataset.apiAccessFee ?? null;
+  const apiDaily = api?.kind === "included" ? api.atomic : null;
   const resolved = dataset.settledCount + dataset.refundedCount;
   const name = dataset.name.trim() === "" ? t("Dataset sans nom") : dataset.name;
   const days = dataset.challengeDays;
@@ -200,15 +204,21 @@ export default function MarketplaceListingPage() {
 
         <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2" data-guide="page:dataset:price">
           <CardTitle id="price-heading" className="mb-2">{t("Ce que vous payez")}</CardTitle>
-          {fee.kind !== "unknown" && dataset.providerPriceAtomic ? (
+          {fee.kind !== "unknown" && api !== null && api.kind !== "unavailable" && dataset.providerPriceAtomic ? (
             <>
               <PriceBreakdown
                 providerAtomic={dataset.providerPriceAtomic}
                 rentalDays={rentalDays}
                 computeAtomic={fee.atomic}
+                apiAccessDailyAtomic={apiDaily}
                 token={token}
                 perspective="borrower"
               />
+              {apiDaily && (
+                <p className="mt-2 text-xs text-muted">
+                  {t("Toute location inclut l’accès API développeurs, payé par jour loué.")}
+                </p>
+              )}
               {fee.kind === "quoted" && (
                 <p className="mt-2 text-xs text-muted">
                   {t("Frais de calcul indicatifs pour ce modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.")}
@@ -223,6 +233,9 @@ export default function MarketplaceListingPage() {
                   value={(dataset.providerPriceAtomic && formatTokenWithSymbol(dataset.providerPriceAtomic, token)) || "—"}
                 />
                 <Fact label={t("Frais de calcul (enclave Phala)")} value={t("Indiqués dans le devis")} />
+                {apiDaily && (
+                  <Fact label={t("Accès API inclus")} value={t("{price} par jour", { price: formatTokenWithSymbol(apiDaily, token) ?? "—" })} />
+                )}
               </dl>
               <p className="mt-3 text-xs text-muted">
                 {t("Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.")}
@@ -270,7 +283,8 @@ export default function MarketplaceListingPage() {
             onRentalDays={setChosenDays}
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}
-            apiAccessDailyFee={result.data.apiAccessDailyFeeAtomic ? formatTokenWithSymbol(result.data.apiAccessDailyFeeAtomic, token) : null}
+            apiAccessDailyFee={apiDaily ? formatTokenWithSymbol(apiDaily, token) : null}
+            apiAccessUnavailable={api?.kind === "unavailable"}
           />
         </Card>
       </div>

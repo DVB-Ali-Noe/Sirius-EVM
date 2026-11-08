@@ -30,13 +30,10 @@ import { datasetAmountFor, isValidRentalDays, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS }
 import { requireRentalQuote } from "@/lib/billing/quote";
 import { assertExtendableLoan } from "./rental";
 import {
-  API_ACCESS_IN_FLIGHT, API_ACCESS_NOT_FOR_SALE, API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_PREPARING, apiAccessDatasetAmount,
-  isCallPackSize, packDatasetAmount, type CallPackSize,
+  API_ACCESS_IN_FLIGHT, API_ACCESS_PREPARING, apiAccessDatasetAmount, isCallPackSize, packDatasetAmount, type CallPackSize,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
-import {
-  API_PROFILE_CODE, API_UNAVAILABLE_LINEAR, API_UNAVAILABLE_PROFILE, assertApiLoan, loanApiAccessDailyFee, loanApiCallsPerDay,
-} from "./api-keys";
+import { assertApiLoan, newRentalApiAccessDailyFee } from "./api-keys";
 import { requireRunnerOrWake } from "./availability";
 import { PENDING_REAPER_TTL_MS } from "./reaper-policy";
 
@@ -113,14 +110,14 @@ export interface LoanExtensionTarget {
  * dataset vaut prix par jour × jours, signé dans le devis (`rentalDays`, `extendsLoanId`) ; pour un
  * pack, taille × prix par appel (`packDatasetAmount`), les jours du prêt d'origine étant repris sans
  * en ajouter (`callPack`, `packForLoanId`) ; pour un pass, le minimum du contrat (0,001 USDC) et des
- * frais Sirius de jours × tarif journalier (`apiAccessDays`, `packForLoanId`). `includeApiAccess`
- * (emprunt seulement, D-32) : l'API est incluse, jours × tarif journalier ajoutés au compute du
- * devis ; une prolongation l'inclut d'office quand l'enclave voit la location couverte jusqu'à son
+ * frais Sirius de jours × tarif journalier (`apiAccessDays`, `packForLoanId`). Un emprunt inclut
+ * toujours l'API (décision du 8 novembre 2026, D-32, `newRentalApiAccessDailyFee`) : jours ×
+ * tarif journalier ajoutés au compute du devis, location refusée si le tarif ne la vend pas ; une
+ * prolongation l'inclut d'office quand l'enclave voit la location couverte jusqu'à son
  * échéance. Sans devis (escrow v6 hérité), le prix reste forfaitaire et le prêt n'a pas d'échéance ;
  * ni prolongation, ni pack, ni pass, ni API incluse n'y sont possibles.
  */
-export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget,
-  options: { includeApiAccess?: boolean } = {}) {
+export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget) {
   const borrowerAddress = normalizeAddress(borrower);
   assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
@@ -153,13 +150,8 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   }
   const billed = billingEnabled();
   if (extension && !billed) throw new AppError(`${purchaseLabel[0].toUpperCase()}${purchaseLabel.slice(1)} indisponible sans devis compute`, 503);
-  const includeApiAccess = options.includeApiAccess === true;
-  if (includeApiAccess) {
-    if (extension || !billed) throw new AppError("Accès API inclus du devis invalide", 400);
-    if (model.modelId === "linear_regression") throw new AppError(API_UNAVAILABLE_LINEAR, 409, API_PROFILE_CODE);
-    if (loanApiCallsPerDay(model.modelId) === null) throw new AppError(API_UNAVAILABLE_PROFILE, 409, API_PROFILE_CODE);
-    if (loanApiAccessDailyFee() === null) throw new AppError(API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
-  }
+  // Nouvel emprunt : API toujours incluse (refus 409 avant tout réveil si le tarif ne la vend pas).
+  const includeApiAccess = !extension && newRentalApiAccessDailyFee(model.modelId) !== null;
   const pack = extension?.pack ? { ...extension.pack, originalLoanId: extension.originalLoanId } : undefined;
   const pass = extension?.apiAccess ? { ...extension.apiAccess, originalLoanId: extension.originalLoanId } : undefined;
   const purchase = pack ?? pass;
