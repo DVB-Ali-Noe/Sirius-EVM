@@ -29,9 +29,12 @@ export const RUNNER_WAKE_MS = 15 * 60_000;
 /** CVM allumée : `requestedUntil` n'est réécrit que s'il lui reste moins que `RUNNER_WAKE_MS` moins ce délai. */
 export const ACTIVITY_REFRESH_MS = 5 * 60_000;
 
-/** Attente annoncée (`Retry-After`) : démarrage en cours ou CVM encore à allumer. */
-export const ENCLAVE_STARTING_RETRY_SECONDS = 60;
-export const ENCLAVE_STOPPED_RETRY_SECONDS = 120;
+/**
+ * Attente annoncée (`Retry-After`) : démarrage en cours ou CVM encore à allumer. Mesuré le 8 novembre
+ * 2026 : CVM attestée ~50 s après la commande du contrôleur ; un délai court évite d'attendre au-delà.
+ */
+export const ENCLAVE_STARTING_RETRY_SECONDS = 30;
+export const ENCLAVE_STOPPED_RETRY_SECONDS = 45;
 
 export const ENCLAVE_STARTING_CODE = "enclave_starting";
 

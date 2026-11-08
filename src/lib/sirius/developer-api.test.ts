@@ -545,7 +545,7 @@ test("prédiction publique : refus côté Next avant l'enclave (en-têtes, clé,
 });
 
 test("CVM pas encore allumée, clé valide d'une location en cours : réveil 15 min et 503 enclave_starting avec Retry-After, rien relayé", async () => {
-  for (const [phase, status, retry] of [["starting", "starting", 60], ["stopped", "stopped", 120], ["stopping", "stopped", 120]] as const) {
+  for (const [phase, status, retry] of [["starting", "starting", 30], ["stopped", "stopped", 45], ["stopping", "stopped", 45]] as const) {
     const sys = system({ phase, apiKeys: [activeKey()] });
     const before = Date.now();
     for (const response of [await sys.api.predict(), await sys.api.info()]) {
@@ -699,7 +699,7 @@ test("action wallet de l'emprunteur, CVM éteinte : réveil demandé 15 min et 5
   const before = Date.now();
   const response = await sys.manage.create({});
   assert.equal(response.status, 503);
-  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal(response.headers.get("retry-after"), "45");
   assert.equal((await response.json()).error.code, "enclave_starting");
   const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
   assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
@@ -726,7 +726,7 @@ test("devis d'emprunt, CVM éteinte : réveil 15 min et 503 enclave_starting, sa
   const before = Date.now();
   const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 7 });
   assert.equal(response.status, 503);
-  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal(response.headers.get("retry-after"), "45");
   assert.equal((await response.json()).error.code, "enclave_starting");
   const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
   assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
@@ -821,7 +821,7 @@ test("publication, CVM éteinte : réveil 15 min et 503 enclave_starting sans br
   const before = Date.now();
   const response = await sys.publish(publicationBody);
   assert.equal(response.status, 503);
-  assert.equal(response.headers.get("retry-after"), "120");
+  assert.equal(response.headers.get("retry-after"), "45");
   assert.equal((await response.json()).error.code, "enclave_starting");
   const until = sys.prisma.runnerAvailability.rows[0].requestedUntil as Date;
   assert.ok(until.getTime() >= before + 15 * 60_000 - 1000 && until.getTime() <= Date.now() + 15 * 60_000);
