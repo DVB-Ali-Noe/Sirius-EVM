@@ -437,16 +437,28 @@ function system(options: SystemOptions = {}) {
       "@/lib/billing/rental": rentalRules, "@/lib/sirius/api-keys": apiKeysModule, "@/lib/sirius/availability": availabilityModule,
     }),
     run: load<typeof import("../../app/api/loans/[id]/run/route")>("src/app/api/loans/[id]/run/route.ts", {
-      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
-      "@/lib/sirius/availability": availabilityModule,
-      // Refus de `prepareLoanResult` (settle.ts) : prolongation, pack, prêt non verrouillé.
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/runner/authorization": { hashRunnerIntent }, "@/lib/sirius/availability": availabilityModule, "@/lib/models/registry": models,
+      // `prepareLoanResult` (settle.ts) : passage en TRAINING puis job ; tout appel est compté.
       "@/lib/sirius/settle": { prepareLoanResult: async (loanId: string) => {
         calls.runner.push(["runLoanJob", { loanId }]);
-        const row = loans.rows.find((loan) => loan.id === loanId);
-        if (row?.extendsLoanId || row?.packForLoanId) throw new AppError("Une prolongation ou un pack ne lance aucun entraînement", 409);
-        if (row?.status !== "ESCROWED") throw new AppError("Loan non verrouillé ou déjà en cours", 409);
         return { loanId, modelCid: FINGERPRINT, runnerReceipt: "receipt" };
       } },
+    }),
+    settle: load<typeof import("../../app/api/loans/[id]/settle/route")>("src/app/api/loans/[id]/settle/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/http/rate-limit": noLimit, "@/lib/sirius/availability": availabilityModule, "@/lib/runner/failure-policy": failurePolicy,
+      "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/finality-tier": finalityTier,
+      "@/lib/sirius/settle": { settlePreparedLoan: async (loanId: string) => {
+        calls.runner.push(["settleLoan", { loanId }]);
+        return { loanId, modelCid: FINGERPRINT, runnerReceipt: "receipt", settleTxHash: SETTLE_TX };
+      } },
+    }),
+    extend: load<typeof import("../../app/api/loans/[id]/extend/route")>("src/app/api/loans/[id]/extend/route.ts", {
+      "next/server": { NextResponse }, "@/lib/db": db, "@/lib/auth/require-auth": auth, "@/lib/http/body": { readJson },
+      "@/lib/http/rate-limit": noLimit, "@/lib/sirius/availability": availabilityModule, "@/lib/sirius/rental": rental,
+      "@/lib/billing/rental": rentalRules, "@/lib/runner/failure-policy": failurePolicy, "@/lib/loans/settlement-status": settlementStatus,
+      "@/lib/sirius/extend": extend,
     }),
   };
   const reaper = () => load<typeof import("./reaper")>("src/lib/sirius/reaper.ts", {
@@ -493,7 +505,11 @@ function system(options: SystemOptions = {}) {
     ),
     calls: (body: unknown, id = "loan-1") => routes.calls.POST(new Request(`https://test.invalid/api/loans/${id}/calls`, json("POST", body)), { params: Promise.resolve({ id }) }),
     quote: (body: unknown) => routes.loans.POST(new Request("https://test.invalid/api/loans", json("POST", body))),
-    run: (id: string) => routes.run.POST(new Request(`https://test.invalid/api/loans/${id}/run`, json("POST", { authorization: grant })), { params: Promise.resolve({ id }) }),
+    run: (id: string, authorization: unknown = runGrant(id)) => routes.run.POST(new Request(`https://test.invalid/api/loans/${id}/run`, json("POST", { authorization })), { params: Promise.resolve({ id }) }),
+    settle: (id: string) => routes.settle.POST(new Request(`https://test.invalid/api/loans/${id}/settle`, json("POST", { authorization: grant })), { params: Promise.resolve({ id }) }),
+    settleExtension: (extensionLoanId: string, id = "loan-1") => routes.extend.POST(
+      new Request(`https://test.invalid/api/loans/${id}/extend`, json("POST", { extensionLoanId, authorization: grant })), { params: Promise.resolve({ id }) },
+    ),
   };
   return { prisma, calls, session, api, manage, signedHeaders, extend, callsModule, reaper, wakeBudget: wakeBudget.store };
 }
@@ -504,6 +520,14 @@ const grant = { payload: {}, signature: "signed" };
 /** Grant de révocation au périmètre attendu par l'enclave (`revoke-api-key`, prêt, `[loanId, keyId]`). */
 const revokeGrant = (loanId: string, keyId: string, overrides: Row = {}) => ({
   payload: { operation: "revoke-api-key", loanId, payloadHash: hashRunnerIntent([loanId, keyId]), ...overrides }, signature: "signed",
+});
+/** Grant `run-loan-job` au périmètre que vérifiera l'enclave (dataset `dataset-1` du harnais). */
+const runGrant = (loanId: string, overrides: Row = {}) => ({
+  payload: {
+    operation: "run-loan-job", loanId, datasetId: "dataset-1",
+    payloadHash: hashRunnerIntent([loanId, "dataset-1", "dataset-receipt", "logistic_regression", "1.0.0", "served"]), ...overrides,
+  },
+  signature: "signed",
 });
 
 // --- Adresse publique -------------------------------------------------------------------------
@@ -2124,21 +2148,76 @@ test("F2 : /run réveille la CVM pour l'emprunteur d'un prêt verrouillé, au bu
   assert.equal(spent(sys), 1, "réveil encore frais : rien de plus dépensé");
 });
 
-test("F2 : /run ne réveille rien pour un autre compte, un prêt réglé, une prolongation, un pack ou un lock échu", async () => {
+test("F2 : /run refuse en 409 direct, sans réveil ni passage en TRAINING, un autre compte, un prêt réglé, une prolongation, un pack ou un lock échu", async () => {
   const sys = system({ phase: "stopped", loans: [
     origin(), lockedLoan(),
     lockedLoan({ id: "loan-expired", evmDeadline: new Date(Date.now() - 1) }),
     attached("extension"), attached("pack"),
   ] });
   assert.equal((await sys.manage.run("loan-1")).status, 409, "prêt réglé");
-  // Lock échu : `prepareLoanResult` refuse comme avant (le runner ne règle plus rien), sans réveil.
-  await sys.manage.run("loan-expired");
+  const expired = await sys.manage.run("loan-expired");
+  assert.equal(expired.status, 409, "lock échu");
+  assert.equal((await expired.json()).error, "Lock de paiement échu : aucun entraînement possible, rembourse le prêt");
   assert.equal((await sys.manage.run("ext-9")).status, 409);
   assert.equal((await sys.manage.run("pack-9")).status, 409);
   sys.session.address = OTHER;
   assert.equal((await sys.manage.run("loan-7")).status, 403);
   assert.equal(requested(sys), null);
   assert.equal(sys.wakeBudget.size, 0);
+  assert.equal(sys.calls.runner.length, 0, "jamais de prepareLoanResult (ni TRAINING ni runner)");
+});
+
+test("F2 (revue PR #159) : /run avec un grant hors périmètre refusé en 401 avant le réveil et avant TRAINING, même CVM allumée", async () => {
+  for (const phase of ["stopped", "running"]) {
+    const sys = system({ phase, loans: [origin(), lockedLoan()] });
+    const wrong = [
+      { payload: {}, signature: "signed" },
+      runGrant("loan-7", { operation: "revoke-api-key" }),
+      runGrant("loan-7", { loanId: "loan-1" }),
+      runGrant("loan-7", { datasetId: "dataset-2" }),
+      runGrant("loan-7", { jobId: "job-1" }),
+      runGrant("loan-7", { payloadHash: hashRunnerIntent(["loan-7", "dataset-1", "autre-reçu", "logistic_regression", "1.0.0", "served"]) }),
+    ];
+    for (const authorization of wrong) {
+      const refused = await sys.manage.run("loan-7", authorization);
+      assert.equal(refused.status, 401, `${phase} ${JSON.stringify(authorization.payload)}`);
+    }
+    assert.equal(requested(sys), null, `${phase} : aucun réveil`);
+    assert.equal(spent(sys), 0);
+    assert.equal(sys.calls.runner.length, 0, `${phase} : aucun passage en TRAINING`);
+  }
+});
+
+test("audit E : /settle et le règlement d'une prolongation vérifient la phase sans réveiller, le reaper n'y passe pas", async () => {
+  const trained = lockedLoan({ status: "TRAINING", modelCid: FINGERPRINT, runnerReceipt: "receipt" });
+  for (const [row, code] of [
+    [{ phase: "running", validUntil: new Date(Date.now() - 1) }, "controller_unavailable"],
+    [{ phase: "maintenance", validUntil: null }, "controller_unavailable"],
+    [{ phase: "stopped", validUntil: null }, "enclave_starting"],
+  ] as const) {
+    const sys = system({ phase: row.phase, loans: [origin(), trained, attached("extension")] });
+    Object.assign(sys.prisma.runnerAvailability.rows[0], { validUntil: row.validUntil });
+    for (const response of [await sys.manage.settle("loan-7"), await sys.manage.settleExtension("ext-9")]) {
+      assert.equal(response.status, 503, `${row.phase}`);
+      assert.equal((await response.json()).code, code);
+    }
+    assert.equal(requested(sys), null, "aucun réveil écrit");
+    assert.equal(sys.calls.runner.length, 0, "rien relayé");
+    // Le reaper règle toujours la prolongation, sans contrôle de phase (CVM gardée voulue par le prêt).
+    await sys.reaper().runLoanReaper(new Date());
+    assert.deepEqual(sys.calls.runner.map(([op]) => op), ["extend"], `${row.phase} : reaper inchangé`);
+  }
+  // CVM servie : règlement relayé comme avant ; prêt déjà réglé : réponse sans contrôle de phase.
+  const running = system({ phase: "running", loans: [origin(), trained] });
+  Object.assign(running.prisma.runnerAvailability.rows[0], { validUntil: new Date(Date.now() + 60_000) });
+  assert.equal((await running.manage.settle("loan-7")).status, 200);
+  const settled = system({ phase: "stopped", loans: [origin()] });
+  assert.equal((await settled.manage.settle("loan-1")).status, 200);
+  // Prolongation refusée pour toujours (modèle d'origine supprimé) : refus définitif, pas d'attente d'enclave.
+  const deleted = system({ phase: "stopped", loans: [origin({ rentalExpiresAt: new Date(Date.now() - 31 * DAY) }), attached("extension")] });
+  const refused = await deleted.manage.settleExtension("ext-9");
+  assert.equal(refused.status, 409);
+  assert.equal(deleted.calls.runner.length, 0);
 });
 
 test("F2 : le reaper ne reprend pas un prêt verrouillé inactif tant que la CVM est arrêtée, sans compter d'échec", async () => {

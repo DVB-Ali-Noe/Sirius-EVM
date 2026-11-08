@@ -586,6 +586,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Trop de démarrages de l’enclave demandés par ce compte — réessaie plus tard": "Too many enclave starts requested by this account — try again later",
   "Enclave en maintenance : réessaie dans quelques minutes": "The enclave is under maintenance: try again in a few minutes",
   "Gestion de l’enclave momentanément indisponible : réessaie dans quelques minutes": "Enclave management is temporarily unavailable: try again in a few minutes",
+  "Lock de paiement échu : aucun entraînement possible, rembourse le prêt": "Payment lock expired: training is no longer possible, refund the loan",
   "API indisponible pour la régression linéaire (le modèle serait reconstructible)": "API unavailable for linear regression (the model could be reconstructed)",
   "Prolongation ou pack d’appels : utilise le prêt d’origine": "Extension or call pack: use the original loan",
   "Prêt sans durée de location : API indisponible": "Loan without a rental duration: API unavailable",

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
+import { ENCLAVE_STARTING_MESSAGE } from "@/lib/train/enclave-wait";
 import {
   borrowDataset,
   finishPaidSettlement,
@@ -214,6 +215,34 @@ test("règlement au palier rapide : la page relit l'attente seule et termine dè
     answers.push({ status: 202, body: { pending: true, error: SETTLEMENT_FINALITY_PENDING } });
     await assert.rejects(settleLoan("loan-slow", "receipt", { grant, wait: async () => assert.fail("pas de relance") }),
       { message: SETTLEMENT_FINALITY_PENDING });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("règlement, enclave pas encore servie (audit E) : attente Retry-After sur place, puis message lisible au-delà de 10 min", async () => {
+  const previousFetch = globalThis.fetch;
+  const starting = { status: 503, body: { error: { code: "enclave_starting", message: "x" }, code: "enclave_starting", retryAfterSeconds: 45 } };
+  const answers: { status: number; body: object }[] = [starting, starting, { status: 200, body: { loanId: "loan-wait" } }];
+  globalThis.fetch = (async () => {
+    const answer = answers.shift()!;
+    return new Response(JSON.stringify(answer.body), { status: answer.status });
+  }) as unknown as typeof fetch;
+  let issued = 0;
+  const grant: typeof issueRunnerGrant = async () => ({ grant: `grant-${issued++}` }) as never;
+  try {
+    const waits: number[] = [];
+    await settleLoan("loan-wait", "receipt", { grant, wait: async (ms) => { waits.push(ms); } });
+    assert.deepEqual(waits, [45_000, 45_000]);
+    assert.equal(issued, 3, "un grant neuf par essai");
+    answers.push(...Array.from({ length: 20 }, () => starting));
+    await assert.rejects(settleLoan("loan-wait", "receipt", { grant, wait: async () => {} }), { message: ENCLAVE_STARTING_MESSAGE });
+    assert.equal(answers.length, 20 - 14, "13 attentes de 45 s tiennent dans 10 min, la 14e réponse remonte");
+    answers.length = 0;
+    // Contrôleur muet : message lisible, aucune relance.
+    answers.push({ status: 503, body: { error: "Gestion de l’enclave momentanément indisponible : réessaie dans quelques minutes", code: "controller_unavailable" } });
+    await assert.rejects(settleLoan("loan-wait", "receipt", { grant, wait: async () => assert.fail("pas de relance") }),
+      { message: "Gestion de l’enclave momentanément indisponible : réessaie dans quelques minutes" });
   } finally {
     globalThis.fetch = previousFetch;
   }

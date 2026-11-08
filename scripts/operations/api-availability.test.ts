@@ -20,7 +20,7 @@ function state(overrides: Partial<AvailabilityState>): AvailabilityState {
 }
 const DAY = 86_400_000;
 const loan = (id: string, status: string, overrides: Partial<AvailabilityLoanRecord> = {}): AvailabilityLoanRecord => ({
-  id, status, evmDeadline: null, settleTxHash: null, updatedAt: new Date(T0), extendsLoanId: null, packForLoanId: null,
+  id, status, evmDeadline: null, settleTxHash: null, createdAt: new Date(T0), extendsLoanId: null, packForLoanId: null,
   apiAccessRefusedAt: null, originRentalExpiresAt: null, ...overrides,
 });
 
@@ -266,24 +266,24 @@ const RELEASE = `0x${"55".repeat(32)}`;
 
 /** Cas couvrant chaque branche de la règle, avec le besoin attendu à T0. */
 const neededCases: [string, AvailabilityLoanRecord, boolean][] = [
-  ["prêt ESCROWED verrouillé il y a 29 min", loan("a", "ESCROWED", { updatedAt: new Date(T0 - 29 * MINUTE), evmDeadline: future }), true],
-  ["prêt ESCROWED verrouillé il y a 31 min, jamais lancé", loan("b", "ESCROWED", { updatedAt: new Date(T0 - 31 * MINUTE), evmDeadline: future }), false],
-  ["prêt ESCROWED ancien sans échéance lue", loan("c", "ESCROWED", { updatedAt: new Date(T0 - DAY) }), false],
-  ["prêt TRAINING ancien", loan("d", "TRAINING", { updatedAt: new Date(T0 - DAY), evmDeadline: future }), true],
-  ["prêt SETTLING ancien", loan("e", "SETTLING", { updatedAt: new Date(T0 - DAY), evmDeadline: future }), true],
-  ["prêt ESCROWED ancien avec release diffusé", loan("f", "ESCROWED", { updatedAt: new Date(T0 - DAY), settleTxHash: RELEASE }), true],
-  ["pack ancien, location d'origine en cours", loan("g", "ESCROWED", { packForLoanId: "o", updatedAt: new Date(T0 - DAY), evmDeadline: future, originRentalExpiresAt: new Date(T0 + DAY) }), true],
-  ["pack, échéance d'origine pas encore lue", loan("h", "ESCROWED", { packForLoanId: "o", updatedAt: new Date(T0 - DAY), evmDeadline: future }), true],
+  ["prêt ESCROWED préparé il y a 39 min (lock au plus tard 10 min après)", loan("a", "ESCROWED", { createdAt: new Date(T0 - 39 * MINUTE), evmDeadline: future }), true],
+  ["prêt ESCROWED préparé il y a 41 min, jamais lancé", loan("b", "ESCROWED", { createdAt: new Date(T0 - 41 * MINUTE), evmDeadline: future }), false],
+  ["prêt ESCROWED ancien sans échéance lue", loan("c", "ESCROWED", { createdAt: new Date(T0 - DAY) }), false],
+  ["prêt TRAINING ancien", loan("d", "TRAINING", { createdAt: new Date(T0 - DAY), evmDeadline: future }), true],
+  ["prêt SETTLING ancien", loan("e", "SETTLING", { createdAt: new Date(T0 - DAY), evmDeadline: future }), true],
+  ["prêt ESCROWED ancien avec release diffusé", loan("f", "ESCROWED", { createdAt: new Date(T0 - DAY), settleTxHash: RELEASE }), true],
+  ["pack ancien, location d'origine en cours", loan("g", "ESCROWED", { packForLoanId: "o", createdAt: new Date(T0 - DAY), evmDeadline: future, originRentalExpiresAt: new Date(T0 + DAY) }), true],
+  ["pack, échéance d'origine pas encore lue", loan("h", "ESCROWED", { packForLoanId: "o", createdAt: new Date(T0 - DAY), evmDeadline: future }), true],
   ["pass refusé (apiAccessRefusedAt)", loan("i", "ESCROWED", { packForLoanId: "o", apiAccessRefusedAt: new Date(T0 - DAY), evmDeadline: future, originRentalExpiresAt: new Date(T0 + DAY) }), false],
   ["pack refusé : location d'origine échue (RENTAL_EXPIRED)", loan("j", "ESCROWED", { packForLoanId: "o", evmDeadline: future, originRentalExpiresAt: new Date(T0 - MINUTE) }), false],
   ["pack release diffusé, location d'origine échue", loan("k", "SETTLING", { packForLoanId: "o", settleTxHash: RELEASE, originRentalExpiresAt: new Date(T0 - MINUTE) }), true],
   ["prolongation, location échue mais modèle gardé", loan("l", "ESCROWED", { extendsLoanId: "o", evmDeadline: future, originRentalExpiresAt: new Date(T0 - 29 * DAY) }), true],
   ["prolongation refusée : modèle supprimé (RENTAL_MODEL_DELETED)", loan("m", "ESCROWED", { extendsLoanId: "o", evmDeadline: future, originRentalExpiresAt: new Date(T0 - 31 * DAY) }), false],
   ["pack au lock échu", loan("n", "ESCROWED", { packForLoanId: "o", evmDeadline: past, originRentalExpiresAt: new Date(T0 + DAY) }), false],
-  ["prêt réglé", loan("p", "SETTLED", { updatedAt: new Date(T0) }), false],
+  ["prêt réglé", loan("p", "SETTLED", { createdAt: new Date(T0) }), false],
 ];
 
-test("F2 : prêt ordinaire 30 min après son lock, packs et prolongations jusqu'à une issue, jamais au-delà", () => {
+test("F2 : prêt ordinaire 30 min après son lock (40 min après sa préparation), packs et prolongations jusqu'à une issue, jamais au-delà", () => {
   for (const [label, record, expected] of neededCases) {
     assert.equal(inFlightLoanNeeded(record, T0), expected, label);
     assert.equal(availabilityDecision(state({ loans: [record] }), T0).needed, expected, label);
@@ -322,8 +322,8 @@ test("F2 : le filtre en base du contrôleur retient exactement les mêmes prêts
   }
 });
 
-test("F2 : un lock payé jamais lancé n'allume plus la CVM trois jours : arrêt environ 75 min après le lock", () => {
-  const locked = loan("lock", "ESCROWED", { updatedAt: new Date(T0), evmDeadline: future });
+test("F2 : un lock payé jamais lancé n'allume plus la CVM trois jours : arrêt environ 85 min après la préparation", () => {
+  const locked = loan("lock", "ESCROWED", { createdAt: new Date(T0), evmDeadline: future });
   let current = memory("running", { lastNeededAt: T0 });
   let stoppedAt: number | null = null;
   for (let minute = 0; minute <= 3 * 24 * 60 && stoppedAt === null; minute++) {
@@ -331,8 +331,20 @@ test("F2 : un lock payé jamais lancé n'allume plus la CVM trois jours : arrêt
     if (decision.action === "stop") stoppedAt = minute;
     current = decision.memory;
   }
-  // Dernier tour avec besoin à T0 + 29 min, puis 45 min d'inactivité.
-  assert.equal(stoppedAt, 74);
+  // Dernier tour avec besoin à T0 + 39 min, puis 45 min d'inactivité.
+  assert.equal(stoppedAt, 84);
+});
+
+test("F2 (revue PR #159) : des /run en échec qui réécrivent le prêt ne repoussent pas la fenêtre", () => {
+  // Préparé à T0, puis un /run raté toutes les 25 min : chaque échec réécrit `updatedAt` (TRAINING → ESCROWED).
+  const where = (now: number) => inFlightLoanWhere(new Date(now));
+  for (let minute = 0; minute <= 3 * 24 * 60; minute += 25) {
+    const row = { ...loan("poke", "ESCROWED", { createdAt: new Date(T0), evmDeadline: future }), updatedAt: new Date(T0 + minute * MINUTE), packForLoan: null, extendsLoan: null };
+    const now = T0 + minute * MINUTE;
+    const expected = minute < 40;
+    assert.equal(inFlightLoanNeeded(row, now), expected, `règle à T0 + ${minute} min`);
+    assert.equal(matches(row, where(now)), expected, `filtre en base à T0 + ${minute} min`);
+  }
 });
 
 // --- Audit E F3 : arrêt en deux temps ----------------------------------------------------------

@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { attestedRunnerFetch } from "../../src/lib/tee/ra-tls-client";
 import { DAY_MS, RENTAL_GRACE_DAYS } from "../../src/lib/billing/rental";
 import { assertRunnerPins } from "../../src/lib/runner/config";
+import { PENDING_REAPER_TTL_MS } from "../../src/lib/sirius/reaper-policy";
 import type { Prisma } from "../../src/generated/prisma/client";
 import { phalaCvm, type CvmPower, type PhalaCvmIdentity, type PhalaCvmIO } from "./phala-cvm";
 
@@ -27,8 +28,12 @@ export interface AvailabilityLoanRecord {
   /** Échéance du lock on-chain ; au-delà, sans `release` diffusé, seul `refund()` reste possible. */
   evmDeadline: Date | null;
   settleTxHash: string | null;
-  /** Dernière écriture du prêt : lock confirmé, lancement `/run`, retour à ESCROWED d'un entraînement. */
-  updatedAt: Date;
+  /**
+   * Préparation du prêt, jamais réécrite : le lock est forcément miné avant `createdAt` +
+   * `PENDING_REAPER_TTL_MS` (autorisation de lock, `lock-policy.ts`). Repère immuable de la fenêtre
+   * d'un prêt verrouillé : aucune écriture ultérieure (`/run` en échec, reaper) ne la repousse.
+   */
+  createdAt: Date;
   extendsLoanId: string | null;
   packForLoanId: string | null;
   /** Pass refusé pour toujours par l'enclave : plus jamais rejoué, remboursable à l'échéance. */
@@ -73,11 +78,15 @@ export interface AvailabilityDecision {
 
 export const IN_FLIGHT_LOAN_STATUSES = ["ESCROWED", "TRAINING", "SETTLING"] as const;
 /**
- * Prêt ordinaire verrouillé et pas encore lancé : la CVM reste voulue 30 min après sa dernière
- * écriture (lock confirmé, `/run`), le temps de la finalité du lock et du lancement automatique de la
- * page. Au-delà, l'emprunteur qui revient la réveille par `/run` (audit E F2).
+ * Prêt ordinaire verrouillé et pas encore lancé : la CVM reste voulue 30 min après son lock, le
+ * temps de la finalité et du lancement automatique de la page. Mesuré depuis la préparation
+ * (`createdAt`, immuable) plus le délai maximal du lock (`PENDING_REAPER_TTL_MS`), soit 40 min après
+ * la préparation au plus : une écriture du prêt (`/run` en échec, reaper) ne repousse jamais la
+ * fenêtre (revue de la PR #159). Au-delà, l'emprunteur qui revient la réveille par `/run`, au budget
+ * de son compte (audit E F2).
  */
 export const ESCROWED_LOAN_GRACE_MS = 30 * 60_000;
+export const ESCROWED_LOAN_WINDOW_MS = PENDING_REAPER_TTL_MS + ESCROWED_LOAN_GRACE_MS;
 /**
  * Durée maximale d'un tour : lecture Phala (30 s), `/health` (15 s), commande (30 s), marge. La phase
  * publiée vaut `AVAILABILITY_VALID_POLLS` intervalles plus ce délai, puis Next la tient pour inconnue.
@@ -103,7 +112,7 @@ export const DEFAULT_AVAILABILITY_OPTIONS: AvailabilityOptions = {
  * - prolongation : tant que le modèle d'origine n'est pas supprimé (`RENTAL_MODEL_DELETED`, échéance
  *   + `RENTAL_GRACE_DAYS`) ;
  * - prêt ordinaire TRAINING ou SETTLING : toujours (entraînement ou règlement en cours) ;
- * - prêt ordinaire ESCROWED : seulement `ESCROWED_LOAN_GRACE_MS` après sa dernière écriture.
+ * - prêt ordinaire ESCROWED : seulement `ESCROWED_LOAN_WINDOW_MS` après sa préparation (`createdAt`).
  * Sans `evmDeadline` (lock pas encore lu) ni échéance d'origine, le prêt compte : aucun champ ne
  * permet de le dire abandonné.
  */
@@ -115,7 +124,7 @@ export function inFlightLoanNeeded(loan: AvailabilityLoanRecord, now: number): b
   if (loan.packForLoanId !== null) return loan.apiAccessRefusedAt === null && (origin === null || origin > now);
   if (loan.extendsLoanId !== null) return origin === null || origin + RENTAL_GRACE_DAYS * DAY_MS > now;
   if (loan.status !== "ESCROWED") return true;
-  return loan.updatedAt.getTime() > now - ESCROWED_LOAN_GRACE_MS;
+  return loan.createdAt.getTime() > now - ESCROWED_LOAN_WINDOW_MS;
 }
 
 /** Même règle qu'`inFlightLoanNeeded`, appliquée en base (filtre Prisma de `Loan`). */
@@ -133,7 +142,7 @@ export function inFlightLoanWhere(now: Date): Prisma.LoanWhereInput {
               { packForLoanId: { not: null }, apiAccessRefusedAt: null, packForLoan: { is: unknownOrAfter(now) } },
               { extendsLoanId: { not: null }, extendsLoan: { is: unknownOrAfter(new Date(now.getTime() - RENTAL_GRACE_DAYS * DAY_MS)) } },
               { packForLoanId: null, extendsLoanId: null, status: { in: ["TRAINING", "SETTLING"] } },
-              { packForLoanId: null, extendsLoanId: null, status: "ESCROWED", updatedAt: { gt: new Date(now.getTime() - ESCROWED_LOAN_GRACE_MS) } },
+              { packForLoanId: null, extendsLoanId: null, status: "ESCROWED", createdAt: { gt: new Date(now.getTime() - ESCROWED_LOAN_WINDOW_MS) } },
             ],
           },
         ],
@@ -362,7 +371,7 @@ async function main() {
         prisma.loan.findMany({
           where: inFlightLoanWhere(now),
           select: {
-            id: true, status: true, evmDeadline: true, settleTxHash: true, updatedAt: true,
+            id: true, status: true, evmDeadline: true, settleTxHash: true, createdAt: true,
             extendsLoanId: true, packForLoanId: true, apiAccessRefusedAt: true,
             packForLoan: { select: { rentalExpiresAt: true } }, extendsLoan: { select: { rentalExpiresAt: true } },
           },

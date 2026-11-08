@@ -142,7 +142,9 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
         if (!addresses.addressesEqual(current.address, owner)) throw new AppError("Accès refusé : ressource d’un autre compte", 403);
       },
     },
-    "@/lib/sirius/availability": { loanRouteErrorResponse: errorResponse }, "@/lib/http/body": { readJson },
+    // Contrôle de phase couvert dans developer-api.test.ts ; ici, aucun contrôleur (CVM réputée allumée).
+    "@/lib/sirius/availability": { loanRouteErrorResponse: errorResponse, requireRunnerServing: async () => {} },
+    "@/lib/http/body": { readJson }, "@/lib/sirius/rental": rental,
     "@/lib/http/rate-limit": { FixedWindowRateLimiter: class {}, enforceRateLimit: () => {} },
     "@/lib/billing/rental": rentalRules, "@/lib/runner/failure-policy": failurePolicy,
     "@/lib/loans/settlement-status": settlementStatus, "@/lib/sirius/extend": extend,

@@ -11,7 +11,9 @@ import {
   SETTLEMENT_FINALITY_PENDING_FAST,
   SETTLEMENT_QUEUED,
 } from "./settlement-status";
-import { abortableSleep, EnclaveStartingError, responseError } from "@/lib/train/enclave-wait";
+import {
+  abortableSleep, ENCLAVE_STARTING_CODE, ENCLAVE_STARTING_MESSAGE, ENCLAVE_WAIT_MAX_MS, EnclaveStartingError, responseError,
+} from "@/lib/train/enclave-wait";
 import { apiAccessDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
 import { sendActiveTransaction } from "@/lib/wallet/transaction-client";
 import { guardRefundTransaction } from "@/lib/wallet/transaction-guard";
@@ -432,6 +434,7 @@ export async function settleLoan(
 ): Promise<void> {
   let queued = 0;
   let pending = 0;
+  let enclaveWaitMs = 0;
   for (;;) {
     const authorization = await grant("settle-loan", { loanId }, [loanId, runnerReceipt]);
     const response = await fetch(`/api/loans/${loanId}/settle`, {
@@ -439,21 +442,33 @@ export async function settleLoan(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ authorization }),
     });
-    const body = await response.json() as { error?: string; pending?: boolean };
+    const body = await response.json() as { error?: unknown; pending?: boolean; code?: unknown; retryAfterSeconds?: unknown };
+    const error = typeof body.error === "string" && body.error ? body.error : undefined;
     // Le serveur annonce l'attente selon le palier du prêt (secondes ou quart d'heure) ; sans message, l'attente longue.
     if (response.status === 202 && body.pending) {
-      const message = typeof body.error === "string" && body.error ? body.error : SETTLEMENT_FINALITY_PENDING;
+      const message = error ?? SETTLEMENT_FINALITY_PENDING;
       if (message === SETTLEMENT_FINALITY_PENDING_FAST && pending < SETTLEMENT_PENDING_RETRY_MS.length) {
         await wait(SETTLEMENT_PENDING_RETRY_MS[pending++]);
         continue;
       }
       throw new Error(message);
     }
-    if (response.status === 503 && body.error === SETTLEMENT_QUEUED && queued < SETTLEMENT_QUEUED_RETRY_MS.length) {
+    if (response.status === 503 && error === SETTLEMENT_QUEUED && queued < SETTLEMENT_QUEUED_RETRY_MS.length) {
       await wait(SETTLEMENT_QUEUED_RETRY_MS[queued++]);
       continue;
     }
-    if (!response.ok) throw new Error(body.error ?? "Règlement de l’escrow échoué");
+    // Enclave pas encore servie (la route ne réveille pas : le prêt la garde déjà voulue) : attente
+    // `Retry-After` sur place, sans relancer l'entraînement, dans la limite d'`ENCLAVE_WAIT_MAX_MS`.
+    if (response.status === 503 && body.code === ENCLAVE_STARTING_CODE) {
+      const delayMs = (typeof body.retryAfterSeconds === "number" && body.retryAfterSeconds > 0 ? Math.min(body.retryAfterSeconds, 120) : 30) * 1000;
+      if (enclaveWaitMs + delayMs <= ENCLAVE_WAIT_MAX_MS) {
+        enclaveWaitMs += delayMs;
+        await wait(delayMs);
+        continue;
+      }
+      throw new Error(ENCLAVE_STARTING_MESSAGE);
+    }
+    if (!response.ok) throw new Error(error ?? "Règlement de l’escrow échoué");
     return;
   }
 }

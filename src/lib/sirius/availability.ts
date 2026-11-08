@@ -189,9 +189,7 @@ export function loanRouteErrorResponse(error: unknown): NextResponse {
 export async function requireRunnerOrWake({ now = new Date(), wakeSubject }: { now?: Date; wakeSubject?: string } = {}): Promise<void> {
   const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true, requestedUntil: true, validUntil: true } });
   if (!row) return;
-  const phase = phaseOf(row, now);
-  if (phase === "stale") alertControllerSilent(row, now);
-  if (phase === "maintenance" || phase === "stale") throw new RunnerControllerUnavailable(phase);
+  const phase = managedPhase(row, now);
   const until = new Date(now.getTime() + RUNNER_WAKE_MS);
   const staleBefore = new Date(until.getTime() - ACTIVITY_REFRESH_MS);
   if (row.requestedUntil === null || row.requestedUntil < staleBefore) {
@@ -205,5 +203,27 @@ export async function requireRunnerOrWake({ now = new Date(), wakeSubject }: { n
       throw new WakeRateLimited(budget.retryAfterSeconds);
     }
   }
+  if (phase !== "running") throw new EnclaveStarting(phase);
+}
+
+/** Phase publiée par un contrôleur actif, sinon refus `RunnerControllerUnavailable` (alerte si muet). */
+function managedPhase(row: AvailabilityRow, now: Date): RunnerPhase {
+  const phase = phaseOf(row, now);
+  if (phase === "stale") alertControllerSilent(row, now);
+  if (phase === "maintenance" || phase === "stale") throw new RunnerControllerUnavailable(phase);
+  return phase;
+}
+
+/**
+ * Route wallet qui relaie vers le runner sans réveiller (règlement d'un prêt entraîné ou d'une
+ * prolongation, audit E) : le prêt en cours garde déjà la CVM voulue, la requête ne la prolonge
+ * pas. Contrôleur muet ou en maintenance : `RunnerControllerUnavailable` ; CVM pas encore allumée :
+ * `EnclaveStarting`, au lieu de relayer vers une CVM peut-être éteinte. Sans ligne, rien à vérifier.
+ * Le reaper n'y passe pas : il appelle le runner directement et reste seul garant du règlement.
+ */
+export async function requireRunnerServing(now = new Date()): Promise<void> {
+  const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true, validUntil: true } });
+  if (!row) return;
+  const phase = managedPhase(row, now);
   if (phase !== "running") throw new EnclaveStarting(phase);
 }
