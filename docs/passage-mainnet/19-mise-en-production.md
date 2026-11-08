@@ -235,7 +235,7 @@ pnpm dlx phala@1.1.22 deploy --profile sirius --cvm-id <cvm-id> \
 
 ### Étape 9 — Variables Vercel production
 
-**Qui** : Ali. Projet `sirius-evm`, environnement **Production** uniquement. Par le tableau de bord, ou `vercel env add <NOM> production --sensitive` qui demande la valeur sur l'entrée standard (jamais `--value=` avec un secret : il resterait dans l'historique). Liste complète et sources en section 3.1.
+**Qui** : Ali. Projet `sirius-evm`, environnement **Production** uniquement. Par le tableau de bord, ou `vercel env add <NOM> production --sensitive` qui demande la valeur sur l'entrée standard (jamais `--value=` avec un secret : il resterait dans l'historique). **Exception** : `SIRIUS_BILLING_VERSION`, `SIRIUS_BILLING_POLICY_JSON` et `SIRIUS_PHALA_DEMO` ne sont pas des secrets et se posent **sans** `--sensitive` (`--no-sensitive`) : la porte tarif D-33 de la pipeline doit pouvoir les lire (section 3.1). Liste complète et sources en section 3.1.
 
 1. Retirer d'abord ce qui est interdit sur mainnet : `SIRIUS_MASTER_KEY`, `SIRIUS_FAUCET_KEY`, `SIRIUS_KYB_VERIFIER_KEY`, `DSTACK_SIMULATOR_ENDPOINT`, `SIRIUS_DEPLOYMENT_MODE`, `NEXT_PUBLIC_SIRIUS_DEPLOYMENT_MODE`, `SIRIUS_PHALA_DEMO`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`, `SIRIUS_EXPECTED_RTMR3`, `NEXT_PUBLIC_SIRIUS_E2E`.
 2. Poser toutes les variables de la section 3.1.
@@ -368,6 +368,8 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 « Obligatoire » = l'instance refuse de démarrer, ou le contrôle (`instrumentation-node.ts`, `runner/config.ts`, `worker/mainnet-guard.ts`, `release-check.mjs`, `exposure-limits.ts`, `deploy-policy.ts`, `phala-v7-preflight.ts`, `initialize-runner-volume.ts`) échoue sans elle. « Pratique » = sans elle, une fonction tombe en 503. La colonne `.env.example` dit si le nom y figure.
 
 ### 3.1 Next sur Vercel (projet `sirius-evm`, Production)
+
+`SIRIUS_BILLING_VERSION`, `SIRIUS_BILLING_POLICY_JSON` et `SIRIUS_PHALA_DEMO` ne doivent **pas** être marquées Sensitive : `vercel pull` les remplace alors par `[SENSITIVE]`, et la porte tarif D-33 de la pipeline (`scripts/operations/check-billing-rate-card.mjs`) refuse le déploiement en nommant la variable dès qu'elle en a besoin (une cible v6 ou de démonstration ne lit pas le tarif). Aucune n'est un secret.
 
 | Variable | Valeur attendue | Source | Obligatoire | `.env.example` |
 |---|---|---|---|---|

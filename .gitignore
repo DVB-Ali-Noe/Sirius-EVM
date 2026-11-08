@@ -32,6 +32,7 @@ pnpm-debug.log*
 # Cache & outils
 .eslintcache
 .turbo
+__pycache__/
 *.tsbuildinfo
 .vercel
 

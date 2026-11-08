@@ -41,6 +41,14 @@ concurrency:
   group: pipeline-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Moindre privilège (audit F-5) : le jeton du workflow ne peut que lire le dépôt ; un job
+# qui a besoin de plus le déclare lui-même (`image` publie sur GHCR, `vps` y lit).
+# Les actions tierces sont épinglées par SHA de commit (le commentaire donne la version
+# majeure suivie) : un tag déplacé ne peut pas injecter de code dans le job qui publie
+# l'image attestée du runner.
+permissions:
+  contents: read
+
 env:
   # `prisma generate` lit cette variable sans jamais s'y connecter. Une valeur factice
   # suffit donc, et évite d'exposer la vraie base à un job qui n'en a pas besoin.
@@ -65,16 +73,16 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Activer pnpm
         run: corepack enable
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.local/share/pnpm/store
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -102,6 +110,10 @@ jobs:
         run: pnpm test:phala-demo
       - name: API des modèles privés
         run: pnpm test:private-api
+
+      # SDK Python public (audit F-4) : bibliothèque standard seule, le python3 du runner suffit.
+      - name: SDK Python
+        run: python3 -m unittest sdk/python/test_sirius_api.py
 
       - name: Outils de préparation et de sauvegarde
         run: pnpm test:operations
@@ -158,9 +170,9 @@ jobs:
       origines_alias: ${{ steps.calcul.outputs.origines_alias }}
       branche: ${{ steps.calcul.outputs.branche }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -190,7 +202,7 @@ jobs:
       digest_worker: ${{ steps.worker.outputs.digest }}
       digest_runner: ${{ steps.runner.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Docker impose des noms de dépôt entièrement en minuscules, alors qu'un
       # propriétaire GitHub peut en contenir. « DVB-Ali-Noe » est donc un nom
@@ -199,9 +211,9 @@ jobs:
         id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -209,7 +221,7 @@ jobs:
 
       - name: Worker
         id: worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile.worker
@@ -234,7 +246,7 @@ jobs:
 
       - name: Runner confidentiel
         id: runner
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         env:
           SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.value }}
         with:
@@ -260,9 +272,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ needs.cible.outputs.environnement }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -290,9 +302,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ needs.cible.outputs.environnement }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -356,6 +368,10 @@ jobs:
           # production : les mêmes commandes servent aux deux, et il n'y a
           # aucune branche à déclarer ni métadonnée Git à joindre.
           npx --yes "$CLI" pull --yes --environment=production --token="$TOKEN"
+          # Porte D-33 (audit F-1) : en facturation v7, hors démonstration Phala, le tarif
+          # Vercel doit porter le prix journalier de l'API et un quota pour chaque profil
+          # louable, sinon toute location serait refusée. Le script n'affiche aucune valeur.
+          node scripts/operations/check-billing-rate-card.mjs .vercel/.env.production.local
           npx --yes "$CLI" build --prod --token="$TOKEN"
           npx --yes "$CLI" deploy --prebuilt --prod --token="$TOKEN"
 
@@ -371,13 +387,21 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Déployer par SSH
         env:
           DIGEST: ${{ needs.image.outputs.digest_worker }}
           PROJET: ${{ needs.cible.outputs.projet_compose }}
           DOSSIER: ${{ needs.cible.outputs.dossier_vps }}
+          # Secrets passés par l'environnement, jamais recopiés dans le texte du script
+          # (audit F-5) : une valeur contenant un guillemet ne peut plus en changer le sens.
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
 
@@ -385,16 +409,16 @@ jobs:
           # la ligne invisible. OpenSSH refuse alors la cible avec « hostname
           # contains invalid characters ». On nettoie plutôt que d'exiger un
           # copier-coller parfait.
-          HOST="$(printf '%s' "${{ secrets.VPS_HOST }}" | tr -d '[:space:]')"
-          SSH_USER="$(printf '%s' "${{ secrets.VPS_USER }}" | tr -d '[:space:]')"
+          HOST="$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')"
+          SSH_USER="$(printf '%s' "$VPS_USER" | tr -d '[:space:]')"
           CIBLE="${SSH_USER}@${HOST}"
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           # L'empreinte de l'hôte est épinglée plutôt que découverte : un
           # `StrictHostKeyChecking=no` accepterait n'importe quelle machine se
           # présentant à cette adresse, y compris pendant un détournement DNS.
-          printf '%s\n' "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
           scp deploy/vps/compose.yaml "${CIBLE}:${DOSSIER}/compose.yaml"
@@ -405,7 +429,7 @@ jobs:
           # L'image est épinglée par digest : ce qui redémarre est exactement ce que
           # ce commit a produit, pas ce qu'un tag mutable désignera plus tard.
           sed -i "s|^SIRIUS_WORKER_IMAGE=.*|SIRIUS_WORKER_IMAGE=\"ghcr.io/${OWNER}/sirius-worker@${DIGEST}\"|" .env.vps
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
           # Le VPS héberge d'autres projets, et désormais deux piles Sirius. Le nom de
           # projet est explicite pour que Compose ne touche qu'aux conteneurs de cette
           # cible, et aucun élagage global n'est lancé : « docker image prune »
@@ -437,9 +461,9 @@ jobs:
     needs: [cible, vercel]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
