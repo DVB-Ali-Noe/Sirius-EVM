@@ -74,7 +74,7 @@ export function useComputeQuoteConfirmation() {
         {quote.apiAccessIncluded && (
           <p className="text-xs text-muted" data-testid="api-access-included-note">{quote.extendsLoanId
             ? t("Ta location a l’accès API jusqu’à son échéance : la prolongation l’inclut pour les jours ajoutés, au tarif journalier de l’API.")
-            : t("L’accès API est payé avec l’emprunt pour toute la location ; une prolongation le prolonge aussi. En cas d’échec de l’entraînement, il est remboursé avec le reste, hors frais d’exécution mesurés.")}</p>
+            : t("Toute location inclut l’accès API pour toute sa durée, au tarif journalier ; une clé est créée pour toi après le règlement et une prolongation garde l’API. En cas d’échec de l’entraînement, il est remboursé avec le reste, hors frais d’exécution mesurés.")}</p>
         )}
         {quote.extendsLoanId && !quote.apiAccessIncluded && (
           <p className="text-xs text-muted" data-testid="extension-api-note">{t("La prolongation ne comprend pas l’accès API : si tu utilises l’API, elle s’arrêtera à sa date payée actuelle et les jours ajoutés se paient ensuite depuis le panneau API.")}</p>

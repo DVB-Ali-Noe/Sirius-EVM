@@ -7,11 +7,13 @@ info:
     Programmatic access to the models you rent on Sirius. The model stays sealed in an Intel TDX
     enclave; every answer is signed by the enclave (EIP-712 `SiriusPrediction`).
 
-    **Access (D-32).** API access is paid per day: include it when renting (one quote, one payment)
-    or buy a daily API pass later on the Train page. Without paid access covering the current time,
-    every call answers `403 api_access_required`. A pass covers up to the rental end. An extension
-    automatically includes the API for the added days when paid access (included at rental or
-    through passes) reaches the current rental end; otherwise buy a top-up pass for the new days.
+    **Access (D-32).** API access is paid per day and included in every rental: the rental quote
+    adds rented days × the API daily price (one quote, one payment), and the Train page creates a
+    default key after settlement. An extension automatically includes the API for the added days
+    when paid access reaches the current rental end. Rentals opened before 2026-11-08 without the
+    API can buy a daily API pass on the Train page (also used as a top-up after an uncovered
+    extension). Without paid access covering the current time, every call answers
+    `403 api_access_required`.
 
     **Authentication.** Every request carries four headers. The signature is a lowercase hex
     HMAC-SHA256 over the canonical string below, keyed with the 32 raw bytes of your secret

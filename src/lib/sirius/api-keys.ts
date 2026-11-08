@@ -4,8 +4,8 @@ import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
 import {
-  API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount, apiAccessDaysFor,
-  isApiAccessDays,
+  API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount,
+  apiAccessDaysFor, isApiAccessDays, RENTAL_API_ACCESS_NOT_FOR_SALE,
 } from "@/lib/billing/api-pricing";
 import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
@@ -28,6 +28,8 @@ import { includesApiAccess, loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
 export const API_UNAVAILABLE_LINEAR = "API indisponible pour la régression linéaire (le modèle serait reconstructible)";
 export const API_UNAVAILABLE_PROFILE = "API indisponible pour ce profil de modèle";
 export const API_PROFILE_CODE = "api_not_available_for_profile";
+/** Toute location inclut l'API (D-32) : un profil sans quota API dans le tarif n'est pas louable. */
+export const RENTAL_API_UNAVAILABLE_PROFILE = "Location indisponible : le tarif en vigueur n’ouvre pas l’API pour ce profil, or toute location inclut l’accès API";
 
 const KEY_NAME_MAX = 64;
 const USAGE_DAYS = 30;
@@ -61,6 +63,26 @@ export function loanApiAccessDailyFee(env: Record<string, string | undefined> = 
   } catch {
     return null;
   }
+}
+
+/**
+ * Accès API d'un NOUVEL emprunt (décision du 8 novembre 2026, D-32) : toute location l'inclut,
+ * jours loués × tarif journalier, sans option pour s'en passer. Renvoie ce tarif journalier, ou
+ * `null` quand l'API n'existe pas pour cet emprunt : régression linéaire (jamais d'API, D-27) ou
+ * facturation v7 inactive (escrow v6 hérité, sans devis). Tout autre profil sans quota
+ * `apiCallsPerDay` ou un tarif sans `apiAccessDailyComputeAmount` refuse la location (409) :
+ * jamais de location sans API, jamais d'API gratuite. Politique illisible ici : 503.
+ */
+export function newRentalApiAccessDailyFee(modelId: string, env: Record<string, string | undefined> = process.env): string | null {
+  if (modelId === "linear_regression" || !billingEnabled()) return null;
+  const policy = billingPolicy(env);
+  const calls = policy.apiCallsPerDay?.[modelId as ModelId];
+  if (typeof calls !== "number" || !Number.isSafeInteger(calls) || calls < 1) {
+    throw new AppError(RENTAL_API_UNAVAILABLE_PROFILE, 409, API_PROFILE_CODE);
+  }
+  const fee = policy.apiAccessDailyComputeAmount;
+  if (fee === undefined) throw new AppError(RENTAL_API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
+  return fee;
 }
 
 /** Refus de Next, avant tout réveil de l'enclave, d'une API dont aucun pass ne couvre `now` (D-32). */

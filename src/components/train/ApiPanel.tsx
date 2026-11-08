@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { API_KEY_MAX_PER_LOAN } from "@/lib/billing/api-pricing";
 import type { ComputeQuote } from "@/lib/billing/quote";
 import { messageOf } from "@/lib/errors-client";
-import { listApiKeys, revokeApiKey, type ApiKeysOverview } from "@/lib/train/api-keys-client";
+import { createApiKey, listApiKeys, revokeApiKey, type ApiKeysOverview, type CreatedApiKey } from "@/lib/train/api-keys-client";
+import { AUTO_API_KEY_NAME, autoCreateApiKey, shouldAutoCreateApiKey } from "@/lib/train/auto-api-key";
 import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { BuyCallsPanel, type PendingCallPack } from "./BuyCallsPanel";
 import { ApiAccessPanel, type RefusedPass } from "./ApiAccessPanel";
@@ -21,7 +22,8 @@ const ENCLAVE_POLL_MS = 30_000;
  * Panneau API d'un prêt réglé (D-30) : accès payé au jour (pass, D-32), clés (création,
  * révocation), usage indicatif, achat d'appels et état de l'enclave. Jamais pour la régression
  * linéaire : quelques appels suffiraient à reconstruire le modèle (D-27), d'où le texte
- * d'indisponibilité à la place du panneau.
+ * d'indisponibilité à la place du panneau. `autoCreateKey` : la page vient de suivre le règlement
+ * de ce prêt, une clé est créée d'office s'il n'en a aucune (D-32, `autoCreateApiKey`).
  */
 export function ApiPanel({
   loanId,
@@ -37,6 +39,7 @@ export function ApiPanel({
   pendingPasses,
   refusedPasses,
   onPurchased,
+  autoCreateKey = false,
 }: {
   loanId: string;
   datasetId: string;
@@ -52,6 +55,7 @@ export function ApiPanel({
   pendingPasses: readonly PendingCallPack[];
   refusedPasses: readonly RefusedPass[];
   onPurchased: () => Promise<void>;
+  autoCreateKey?: boolean;
 }) {
   const { t } = useLocale();
   if (modelId === "linear_regression") {
@@ -75,8 +79,18 @@ export function ApiPanel({
       pendingPasses={pendingPasses}
       refusedPasses={refusedPasses}
       onPurchased={onPurchased}
+      autoCreateKey={autoCreateKey}
     />
   );
+}
+
+/** `localStorage`, ou `null` s'il est refusé (navigation privée stricte, iframe). */
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function ApiPanelContent({
@@ -91,6 +105,7 @@ function ApiPanelContent({
   pendingPasses,
   refusedPasses,
   onPurchased,
+  autoCreateKey,
 }: {
   loanId: string;
   datasetId: string;
@@ -103,6 +118,7 @@ function ApiPanelContent({
   pendingPasses: readonly PendingCallPack[];
   refusedPasses: readonly RefusedPass[];
   onPurchased: () => Promise<void>;
+  autoCreateKey: boolean;
 }) {
   const { locale, t } = useLocale();
   const dateLocale = locale === "fr" ? "fr-FR" : "en-US";
@@ -114,6 +130,11 @@ function ApiPanelContent({
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revokeRetry, setRevokeRetry] = useState<number | null>(null);
   const unmountSignal = useUnmountSignal();
+  // Clé créée d'office après le règlement : secret affiché une fois, comme à la création manuelle.
+  const [autoKey, setAutoKey] = useState<CreatedApiKey | null>(null);
+  const [autoCreating, setAutoCreating] = useState(false);
+  const [autoRetry, setAutoRetry] = useState<number | null>(null);
+  const autoTried = useRef(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -131,6 +152,28 @@ function ApiPanelContent({
     const timer = window.setTimeout(() => void load(controller.signal), 0);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [load]);
+
+  // Une tentative par montage ; `autoCreateApiKey` garde aussi le prêt entre montages et onglets.
+  useEffect(() => {
+    if (!autoCreateKey || !overview || autoTried.current || !shouldAutoCreateApiKey(overview)) return;
+    autoTried.current = true;
+    setAutoCreating(true);
+    void autoCreateApiKey(loanId, {
+      list: () => listApiKeys(loanId),
+      create: () => retryWhileEnclaveStarts(
+        () => createApiKey({ loanId, name: t(AUTO_API_KEY_NAME) }),
+        { onWaiting: setAutoRetry, signal: unmountSignal() },
+      ),
+      storage: browserStorage(),
+      locks: typeof navigator !== "undefined" && navigator.locks ? navigator.locks : null,
+    })
+      .then((created) => {
+        if (created) setAutoKey(created);
+        return load();
+      })
+      .catch((error) => setActionError(messageOf(error)))
+      .finally(() => { setAutoCreating(false); setAutoRetry(null); });
+  }, [autoCreateKey, overview, loanId, load, t, unmountSignal]);
 
   const enclave = overview?.enclave ?? "running";
   useEffect(() => {
@@ -214,6 +257,19 @@ function ApiPanelContent({
           </dl>
           <p className="mt-1 text-[11px] text-muted">{t("Le compteur qui fait foi est dans l’enclave : chaque réponse de l’API indique le quota du jour et les crédits restants.")}</p>
 
+          {autoCreating && (
+            <p className="mt-3 text-xs text-muted" role="status" data-testid="api-key-auto-creating">
+              {t("Création de ta clé API par défaut…")}
+            </p>
+          )}
+          {autoRetry !== null && (
+            <EnclaveStartingSteps
+              phase="starting"
+              retryInSeconds={autoRetry}
+              testId="api-key-auto-enclave-starting"
+              closeNote={t("Garde cette page ouverte : ta clé API par défaut est créée dès que l’enclave répond. Sinon, crée-la plus tard avec « Créer une clé API ».")}
+            />
+          )}
           {revokeRetry !== null && (
             <EnclaveStartingSteps
               phase="starting"
@@ -265,7 +321,7 @@ function ApiPanelContent({
             <button
               type="button"
               onClick={() => setCreating(true)}
-              disabled={limitReached || !accessPaid}
+              disabled={limitReached || !accessPaid || autoCreating}
               className="rounded-lg border border-accent/40 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent disabled:opacity-50"
             >
               {t("Créer une clé API")}
@@ -274,9 +330,10 @@ function ApiPanelContent({
             {!accessPaid && <span className="text-xs text-muted" data-testid="api-key-needs-access">{t("Active l’API pour créer une clé.")}</span>}
           </div>
           <CreateApiKeyDialog
-            open={creating}
+            open={creating || autoKey !== null}
             loanId={loanId}
-            onClose={() => setCreating(false)}
+            revealed={autoKey}
+            onClose={() => { setCreating(false); setAutoKey(null); }}
             onCreated={() => void load()}
           />
         </>

@@ -81,11 +81,14 @@ export function RetrainPanel({
   const model = detail ? modelSelection(detail.dataset.modelId, detail.dataset.modelVersion) : null;
   const price = detail?.dataset.providerPriceAtomic ?? null;
   const fee = detail?.dataset.computeFee;
+  // Nouvel emprunt : l'API est toujours incluse (D-32), au tarif journalier ; sans tarif, location refusée.
+  const api = detail?.dataset.apiAccessFee;
+  const apiUnavailable = api?.kind === "unavailable";
   const maxRentalDays = detail?.dataset.maxRentalDays ?? MIN_RENTAL_DAYS;
   const rentalDays = Math.min(chosenDays, maxRentalDays);
   // Profil retiré pour un nouvel usage (D-31) : un nouveau prêt serait refusé.
   const withdrawn = model !== null && !isModelOffered(model.modelId);
-  const canConfirm = listing.status === "ready" && Boolean(model) && !withdrawn && Boolean(price) && !busy;
+  const canConfirm = listing.status === "ready" && Boolean(model) && !withdrawn && !apiUnavailable && Boolean(price) && !busy;
 
   async function confirm() {
     if (inFlight.current || !detail || !price || !model) return;
@@ -158,8 +161,20 @@ export function RetrainPanel({
           {detail && price && (
             <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={setChosenDays} disabled={busy} />
           )}
-          {detail && price && fee && fee.kind !== "unknown" && (
-            <PriceBreakdown providerAtomic={price} rentalDays={rentalDays} computeAtomic={fee.atomic} token={detail.token} perspective="borrower" />
+          {detail && price && fee && fee.kind !== "unknown" && !apiUnavailable && (
+            <PriceBreakdown
+              providerAtomic={price}
+              rentalDays={rentalDays}
+              computeAtomic={fee.atomic}
+              apiAccessDailyAtomic={api?.kind === "included" ? api.atomic : null}
+              token={detail.token}
+              perspective="borrower"
+            />
+          )}
+          {apiUnavailable && (
+            <p className="text-xs text-negative">
+              {t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}
+            </p>
           )}
           {detail && price && (!fee || fee.kind === "unknown") && (
             <p className="text-xs text-muted">{t("Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.")}</p>

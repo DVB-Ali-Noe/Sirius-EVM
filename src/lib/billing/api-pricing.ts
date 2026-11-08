@@ -25,6 +25,8 @@ export const API_ACCESS_REQUIRED = "Accès API non payé pour cette période : a
 export const API_ACCESS_NOT_FOR_SALE_CODE = "api_access_not_for_sale";
 /** Tarif sans `apiAccessDailyComputeAmount` : aucun pass en vente, donc aucune API (jamais gratuite). */
 export const API_ACCESS_NOT_FOR_SALE = "Accès API non proposé par le tarif en vigueur : aucun pass n’est en vente pour le moment";
+/** Même tarif refusé pour un nouvel emprunt : toute location inclut l'API (D-32), elle n'est donc pas louable. */
+export const RENTAL_API_ACCESS_NOT_FOR_SALE = "Location indisponible : le tarif en vigueur ne fixe pas le prix journalier de l’accès API, inclus dans toute location";
 export const API_ACCESS_ALREADY_PAID = "Accès API déjà payé jusqu’à l’échéance de la location";
 export const API_ACCESS_IN_FLIGHT = "Un pass d’accès API est déjà en cours de paiement : il s’active dès la confirmation du réseau";
 export const API_ACCESS_PREPARING = "Un pass d’accès API est déjà en préparation : termine ou abandonne son paiement, puis réessaie dans quelques minutes";

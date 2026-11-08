@@ -119,6 +119,22 @@ export type ComputeFees = Record<ModelId, ComputeFee>;
 
 export const UNKNOWN_COMPUTE_FEE: ComputeFee = { kind: "unknown", atomic: null };
 
+/**
+ * Accès API d'un nouvel emprunt, payé par jour loué (D-32, toujours inclus depuis le 8 novembre
+ * 2026, `newRentalApiAccessDailyFee`) :
+ * - `none` : pas d'API pour ce profil (régression linéaire) ou facturation v6 ;
+ * - `included` : tarif journalier ajouté au devis, `atomic` par jour loué ;
+ * - `unavailable` : le tarif ne vend pas l'API de ce profil, ou il est illisible : location refusée.
+ */
+export type ApiAccessFee =
+  | { kind: "none" }
+  | { kind: "included"; atomic: string }
+  | { kind: "unavailable" };
+
+export type ApiAccessFees = Record<ModelId, ApiAccessFee>;
+
+export const NO_API_ACCESS_FEE: ApiAccessFee = { kind: "none" };
+
 /** Carte de la grille. */
 export interface PublicListing {
   id: string;
@@ -154,6 +170,7 @@ export interface PublicDetail extends PublicListing {
   /** Prêts réglés / prêts résolus (réglés + remboursés), entre 0 et 1 ; `null` sans prêt résolu. */
   successRate: number | null;
   computeFee: ComputeFee;
+  apiAccessFee: ApiAccessFee;
 }
 
 const ATOMIC = /^(0|[1-9][0-9]{0,77})$/;
@@ -175,10 +192,18 @@ function knownModel(row: Pick<MarketplaceDatasetRow, "modelId" | "modelVersion">
   return modelSelection(row.modelId, row.modelVersion);
 }
 
-/** Prix affiché : part du fournisseur + frais de calcul quand ils sont connus, sinon la seule part. */
-export function displayedPrice(providerPriceAtomic: string, fee: ComputeFee): Pick<PublicListing, "priceAtomic" | "priceKind"> {
-  if (fee.kind !== "unknown" && ATOMIC.test(providerPriceAtomic) && ATOMIC.test(fee.atomic)) {
-    return { priceAtomic: (BigInt(providerPriceAtomic) + BigInt(fee.atomic)).toString(), priceKind: "borrowerPays" };
+/**
+ * Prix affiché pour un jour de location : part du fournisseur + frais de calcul + accès API inclus
+ * (un jour) quand ils sont connus, sinon la seule part du fournisseur.
+ */
+export function displayedPrice(
+  providerPriceAtomic: string,
+  fee: ComputeFee,
+  api: ApiAccessFee = NO_API_ACCESS_FEE,
+): Pick<PublicListing, "priceAtomic" | "priceKind"> {
+  const apiAtomic = api.kind === "included" ? api.atomic : api.kind === "none" ? "0" : null;
+  if (fee.kind !== "unknown" && apiAtomic !== null && ATOMIC.test(providerPriceAtomic) && ATOMIC.test(fee.atomic) && ATOMIC.test(apiAtomic)) {
+    return { priceAtomic: (BigInt(providerPriceAtomic) + BigInt(fee.atomic) + BigInt(apiAtomic)).toString(), priceKind: "borrowerPays" };
   }
   return { priceAtomic: providerPriceAtomic, priceKind: "providerReceives" };
 }
@@ -189,11 +214,18 @@ export function feeForRow(row: Pick<MarketplaceDatasetRow, "modelId" | "modelVer
   return model ? fees[model.modelId] : UNKNOWN_COMPUTE_FEE;
 }
 
+/** Accès API d'une ligne : celui de son profil ; profil inconnu, aucun (ses frais de calcul sont déjà inconnus). */
+export function apiFeeForRow(row: Pick<MarketplaceDatasetRow, "modelId" | "modelVersion">, fees: ApiAccessFees): ApiAccessFee {
+  const model = knownModel(row);
+  return model ? fees[model.modelId] : NO_API_ACCESS_FEE;
+}
+
 export function toPublicListing(
   row: MarketplaceDatasetRow,
   stats: LoanStats,
   verified: boolean | null,
   fee: ComputeFee,
+  api: ApiAccessFee = NO_API_ACCESS_FEE,
 ): PublicListing {
   const metrics = publicDatasetMetrics(row.metrics);
   const model = knownModel(row);
@@ -209,7 +241,7 @@ export function toPublicListing(
     columnCount: metrics?.columnCount ?? null,
     sizeBytes: safeSize(row.sizeBytes),
     providerPriceAtomic,
-    ...displayedPrice(providerPriceAtomic, fee),
+    ...displayedPrice(providerPriceAtomic, fee, api),
     borrowCount: safeCount(stats.borrowCount),
     verified: typeof verified === "boolean" ? verified : null,
     listedAt: isoDate(row.listedAt),
@@ -221,12 +253,13 @@ export function toPublicDetail(
   stats: LoanStats,
   verified: boolean | null,
   fee: ComputeFee,
+  api: ApiAccessFee = NO_API_ACCESS_FEE,
 ): PublicDetail {
   const settledCount = safeCount(stats.settledCount);
   const refundedCount = safeCount(stats.refundedCount);
   const resolved = settledCount + refundedCount;
   return {
-    ...toPublicListing(row, stats, verified, fee),
+    ...toPublicListing(row, stats, verified, fee, api),
     description: row.description,
     provider: row.provider,
     challengeDays: safeCount(row.challengeDays),
@@ -236,6 +269,7 @@ export function toPublicDetail(
     refundedCount,
     successRate: resolved > 0 ? settledCount / resolved : null,
     computeFee: fee,
+    apiAccessFee: api,
   };
 }
 

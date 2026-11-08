@@ -168,7 +168,7 @@ test("le prêt conserve la provenance dès sa préparation et ne réserve pas un
     ...common, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => false },
     "@/lib/billing/quote": {}, "@/lib/billing/loan": {}, "@/lib/billing/rental": rentalRules, "./rental": {},
-    "./api-keys": {}, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
+    "./api-keys": { newRentalApiAccessDailyFee: () => null }, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
     "@/lib/evm/networks": { resolveUsdcDecimals: () => 6 }, "./reaper-policy": reaperPolicy,
     "@/lib/evm/addresses": { datasetRegistryAddress: () => provider },
     "@/lib/evm/abi/siriusdatasetregistry": {},

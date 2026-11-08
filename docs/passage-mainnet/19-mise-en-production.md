@@ -392,7 +392,7 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `SIRIUS_TRUST_PROXY_HEADERS`, `SIRIUS_INGRESS_RATE_LIMITED` | `true`, `true` | fixe | oui | oui |
 | `DATABASE_URL`, `DATABASE_POOL_MAX` | URL pooler Neon mainnet, `5` | Neon | oui | oui |
 | `PINATA_JWT`, `PINATA_GATEWAY` | production | Pinata | pratique (modèles, publication) | oui |
-| `SIRIUS_BILLING_POLICY_JSON` | même JSON que `billing-policy.json` | étape 7 | pratique (affichage du tarif à l'upload) | en commentaire seulement |
+| `SIRIUS_BILLING_POLICY_JSON` | même JSON que `billing-policy.json` | étape 7 | requise pour louer en v7 (API incluse et prix journalier lus par Next, D-33 ; sinon 503) et affichage du tarif à l'upload | en commentaire seulement |
 | `NEXT_PUBLIC_WEB3AUTH_CLIENT_ID`, `NEXT_PUBLIC_WEB3AUTH_NETWORK` | projet de production, `sapphire_mainnet` | Web3Auth | `sapphire_mainnet` obligatoire dès que le client ID est posé | oui |
 | `NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY`, `MOONPAY_SECRET_KEY` | `pk_live_…`, `sk_live_…` | MoonPay | non (carte masquée sans) | oui |
 | `SIRIUS_ADMIN_ADDRESSES` | adresses d'Ali et Noé | décision | non | oui |
@@ -473,7 +473,7 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `RUNNER_MONITOR_SECRET` | runner actif, supervision | `compose.v7.yaml`, `runner-monitor.ts` |
 | `RUNNER_INITIAL_BUDGET_POLICY`, `RUNNER_INITIAL_BILLING_POLICY` | initialisation | `compose.init-v7.yaml` |
 | `DSTACK_DOCKER_REGISTRY`, `DSTACK_DOCKER_USERNAME`, `DSTACK_DOCKER_PASSWORD` | CVM, image privée | Phala |
-| `SIRIUS_BILLING_POLICY_JSON` | Next, tarif affiché | `billing/config.ts` (présente en commentaire) |
+| `SIRIUS_BILLING_POLICY_JSON` | Next, tarif affiché et API incluse aux emprunts (D-33) | `billing/config.ts` (présente en commentaire) |
 
 Facultatives mais absentes aussi : `SIRIUS_ADMISSIONS_CLOSED`, `SIRIUS_PHALA_DEMO_ORIGIN`, `EVM_CHAIN_ID`.
 

@@ -391,7 +391,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
       { loanId: signed.quote.loanId, datasetId: apiDataset.datasetId },
       [signed.quote.loanId, apiDataset.datasetId, apiDatasetReceipt, apiDataset.modelId, apiDataset.modelVersion, "served"]) });
   // Un jour de location : son échéance tombe avant la fin des budgets de clôture des packs, ce qui
-  // permet d'avancer l'horloge de l'enclave jusqu'à elle sans périmer ces budgets.
+  // permet d'avancer l'horloge de l'enclave jusqu'à elle sans périmer ces budgets. Location héritée,
+  // sans API incluse (avant le 8 novembre 2026, ou tarif sans prix journalier) : c'est le seul cas
+  // où les passes servent ; Next demande désormais `includeApiAccess` pour tout nouvel emprunt.
   const apiQuote = await prepareApi("api-loan", { rentalDays: 1 });
   const apiLock = await lock(apiQuote);
   const apiResult = await runApi(apiQuote) as LoanJobResult;
@@ -618,8 +620,9 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     Date.now = () => fifthEnd + 1000;
     assert.equal((await handleRunnerOp("api-predict", apiRequest()) as ApiPrediction).expiresAt, fifthEnd + DAY_MS, "appel accepté après l'ancienne échéance");
   } finally { Date.now = passCoveredClock; }
-  // --- API incluse à l'emprunt (D-32) : un seul devis, un seul paiement ; couverture jusqu'à
-  // l'échéance au règlement, prolongée d'office avec la location. ---
+  // --- API incluse à l'emprunt (D-32, toujours demandée par Next depuis le 8 novembre 2026) : un
+  // seul devis, un seul paiement ; couverture jusqu'à l'échéance au règlement, prolongée d'office
+  // avec la location, sans pass possible. ---
   const [rentProviderBefore, rentTreasuryBefore] = [await credit(apiProvider), await credit(treasury)];
   const trainingCompute = unit * BigInt(3);
   const rentQuote = await prepareApi("api-rent", { rentalDays: 2, includeApiAccess: true });

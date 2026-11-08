@@ -48,6 +48,7 @@ export function BorrowPanel({
   modelVersion,
   providerVerified,
   apiAccessDailyFee,
+  apiAccessUnavailable,
 }: {
   datasetId: string;
   /**
@@ -65,11 +66,12 @@ export function BorrowPanel({
   onRentalDays: (days: number) => void;
   modelId: string | null;
   modelVersion: string | null;
-  /** Tarif journalier de l'API incluse (D-32), déjà formaté ; `null` : option non proposée. */
+  /** Tarif journalier de l'API, incluse à toute location (D-32), déjà formaté ; `null` : pas d'API pour ce profil. */
   apiAccessDailyFee: string | null;
+  /** Le tarif ne vend pas l'API de ce profil : le serveur refuserait la location, le bouton est désactivé. */
+  apiAccessUnavailable: boolean;
 }) {
   const { t } = useLocale();
-  const [includeApiAccess, setIncludeApiAccess] = useState(false);
   const address = useWalletStore((s) => s.address);
   const authenticated = useWalletStore((s) => s.authenticated);
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
@@ -183,7 +185,7 @@ export function BorrowPanel({
     setBusy(true);
     try {
       if (await retryWhileEnclaveStarts(
-        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, includeApiAccess: Boolean(apiAccessDailyFee) && includeApiAccess, confirmQuote }),
+        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }),
         { onWaiting: setEnclaveRetry, signal: unmountSignal() },
       )) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
@@ -218,20 +220,22 @@ export function BorrowPanel({
         </p>
       </div>
       {apiAccessDailyFee && (
-        <label className="flex items-start gap-2 text-xs text-muted" data-testid="include-api-access">
-          <input type="checkbox" checked={includeApiAccess} onChange={(event) => setIncludeApiAccess(event.target.checked)} disabled={busy} className="mt-0.5" />
-          <span>
-            <span className="font-medium text-foreground">{t("Inclure l’accès API (+{fee} par jour)", { fee: apiAccessDailyFee })}</span>
-            {" "}
-            {t("Appelle le modèle depuis ton code pendant toute la location, payé avec l’emprunt ; les prolongations le gardent. Sans cette option, l’API reste activable plus tard depuis la page Entraîner.")}
-          </span>
-        </label>
+        <p className="text-xs text-muted" data-testid="api-access-included">
+          <span className="font-medium text-foreground">{t("Accès API inclus : +{fee} par jour loué.", { fee: apiAccessDailyFee })}</span>
+          {" "}
+          {t("Toute location comprend l’API développeurs pour toute sa durée ; une clé est créée pour toi après le règlement, et les prolongations gardent l’API.")}
+        </p>
+      )}
+      {apiAccessUnavailable && (
+        <p className="text-xs text-negative" data-testid="api-access-unavailable">
+          {t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}
+        </p>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => void borrow()}
-          disabled={busy || signingIn || !model || withdrawn || !priceUsdcAtomic || providerVerified === false}
+          disabled={busy || signingIn || !model || withdrawn || !priceUsdcAtomic || providerVerified === false || apiAccessUnavailable}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >

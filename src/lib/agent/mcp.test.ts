@@ -40,6 +40,7 @@ function emptyCatalogue(): CatalogueResponse {
       logistic_regression: { kind: "unknown", atomic: null },
       gradient_boosted_trees: { kind: "unknown", atomic: null },
     },
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
     kybAvailable: true,
   };
 }

@@ -60,7 +60,9 @@ export type PriceBreakdownResult =
       ok: true;
       provider: bigint;
       compute: bigint;
-      /** Somme exacte de la part du fournisseur et des frais de calcul. */
+      /** Accès API inclus (D-32) pour les jours loués ; `null` sans API (profil sans API, v6). */
+      apiAccess: bigint | null;
+      /** Somme exacte de la part du fournisseur, des frais de calcul et de l'accès API inclus. */
       total: bigint;
       /** Minimum applicable à la part du fournisseur, s'il est connu. */
       minimum: bigint | null;
@@ -74,19 +76,23 @@ export interface PriceBreakdownInput {
   computeAtomic: unknown;
   decimals: unknown;
   minimumAtomic?: unknown;
+  /** Accès API inclus déjà multiplié par les jours loués ; absent ou `null` : pas d'API. */
+  apiAccessAtomic?: unknown;
 }
 
 export function computePriceBreakdown(input: PriceBreakdownInput): PriceBreakdownResult {
   if (!isValidDecimals(input.decimals)) return { ok: false, reason: "invalid-decimals" };
   const provider = parseAtomic(input.providerAtomic);
   const compute = parseAtomic(input.computeAtomic);
-  if (provider === null || compute === null) return { ok: false, reason: "invalid-amount" };
+  const withApi = input.apiAccessAtomic !== undefined && input.apiAccessAtomic !== null;
+  const apiAccess = withApi ? parseAtomic(input.apiAccessAtomic) : null;
+  if (provider === null || compute === null || (withApi && apiAccess === null)) return { ok: false, reason: "invalid-amount" };
   let minimum: bigint | null = null;
   if (input.minimumAtomic !== undefined && input.minimumAtomic !== null) {
     minimum = parseAtomic(input.minimumAtomic);
     if (minimum === null) return { ok: false, reason: "invalid-minimum" };
   }
-  const total = provider + compute;
+  const total = provider + compute + (apiAccess ?? BigInt(0));
   if (total > MAX_ATOMIC) return { ok: false, reason: "total-too-large" };
-  return { ok: true, provider, compute, total, minimum, belowMinimum: minimum !== null && provider < minimum };
+  return { ok: true, provider, compute, apiAccess, total, minimum, belowMinimum: minimum !== null && provider < minimum };
 }

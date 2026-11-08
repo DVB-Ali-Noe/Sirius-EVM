@@ -22,6 +22,11 @@ interface PriceBreakdownProps {
   rentalDays?: number;
   /** Frais de calcul (enclave Phala), en unités atomiques. */
   computeAtomic: AtomicAmount;
+  /**
+   * Accès API inclus à toute location (D-32), par jour loué, en unités atomiques : la ligne affiche
+   * jours × tarif et l'ajoute au total. Absent ou `null` : pas d'API (régression linéaire, v6).
+   */
+  apiAccessDailyAtomic?: AtomicAmount | null;
   token: TokenInfo;
   /** Minimum imposé par le tarif sur la part du fournisseur, en unités atomiques. */
   minimumAtomic?: AtomicAmount | null;
@@ -37,6 +42,7 @@ export function PriceBreakdown({
   providerAtomic,
   rentalDays,
   computeAtomic,
+  apiAccessDailyAtomic,
   token,
   minimumAtomic,
   perspective = "neutral",
@@ -45,9 +51,14 @@ export function PriceBreakdown({
   const { t } = useLocale();
   const perDay = parseAtomic(providerAtomic);
   const rented = rentalDays === undefined || perDay === null ? providerAtomic : perDay * BigInt(rentalDays);
+  const days = rentalDays ?? 1;
+  const apiPerDay = apiAccessDailyAtomic === undefined || apiAccessDailyAtomic === null ? null : parseAtomic(apiAccessDailyAtomic);
+  const withApi = apiAccessDailyAtomic !== undefined && apiAccessDailyAtomic !== null;
   const breakdown = computePriceBreakdown({
     providerAtomic: rented,
     computeAtomic,
+    // Tarif illisible : transmis tel quel, pour que le total soit refusé plutôt qu'approché.
+    apiAccessAtomic: !withApi ? null : apiPerDay === null ? apiAccessDailyAtomic : apiPerDay * BigInt(days),
     decimals: token.decimals,
     minimumAtomic: rentalDays === undefined ? minimumAtomic : null,
   });
@@ -76,6 +87,15 @@ export function PriceBreakdown({
           <dt className="text-muted">{t("Frais de calcul (enclave Phala)")}</dt>
           <dd className="ml-auto text-right font-mono tabular-nums text-foreground">{show(ok ? breakdown.compute : null)}</dd>
         </div>
+        {withApi && (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <dt className="text-muted">
+              {t("Accès API inclus")}
+              {apiPerDay !== null && <span className="ml-1 text-xs">({t("{days} j × {price} par jour", { days, price: show(apiPerDay) })})</span>}
+            </dt>
+            <dd className="ml-auto text-right font-mono tabular-nums text-foreground">{show(ok ? breakdown.apiAccess : null)}</dd>
+          </div>
+        )}
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-border pt-2">
           <dt className="font-medium text-foreground">{totalLabel}</dt>
           <dd className="ml-auto text-right font-mono font-semibold tabular-nums text-foreground">{show(ok ? breakdown.total : null)}</dd>

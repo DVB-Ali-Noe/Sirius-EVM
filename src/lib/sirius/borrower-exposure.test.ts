@@ -141,7 +141,7 @@ function fixture(rows: LoanRow[], options: FixtureOptions = {}) {
     },
     "@/lib/billing/loan": { verifyPreparedComputeQuote: async (signed: unknown) => signed, loanBillingQuote: () => undefined },
     "@/lib/billing/rental": rentalRules,
-    "./rental": {}, "./api-keys": {}, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
+    "./rental": {}, "./api-keys": { newRentalApiAccessDailyFee: () => null }, "./availability": { requireRunnerOrWake: async () => {} }, "@/lib/billing/api-pricing": apiPricing,
     "@/lib/evm/networks": { resolveUsdcDecimals: () => 6 }, "./reaper-policy": reaperPolicy,
     "@/lib/tee/runner-client": { prepareEscrowLockInRunner: async (
       datasetRef: { priceUsdcAtomic: string }, _receipt: string, _loanId: string, _borrower: string, _deadline: number, rental: RentalTerms,

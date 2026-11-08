@@ -19,6 +19,11 @@ export interface PublishedTariff {
    * facultatif absent de la politique n'a pas de frais : il n'est pas publiable.
    */
   computeFeeAtomic: Partial<Record<ModelId, string>>;
+  /**
+   * Accès API inclus à toute location (D-32), par jour loué : profils dotés d'un quota API quand la
+   * politique fixe `apiAccessDailyComputeAmount`. Absent pour un profil : pas d'API ajoutée.
+   */
+  apiAccessDailyFeeAtomic: Partial<Record<ModelId, string>>;
   /** Plancher du prix par jour du fournisseur (`MIN_PRICE_USDC_ATOMIC`), refusé en dessous par la route. */
   minimumProviderAtomic: string;
   /** Décimales du jeton de règlement, pour affichage. */
@@ -63,6 +68,11 @@ export function tariffFromPolicy(policy: BillingPolicy, expected: ExpectedTariff
       const fee = computeFee(policy, id);
       return fee === null ? [] : [[id, fee]];
     })),
+    apiAccessDailyFeeAtomic: Object.fromEntries(MODEL_IDS.flatMap((id) => {
+      const fee = policy.apiAccessDailyComputeAmount;
+      const rented = id !== "linear_regression" && computeFee(policy, id) !== null && policy.apiCallsPerDay[id] !== undefined;
+      return rented && fee !== undefined ? [[id, fee]] : [];
+    })),
     minimumProviderAtomic: expected.minimumProviderAtomic,
     decimals: expected.decimals,
   };
@@ -74,12 +84,16 @@ export function legacyTariff(decimals: number, minimumProviderAtomic: string): P
   return {
     version: "legacy-v6",
     computeFeeAtomic: Object.fromEntries(MODEL_IDS.map((id) => [id, "0"])),
+    apiAccessDailyFeeAtomic: {},
     minimumProviderAtomic,
     decimals,
   };
 }
 
-/** Décomposition affichée pour une part de fournisseur donnée (unités atomiques, prix par jour × jours) et un profil. */
+/**
+ * Décomposition affichée pour une part de fournisseur donnée (unités atomiques, prix par jour × jours) et un profil,
+ * accès API inclus pour un jour.
+ */
 export function providerPriceBreakdown(
   tariff: PublishedTariff,
   modelId: ModelId,
@@ -88,6 +102,7 @@ export function providerPriceBreakdown(
   return computePriceBreakdown({
     providerAtomic,
     computeAtomic: tariff.computeFeeAtomic[modelId],
+    apiAccessAtomic: tariff.apiAccessDailyFeeAtomic[modelId] ?? null,
     decimals: tariff.decimals,
     minimumAtomic: tariff.minimumProviderAtomic,
   });

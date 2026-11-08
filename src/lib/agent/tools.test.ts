@@ -59,6 +59,7 @@ function catalogue(items: PublicListing[]): CatalogueResponse {
       logistic_regression: { kind: "unknown", atomic: null },
       gradient_boosted_trees: { kind: "unknown", atomic: null },
     },
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
     kybAvailable: true,
   };
 }
@@ -75,6 +76,7 @@ function detail(extra: Partial<PublicDetail> = {}): DetailResponse {
       refundedCount: 1,
       successRate: 2 / 3,
       computeFee: { kind: "quoted", atomic: "7000000" },
+      apiAccessFee: { kind: "none" },
       ...extra,
     },
     token: USDG,
@@ -165,6 +167,7 @@ test("la fiche détaille le prix, nettoie la description et dit comment acheter"
     providerReceives: "2.00 USDG",
     computeFee: "7.00 USDG",
     computeFeeStatus: "indicative",
+    apiAccessPerDay: null,
     totalPaidByBuyer: "9.00 USDG",
     note: "Prices are for one rental day: the buyer picks 1 to 30 days, the provider share is multiplied by the days and the compute fee is paid once. "
       + "Predictions stop at expiry unless the loan is extended. The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
@@ -208,6 +211,7 @@ test("sans devis récent, les frais viennent du tarif publié, en jeton de test 
     providerReceives: "10.00 test USDC",
     computeFee: "7.00 test USDC",
     computeFeeStatus: "indicative",
+    apiAccessPerDay: null,
     totalPaidByBuyer: "17.00 test USDC",
     note: "Prices are for one rental day: the buyer picks 1 to 30 days, the provider share is multiplied by the days and the compute fee is paid once. "
       + "Predictions stop at expiry unless the loan is extended. The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
@@ -238,6 +242,21 @@ test("sans devis récent, les frais viennent du tarif publié, en jeton de test 
   assert.match(noFee.note, /No compute fee is published/);
   const noProfile = getDatasetResult(detail({ ...unknownFee, modelId: null }), testnet, ORIGIN).dataset!.pricing;
   assert.equal(noProfile.computeFeeStatus, "unknown");
+});
+
+test("accès API inclus à toute location (D-32) : compté dans le prix d'un jour, refus annoncé sans tarif", () => {
+  const included = getDatasetResult(detail({ apiAccessFee: { kind: "included", atomic: "1500000" } }), PRICING, ORIGIN).dataset!;
+  assert.equal(included.pricing.apiAccessPerDay, "1.50 USDG");
+  assert.equal(included.pricing.totalPaidByBuyer, "10.50 USDG");
+  assert.equal(included.price, "10.50 USDG");
+  const refused = getDatasetResult(detail({ apiAccessFee: { kind: "unavailable" } }), PRICING, ORIGIN).dataset!;
+  assert.equal(refused.pricing.totalPaidByBuyer, null);
+  assert.match(refused.priceMeaning, /rentals refused/);
+  const search = searchDatasetsResult({
+    ...catalogue([listing()]),
+    apiAccessFees: { linear_regression: { kind: "included", atomic: "1500000" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
+  }, PRICING, ORIGIN);
+  assert.equal(search.datasets[0].price, "10.50 USDG");
 });
 
 test("un dataset absent ou hors ligne rend found: false, sans détail", () => {

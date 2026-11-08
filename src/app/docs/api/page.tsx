@@ -20,8 +20,8 @@ const API_EN: Record<string, string> = {
   "Quotas et packs": "Quotas and packs",
   "Limites": "Limits",
   "SDK": "SDKs",
-  "Sur la page Train, ouvre un emprunt réglé, puis « Créer une clé API ». La clé complète, sk_live_<keyId>.<secret>, n’est affichée qu’une fois : copie-la dans ton gestionnaire de secrets. Elle est générée dans ton navigateur et son secret est chiffré pour l’enclave ; Sirius ne le conserve pas en clair.":
-    "On the Train page, open a settled loan, then “Create an API key”. The full key, sk_live_<keyId>.<secret>, is shown only once: copy it into your secret manager. It is generated in your browser and its secret is encrypted for the enclave; Sirius never stores it in clear.",
+  "Quand la page Train suit le règlement de ton emprunt, elle crée une clé par défaut ; sinon, ouvre l’emprunt réglé, puis « Créer une clé API ». La clé complète, sk_live_<keyId>.<secret>, n’est affichée qu’une fois : copie-la dans ton gestionnaire de secrets. Elle est générée dans ton navigateur et son secret est chiffré pour l’enclave ; Sirius ne le conserve pas en clair.":
+    "When the Train page follows your loan’s settlement, it creates a default key; otherwise, open the settled loan, then “Create an API key”. The full key, sk_live_<keyId>.<secret>, is shown only once: copy it into your secret manager. It is generated in your browser and its secret is encrypted for the enclave; Sirius never stores it in clear.",
   "Chaque requête porte quatre en-têtes :": "Every request carries four headers:",
   "identifiant de la clé (22 caractères), sans le préfixe ni le secret ;": "key identifier (22 characters), without the prefix or the secret;",
   "heure Unix en secondes ;": "Unix time in seconds;",
@@ -58,14 +58,14 @@ const API_EN: Record<string, string> = {
   "Accès API non payé pour cette période : active l’API (pass journalier) depuis la page Entraîner.":
     "API access not paid for this period: activate the API (daily pass) from the Train page.",
   "Accès payé au jour": "Daily paid access",
-  "L’API est payée au jour : sur la page Entraîner, active l’API en achetant un pass journalier, payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle, Sirius retient ce minimum). Le devis signé affiche le nombre de jours et le total avant tout paiement.":
-    "The API is paid per day: on the Train page, activate the API by buying a daily pass, paid to Sirius at the daily price of the current tariff (plus 0.001 USDC to the provider: the contract refuses a zero provider share, so Sirius uses this minimum). The signed quote shows the number of days and the total before any payment.",
-  "Tu peux aussi inclure l’API dès l’emprunt (option du panneau d’emprunt) : un seul devis et un seul paiement, jours × prix journalier de l’API en plus des frais de calcul, remboursés avec le reste si l’entraînement échoue.":
-    "You can also include the API when renting (option in the borrow panel): one quote and one payment, days × the API daily price on top of the compute fees, refunded with the rest if training fails.",
-  "Le pass couvre la location jusqu’à sa fin. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée. Une prolongation inclut d’office l’API pour les jours ajoutés quand l’accès payé (inclus à l’emprunt ou par passes) atteint l’échéance en cours ; sinon, l’API s’arrête à l’ancienne échéance et les nouveaux jours se paient par un pass complémentaire.":
-    "The pass covers the rental up to its end. Without paid access covering the current time, the API answers 403 api_access_required and no key can be created. An extension automatically includes the API for the added days when paid access (included at rental or through passes) reaches the current end; otherwise the API stops at the previous end date and the new days are paid with a top-up pass.",
-  "Les prédictions depuis le site restent incluses sans pass. Le quota du jour et les packs s’appliquent en plus du pass.":
-    "Predictions from the website stay included without a pass. The daily quota and packs apply on top of the pass.",
+  "L’API est payée au jour et incluse dans toute location : le devis d’emprunt ajoute jours loués × prix journalier de l’API du tarif en vigueur aux frais de calcul, sur une ligne à part. Un seul devis, un seul paiement, remboursé avec le reste si l’entraînement échoue (hors frais d’exécution mesurés). Sans prix journalier dans le tarif, aucune location n’est possible.":
+    "The API is paid per day and included in every rental: the borrow quote adds rented days × the API daily price of the current tariff to the compute fees, on a separate line. One quote, one payment, refunded with the rest if training fails (except measured execution fees). Without a daily price in the tariff, no rental is possible.",
+  "L’accès couvre la location jusqu’à sa fin, et une prolongation l’inclut d’office pour les jours ajoutés. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée.":
+    "Access covers the rental up to its end, and an extension automatically includes it for the added days. Without paid access covering the current time, the API answers 403 api_access_required and no key can be created.",
+  "Locations ouvertes avant le 8 novembre 2026 sans API : sur la page Entraîner, un pass journalier payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle) couvre la location jusqu’à sa fin ; après une prolongation non couverte, un pass complémentaire paie les jours ajoutés. Le devis signé affiche le nombre de jours et le total avant tout paiement.":
+    "Rentals opened before November 8, 2026 without the API: on the Train page, a daily pass paid to Sirius at the daily price of the current tariff (plus 0.001 USDC to the provider: the contract refuses a zero provider share) covers the rental up to its end; after an uncovered extension, a top-up pass pays for the added days. The signed quote shows the number of days and the total before any payment.",
+  "Les prédictions depuis le site restent incluses. Le quota du jour et les packs s’appliquent en plus de l’accès API.":
+    "Predictions from the website stay included. The daily quota and packs apply on top of API access.",
   "Quota du jour épuisé et plus aucun appel prépayé.": "Today's quota used up and no prepaid call left.",
   "Profil sans API (régression linéaire).": "Profile without API (linear regression).",
   "Variables absentes, en trop ou non numériques.": "Missing, extra or non-numeric features.",
@@ -225,7 +225,7 @@ export default function ApiDocsPage() {
       tocLabel={d}
     >
       <DocSection id="authentification" title={d("Authentification")}>
-        <p>{d("Sur la page Train, ouvre un emprunt réglé, puis « Créer une clé API ». La clé complète, sk_live_<keyId>.<secret>, n’est affichée qu’une fois : copie-la dans ton gestionnaire de secrets. Elle est générée dans ton navigateur et son secret est chiffré pour l’enclave ; Sirius ne le conserve pas en clair.")}</p>
+        <p>{d("Quand la page Train suit le règlement de ton emprunt, elle crée une clé par défaut ; sinon, ouvre l’emprunt réglé, puis « Créer une clé API ». La clé complète, sk_live_<keyId>.<secret>, n’est affichée qu’une fois : copie-la dans ton gestionnaire de secrets. Elle est générée dans ton navigateur et son secret est chiffré pour l’enclave ; Sirius ne le conserve pas en clair.")}</p>
         <p>{d("Chaque requête porte quatre en-têtes :")}</p>
         <ul className="ml-5 list-disc space-y-1.5 marker:text-muted">
           <li><code className="font-mono text-xs text-foreground">Sirius-Key</code> : {d("identifiant de la clé (22 caractères), sans le préfixe ni le secret ;")}</li>
@@ -290,10 +290,10 @@ export default function ApiDocsPage() {
       </DocSection>
 
       <DocSection id="acces" title={d("Accès payé au jour")}>
-        <p>{d("L’API est payée au jour : sur la page Entraîner, active l’API en achetant un pass journalier, payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle, Sirius retient ce minimum). Le devis signé affiche le nombre de jours et le total avant tout paiement.")}</p>
-        <p>{d("Tu peux aussi inclure l’API dès l’emprunt (option du panneau d’emprunt) : un seul devis et un seul paiement, jours × prix journalier de l’API en plus des frais de calcul, remboursés avec le reste si l’entraînement échoue.")}</p>
-        <p>{d("Le pass couvre la location jusqu’à sa fin. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée. Une prolongation inclut d’office l’API pour les jours ajoutés quand l’accès payé (inclus à l’emprunt ou par passes) atteint l’échéance en cours ; sinon, l’API s’arrête à l’ancienne échéance et les nouveaux jours se paient par un pass complémentaire.")}</p>
-        <p>{d("Les prédictions depuis le site restent incluses sans pass. Le quota du jour et les packs s’appliquent en plus du pass.")}</p>
+        <p>{d("L’API est payée au jour et incluse dans toute location : le devis d’emprunt ajoute jours loués × prix journalier de l’API du tarif en vigueur aux frais de calcul, sur une ligne à part. Un seul devis, un seul paiement, remboursé avec le reste si l’entraînement échoue (hors frais d’exécution mesurés). Sans prix journalier dans le tarif, aucune location n’est possible.")}</p>
+        <p>{d("L’accès couvre la location jusqu’à sa fin, et une prolongation l’inclut d’office pour les jours ajoutés. Sans accès payé couvrant l’instant présent, l’API répond 403 api_access_required et aucune clé ne peut être créée.")}</p>
+        <p>{d("Locations ouvertes avant le 8 novembre 2026 sans API : sur la page Entraîner, un pass journalier payé à Sirius au prix par jour du tarif en vigueur (plus 0,001 USDC au fournisseur : le contrat refuse une part fournisseur nulle) couvre la location jusqu’à sa fin ; après une prolongation non couverte, un pass complémentaire paie les jours ajoutés. Le devis signé affiche le nombre de jours et le total avant tout paiement.")}</p>
+        <p>{d("Les prédictions depuis le site restent incluses. Le quota du jour et les packs s’appliquent en plus de l’accès API.")}</p>
       </DocSection>
 
       <DocSection id="quotas" title={d("Quotas et packs")}>

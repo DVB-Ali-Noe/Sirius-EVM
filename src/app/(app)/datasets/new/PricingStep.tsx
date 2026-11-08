@@ -201,6 +201,7 @@ export function PricingStep({
             <PriceBreakdown
               providerAtomic={providerAtomic}
               computeAtomic={tariff.computeFeeAtomic[modelId]}
+              apiAccessDailyAtomic={tariff.apiAccessDailyFeeAtomic[modelId] ?? null}
               token={token}
               minimumAtomic={tariff.minimumProviderAtomic}
               perspective="provider"

@@ -231,6 +231,8 @@ interface SystemOptions {
   policy?: false;
   /** `false` : politique sans `apiAccessDailyComputeAmount` (accès API non vendu, D-32). */
   apiAccessFee?: false;
+  /** Quotas API de la politique (par défaut `API_CALLS_PER_DAY`). */
+  apiCallsPerDay?: Partial<Record<string, number>>;
   /** Jours que l'enclave signe dans le devis d'un pass. */
   passDays?: number;
   /** Résolution on-chain vue par le reaper selon le palier demandé (défaut : lock actif). */
@@ -327,7 +329,7 @@ function system(options: SystemOptions = {}) {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
     "@/lib/billing/config": { billingEnabled: () => true, billingPolicy: () => {
       if (options.policy === false) throw new Error("Politique de facturation absente");
-      return { apiCallsPerDay: API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE,
+      return { apiCallsPerDay: options.apiCallsPerDay ?? API_CALLS_PER_DAY, noTrainingComputeAmount: NO_TRAINING_COMPUTE,
         ...(options.apiAccessFee === false ? {} : { apiAccessDailyComputeAmount: API_ACCESS_DAILY_FEE }) };
     } },
     "@/lib/billing/api-pricing": apiPricing, "@/lib/models/registry": models, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
@@ -1464,20 +1466,46 @@ test("pass en préparation (PENDING ou remplacé, sans lock) : aucun second pass
   assert.equal((await stalePreparation.manage.calls({ apiAccess: true })).status, 201, "autorisation de lock expirée : plus de risque");
 });
 
-test("emprunt avec API incluse : demandé au runner, refusé sans tarif d'API ou pour un profil sans API, avant tout devis", async () => {
-  const sys = system({ loans: [] });
-  const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: true });
-  assert.equal(response.status, 201, await response.clone().text());
-  assert.deepEqual(JSON.parse(JSON.stringify(sys.calls.lockRequests)), [{ rentalDays: 3, includeApiAccess: true }]);
-  const { billingQuote } = await response.json();
-  assert.deepEqual([billingQuote.quote.apiAccessIncluded, billingQuote.quote.apiAccessAmount], [true, "4500000"]);
-  const plain = system({ loans: [] });
-  assert.equal((await plain.manage.quote({ datasetId: "dataset-1", rentalDays: 3 })).status, 201);
-  assert.deepEqual(JSON.parse(JSON.stringify(plain.calls.lockRequests)), [{ rentalDays: 3 }], "sans option : devis inchangé");
-  const unsold = system({ loans: [], apiAccessFee: false });
-  const refused = await unsold.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: true });
-  assert.equal(refused.status, 409);
-  assert.equal((await refused.json()).error, apiPricing.API_ACCESS_NOT_FOR_SALE);
-  assert.equal((await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3, includeApiAccess: "yes" })).status, 400);
-  assert.equal(unsold.calls.lockRequests.length, 0);
+test("emprunt : API toujours incluse (jours × tarif journalier), sans option pour s'en passer", async () => {
+  for (const body of [{}, { includeApiAccess: false }, { includeApiAccess: "yes" }]) {
+    const sys = system({ loans: [] });
+    const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3, ...body });
+    assert.equal(response.status, 201, await response.clone().text());
+    assert.deepEqual(JSON.parse(JSON.stringify(sys.calls.lockRequests)), [{ rentalDays: 3, includeApiAccess: true }], JSON.stringify(body));
+    const { loanId, billingQuote } = await response.json();
+    // 3 jours × 1,5 : part API ajoutée au compute signé, part fournisseur inchangée.
+    assert.deepEqual([billingQuote.quote.apiAccessIncluded, billingQuote.quote.apiAccessAmount], [true, "4500000"]);
+    const loan = sys.prisma.loan.rows.find((row) => row.id === loanId)!;
+    assert.deepEqual([loan.datasetAmountUsdcAtomic, loan.computeAmountUsdcAtomic], [rentalRules.datasetAmountFor(PRICE_PER_DAY, 3), NO_TRAINING_COMPUTE]);
+  }
+});
+
+test("emprunt refusé avant tout devis si le tarif ne vend pas l'API ou ne l'ouvre pas au profil", async () => {
+  for (const [options, status, error] of [
+    [{ apiAccessFee: false }, 409, apiPricing.RENTAL_API_ACCESS_NOT_FOR_SALE],
+    [{ apiCallsPerDay: {} }, 409, "Location indisponible : le tarif en vigueur n’ouvre pas l’API pour ce profil, or toute location inclut l’accès API"],
+  ] as const) {
+    const sys = system({ loans: [], ...options });
+    const refused = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 3 });
+    assert.equal(refused.status, status, JSON.stringify(options));
+    const body = await refused.json();
+    assert.equal(body.error, error);
+    assert.equal(sys.calls.lockRequests.length, 0, "aucun devis demandé à l'enclave");
+    assert.equal(sys.prisma.loan.rows.length, 0, "aucun prêt préparé");
+  }
+});
+
+test("emprunt d'un profil linéaire réactivé : jamais d'API (D-27), devis sans part API", async () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "linear_regression";
+  try {
+    const sys = system({ loans: [] });
+    Object.assign(sys.prisma.dataset.rows[0], { modelId: "linear_regression", modelVersion: "1.0.0" });
+    const response = await sys.manage.quote({ datasetId: "dataset-1", rentalDays: 2 });
+    assert.equal(response.status, 201, await response.clone().text());
+    assert.deepEqual(JSON.parse(JSON.stringify(sys.calls.lockRequests)), [{ rentalDays: 2 }]);
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
 });
