@@ -1295,7 +1295,8 @@ function publicationSystem(phase: string | null, options: { kybRefused?: boolean
   // Valeur par défaut du schéma : un dataset naît brouillon.
   datasets.create = ({ data }) => insert({ data: { status: "DRAFT", ...data } });
   const runnerAvailability = table(phase === null ? [] : [{ id: 1, phase, since: new Date(0), requestedUntil: null, validUntil: null }]);
-  const prisma = { dataset: datasets, runnerAvailability };
+  // Aucun envoi en morceaux : le nettoyage des brouillons abandonnés n'en supprime aucun.
+  const prisma = { dataset: datasets, runnerAvailability, datasetUpload: table([]) };
   const db = { prisma, serializableTransaction: async (fn: (tx: typeof prisma) => unknown) => fn(prisma) };
   const calls = { ingress: 0 };
   const session: { address: string } = { address: PROVIDER };
