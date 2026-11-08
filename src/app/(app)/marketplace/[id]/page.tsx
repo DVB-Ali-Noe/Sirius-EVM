@@ -270,6 +270,7 @@ export default function MarketplaceListingPage() {
             onRentalDays={setChosenDays}
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}
+            apiAccessDailyFee={result.data.apiAccessDailyFeeAtomic ? formatTokenWithSymbol(result.data.apiAccessDailyFeeAtomic, token) : null}
           />
         </Card>
       </div>

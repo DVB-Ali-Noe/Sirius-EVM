@@ -7,6 +7,12 @@ info:
     Programmatic access to the models you rent on Sirius. The model stays sealed in an Intel TDX
     enclave; every answer is signed by the enclave (EIP-712 `SiriusPrediction`).
 
+    **Access (D-32).** API access is paid per day: include it when renting (one quote, one payment)
+    or buy a daily API pass later on the Train page. Without paid access covering the current time,
+    every call answers `403 api_access_required`. A pass covers up to the rental end. An extension
+    automatically includes the API for the added days when paid access (included at rental or
+    through passes) reaches the current rental end; otherwise buy a top-up pass for the new days.
+
     **Authentication.** Every request carries four headers. The signature is a lowercase hex
     HMAC-SHA256 over the canonical string below, keyed with the 32 raw bytes of your secret
     (base64url-decoded). Your full key is shown once when you create it: `sk_live_<keyId>.<secret>`.
@@ -189,6 +195,7 @@ components:
                 - key_revoked
                 - unknown_key
                 - rental_expired
+                - api_access_required
                 - quota_exceeded
                 - api_not_available_for_profile
                 - invalid_features
@@ -218,7 +225,8 @@ components:
     Error:
       description: |
         `invalid_signature` (also missing or malformed `Sirius-*` headers), `request_expired`,
-        `unknown_key`, `key_revoked` → 401; `rental_expired` → 403; `not_found` (unknown loan)
+        `unknown_key`, `key_revoked` → 401; `rental_expired`, `api_access_required` (no paid daily
+        API pass covering now) → 403; `not_found` (unknown loan)
         → 404; `replayed_request`, `api_not_available_for_profile`, `model_unavailable` (loan not
         settled) → 409; `invalid_features`, `invalid_request` → 400; `payload_too_large` (body
         over 16 KiB) → 413; `unsupported_media_type` → 415; `quota_exceeded` (daily quota used up

@@ -20,9 +20,10 @@ import { verifyFastSettlement } from "./fast-settlement-review";
 import { AppError } from "@/lib/app-error";
 import { isServedModelFingerprint } from "@/lib/models/registry";
 import { settleLoanExtension } from "./extend";
-import { settleCallPack } from "./calls";
+import { settleLoanPack } from "./calls";
 import { loanRentalExpiry, RENTAL_EXPIRED, RENTAL_MODEL_DELETED } from "./rental";
-import { CALLS_PENDING, EXTENSION_PENDING } from "@/lib/loans/settlement-status";
+import { API_ACCESS_PENDING, CALLS_PENDING, EXTENSION_PENDING } from "@/lib/loans/settlement-status";
+import { API_ACCESS_STALE_CODE } from "@/lib/billing/api-pricing";
 import { reaperErrorKind } from "./reaper-errors";
 
 const BATCH_SIZE = 50;
@@ -192,35 +193,41 @@ async function reapLoanExtension(loan: Loan, now: Date): Promise<void> {
 }
 
 /**
- * Pack d'appels verrouillé non réglé (D-30) : reprise de `buy-calls`, idempotent dans le runner (le
- * pack n'est crédité qu'une fois). Remboursé on-chain : clos. Échu sans `release` diffusé : seul
- * `refund()` par l'emprunteur reste possible. Avant tout `release`, location d'origine échue ou
- * profil sans API : aucune reprise (le runner refuserait), et un palier rapide est rendu au plafond.
- * `release` déjà diffusé (SETTLING avec hash) : toujours rejoué jusqu'au règlement, sans contrôle
- * de location ni de profil côté Next (`settleCallPack`).
+ * Pack d'appels (D-30) ou pass d'accès API (D-32) verrouillé non réglé : reprise de `buy-calls`,
+ * idempotent dans le runner (crédité ou enregistré une seule fois). Remboursé on-chain : clos.
+ * Échu sans `release` diffusé : seul `refund()` par l'emprunteur reste possible. Avant tout
+ * `release`, location d'origine échue ou profil sans API : aucune reprise (le runner refuserait),
+ * et un palier rapide est rendu au plafond. Pass caduc (`apiAccessRefusedAt`, base du prix
+ * changée) : refus définitif, plus jamais rejoué, même après une prolongation. `release` déjà
+ * diffusé (SETTLING avec hash) : toujours rejoué jusqu'au règlement, sans contrôle de location ni
+ * de profil côté Next (`settleLoanPack`).
  */
 async function reapCallPack(loan: Loan, now: Date): Promise<void> {
   const chain = await reconcileClosedLoan(loan);
   if (chain === "closed" || chain === "unbound") return;
+  if (loan.apiAccessRefusedAt) return;
   if (chain === "active" && !loan.settleTxHash && loan.evmDeadline && loan.evmDeadline.getTime() <= now.getTime()) {
     console.log(`[reaper] pack d'appels EVM ${loan.id} échu : release impossible, remboursement à l'initiative de l'emprunteur`);
     return;
   }
   try {
-    await settleCallPack(loan.id);
+    await settleLoanPack(loan.id);
   } catch (error) {
     const released = loan.status === "SETTLING" && Boolean(loan.settleTxHash);
-    if (!released && error instanceof AppError && (error.message === RENTAL_EXPIRED || error.code === "api_not_available_for_profile")) {
-      console.log(`[reaper] pack d'appels EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
+    const stale = error instanceof AppError && error.code === API_ACCESS_STALE_CODE;
+    if (!released && error instanceof AppError && (stale || error.message === RENTAL_EXPIRED || error.code === "api_not_available_for_profile")) {
+      console.log(stale
+        ? `[reaper] pass d'accès API EVM ${loan.id} caduc (couverture ou échéance changée depuis le devis) : refusé, remboursement à l'échéance`
+        : `[reaper] pack d'appels EVM ${loan.id} : location d'origine close, remboursement à l'échéance`);
       if (loan.status === "ESCROWED" && loan.finalityTier === "FAST") {
         await prisma.loan.updateMany({
-          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", updatedAt: loan.updatedAt },
+          where: { id: loan.id, status: "ESCROWED", finalityTier: "FAST", ...(stale ? {} : { updatedAt: loan.updatedAt }) },
           data: { finalityTier: "FULL" },
         });
       }
       return;
     }
-    if (error instanceof AppError && error.message === CALLS_PENDING) return;
+    if (error instanceof AppError && (error.message === CALLS_PENDING || error.message === API_ACCESS_PENDING)) return;
     throw error;
   }
 }

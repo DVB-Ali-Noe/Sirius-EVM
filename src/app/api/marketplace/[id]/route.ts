@@ -3,6 +3,7 @@ import { errorResponse } from "@/lib/errors";
 import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
 import { loadListingDetail } from "@/lib/marketplace/catalogue";
 import { marketplaceDeps } from "@/lib/marketplace/server";
+import { loanApiAccessDailyFee, loanApiCallsPerDay } from "@/lib/sirius/api-keys";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
     const detail = await loadListingDetail(id, marketplaceDeps());
     if (!detail) return noStore(NextResponse.json({ error: "Dataset introuvable" }, { status: 404 }));
-    return noStore(NextResponse.json(detail));
+    // API incluse à l'emprunt (D-32) : tarif journalier si le profil a une API et le tarif la vend.
+    const modelId = detail.dataset.modelId;
+    const apiAccessDailyFeeAtomic = modelId && loanApiCallsPerDay(modelId) !== null ? loanApiAccessDailyFee() : null;
+    return noStore(NextResponse.json({ ...detail, apiAccessDailyFeeAtomic }));
   } catch (error) {
     return noStore(errorResponse(error));
   }

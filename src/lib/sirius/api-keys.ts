@@ -3,7 +3,11 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual } from "@/lib/evm/address";
 import { billingEnabled, billingPolicy } from "@/lib/billing/config";
-import { API_KEY_MAX_PER_LOAN } from "@/lib/billing/api-pricing";
+import {
+  API_ACCESS_REQUIRED, API_ACCESS_REQUIRED_CODE, API_KEY_MAX_PER_LOAN, apiAccessComputeAmount, apiAccessDatasetAmount, apiAccessDaysFor,
+  isApiAccessDays,
+} from "@/lib/billing/api-pricing";
+import { resolveUsdcDecimals } from "@/lib/evm/networks";
 import { isServedModelFingerprint, type ModelId } from "@/lib/models/registry";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
@@ -12,7 +16,7 @@ import { datasetIngressKeyInRunner, registerApiKeyInRunner, revokeApiKeyInRunner
 import { requireAcceptedKyb } from "./access";
 import { requireRunnerOrWake, runnerPhase, type RunnerPhase } from "./availability";
 import { effectiveLoanFinalityTier } from "./finality-tier";
-import { loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
+import { includesApiAccess, loanRentalExpiry, RENTAL_EXPIRED } from "./rental";
 
 /**
  * Clés API d'un prêt loué (D-30), côté Next. Le secret n'existe que dans le navigateur (affiché une
@@ -43,6 +47,25 @@ export function loanApiCallsPerDay(modelId: string, env: Record<string, string |
   } catch {
     return null;
   }
+}
+
+/**
+ * Tarif journalier de l'accès API (`apiAccessDailyComputeAmount`, D-32), `null` s'il n'est pas en
+ * vente : champ absent, facturation v7 inactive ou politique illisible ici. Affichage et refus
+ * préalables seulement : l'enclave applique le tarif qu'elle signe.
+ */
+export function loanApiAccessDailyFee(env: Record<string, string | undefined> = process.env): string | null {
+  try {
+    if (!billingEnabled()) return null;
+    return billingPolicy(env).apiAccessDailyComputeAmount ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Refus de Next, avant tout réveil de l'enclave, d'une API dont aucun pass ne couvre `now` (D-32). */
+export function assertApiAccessPaid(loan: { apiPaidUntil: Date | null }, now = Date.now()): void {
+  if (!loan.apiPaidUntil || now >= loan.apiPaidUntil.getTime()) throw new AppError(API_ACCESS_REQUIRED, 403, API_ACCESS_REQUIRED_CODE);
 }
 
 export function utcDay(date: Date): string {
@@ -77,7 +100,10 @@ export async function assertApiLoan(loanId: string, borrower: string, options: A
   if (options.requireActiveRental && (options.now ?? Date.now()) >= expiresAt.getTime()) {
     throw new AppError(RENTAL_EXPIRED, 403, "rental_expired");
   }
-  return { ...loan, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash, rentalExpiresAt: expiresAt, callsPerDay };
+  return {
+    ...loan, runnerReceipt: loan.runnerReceipt, settleTxHash: loan.settleTxHash, rentalExpiresAt: expiresAt, callsPerDay,
+    apiAccessDailyFee: loanApiAccessDailyFee(),
+  };
 }
 
 export interface ApiKeyView {
@@ -94,18 +120,31 @@ export interface LoanApiKeys {
   callsPerDay: number;
   /** Indicatif (journal d'affichage) : le quota et les crédits font foi dans l'enclave. */
   usage: { apiCallsToday: number; creditsPurchased: number };
+  /**
+   * Accès API payé au jour (D-32). `dailyFee` nul : pas en vente. `paid` : un pass couvre l'instant
+   * de la lecture. `daysToBuy` et `price` (total atomique, part fournisseur comprise) : estimation
+   * du prochain pass jusqu'à l'échéance, le devis de l'enclave faisant foi ; `0` et `null` quand la
+   * location est couverte ou échue.
+   */
+  apiAccess: {
+    dailyFee: string | null; paidUntil: string | null; paid: boolean; rentalExpiresAt: string; daysToBuy: number; price: string | null;
+    /** API incluse à l'emprunt (D-32). */
+    included: boolean;
+  };
   enclave: RunnerPhase;
 }
 
 /** Clés du prêt (sans secret), appels des 30 derniers jours, crédits achetés et état de la CVM. */
 export async function listLoanApiKeys(loanId: string, borrower: string, now = new Date()): Promise<LoanApiKeys> {
-  const { callsPerDay } = await assertApiLoan(loanId, borrower, { requireActiveRental: false, now: now.getTime() });
+  const loan = await assertApiLoan(loanId, borrower, { requireActiveRental: false, now: now.getTime() });
+  const { callsPerDay, apiAccessDailyFee: dailyFee } = loan;
+  const daysToBuy = apiAccessDaysFor(loan.rentalExpiresAt.getTime(), loan.apiPaidUntil?.getTime() ?? null, now.getTime());
   const today = utcDay(now);
   const since = utcDay(new Date(now.getTime() - (USAGE_DAYS - 1) * DAY_MS));
   const [keys, usage, packs, enclave] = await Promise.all([
     prisma.apiKey.findMany({ where: { loanId }, orderBy: { createdAt: "asc" } }),
     prisma.apiUsageDay.findMany({ where: { key: { loanId }, day: { gte: since } }, select: { keyId: true, day: true, calls: true } }),
-    prisma.loan.findMany({ where: { packForLoanId: loanId, status: "SETTLED" }, select: { callPack: true } }),
+    prisma.loan.findMany({ where: { packForLoanId: loanId, status: "SETTLED", callPack: { not: null } }, select: { callPack: true } }),
     runnerPhase(),
   ]);
   const calls30d = new Map<string, number>();
@@ -122,6 +161,14 @@ export async function listLoanApiKeys(loanId: string, borrower: string, now = ne
     })),
     callsPerDay,
     usage: { apiCallsToday, creditsPurchased: packs.reduce((sum, pack) => sum + (pack.callPack ?? 0), 0) },
+    apiAccess: {
+      dailyFee, paidUntil: loan.apiPaidUntil?.toISOString() ?? null, paid: Boolean(loan.apiPaidUntil && loan.apiPaidUntil > now),
+      included: includesApiAccess(loan.billingQuote),
+      rentalExpiresAt: loan.rentalExpiresAt.toISOString(), daysToBuy,
+      price: dailyFee && isApiAccessDays(daysToBuy)
+        ? (BigInt(apiAccessComputeAmount(dailyFee, daysToBuy)) + BigInt(apiAccessDatasetAmount(resolveUsdcDecimals()))).toString()
+        : null,
+    },
     enclave,
   };
 }
@@ -132,6 +179,7 @@ export async function listLoanApiKeys(loanId: string, borrower: string, now = ne
  */
 export async function prepareLoanApiKey(loanId: string, borrower: string): Promise<{ ingressKey: DatasetIngressKey }> {
   const loan = await assertApiLoan(loanId, borrower, { requireActiveRental: true });
+  assertApiAccessPaid(loan);
   await assertKeyCapacity(loanId);
   await requireRunnerOrWake();
   await assertCurrentRunner(loan);
@@ -189,6 +237,7 @@ export interface RegisterApiKeyInput {
  */
 export async function registerLoanApiKey(input: RegisterApiKeyInput) {
   const loan = await assertApiLoan(input.loanId, input.borrower, { requireActiveRental: true });
+  assertApiAccessPaid(loan);
   const existing = await prisma.apiKey.findUnique({ where: { id: input.keyId } });
   if (existing && existing.loanId !== input.loanId) throw new AppError("Identifiant de clé déjà utilisé", 409, "key_conflict");
   if (existing?.revokedAt) throw new AppError("Clé API révoquée", 409, "key_revoked");

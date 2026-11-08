@@ -6,6 +6,7 @@ import Link from "next/link";
 import { RetrainPanel } from "@/components/train/RetrainPanel";
 import { ApiPanel } from "@/components/train/ApiPanel";
 import type { PendingCallPack } from "@/components/train/BuyCallsPanel";
+import type { RefusedPass } from "@/components/train/ApiAccessPanel";
 import { WaitSteps } from "@/components/ui/WaitSteps";
 import { useComputeQuoteConfirmation } from "@/components/loans/ComputeQuoteDialog";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
@@ -131,6 +132,10 @@ interface Loan {
   extendsLoanId?: string | null;
   /** Pack d'appels API (D-30) : taille achetée et prêt d'origine crédité. */
   callPack?: number | null;
+  /** Pass d'accès API (D-32) : jours payés ; même `packForLoanId` qu'un pack. */
+  apiAccessDays?: number | null;
+  /** Pass refusé pour toujours par l'enclave (base du prix changée) : remboursable à l'échéance. */
+  apiAccessRefusedAt?: string | null;
   packForLoanId?: string | null;
   /** Prêt d'origine : le profil a un quota d'appels API (jamais la régression linéaire). */
   apiEnabled?: boolean;
@@ -685,20 +690,26 @@ function TrainPageContent() {
             // Ni prolongation ni pack n'ont de modèle propre : mêmes règles d'affichage qu'une prolongation.
             const noTraining = extension || pack;
             const money = (atomic: string) => `${l.usdcDecimals !== undefined ? formatUnits(BigInt(atomic), l.usdcDecimals) : formatUsdcAtomic(atomic)} ${token}`;
-            const pendingPacks: PendingCallPack[] = noTraining ? [] : loans
-              .filter((candidate) => candidate.packForLoanId === l.id && !candidate.refundable
+            const pendingPurchases = noTraining ? [] : loans
+              .filter((candidate) => candidate.packForLoanId === l.id && !candidate.refundable && !candidate.apiAccessRefusedAt
                 && ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"].includes(candidate.status)
                 && (candidate.status !== "PENDING" || Boolean(candidate.evmLockTxHash)))
               .map((candidate) => {
                 const packTracking = finality[candidate.id];
                 const readyAt = packTracking?.phase === "pending" ? lockFinalityLocalReadyAt(packTracking) : null;
                 return {
+                  pass: candidate.apiAccessDays != null,
                   id: candidate.id,
-                  size: candidate.callPack ?? 0,
+                  size: candidate.callPack ?? candidate.apiAccessDays ?? 0,
                   stage: candidate.status === "ESCROWED" ? "finality" : candidate.status === "TRAINING" || candidate.status === "SETTLING" ? "crediting" : "payment",
                   remainingSeconds: readyAt !== null ? lockFinalitySecondsLeft(readyAt, now) : null,
-                };
+                } satisfies PendingCallPack & { pass: boolean };
               });
+            const pendingPacks = pendingPurchases.filter((purchase) => !purchase.pass);
+            const pendingPasses = pendingPurchases.filter((purchase) => purchase.pass);
+            const refusedPasses: RefusedPass[] = noTraining ? [] : loans
+              .filter((candidate) => candidate.packForLoanId === l.id && candidate.apiAccessRefusedAt && candidate.status !== "CANCELLED")
+              .map((candidate) => ({ id: candidate.id, refundableAt: candidate.evmDeadline }));
             const rentalExpired = isLoanRentalExpired(l, now);
             const modelDeleted = isLoanModelDeleted(l, now);
             // Une prolongation est un nouveau devis : refusée pour un profil retiré (D-31).
@@ -716,7 +727,7 @@ function TrainPageContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="w-full font-medium">{l.dataset?.name ?? t("Dataset")}</h3>
                     <Badge variant={LOAN_STATE_VARIANT[state]}>{t(LOAN_STATE_LABEL_KEY[state])}</Badge>
-                    <Badge variant="default">{pack ? t("Pack d’appels") : extension ? t("Prolongation") : t("Emprunt")}</Badge>
+                    <Badge variant="default">{l.apiAccessDays != null ? t("Accès API") : pack ? t("Pack d’appels") : extension ? t("Prolongation") : t("Emprunt")}</Badge>
                     {!noTraining && rentalExpired && <Badge variant="negative">{t("Location expirée")}</Badge>}
                     <Badge variant="default">{l.modelId} v{l.modelVersion}</Badge>
                   </div>
@@ -905,9 +916,21 @@ function TrainPageContent() {
                   {t("Prolongation réglée : les jours payés s’ajoutent à l’emprunt d’origine.")}
                 </p>
               )}
-              {l.status === "SETTLED" && pack && (
+              {l.status === "SETTLED" && pack && l.apiAccessDays == null && (
                 <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive" data-testid="call-pack-settled">
                   {t("Pack réglé : {count} appels crédités à l’emprunt d’origine.", { count: l.callPack ?? 0 })}
+                </p>
+              )}
+              {l.status === "SETTLED" && l.apiAccessDays != null && (
+                <p className="mt-4 rounded-lg border border-positive/30 bg-positive/5 p-3 text-xs text-positive" data-testid="api-access-settled">
+                  {t("Accès API réglé : {days} payés à l’emprunt d’origine.", { days: l.apiAccessDays === 1 ? t("1 jour") : t("{days} jours", { days: l.apiAccessDays }) })}
+                </p>
+              )}
+              {l.apiAccessRefusedAt && l.status !== "CANCELLED" && (
+                <p className="mt-4 rounded-lg border border-negative/30 bg-negative/5 p-3 text-xs text-negative" data-testid="api-access-refused">
+                  {l.evmDeadline
+                    ? t("Accès API refusé : rien n’a été versé, paiement remboursable le {date}.", { date: new Date(l.evmDeadline).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "medium", timeStyle: "short" }) })
+                    : t("Accès API refusé : rien n’a été versé, paiement remboursable à l’échéance de l’escrow.")}
                 </p>
               )}
               {l.status === "SETTLED" && !noTraining && (
@@ -1006,6 +1029,8 @@ function TrainPageContent() {
                       money={money}
                       confirmQuote={confirmQuote}
                       pendingPacks={pendingPacks}
+                      pendingPasses={pendingPasses}
+                      refusedPasses={refusedPasses}
                       onPurchased={refresh}
                     />
                   )}

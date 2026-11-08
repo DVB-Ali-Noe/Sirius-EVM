@@ -41,7 +41,9 @@
       "logistic_regression": 50,
       "gradient_boosted_trees": 100
     },
-    "note": "Quota quotidien inclus d'un prêt (site + API) et base du prix des packs : prix par appel = ceil(prix par jour / quota). Jamais linear_regression (D-27)."
+    "note": "Quota quotidien inclus d'un prêt (site + API) et base du prix des packs : prix par appel = ceil(prix par jour / quota). Jamais linear_regression (D-27).",
+    "accessDailyUsdMicros": "1500000",
+    "accessNote": "Pass d'accès API payé à Sirius par jour (D-32) : couvre la CVM allumée par l'usage continu de l'API (~1,39 USD/jour). Proposition 1,50 USD/jour, à confirmer à l'approbation du tarif. Absent de la politique : accès API non vendu, donc refusé."
   },
   "profiles": {
     "linear_regression": {

@@ -22,6 +22,16 @@ export interface ApiKeysOverview {
   callsPerDay: number;
   /** Chiffres indicatifs côté Next : le compteur faisant foi est dans l'enclave. */
   usage: { apiCallsToday: number; creditsPurchased: number };
+  /**
+   * Pass d'accès API (D-32) : tarif journalier (`null` : pas en vente), fin de la couverture payée,
+   * couverture de l'instant de la lecture, échéance de la location, jours et prix total estimés du
+   * prochain pass (le devis fait foi).
+   */
+  apiAccess: {
+    dailyFee: string | null; paidUntil: string | null; paid: boolean; rentalExpiresAt: string; daysToBuy: number; price: string | null;
+    /** API incluse à l'emprunt (D-32) : prolongée d'office avec la location. */
+    included: boolean;
+  };
   enclave: EnclavePhase;
 }
 

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { demoSessions, predictionSessionRevision } from "@/lib/phala-demo/runner-session";
 import { AppError } from "@/lib/app-error";
-import { creditCallPack, predictionAllowance, reservePrediction } from "./prediction-usage";
+import {
+  apiAccessPaidUntil, creditCallPack, engageApiAccessPass, hasApiAccessPass, predictionAllowance, recordApiAccessPass, reservePrediction,
+} from "./prediction-usage";
+import { apiAccessComputeAmount, apiAccessDatasetAmount, apiAccessDaysFor } from "@/lib/billing/api-pricing";
+import { DAY_MS } from "@/lib/billing/rental";
 import { scopeForRunnerOp } from "@/runner/handler";
 
 const owner = `0x${"ab".repeat(20)}`;
@@ -114,5 +118,98 @@ test("pack d'appels crédité une seule fois, rejeu idempotent, pack d'un autre 
     assert.throws(() => creditCallPack({ packLoanId: loan.id, originalLoanId: loan.id, subject: owner, calls: 100 }), /Identifiant de pack invalide/);
     assert.throws(() => creditCallPack({ packLoanId: "pack-3", originalLoanId: loan.id, subject: owner, calls: 0 }), /Taille de pack invalide/);
     assert.deepEqual(predictionAllowance(owner, loan, 50), { today: 50, credits: 1_100 });
+  });
+});
+
+test("pass d'accès API : jours à payer jusqu'à l'échéance, jour entamé compté, complément après prolongation", () => {
+  const now = 1_000 * DAY_MS;
+  assert.equal(apiAccessDaysFor(now + 2.5 * DAY_MS, null, now), 3, "jour entamé compté");
+  assert.equal(apiAccessDaysFor(now + 3 * DAY_MS, null, now), 3);
+  assert.equal(apiAccessDaysFor(now + 3 * DAY_MS, now - DAY_MS, now), 3, "couverture passée : départ maintenant");
+  assert.equal(apiAccessDaysFor(now + 6 * DAY_MS, now + 3 * DAY_MS, now), 3, "après prolongation : seulement les jours ajoutés");
+  assert.equal(apiAccessDaysFor(now + 3 * DAY_MS, now + 3 * DAY_MS, now), 0, "déjà couverte");
+  assert.equal(apiAccessDaysFor(now - 1, null, now), 0, "location échue");
+  assert.equal(apiAccessComputeAmount("1500000", 3), "4500000");
+  assert.equal(apiAccessDatasetAmount(6), "1000");
+  assert.equal(apiAccessDatasetAmount(18), "1000000000000000");
+  assert.throws(() => apiAccessComputeAmount("1500000", 0));
+});
+
+test("pass d'accès API : journal idempotent par pass, couverture plafonnée à l'échéance, conservée après réouverture", () => {
+  withEnv({}, (root) => {
+    const released = 2_000 * DAY_MS;
+    const rentalEnd = released + 2.5 * DAY_MS;
+    assert.equal(apiAccessPaidUntil(owner, "model-1"), null);
+    const pass = { passLoanId: "pass-1", originalLoanId: "model-1", subject: owner, days: 3, releasedAt: released, rentalExpiresAt: rentalEnd };
+    assert.equal(recordApiAccessPass(pass), rentalEnd, "jamais au-delà de l'échéance");
+    assert.equal(recordApiAccessPass({ ...pass, releasedAt: released + DAY_MS, rentalExpiresAt: rentalEnd + 9 * DAY_MS }), rentalEnd,
+      "rejoué : enregistré une seule fois");
+    assert.throws(() => recordApiAccessPass({ ...pass, days: 4 }), /hors scope/);
+    assert.throws(() => recordApiAccessPass({ ...pass, originalLoanId: "other" }), /hors scope/);
+    // Prolongation de 3 jours puis complément : la couverture repart de l'ancienne fin.
+    const extendedEnd = rentalEnd + 3 * DAY_MS;
+    assert.equal(recordApiAccessPass({ ...pass, passLoanId: "pass-2", releasedAt: released + DAY_MS, rentalExpiresAt: extendedEnd }), extendedEnd);
+    assert.equal(apiAccessPaidUntil(owner, "model-1"), extendedEnd);
+    assert.equal(apiAccessPaidUntil(`0x${"cd".repeat(20)}`, "model-1"), null, "propre à l'emprunteur");
+    // Volume relu par un autre processus (copie du registre) : rien n'est perdu.
+    const copy = join(root, "reloaded.sqlite");
+    copyFileSync(process.env.RUNNER_PREDICT_USAGE_FILE!, copy);
+    chmodSync(copy, 0o600);
+    process.env.RUNNER_PREDICT_USAGE_FILE = copy;
+    assert.equal(apiAccessPaidUntil(owner, "model-1"), extendedEnd);
+    assert.equal(recordApiAccessPass(pass), extendedEnd, "rejeu après réouverture : rien de plus");
+  });
+});
+
+test("pass d'accès API engagé : un seul par base, persistant, repris si sa release n'est pas vivante, effacé à l'enregistrement", () => {
+  withEnv({}, (root) => {
+    const live = new Set<string>();
+    const stale = (error: unknown) => error instanceof AppError && error.status === 409 && error.code === "api_access_stale";
+    const engage = (passLoanId: string, coveredUntil: number | null = null) => engageApiAccessPass({
+      passLoanId, originalLoanId: "model-1", subject: owner, coveredUntil, release: { id: `release:${passLoanId}`, fingerprint: "0xab" },
+      isLive: (engaged) => live.has(engaged),
+    });
+    engage("pass-a");
+    engage("pass-a");
+    live.add("pass-a");
+    assert.throws(() => engage("pass-b"), stale, "autre pass engagé, release vivante");
+    assert.throws(() => engage("pass-a", 1), stale, "couverture différente du devis");
+    // Redémarrage : registre relu depuis le disque, marqueur toujours là.
+    const copy = join(root, "restarted.sqlite");
+    copyFileSync(process.env.RUNNER_PREDICT_USAGE_FILE!, copy);
+    chmodSync(copy, 0o600);
+    process.env.RUNNER_PREDICT_USAGE_FILE = copy;
+    assert.throws(() => engage("pass-b"), stale, "marqueur conservé après redémarrage");
+    // Release du premier jamais engagée ou définitivement échouée : le marqueur ne bloque pas.
+    live.delete("pass-a");
+    engage("pass-b");
+    live.add("pass-b");
+    assert.throws(() => engage("pass-a"), stale, "le marqueur a changé de pass");
+    const coverage = recordApiAccessPass({ passLoanId: "pass-b", originalLoanId: "model-1", subject: owner, days: 1,
+      releasedAt: 3_000 * DAY_MS, rentalExpiresAt: 3_001 * DAY_MS });
+    assert.throws(() => engage("pass-c"), stale, "couverture changée depuis le devis");
+    engage("pass-c", coverage);
+  });
+});
+
+test("API incluse : couverture au règlement de l'emprunt (clé : le prêt), prolongée par une prolongation incluse, idempotente et conservée", () => {
+  withEnv({}, (root) => {
+    const released = 4_000 * DAY_MS;
+    const rentalEnd = released + 7 * DAY_MS;
+    assert.equal(hasApiAccessPass("model-1"), false);
+    const rental = { passLoanId: "model-1", originalLoanId: "model-1", subject: owner, days: 7, releasedAt: released, rentalExpiresAt: rentalEnd };
+    assert.equal(recordApiAccessPass(rental), rentalEnd);
+    assert.equal(hasApiAccessPass("model-1"), true);
+    assert.equal(recordApiAccessPass({ ...rental, releasedAt: released + DAY_MS, rentalExpiresAt: rentalEnd + DAY_MS }), rentalEnd, "rejoué : inchangé");
+    // Prolongation de 2 jours, API incluse, réglée avant l'échéance : la couverture suit la nouvelle échéance.
+    const extendedEnd = rentalEnd + 2 * DAY_MS;
+    const extension = { passLoanId: "ext-1", originalLoanId: "model-1", subject: owner, days: 2, releasedAt: rentalEnd - DAY_MS, rentalExpiresAt: extendedEnd };
+    assert.equal(recordApiAccessPass(extension), extendedEnd);
+    const copy = join(root, "reloaded.sqlite");
+    copyFileSync(process.env.RUNNER_PREDICT_USAGE_FILE!, copy);
+    chmodSync(copy, 0o600);
+    process.env.RUNNER_PREDICT_USAGE_FILE = copy;
+    assert.equal(apiAccessPaidUntil(owner, "model-1"), extendedEnd, "conservée après réouverture");
+    assert.equal(recordApiAccessPass(extension), extendedEnd);
   });
 });

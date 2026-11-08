@@ -41,7 +41,7 @@ _API_KEY = re.compile(r"^sk_live_([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$")
 
 
 class SiriusApiError(Exception):
-    """Erreur renvoyée par l'API : ``code`` stable (``quota_exceeded``, ``enclave_starting``…)."""
+    """Erreur renvoyée par l'API : ``code`` stable (``quota_exceeded``, ``api_access_required``, ``enclave_starting``…)."""
 
     def __init__(self, message: str, code: str, status: int, retry_after_seconds: Optional[int] = None):
         super().__init__(message)

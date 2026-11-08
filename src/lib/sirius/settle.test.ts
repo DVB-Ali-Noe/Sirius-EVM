@@ -156,7 +156,7 @@ type Resolution = { state: "active" } | { state: "settled"; txHash: string };
 
 function settlementFixture(
   evmDeadline: Date | undefined,
-  runner: () => Promise<{ settleTxHash: string; expiresAt?: number }>,
+  runner: () => Promise<{ settleTxHash: string; expiresAt?: number; apiPaidUntil?: number }>,
   resolution: Resolution = { state: "active" },
   quote: Record<string, unknown> = {},
   loanOverrides: Record<string, unknown> = {},
@@ -199,7 +199,7 @@ function settlementFixture(
     },
     "@/lib/tee/quote": quote,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
-    "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
+    "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: loanOverrides.apiAccessIncluded ? { apiAccessIncluded: true } : {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
     "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },
@@ -234,6 +234,25 @@ test("D-29 : sans échéance du runner, elle est relue du bloc de release ; un p
   await legacy.api.settlePreparedLoan("loan");
   assert.equal(legacy.updates.find((update) => update.data.status === "SETTLED")!.data.rentalExpiresAt, undefined);
   assert.equal(legacy.rentalReads.length, 0);
+});
+
+test("API incluse (D-32) : la couverture de l'enclave est reflétée dans la même écriture que SETTLED ; sans API, rien", async () => {
+  const expiresAt = Date.parse("2026-11-10T12:00:00.000Z");
+  const rental = { rentalDays: 7, extendsLoanId: null };
+  const included = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt, apiPaidUntil: expiresAt }), { state: "active" }, {},
+    { ...rental, apiAccessIncluded: true });
+  await included.api.settlePreparedLoan("loan");
+  const settled = included.updates.find((update) => update.data.status === "SETTLED")!;
+  assert.equal(Number(settled.data.apiPaidUntil), expiresAt);
+  assert.equal(Number(settled.data.rentalExpiresAt), expiresAt);
+  // Couverture absente de la réponse : l'échéance de la location fait foi.
+  const implicit = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {},
+    { ...rental, apiAccessIncluded: true });
+  await implicit.api.settlePreparedLoan("loan");
+  assert.equal(Number(implicit.updates.find((update) => update.data.status === "SETTLED")!.data.apiPaidUntil), expiresAt);
+  const plain = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {}, rental);
+  await plain.api.settlePreparedLoan("loan");
+  assert.equal(plain.updates.find((update) => update.data.status === "SETTLED")!.data.apiPaidUntil, undefined);
 });
 
 const rejected = (message: string, status: number) => async () => { throw new AppError(message, status); };

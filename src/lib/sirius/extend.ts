@@ -93,6 +93,8 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
     });
     if (!Number.isSafeInteger(result.expiresAt) || result.expiresAt <= 0) throw new AppError("Échéance de prolongation invalide", 502);
     const expiresAt = new Date(result.expiresAt);
+    // API incluse (D-32) : la couverture reflétée suit la nouvelle échéance, jamais en arrière.
+    const apiPaidUntil = signed.quote.apiAccessIncluded ? new Date(result.apiPaidUntil ?? result.expiresAt) : null;
     await serializableTransaction(async (tx) => {
       const settled = await tx.loan.updateMany({
         where: { id: loanId, status: "SETTLING", updatedAt: claimedAt },
@@ -103,6 +105,12 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
         where: { id: original.id, OR: [{ rentalExpiresAt: null }, { rentalExpiresAt: { lt: expiresAt } }] },
         data: { rentalExpiresAt: expiresAt },
       });
+      if (apiPaidUntil) {
+        await tx.loan.updateMany({
+          where: { id: original.id, OR: [{ apiPaidUntil: null }, { apiPaidUntil: { lt: apiPaidUntil } }] },
+          data: { apiPaidUntil },
+        });
+      }
     });
     if (finalityTier === "FAST") await recordSettlementEvidence(loanId);
     return { loanId, originalLoanId: original.id, settleTxHash: result.settleTxHash, rentalExpiresAt: expiresAt.toISOString() };

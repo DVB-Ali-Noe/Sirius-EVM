@@ -21,8 +21,9 @@ export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
     // N'expose que les prêts où le compte est partie prenante (borrower ou provider). Les colonnes de
-    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`) et de pack d'appels (`callPack`,
-    // `packForLoanId`, D-30) partent telles quelles ; le prix par jour et la durée maximale du dataset
+    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`), de pack d'appels (`callPack`,
+    // `packForLoanId`, D-30) et de pass d'accès API (`apiAccessDays`, `apiPaidUntil`, D-32) partent
+    // telles quelles ; le prix par jour et la durée maximale du dataset
     // servent au choix des jours d'une prolongation et au prix des packs. Pour un prêt d'origine,
     // `apiEnabled` et `callsPerDay` disent si son profil a une API (quota quotidien inclus).
     const loans = await prisma.loan.findMany({
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(preparationLimiter, `subject:${session.address}`);
-    const { datasetId, rentalDays } = await readJson<Record<string, unknown>>(req);
+    const { datasetId, rentalDays, includeApiAccess } = await readJson<Record<string, unknown>>(req);
 
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
@@ -68,7 +69,12 @@ export async function POST(req: Request) {
     if (!isValidRentalDays(rentalDays)) {
       return NextResponse.json({ error: "Durée de location invalide" }, { status: 400 });
     }
-    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays);
+    if (includeApiAccess !== undefined && typeof includeApiAccess !== "boolean") {
+      return NextResponse.json({ error: "Accès API inclus du devis invalide" }, { status: 400 });
+    }
+    // `includeApiAccess` (D-32) : l'API est incluse dans le devis, jours × tarif journalier de l'API.
+    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays, undefined,
+      { includeApiAccess: includeApiAccess === true });
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {

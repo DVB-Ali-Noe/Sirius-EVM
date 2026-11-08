@@ -283,8 +283,12 @@ const settledApiLoan = (id: string, overrides: Record<string, unknown> = {}) => 
   usdcDecimals: 18, ...overrides,
 });
 
+// Pass d'accès API (D-32) payé jusqu'à l'échéance : création de clé ouverte.
 const keysOverview = (overrides: Record<string, unknown> = {}) => ({
-  keys: [], callsPerDay: 50, usage: { apiCallsToday: 3, creditsPurchased: 0 }, enclave: "running", ...overrides,
+  keys: [], callsPerDay: 50, usage: { apiCallsToday: 3, creditsPurchased: 0 }, enclave: "running",
+  apiAccess: { dailyFee: "1500000000000000000", paidUntil: new Date(Date.now() + 3 * DAY_MS).toISOString(), paid: true,
+    rentalExpiresAt: new Date(Date.now() + 3 * DAY_MS).toISOString(), daysToBuy: 0, price: null, included: false },
+  ...overrides,
 });
 
 test("API : panneau absent pour la régression linéaire, avec l'explication ; absent sans quota d'API", async ({ page }) => {

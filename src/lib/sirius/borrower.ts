@@ -29,9 +29,16 @@ import { assertAdmissionsOpen, assertExposureWithinCap, assertLoanWithinCap, EXP
 import { datasetAmountFor, isValidRentalDays, MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { requireRentalQuote } from "@/lib/billing/quote";
 import { assertExtendableLoan } from "./rental";
-import { isCallPackSize, packDatasetAmount, type CallPackSize } from "@/lib/billing/api-pricing";
-import { assertApiLoan } from "./api-keys";
+import {
+  API_ACCESS_IN_FLIGHT, API_ACCESS_NOT_FOR_SALE, API_ACCESS_NOT_FOR_SALE_CODE, API_ACCESS_PREPARING, apiAccessDatasetAmount,
+  isCallPackSize, packDatasetAmount, type CallPackSize,
+} from "@/lib/billing/api-pricing";
+import { resolveUsdcDecimals } from "@/lib/evm/networks";
+import {
+  API_PROFILE_CODE, API_UNAVAILABLE_LINEAR, API_UNAVAILABLE_PROFILE, assertApiLoan, loanApiAccessDailyFee, loanApiCallsPerDay,
+} from "./api-keys";
 import { requireRunnerOrWake } from "./availability";
+import { PENDING_REAPER_TTL_MS } from "./reaper-policy";
 
 const MAX_PENDING_LOANS = 5;
 const RATE_WINDOW_MS = 3_600_000;
@@ -62,26 +69,58 @@ async function assertLoanAdmission(
 }
 
 /**
+ * Un seul pass d'accès API à la fois par prêt (D-32), hors passes refusés pour toujours. En
+ * paiement : verrouillé ou en cours de règlement. En préparation : PENDING, ou remplacé
+ * (CANCELLED sans remboursement), tant que son autorisation de lock peut encore servir
+ * (`PENDING_REAPER_TTL_MS`) : deux onglets ne verrouillent pas deux passes sur la même base. Lu
+ * avant le réveil de la CVM, puis dans la transaction de création, où il fait foi.
+ */
+export async function assertNoApiAccessPassInFlight(
+  db: { loan: { count(args: { where: Prisma.LoanWhereInput }): Promise<number> } },
+  originalLoanId: string,
+  now = Date.now(),
+) {
+  const pass = { packForLoanId: originalLoanId, apiAccessDays: { not: null }, apiAccessRefusedAt: null } satisfies Prisma.LoanWhereInput;
+  const [paying, preparing] = await Promise.all([
+    db.loan.count({ where: { ...pass, OR: [
+      { status: { in: ["SUBMITTING", "ESCROWED", "TRAINING", "SETTLING"] } }, { status: { in: ["PENDING", "CANCELLED"] }, evmLockTxHash: { not: null }, cancelTxHash: null },
+    ] } }),
+    db.loan.count({ where: { ...pass, status: { in: ["PENDING", "CANCELLED"] }, evmLockTxHash: null, cancelTxHash: null,
+      createdAt: { gte: new Date(now - PENDING_REAPER_TTL_MS) } } }),
+  ]);
+  if (paying > 0) throw new AppError(API_ACCESS_IN_FLIGHT, 409, "api_access_pending");
+  if (preparing > 0) throw new AppError(API_ACCESS_PREPARING, 409, "api_access_pending");
+}
+
+/**
  * Prêt rattaché à un prêt d'origine, au profil d'entraînement repris à l'identique : prolongation
- * (D-29), ou pack de `callPack` appels API prépayés (D-30) quand `callPack` est présent.
+ * (D-29), pack de `callPack` appels API prépayés (D-30) quand `pack` est présent, ou pass d'accès
+ * API payé au jour (D-32) quand `apiAccess` est présent.
  */
 export interface LoanExtensionTarget {
   originalLoanId: string;
   model: ModelSelection;
   /** Pack : taille et quota quotidien du profil (`apiCallsPerDay`), d'où le prix par appel. */
   pack?: { size: CallPackSize; callsPerDay: number };
+  /** Pass : jours estimés par Next (affichage), remplacés par ceux que l'enclave signe au devis. */
+  apiAccess?: { days: number };
 }
 
 /**
  * Prépare le lock d'un emprunt de `rentalDays` jours (1 à `maxRentalDays` du dataset), ou d'un prêt
- * rattaché à un prêt d'origine (`extension`) : prolongation, ou pack d'appels (`extension.pack`,
- * D-30). Avec devis (escrow v7), le montant dataset vaut prix par jour × jours, signé dans le devis
- * (`rentalDays`, `extendsLoanId`) ; pour un pack, taille × prix par appel (`packDatasetAmount`), les
- * jours du prêt d'origine étant repris sans en ajouter (`callPack`, `packForLoanId`). Sans devis
- * (escrow v6 hérité), le prix reste forfaitaire et le prêt n'a pas d'échéance ; ni prolongation ni
- * pack n'y sont possibles.
+ * rattaché à un prêt d'origine (`extension`) : prolongation, pack d'appels (`extension.pack`,
+ * D-30) ou pass d'accès API (`extension.apiAccess`, D-32). Avec devis (escrow v7), le montant
+ * dataset vaut prix par jour × jours, signé dans le devis (`rentalDays`, `extendsLoanId`) ; pour un
+ * pack, taille × prix par appel (`packDatasetAmount`), les jours du prêt d'origine étant repris sans
+ * en ajouter (`callPack`, `packForLoanId`) ; pour un pass, le minimum du contrat (0,001 USDC) et des
+ * frais Sirius de jours × tarif journalier (`apiAccessDays`, `packForLoanId`). `includeApiAccess`
+ * (emprunt seulement, D-32) : l'API est incluse, jours × tarif journalier ajoutés au compute du
+ * devis ; une prolongation l'inclut d'office quand l'enclave voit la location couverte jusqu'à son
+ * échéance. Sans devis (escrow v6 hérité), le prix reste forfaitaire et le prêt n'a pas d'échéance ;
+ * ni prolongation, ni pack, ni pass, ni API incluse n'y sont possibles.
  */
-export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget) {
+export async function prepareLoan(datasetId: string, borrower: string, rentalDays: number, extension?: LoanExtensionTarget,
+  options: { includeApiAccess?: boolean } = {}) {
   const borrowerAddress = normalizeAddress(borrower);
   assertAdmissionsOpen();
   await requireCurrentEvmDeployment();
@@ -105,17 +144,28 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   const model = modelSelection(extension?.model.modelId ?? dataset.modelId, extension?.model.modelVersion ?? dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
   assertOfferedProfile(model);
+  const purchaseLabel = extension?.pack ? "achat d’appels" : extension?.apiAccess ? "achat d’accès API" : "prolongation";
   if (extension && (dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion)) {
-    throw new AppError(`Profil d’entraînement du dataset modifié : ${extension.pack ? "achat d’appels" : "prolongation"} impossible`, 409);
+    throw new AppError(`Profil d’entraînement du dataset modifié : ${purchaseLabel} impossible`, 409);
   }
   if (!isValidRentalDays(rentalDays, dataset.maxRentalDays)) {
     throw new AppError(`Durée de location invalide (${MIN_RENTAL_DAYS} à ${Math.min(dataset.maxRentalDays, MAX_RENTAL_DAYS)} jours)`, 400);
   }
   const billed = billingEnabled();
-  if (extension && !billed) throw new AppError(`${extension.pack ? "Achat d’appels" : "Prolongation"} indisponible sans devis compute`, 503);
+  if (extension && !billed) throw new AppError(`${purchaseLabel[0].toUpperCase()}${purchaseLabel.slice(1)} indisponible sans devis compute`, 503);
+  const includeApiAccess = options.includeApiAccess === true;
+  if (includeApiAccess) {
+    if (extension || !billed) throw new AppError("Accès API inclus du devis invalide", 400);
+    if (model.modelId === "linear_regression") throw new AppError(API_UNAVAILABLE_LINEAR, 409, API_PROFILE_CODE);
+    if (loanApiCallsPerDay(model.modelId) === null) throw new AppError(API_UNAVAILABLE_PROFILE, 409, API_PROFILE_CODE);
+    if (loanApiAccessDailyFee() === null) throw new AppError(API_ACCESS_NOT_FOR_SALE, 409, API_ACCESS_NOT_FOR_SALE_CODE);
+  }
   const pack = extension?.pack ? { ...extension.pack, originalLoanId: extension.originalLoanId } : undefined;
+  const pass = extension?.apiAccess ? { ...extension.apiAccess, originalLoanId: extension.originalLoanId } : undefined;
+  const purchase = pack ?? pass;
   const amountUsdcAtomic = !billed ? dataset.priceUsdcAtomic
-    : pack ? packDatasetAmount(dataset.priceUsdcAtomic, pack.callsPerDay, pack.size) : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
+    : pack ? packDatasetAmount(dataset.priceUsdcAtomic, pack.callsPerDay, pack.size)
+      : pass ? apiAccessDatasetAmount(resolveUsdcDecimals()) : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
   // Plafonds de la bêta : refus avant tout appel au runner, puis de nouveau sur le total du devis.
   const limits = exposureLimits();
   assertLoanWithinCap(amountUsdcAtomic, limits);
@@ -143,6 +193,7 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
 
   const loan = await serializableTransaction(async (tx) => {
     await assertLoanAdmission(tx, borrowerAddress, datasetId);
+    if (pass) await assertNoApiAccessPassInFlight(tx, pass.originalLoanId);
     // Un prêt PENDING sans hash de lock n'a rien coûté à l'emprunteur mais compte dans le plafond
     // d'exposition de la bêta tant que le reaper ne l'a pas annulé (son autorisation de lock reste
     // renouvelable jusqu'à neuf minutes après sa création, il peut donc encore être verrouillé).
@@ -179,9 +230,10 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
         amountUsdcAtomic,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
-        extendsLoanId: extension && !pack ? extension.originalLoanId : null,
-        packForLoanId: pack?.originalLoanId ?? null,
+        extendsLoanId: extension && !purchase ? extension.originalLoanId : null,
+        packForLoanId: purchase?.originalLoanId ?? null,
         callPack: pack?.size ?? null,
+        apiAccessDays: pass?.days ?? null,
         ...runner,
       },
     });
@@ -192,8 +244,10 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
     const preparedBlock = await getPublicClient().getBlockNumber({ cacheTime: 0 });
     const rental = {
       rentalDays,
-      ...(extension && !pack ? { extendsLoanId: extension.originalLoanId } : {}),
+      ...(extension && !purchase ? { extendsLoanId: extension.originalLoanId } : {}),
       ...(pack ? { callPack: pack.size, packForLoanId: pack.originalLoanId } : {}),
+      ...(pass ? { apiAccess: true as const, packForLoanId: pass.originalLoanId } : {}),
+      ...(includeApiAccess ? { includeApiAccess: true as const } : {}),
     };
     const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
       datasetId, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,
@@ -206,6 +260,8 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
       || signedQuote.quote.hashlock !== hashlock || signedQuote.quote.rentalDays !== rentalDays
       || (signedQuote.quote.extendsLoanId ?? null) !== (rental.extendsLoanId ?? null)
       || (signedQuote.quote.callPack ?? null) !== (rental.callPack ?? null)
+      || (signedQuote.quote.apiAccessDays !== undefined) !== Boolean(pass)
+      || (!extension && (signedQuote.quote.apiAccessIncluded ?? false) !== includeApiAccess)
       || (signedQuote.quote.packForLoanId ?? null) !== (rental.packForLoanId ?? null))) throw new AppError("Devis compute hors scope", 409);
     const total = signedQuote ? totalQuoteAmount(signedQuote.quote) : amountUsdcAtomic;
     assertLoanWithinCap(total, limits);
@@ -228,6 +284,7 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
             amountUsdcAtomic: total, billingQuote: JSON.stringify(signedQuote), billingQuoteHash: computeQuoteHash(signedQuote.quote),
             datasetAmountUsdcAtomic: signedQuote.quote.datasetAmount, computeAmountUsdcAtomic: signedQuote.quote.computeAmount,
             maxFailureFeeUsdcAtomic: signedQuote.quote.maxFailureFee, rentalDays: signedQuote.quote.rentalDays,
+            ...(pass ? { apiAccessDays: signedQuote.quote.apiAccessDays } : {}),
           } : {}),
           evmLoanKey: loanKey,
           evmHashlock: hashlock,
@@ -282,12 +339,14 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   }
   const deadline = lockAuthorizationDeadline(loan.createdAt);
   const model = modelSelection(loan.modelId, loan.modelVersion);
-  // Pack (D-30) : la location d'origine doit rester active, et le prix suivre la même règle qu'à la préparation.
+  // Pack (D-30) ou pass (D-32) : la location d'origine doit rester active, et le prix suivre la même règle qu'à la préparation.
   const packOrigin = loan.packForLoanId ? await assertApiLoan(loan.packForLoanId, address, { requireActiveRental: true }) : null;
-  if (packOrigin && !isCallPackSize(loan.callPack)) throw new AppError("Taille de pack d’appels invalide", 409);
+  const pass = packOrigin !== null && loan.apiAccessDays !== null;
+  if (packOrigin && !pass && !isCallPackSize(loan.callPack)) throw new AppError("Taille de pack d’appels invalide", 409);
   const expectedDatasetAmount = rentalDays === null ? loan.amountUsdcAtomic
-    : packOrigin ? packDatasetAmount(dataset.priceUsdcAtomic, packOrigin.callsPerDay, loan.callPack as CallPackSize)
-      : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
+    : pass ? apiAccessDatasetAmount(signedQuote!.quote.usdcDecimals)
+      : packOrigin ? packDatasetAmount(dataset.priceUsdcAtomic, packOrigin.callsPerDay, loan.callPack as CallPackSize)
+        : datasetAmountFor(dataset.priceUsdcAtomic, rentalDays);
   if (!model || !isBorrowableDatasetStatus(dataset.status) || !dataset.evmDatasetId || !dataset.ipfsCid ||
     !dataset.wrappedKey || !dataset.merkleRoot || !dataset.runnerReceipt ||
     (signedQuote?.quote.datasetAmount ?? dataset.priceUsdcAtomic) !== expectedDatasetAmount ||
@@ -305,7 +364,9 @@ export async function renewLoanLock(loanId: string, borrower: string) {
   const rental = {
     rentalDays: rentalDays ?? MIN_RENTAL_DAYS,
     ...(loan.extendsLoanId ? { extendsLoanId: loan.extendsLoanId } : {}),
-    ...(packOrigin ? { callPack: loan.callPack as CallPackSize, packForLoanId: packOrigin.id } : {}),
+    ...(packOrigin && !pass ? { callPack: loan.callPack as CallPackSize, packForLoanId: packOrigin.id } : {}),
+    ...(packOrigin && pass ? { apiAccess: true as const, packForLoanId: packOrigin.id } : {}),
+    ...(!loan.extendsLoanId && signedQuote?.quote.apiAccessIncluded ? { includeApiAccess: true as const } : {}),
   };
   const { hashlock, authorization, billingQuote } = await prepareEscrowLockInRunner({
     datasetId: dataset.id, cid: dataset.ipfsCid, wrappedKey: dataset.wrappedKey, merkleRoot: dataset.merkleRoot,

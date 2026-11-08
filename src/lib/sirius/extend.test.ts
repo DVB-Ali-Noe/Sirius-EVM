@@ -13,6 +13,7 @@ import * as rentalRules from "@/lib/billing/rental";
 import * as settlementStatus from "@/lib/loans/settlement-status";
 import * as failurePolicy from "@/lib/runner/failure-policy";
 import * as reaperPolicy from "./reaper-policy";
+import * as apiPricing from "@/lib/billing/api-pricing";
 import * as reaperErrors from "./reaper-errors";
 import { settlementQueuedError } from "./settlement-queued";
 import type * as Rental from "./rental";
@@ -79,7 +80,7 @@ function extension(overrides: Partial<Row> = {}): Row {
 interface FixtureOptions {
   session?: string;
   /** Réponse du runner à `extend-loan` : échéance (ms) ou erreur. */
-  runner?: () => Promise<{ settleTxHash: string; expiresAt: number }>;
+  runner?: () => Promise<{ settleTxHash: string; expiresAt: number; apiPaidUntil?: number }>;
   chain?: { state: "active" } | { state: "settled"; txHash: string } | { state: "cancelled"; txHash: string };
 }
 
@@ -115,7 +116,8 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
     // Palier : finalité complète ici (garde de profondeur passée) ; le palier rapide est couvert par developer-api.test.ts.
     "./release-tier": { releaseFinalityTier: async () => "FULL" },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },
-    "@/lib/billing/loan": { loanBillingQuote: (loan: Row) => ({ quote: { loanId: loan.id, extendsLoanId: loan.extendsLoanId, rentalDays: loan.rentalDays } }) },
+    "@/lib/billing/loan": { loanBillingQuote: (loan: Row) => ({ quote: { loanId: loan.id, extendsLoanId: loan.extendsLoanId, rentalDays: loan.rentalDays,
+      ...(loan.apiAccessIncluded ? { apiAccessIncluded: true } : {}) } }) },
     "@/lib/models/registry": models,
     "@/lib/runner/failure-policy": failurePolicy,
     "@/lib/runner/provenance": { assertCurrentRunner: async () => ({}) },
@@ -156,18 +158,18 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
       "server-only": {}, "@/lib/db": db,
       "@/lib/evm/escrow": { readLoan: async () => null, reconcileLoanEscrow: async () => reaperChain },
       "@/lib/evm/client": { getPublicClient: () => client },
-      "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors,
+      "./reaper-policy": reaperPolicy, "./reaper-errors": reaperErrors, "@/lib/billing/api-pricing": apiPricing,
       "./recover-loan": { recoverUnsubmittedLoan: async () => {} },
       "@/lib/evm/history": { resolveLoanEscrow: async () => ({}) },
       "./settle": { recoverLoanResult: async () => false, settlePreparedLoan: async (id: string) => { settled.push(id); } },
       "./fast-settlement-review": { verifyFastSettlement: async () => ({ state: "pending" }) },
       "@/lib/runner/failure-policy": failurePolicy, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,
       "./extend": extend, "./rental": rental, "@/lib/loans/settlement-status": settlementStatus,
-      "./calls": { settleCallPack: async () => { throw new Error("aucun pack dans ce scénario"); } },
+      "./calls": { settleLoanPack: async () => { throw new Error("aucun pack dans ce scénario"); } },
     });
     return { reaper, settled };
   };
-  return { loans, calls, extend, client, send, reaperFor };
+  return { loans, calls, extend, client, send, reaperFor, rental };
 }
 
 async function errorOf(response: Response): Promise<[number, string]> {
@@ -287,4 +289,39 @@ test("reaper : une prolongation échue sans release ou remboursée n'est pas rej
   await refunded.reaperFor({ state: "cancelled", txHash: LOCK_TX }).reaper.runLoanReaper(new Date());
   assert.equal(refunded.calls.runner.length, 0);
   assert.equal(refunded.loans.get("loan-2")!.status, "CANCELLED");
+});
+
+test("API incluse (D-32) : la prolongation reflète la couverture sur le prêt d'origine avec SETTLED, jamais en arrière ; sans API, rien", async () => {
+  const oldEnd = new Date(Date.now() + DAY);
+  const newEnd = oldEnd.getTime() + 5 * DAY;
+  const included = fixture([original({ rentalExpiresAt: oldEnd, apiPaidUntil: oldEnd }), extension({ apiAccessIncluded: true })],
+    { runner: async () => ({ settleTxHash: EXTENSION_TX, expiresAt: newEnd, apiPaidUntil: newEnd }) });
+  await included.extend.settleLoanExtension("loan-2", { payload: {}, signature: "signed" } as never);
+  assert.equal(Number(included.loans.get("loan-1")!.apiPaidUntil), newEnd);
+  assert.equal(included.loans.get("loan-2")!.status, "SETTLED");
+  // Réponse sans couverture explicite : l'échéance prolongée fait foi.
+  const implicit = fixture([original({ rentalExpiresAt: oldEnd, apiPaidUntil: oldEnd }), extension({ apiAccessIncluded: true })],
+    { runner: async () => ({ settleTxHash: EXTENSION_TX, expiresAt: newEnd }) });
+  await implicit.extend.settleLoanExtension("loan-2");
+  assert.equal(Number(implicit.loans.get("loan-1")!.apiPaidUntil), newEnd);
+  const later = new Date(newEnd + DAY);
+  const monotonic = fixture([original({ rentalExpiresAt: oldEnd, apiPaidUntil: later }), extension({ apiAccessIncluded: true })],
+    { runner: async () => ({ settleTxHash: EXTENSION_TX, expiresAt: newEnd, apiPaidUntil: newEnd }) });
+  await monotonic.extend.settleLoanExtension("loan-2");
+  assert.equal(monotonic.loans.get("loan-1")!.apiPaidUntil, later, "jamais en arrière");
+  const plain = fixture([original({ rentalExpiresAt: oldEnd, apiPaidUntil: null }), extension()],
+    { runner: async () => ({ settleTxHash: EXTENSION_TX, expiresAt: newEnd }) });
+  await plain.extend.settleLoanExtension("loan-2");
+  assert.equal(plain.loans.get("loan-1")!.apiPaidUntil, null, "prolongation sans API : couverture inchangée");
+});
+
+test("API incluse (D-32) : l'échéance relue du bloc de release reflète aussi la couverture, dans la même écriture", async () => {
+  const quote = (apiAccessIncluded: boolean) => JSON.stringify({ quote: { rentalDays: 7, ...(apiAccessIncluded ? { apiAccessIncluded: true } : {}) } });
+  const included = fixture([original({ rentalExpiresAt: null, apiPaidUntil: null, billingQuote: quote(true) })]);
+  const expiresAt = await included.rental.loanRentalExpiry(included.loans.get("loan-1") as never);
+  assert.equal(Number(expiresAt), 7 * DAY, "bloc du release (horodatage 0) + 7 jours");
+  assert.equal(Number(included.loans.get("loan-1")!.apiPaidUntil), 7 * DAY);
+  const plain = fixture([original({ rentalExpiresAt: null, apiPaidUntil: null, billingQuote: quote(false) })]);
+  await plain.rental.loanRentalExpiry(plain.loans.get("loan-1") as never);
+  assert.equal(plain.loans.get("loan-1")!.apiPaidUntil, null);
 });
