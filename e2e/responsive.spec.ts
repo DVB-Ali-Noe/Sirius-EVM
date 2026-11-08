@@ -225,7 +225,9 @@ for (const screen of SCREENS) {
     test("les profils du catalogue restent dans leur carte", async ({ page }) => {
       await openLayoutPage(page, "/marketplace", screen.fontSize);
       await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
-      await expect(page.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
+      // Deux fixtures partagent désormais le profil logistique (D-31) : libellé cherché dans sa carte.
+      const profileCard = page.getByRole("listitem").filter({ hasText: dataset.name });
+      await expect(profileCard.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
       await expectContainedLayout(page);
 
       const card = page.getByRole("listitem").filter({ hasText: linearDataset.name });
