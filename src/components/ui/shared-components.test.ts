@@ -25,7 +25,7 @@ function page(name: string): string {
 test("DisclaimerNote : textes communs, un seul lien mailto vers le contact, pas de HTML injecté", () => {
   const out = page("note-default");
   assert.match(out, /<aside role="note"/);
-  assert.match(out, /Sirius currently trains three models on tabular data/);
+  assert.match(out, /Sirius currently trains a few simple models on tabular data/);
   assert.match(out, /Need a stronger model or specific data\? Contact us at <a href="mailto:sirius\.data\.contact@gmail\.com"[^>]*>sirius\.data\.contact@gmail\.com<\/a>\./);
   assert.equal(out.match(/href=/g)?.length, 1);
   assert.doesNotMatch(out, /dangerouslySetInnerHTML|<script/i);
@@ -39,7 +39,7 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
   assert.notEqual(info.match(/class="[^"]*"/)?.[0], warning.match(/class="[^"]*"/)?.[0]);
   assert.match(info, /Beta: instant on-chain wallet verification, capped amounts per loan and in total\./);
   assert.doesNotMatch(info, /mailto:/, "pas de lien quand le texte ne mentionne pas le contact");
-  assert.match(warning, /CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features\. Linear and logistic regression are deterministic/);
+  assert.match(warning, /CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features\. Training is deterministic/);
   assert.match(page("note-children-hostile"), /&lt;b onmouseover=&quot;x&quot;&gt;/);
   assert.doesNotMatch(page("note-children-hostile"), /<b /);
   assert.doesNotMatch(page("note-empty"), /<p>/);

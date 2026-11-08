@@ -12,7 +12,7 @@ import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
 import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
-import { modelSelection } from "@/lib/models/registry";
+import { isModelOffered, modelSelection } from "@/lib/models/registry";
 import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { activeLoanOnDataset, type LoanDisplayInput } from "@/lib/train/loan-display";
 import { useWalletStore } from "@/stores/wallet";
@@ -83,6 +83,8 @@ export function BorrowPanel({
   const [loans, setLoans] = useState<{ session: string; active: LoanDisplayInput | null } | null>(null);
   const [rechecked, setRechecked] = useState<string | null>(null);
   const model = modelSelection(modelId, modelVersion);
+  // Profil retiré pour un nouvel usage (D-31) : Next et le runner refuseraient le devis.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
   const sessionKey = authenticated && address ? address : null;
   // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
   const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
@@ -206,7 +208,7 @@ export function BorrowPanel({
         <button
           type="button"
           onClick={() => void borrow()}
-          disabled={busy || signingIn || !model || !priceUsdcAtomic || providerVerified === false}
+          disabled={busy || signingIn || !model || withdrawn || !priceUsdcAtomic || providerVerified === false}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
@@ -228,6 +230,7 @@ export function BorrowPanel({
         </p>
       )}
       {!model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
+      {withdrawn && <p className="text-xs text-negative">{t("Ce profil d’entraînement n’est plus proposé : ce dataset ne peut plus être emprunté.")}</p>}
       {providerVerified === false && (
         <p className="text-xs text-negative">
           {t("Emprunt indisponible : l’attestation de vérification du fournisseur est absente ou expirée.")}

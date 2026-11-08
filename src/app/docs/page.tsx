@@ -43,6 +43,7 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "credential EIP-712 consenti par le wallet, émis par un vérificateur externe et requis par le registre comme par l’escrow.": "EIP-712 credential consented to by the wallet, issued by an external verifier, and required by both the registry and escrow.",
   "Prédiction signée": "Signed prediction",
   "réponse du runner signée EIP-712 : valeur arrondie à 3 chiffres significatifs (régression linéaire) ou décision 0/1 (logistique, arbres). Disponible seulement pendant que le runner tourne.": "EIP-712-signed runner answer: a value rounded to 3 significant digits (linear regression) or a 0/1 decision (logistic, trees). Available only while the runner is running.",
+  "réponse du runner signée EIP-712 : décision 0/1 pour les profils proposés. Disponible seulement pendant que le runner tourne.": "EIP-712-signed runner answer: a 0/1 decision for the profiles on offer. Available only while the runner is running.",
   "Déposer": "Upload",
   "Entraîner": "Train",
   "Le provider choisit le profil d’entraînement, puis le navigateur chiffre le CSV pour le runner. Le runner valide sa compatibilité, calcule le Merkle root et stocke le blob chiffré sur IPFS.": "The provider selects the training profile, then the browser encrypts the CSV for the runner. The runner validates compatibility, computes the Merkle root, and stores the encrypted blob on IPFS.",
@@ -150,6 +151,8 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Exemple d’entraînement par arbres boostés": "Gradient-boosted trees training example",
   "Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.": "The CSV must have unique headers. Its last numeric column is the target; other numeric columns are features, up to 31. At least 100 rows and 10 rows per parameter, including the bias, are required.",
   "Pour la régression linéaire et la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For linear and logistic regression, model metrics are calculated on the training data: a high training score does not prove performance on new data.",
+  "Pour la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.": "For logistic regression, model metrics are calculated on the training data: a high training score does not prove performance on new data.",
+  "La régression linéaire n’est plus proposée pour de nouveaux datasets : quelques prédictions signées suffiraient à reconstruire le modèle. Les datasets et prêts linéaires existants restent servis.": "Linear regression is no longer offered for new datasets: a few signed predictions would be enough to reconstruct the model. Existing linear datasets and loans are still served.",
   "Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.": "For boosted trees, delivered metrics are computed on one row in five held out from training; the train / held-out AUC gap is delivered alongside. The training page flags an abnormal train / held-out gap in either direction, measured in held-out standard errors: a training AUC higher by more than 0.02 + 3 standard errors (likely overfitting), or a held-out AUC higher by more than 3 standard errors (possible leak or row error). This check is about model quality: it does not detect memorization of specific rows.",
   "Exemple d’entraînement linéaire": "Linear training example",
   "Exemple d’entraînement logistique": "Logistic training example",
@@ -211,6 +214,7 @@ export default function DocsPage() {
   const { locale, t } = useLocale();
   const d: Translate = (value) => locale === "en" ? DOCUMENTATION_EN[value] ?? value : value;
   const trees = isModelOffered("gradient_boosted_trees");
+  const linear = isModelOffered("linear_regression");
 
   return (
     <DocsShell
@@ -259,7 +263,9 @@ export default function DocsPage() {
             <li><span className={strong}>{d("Dataset chiffré")}</span> — {d("blob AES-256-GCM sur IPFS.")}</li>
             <li><span className={strong}>{d("Titre de dataset")}</span> — {d("hash du CID, Merkle root, taille et empreinte du profil d’entraînement inscrits dans")} `SiriusDatasetRegistry`.</li>
             <li><span className={strong}>{d("Attestation KYB")}</span> — {d("credential EIP-712 consenti par le wallet, émis par un vérificateur externe et requis par le registre comme par l’escrow.")}</li>
-            <li><span className={strong}>{d("Prédiction signée")}</span> — {d("réponse du runner signée EIP-712 : valeur arrondie à 3 chiffres significatifs (régression linéaire) ou décision 0/1 (logistique, arbres). Disponible seulement pendant que le runner tourne.")}</li>
+            <li><span className={strong}>{d("Prédiction signée")}</span> — {linear
+              ? d("réponse du runner signée EIP-712 : valeur arrondie à 3 chiffres significatifs (régression linéaire) ou décision 0/1 (logistique, arbres). Disponible seulement pendant que le runner tourne.")
+              : d("réponse du runner signée EIP-712 : décision 0/1 pour les profils proposés. Disponible seulement pendant que le runner tourne.")}</li>
           </ul>
         </DocSection>
 
@@ -267,7 +273,7 @@ export default function DocsPage() {
           <p>{d("Le profil est obligatoire à l’upload : il fixe l’algorithme et sa version. Le borrower ne peut pas remplacer ce choix par un autre modèle. Le titre on-chain, le prêt et le reçu du runner sont liés à la même empreinte de profil.")}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              [d("Régression linéaire"), "linear_regression", d("Cible numérique continue. Métriques : R², RMSE et MAE.")],
+              ...(linear ? [[d("Régression linéaire"), "linear_regression", d("Cible numérique continue. Métriques : R², RMSE et MAE.")]] : []),
               [d("Régression logistique binaire"), "logistic_regression", d("Cible strictement encodée en 0 et 1, avec les deux classes présentes. Métriques : accuracy, précision, rappel et F1.")],
               ...(trees ? [[d("Arbres boostés binaires"), "gradient_boosted_trees", d("Cible 0/1, au moins 10 000 lignes (sinon, la régression logistique). Profondeur 2, feuilles d’au moins 1 000 lignes, sans aléa. Une ligne sur cinq est mise de côté : AUC, accuracy, précision, rappel et F1 « held-out », plus l’écart d’AUC entre entraînement et held-out.")]] : []),
             ].map(([name, model, description]) => (
@@ -280,10 +286,13 @@ export default function DocsPage() {
           </div>
           <p>{d("Le CSV doit avoir des en-têtes uniques. La dernière colonne numérique sert de cible ; les autres colonnes numériques servent de features, au maximum 31. Il faut au moins 100 lignes et 10 lignes par paramètre, biais inclus.")}</p>
           <p>{d("Un profil incompatible est refusé avant le verrouillage du stablecoin. Pour changer de profil, réimportez le dataset. L’auto-entraînement sur ses propres données respecte aussi ce profil, sans prêt.")}</p>
-          <p>{d("Pour la régression linéaire et la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          <p>{linear
+            ? d("Pour la régression linéaire et la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")
+            : d("Pour la régression logistique, les métriques du modèle sont calculées sur les données d’entraînement : un score élevé sur l’entraînement ne prouve pas la qualité sur de nouvelles données.")}</p>
+          {!linear && <p>{d("La régression linéaire n’est plus proposée pour de nouveaux datasets : quelques prédictions signées suffiraient à reconstruire le modèle. Les datasets et prêts linéaires existants restent servis.")}</p>}
           {trees && <p>{d("Pour les arbres boostés, les métriques livrées portent sur une ligne sur cinq mise de côté (« held-out »), jamais utilisée pour l’entraînement ; l’écart d’AUC entre entraînement et held-out est livré à côté. La page d’entraînement signale un écart train / held-out anormal dans les deux sens, mesuré en erreurs types du held-out : AUC d’entraînement supérieure de plus de 0,02 + 3 erreurs types (surapprentissage probable), ou AUC held-out supérieure de plus de 3 erreurs types (fuite ou erreur de lignes possible). Ce contrôle porte sur la qualité du modèle : il ne détecte pas la mémorisation de lignes précises.")}</p>}
           <ul className="ml-5 list-disc space-y-2">
-            <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>
+            {linear && <li><a href="/examples/regression/energy-demand-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement linéaire")}</a></li>}
             <li><a href="/examples/classification/credit-default-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement logistique")}</a></li>
             {trees && <li><a href="/examples/classification/credit-risk-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement par arbres boostés")}</a></li>}
           </ul>

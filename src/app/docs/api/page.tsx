@@ -78,8 +78,8 @@ const API_EN: Record<string, string> = {
   "Chaque réponse donne remaining.today et remaining.credits : c’est le compteur qui fait foi.":
     "Every response gives remaining.today and remaining.credits: that is the authoritative counter.",
   "Pas de probabilité : la sortie est une décision 0/1 ou une valeur arrondie, signée.": "No probability: the output is a 0/1 decision or a rounded value, signed.",
-  "La régression linéaire n’a pas d’API : quelques appels suffiraient à reconstruire le modèle. La prédiction depuis le site reste possible.":
-    "Linear regression has no API: a few calls would be enough to reconstruct the model. Predictions from the website are still available.",
+  "La régression linéaire n’est plus proposée pour de nouveaux datasets. Même réactivée, elle n’aurait pas d’API : quelques appels suffiraient à reconstruire le modèle. Les prêts linéaires existants restent interrogeables depuis le site.":
+    "Linear regression is no longer offered for new datasets. Even if re-enabled, it would have no API: a few calls would be enough to reconstruct the model. Existing linear loans can still be queried from the website.",
   "Le nombre d’appels par jour borne ce qu’un emprunteur peut apprendre du modèle.": "The number of calls per day bounds what a borrower can learn from the model.",
   "Le serveur web de Sirius relaie la requête et voit donc les variables envoyées ; il ne peut pas fabriquer d’appel, faute du secret.":
     "The Sirius web server relays the request and therefore sees the features you send; it cannot forge a call, since it lacks the secret.",
@@ -283,7 +283,7 @@ export default function ApiDocsPage() {
       <DocSection id="limites" title={d("Limites")}>
         <ul className="ml-5 list-disc space-y-1.5 marker:text-muted">
           <li>{d("Pas de probabilité : la sortie est une décision 0/1 ou une valeur arrondie, signée.")}</li>
-          <li>{d("La régression linéaire n’a pas d’API : quelques appels suffiraient à reconstruire le modèle. La prédiction depuis le site reste possible.")}</li>
+          <li>{d("La régression linéaire n’est plus proposée pour de nouveaux datasets. Même réactivée, elle n’aurait pas d’API : quelques appels suffiraient à reconstruire le modèle. Les prêts linéaires existants restent interrogeables depuis le site.")}</li>
           <li>{d("Le nombre d’appels par jour borne ce qu’un emprunteur peut apprendre du modèle.")}</li>
           <li>{d("Le serveur web de Sirius relaie la requête et voit donc les variables envoyées ; il ne peut pas fabriquer d’appel, faute du secret.")}</li>
           <li>{d("L’enclave peut être en cours de démarrage : prévois les réessais (503 + Retry-After).")}</li>

@@ -16,6 +16,7 @@ import { assertBilledLock, loanBillingQuote, verifyPreparedComputeQuote } from "
 import { prepareEscrowLockInRunner } from "@/lib/tee/runner-client";
 import { lockAuthorizationDeadline } from "./lock-policy";
 import { modelSelection, trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
+import { assertOfferedProfile } from "@/lib/runner/profile-admission";
 import { requireAcceptedKyb, requireCounterpartyKyb } from "./access";
 import { BORROWABLE_STATUSES, isBorrowableDatasetStatus } from "./provider";
 import { isListingExpired } from "@/lib/datasets/manage";
@@ -77,6 +78,7 @@ export async function prepareLoan(datasetId: string, borrower: string, rentalDay
   // Prolongation : profil du prêt d'origine, qui doit rester celui du dataset (contrôlé ci-dessous).
   const model = modelSelection(extension?.model.modelId ?? dataset.modelId, extension?.model.modelVersion ?? dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
+  assertOfferedProfile(model);
   if (extension && (dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion)) {
     throw new AppError(`Profil d’entraînement du dataset modifié : ${extension.pack ? "achat d’appels" : "prolongation"} impossible`, 409);
   }
@@ -271,6 +273,7 @@ export async function renewLoanLock(loanId: string, borrower: string) {
     dataset.modelId !== model.modelId || dataset.modelVersion !== model.modelVersion) {
     throw new AppError("Dataset EVM non disponible", 409);
   }
+  assertOfferedProfile(model);
   // Prolongation : la location d'origine doit rester ouverte jusqu'à la signature du lock.
   if (loan.extendsLoanId) await assertExtendableLoan(loan.extendsLoanId, address);
   if (isListingExpired(dataset.listingExpiresAt)) throw new AppError("Annonce expirée", 409);

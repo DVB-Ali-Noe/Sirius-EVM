@@ -220,3 +220,22 @@ Limites acceptées :
 - **Compteurs affichés indicatifs.** L'usage montré sur la page Train vient de Next ; le compteur qui fait foi est dans l'enclave et revient dans chaque réponse (`remaining.today`, `remaining.credits`).
 
 D-30 ne change ni D-28 (prédiction signée seule) ni D-29 (échéance appliquée par le runner) : l'API s'arrête à l'échéance de la location, comme le site.
+
+## D-31 — Régression linéaire retirée pour tout nouvel usage (profil facultatif)
+
+Le 8 novembre 2026, Noé décide que `linear_regression` n'est plus proposée ni utilisable pour un nouvel usage. Un modèle linéaire se reconstruit avec environ d+1 prédictions signées (D-27) : le refus de l'API (`409 api_not_available_for_profile`, D-30) ne suffisait pas, puisque le site permettait encore de publier et de louer des datasets linéaires.
+
+- **Mécanisme existant, aucun second interrupteur.** `linear_regression` devient `optIn: true` dans `MODEL_REGISTRY`, comme `gradient_boosted_trees` : proposé seulement s'il figure dans `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`. `DEFAULT_MODEL_SELECTION` passe à `logistic_regression`. Sélecteurs, valeurs par défaut, exemples (assistant d'upload, démonstration `/phala`), documentation, assistant et textes communs suivent `isModelOffered` / `MODEL_OPTIONS`.
+- **Code conservé.** Entraînement, prédiction, lecture des modèles, porte de sortie, tarifs (`linear_regression` reste obligatoire dans toute politique de facturation), colonnes Prisma et contrats sont inchangés. Le registre on-chain accepte toujours le profil linéaire depuis sa construction.
+- **Refus dans Next.** Création de dataset (`parseCreateDatasetRequest`, déjà en place), mise en vente d'un brouillon déjà scellé (`prepareDatasetListing`, avant toute nouvelle transaction de mint ; un titre déjà minté reste réconcilié), préparation et renouvellement d'un emprunt, prolongation et pack compris (`prepareLoan`, `renewLoanLock`), et self-train (`runSelfTrain`) appellent `assertOfferedProfile` de `src/lib/runner/profile-admission.ts`, avec le motif du runner `OPT_IN_PROFILE_DISABLED`. L'emprunt, le réemprunt, la prolongation et le self-train d'un dataset linéaire sont désactivés dans l'interface.
+- **Refus dans l'enclave.** `requestedTrainingProfile(…, "offered")` refuse déjà un profil facultatif non activé pour `seal-dataset`, `prepare-escrow-lock` et `run-training`. Ce refus ne prend effet qu'avec une **nouvelle image du runner** : l'image actuelle traite encore la régression linéaire comme un profil standard.
+- **Prêts verrouillés servis (v7).** `run-loan-job` lit le profil en mode `locked` ; `assertLockedProfile` accepte un prêt v7 dont le devis signé par l'enclave porte ce profil. Un prêt v6 sans devis garde le refus (PAR-01) : un prêt linéaire v6 payé mais pas encore exécuté au moment du déploiement de la nouvelle image est remboursé à l'échéance de l'escrow, sans perte de fonds. Choix prudent : élargir l'acceptation v6 reposerait sur une garantie du contrat v6 non réauditée. Les modèles linéaires déjà scellés restent interrogeables depuis le site jusqu'à l'échéance de leur location ; leurs datasets, prêts et métriques restent affichés.
+- **Réactivation sans changement de code.** Ajouter `linear_regression` à `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS` sur Vercel (variable publique, donc nouveau build) et au Compose du runner rendu par `scripts/render-phala-v7.mjs --opt-in-models=gradient_boosted_trees,linear_regression`. Le Compose fait partie de l'identité attestée : il faut redéployer la CVM, vérifier l'attestation et épingler le nouveau hash de Compose côté Next.
+
+Limites acceptées :
+
+- **Datasets linéaires encore visibles.** Ils restent dans la marketplace et dans « Mes datasets », avec l'emprunt désactivé ; aucune donnée n'est masquée ni supprimée.
+- **Prolongation refusée.** Prolonger une location linéaire est un nouveau devis : refusé tant que le profil n'est pas réactivé, comme dans l'enclave. La location en cours garde ses prédictions jusqu'à son échéance.
+- **Refus de l'API conservé** en défense en profondeur : même réactivée, la régression linéaire n'a pas d'API.
+
+D-31 ne change ni D-28 (prédiction signée seule) ni D-29 (échéance) ni D-30 (API), et ne modifie aucun contrat.

@@ -46,6 +46,8 @@ test("devis → lock → runner → crédits et remboursements v7 sur EVM locale
     SIRIUS_MASTER_KEY: Buffer.alloc(32, 19).toString("base64"), PINATA_JWT: "synthetic", PINATA_GATEWAY: "https://ipfs.test.invalid",
     RUNNER_BUDGET_FILE: join(temporary, "budget.sqlite"), RUNNER_BILLING_POLICY_FILE: join(temporary, "tariff.json"),
     RUNNER_SERVED_MODELS_DIR: join(temporary, "models"), RUNNER_PREDICT_USAGE_FILE: join(temporary, "usage.sqlite"),
+    // Parcours linéaire de bout en bout : profil facultatif depuis D-31, activé explicitement.
+    NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "linear_regression",
   });
   const { robinhoodTestnet: chain } = await import("@/lib/evm/networks");
   const contracts = chain.contracts;

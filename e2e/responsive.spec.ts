@@ -31,7 +31,7 @@ const linearDataset = {
   id: "responsive-linear",
   name: "Energy-demand-Test",
   description: "Jeu de données de consommation énergétique",
-  modelId: "linear_regression",
+  modelId: "logistic_regression",
 };
 
 const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"].map((status) => ({

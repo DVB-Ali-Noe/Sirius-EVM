@@ -60,7 +60,7 @@ export function dataLimitsVariables(limits: DataLimits): TranslationVariables {
 
 export const DISCLAIMERS: Readonly<Record<DisclaimerId, DisclaimerCopy>> = {
   modelQuality: {
-    key: "Sirius entraîne pour l’instant trois modèles sur données tabulaires : régression linéaire, régression logistique et arbres boostés pour une classification binaire. Les résultats dépendent des données. De nouveaux modèles sont en développement.",
+    key: "Sirius entraîne pour l’instant quelques modèles simples sur données tabulaires ; les profils proposés sont listés dans la documentation. Les résultats dépendent des données. De nouveaux modèles sont en développement.",
     variables: {},
   },
   contactUs: {
@@ -72,7 +72,7 @@ export const DISCLAIMERS: Readonly<Record<DisclaimerId, DisclaimerCopy>> = {
     variables: {},
   },
   retrainDeterministic: {
-    key: "La régression linéaire et la régression logistique sont déterministes : réentraîner sur les mêmes données donne le même modèle.",
+    key: "Les entraînements sont déterministes : réentraîner sur les mêmes données donne le même modèle.",
     variables: {},
   },
   dataLimits: {

@@ -21,6 +21,7 @@ import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-str
 import { uploadAndPublishLargeDataset } from "@/lib/datasets/large-upload-client";
 import { blobSource } from "@/lib/upload/chunked-transfer";
 import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { DEFAULT_MODEL_SELECTION } from "@/lib/models/registry";
 import { DataStep, exampleDatasetPath } from "./DataStep";
 import { PricingStep } from "./PricingStep";
 import { type DataValues, type LoadedFile, type StepState } from "./wizard-types";
@@ -58,7 +59,7 @@ export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: 
   const router = useRouter();
   const { t } = useLocale();
   const [phase, setPhase] = useState<Phase>("data");
-  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: "linear_regression" });
+  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: DEFAULT_MODEL_SELECTION.modelId });
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [fileRejection, setFileRejection] = useState<CsvRejection | null>(null);
   const [readingFile, setReadingFile] = useState(false);

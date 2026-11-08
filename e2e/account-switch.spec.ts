@@ -87,7 +87,7 @@ for (const pagination of [false, true]) {
     let releaseRequested: () => void;
     const requested = new Promise<void>(resolve => { releaseRequested = resolve; });
     const fixture = (owner: string) => ({ id: `dataset-${owner}`, name: `Dataset ${owner}`, status: "DRAFT",
-      modelId: "linear_regression", modelVersion: "1.0.0", ipfsCid: "fixture", sizeBytes: 100 });
+      modelId: "logistic_regression", modelVersion: "1.0.0", ipfsCid: "fixture", sizeBytes: 100 });
     let ownerB = false;
     await page.route("**/api/**", async route => {
       const url = new URL(route.request().url());

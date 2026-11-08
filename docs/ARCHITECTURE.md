@@ -21,7 +21,7 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 
 ## Parcours de règlement
 
-1. Le provider choisit le profil linéaire ou logistique et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
+1. Le provider choisit un profil proposé par l'instance (logistique ; arbres boostés ou linéaire seulement s'ils sont activés par `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`, voir [D-31](DECISIONS.md#d-31--régression-linéaire-retirée-pour-tout-nouvel-usage-profil-facultatif)) et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
 2. Le runner valide le CSV et le budget d’opérations du profil avant de sceller une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
 3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.

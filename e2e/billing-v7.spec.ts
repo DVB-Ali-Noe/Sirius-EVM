@@ -34,7 +34,7 @@ const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 
 const listed = {
   id: "dataset-v7", name: "Mobilité urbaine Europe", description: "Trajets agrégés", provider: PROVIDER, status: "LISTED",
-  sizeBytes: 1_250_000, priceUsdcAtomic: PRICE, challengeDays: 7, modelId: "linear_regression", modelVersion: "1.0.0",
+  sizeBytes: 1_250_000, priceUsdcAtomic: PRICE, challengeDays: 7, modelId: "logistic_regression", modelVersion: "1.0.0",
   metrics: { rowCount: 48_000, columnCount: 24 },
 };
 
@@ -58,7 +58,7 @@ function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
     loanId: LOAN_ID, datasetId: listed.id, onChainDatasetId: hash(1), datasetReceiptHash: hash(2), borrower: BORROWER, provider: PROVIDER,
     computeRecipient: RECIPIENT, datasetAmount: PRICE, computeAmount: COMPUTE, maxFailureFee: CAP, executionRateAtomicPerMs: "16111111111",
     maxExecutionMs: 30000, maxDatasetBytes: 1_000_000, hashlock: hash(3), challengeDays: 7, tariffVersion: "tarif-test",
-    expiresAt: Math.floor(Date.now() / 1000) + 300, failurePolicy: "consumed-execution-only", modelId: "linear_regression", modelVersion: "1.0.0",
+    expiresAt: Math.floor(Date.now() / 1000) + 300, failurePolicy: "consumed-execution-only", modelId: "logistic_regression", modelVersion: "1.0.0",
     rentalDays: 1,
     ...overrides,
   } as ComputeQuote; // `overrides` élargit la version : les profils n'ont plus tous la même.
@@ -250,7 +250,7 @@ test("un devis présenté sur un escrow v6 est refusé : le parcours historique 
 
 const loanBase = {
   id: "loan-failed", datasetId: listed.id, borrower: BORROWER, amountUsdcAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), usdcDecimals: DECIMALS,
-  datasetAmountUsdcAtomic: PRICE, computeAmountUsdcAtomic: COMPUTE, modelId: "linear_regression", modelVersion: "1.0.0",
+  datasetAmountUsdcAtomic: PRICE, computeAmountUsdcAtomic: COMPUTE, modelId: "logistic_regression", modelVersion: "1.0.0",
   evmLockTxHash: hash(9), evmLoanKey: hash(8), settleTxHash: null, cancelTxHash: null, modelCid: null, runnerReceipt: null,
   evmDeadline: "2026-10-01T10:13:06.000Z", createdAt: "2026-09-25T10:00:00.000Z", dataset: { name: listed.name, runnerReceipt: null }, refundable: false,
 };
@@ -302,7 +302,7 @@ test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant
   await connect(page);
   const retrain = page.getByRole("button", { name: "Retrain", exact: true });
   await expect(retrain).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("retrain-panel")).toContainText("Linear and logistic regression are deterministic");
+  await expect(page.getByTestId("retrain-panel")).toContainText("Training is deterministic");
   await retrain.click();
   // Prix de la fiche avant même le devis : donnée + calcul = total.
   await expect(page.getByTestId("retrain-panel").getByText("8.75 USDC", { exact: true })).toBeVisible();
