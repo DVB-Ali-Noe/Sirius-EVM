@@ -11,17 +11,20 @@ interface ResolutionCounts {
   cancelled: Map<string, number>;
 }
 
+/** Emprunts seulement : prolongation, pack et pass sont des achats sur une location déjà comptée. */
+const RENTALS_ONLY = { extendsLoanId: null, packForLoanId: null } as const;
+
 async function resolutionCounts(addresses: string[], role: ReputationRole): Promise<ResolutionCounts> {
   if (role === "provider") {
     const [settled, cancelled] = await Promise.all([
       prisma.loan.groupBy({
         by: ["provider"],
-        where: { provider: { in: addresses }, status: "SETTLED", settleTxHash: { not: null } },
+        where: { ...RENTALS_ONLY, provider: { in: addresses }, status: "SETTLED", settleTxHash: { not: null } },
         _count: { _all: true },
       }),
       prisma.loan.groupBy({
         by: ["provider"],
-        where: { provider: { in: addresses }, status: "CANCELLED", cancelTxHash: { not: null } },
+        where: { ...RENTALS_ONLY, provider: { in: addresses }, status: "CANCELLED", cancelTxHash: { not: null } },
         _count: { _all: true },
       }),
     ]);
@@ -34,12 +37,12 @@ async function resolutionCounts(addresses: string[], role: ReputationRole): Prom
   const [settled, cancelled] = await Promise.all([
     prisma.loan.groupBy({
       by: ["borrower"],
-      where: { borrower: { in: addresses }, status: "SETTLED", settleTxHash: { not: null } },
+      where: { ...RENTALS_ONLY, borrower: { in: addresses }, status: "SETTLED", settleTxHash: { not: null } },
       _count: { _all: true },
     }),
     prisma.loan.groupBy({
       by: ["borrower"],
-      where: { borrower: { in: addresses }, status: "CANCELLED", cancelTxHash: { not: null } },
+      where: { ...RENTALS_ONLY, borrower: { in: addresses }, status: "CANCELLED", cancelTxHash: { not: null } },
       _count: { _all: true },
     }),
   ]);

@@ -100,24 +100,26 @@ const LOCKED_STATUSES = ["ESCROWED", "TRAINING", "SETTLING", "SETTLED"] as const
 async function loanStatsFor(db: MarketplaceDb, ids: readonly string[]): Promise<Map<string, LoanStats>> {
   const stats = new Map<string, LoanStats>();
   if (ids.length === 0) return stats;
-  const datasetId = { in: [...ids] };
+  // Emprunts seulement : prolongation, pack et pass sont des achats sur une location déjà comptée
+  // (un pass caduc remboursé ne pèse pas sur le taux de réussite du fournisseur).
+  const scope = { datasetId: { in: [...ids] }, extendsLoanId: null, packForLoanId: null } satisfies Prisma.LoanWhereInput;
   const [borrowed, settled, refunded] = await Promise.all([
     db.loan.groupBy({
       by: ["datasetId"],
       where: {
-        datasetId,
+        ...scope,
         OR: [{ status: { in: [...LOCKED_STATUSES] } }, { status: "CANCELLED", cancelTxHash: { not: null } }],
       },
       _count: { _all: true },
     }),
     db.loan.groupBy({
       by: ["datasetId"],
-      where: { datasetId, status: "SETTLED", settleTxHash: { not: null } },
+      where: { ...scope, status: "SETTLED", settleTxHash: { not: null } },
       _count: { _all: true },
     }),
     db.loan.groupBy({
       by: ["datasetId"],
-      where: { datasetId, status: "CANCELLED", cancelTxHash: { not: null } },
+      where: { ...scope, status: "CANCELLED", cancelTxHash: { not: null } },
       _count: { _all: true },
     }),
   ]);
