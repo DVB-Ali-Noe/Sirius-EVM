@@ -28,6 +28,8 @@ const stranger = privateKeyToAccount(`0x${"33".repeat(32)}`);
 const E18 = BigInt(10) ** BigInt(DECIMALS);
 const PRICE = (BigInt(175) * E18 / BigInt(100)).toString(); // 1.75 USDC
 const COMPUTE = (BigInt(7) * E18).toString();
+// Accès API inclus à toute location (D-33) : 1,5 USDC par jour loué, ajouté au compute du devis.
+const API_DAILY = (BigInt(15) * E18 / BigInt(10)).toString();
 const CAP = (BigInt(10) ** BigInt(15)).toString();
 const LOAN_ID = "loan-v7-e2e";
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
@@ -38,14 +40,14 @@ const listed = {
   metrics: { rowCount: 48_000, columnCount: 24 },
 };
 
-/** Réponse de `GET /api/marketplace/[id]` pour `listed` : frais de calcul du dernier devis connus. */
+/** Réponse de `GET /api/marketplace/[id]` pour `listed` : frais de calcul du dernier devis connus, API incluse au tarif journalier. */
 const listingDetail = {
   dataset: {
     id: listed.id, name: listed.name, description: listed.description, category: "mobility", modelId: listed.modelId,
     modelVersion: listed.modelVersion, rowCount: 48_000, columnCount: 24, sizeBytes: listed.sizeBytes, providerPriceAtomic: PRICE,
-    priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE)).toString(), priceKind: "borrowerPays", borrowCount: 0, verified: true,
+    priceAtomic: (BigInt(PRICE) + BigInt(COMPUTE) + BigInt(API_DAILY)).toString(), priceKind: "borrowerPays", borrowCount: 0, verified: true,
     listedAt: "2026-10-01T00:00:00.000Z", provider: PROVIDER, challengeDays: 3, maxRentalDays: 14, settledCount: 0, refundedCount: 0,
-    successRate: null, computeFee: { kind: "quoted", atomic: COMPUTE },
+    successRate: null, computeFee: { kind: "quoted", atomic: COMPUTE }, apiAccessFee: { kind: "included", atomic: API_DAILY },
   },
   token: { symbol: "USDC", decimals: DECIMALS },
   kybAvailable: true,
@@ -56,10 +58,10 @@ function quote(overrides: Partial<ComputeQuote> = {}): ComputeQuote {
   return {
     version: 7, chainId: 46630, escrow: ESCROW, usdc: USDC, usdcDecimals: DECIMALS, runner: runner.address.toLowerCase() as Hex,
     loanId: LOAN_ID, datasetId: listed.id, onChainDatasetId: hash(1), datasetReceiptHash: hash(2), borrower: BORROWER, provider: PROVIDER,
-    computeRecipient: RECIPIENT, datasetAmount: PRICE, computeAmount: COMPUTE, maxFailureFee: CAP, executionRateAtomicPerMs: "16111111111",
+    computeRecipient: RECIPIENT, datasetAmount: PRICE, computeAmount: (BigInt(COMPUTE) + BigInt(API_DAILY)).toString(), maxFailureFee: CAP, executionRateAtomicPerMs: "16111111111",
     maxExecutionMs: 30000, maxDatasetBytes: 1_000_000, hashlock: hash(3), challengeDays: 7, tariffVersion: "tarif-test",
     expiresAt: Math.floor(Date.now() / 1000) + 300, failurePolicy: "consumed-execution-only", modelId: "logistic_regression", modelVersion: "1.0.0",
-    rentalDays: 1,
+    rentalDays: 1, apiAccessIncluded: true, apiAccessAmount: API_DAILY,
     ...overrides,
   } as ComputeQuote; // `overrides` élargit la version : les profils n'ont plus tous la même.
 }
@@ -152,7 +154,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.removeItem("sirius-ui"));
 });
 
-test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; accepter approuve le total exact puis verrouille", async ({ page }) => {
+test("N3/N4 : le devis affiche dataset, compute, API incluse, total et retenue maximale ; accepter approuve le total exact puis verrouille", async ({ page }) => {
   const signed = await sign(quote());
   await installWallet(page);
   const calls = await installApi(page, {
@@ -167,7 +169,10 @@ test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; acc
   await expect(dialog.getByText("Dataset price")).toBeVisible();
   await expect(dialog.getByText("1.75 test USDC", { exact: true })).toBeVisible();
   await expect(dialog.getByText("7 test USDC", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("8.75 test USDC", { exact: true })).toBeVisible();
+  // Un jour d'API au tarif journalier, sur sa propre ligne (D-33), compris dans le total.
+  await expect(dialog.getByText("API access included (1 day)")).toBeVisible();
+  await expect(dialog.getByText("1.5 test USDC", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("10.25 test USDC", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Maximum retained fee : 0.001 test USDC")).toBeVisible();
   await dialog.getByRole("button", { name: "Accept and prepay" }).click();
   await expect.poll(() => calls.submit).toBe(1);
@@ -177,12 +182,12 @@ test("N3/N4 : le devis affiche dataset, compute, total et retenue maximale ; acc
   expect(sent[0].to.toLowerCase()).toBe(USDC);
   expect(approve.functionName).toBe("approve");
   expect(String(approve.args?.[0]).toLowerCase()).toBe(ESCROW);
-  expect(approve.args?.[1]).toBe(BigInt(PRICE) + BigInt(COMPUTE));
+  expect(approve.args?.[1]).toBe(BigInt(PRICE) + BigInt(COMPUTE) + BigInt(API_DAILY));
   const lock = decodeFunctionData({ abi: siriusescrowv7Abi, data: sent[1].data });
   expect(sent[1].to.toLowerCase()).toBe(ESCROW);
   expect(lock.functionName).toBe("lock");
   const terms = lock.args?.[0] as { datasetAmount: bigint; computeAmount: bigint; maxFailureFee: bigint };
-  expect([terms.datasetAmount, terms.computeAmount, terms.maxFailureFee]).toEqual([BigInt(PRICE), BigInt(COMPUTE), BigInt(CAP)]);
+  expect([terms.datasetAmount, terms.computeAmount, terms.maxFailureFee]).toEqual([BigInt(PRICE), BigInt(COMPUTE) + BigInt(API_DAILY), BigInt(CAP)]);
   expect(calls.authorize).toBe(1);
 });
 
@@ -304,14 +309,14 @@ test("N4 : Retrain ouvre un nouvel emprunt complet, avec le total affiché avant
   await expect(retrain).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("retrain-panel")).toContainText("Training is deterministic");
   await retrain.click();
-  // Prix de la fiche avant même le devis : donnée + calcul = total.
-  await expect(page.getByTestId("retrain-panel").getByText("8.75 USDC", { exact: true })).toBeVisible();
+  // Prix de la fiche avant même le devis : donnée + calcul + un jour d'API incluse = total.
+  await expect(page.getByTestId("retrain-panel").getByText("10.25 USDC", { exact: true })).toBeVisible();
   expect(calls.prepare).toBe(0);
   await page.getByRole("button", { name: "View the quote and retrain" }).click();
   const dialog = page.getByRole("dialog", { name: "Training quote" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("8.75 test USDC", { exact: true })).toBeVisible();
-  // Une journée de location par défaut (D-29) : prix par jour × 1 + calcul.
+  await expect(dialog.getByText("10.25 test USDC", { exact: true })).toBeVisible();
+  // Une journée de location par défaut (D-29) : prix par jour × 1 + calcul + API ; aucune option d'API envoyée.
   expect(bodies).toEqual([{ datasetId: listed.id, rentalDays: 1 }]);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();

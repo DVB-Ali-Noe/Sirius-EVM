@@ -161,7 +161,7 @@ export function RetrainPanel({
           {detail && price && (
             <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={setChosenDays} disabled={busy} />
           )}
-          {detail && price && fee && fee.kind !== "unknown" && !apiUnavailable && (
+          {detail && price && fee && fee.kind !== "unknown" && api && !apiUnavailable && (
             <PriceBreakdown
               providerAtomic={price}
               rentalDays={rentalDays}
@@ -176,7 +176,7 @@ export function RetrainPanel({
               {t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}
             </p>
           )}
-          {detail && price && (!fee || fee.kind === "unknown") && (
+          {detail && price && (!fee || fee.kind === "unknown" || !api) && !apiUnavailable && (
             <p className="text-xs text-muted">{t("Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.")}</p>
           )}
           {detail && fee?.kind === "quoted" && (

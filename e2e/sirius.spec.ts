@@ -95,6 +95,7 @@ function catalogue(items: unknown[]) {
     items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
     token: { symbol: "USDC", decimals: USDC_DECIMALS }, kybAvailable: true,
     computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
   };
 }
 

@@ -99,8 +99,9 @@ export default function MarketplaceListingPage() {
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   const fee = dataset.computeFee;
   // Accès API inclus à toute location (D-32) : tarif par jour loué, ajouté au total affiché.
-  const api = dataset.apiAccessFee;
-  const apiDaily = api.kind === "included" ? api.atomic : null;
+  // Champ absent (réponse d'une autre version du serveur) : accès API inconnu, aucun total annoncé.
+  const api = dataset.apiAccessFee ?? null;
+  const apiDaily = api?.kind === "included" ? api.atomic : null;
   const resolved = dataset.settledCount + dataset.refundedCount;
   const name = dataset.name.trim() === "" ? t("Dataset sans nom") : dataset.name;
   const days = dataset.challengeDays;
@@ -203,7 +204,7 @@ export default function MarketplaceListingPage() {
 
         <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2" data-guide="page:dataset:price">
           <CardTitle id="price-heading" className="mb-2">{t("Ce que vous payez")}</CardTitle>
-          {fee.kind !== "unknown" && api.kind !== "unavailable" && dataset.providerPriceAtomic ? (
+          {fee.kind !== "unknown" && api !== null && api.kind !== "unavailable" && dataset.providerPriceAtomic ? (
             <>
               <PriceBreakdown
                 providerAtomic={dataset.providerPriceAtomic}
@@ -283,7 +284,7 @@ export default function MarketplaceListingPage() {
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}
             apiAccessDailyFee={apiDaily ? formatTokenWithSymbol(apiDaily, token) : null}
-            apiAccessUnavailable={api.kind === "unavailable"}
+            apiAccessUnavailable={api?.kind === "unavailable"}
           />
         </Card>
       </div>

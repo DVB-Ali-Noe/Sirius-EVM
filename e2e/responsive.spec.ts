@@ -76,6 +76,8 @@ function catalogueBody(datasets: Array<typeof dataset>) {
     items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
     token: { symbol: "USDC", decimals: 18 }, kybAvailable: true,
     computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+    // v6 : aucun devis, donc aucune API incluse (D-33).
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
   };
 }
 
@@ -105,6 +107,7 @@ test.beforeEach(async ({ page }) => {
             refundedCount: 0,
             successRate: 1,
             computeFee: { kind: "none", atomic: "0" },
+            apiAccessFee: { kind: "none" },
           },
           token: { symbol: "USDC", decimals: 18 },
           kybAvailable: true,
