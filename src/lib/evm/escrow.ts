@@ -351,6 +351,18 @@ const REFUNDED_EVENT = parseAbiItem(
   "event LoanRefunded(bytes32 indexed loanKey, address indexed borrower, uint256 amount, uint64 seq)",
 );
 
+/**
+ * Hash du `release` d'un prêt déjà libéré on-chain, à n'importe quelle profondeur (aucune garde de
+ * finalité ni de reçu canonique) ; `null` si le contrat ne le montre pas libéré. Sert seulement à ne
+ * pas perdre l'état « release diffusé » d'un achat dont la réconciliation complète a échoué : la
+ * preuve reste exigée par le runner, qui rejoue la même opération idempotente.
+ */
+export async function releasedTxHashAnyDepth(loanKey: Hex, fromBlock: bigint, binding = evmEscrowBinding()): Promise<string | null> {
+  const loan = await readLoan(loanKey, binding);
+  if (loan?.status !== STATUS_RELEASED) return null;
+  return findLifecycleTxHash(loanKey, "LoanReleased", fromBlock, binding, Boolean(loan.billing));
+}
+
 async function findLifecycleTxHash(
   loanKey: Hex,
   eventName: "LoanReleased" | "LoanRefunded" | "LoanFailed",

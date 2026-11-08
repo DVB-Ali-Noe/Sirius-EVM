@@ -125,7 +125,7 @@ Ne jamais retirer `SIRIUS_EXPECTED_COMPOSE_HASH` ni laisser Next et le reaper su
 
 ## Alerte : `[reaper] ALERTE finalité rapide`
 
-Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne le contredit. Il a posé `Loan.finalityReview` (motif) et `finalityReviewAt`, compté une erreur dans sa passe (visible dans le battement `erreurs=`), et le prêt est **gelé** : plus de prédiction (`POST /api/loans/[id]/predict` refusé), plus de certificat. Pour une prolongation, un pack ou un pass, la revue est aussi posée sur le **prêt d'origine** (motif préfixé, par exemple `pack d'appels <id> : …`), seul lu par la prédiction, les clés et l'API publique : toute la location est gelée. Le statut reste SETTLED : des prédictions peuvent déjà avoir été servies, rien n'est annulé ni retenté automatiquement.
+Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne le contredit. Il a posé `Loan.finalityReview` (motif) et `finalityReviewAt`, compté une erreur dans sa passe (visible dans le battement `erreurs=`), et le prêt est **gelé** : plus de prédiction (`POST /api/loans/[id]/predict` refusé), plus de certificat. Pour une prolongation, un pack ou un pass, la revue est aussi ajoutée à celle du **prêt d'origine** (une entrée par achat, `<type> <id> : <motif>`, séparées par ` ; `), seul lu par la prédiction, les clés et l'API publique : toute la location est gelée. Le statut reste SETTLED : des prédictions peuvent déjà avoir été servies, rien n'est annulé ni retenté automatiquement.
 
 | Motif | Ce qui s'est passé | Décision |
 |---|---|---|
@@ -142,7 +142,7 @@ Le reaper a revérifié un release rapide sous le bloc finalisé et la chaîne l
 
 Si `settleRawTx`/`settlePreimage` sont vides (capture échouée, journal `[settle] preuves de rediffusion non enregistrées`), le préimage se relit sur le contrat tant que le release y figure (`preimageOf`) ; s'il a disparu avec le release, seule l'enclave le connaît : runbook 1.
 
-Clore une revue, une fois la décision prise et consignée : `UPDATE "Loan" SET "finalityReview" = NULL, "finalityVerifiedAt" = now() WHERE id = '<id>' AND "finalityReview" IS NOT NULL;` (prédiction et certificat redeviennent possibles). Revue d'une prolongation, d'un pack ou d'un pass : clore aussi celle du prêt d'origine, posée par le reaper (`UPDATE "Loan" SET "finalityReview" = NULL WHERE id = '<id d’origine>' AND "finalityReview" LIKE '% <id> : %';`). Si la finalité rapide est suspectée, désactiver d'abord (retour arrière, niveau 1).
+Clore une revue, une fois la décision prise et consignée : `UPDATE "Loan" SET "finalityReview" = NULL, "finalityVerifiedAt" = now() WHERE id = '<id>' AND "finalityReview" IS NOT NULL;` (prédiction et certificat redeviennent possibles). Revue d'une prolongation, d'un pack ou d'un pass : après l'avoir close, vérifier qu'aucun autre achat du même prêt d'origine n'a de revue ouverte (`SELECT id, "finalityReview" FROM "Loan" WHERE ("packForLoanId" = '<id d’origine>' OR "extendsLoanId" = '<id d’origine>') AND "finalityReview" IS NOT NULL;` doit être vide) et que la revue du prêt d'origine ne porte aucune autre entrée que celles de ces achats ; seulement alors clore celle du prêt d'origine (`UPDATE "Loan" SET "finalityReview" = NULL WHERE id = '<id d’origine>' AND "finalityReview" IS NOT NULL;`). Sinon la laisser : la location reste gelée tant qu'une revue est ouverte. Si la finalité rapide est suspectée, désactiver d'abord (retour arrière, niveau 1).
 
 ## Risques résiduels, assumés
 

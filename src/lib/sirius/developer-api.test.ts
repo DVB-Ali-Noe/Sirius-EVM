@@ -237,8 +237,10 @@ interface SystemOptions {
   passDays?: number;
   /** Résolution on-chain vue par le reaper selon le palier demandé (défaut : lock actif). */
   reaperChain?: (releaseTier: string) => Promise<unknown>;
-  /** Résolution on-chain relue par `settleLoanPack`/`settleLoanExtension` après un échec du runner (défaut : lock actif). */
+  /** Résolution on-chain relue par `settleLoanPack`/`settleLoanExtension` après un échec du runner (défaut : lock actif) ; fonction : peut lever. */
   settleChain?: unknown;
+  /** Hash du release vu on-chain à n'importe quelle profondeur (`releasedTxHashAnyDepth`, défaut : aucun). */
+  releasedAnyDepth?: string | null;
   /** Verdict de la revue à finalité complète d'un release rapide (défaut : en attente). */
   fastVerdict?: unknown;
 }
@@ -396,7 +398,11 @@ function system(options: SystemOptions = {}) {
   const chain = { state: "active" as const };
   const shared = {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": errors, "@/lib/evm/address": addresses,
-    "@/lib/evm/escrow": { reconcileLoanEscrow: async () => options.settleChain ?? chain }, "@/lib/billing/loan": billingLoan,
+    "@/lib/evm/escrow": {
+      reconcileLoanEscrow: async () => typeof options.settleChain === "function" ? options.settleChain() : options.settleChain ?? chain,
+      releasedTxHashAnyDepth: async () => options.releasedAnyDepth ?? null,
+    },
+    "@/lib/billing/loan": billingLoan,
     "@/lib/models/registry": models, "@/lib/runner/failure-policy": failurePolicy, "@/lib/runner/profile-admission": profileAdmission, "@/lib/runner/provenance": provenance,
     "@/lib/tee/runner-client": runnerClient, "@/lib/loans/settlement-status": settlementStatus, "./borrower": borrower,
     "./release-tier": releaseTier, "./settlement-evidence": { recordSettlementEvidence: async (id: string) => { calls.evidence.push(id); return true; } },
@@ -1687,4 +1693,65 @@ test("revue de finalité ouverte sur un pack rapide : posée aussi sur le prêt 
   assert.ok(original.finalityReviewAt instanceof Date);
   assert.notEqual((await sys.api.predict()).status, 200);
   assert.equal(sys.calls.runner.filter(([op]) => op === "apiPredict").length, 0);
+});
+
+test("release miné mais pas assez profond, réponse perdue : l'achat garde son état « release diffusé » et se termine", async () => {
+  for (const kind of ["pack", "extension"] as const) {
+    const id = kind === "pack" ? "pack-9" : "ext-9";
+    const op = kind === "pack" ? "buyCalls" : "extend";
+    let lost = true;
+    const sys = system({
+      loans: [origin({ rentalExpiresAt: new Date(Date.now() + 60_000) }), attached(kind)],
+      settleChain: () => { throw new AppError("Résolution on-chain non confirmée", 409); },
+      releasedAnyDepth: PACK_TX,
+      runner: { [op]: async () => {
+        if (lost) { lost = false; throw new AppError("Runner confidentiel indisponible", 503); }
+        return kind === "pack" ? { settleTxHash: PACK_TX, credits: 100 } : { settleTxHash: PACK_TX, expiresAt: Date.now() + 6 * DAY };
+      } },
+    });
+    const settle = () => kind === "pack" ? sys.callsModule.settleLoanPack(id, grant as never) : sys.extend.settleLoanExtension(id, grant as never);
+    await assert.rejects(settle());
+    const row = sys.prisma.loan.rows.find((loan) => loan.id === id)!;
+    assert.equal(row.status, "SETTLING", kind);
+    assert.equal(row.settleTxHash, PACK_TX, kind);
+    // Location close (pack) ou modèle supprimé (prolongation) avant la reprise : terminée quand même.
+    sys.prisma.loan.rows.find((loan) => loan.id === "loan-1")!.rentalExpiresAt = new Date(Date.now() - 31 * DAY);
+    await settle();
+    assert.equal(row.status, "SETTLED", kind);
+  }
+});
+
+test("reprise d'un achat SETTLING avec hash : une erreur passagère du runner ne le rend pas à ESCROWED", async () => {
+  for (const kind of ["pack", "pass", "extension"] as const) {
+    const id = kind === "pack" ? "pack-9" : kind === "pass" ? "pass-9" : "ext-9";
+    const op = kind === "extension" ? "extend" : "buyCalls";
+    const sys = system({
+      fast: true,
+      loans: [origin(), attached(kind, { status: "SETTLING", settleTxHash: PACK_TX, finalityTier: "FAST", updatedAt: new Date(0) })],
+      runner: { [op]: async () => { throw new AppError("Runner confidentiel indisponible", 503); } },
+    });
+    await assert.rejects(kind === "extension" ? sys.extend.settleLoanExtension(id) : sys.callsModule.settleLoanPack(id));
+    const row = sys.prisma.loan.rows.find((loan) => loan.id === id)!;
+    assert.equal(row.status, "SETTLING", kind);
+    assert.equal(row.settleTxHash, PACK_TX, kind);
+    assert.equal(row.finalityTier, "FAST", `${kind} : l'argent a bougé, le palier reste`);
+  }
+});
+
+test("revues de finalité de plusieurs achats : toutes ajoutées à celle du prêt d'origine, sans doublon", async () => {
+  const flagged = (id: string, key: string) => attached("pack", { id, evmLoanKey: `0x${key.repeat(32)}`, status: "SETTLED", finalityTier: "FAST", settleTxHash: PACK_TX, settledAt: new Date(0) });
+  const sys = system({
+    loans: [origin(), flagged("pack-9", "99"), flagged("pack-8", "95")],
+    fastVerdict: { state: "discrepancy", reason: "bloc du release réorganisé après le règlement rapide" },
+  });
+  const errors = mock.method(console, "error", () => {});
+  assert.equal((await sys.reaper().runLoanReaper(new Date())).failed, 2);
+  // Passe suivante : les achats déjà en revue ne sont plus revus, rien n'est dupliqué.
+  await sys.reaper().runLoanReaper(new Date());
+  errors.mock.restore();
+  const review = String(sys.prisma.loan.rows.find((row) => row.id === "loan-1")!.finalityReview);
+  assert.deepEqual(review.split(" ; ").sort(), [
+    "pack d'appels pack-8 : bloc du release réorganisé après le règlement rapide",
+    "pack d'appels pack-9 : bloc du release réorganisé après le règlement rapide",
+  ]);
 });

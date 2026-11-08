@@ -112,7 +112,7 @@ function fixture(rows: Row[], options: FixtureOptions = {}) {
   const chain = options.chain ?? { state: "active" as const };
   const extend = load<typeof Extend>("src/lib/sirius/extend.ts", {
     "server-only": {}, "@/lib/db": db, "@/lib/errors": { AppError }, "@/lib/evm/address": addresses,
-    "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain },
+    "@/lib/evm/escrow": { reconcileLoanEscrow: async () => chain, releasedTxHashAnyDepth: async () => null },
     // Palier : finalité complète ici (garde de profondeur passée) ; le palier rapide est couvert par developer-api.test.ts.
     "./release-tier": { releaseFinalityTier: async () => "FULL" },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },

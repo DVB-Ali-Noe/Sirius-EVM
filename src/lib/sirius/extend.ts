@@ -3,7 +3,7 @@ import type { Hex } from "viem";
 import { prisma, serializableTransaction } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { addressesEqual, normalizeAddress } from "@/lib/evm/address";
-import { reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { reconcileLoanEscrow, releasedTxHashAnyDepth } from "@/lib/evm/escrow";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { modelSelection } from "@/lib/models/registry";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
@@ -126,19 +126,23 @@ export async function settleLoanExtension(loanId: string, authorization?: Runner
       });
       throw error;
     }
-    // Remboursée entre-temps : close. Réglée on-chain sans réponse : l'argent a bougé, la
-    // prolongation reste en règlement avec le hash du release (comme une finalité en attente) et la
-    // reprise termine le report d'échéance. Sinon, retour à ESCROWED en finalité complète (le
+    // Remboursée entre-temps : close. Release déjà diffusé — hash connu de la ligne (reprise d'un
+    // SETTLING), ou release vu on-chain, même pas encore assez profond pour la réconciliation
+    // complète : la prolongation reste en règlement avec ce hash (comme une finalité en attente) et
+    // la reprise termine le report d'échéance. Sinon, retour à ESCROWED en finalité complète (le
     // plafond rapide est rendu, le palier sera redécidé) : la reprise rejoue `extend-loan`, qui rend
     // la même échéance.
-    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, BigInt(loan.evmLockBlock), undefined, finalityTier).catch(() => undefined);
+    const lockBlock = BigInt(loan.evmLockBlock);
+    const resolution = await reconcileLoanEscrow(loan.evmLoanKey as Hex, lockBlock, undefined, finalityTier).catch(() => undefined);
+    const releaseTxHash = resolution?.state === "settled" ? resolution.txHash
+      : loan.settleTxHash ?? (resolution ? null : await releasedTxHashAnyDepth(loan.evmLoanKey as Hex, lockBlock).catch(() => null));
     await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", updatedAt: claimedAt },
-      data: resolution?.state === "settled"
-        ? { settleTxHash: resolution.txHash, updatedAt: new Date() }
-        : resolution?.state === "cancelled"
-          ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
-            ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
+      data: resolution?.state === "cancelled"
+        ? { status: "CANCELLED", cancelTxHash: resolution.txHash,
+          ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}) }
+        : releaseTxHash
+          ? { settleTxHash: releaseTxHash, updatedAt: new Date() }
           : { status: "ESCROWED", finalityTier: "FULL" },
     });
     throw settlementQueuedError(error);

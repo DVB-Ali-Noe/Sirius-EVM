@@ -249,22 +249,16 @@ async function releaseFastTier(loanId: string): Promise<void> {
  * Prêt FAST déjà SETTLED : verdict à finalité complète (fast-settlement-review.ts). Confirmé ⇒
  * `finalityVerifiedAt`. Divergence ⇒ alerte journalisée, `finalityReview` posé (prédiction
  * et certificat suspendus) et erreur comptée dans la passe : le battement du reaper la fait
- * remonter. Prolongation, pack ou pass : la revue est aussi posée sur le prêt d'origine (s'il
- * n'en a pas déjà une), seul lu par la prédiction, les clés et l'API publique ; elle s'y écrit en
- * premier, pour qu'une passe interrompue la rouvre. Rien n'est retenté ni annulé automatiquement :
- * un opérateur tranche (runbook 20).
+ * remonter. Prolongation, pack ou pass : la revue est aussi ajoutée à celle du prêt d'origine
+ * (une entrée par achat, `REVIEW_MAX_LENGTH` au plus), seul lu par la prédiction, les clés et
+ * l'API publique ; elle s'y écrit en premier, pour qu'une passe interrompue la rouvre. Rien n'est
+ * retenté ni annulé automatiquement : un opérateur tranche (runbook 20).
  */
 async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
   const open = async (reason: string) => {
     console.error(`[reaper] ALERTE finalité rapide : prêt EVM ${loan.id} — ${reason} ; revue manuelle requise (docs/passage-mainnet/20-finalite-rapide.md)`);
     const originalLoanId = loan.extendsLoanId ?? loan.packForLoanId;
-    if (originalLoanId) {
-      const kind = loan.extendsLoanId ? "prolongation" : typeof loan.apiAccessDays === "number" ? "pass d'accès API" : "pack d'appels";
-      await prisma.loan.updateMany({
-        where: { id: originalLoanId, finalityReview: null },
-        data: { finalityReview: `${kind} ${loan.id} : ${reason}`, finalityReviewAt: now },
-      });
-    }
+    if (originalLoanId) await appendOriginalReview(originalLoanId, loan, reason, now);
     await prisma.loan.updateMany({
       where: { id: loan.id, status: "SETTLED", finalityTier: "FAST", finalityReview: null },
       data: { finalityReview: reason, finalityReviewAt: now },
@@ -285,6 +279,34 @@ async function reviewFastSettledLoan(loan: Loan, now: Date): Promise<void> {
     data: { finalityVerifiedAt: now },
   });
   console.log(`[reaper] prêt EVM ${loan.id} : release rapide confirmé à finalité complète`);
+}
+
+/** Longueur maximale de la revue cumulée d'un prêt d'origine : chaque achat y garde au moins son id. */
+const REVIEW_MAX_LENGTH = 2_000;
+
+/**
+ * Ajoute la revue d'un achat (`<type> <id> : <motif>`) à celle du prêt d'origine, sans doublon
+ * pour un même achat. Au-delà de `REVIEW_MAX_LENGTH`, le motif est omis et seul `<type> <id>` est
+ * ajouté. Écriture conditionnée à la revue relue : une passe concurrente ne l'écrase pas.
+ */
+async function appendOriginalReview(originalLoanId: string, purchase: Loan, reason: string, now: Date): Promise<void> {
+  const original = await prisma.loan.findUnique({ where: { id: originalLoanId }, select: { finalityReview: true } });
+  if (!original) return;
+  const current = original.finalityReview;
+  const kind = purchase.extendsLoanId ? "prolongation" : typeof purchase.apiAccessDays === "number" ? "pass d'accès API" : "pack d'appels";
+  const label = `${kind} ${purchase.id}`;
+  if (current?.split(" ; ").some((entry) => entry === label || entry.startsWith(`${label} : `))) return;
+  const join = (entry: string) => current ? `${current} ; ${entry}` : entry;
+  const full = join(`${label} : ${reason}`);
+  const next = full.length <= REVIEW_MAX_LENGTH ? full : join(label);
+  if (next.length > REVIEW_MAX_LENGTH) {
+    console.error(`[reaper] revue du prêt EVM ${originalLoanId} saturée : ${label} non ajouté (déjà gelé)`);
+    return;
+  }
+  await prisma.loan.updateMany({
+    where: { id: originalLoanId, finalityReview: current },
+    data: { finalityReview: next, ...(current ? {} : { finalityReviewAt: now }) },
+  });
 }
 
 /**
