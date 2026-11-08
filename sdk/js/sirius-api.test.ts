@@ -128,6 +128,30 @@ test("503 au-delà du délai maximal : erreur typée enclave_starting ; autres e
   assert.throws(() => refused.predict(vector.loanId, { age: Number.NaN }));
 });
 
+test("réessai seul sur enclave_starting et runner_busy ; runner_unavailable ou 503 sans code remontent sans réessai (appel peut-être décompté)", async () => {
+  const ok = { outputKind: "decision", decision: "1" };
+  for (const [code, retried] of [["enclave_starting", true], ["runner_busy", true], ["runner_unavailable", false], [undefined, false]] as const) {
+    const captured: Captured[] = [];
+    const sleeps: number[] = [];
+    const client = new SiriusClient({
+      apiKey: vector.token,
+      fetch: fakeFetch([
+        { status: 503, body: code ? { error: { code, message: code } } : {}, headers: { "Retry-After": "1" } },
+        { status: 200, body: ok },
+      ], captured),
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+    if (retried) {
+      assert.deepEqual(await client.predict(vector.loanId, { age: 1 }), ok, code);
+    } else {
+      await assert.rejects(client.predict(vector.loanId, { age: 1 }), (error: unknown) =>
+        error instanceof SiriusApiError && error.status === 503 && error.code === (code ?? "http_503"));
+    }
+    assert.equal(captured.length, retried ? 2 : 1, String(code));
+    assert.deepEqual(sleeps, retried ? [1000] : [], String(code));
+  }
+});
+
 test("info : GET signé sur le chemin public, corps vide", async () => {
   const captured: Captured[] = [];
   const client = new SiriusClient({

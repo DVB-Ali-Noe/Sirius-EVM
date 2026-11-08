@@ -94,6 +94,49 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "quota_exceeded")
         self.assertEqual(caught.exception.status, 429)
 
+    def test_only_enclave_starting_and_runner_busy_are_retried(self):
+        # runner_unavailable : l'enclave a pu décompter l'appel, un réessai le compterait deux fois.
+        for code, retried in (("enclave_starting", True), ("runner_busy", True), ("runner_unavailable", False), ("http_503", False)):
+            calls = []
+            sleeps = []
+            body = {"error": {"code": code, "message": code}} if code != "http_503" else {}
+            answers = [_http_error(503, body, {"Retry-After": "1"}), _Response(json.dumps({"outputKind": "decision", "decision": "1"}).encode())]
+
+            def urlopen(request, timeout):
+                calls.append(timeout)
+                answer = answers.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+
+            client = sirius_api.SiriusClient(VECTOR["token"], sleep=sleeps.append)
+            with mock.patch.object(sirius_api.urllib.request, "urlopen", urlopen):
+                if retried:
+                    self.assertEqual(client.predict(VECTOR["loanId"], {"age": 1})["decision"], "1", code)
+                else:
+                    with self.assertRaises(sirius_api.SiriusApiError) as caught:
+                        client.predict(VECTOR["loanId"], {"age": 1})
+                    self.assertEqual((caught.exception.code, caught.exception.status), (code, 503))
+            self.assertEqual(len(calls), 2 if retried else 1, code)
+            self.assertEqual(sleeps, [1] if retried else [], code)
+
+    def test_network_failure_and_timeout_raise_typed_error_without_retry(self):
+        for failure in (urllib.error.URLError("connection refused"), TimeoutError("timed out")):
+            calls = []
+
+            def urlopen(request, timeout):
+                calls.append(timeout)
+                raise failure
+
+            client = sirius_api.SiriusClient(VECTOR["token"], sleep=lambda seconds: self.fail("no retry"))
+            with mock.patch.object(sirius_api.urllib.request, "urlopen", urlopen):
+                with self.assertRaises(sirius_api.SiriusApiError) as caught:
+                    client.info(VECTOR["loanId"])
+            self.assertEqual((caught.exception.code, caught.exception.status), ("network_error", 0))
+            self.assertEqual(len(calls), 1)
+            # Délai par défaut au-delà des 60 s accordées au runner par le serveur.
+            self.assertGreaterEqual(calls[0], 75)
+
 
 if __name__ == "__main__":
     unittest.main()

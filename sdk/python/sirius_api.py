@@ -5,7 +5,11 @@ Chaque requête est signée en HMAC-SHA256 avec le secret de la clé
 que pendant l'usage : le premier appel après une pause (environ une heure sans
 activité) peut prendre environ 2 minutes, l'API répondant ``503 enclave_starting``
 avec ``Retry-After`` : le client attend et réessaie seul (nouvelle signature)
-jusqu'à ``max_retry_wait_seconds`` (8 min par défaut).
+jusqu'à ``max_retry_wait_seconds`` (8 min par défaut). Il réessaie aussi
+``503 runner_busy`` (runner saturé, rien n'a été décompté). Aucun autre 503 n'est
+réessayé : sur ``runner_unavailable``, l'enclave a pu décompter l'appel avant que
+sa réponse se perde. Une erreur réseau ou un délai dépassé lève ``SiriusApiError``
+(code ``network_error``, statut 0), sans réessai pour la même raison.
 
 Usage ::
 
@@ -37,6 +41,10 @@ SIRIUS_SIGNING_PREFIX = "SIRIUS-HMAC-SHA256"
 # Démarrage à froid mesuré : environ 2 min, jusqu'à 5 min ; marge pour les relances espacées par Retry-After.
 DEFAULT_MAX_RETRY_WAIT_SECONDS = 480
 DEFAULT_RETRY_AFTER_SECONDS = 15
+# Au-delà des 60 s que le serveur accorde au runner : une prédiction lente reçoit sa réponse.
+DEFAULT_TIMEOUT_SECONDS = 90
+# 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé).
+_RETRYABLE_CODES = frozenset({"enclave_starting", "runner_busy"})
 _API_KEY = re.compile(r"^sk_live_([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$")
 
 
@@ -87,7 +95,7 @@ class SiriusClient:
         api_key: str,
         base_url: str = SIRIUS_API_BASE_URL,
         max_retry_wait_seconds: float = DEFAULT_MAX_RETRY_WAIT_SECONDS,
-        timeout_seconds: float = 30,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         now: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         nonce: Callable[[], str] = random_nonce,
@@ -146,7 +154,7 @@ class SiriusClient:
                 error = error if isinstance(error, dict) else {}
                 code = str(error.get("code") or f"http_{failure.code}")
                 message = str(error.get("message") or f"Sirius API error {failure.code}")
-                if failure.code == 503:
+                if failure.code == 503 and code in _RETRYABLE_CODES:
                     seconds = _retry_after(failure.headers.get("Retry-After"), payload)
                     if waited + seconds <= self._max_retry_wait_seconds:
                         waited += seconds
@@ -154,6 +162,10 @@ class SiriusClient:
                         continue
                     raise SiriusApiError(message, code, failure.code, seconds) from None
                 raise SiriusApiError(message, code, failure.code) from None
+            except (urllib.error.URLError, OSError) as failure:
+                # Réseau, TLS, délai dépassé (socket.timeout, TimeoutError) : l'appel a pu être décompté.
+                reason = getattr(failure, "reason", None) or failure
+                raise SiriusApiError(f"Sirius API unreachable: {reason}", "network_error", 0) from failure
 
 
 def _retry_after(header: Optional[str], payload: Any) -> int:
