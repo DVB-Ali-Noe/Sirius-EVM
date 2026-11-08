@@ -1,7 +1,7 @@
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import type { DatasetIngressKey } from "@/lib/tee/contract";
-import { responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { abortableSleep, responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
 import { ChunkedUploadEncryptor, UPLOAD_CHUNK_BYTES, chunkPlainBytes, manifestSha256 } from "./chunked";
 
 /**
@@ -100,8 +100,6 @@ function post(api: ChunkedTransferApi, path: string, body: unknown, headers: Rec
   return api.request(path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 /**
  * Requête relancée tant que l'enclave démarre (`503 enclave_starting`, rien n'a été écrit côté
  * serveur) ; toute autre erreur remonte avec le message de la route.
@@ -124,7 +122,8 @@ export async function sendChunkedDataset(
   deps: ChunkedTransferDeps,
 ): Promise<{ uploadId: string }> {
   const { api, signal } = deps;
-  const sleep = deps.sleep ?? defaultSleep;
+  // Abandon (page quittée, CLI coupée) : les pauses entre essais et entre lectures s'interrompent aussitôt.
+  const sleep = deps.sleep ?? ((ms: number) => abortableSleep(ms, signal));
   if (source.sizeBytes !== terms.sizeBytes) throw new Error("La taille du fichier a changé depuis la création du brouillon");
   const base = `/api/datasets/${encodeURIComponent(terms.datasetId)}/uploads`;
 

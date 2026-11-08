@@ -11,6 +11,7 @@ import { databaseAccessLogRetention } from "@/lib/users/access-log-store";
 import { purgeExpiredAutoInvites } from "@/lib/kyb/auto-invite-retention";
 import { databaseAutoInviteRetention } from "@/lib/sirius/kyb-auto-invite";
 import { purgeExpiredUploads } from "@/lib/sirius/chunked-upload";
+import { purgeExpiredWakeBudgets } from "@/lib/sirius/wake-budget";
 
 /**
  * Reaper autonome, destiné à tourner en conteneur sur le VPS.
@@ -133,6 +134,16 @@ async function main(): Promise<void> {
         if (purges > 0) console.log(`[reaper] envois expirés nettoyés : ${purges}`);
       } catch {
         console.error("[reaper] nettoyage des envois expirés échoué, reprise à la suivante");
+      }
+    }
+    // Budgets de réveil de la CVM (D-30) dont les deux fenêtres sont échues : équivalents à une ligne
+    // absente, supprimés au plus un jour après la dernière dépense du compte.
+    if (!arret) {
+      try {
+        const purges = await purgeExpiredWakeBudgets(new Date());
+        if (purges > 0) console.log(`[reaper] budgets de réveil échus supprimés : ${purges}`);
+      } catch {
+        console.error("[reaper] purge des budgets de réveil échouée, reprise à la suivante");
       }
     }
     // Battement lu par check-reaper.sh : seule une « passe ok » prouve que le reaper réconcilie ;

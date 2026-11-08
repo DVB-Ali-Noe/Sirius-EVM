@@ -47,7 +47,7 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
   assert.deepEqual((await client.query('SELECT "featureTours", "settings" FROM "UserProfile"')).rows[0], { featureTours: {}, settings: {} });
 
   const operatorCodeHash = hashOperatorCode("correct-operator-code");
-  async function race(providers: string[], task: "ingest" | "loan" | "training" | "operator-code" = "ingest") {
+  async function race(providers: string[], task: "ingest" | "loan" | "training" | "operator-code" | "wake" = "ingest") {
     const workers = providers.map(() => spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/test/postgres-worker.ts"], {
       env: { PATH: process.env.PATH, NODE_ENV: "test", DATABASE_URL: url.href, DATABASE_POOL_MAX: "2",
         TEE_MODE: "stub", EVM_NETWORK: "testnet", SIRIUS_KYB_ADDRESS: `0x${"56".repeat(20)}`,
@@ -109,4 +109,28 @@ test("migrations additives et quotas sur PostgreSQL entre huit processus", { tim
     assert.equal(guesses.filter((result) => result.code === 429).length, 8 - verified);
     assert.equal(Number((await client.query('SELECT count(*) FROM "OperatorCodeAttempt" WHERE address = $1', [operator])).rows[0].count), seeded + verified);
   }
+
+  // Budget de réveil (D-30) : huit instances Next qui dépensent à plafond − 1 n'en acceptent qu'une,
+  // sur la fenêtre horaire comme sur la journalière ; une fenêtre échue repart à zéro.
+  const utcNow = "(now() AT TIME ZONE 'UTC')";
+  const wakeRow = async (subject: string) =>
+    (await client.query('SELECT "hourCount", "dayCount" FROM "RunnerWakeBudget" WHERE subject = $1', [subject])).rows[0];
+  const hourly = `0x${"c1".repeat(20)}`;
+  await client.query(`INSERT INTO "RunnerWakeBudget" VALUES ($1, ${utcNow}, 5, ${utcNow}, 5)`, [hourly]);
+  await race(Array(8).fill(hourly), "wake");
+  assert.deepEqual(await wakeRow(hourly), { hourCount: 6, dayCount: 6 });
+  const daily = `0x${"c2".repeat(20)}`;
+  await client.query(`INSERT INTO "RunnerWakeBudget" VALUES ($1, ${utcNow} - interval '2 hours', 6, ${utcNow}, 11)`, [daily]);
+  await race(Array(8).fill(daily), "wake");
+  assert.deepEqual(await wakeRow(daily), { hourCount: 1, dayCount: 12 }, "fenêtre horaire échue remise à zéro, journalière au plafond");
+  const rolled = `0x${"c3".repeat(20)}`;
+  await client.query(`INSERT INTO "RunnerWakeBudget" VALUES ($1, ${utcNow} - interval '25 hours', 6, ${utcNow} - interval '25 hours', 12)`, [rolled]);
+  await race([rolled], "wake");
+  assert.deepEqual(await wakeRow(rolled), { hourCount: 1, dayCount: 1 });
+  // Première dépense d'un compte, par deux instances à la fois : une seule ligne, les deux comptées.
+  const fresh = `0x${"c4".repeat(20)}`;
+  await Promise.all([race([fresh], "wake"), race([fresh], "wake")]);
+  assert.deepEqual(await wakeRow(fresh), { hourCount: 2, dayCount: 2 });
+  await assert.rejects(client.query(`INSERT INTO "RunnerWakeBudget" VALUES ($1, ${utcNow}, 1, ${utcNow}, 1)`, [`0x${"AB".repeat(20)}`]),
+    (error: unknown) => (error as { constraint?: string }).constraint === "RunnerWakeBudget_subject_lowercase");
 });

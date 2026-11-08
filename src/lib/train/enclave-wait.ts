@@ -14,7 +14,7 @@ const DEFAULT_RETRY_SECONDS = 15;
 const MAX_RETRY_SECONDS = 120;
 
 /** Attente interrompue par `signal` : rejet immédiat avec sa raison, minuterie libérée. */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   if (signal?.aborted) {
     reject(signal.reason);
@@ -76,7 +76,7 @@ export async function retryWhileEnclaveStarts<T>(
   {
     onWaiting,
     maxWaitMs = ENCLAVE_WAIT_MAX_MS,
-    wait = sleep,
+    wait = abortableSleep,
     now = () => Date.now(),
     signal,
   }: {

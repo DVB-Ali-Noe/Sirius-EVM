@@ -2,7 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/errors";
-import { FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { spendWakeBudget } from "./wake-budget";
 
 /**
  * Disponibilité de la CVM du runner (D-30). Le contrôleur du VPS
@@ -34,22 +34,11 @@ export const RUNNER_WAKE_MS = 15 * 60_000;
 export const ACTIVITY_REFRESH_MS = 5 * 60_000;
 
 /**
- * Budget de réveil par compte, sur la publication et le devis (`wakeSubject`) : chaque écriture de
- * `requestedUntil` coûte une unité. Une écriture garde la CVM voulue au plus ~1 h (15 min de réveil
- * + 45 min d'inactivité du contrôleur) : 12 par jour bornent un compte KYB à ~12 h de CVM par jour.
- * L'API publique n'est pas concernée (bornée par sa location).
+ * Budget de réveil épuisé alors que la CVM est arrêtée (ou s'arrête) : 429, rien n'est écrit. Le
+ * budget est tenu en base (`wake-budget.ts`), commun à toutes les instances Next.
  */
-export const WAKE_WRITES_PER_HOUR = 6;
-export const WAKE_WRITES_PER_DAY = 12;
-/** Attente annoncée quand le budget est épuisé et que la CVM n'est pas allumée. */
-export const WAKE_LIMITED_RETRY_SECONDS = 600;
-const wakeHourly = new FixedWindowRateLimiter({ windowMs: 3_600_000, maxPerKey: WAKE_WRITES_PER_HOUR, maxGlobal: Number.MAX_SAFE_INTEGER, maxTrackedKeys: 10_000 });
-const wakeDaily = new FixedWindowRateLimiter({ windowMs: 86_400_000, maxPerKey: WAKE_WRITES_PER_DAY, maxGlobal: Number.MAX_SAFE_INTEGER, maxTrackedKeys: 10_000 });
-
-/** Budget de réveil épuisé alors que la CVM n'est pas allumée : 429, rien n'est écrit. */
 export class WakeRateLimited extends AppError {
-  readonly retryAfterSeconds = WAKE_LIMITED_RETRY_SECONDS;
-  constructor() {
+  constructor(readonly retryAfterSeconds: number) {
     super("Trop de démarrages de l’enclave demandés par ce compte — réessaie plus tard", 429);
   }
 }
@@ -128,9 +117,10 @@ export function loanRouteErrorResponse(error: unknown): NextResponse {
  * CVM pas encore allumée : refus en 503 `enclave_starting`. Rejouable : rien d'autre n'est écrit.
  * Sans ligne : aucun contrôleur, rien à écrire.
  *
- * `wakeSubject` (publication, devis) : chaque écriture consomme le budget du compte. Épuisé, il
- * n'empêche jamais de servir une CVM déjà allumée (l'écriture est seulement sautée, sans
- * prolongation) ; CVM pas encore allumée, refus en 429 `WakeRateLimited`, rien d'écrit.
+ * `wakeSubject` (publication, devis) : chaque écriture dépense le budget en base du compte
+ * (`spendWakeBudget`, atomique). Épuisé, il n'empêche jamais de servir une CVM déjà allumée
+ * (l'écriture est seulement sautée, sans prolongation) ni d'attendre une CVM qui démarre déjà
+ * (503 habituel) ; CVM arrêtée ou qui s'arrête, refus en 429 `WakeRateLimited`, rien d'écrit.
  */
 export async function requireRunnerOrWake({ now = new Date(), wakeSubject }: { now?: Date; wakeSubject?: string } = {}): Promise<void> {
   const row = await prisma.runnerAvailability.findUnique({ where: { id: 1 }, select: { phase: true, requestedUntil: true } });
@@ -139,16 +129,14 @@ export async function requireRunnerOrWake({ now = new Date(), wakeSubject }: { n
   const until = new Date(now.getTime() + RUNNER_WAKE_MS);
   const staleBefore = new Date(until.getTime() - ACTIVITY_REFRESH_MS);
   if (row.requestedUntil === null || row.requestedUntil < staleBefore) {
-    const key = wakeSubject ? `wake:${wakeSubject.toLowerCase()}` : null;
-    // Les deux fenêtres comptent chaque écriture ; la journalière n'est pas consommée si l'horaire refuse.
-    const allowed = key === null || (wakeHourly.consume(key, now.getTime()) && wakeDaily.consume(key, now.getTime()));
-    if (allowed) {
+    const budget = wakeSubject ? await spendWakeBudget(wakeSubject.toLowerCase(), now) : { spent: true as const };
+    if (budget.spent) {
       await prisma.runnerAvailability.updateMany({
         where: { id: 1, OR: [{ requestedUntil: null }, { requestedUntil: { lt: staleBefore } }] },
         data: { requestedUntil: until },
       });
-    } else if (phase !== "running") {
-      throw new WakeRateLimited();
+    } else if (phase === "stopped" || phase === "stopping") {
+      throw new WakeRateLimited(budget.retryAfterSeconds);
     }
   }
   if (phase !== "running") throw new EnclaveStarting(phase);

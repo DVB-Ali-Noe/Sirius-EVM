@@ -140,6 +140,29 @@ function table(rows: Row[], options: { touch?: boolean; unique?: (where: Where) 
   };
 }
 
+/**
+ * Double de `wake-budget.ts` : mêmes plafonds et même `Retry-After` (fonctions réelles du module),
+ * fenêtres tenues dans `store`, partageable entre « instances ». L'instruction SQL atomique elle-même
+ * est éprouvée sur PostgreSQL, entre processus, dans `postgres.integration.test.ts`.
+ */
+function wakeBudgetDouble(store = new Map<string, { hourStart: Date; hourCount: number; dayStart: Date; dayCount: number }>()) {
+  const real = load<typeof import("./wake-budget")>("src/lib/sirius/wake-budget.ts", { "server-only": {}, "@/lib/db": { prisma: {} } });
+  const spendWakeBudget = async (subject: string, now: Date) => {
+    const row = store.get(subject);
+    const hourOpen = row !== undefined && row.hourStart.getTime() > now.getTime() - 3_600_000;
+    const dayOpen = row !== undefined && row.dayStart.getTime() > now.getTime() - 86_400_000;
+    if ((hourOpen && row.hourCount >= real.WAKE_WRITES_PER_HOUR) || (dayOpen && row.dayCount >= real.WAKE_WRITES_PER_DAY)) {
+      return { spent: false as const, retryAfterSeconds: real.wakeRetryAfterSeconds(row!, now) };
+    }
+    store.set(subject, {
+      hourStart: hourOpen ? row.hourStart : now, hourCount: hourOpen ? row.hourCount + 1 : 1,
+      dayStart: dayOpen ? row.dayStart : now, dayCount: dayOpen ? row.dayCount + 1 : 1,
+    });
+    return { spent: true as const };
+  };
+  return { store, module: { spendWakeBudget } };
+}
+
 function origin(overrides: Row = {}): Row {
   return {
     id: "loan-1", datasetId: "dataset-1", borrower: BORROWER, provider: PROVIDER, status: "SETTLED",
@@ -266,7 +289,7 @@ function system(options: SystemOptions = {}) {
     "@/lib/evm/client": { getPublicClient: () => client }, "@/lib/billing/rental": rentalRules,
   });
   const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
-    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "@/lib/http/rate-limit": rateLimit,
+    "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": errors, "./wake-budget": wakeBudgetDouble().module,
   });
   const finalityTier = load<typeof import("./finality-tier")>("src/lib/sirius/finality-tier.ts", {
     "server-only": {}, "@/lib/errors": errors, "@/lib/db": db,
@@ -586,7 +609,7 @@ test("CVM éteinte : en-têtes invalides, clé inconnue, révoquée ou d'un autr
   for (const sys2 of [sys, expired]) assert.equal(sys2.calls.runner.length, 0);
 });
 
-function availabilityHarness(rows: Row[]) {
+function availabilityHarness(rows: Row[], budget = wakeBudgetDouble()) {
   const runnerAvailability = table(rows);
   let writes = 0;
   const updateMany = runnerAvailability.updateMany;
@@ -594,9 +617,9 @@ function availabilityHarness(rows: Row[]) {
   const db = { prisma: { runnerAvailability } };
   const availability = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
     "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
-    "@/lib/http/rate-limit": rateLimit,
+    "./wake-budget": budget.module,
   });
-  return { availability, rows, writes: () => writes };
+  return { availability, rows, budget, writes: () => writes };
 }
 const availabilityRow = (requestedUntil: Date | null, phase = "running"): Row => ({ id: 1, phase, since: new Date(0), requestedUntil });
 const WAKE_NOW = new Date(Date.UTC(2026, 10, 8, 12));
@@ -634,7 +657,8 @@ test("budget de réveil par compte : 6 écritures par heure ; au-delà, 429 sans
   }
   assert.equal(sys.writes(), 6);
   sys.rows[0].requestedUntil = null;
-  await assert.rejects(wake(PROVIDER.toUpperCase().replace("0X", "0x")), (error: AppError) => error.status === 429 && error instanceof sys.availability.WakeRateLimited);
+  await assert.rejects(wake(PROVIDER.toUpperCase().replace("0X", "0x")), (error: AppError & { retryAfterSeconds?: number }) =>
+    error.status === 429 && error instanceof sys.availability.WakeRateLimited && error.retryAfterSeconds === 600);
   assert.equal(sys.writes(), 6, "budget épuisé : rien d'écrit");
   assert.equal(sys.rows[0].requestedUntil, null);
   // Un autre compte garde son budget.
@@ -655,6 +679,42 @@ test("budget de réveil par compte : 6 écritures par heure ; au-delà, 429 sans
   sys.rows[0].requestedUntil = null;
   await assert.rejects(wake(PROVIDER, new Date(WAKE_NOW.getTime() + 61 * MINUTE)), (error: AppError) => error.status === 503);
   assert.equal(sys.writes(), 8);
+});
+
+test("budget de réveil : Retry-After calculé sur la fin de la fenêtre (au plus 600 s) ; CVM qui démarre déjà ⇒ 503, pas 429", async () => {
+  const sys = availabilityHarness([availabilityRow(null, "stopped")]);
+  for (let i = 0; i < 6; i++) {
+    sys.rows[0].requestedUntil = null;
+    await assert.rejects(sys.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+  }
+  sys.rows[0].requestedUntil = null;
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+    (error: AppError & { retryAfterSeconds?: number }) => error.status === 429 && error.retryAfterSeconds === 300);
+  // Un prêt en cours la fait déjà démarrer : le client attend avec le 503 habituel, sans rien écrire.
+  for (const phase of ["starting"]) {
+    sys.rows[0].phase = phase;
+    await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+      (error: AppError & { code?: string }) => error.status === 503 && error instanceof sys.availability.EnclaveStarting);
+  }
+  sys.rows[0].phase = "stopping";
+  await assert.rejects(sys.availability.requireRunnerOrWake({ now: new Date(WAKE_NOW.getTime() + 55 * MINUTE), wakeSubject: PROVIDER }),
+    (error: AppError) => error.status === 429);
+  assert.equal(sys.writes(), 6);
+  assert.equal(sys.rows[0].requestedUntil, null);
+});
+
+test("budget de réveil : partagé par les instances (lu en base à chaque requête, pas en mémoire)", async () => {
+  const shared = wakeBudgetDouble();
+  const first = availabilityHarness([availabilityRow(null, "stopped")], shared);
+  for (let i = 0; i < 6; i++) {
+    first.rows[0].requestedUntil = null;
+    await assert.rejects(first.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 503);
+  }
+  // Nouvelle instance (module rechargé, aucun état en mémoire) : même budget, déjà épuisé.
+  const second = availabilityHarness([availabilityRow(null, "stopped")], shared);
+  await assert.rejects(second.availability.requireRunnerOrWake({ now: WAKE_NOW, wakeSubject: PROVIDER }), (error: AppError) => error.status === 429);
+  assert.equal(second.writes(), 0);
+  assert.deepEqual(shared.store.get(PROVIDER)?.hourCount, 6);
 });
 
 test("budget de réveil par compte : 12 écritures par jour, indépendamment du budget horaire", async () => {
@@ -837,7 +897,7 @@ function publicationSystem(phase: string | null, options: { kybRefused?: boolean
   const runner = { runnerKind: "PHALA", runnerDeploymentId: "phala:1" };
   const availabilityModule = load<typeof import("./availability")>("src/lib/sirius/availability.ts", {
     "server-only": {}, "next/server": { NextResponse }, "@/lib/db": db, "@/lib/errors": { AppError, errorResponse },
-    "@/lib/http/rate-limit": rateLimit,
+    "./wake-budget": wakeBudgetDouble().module,
   });
   const pipeline = load<typeof import("./pipeline")>("src/lib/sirius/pipeline.ts", {
     "server-only": {}, "@/lib/db": db, "@/lib/app-error": { AppError }, "@/lib/models/registry": models,

@@ -100,13 +100,15 @@ export function RetrainPanel({
     inFlight.current = true;
     setBusy(true);
     let borrowed = false;
+    const signal = unmountSignal();
     try {
       borrowed = await retryWhileEnclaveStarts(
         () => borrowDataset({ datasetId, priceUsdcAtomic: price, rentalDays, confirmQuote }),
-        { onWaiting: (seconds) => { if (mounted.current) setEnclaveRetry(seconds); }, signal: unmountSignal() },
+        { onWaiting: (seconds) => { if (mounted.current) setEnclaveRetry(seconds); }, signal },
       );
     } catch (err) {
-      onError(messageOf(err));
+      // Panneau démonté pendant l'attente : rien à signaler au parent, la demande est abandonnée.
+      if (!(signal.aborted && err === signal.reason)) onError(messageOf(err));
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy(false);
