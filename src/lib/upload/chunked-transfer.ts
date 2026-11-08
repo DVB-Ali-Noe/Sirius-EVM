@@ -1,8 +1,8 @@
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { encodeRunnerGrantHeader } from "@/lib/runner/authorization-contract";
 import type { DatasetIngressKey } from "@/lib/tee/contract";
-import { abortableSleep, responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
-import { ChunkedUploadEncryptor, UPLOAD_CHUNK_BYTES, chunkPlainBytes, manifestSha256 } from "./chunked";
+import { EnclaveStartingError, abortableSleep, responseError, retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { ChunkedUploadEncryptor, UPLOAD_CHUNK_BYTES, chunkPlainBytes, manifestSha256, type ChunkedUploadManifest } from "./chunked";
 
 /**
  * Envoi d'un gros dataset, partagé par le site (navigateur) et la CLI (Node) : seuls l'accès à
@@ -81,6 +81,42 @@ const PUT_ATTEMPTS = 4;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_POLL_MS = 3_000;
 const DEFAULT_SEAL_TIMEOUT_MS = 30 * 60_000;
+/**
+ * Clôture et suivi : pannes passagères tolérées avant d'abandonner (runner occupé par un autre
+ * scellement, saturé, 5xx, réseau), avec une attente doublée à chaque fois, de 5 s à 1 min
+ * (≈ 4 min en tout : de quoi laisser finir le scellement d'un autre fichier de 1 Gio).
+ */
+const SEAL_ATTEMPTS = 8;
+const SEAL_RETRY_MS = 5_000;
+const SEAL_RETRY_MAX_MS = 60_000;
+
+/** Échec HTTP d'une requête à l'API du site, avec son statut. */
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * Panne passagère pendant la clôture ou le suivi : le site ou le runner répondra plus tard
+ * (408, 429, 5xx) ou la requête n'a pas abouti (réseau, statut 0). Les morceaux restent valables.
+ */
+function isTransient(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500);
+}
+
+/** Requête vers l'API : une coupure réseau devient une `ApiError` de statut 0. */
+async function reach(send: () => Promise<Response>): Promise<Response> {
+  try {
+    return await send();
+  } catch (error) {
+    throw new ApiError(error instanceof Error && error.message ? error.message : "Connexion au site interrompue", 0);
+  }
+}
 
 async function json<T>(response: Response, fallback: string): Promise<T> {
   let body: unknown = {};
@@ -102,12 +138,15 @@ function post(api: ChunkedTransferApi, path: string, body: unknown, headers: Rec
 
 /**
  * Requête relancée tant que l'enclave démarre (`503 enclave_starting`, rien n'a été écrit côté
- * serveur) ; toute autre erreur remonte avec le message de la route.
+ * serveur) ; toute autre erreur remonte avec le message de la route et son statut.
  */
 function untilEnclaveReady<T>(deps: ChunkedTransferDeps, sleep: (ms: number) => Promise<void>, send: () => Promise<Response>, fallback: string): Promise<T> {
   return retryWhileEnclaveStarts(async () => {
     const response = await send();
-    if (!response.ok) throw await responseError(response, fallback);
+    if (!response.ok) {
+      const error = await responseError(response, fallback);
+      throw error instanceof EnclaveStartingError ? error : new ApiError(error.message, response.status);
+    }
     return (await response.json().catch(() => ({}))) as T;
   }, { onWaiting: deps.onEnclaveWaiting, wait: sleep, signal: deps.signal });
 }
@@ -138,16 +177,21 @@ export async function sendChunkedDataset(
   });
   if (encryptor.chunkCount !== opened.chunkCount) throw new Error("Découpage de l’envoi incohérent");
   const uploadPath = `${base}/${encodeURIComponent(opened.uploadId)}`;
+  // Envoi refusé ou abandonné : on le ferme pour libérer le quota du fournisseur et supprimer ses
+  // morceaux (sans effet sur un scellement en cours, que le site refuse d'abandonner).
+  const discard = () => api.request(uploadPath, { method: "DELETE" }).then((response) => response.body?.cancel(), () => undefined);
+  let manifest: ChunkedUploadManifest;
   try {
-    return await transfer();
+    manifest = await transfer();
   } catch (error) {
-    // Envoi interrompu ou refusé : on le ferme pour libérer le quota du fournisseur et supprimer
-    // ses morceaux (sans effet sur un scellement en cours, que le site refuse d'abandonner).
-    await api.request(uploadPath, { method: "DELETE" }).then((response) => response.body?.cancel(), () => undefined);
+    await discard();
     throw error;
   }
+  deps.onProgress?.({ phase: "seal" });
+  await seal(manifest);
+  return { uploadId: opened.uploadId };
 
-  async function transfer(): Promise<{ uploadId: string }> {
+  async function transfer(): Promise<ChunkedUploadManifest> {
     let sentBytes = 0;
     let sentChunks = 0;
     const report = () =>
@@ -208,36 +252,97 @@ export async function sendChunkedDataset(
       );
     }
 
-    const manifest = await encryptor.manifest();
-    const manifestSha = await manifestSha256(manifest);
-    deps.onProgress?.({ phase: "seal" });
-    // Un grant par essai : il ne vaut qu'une minute, l'attente du démarrage peut durer plus.
-    await untilEnclaveReady(deps, sleep, async () => {
-      const grant = await deps.issueGrant(terms.datasetId, [
-        terms.datasetId,
-        opened.uploadId,
-        terms.priceUsdcAtomic,
-        String(terms.challengeDays),
-        String(terms.sizeBytes),
-        manifestSha,
-        terms.model.modelId,
-        terms.model.modelVersion,
-        String(terms.maxRentalDays),
-      ]);
-      return post(api, `${uploadPath}/complete`, { manifest }, { "x-sirius-runner-grant": encodeRunnerGrantHeader(grant) });
-    }, "Clôture de l’envoi refusée");
+    return encryptor.manifest();
+  }
 
+  /**
+   * Clôture puis suivi du scellement. Les morceaux sont dans R2 et le manifeste en mémoire : une
+   * panne passagère (autre scellement en cours, runner saturé, 5xx, réseau, scellement à relancer)
+   * relance la clôture avec un grant neuf, sans rien renvoyer, dans la limite de `SEAL_ATTEMPTS`.
+   * Seul un refus (4xx, fichier refusé par l'enclave) ferme l'envoi. Pannes épuisées : l'envoi
+   * reste ouvert, le reaper supprime ses morceaux à son échéance.
+   */
+  async function seal(manifest: ChunkedUploadManifest): Promise<void> {
+    const manifestSha = await manifestSha256(manifest);
     const deadline = Date.now() + (deps.sealTimeoutMs ?? DEFAULT_SEAL_TIMEOUT_MS);
+    let failures = 0;
+    const later = async (error: unknown) => {
+      failures += 1;
+      if (failures >= SEAL_ATTEMPTS) {
+        throw new Error("Clôture impossible pour l’instant (runner ou réseau indisponible) : relance la publication plus tard", { cause: error });
+      }
+      await sleep(Math.min(SEAL_RETRY_MS * 2 ** (failures - 1), SEAL_RETRY_MAX_MS));
+    };
+    const refused = async (error: unknown): Promise<never> => {
+      await discard();
+      throw error;
+    };
+    const close = () =>
+      // Un grant par essai : il ne vaut qu'une minute, l'attente du démarrage peut durer plus.
+      untilEnclaveReady(deps, sleep, async () => {
+        const grant = await deps.issueGrant(terms.datasetId, [
+          terms.datasetId,
+          opened.uploadId,
+          terms.priceUsdcAtomic,
+          String(terms.challengeDays),
+          String(terms.sizeBytes),
+          manifestSha,
+          terms.model.modelId,
+          terms.model.modelVersion,
+          String(terms.maxRentalDays),
+        ]);
+        return reach(() => post(api, `${uploadPath}/complete`, { manifest }, { "x-sirius-runner-grant": encodeRunnerGrantHeader(grant) }));
+      }, "Clôture de l’envoi refusée");
+
+    let closing = true;
+    let conflict: ApiError | null = null;
     for (;;) {
       signal?.throwIfAborted();
-      await sleep(deps.pollMs ?? DEFAULT_POLL_MS);
-      const state = await json<UploadState>(await api.request(uploadPath, { method: "GET" }), "Suivi de l’envoi indisponible");
-      if (state.state === "SEALED") return { uploadId: opened.uploadId };
+      if (closing) {
+        try {
+          await close();
+          closing = false;
+          continue;
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          // Enclave toujours pas démarrée : l'envoi reste ouvert, rien n'est perdu.
+          if (error instanceof EnclaveStartingError) throw error;
+          // 409 : clôture déjà acceptée (réponse précédente perdue), ou envoi incomplet : l'état tranche.
+          if (error instanceof ApiError && error.status === 409) conflict = error;
+          else if (isTransient(error)) await later(error);
+          else return refused(error);
+        }
+      } else {
+        await sleep(deps.pollMs ?? DEFAULT_POLL_MS);
+      }
+
+      let state: UploadState;
+      try {
+        const response = await reach(() => api.request(uploadPath, { method: "GET" }));
+        if (!response.ok) throw new ApiError((await responseError(response, "Suivi de l’envoi indisponible")).message, response.status);
+        state = (await response.json()) as UploadState;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (!isTransient(error)) return refused(error);
+        await later(error);
+        continue;
+      }
+      if (state.state === "SEALED") return;
       if (state.state === "SEALING") {
+        closing = false;
+        conflict = null;
         if (Date.now() > deadline) throw new Error("Le scellement prend plus de temps que prévu : reviens plus tard sur ce brouillon");
         continue;
       }
-      throw new Error(state.error ?? "Scellement refusé");
+      if (state.state === "OPEN") {
+        // Clôture refusée sur un envoi resté ouvert (morceaux manquants) : refus définitif.
+        if (conflict) return refused(conflict);
+        // Scellement interrompu ou refusé pour une raison passagère : le site a rouvert l'envoi.
+        if (!closing) await later(new Error(state.error ?? "Scellement interrompu"));
+        closing = true;
+        continue;
+      }
+      return refused(new Error(state.error ?? "Scellement refusé"));
     }
   }
 }
