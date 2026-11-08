@@ -8,7 +8,9 @@
  * pause (environ une heure sans activité) peut prendre environ 2 minutes, l'API répondant
  * `503 enclave_starting` avec `Retry-After` ; le client attend et réessaie seul (nouvelle
  * signature) jusqu'à `maxRetryWaitMs` (8 min par défaut). Il réessaie aussi `503 runner_busy`
- * (runner saturé, rien n'a été décompté), avec un recul exponentiel et une gigue, jamais sous `Retry-After`. Aucun autre 503 n'est réessayé : sur `runner_unavailable`,
+ * (runner saturé, rien n'a été décompté), avec un recul exponentiel et une gigue, jamais sous `Retry-After`, et
+ * `503 controller_unavailable` (gestion de l'enclave momentanément indisponible ou maintenance, refusé
+ * avant tout relais, rien n'a été décompté) après `Retry-After`. Aucun autre 503 n'est réessayé : sur `runner_unavailable`,
  * l'enclave a pu décompter l'appel avant que sa réponse se perde, et un réessai le compterait deux fois.
  *
  * Usage :
@@ -25,8 +27,8 @@ const DEFAULT_MAX_RETRY_WAIT_MS = 8 * 60_000;
 const DEFAULT_RETRY_AFTER_SECONDS = 15;
 /** Plafond du recul exponentiel sur `runner_busy`. */
 const MAX_BUSY_BACKOFF_MS = 30_000;
-/** 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé). */
-const RETRYABLE_CODES: ReadonlySet<string> = new Set(["enclave_starting", "runner_busy"]);
+/** 503 réessayés seuls : aucun appel n'a été décompté (démarrage de l'enclave, runner saturé, contrôleur indisponible). */
+const RETRYABLE_CODES: ReadonlySet<string> = new Set(["enclave_starting", "runner_busy", "controller_unavailable"]);
 
 /** Codes d'erreur stables renvoyés par l'API (`{ error: { code, message } }`). */
 export type SiriusErrorCode =
@@ -42,6 +44,7 @@ export type SiriusErrorCode =
   | "invalid_features"
   | "enclave_starting"
   | "runner_busy"
+  | "controller_unavailable"
   | "rate_limited"
   | "payload_too_large"
   | "not_found"
@@ -187,7 +190,7 @@ export interface SiriusClientOptions {
   apiKey: string;
   /** Défaut `https://api.sirius-data.tech`. Hors de cet hôte : `https://<site>/api`. */
   baseUrl?: string;
-  /** Attente cumulée maximale sur `503 enclave_starting` ou `runner_busy` (défaut 8 min ; 0 = jamais réessayer). */
+  /** Attente cumulée maximale sur `503 enclave_starting`, `runner_busy` ou `controller_unavailable` (défaut 8 min ; 0 = jamais réessayer). */
   maxRetryWaitMs?: number;
   fetch?: typeof fetch;
   /** Horloge, attente, nonce et tirage aléatoire (gigue des réessais) injectables (tests). */

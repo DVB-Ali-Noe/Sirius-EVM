@@ -38,8 +38,10 @@ info:
     official SDKs retry automatically, up to 8 minutes of cumulative wait by default. An unknown
     or revoked key, an expired rental or an invalid body never starts it.
 
-    **Retries.** Only `503 enclave_starting` and `503 runner_busy` are safe to retry blindly:
-    nothing was counted. Any other 503 (`runner_unavailable`), a network error or a client
+    **Retries.** Only `503 enclave_starting`, `503 runner_busy` and `503 controller_unavailable`
+    (the service that starts and stops the enclave is briefly unavailable or under maintenance;
+    refused before reaching the enclave, `Retry-After: 60`) are safe to retry blindly: nothing was
+    counted. Any other 503 (`runner_unavailable`), a network error or a client
     timeout may come after the enclave already counted the call; the official SDKs raise them
     without retrying. Use a client timeout above 60 s: the API waits up to 60 s for the enclave.
 
@@ -51,7 +53,8 @@ info:
       only, i.e. malformed headers or body, unknown or revoked key, and `invalid_signature`,
       `request_expired` or `replayed_request` from the enclave. Beyond that, every request from
       that network gets `429 rate_limited` with `Retry-After`, valid keys included;
-    - nowhere: `enclave_starting`, `runner_busy` and the enclave's own `rate_limited`.
+    - nowhere: `enclave_starting`, `controller_unavailable`, `runner_busy` and the enclave's own
+      `rate_limited`.
 
     The enclave also allows at most 120 calls per minute per model, counted before the signature
     is checked: someone who knows only your key identifier can still use up that per-model window,
@@ -236,6 +239,7 @@ components:
                 - invalid_features
                 - enclave_starting
                 - runner_busy
+                - controller_unavailable
                 - rate_limited
                 - payload_too_large
                 - not_found
@@ -286,8 +290,9 @@ components:
             $ref: "#/components/schemas/Error"
     EnclaveStarting:
       description: |
-        `enclave_starting` (body below, with `status` and `retryAfterSeconds`) or `runner_busy`
-        (enclave saturated, `Retry-After: 1`): nothing was counted, retry after `Retry-After`
+        `enclave_starting` (body below, with `status` and `retryAfterSeconds`), `runner_busy`
+        (enclave saturated, `Retry-After: 1`) or `controller_unavailable` (Error body; enclave
+        management briefly unavailable or under maintenance, `Retry-After: 60`): nothing was counted, retry after `Retry-After`
         seconds with a new signature. `runner_unavailable` (Error body) may come after the enclave
         counted the call: do not retry it blindly.
       headers:

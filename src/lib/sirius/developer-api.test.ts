@@ -2244,6 +2244,7 @@ test("F4 : contrôleur muet ou en maintenance : 503 controller_unavailable disti
     assert.notEqual(body.code, "enclave_starting");
     const api = await sys.api.predict();
     assert.equal(api.status, 503);
+    assert.equal(api.headers.get("retry-after"), "60", "/v1 : relance annoncée comme sur les routes wallet");
     assert.equal((await api.json()).error.code, "controller_unavailable");
     assert.equal(requested(sys), null, `${row.phase} : aucun réveil écrit`);
     assert.equal(spent(sys), 0);
