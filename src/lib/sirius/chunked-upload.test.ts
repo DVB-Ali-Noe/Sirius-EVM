@@ -408,17 +408,58 @@ test("le reaper supprime les morceaux des envois expirés, puis les ferme ; sans
   assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, storage: () => { throw new Error("R2 non configuré"); } }), 0);
   assert.equal(h.datasetUpload.rows[0].state, "OPEN");
 
-  // Suppression ratée : l'envoi reste ouvert pour la passe suivante.
+  // Suppression ratée : l'envoi est fermé mais pas marqué purgé ; une passe suivante réessaie.
   const errors = await quietErrors(async () => assert.equal(await uploads.purgeExpiredUploads({ ...h.deps, deletePrefix: failingDelete }), 0));
-  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
-  assert.match(errors, /reprise à la passe suivante/);
+  assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
+  assert.equal(String(h.datasetUpload.rows[0].purgedAt), "null");
+  assert.ok(h.stored.size > 0);
+  assert.match(errors, /reprise à une passe suivante/);
 
+  h.advance(uploads.PART_URL_SECONDS * 1000);
   assert.equal(await uploads.purgeExpiredUploads(h.deps), 1);
   assert.equal(h.stored.size, 0);
   assert.equal(h.datasetUpload.rows[0].state, "ABORTED");
   assert.equal(h.datasetUpload.rows[0].error, "Envoi expiré");
   assert.ok(h.datasetUpload.rows[0].purgedAt instanceof Date);
   assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+});
+
+test("le reaper laisse finir un scellement lancé juste avant l'échéance et ne touche pas un envoi scellé entre-temps", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const { manifest, objects } = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, objects);
+  h.advance(uploads.UPLOAD_TTL_MS - 60_000);
+  await uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, manifest, GRANT, h.deps);
+  const row = h.datasetUpload.rows[0];
+  const stored = h.stored.size;
+
+  // Échéance et URL signées passées, mais le scellement a 17 min : il continue avec ses morceaux.
+  h.advance(17 * 60_000);
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  assert.equal(row.state, "SEALING");
+  assert.equal(h.stored.size, stored);
+
+  // Scellement bloqué depuis plus d'une heure, mais qui finit pendant la passe du reaper.
+  h.advance(60 * 60_000);
+  const findMany = h.datasetUpload.findMany;
+  h.datasetUpload.findMany = async (args) => {
+    const due = (await findMany(args)).map((upload) => ({ ...upload }));
+    row.state = "SEALED";
+    return due;
+  };
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 0);
+  h.datasetUpload.findMany = findMany;
+  assert.equal(row.state, "SEALED");
+  assert.equal(h.stored.size, stored, "un envoi scellé garde ses morceaux");
+
+  // Bloqué pour de bon : purgé, et un résultat tardif du runner ne pose plus rien sur le brouillon.
+  row.state = "SEALING";
+  assert.equal(await uploads.purgeExpiredUploads(h.deps), 1);
+  assert.equal(row.state, "ABORTED");
+  assert.equal(h.stored.size, 0);
+  assert.equal((await uploads.datasetUploadStatus("ds1", uploadId, PROVIDER, h.deps)).state, "ABORTED");
+  assert.equal(h.datasets.rows[0].ipfsCid, null);
 });
 
 test("un envoi abandonné ou refusé est repurgé après l'expiration des URL signées, même si sa suppression avait échoué", async () => {

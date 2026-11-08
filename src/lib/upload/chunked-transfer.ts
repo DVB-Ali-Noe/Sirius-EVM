@@ -80,7 +80,8 @@ interface UploadState {
 const PUT_ATTEMPTS = 4;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_POLL_MS = 3_000;
-const DEFAULT_SEAL_TIMEOUT_MS = 30 * 60_000;
+/** Suivi du scellement par le site et la CLI ; le reaper ne purge pas un scellement plus récent. */
+export const DEFAULT_SEAL_TIMEOUT_MS = 30 * 60_000;
 /**
  * Clôture et suivi : pannes passagères tolérées avant d'abandonner (runner occupé par un autre
  * scellement, saturé, 5xx, réseau), avec une attente doublée à chaque fois, de 5 s à 1 min
@@ -299,6 +300,8 @@ export async function sendChunkedDataset(
     for (;;) {
       signal?.throwIfAborted();
       if (closing) {
+        // Seul le 409 de cette clôture-ci tranche un envoi resté ouvert, pas celui d'un essai précédent.
+        conflict = null;
         try {
           await close();
           closing = false;

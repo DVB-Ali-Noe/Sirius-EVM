@@ -114,6 +114,7 @@ const PROCESSORS = [
   "Vercel (web application hosting)",
   "Neon (database)",
   "Pinata (IPFS storage of encrypted files)",
+  "Cloudflare R2 (storage of large encrypted files)",
   "Phala Cloud (confidential compute in Intel TDX enclaves)",
   "OVHcloud (background settlement tasks)",
   "Web3Auth (optional Google sign-in)",

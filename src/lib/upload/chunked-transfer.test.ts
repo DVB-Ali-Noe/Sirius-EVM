@@ -427,6 +427,33 @@ test("réponse de clôture perdue, 5xx et scellement rouvert pendant le suivi : 
   assert.ok(calls.filter((call) => call.endsWith("/complete")).length >= 2, "clôture relancée");
 });
 
+test("un 409 d'une clôture précédente ne fait pas supprimer l'envoi après une panne passagère", async () => {
+  const file = csv(9_000);
+  const w = world("dataset-conflict", file.length);
+  // Clôture 1 : 409 ; suivi : 502 ; clôture 2 : 503 ; suivi : envoi toujours ouvert ; clôture 3 : acceptée.
+  const completes = [
+    () => Response.json({ error: "Envoi déjà clôturé" }, { status: 409 }),
+    () => Response.json({ error: "Runner saturé : réessaie plus tard" }, { status: 503 }),
+  ];
+  let brokenPolls = 1;
+  const calls: string[] = [];
+  const api: TransferModule.ChunkedTransferApi = {
+    ...w.api,
+    async request(path, init) {
+      calls.push(`${init.method} ${path}`);
+      if (path.endsWith("/complete") && completes.length) return completes.shift()!();
+      if (init.method === "GET" && path.includes("/uploads/") && brokenPolls-- > 0) return Response.json({ error: "Bad gateway" }, { status: 502 });
+      return w.api.request(path, init);
+    },
+  };
+  await withRunnerStorage(w.bucket, () =>
+    transfer.sendChunkedDataset({ datasetId: "dataset-conflict", sizeBytes: file.length, ...TERMS }, source(file), { ...transferDeps(api), ...countedSleeps() }),
+  );
+  assert.equal(w.datasetUpload.rows[0].state, "SEALED");
+  assert.ok(!calls.some((call) => call.startsWith("DELETE")));
+  assert.equal(calls.filter((call) => call.endsWith("/complete")).length, 3);
+});
+
 test("clôture refusée (4xx) ou runner indisponible trop longtemps : seul le refus supprime l'envoi", async () => {
   const file = csv(9_000);
   const refused = world("dataset-4xx", file.length);

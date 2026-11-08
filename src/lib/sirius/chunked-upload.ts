@@ -35,6 +35,7 @@ import {
   type ChunkedUploadManifest,
   type UploadIds,
 } from "@/lib/upload/chunked";
+import { DEFAULT_SEAL_TIMEOUT_MS } from "@/lib/upload/chunked-transfer";
 
 /**
  * Envoi en morceaux d'un gros dataset (docs/UPLOAD-1GO.md, §5 et §7).
@@ -227,14 +228,18 @@ async function abortUpload(deps: ChunkedUploadDeps, upload: DatasetUploadRow, fr
 
 /**
  * Morceaux à supprimer de R2, par le reaper et par lots :
- * - envois jamais scellés (ouverts, scellement bloqué) après leur échéance ;
+ * - envois ouverts jamais clos, après leur échéance ;
+ * - scellements bloqués, une fois passé le délai de suivi du module d'envoi (30 min) : un
+ *   scellement encore en cours garde ses morceaux ;
  * - envois abandonnés ou refusés, même déjà nettoyés une fois : la première suppression a pu
  *   échouer, ou un `PUT` encore en vol a pu recréer un morceau derrière elle ;
  * - envois d'un dataset supprimé, y compris un envoi resté SEALED si `purgeDeletedDatasetUploads`
  *   n'a pas abouti.
  * Toujours après l'expiration des dernières URL d'envoi signées (15 min) : plus aucun morceau ne
- * peut arriver. Les morceaux sont supprimés de R2, PUIS l'envoi est marqué purgé (`purgedAt`) :
- * une suppression ratée laisse la marque vide et la passe suivante réessaie ; aucun morceau n'est
+ * peut arriver. Un envoi ouvert, en scellement ou scellé est d'abord passé en ABORTED (s'il n'a
+ * pas changé entre-temps) : un scellement qui finirait ensuite ne pose plus rien sur le brouillon.
+ * Puis les morceaux sont supprimés de R2, PUIS l'envoi est marqué purgé (`purgedAt`) : une
+ * suppression ratée laisse la marque vide et une passe suivante réessaie ; aucun morceau n'est
  * oublié dans R2. Sans accès R2 configuré, rien n'est touché.
  */
 export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunkedUploadDeps, limit = 20): Promise<number> {
@@ -246,11 +251,13 @@ export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunk
   }
   const now = deps.now();
   const urlsExpired = new Date(now - PART_URL_SECONDS * 1000);
+  const sealStale = new Date(now - DEFAULT_SEAL_TIMEOUT_MS - PART_URL_SECONDS * 1000);
   const due = (await deps.db.datasetUpload.findMany({
     where: {
       purgedAt: null,
       OR: [
-        { state: { in: ["OPEN", "SEALING"] }, expiresAt: { lte: urlsExpired } },
+        { state: "OPEN", expiresAt: { lte: urlsExpired } },
+        { state: "SEALING", expiresAt: { lte: urlsExpired }, updatedAt: { lte: sealStale } },
         { state: { in: ["FAILED", "ABORTED"] }, updatedAt: { lte: urlsExpired } },
         { state: "SEALED", dataset: { status: "DELETED" } },
       ],
@@ -260,19 +267,23 @@ export async function purgeExpiredUploads(deps: ChunkedUploadDeps = defaultChunk
   })) as DatasetUploadRow[];
   let purged = 0;
   for (const upload of due) {
+    if (upload.state === "OPEN" || upload.state === "SEALING" || upload.state === "SEALED") {
+      const claimed = await deps.db.datasetUpload.updateMany({
+        where: { id: upload.id, state: upload.state, purgedAt: null },
+        data: { state: "ABORTED", error: upload.state === "SEALED" ? "Dataset supprimé" : "Envoi expiré" },
+      });
+      // Scellé ou relancé entre-temps : l'envoi n'est plus à purger.
+      if (claimed.count !== 1) continue;
+    }
     try {
       await deps.deletePrefix(config, uploadPrefix(idsOf(upload)));
     } catch {
-      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise à la passe suivante`);
+      console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise à une passe suivante`);
       continue;
     }
-    const closing =
-      upload.state === "SEALED" ? { state: "ABORTED" as const, error: "Dataset supprimé" }
-      : upload.state === "OPEN" || upload.state === "SEALING" ? { state: "ABORTED" as const, error: "Envoi expiré" }
-      : {};
     const marked = await deps.db.datasetUpload.updateMany({
-      where: { id: upload.id, state: upload.state, purgedAt: null },
-      data: { purgedAt: new Date(now), ...closing },
+      where: { id: upload.id, purgedAt: null },
+      data: { purgedAt: new Date(now) },
     });
     purged += marked.count;
   }
