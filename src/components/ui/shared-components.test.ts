@@ -25,7 +25,7 @@ function page(name: string): string {
 test("DisclaimerNote : textes communs, un seul lien mailto vers le contact, pas de HTML injecté", () => {
   const out = page("note-default");
   assert.match(out, /<aside role="note"/);
-  assert.match(out, /Sirius currently trains three models on tabular data/);
+  assert.match(out, /Sirius currently trains a few simple models on tabular data/);
   assert.match(out, /Need a stronger model or specific data\? Contact us at <a href="mailto:sirius\.data\.contact@gmail\.com"[^>]*>sirius\.data\.contact@gmail\.com<\/a>\./);
   assert.equal(out.match(/href=/g)?.length, 1);
   assert.doesNotMatch(out, /dangerouslySetInnerHTML|<script/i);
@@ -39,7 +39,7 @@ test("DisclaimerNote : variantes info et warning, messages au choix, contenu de 
   assert.notEqual(info.match(/class="[^"]*"/)?.[0], warning.match(/class="[^"]*"/)?.[0]);
   assert.match(info, /Beta: instant on-chain wallet verification, capped amounts per loan and in total\./);
   assert.doesNotMatch(info, /mailto:/, "pas de lien quand le texte ne mentionne pas le contact");
-  assert.match(warning, /CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features\. Linear and logistic regression are deterministic/);
+  assert.match(warning, /CSV up to 3 MB, 100 to 50,000 rows, numeric columns, up to 31 input features\. Training is deterministic/);
   assert.match(page("note-children-hostile"), /&lt;b onmouseover=&quot;x&quot;&gt;/);
   assert.doesNotMatch(page("note-children-hostile"), /<b /);
   assert.doesNotMatch(page("note-empty"), /<p>/);
@@ -190,7 +190,7 @@ test("DatasetCard : toutes les informations de la mosaïque", () => {
   assert.match(out, /Binary logistic regression v1\.0\.0/);
   assert.match(out, /12,345 rows/);
   assert.match(out, /8 columns/);
-  assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>23\.00 USDG<\/dd>/);
+  assert.match(out, /<dt[^>]*>Price for one rental day<\/dt><dd[^>]*>23\.00 USDG<\/dd>/);
   assert.match(out, /<dt[^>]*>Borrows<\/dt><dd[^>]*>12<\/dd>/);
   assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDG<\/dd>/);
   assert.match(out, />Verified provider</);
@@ -231,7 +231,7 @@ test("DatasetCard : l'état affiché suit la prop (en pause, détruit)", () => {
 
 test("DatasetCard : prix et revenus invalides → « — » sur la ligne concernée, jamais 0", () => {
   const out = page("card-invalid-amounts");
-  assert.match(out, /Borrower pays<\/dt><dd[^>]*>—<\/dd>/);
+  assert.match(out, /Price for one rental day<\/dt><dd[^>]*>—<\/dd>/);
   assert.match(out, /Total earned<\/dt><dd[^>]*>—<\/dd>/);
   assert.doesNotMatch(out, /USDG/);
 });
@@ -245,7 +245,7 @@ test("DatasetCard : le lien du titre couvre toute la carte (lien étiré), un se
 
 test("DatasetCard : décimales et symbole du jeton respectés (18 décimales, USDC)", () => {
   const out = page("card-testnet-18");
-  assert.match(out, /<dt[^>]*>Borrower pays<\/dt><dd[^>]*>20\.00 USDC<\/dd>/);
+  assert.match(out, /<dt[^>]*>Price for one rental day<\/dt><dd[^>]*>20\.00 USDC<\/dd>/);
   assert.match(out, /<dt[^>]*>Total earned<\/dt><dd[^>]*>240\.00 USDC<\/dd>/);
   assert.doesNotMatch(out, /USDG/);
 });
@@ -278,4 +278,54 @@ test("DatasetAddTile : lien vers l'upload, symbole décoratif ; sans chemin sûr
   const inert = page("tile-unsafe");
   assert.doesNotMatch(inert, /<a |href=/);
   assert.match(inert, /data-disabled="true"/);
+});
+
+test("WaitSteps : chaque étape porte son état, l'étape en cours est annoncée et seule à s'animer", () => {
+  const out = page("wait-all-states");
+  assert.match(out, /data-testid="wait"/);
+  assert.match(out, /data-wait-state="waiting"/);
+  assert.match(out, /data-step="one" data-status="done"/);
+  assert.match(out, /data-step="two" data-status="active" aria-current="step"/);
+  assert.match(out, /data-step="three" data-status="pending"/);
+  assert.equal(out.match(/aria-current="step"/g)?.length, 1);
+  assert.match(out, /<span class="sr-only"> \(in progress\)<\/span>/);
+  assert.match(out, /<span class="sr-only"> \(done\)<\/span>/);
+  assert.match(out, /<span class="sr-only"> \(pending\)<\/span>/);
+  assert.match(out, /Précision/);
+  assert.match(out, /aria-live="polite"/);
+});
+
+test("WaitSteps : animation seulement sans prefers-reduced-motion (variante motion-safe)", () => {
+  for (const name of ["wait-all-states", "wait-seconds-stay"]) {
+    const out = page(name);
+    const classes = [...out.matchAll(/class="([^"]*)"/g)].flatMap((match) => match[1].split(" "));
+    assert.ok(classes.includes("motion-safe:animate-spin"), name);
+    // Aucune animation inconditionnelle : sous « réduire les animations », rien ne tourne.
+    assert.deepEqual(classes.filter((cls) => /^animate-/.test(cls)), [], name);
+  }
+  assert.doesNotMatch(page("wait-done-bare"), /animate-/);
+  assert.doesNotMatch(page("wait-error-custom-note"), /animate-/);
+});
+
+test("WaitSteps : durée restante en minutes ou en secondes, phrase sur la fermeture de la page", () => {
+  const minutes = page("wait-all-states");
+  assert.match(minutes, /Estimated time left: ~2 min/);
+  assert.match(minutes, /You can close this page: the operation continues without you\./);
+  const seconds = page("wait-seconds-stay");
+  assert.match(seconds, /Estimated time left: ~42 s/);
+  assert.match(seconds, /Keep this page open until the operation finishes\./);
+  assert.doesNotMatch(seconds, /You can close this page/);
+});
+
+test("WaitSteps : erreur signalée, note sur mesure, rien d'inventé sans durée ni consigne", () => {
+  const failed = page("wait-error-custom-note");
+  assert.match(failed, /data-wait-state="error"/);
+  assert.match(failed, /data-step="b" data-status="error"/);
+  assert.match(failed, /Note sur mesure/);
+  assert.doesNotMatch(failed, /Estimated time left/, "durée écoulée : pas de compte à rebours");
+  const bare = page("wait-done-bare");
+  assert.match(bare, /data-wait-state="done"/);
+  assert.doesNotMatch(bare, /Estimated time left|close this page|Keep this page open/);
+  assert.doesNotMatch(bare, /<img/);
+  assert.match(bare, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });

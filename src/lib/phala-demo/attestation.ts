@@ -43,6 +43,29 @@ export const DECLARED_RELEASES: Readonly<Record<string, { image: string; commit:
     image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:3fbd598694b8d81f7a647d4d335b2af2a0bf93062dfef00834b17c5db459d291",
     commit: "95bf2bf",
   },
+  // 1er-2 nov. 2026 : suppression de la livraison (D-28), modèles servis par prédiction signée.
+  "d01740123d2f04040772c2f15f248e157d12356d60f18b6c094847e8602c5a28": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:e25cdcbf5522e1d71177c82a82d792062e4fa6c5f082ab0a35bf9d17596c9fc1",
+    commit: "727f54b",
+  },
+  "f5f7063e095dc6ff74de11e1ce0a44819a7744e53135990230b848cb98ed1bec": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:f0c92e8230e129c08af6b289be0a0757a198b801de6df9dbe387937670d8d0e3",
+    commit: "d1bf50b",
+  },
+  "df933bc1fe346a9c0695623a847131cdde7d17265cf47307b44674c552233b53": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:58f153a9b0f66a15ff887397d84d9027cde3fdb6204257d722ccf8f5943c5679",
+    commit: "2b57014",
+  },
+  // 3 nov. 2026 : location des modèles de prêt (D-29), reçu dataset v4 lié à `maxRentalDays`.
+  "d8e8f0d120380ba41f1b2c1c5951cd565543469eb84c943fd012cc3f48822049": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:1005433e338142daea3800061c05184b682689bac6b5b106e6d76f8e4378a1a1",
+    commit: "3379391",
+  },
+  // 7 nov. 2026 : API développeurs (D-30), tarif avec frais sans entraînement et quotas d'appels.
+  "9f796418fb526914ba71e616fda93e729c9bfaa71ff975fdd69fbb4213e08a62": {
+    image: "ghcr.io/dvb-ali-noe/sirius-runner@sha256:7b7f6303548371b7e0e060c3bf5eeb24f63fb7549a0bf6d62993de0da44a00c4",
+    commit: "2bb02f5",
+  },
 };
 
 /**

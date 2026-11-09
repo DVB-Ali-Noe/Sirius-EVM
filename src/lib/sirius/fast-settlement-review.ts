@@ -5,16 +5,16 @@ import { confirmedBlock } from "@/lib/evm/finality";
 /**
  * Revérification, à finalité complète, d'un release accepté au palier rapide (fast-finality.ts).
  *
- * Un prêt FAST est marqué SETTLED après N confirmations L2 : le modèle est livrable tout de suite.
+ * Un prêt FAST est marqué SETTLED après N confirmations L2 : la prédiction est ouverte tout de suite.
  * Le reaper repasse ensuite, une fois le bloc finalisé censé avoir dépassé le release
  * (`FAST_SETTLEMENT_VERIFY_DELAY_MS` après `settledAt`), et rend un verdict :
  *  - `pending` : le bloc finalisé n'a pas encore atteint le bloc du reçu, on repassera ;
  *  - `confirmed` : reçu dans un bloc canonique sous le bloc finalisé, escrow libéré on-chain ;
  *  - `discrepancy` : le release a disparu (réorganisation), son bloc n'est plus canonique, l'escrow
  *    n'est pas libéré, ou l'a été par une autre transaction. Le reaper journalise alors une alerte,
- *    pose `finalityReview` sur le prêt (livraison de clé et certificat suspendus) et laisse la
+ *    pose `finalityReview` sur le prêt (prédiction et certificat suspendus) et laisse la
  *    décision à un opérateur (docs/passage-mainnet/20-finalite-rapide.md) : rien n'est retenté
- *    automatiquement, le modèle peut déjà avoir été livré.
+ *    automatiquement, des prédictions peuvent déjà avoir été servies.
  *
  * Aucune transaction n'est envoyée ; les lectures sont toutes au palier complet.
  */

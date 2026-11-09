@@ -78,17 +78,17 @@ test("activer v7 invalide le cache v6 et exige le contrat v7 lié", async () => 
   }
 });
 
-test("registre v4 ou v5 : chaque profil proposé doit être accepté au mint, arbres compris une fois activés", async () => {
+test("registre v4, v5 ou v6 : chaque profil proposé doit être accepté au mint, arbres compris une fois activés", async () => {
   const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
   try {
     delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
-    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5", "sirius-dataset-v6"]) {
       const stub = stubDeployment("sirius-escrow-usdc-v6", registry);
       await deployment.requireCurrentEvmDeployment();
       stub.mock.restore();
     }
     process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees";
-    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+    for (const registry of ["sirius-dataset-v4", "sirius-dataset-v5", "sirius-dataset-v6"]) {
       const stub = stubDeployment("sirius-escrow-usdc-v6", registry);
       await assert.rejects(deployment.requireCurrentEvmDeployment(), /profil d’entraînement proposé n’est pas accepté/);
       // Le reaper ne publie rien : il n'exige pas les profils proposés.

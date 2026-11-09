@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { AppError } from "../app-error";
-import { addressesEqual, normalizeAddress } from "../evm/address";
+import { addressesEqual, isZeroAddress, normalizeAddress } from "../evm/address";
+import * as datasetKey from "../evm/dataset-key";
+import * as models from "../models/registry";
+import * as profileAdmission from "../runner/profile-admission";
+import * as chunked from "../upload/chunked";
+import type * as Provider from "./provider";
 
 /**
  * Deux formes coexistent pour une racine Merkle, et les confondre bloque tout.
@@ -42,6 +47,7 @@ function deletionFixture(options: {
   receiptStatus?: string;
   sender?: string;
   destination?: string;
+  ipfsCid?: string;
 } = {}) {
   const dataset = {
     id: "dataset-deletion-regression",
@@ -52,11 +58,12 @@ function deletionFixture(options: {
     deletionReconciledAt: null as Date | null,
     wrappedKey: options.status && options.status !== "DELETED" ? "wrapped-fixture" : null,
     keyDestroyedAt: null as Date | null,
-    ipfsCid: "bafy-fixture",
+    ipfsCid: options.ipfsCid ?? "bafy-fixture",
   };
   const updates: Record<string, unknown>[] = [];
   const reads: string[] = [];
   const unpins: string[] = [];
+  const purges: string[] = [];
   const dependencies: Record<string, unknown> = {
     "server-only": {},
     "@/lib/db": { prisma: {
@@ -97,8 +104,11 @@ function deletionFixture(options: {
     "@/lib/evm/dataset-key": {},
     "@/lib/evm/transaction": { destroyDatasetTransaction: () => ({ to: REGISTRY, data: "0xdeadbeef" }) },
     "@/lib/ipfs/pinata": { unpinFromIpfs: async (cid: string) => { unpins.push(cid); } },
+    "@/lib/upload/chunked": chunked,
+    "./chunked-upload": { purgeDeletedDatasetUploads: async (id: string) => { purges.push(id); } },
     "@/lib/models/registry": {},
     "@/lib/runner/provenance": {},
+    "@/lib/runner/profile-admission": {},
     "@/lib/datasets/publication": {},
     "./access": {},
   };
@@ -113,9 +123,58 @@ function deletionFixture(options: {
   });
   return {
     api: exports as Pick<typeof import("./provider"), "prepareDatasetDestruction" | "deleteDataset">,
-    dataset, updates, reads, unpins,
+    dataset, updates, reads, unpins, purges,
   };
 }
+
+test("D-31 : un brouillon linéaire scellé ne reçoit plus de transaction de mint tant que le profil n'est pas activé", async () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  const draft = {
+    id: "draft-linear", provider: PROVIDER, status: "DRAFT", evmDatasetId: null, ipfsCid: "bafy-draft", merkleRoot: "ab".repeat(32),
+    wrappedKey: "wrapped", runnerReceipt: "receipt", sizeBytes: 1200, modelId: "linear_regression", modelVersion: "1.0.0",
+  };
+  const mints: unknown[] = [];
+  const dependencies: Record<string, unknown> = {
+    "server-only": {},
+    "@/lib/db": { prisma: { dataset: { findUnique: async () => ({ ...draft }) } } },
+    "@/lib/errors": { AppError },
+    "@/lib/evm/address": { addressesEqual, isZeroAddress, normalizeAddress },
+    "@/lib/evm/addresses": { datasetRegistryAddress: () => REGISTRY },
+    "@/lib/evm/networks": {},
+    "@/lib/evm/abi/siriusdatasetregistry": { siriusdatasetregistryAbi: [] },
+    // Aucun titre on-chain : la publication demanderait un nouveau mint.
+    "@/lib/evm/client": { getPublicClient: () => ({ readContract: async ({ functionName }: { functionName: string }) =>
+      functionName === "datasetIdOf" ? `0x${"c".repeat(64)}` : functionName === "isLive" ? false : { provider: `0x${"0".repeat(40)}` } }) },
+    "@/lib/evm/deployment": { requireCurrentEvmDeployment: async () => {} },
+    "@/lib/evm/dataset-key": datasetKey,
+    "@/lib/evm/transaction": { mintDatasetTransaction: (terms: unknown) => { mints.push(terms); return { to: REGISTRY, data: "0x" }; } },
+    "@/lib/ipfs/pinata": {},
+    "@/lib/upload/chunked": chunked,
+    "./chunked-upload": {},
+    "@/lib/models/registry": models,
+    "@/lib/runner/provenance": { assertCurrentRunner: async () => {} },
+    "@/lib/runner/profile-admission": profileAdmission,
+    "@/lib/datasets/publication": {},
+    "./access": { requireAcceptedKyb: async () => {} },
+  };
+  const exports = {};
+  runInNewContext(COMPILED, { exports, Date, console, process, require: (id: string) => {
+    assert.ok(Object.hasOwn(dependencies, id), `Dépendance non simulée : ${id}`);
+    return dependencies[id];
+  } });
+  const api = exports as Pick<typeof Provider, "prepareDatasetListing">;
+  try {
+    delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    await assert.rejects(api.prepareDatasetListing(draft.id, PROVIDER), { message: profileAdmission.OPT_IN_PROFILE_DISABLED, status: 400 });
+    assert.equal(mints.length, 0);
+    process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
+    assert.ok("transaction" in await api.prepareDatasetListing(draft.id, PROVIDER));
+    assert.equal(mints.length, 1, "réactivé par la seule variable");
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
+});
 
 test("un DELETED sans hash est finalisé après lecture du titre absent ou détruit", async () => {
   const fixture = deletionFixture();
@@ -162,6 +221,19 @@ test("un brouillon sans titre reste supprimable sans RPC", async () => {
   assert.ok(fixture.dataset.keyDestroyedAt instanceof Date);
   assert.ok(fixture.dataset.deletionReconciledAt instanceof Date);
   assert.deepEqual(fixture.unpins, [fixture.dataset.ipfsCid]);
+});
+
+test("un gros dataset supprimé quitte R2 au lieu d'IPFS ; tout dataset supprimé purge ses envois en morceaux", async () => {
+  const cid = `sirius-chunked:v1:upload-1:${"d".repeat(64)}`;
+  const large = deletionFixture({ status: "DRAFT", noTitle: true, ipfsCid: cid });
+  await large.api.deleteDataset(large.dataset.id, PROVIDER);
+  assert.deepEqual(large.purges, [large.dataset.id]);
+  assert.deepEqual(large.unpins, [], "une référence R2 n'est pas un CID IPFS");
+
+  const small = deletionFixture({ status: "DRAFT", noTitle: true });
+  await small.api.deleteDataset(small.dataset.id, PROVIDER);
+  assert.deepEqual(small.unpins, ["bafy-fixture"]);
+  assert.deepEqual(small.purges, [small.dataset.id], "un brouillon peut avoir un envoi en morceaux en cours");
 });
 
 test("un DELETED sans titre se finalise sans envoyer un identifiant null au RPC", async () => {

@@ -1,5 +1,6 @@
 import type { ModelId } from "@/lib/models/registry";
 import type { DatasetCategory } from "@/lib/datasets/publication";
+import type { CsvStreamSummary } from "@/lib/upload/csv-stream";
 
 /** Fichier lu dans le navigateur : contenu binaire (chiffré plus tard) et texte (contrôlé tout de suite). */
 export interface LoadedFile {
@@ -7,6 +8,11 @@ export interface LoadedFile {
   sizeBytes: number;
   content: ArrayBuffer;
   text: string;
+  /**
+   * Gros fichier (au-delà de 3 Mo) : jamais chargé en entier. `content` et `text` restent vides ;
+   * le contrôle vient de la lecture en flux et l'envoi se fait en morceaux depuis `blob`.
+   */
+  large?: { blob: Blob; summary: CsvStreamSummary; merkleRoot: string };
 }
 
 /** Valeurs de l'étape 1. La catégorie vide signifie « pas encore choisie ». */

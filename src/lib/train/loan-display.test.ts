@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { EN_MESSAGES } from "@/lib/i18n/english";
 import {
@@ -14,7 +12,10 @@ import {
   needsLockFinalityCheck,
   canResumeSettlement,
   canRetrain,
-  canRetrieveModelKey,
+  canPredictLoan,
+  canExtendLoan,
+  isLoanModelDeleted,
+  isLoanRentalExpired,
   hasOtherActiveLoan,
   isFailedWithoutModel,
   isOverdueUnsettled,
@@ -173,10 +174,13 @@ test("A-05, A-10 : échu avec capsule et reçu, sans release diffusé : Rembours
   assert.equal(canRefund(prepared({ status: "CANCELLED" }), ME), false);
 });
 
-test("Finaliser ou réconcilier le règlement : capsule et reçu, et règlement encore possible", () => {
+test("Finaliser ou réconcilier le règlement : modèle scellé et reçu, et règlement encore possible", () => {
   const ready = (overrides: Partial<LoanDisplayInput> = {}) =>
-    loan({ status: "TRAINING", modelCid: "bafy", runnerReceipt: "receipt", ...overrides });
+    loan({ status: "TRAINING", modelCid: `sm1${"ef".repeat(32)}`, runnerReceipt: "receipt", ...overrides });
   assert.equal(canResumeSettlement(ready()), true);
+  // Ancien CID (livraison supprimée) : rien à finaliser avant release ; un release déjà diffusé se réconcilie.
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel" })), false);
+  assert.equal(canResumeSettlement(ready({ modelCid: "bafyLegacyModel", status: "SETTLING", settleTxHash: TX })), true);
   assert.equal(canResumeSettlement(ready({ status: "SETTLING" })), true);
   // Release diffusé avant l'échéance : la réconciliation reste proposée, même échu.
   assert.equal(canResumeSettlement(ready({ status: "SETTLING", settleTxHash: TX, refundable: true })), true);
@@ -346,23 +350,6 @@ test("la confirmation de double emprunt dit ce que fait déjà l'emprunt existan
     "The network is taking longer than expected to finalize your payment. Come back later to run the job: your payment is safe in escrow.");
 });
 
-test("page Train : le bouton de lancement est remplacé pendant l'attente de finalité, décidée par le suivi pur", () => {
-  const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
-  // Le bouton « Lancer le job » n'est rendu qu'en dehors de l'attente ; un bouton inactif le remplace.
-  assert.match(page, /\{!l\.refundable && !awaitingLock && \(l\.status === "ESCROWED"/);
-  assert.match(page, /data-testid="lock-finality-button"/);
-  assert.match(page, /data-testid="lock-finality-wait"/);
-  assert.match(page, /data-testid="lock-finality-exhausted"/);
-  // Seule une réponse 200 est une lecture ; tout le reste est une erreur pour le suivi (lock-finality-tracker.ts).
-  assert.match(page, /if \(response\.status === 200\)/);
-  assert.match(page, /observeLockFinality\(current, result, Date\.now\(\)\)/);
-  // Le refus de finalité n'est pas une erreur : il rend le lancement automatique et reprend l'attente.
-  assert.match(page, /message === LOCK_FINALITY_PENDING[\s\S]*?lockFinalityRunRefused\(current, Date\.now\(\)\)/);
-  // Onglet caché : aucune relecture, reprise au retour.
-  assert.match(page, /document\.hidden/);
-  assert.match(page, /addEventListener\("visibilitychange"/);
-});
-
 test("le self training n'est montré que si le serveur répond exactement admin: true", () => {
   assert.equal(parseAdminResponse({ admin: true }), true);
   for (const body of [{ admin: false }, {}, null, undefined, "true", 1, [], { admin: "true" }, { admin: 1 }, { error: "x" }]) {
@@ -370,33 +357,61 @@ test("le self training n'est montré que si le serveur répond exactement admin:
   }
 });
 
-test("Vérifier et télécharger : la clé n'est proposée que sur un emprunt réglé, à son emprunteur", () => {
-  const settled = () => loan({ status: "SETTLED", settleTxHash: TX, modelCid: "bafy", runnerReceipt: "receipt" });
-  assert.equal(canRetrieveModelKey(settled(), ME), true);
-  assert.equal(canRetrieveModelKey(settled(), ME.toUpperCase().replace("0X", "0x")), true);
-  // Fournisseur, tiers ou sans wallet : aucun appel à /api/loans/[id]/key (A-12).
-  assert.equal(canRetrieveModelKey(settled(), OTHER), false);
-  assert.equal(canRetrieveModelKey(settled(), null), false);
-  assert.equal(canRetrieveModelKey(settled(), ""), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), borrower: undefined }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), borrower: "pas-une-adresse" }, ME), false);
+test("Prédiction d'un emprunt : proposée seulement sur un emprunt réglé, à son emprunteur", () => {
+  const settled = () => loan({ status: "SETTLED", settleTxHash: TX, modelCid: "sm1abc", runnerReceipt: "receipt" });
+  assert.equal(canPredictLoan(settled(), ME), true);
+  assert.equal(canPredictLoan(settled(), ME.toUpperCase().replace("0X", "0x")), true);
+  // Fournisseur, tiers ou sans wallet : aucune prédiction proposée.
+  assert.equal(canPredictLoan(settled(), OTHER), false);
+  assert.equal(canPredictLoan(settled(), null), false);
+  assert.equal(canPredictLoan(settled(), ""), false);
+  assert.equal(canPredictLoan({ ...settled(), borrower: undefined }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), borrower: "pas-une-adresse" }, ME), false);
   for (const status of ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "CANCELLED", "X"]) {
-    assert.equal(canRetrieveModelKey({ ...settled(), status }, ME), false, status);
+    assert.equal(canPredictLoan({ ...settled(), status }, ME), false, status);
   }
-  assert.equal(canRetrieveModelKey({ ...settled(), settleTxHash: null }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: null }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), runnerReceipt: undefined }, ME), false);
-  assert.equal(canRetrieveModelKey({ ...settled(), cancelTxHash: TX }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), settleTxHash: null }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), runnerReceipt: null }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), runnerReceipt: undefined }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), cancelTxHash: TX }, ME), false);
+  assert.equal(canPredictLoan({ ...settled(), finalityReview: "divergence" }, ME), false);
 });
 
-test("page Train : la clé d'un emprunt est demandée au clic, jamais au chargement (A-04, A-12)", () => {
-  const page = readFileSync(fileURLToPath(new URL("../../app/(app)/train/page.tsx", import.meta.url)), "utf8");
-  const refresh = page.match(/const refresh = useCallback\(async \(\) => \{([\s\S]*?)\}, \[address, authenticated\]\);/);
-  assert.ok(refresh, "refresh() introuvable");
-  assert.doesNotMatch(refresh![1], /retrieveLoanKey/, "refresh() ne doit pas demander la clé des emprunts");
-  assert.doesNotMatch(refresh![1], /fetch\([^)]*\/key\b/, "refresh() ne doit pas appeler la route de livraison de clé");
-  // Le bouton est conditionné par l'emprunteur, et le seul appel part du gestionnaire de clic.
-  assert.match(page, /\{canRetrieveModelKey\(l, address\) && \(\s*<button\s*onClick=\{\(\) => void inspectLoanModel\(l\)\}/);
-  assert.equal(page.match(/retrieveLoanKey\(/g)?.length, 1);
-  assert.match(page, /async function inspectLoanModel\(loan: Loan\) \{[\s\S]*?canRetrieveModelKey\(loan, address\)[\s\S]*?retrieveLoanKey\(loan\.id, loan\.runnerReceipt\)/);
+test("D-29 : la prédiction se ferme à l'échéance de la location ; un prêt hérité ou une prolongation n'ont pas d'échéance propre", () => {
+  const NOW = Date.parse("2026-11-03T12:00:00.000Z");
+  const rented = (rentalExpiresAt: string | null) => loan({
+    status: "SETTLED", settleTxHash: TX, modelCid: "sm1abc", runnerReceipt: "receipt", rentalDays: 7, rentalExpiresAt,
+  });
+  assert.equal(canPredictLoan(rented("2026-11-03T12:00:00.001Z"), ME, NOW), true, "avant l'échéance");
+  assert.equal(canPredictLoan(rented("2026-11-03T12:00:00.000Z"), ME, NOW), false, "à l'échéance exactement");
+  assert.equal(canPredictLoan(rented("2026-10-01T00:00:00.000Z"), ME, NOW), false, "après l'échéance");
+  assert.equal(isLoanRentalExpired(rented("2026-11-03T12:00:00.000Z"), NOW), true);
+  // Prêt hérité (avant D-29) : jamais d'échéance.
+  const legacy = loan({ status: "SETTLED", settleTxHash: TX, modelCid: "sm1abc", runnerReceipt: "receipt", rentalDays: null, rentalExpiresAt: null });
+  assert.equal(isLoanRentalExpired(legacy, NOW), false);
+  assert.equal(canPredictLoan(legacy, ME, NOW), true);
+  // Une prolongation n'a ni modèle ni prédiction.
+  assert.equal(canPredictLoan({ ...rented("2027-01-01T00:00:00.000Z"), extendsLoanId: "loan-0" }, ME, NOW), false);
+});
+
+test("D-29 : « Prolonger » est proposé à l'emprunteur d'un prêt loué réglé, avant comme après l'échéance, jusqu'à la suppression du modèle", () => {
+  const NOW = Date.parse("2026-11-03T12:00:00.000Z");
+  const DAY = 86_400_000;
+  const rented = (expiresAt: number, overrides: Partial<LoanDisplayInput> = {}) => loan({
+    status: "SETTLED", settleTxHash: TX, modelCid: "sm1abc", runnerReceipt: "receipt", rentalDays: 7,
+    rentalExpiresAt: new Date(expiresAt).toISOString(), ...overrides,
+  });
+  assert.equal(canExtendLoan(rented(NOW + DAY), ME, NOW), true, "location en cours");
+  assert.equal(canExtendLoan(rented(NOW - DAY), ME, NOW), true, "échue, modèle encore scellé");
+  assert.equal(canExtendLoan(rented(NOW - 30 * DAY + 1), ME, NOW), true, "dernier instant du délai de grâce");
+  assert.equal(isLoanModelDeleted(rented(NOW - 30 * DAY), NOW), true);
+  assert.equal(canExtendLoan(rented(NOW - 30 * DAY), ME, NOW), false, "modèle supprimé : location close");
+  assert.equal(canExtendLoan(rented(NOW + DAY), OTHER, NOW), false, "fournisseur ou tiers");
+  assert.equal(canExtendLoan(rented(NOW + DAY, { rentalDays: null, rentalExpiresAt: null }), ME, NOW), false, "prêt hérité");
+  assert.equal(canExtendLoan(rented(NOW + DAY, { extendsLoanId: "loan-0" }), ME, NOW), false, "prolongation d'une prolongation");
+  assert.equal(canExtendLoan(rented(NOW + DAY, { finalityReview: "divergence" }), ME, NOW), false, "revue de finalité");
+  for (const status of ["ESCROWED", "TRAINING", "SETTLING", "CANCELLED"]) {
+    assert.equal(canExtendLoan(rented(NOW + DAY, { status }), ME, NOW), false, status);
+  }
+  assert.equal(canRetrain(rented(NOW + DAY, { extendsLoanId: "loan-0" }), ME), false, "une prolongation n'a rien entraîné");
 });

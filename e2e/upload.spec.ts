@@ -12,7 +12,7 @@ import { mockSigningWallet, walletAddress } from "./helpers/wallet";
  * test. Aucun appel n'atteint la base, l'enclave ni la chaîne.
  */
 
-const EXAMPLE = readFileSync("public/examples/regression/housing-prices-train.csv");
+const EXAMPLE = readFileSync("public/examples/classification/credit-default-train.csv");
 const DATASET_ID = "cmg2upload0000000000001";
 
 function usdc(amount: string): string {
@@ -60,8 +60,9 @@ async function mockPublicationApi(page: Page, options: { challengeDays?: number 
             ingressKey: { version: 1, publicKey: ingressPublicKey(), origin: new URL(request.url()).origin },
             priceUsdcAtomic: usdc("12.5"),
             challengeDays: options.challengeDays ?? 3,
+            maxRentalDays: 60,
             sizeBytes: EXAMPLE.byteLength,
-            model: { modelId: "linear_regression", modelVersion: "1.0.0" },
+            model: { modelId: "logistic_regression", modelVersion: "1.0.0" },
             category: "Finance",
             listingDays: 90,
             listingExpiresAt: "2027-01-02T10:00:00.000Z",
@@ -89,9 +90,9 @@ async function fillStepOne(page: Page) {
   await page.waitForFunction(() => Boolean(window.__SIRIUS_E2E__));
   await page.getByRole("button", { name: "Load the example dataset" }).click();
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();
-  await expect(page.getByText("Data rows").locator("..").getByText("112", { exact: true })).toBeVisible();
-  await expect(page.getByText("Target column").locator("..").getByText("price_eur", { exact: true })).toBeVisible();
-  await page.getByLabel("Name", { exact: true }).fill("Housing prices Lyon");
+  await expect(page.getByText("Data rows").locator("..").getByText("480", { exact: true })).toBeVisible();
+  await expect(page.getByText("Target column").locator("..").getByText("defaulted", { exact: true })).toBeVisible();
+  await page.getByLabel("Name", { exact: true }).fill("Credit defaults Lyon");
   await page.getByLabel("Category").selectOption("Finance");
 }
 
@@ -121,13 +122,14 @@ test("l'étape 1 refuse un fichier invalide avec la raison exacte, avant tout en
   await expect(page.locator("main").getByRole("alert")).toHaveText("Invalid header: every column needs a unique name of at most 128 characters.");
 
   await file.setInputFiles({ name: "continuous.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row * 3))) });
-  await expect(page.getByText("File accepted by the browser check.")).toBeVisible();
-  await page.getByLabel("Training profile").selectOption("logistic_regression");
+  await expect(page.getByLabel("Training profile")).toHaveValue("logistic_regression");
   await expect(page.locator("main").getByRole("alert")).toHaveText("For logistic regression, the target column “y” must contain only 0 and 1, with both classes present.");
-  await page.getByLabel("Training profile").selectOption("linear_regression");
+  // D-31 : la régression linéaire n'est plus proposée par défaut.
+  await expect(page.getByLabel("Training profile").locator('option[value="linear_regression"]')).toHaveCount(0);
+  await file.setInputFiles({ name: "binary.csv", mimeType: "text/csv", buffer: Buffer.from(csv(150, (row) => String(row % 2))) });
   await expect(page.getByText("File accepted by the browser check.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
-  await page.getByLabel("Name", { exact: true }).fill("Continuous");
+  await page.getByLabel("Name", { exact: true }).fill("Binary");
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeDisabled();
   await page.getByLabel("Category").selectOption("Other");
   await expect(page.getByRole("button", { name: "Continue to pricing" })).toBeEnabled();
@@ -148,7 +150,7 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(page.getByRole("heading", { name: "Securing on your device" })).toBeVisible();
   const started = Date.now();
   await expect(page.getByText(/Local fingerprint: [0-9a-f]{64}/)).toBeVisible();
-  const priceField = page.getByLabel("What I want to earn per loan (USDC)");
+  const priceField = page.getByLabel("What I want to earn per rental day (USDC)");
   await expect(priceField).toBeVisible({ timeout: 10_000 });
   expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
   await expect(page.getByText("Step 2 of 2")).toBeVisible();
@@ -163,9 +165,20 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
   await expect(breakdown.getByText("Borrower pays").locator("..").getByText("12.50 USDC")).toBeVisible();
   await expect(breakdown.getByText("Minimum set by the tariff: 0.001 USDC.")).toBeVisible();
   await expect(page.getByText(/escrow safety delay is set by Sirius to 3 days/)).toBeVisible();
+  // Durée maximale de location (D-29) : 30 jours par défaut, bornée à 1–365, publication bloquée sinon.
+  const rentalField = page.getByLabel("Maximum rental duration (days)");
+  await expect(rentalField).toHaveValue("30");
+  await rentalField.fill("0");
+  await expect(page.getByText("Invalid duration: a whole number of days between 1 and 365.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish the dataset" })).toBeDisabled();
+  await expect(page.getByText("Enter a valid maximum rental duration to publish.")).toBeVisible();
+  await rentalField.fill("366");
+  await expect(page.getByRole("button", { name: "Publish the dataset" })).toBeDisabled();
+  await rentalField.fill("60");
+  await expect(page.getByText("Invalid duration: a whole number of days between 1 and 365.")).toHaveCount(0);
   await expect(page.getByRole("radio", { name: "30 days (default)" })).toBeChecked();
   await page.getByRole("radio", { name: "90 days", exact: true }).check();
-  await expect(page.getByText(/Sirius currently trains three models on tabular data/)).toBeVisible();
+  await expect(page.getByText(/Sirius currently trains a few simple models on tabular data/)).toBeVisible();
   const consent = page.getByRole("checkbox", { name: /Allow Sirius to use this dataset, inside the enclave only/ });
   await expect(consent).not.toBeChecked();
   await consent.check();
@@ -175,13 +188,14 @@ test("publie en deux étapes : contrôle, sécurisation, prix décomposé, conse
 
   // Le serveur reçoit les termes du formulaire, sans délai de sécurité choisi par le client.
   expect(captured.draft).toEqual({
-    name: "Housing prices Lyon",
+    name: "Credit defaults Lyon",
     sizeBytes: EXAMPLE.byteLength,
     priceUsdc: "12.5",
     category: "Finance",
+    maxRentalDays: 60,
     listingDays: 90,
     trainingConsent: true,
-    modelId: "linear_regression",
+    modelId: "logistic_regression",
   });
   expect(captured.draft).not.toHaveProperty("challengeDays");
   // L'enveloppe est chiffrée dans le navigateur et autorisée par la délégation runner.
@@ -200,9 +214,10 @@ test("un délai de sécurité renvoyé différent de 3 jours arrête la publicat
   await page.goto("/datasets/new");
   await fillStepOne(page);
   await page.getByRole("button", { name: "Continue to pricing" }).click();
-  const priceField = page.getByLabel("What I want to earn per loan (USDC)");
+  const priceField = page.getByLabel("What I want to earn per rental day (USDC)");
   await expect(priceField).toBeVisible({ timeout: 10_000 });
   await priceField.fill("12.5");
+  await page.getByLabel("Maximum rental duration (days)").fill("60");
   await page.getByRole("button", { name: "Publish the dataset" }).click();
   await expect(page.locator("main").getByRole("alert")).toContainText("Inconsistent escrow safety delay");
   await expect(page.getByRole("list", { name: "Publication progress" }).locator("li").first()).toHaveAttribute("data-state", "failed");

@@ -4,19 +4,17 @@ import { AppError } from "@/lib/errors";
 import { runSelfTrainingInRunner } from "@/lib/tee/runner-client";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
-import { unpinModelUnlessReferenced } from "@/lib/sirius/model-storage";
 import { modelSelection } from "@/lib/models/registry";
 import { assertDatasetScope } from "@/lib/evm/dataset";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
-import type { RunnerDeliveryEnvelope } from "@/lib/tee/contract";
+import { assertOfferedProfile } from "@/lib/runner/profile-admission";
+import { modelFeaturesFromRunner } from "@/lib/sirius/prediction";
 
 export interface SelfTrainResult {
   jobId: string;
-  modelCid: string;
-  runnerReceipt: string;
+  servedModelId: string;
   metrics: Record<string, number>;
-  modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
 
 const MAX_RUNNING_JOBS = 1;
@@ -28,7 +26,7 @@ const STALE_JOB_MS = 2 * 60_000;
 /**
  * Self-train (MLaaS, D-19) : entraînement sur son PROPRE dataset. Aucun escrow ni
  * fair-exchange — le propriétaire a déjà l'accès, il n'y a personne à payer. Le TEE
- * déchiffre, entraîne et rend le modèle chiffré sous une clé livrée directement.
+ * déchiffre, entraîne et garde le modèle scellé ; il ne s'utilise que par prédiction signée.
  */
 export async function runSelfTrain(
   datasetId: string,
@@ -36,7 +34,6 @@ export async function runSelfTrain(
   jobId: string,
   datasetReceipt: string,
   authorization: RunnerGrant,
-  deliveryPublicKey?: string,
 ): Promise<SelfTrainResult> {
   await requireAcceptedKyb(owner);
   await requireCurrentEvmDeployment();
@@ -58,6 +55,7 @@ export async function runSelfTrain(
   if (dataset.runnerReceipt !== datasetReceipt) throw new AppError("Reçu dataset invalide", 400);
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   if (!model) throw new AppError("Profil d’entraînement du dataset absent ou invalide", 409);
+  assertOfferedProfile(model);
 
   await assertDatasetScope({
     datasetId: dataset.id,
@@ -91,43 +89,43 @@ export async function runSelfTrain(
     });
   });
 
-  let modelCid: string | undefined;
   try {
-    const out = await runSelfTrainingInRunner({
+    const input = {
       datasetId: dataset.id,
       cid: dataset.ipfsCid,
       wrappedKey: dataset.wrappedKey,
       merkleRoot: dataset.merkleRoot,
       priceUsdcAtomic: dataset.priceUsdcAtomic,
       challengeDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       jobId: job.id,
       ...model,
-    }, datasetReceipt, authorization, deliveryPublicKey);
-    if (deliveryPublicKey && !out.modelKeyEnvelope) throw new AppError("Livraison chiffrée manquante", 502);
-    modelCid = out.modelCid;
+    };
+    const out = await runSelfTrainingInRunner(input, datasetReceipt, authorization);
+    if (out.servedModelId !== job.id || typeof out.modelCid !== "string" || !out.modelCid || typeof out.runnerReceipt !== "string") {
+      throw new AppError("Résultat de modèle servi invalide", 502);
+    }
+    const modelFeatures = modelFeaturesFromRunner(out.features);
     const completed = await prisma.trainingJob.updateMany({
       where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },
       data: {
         status: "DONE",
-        modelCid,
+        servedModelId: job.id,
+        // Empreinte du modèle scellé (`servedModelFingerprint`), jamais un CID IPFS.
+        modelCid: out.modelCid,
+        modelFeatures,
         metrics: out.metrics,
         runnerReceipt: out.runnerReceipt,
-        ...(out.modelKeyEnvelope ? {
-          deliveryPublicKey,
-          deliveryEnvelope: JSON.parse(JSON.stringify(out.modelKeyEnvelope)),
-        } : {}),
         completedAt: new Date(),
       },
     });
     if (completed.count !== 1) throw new AppError("Le lease d’entraînement a expiré", 409);
-    return { jobId: job.id, modelCid, runnerReceipt: out.runnerReceipt, metrics: out.metrics,
-      ...(out.modelKeyEnvelope ? { modelKeyEnvelope: out.modelKeyEnvelope } : {}) };
+    return { jobId: job.id, servedModelId: job.id, metrics: out.metrics };
   } catch (err) {
     await prisma.trainingJob.updateMany({
       where: { id: job.id, status: "RUNNING", updatedAt: job.updatedAt },
       data: { status: "FAILED", completedAt: new Date() },
     });
-    if (modelCid) await unpinModelUnlessReferenced(modelCid, dataset.id);
     throw err;
   }
 }

@@ -28,7 +28,8 @@ function installedVolume(t: { after: (fn: () => void) => void }, sponsored = fal
       maxOperations: 6, maxOperationsPerWallet: 2, maxConcurrent: 1, origin: "https://demo.example", observedAtMs: Date.now() - 1000 } } : {}) };
   const billing = { version: 1, chainId: 46630, usdc: `0x${"34".repeat(20)}`, usdcDecimals: 18,
     computeRecipient: `0x${"56".repeat(20)}`, tariffVersion: "installed-v1", costReference: "synthetic-test-only",
-    validUntil: validUntil - 1000, minimumComputeAmount: "1000", profiles: { linear_regression: profile, logistic_regression: profile } };
+    validUntil: validUntil - 1000, minimumComputeAmount: "1000", noTrainingComputeAmount: "100", apiCallsPerDay: { logistic_regression: 50 },
+    profiles: { linear_regression: profile, logistic_regression: profile } };
   initializeRunnerVolume(root, budget, billing);
   const withTrees = { ...billing, tariffVersion: "installed-v2", profiles: { ...billing.profiles, gradient_boosted_trees: profile } };
   return { root, budget, billing, withTrees, directory: join(root, "budget") };
@@ -79,6 +80,26 @@ test("un prix installé ne change qu'avec l'option explicite", (t) => {
   assert.deepEqual(read(directory), billing);
   const result = updateRunnerBillingPolicy(directory, json(repriced), testnet, { allowProfileChanges: true });
   assert.deepEqual(result.changedProfiles, ["logistic_regression"]);
+});
+
+test("frais sans entraînement et quotas d'API installés ne changent qu'avec l'option ; un nouveau quota est libre", (t) => {
+  const { billing, withTrees, directory } = installedVolume(t);
+  for (const changed of [
+    { ...withTrees, noTrainingComputeAmount: "200" },
+    { ...withTrees, apiCallsPerDay: { logistic_regression: 60 } },
+    { ...withTrees, apiCallsPerDay: {} },
+  ]) assert.throws(() => updateRunnerBillingPolicy(directory, json(changed), testnet), /option explicite/);
+  assert.deepEqual(read(directory), billing);
+  const added = { ...withTrees, apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 } };
+  assert.equal(updateRunnerBillingPolicy(directory, json(added), testnet).status, "updated");
+});
+
+test("un tarif installé avant l'API reçoit ses frais sans entraînement et ses quotas sans option", (t) => {
+  const { billing, withTrees, directory } = installedVolume(t);
+  const legacy = Object.fromEntries(Object.entries(billing).filter(([key]) => key !== "noTrainingComputeAmount" && key !== "apiCallsPerDay"));
+  writeFileSync(join(directory, "billing-policy.json"), json(legacy), { mode: 0o600 });
+  assert.equal(updateRunnerBillingPolicy(directory, json(withTrees), testnet).status, "updated");
+  assert.deepEqual(read(directory), withTrees);
 });
 
 test("un tarif identique écrit dans un autre ordre de clés n'est pas un changement de prix", (t) => {

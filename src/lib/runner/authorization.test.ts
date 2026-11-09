@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, createHmac } from "node:crypto";
 import { before, test } from "node:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { useWalletStore } from "@/stores/wallet";
@@ -7,6 +8,7 @@ import { buildDelegationMessage, encodeRunnerGrantHeader, parseRunnerGrantHeader
 import { verifyRunnerGrant } from "./authorization";
 import { issueDatasetReceipt, verifyDatasetReceipt } from "./receipt";
 import type { DatasetRef } from "@/lib/tee/contract";
+import { deriveKey, getMasterKey } from "@/lib/crypto/encryption";
 
 before(() => {
   process.env.TEE_MODE = "stub";
@@ -70,11 +72,42 @@ test("le reçu de dataset lie les termes USDC au contenu scellé", () => {
     merkleRoot: "0xabc123",
     priceUsdcAtomic: "2500000",
     challengeDays: 7,
+    maxRentalDays: 90,
     modelId: "linear_regression",
     modelVersion: "1.0.0",
   } as const satisfies DatasetRef;
   const receipt = issueDatasetReceipt("0x1111111111111111111111111111111111111111", dataset);
   assert.equal(verifyDatasetReceipt(receipt, dataset).priceUsdcAtomic, "2500000");
+  assert.equal(verifyDatasetReceipt(receipt, dataset).maxRentalDays, 90);
+  assert.equal(verifyDatasetReceipt(receipt, dataset).version, 4);
   assert.throws(() => verifyDatasetReceipt(receipt, { ...dataset, priceUsdcAtomic: "1" }), /hors scope/);
+  assert.throws(() => verifyDatasetReceipt(receipt, { ...dataset, maxRentalDays: 365 }), /hors scope/);
   assert.throws(() => verifyDatasetReceipt(receipt, { ...dataset, modelId: "logistic_regression" }), /hors scope/);
+});
+
+/** Reçu signé avec la clé du runner, tel qu'émis avant D-29 (v3) ou forgé hors format. */
+function signedReceipt(payload: Record<string, unknown>): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${body}.${createHmac("sha256", deriveKey(getMasterKey(), "runner-receipt:hmac:v3")).update(body).digest("base64url")}`;
+}
+
+test("un reçu de dataset v3 (avant D-29) reste accepté et vaut 30 jours de location maximum", () => {
+  const dataset = {
+    datasetId: "dataset-legacy", cid: "bafy-legacy", wrappedKey: "wrapped-legacy", merkleRoot: "0xdef456",
+    priceUsdcAtomic: "1000000", challengeDays: 3, maxRentalDays: 30, modelId: "linear_regression", modelVersion: "1.0.0",
+  } as const satisfies DatasetRef;
+  const receiptPayload = {
+    version: 3, kind: "dataset", datasetId: dataset.datasetId, owner: "0x1111111111111111111111111111111111111111",
+    cid: dataset.cid, wrappedKeyHash: createHash("sha256").update(dataset.wrappedKey).digest("hex"),
+    merkleRoot: dataset.merkleRoot, priceUsdcAtomic: dataset.priceUsdcAtomic, challengeDays: dataset.challengeDays,
+    modelId: dataset.modelId, modelVersion: dataset.modelVersion,
+  };
+  const legacy = signedReceipt(receiptPayload);
+  assert.equal(verifyDatasetReceipt(legacy, dataset).maxRentalDays, 30);
+  assert.throws(() => verifyDatasetReceipt(legacy, { ...dataset, maxRentalDays: 31 }), /hors scope/);
+  // Un v3 portant une durée, ou un v4 sans durée valide, n'existe pas : refusé.
+  assert.throws(() => verifyDatasetReceipt(signedReceipt({ ...receiptPayload, maxRentalDays: 30 }), dataset), /Reçu runner invalide/);
+  for (const maxRentalDays of [undefined, 0, 366, 1.5, "30"]) {
+    assert.throws(() => verifyDatasetReceipt(signedReceipt({ ...receiptPayload, version: 4, maxRentalDays }), dataset), /Reçu runner invalide/);
+  }
 });

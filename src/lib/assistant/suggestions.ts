@@ -45,7 +45,7 @@ const BY_PAGE: readonly { prefix: string; suggestions: readonly AssistantSuggest
     prefix: "/train",
     suggestions: [
       FINALITY,
-      { question: "Comment récupérer mon modèle ?", answer: "Quand l’entraînement est réglé, clique sur Vérifier et télécharger sur la page Entraîner : la clé du modèle est livrée et tu peux le déchiffrer dans ton navigateur." },
+      { question: "Comment utiliser mon modèle ?", answer: "Quand l’entraînement est réglé, saisis tes variables sur la page Entraîner et clique sur Demander une prédiction : le modèle reste scellé dans l’enclave et renvoie une réponse signée, décision 0/1 ou valeur." },
       { question: "Que faire si l’entraînement échoue ?", answer: "Le prix du dataset et le compute non utilisé sont remboursés dans l’escrow ; seuls les frais d’exécution mesurés, plafonnés dans le devis, sont retenus. Retire le crédit depuis la page Wallet." },
       BORROW,
     ],
@@ -71,7 +71,7 @@ const BY_PAGE: readonly { prefix: string; suggestions: readonly AssistantSuggest
     prefix: "/explorer",
     suggestions: [
       { question: "Que montre l’Explorer ?", answer: "Tes emprunts, règlements et remboursements, chacun vérifiable sur l’explorateur de la chaîne. Jamais le contenu des datasets." },
-      { question: "Qu’est-ce qu’un reçu d’audit ?", answer: "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle livré." },
+      { question: "Qu’est-ce qu’un reçu d’audit ?", answer: "Chaque entraînement produit un reçu d’audit et un certificat qui lient le titre du dataset, le prêt, l’attestation TEE et l’empreinte du modèle scellé dans l’enclave." },
       SAFETY,
     ],
   },

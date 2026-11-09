@@ -12,8 +12,9 @@ import { CONTACT_EMAIL } from "@/lib/copy/disclaimers";
  *   défis de connexion 5 min, purgés      src/lib/auth/challenge.ts (TTL_MS, deleteMany)
  *   cookie d'aperçu 7 jours               src/lib/preview-gate/gate.ts (PREVIEW_COOKIE_MAX_AGE_SECONDS)
  *   profil (adresse, réglages, blocage)   prisma/schema.prisma (UserProfile), src/lib/users/profile.ts
- *   journal des accès, 24 mois            prisma/schema.prisma (DatasetAccessLog), /terms
- *   suppression d'un dataset              src/lib/sirius/provider.ts (deleteDataset : clé détruite, unpin)
+ *   journal des accès historique, 24 mois prisma/schema.prisma (DatasetAccessLog), /terms ; plus aucune écriture
+ *   compteurs de prédiction               src/lib/runner/prediction-usage.ts (wallet, modèle, jour, total)
+ *   suppression d'un dataset              src/lib/sirius/provider.ts (deleteDataset : clé détruite, unpin IPFS ou purge R2 des gros fichiers)
  *   IP : limitation de débit en mémoire   src/lib/http/rate-limit.ts (requestClientKey), jamais en base
  *   e-mail Google : affichage local seul  src/lib/wallet/embedded.ts (embeddedUserEmail, disableAnalytics)
  *   attestation on-chain                  contracts/src/SiriusKybRegistry.sol (adresse, vérificateur, expiration)
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
   description: "What personal data Sirius processes, why, for how long, and your rights.",
 };
 
-const LAST_UPDATED = "6 October 2026";
+const LAST_UPDATED = "1 November 2026";
 
 interface Processing {
   title: string;
@@ -56,18 +57,25 @@ const PROCESSING: Processing[] = [
     data: "The listing details you enter (name, description, category, price), aggregate statistics computed inside the enclave (size, schema, completeness), the encrypted file and its wrapped key, and your model improvement choice with its date and text version. The file is encrypted in your browser before upload and decrypted only inside the training enclave: Sirius and its hosting providers cannot read its content.",
     purpose: "Listing your dataset and running the loans and trainings you agree to.",
     basis: "Performance of the contract. Use for model improvement relies on your consent, which is optional and can be withdrawn at any time.",
-    retention: "Kept until you delete the dataset. Deleting it destroys the active encryption key and removes the encrypted file from Sirius' IPFS storage; the listing record is kept for the audit ledger. Database backups may keep an older copy of the encrypted key for a limited time.",
+    retention: "Kept until you delete the dataset. Deleting it destroys the active encryption key and removes the encrypted file from Sirius' storage (IPFS, or Cloudflare R2 for large files); the listing record is kept for the audit ledger. Database backups may keep an older copy of the encrypted key for a limited time.",
   },
   {
     title: "Loans and payments",
-    data: "Borrower and provider wallet addresses, amounts, transaction hashes, signed training receipts and attestations, and a reference to the delivered model.",
+    data: "Borrower and provider wallet addresses, amounts, transaction hashes, signed training receipts and attestations, and the fingerprint of the trained model. The model itself stays sealed in the training environment and is never delivered.",
     purpose: "Executing, settling and refunding loans, and publishing the audit ledger.",
     basis: "Performance of the contract.",
     retention: "Kept while the service operates, as they mirror public on-chain transactions. The off-chain copy can be deleted on request once no loan or dispute depends on it.",
   },
   {
+    title: "Predictions",
+    data: "When you request a prediction from a model you trained or borrowed: your wallet address, the model reference, the day and the number of calls. The features you submit are used to compute the answer; the signed answer returned to you contains only a hash of them.",
+    purpose: "Answering prediction requests and enforcing the daily prediction quota.",
+    basis: "Performance of the contract.",
+    retention: "Call counters are kept by the training environment while the service operates.",
+  },
+  {
     title: "Dataset access records",
-    data: "For each delivered model: the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself).",
+    data: "Records created before models stopped being delivered: for each past delivery, the wallet address, the loan, the date, the delivered model and its fingerprint (a hash, not the model itself). No new record is created.",
     purpose: "Detecting and investigating dataset leaks. Visible only to Sirius administrators.",
     basis: "Legitimate interest in protecting providers' data against leaks.",
     retention: "Kept for 24 months after the access, then deleted.",
@@ -106,6 +114,7 @@ const PROCESSORS = [
   "Vercel (web application hosting)",
   "Neon (database)",
   "Pinata (IPFS storage of encrypted files)",
+  "Cloudflare R2 (storage of large encrypted files)",
   "Phala Cloud (confidential compute in Intel TDX enclaves)",
   "OVHcloud (background settlement tasks)",
   "Web3Auth (optional Google sign-in)",

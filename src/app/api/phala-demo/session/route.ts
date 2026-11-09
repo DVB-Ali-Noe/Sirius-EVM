@@ -12,6 +12,7 @@ export async function GET(req: Request) {
     enforceRateLimit(limiter, requestClientKey(req));
     const status = await requestDemoController();
     return NextResponse.json({ phase: status.phase, available: status.available,
-      activeOperations: status.activeOperations, funding: status.funding, sessionRevision: status.sessionRevision }, { headers: { "cache-control": "no-store" } });
+      activeOperations: status.activeOperations, funding: status.funding, sessionRevision: status.sessionRevision },
+    { headers: { "cache-control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }

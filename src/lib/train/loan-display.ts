@@ -1,4 +1,6 @@
 import { addressesEqual } from "@/lib/evm/address";
+import { isServedModelFingerprint } from "@/lib/models/registry";
+import { DAY_MS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
 
 /**
  * Logique d'affichage de la page Train pour les emprunts (docs/passage-mainnet/09-train-et-certificat.md,
@@ -21,12 +23,58 @@ export interface LoanDisplayInput {
   evmLoanKey?: string | null;
   settleTxHash?: string | null;
   cancelTxHash?: string | null;
+  /** Empreinte du modèle scellé dans le runner (`sm1…`) ou ancien CID : présente dès que le modèle est produit. */
   modelCid?: string | null;
   runnerReceipt?: string | null;
+  /** Motif de revue de finalité d'un prêt rapide : la prédiction reste fermée tant qu'il est posé. */
+  finalityReview?: string | null;
   /** Calculé par le serveur : prêt actif dont l'échéance est dépassée. */
   refundable?: boolean;
   /** Lu sur `GET /api/loans/[id]/finality` : lock pas encore sous le bloc stable, lancement refusé. */
   lockFinalityPending?: boolean;
+  /** Durée de location signée (D-29). Nulle : prêt hérité, sans échéance. */
+  rentalDays?: number | null;
+  /** Fin de l'accès aux prédictions (ISO), posée au règlement puis repoussée par chaque prolongation. */
+  rentalExpiresAt?: string | null;
+  /** Prêt de prolongation : identifiant du prêt d'origine. Il n'a ni modèle ni prédiction propres. */
+  extendsLoanId?: string | null;
+}
+
+/** Échéance de location connue et atteinte (`now` en ms). Un prêt hérité n'expire jamais. */
+export function isLoanRentalExpired(loan: LoanDisplayInput, now: number): boolean {
+  if (!loan.rentalExpiresAt) return false;
+  const expiresAt = Date.parse(loan.rentalExpiresAt);
+  return Number.isFinite(expiresAt) && now >= expiresAt;
+}
+
+/**
+ * Modèle scellé supprimé par le runner : `RENTAL_GRACE_DAYS` jours après l'échéance (même règle que
+ * la purge du runner). Plus rien à prolonger.
+ */
+export function isLoanModelDeleted(loan: LoanDisplayInput, now: number): boolean {
+  if (!loan.rentalExpiresAt) return false;
+  const expiresAt = Date.parse(loan.rentalExpiresAt);
+  return Number.isFinite(expiresAt) && now >= expiresAt + RENTAL_GRACE_DAYS * DAY_MS;
+}
+
+/**
+ * « Prolonger » : prêt ordinaire réglé (hors revue de finalité) à durée signée, par son emprunteur,
+ * tant que son modèle n'est pas supprimé. Proposé avant comme après l'échéance ; jamais sur un prêt
+ * hérité ni sur une prolongation. Le serveur revérifie tout (`/api/loans/[id]/extend`).
+ */
+export function canExtendLoan(loan: LoanDisplayInput, viewer: string | null | undefined, now: number): boolean {
+  return (
+    loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
+    typeof loan.rentalDays === "number" &&
+    Boolean(loan.rentalExpiresAt) &&
+    Boolean(loan.settleTxHash) &&
+    Boolean(loan.runnerReceipt) &&
+    !loan.cancelTxHash &&
+    !loan.finalityReview &&
+    !isLoanModelDeleted(loan, now) &&
+    isBorrower(loan, viewer)
+  );
 }
 
 export const LOAN_DISPLAY_STATES = [
@@ -81,15 +129,15 @@ export function isOverdueUnsettled(loan: LoanDisplayInput): boolean {
   );
 }
 
-/** Échec sans modèle livré : échu, sans capsule préparée (`modelCid` vide). */
+/** Échec sans modèle produit : échu, sans empreinte de modèle (`modelCid` vide). */
 export function isFailedWithoutModel(loan: LoanDisplayInput): boolean {
   return isOverdueUnsettled(loan) && !loan.modelCid;
 }
 
 /**
- * Échu avec une capsule de modèle (avec ou sans reçu enclave) dont le règlement ne peut plus être
- * finalisé. Aucun modèle n'a été livré (`settleTxHash` vide, clé jamais libérée) : sans secours, les
- * fonds resteraient bloqués, le remboursement est donc proposé.
+ * Échu avec un modèle produit (avec ou sans reçu enclave) dont le règlement ne peut plus être
+ * finalisé. Le prêt n'a pas été réglé (`settleTxHash` vide) : sans secours, les fonds resteraient
+ * bloqués, le remboursement est donc proposé.
  */
 export function isOverdueWithCapsule(loan: LoanDisplayInput): boolean {
   return isOverdueUnsettled(loan) && Boolean(loan.modelCid);
@@ -131,11 +179,13 @@ export function loanDisplayState(loan: LoanDisplayInput): LoanDisplayState {
 
 /**
  * « Ré-entraîner » : seulement sur un emprunt terminé et réglé, par son emprunteur. Un fournisseur
- * qui voit le prêt de quelqu'un d'autre ne l'obtient pas ; un prêt remboursé ou échoué non plus.
+ * qui voit le prêt de quelqu'un d'autre ne l'obtient pas ; un prêt remboursé ou échoué non plus, ni
+ * une prolongation (qui n'a rien entraîné).
  */
 export function canRetrain(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
   return (
     loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
     Boolean(loan.settleTxHash) &&
     !loan.cancelTxHash &&
     Boolean(loan.datasetId) &&
@@ -158,33 +208,36 @@ export function canRescueRefund(loan: LoanDisplayInput, viewer: string | null | 
 }
 
 /**
- * « Finaliser » ou « Réconcilier le règlement » : capsule et reçu présents, et règlement encore
- * possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le release
- * et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde la
- * réconciliation, même après l'échéance.
+ * « Finaliser » ou « Réconcilier le règlement » : modèle scellé produit et reçu présents, et règlement
+ * encore possible. Masqué dès que le prêt est échu sans release diffusé : le contrat refuserait le
+ * release et seul le remboursement reste (A-05, A-10). Un release déjà diffusé (`settleTxHash`) garde
+ * la réconciliation, même après l'échéance. Sans empreinte `sm1…` (entraîné avant la suppression de la
+ * livraison), rien n'est proposé avant release : le serveur refuserait de payer un modèle non servi.
  */
 export function canResumeSettlement(loan: LoanDisplayInput): boolean {
   return (
     (loan.status === "TRAINING" || loan.status === "SETTLING") &&
-    Boolean(loan.modelCid) &&
+    (isServedModelFingerprint(loan.modelCid) || Boolean(loan.modelCid && loan.settleTxHash)) &&
     Boolean(loan.runnerReceipt) &&
     !isOverdueUnsettled(loan)
   );
 }
 
 /**
- * « Vérifier et télécharger » : la clé du modèle n'est demandée qu'au clic, sur un emprunt réglé
- * (release miné, reçu enclave présent), par son emprunteur. Jamais au chargement de la page ni pour
- * un prêt où l'on est fournisseur : chaque appel à `/api/loans/[id]/key` consomme le quota de
- * livraison (20 par minute) et, pour un prêt v7, le budget runner prépayé (audit du 5 octobre,
- * A-04 et A-12). Le serveur reste l'autorité (`assertOwner`).
+ * Zone de prédiction : seulement sur un emprunt réglé (release miné, reçu enclave présent, hors revue
+ * de finalité), pour son emprunteur, avant l'échéance de sa location. Le modèle reste scellé dans le
+ * runner ; chaque prédiction est demandée au clic et consomme le quota quotidien. Une prolongation n'a
+ * pas de modèle propre. Le serveur reste l'autorité (`assertOwner`, échéance).
  */
-export function canRetrieveModelKey(loan: LoanDisplayInput, viewer: string | null | undefined): boolean {
+export function canPredictLoan(loan: LoanDisplayInput, viewer: string | null | undefined, now: number = Date.now()): boolean {
   return (
     loan.status === "SETTLED" &&
+    !loan.extendsLoanId &&
     Boolean(loan.settleTxHash) &&
     Boolean(loan.runnerReceipt) &&
     !loan.cancelTxHash &&
+    !loan.finalityReview &&
+    !isLoanRentalExpired(loan, now) &&
     isBorrower(loan, viewer)
   );
 }

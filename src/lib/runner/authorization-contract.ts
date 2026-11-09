@@ -5,8 +5,12 @@ export type AuthorizedRunnerOperation =
   | "run-training"
   | "run-loan-job"
   | "settle-loan"
-  | "loan-model-key"
-  | "self-train-key";
+  | "extend-loan"
+  | "predict"
+  | "seal-chunked-dataset"
+  | "register-api-key"
+  | "revoke-api-key"
+  | "buy-calls";
 
 export interface RunnerGrantScope {
   demoSessionRevision?: number;

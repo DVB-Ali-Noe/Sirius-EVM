@@ -11,12 +11,10 @@ import { recordSettlementEvidence } from "./settlement-evidence";
 import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { settlementQueuedError } from "./settlement-queued";
 import { recoverLoanJobInRunner, runLoanJobInRunner, settleLoanInRunner } from "@/lib/tee/runner-client";
-import type { RunnerReleaseEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
-import { unpinModelUnlessReferenced } from "./model-storage";
-import { modelSelection } from "@/lib/models/registry";
+import { isServedModelFingerprint, modelSelection } from "@/lib/models/registry";
 import type { ModelId } from "@/lib/models/registry";
-import { deferredLoanDeliveryCommitment, hashRunnerReleaseEnvelope } from "@/lib/runner/delivery";
+import { modelFeaturesFromRunner } from "./prediction";
 import {
   hashLoanAttestationPayload,
   parseLoanAttestationPayload,
@@ -27,6 +25,7 @@ import { evmEscrowBinding } from "@/lib/tee/evm-binding";
 import type { LoanAttestationPayload } from "@/lib/tee/types";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { LOCK_FINALITY_PENDING } from "@/lib/loans/settlement-status";
+import { loanRentalExpiry } from "./rental";
 
 const TRAINING_LEASE_MS = 90_000;
 
@@ -43,20 +42,11 @@ async function verifyLoanAttestation(input: {
   merkleRoot: string;
   modelId: ModelId;
   modelVersion: string;
+  /** Empreinte du modèle scellé dans le runner (`servedModelFingerprint`), gardée sous le nom historique. */
   modelCid: string;
-  releaseEnvelope?: RunnerReleaseEnvelope;
-  releaseEnvelopeHash: string;
-  deliveryPublicKey: string;
   billingQuoteHash?: string;
 }): Promise<void> {
   const { chainId, escrow } = evmEscrowBinding();
-  if (!input.billingQuoteHash && !input.releaseEnvelope) throw new AppError("Capsule de release incompatible", 409);
-  const expectedDeliveryHash = input.billingQuoteHash
-    ? deferredLoanDeliveryCommitment(input.loanKey, input.modelCid, input.deliveryPublicKey)
-    : hashRunnerReleaseEnvelope(input.releaseEnvelope!);
-  if (input.releaseEnvelopeHash !== expectedDeliveryHash || (input.billingQuoteHash && input.releaseEnvelope)) {
-    throw new AppError("Accusé de capsule invalide", 409);
-  }
   const payload = serializeLoanAttestationPayload({
     chainId,
     escrow,
@@ -72,7 +62,6 @@ async function verifyLoanAttestation(input: {
     modelId: input.modelId,
     modelVersion: input.modelVersion,
     modelCid: input.modelCid,
-    releaseEnvelopeHash: expectedDeliveryHash,
     ...(input.billingQuoteHash ? { billingQuoteHash: input.billingQuoteHash } : {}),
   });
   const attestation = input.attestation;
@@ -102,10 +91,9 @@ export interface PreparedLoanResult {
   loanId: string;
   modelCid: string;
   runnerReceipt: string;
-  releaseEnvelope?: RunnerReleaseEnvelope;
 }
 
-export interface SettleResult extends Omit<PreparedLoanResult, "releaseEnvelope"> {
+export interface SettleResult extends PreparedLoanResult {
   settleTxHash: string;
 }
 
@@ -118,6 +106,8 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
   const recovered = await recoverLoanJobInRunner(loanId, signed);
   if (recovered.state !== "ready") return false;
   const { result } = recovered;
+  // Résultat d'avant la suppression de la livraison : aucun modèle scellé, rien à régler (remboursement à l'échéance).
+  if (!isServedModelFingerprint(result.modelCid)) return false;
   const model = modelSelection(loan.modelId, loan.modelVersion);
   if (!model || !loan.dataset.ipfsCid || !loan.dataset.merkleRoot) throw new AppError("Dataset de reprise incohérent", 409);
   await verifyLoanAttestation({
@@ -125,13 +115,14 @@ export async function recoverLoanResult(loanId: string): Promise<boolean> {
     datasetCid: loan.dataset.ipfsCid, provider: loan.provider, borrower: loan.borrower,
     amountUsdcAtomic: loan.amountUsdcAtomic, billingQuoteHash: loan.billingQuoteHash!,
     challengeDays: loan.dataset.challengeDays, merkleRoot: loan.dataset.merkleRoot, ...model,
-    modelCid: result.modelCid, releaseEnvelope: result.releaseEnvelope,
-    releaseEnvelopeHash: result.releaseEnvelopeHash, deliveryPublicKey: recovered.deliveryPublicKey,
+    modelCid: result.modelCid,
   });
   const persisted = await prisma.loan.updateMany({
     where: { id: loanId, status: loan.status, modelCid: null, updatedAt: loan.updatedAt },
     data: {
       status: "TRAINING", modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
+      // Un résultat repris d'avant l'ajout des colonnes n'en porte pas : prédiction possible, sans pré-remplissage.
+      modelFeatures: result.features.length ? modelFeaturesFromRunner(result.features) : [],
       attestationHash: result.attestation.payloadHash, attestationPayload: result.attestation.payload,
       attestationQuote: result.attestation.evidence?.quote ?? null,
       attestationEventLog: result.attestation.evidence?.eventLog ?? null,
@@ -147,13 +138,16 @@ export { LOCK_FINALITY_PENDING };
 
 export async function prepareLoanResult(
   loanId: string,
-  deliveryPublicKey: string,
   authorization: RunnerGrant,
 ): Promise<PreparedLoanResult> {
   const lock = await prisma.loan.findUnique({
     where: { id: loanId },
-    select: { id: true, status: true, evmLockBlock: true, evmLockTxHash: true, evmLoanKey: true, amountUsdcAtomic: true, finalityTier: true },
+    select: { id: true, status: true, evmLockBlock: true, evmLockTxHash: true, evmLoanKey: true, amountUsdcAtomic: true, finalityTier: true, extendsLoanId: true, packForLoanId: true },
   });
+  // Une prolongation (D-29) ou un pack d'appels (D-30) ne réentraîne rien : ils se règlent par
+  // `extend-loan` (extend.ts) ou `buy-calls` (calls.ts).
+  if (lock?.extendsLoanId) throw new AppError("Une prolongation ne lance aucun entraînement", 409);
+  if (lock?.packForLoanId) throw new AppError("Un pack d’appels ne lance aucun entraînement", 409);
   if (lock?.status === "ESCROWED" && lock.evmLockBlock) {
     // Palier de finalité décidé ici, au moment où l'entraînement peut démarrer (finality-tier.ts) :
     // le montant est relu sur le contrat avant tout passage en rapide, et la somme des prêts rapides
@@ -223,12 +217,11 @@ export async function prepareLoanResult(
     throw new AppError("Profil d’entraînement du dataset incohérent", 409);
   }
 
-  let result: Awaited<ReturnType<typeof runLoanJobInRunner>> | undefined;
   try {
     const runner = await assertCurrentRunner(loan);
     await assertCurrentRunner(dataset);
     const billingQuote = loanBillingQuote(loan);
-    result = await runLoanJobInRunner(
+    const result = await runLoanJobInRunner(
       {
         loanId,
         datasetId: dataset.id,
@@ -237,10 +230,10 @@ export async function prepareLoanResult(
         merkleRoot: dataset.merkleRoot,
         priceUsdcAtomic: dataset.priceUsdcAtomic,
         challengeDays: dataset.challengeDays,
+        maxRentalDays: dataset.maxRentalDays,
         ...datasetModel,
       },
       dataset.runnerReceipt,
-      deliveryPublicKey,
       authorization,
       billingQuote,
       effectiveLoanFinalityTier(loan.finalityTier),
@@ -260,14 +253,12 @@ export async function prepareLoanResult(
       modelId: model.modelId,
       modelVersion: model.modelVersion,
       modelCid: result.modelCid,
-      releaseEnvelope: result.releaseEnvelope,
-      releaseEnvelopeHash: result.releaseEnvelopeHash,
-      deliveryPublicKey,
     });
     const persisted = await prisma.loan.updateMany({
       where: { id: loanId, status: "TRAINING", modelCid: null, updatedAt: now },
       data: {
         modelCid: result.modelCid,
+        modelFeatures: modelFeaturesFromRunner(result.features),
         runnerReceipt: result.runnerReceipt,
         attestationHash: result.attestation.payloadHash,
         attestationPayload: result.attestation.payload,
@@ -279,8 +270,7 @@ export async function prepareLoanResult(
       },
     });
     if (persisted.count !== 1) throw new AppError("Lease d’entraînement expiré", 409);
-    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt,
-      ...(billingQuote ? {} : { releaseEnvelope: result.releaseEnvelope }) };
+    return { loanId, modelCid: result.modelCid, runnerReceipt: result.runnerReceipt };
   } catch (error) {
     const resolution = await reconcileLoanEscrow(loan.evmLoanKey as `0x${string}`, BigInt(loan.evmLockBlock)).catch(() => undefined);
     await prisma.loan.updateMany({
@@ -290,7 +280,6 @@ export async function prepareLoanResult(
         ...(resolution.retainedFee !== undefined ? { retainedFeeUsdcAtomic: resolution.retainedFee, refundAmountUsdcAtomic: resolution.refundAmount } : {}),
       } : { status: "ESCROWED" },
     });
-    if (result?.modelCid && !loan.billingQuote) await unpinModelUnlessReferenced(result.modelCid, dataset.id);
     throw error;
   }
 }
@@ -316,6 +305,10 @@ export async function settlePreparedLoan(
     !loan.attestationPayload
   ) {
     throw new AppError("Résultat TEE ou preuve d’attestation absente", 409);
+  }
+  // Release pas encore diffusé : on ne paie le fournisseur que pour un modèle que `predict` servira.
+  if (!loan.settleTxHash && !isServedModelFingerprint(loan.modelCid)) {
+    throw new AppError("Modèle scellé absent : règlement refusé, remboursement à l’échéance", 409);
   }
   let payload: LoanAttestationPayload;
   try {
@@ -376,16 +369,27 @@ export async function settlePreparedLoan(
     const settlement = await settleLoanInRunner(
       loanId,
       loan.runnerReceipt,
-      payload.releaseEnvelopeHash,
       loan.evmLockBlock,
       authorization,
       effectiveLoanFinalityTier(loan.finalityTier),
     );
+    // Échéance de location (D-29) : celle que le runner a posée au `release` ; à défaut, relue du bloc
+    // de `release` juste après, ou plus tard par le reaper (jamais bloquant : le paiement est acquis).
+    const rented = typeof loan.rentalDays === "number" && !loan.extendsLoanId;
+    const runnerExpiry = rented && settlement.expiresAt ? new Date(settlement.expiresAt) : null;
+    // API incluse (D-32) : couverture jusqu'à l'échéance, reflétée dans la même écriture que SETTLED.
+    const included = rented && loanBillingQuote(loan)?.quote.apiAccessIncluded === true;
+    const apiPaidUntil = included && (settlement.apiPaidUntil ?? settlement.expiresAt) ? new Date(settlement.apiPaidUntil ?? settlement.expiresAt!) : null;
     const updated = await prisma.loan.updateMany({
       where: { id: loanId, status: "SETTLING", runnerReceipt: loan.runnerReceipt, updatedAt: claimedAt },
-      data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date() },
+      data: { status: "SETTLED", settleTxHash: settlement.settleTxHash, settledAt: new Date(),
+        ...(runnerExpiry ? { rentalExpiresAt: runnerExpiry } : {}), ...(apiPaidUntil ? { apiPaidUntil } : {}) },
     });
     if (updated.count !== 1) throw new AppError("Règlement de l’escrow confirmé mais état local incohérent", 409);
+    if (rented && !runnerExpiry) {
+      await loanRentalExpiry({ ...loan, status: "SETTLED", settleTxHash: settlement.settleTxHash, rentalExpiresAt: null })
+        .catch(() => console.warn(`[settle] prêt ${loanId} : échéance de location à relire par le reaper`));
+    }
     // Prêt rapide : preuves de rediffusion du release conservées pour l'opérateur (au mieux, jamais bloquant).
     if (effectiveLoanFinalityTier(loan.finalityTier) === "FAST") await recordSettlementEvidence(loanId);
     return { loanId, modelCid: loan.modelCid, runnerReceipt: loan.runnerReceipt, settleTxHash: settlement.settleTxHash };

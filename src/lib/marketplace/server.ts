@@ -8,7 +8,10 @@ import { resolveServerNetwork, USDC_DECIMALS_BY_NETWORK } from "@/lib/evm/networ
 import { USDC_DECIMALS } from "@/lib/evm/usdc";
 import { AppError } from "@/lib/app-error";
 import { publishedTariff } from "@/lib/datasets/tariff-server";
+import { newRentalApiAccessDailyFee } from "@/lib/sirius/api-keys";
+import type { ModelId } from "@/lib/models/registry";
 import type { BillingMode, MarketplaceDb, MarketplaceDeps } from "./catalogue";
+import type { ApiAccessFee } from "./listing";
 import { createKybStatusReader } from "./kyb";
 import { marketplaceToken } from "./token";
 
@@ -52,6 +55,16 @@ function billingMode(): BillingMode {
   }
 }
 
+/** Même règle que `prepareLoan` : un profil dont la location serait refusée faute de tarif API est `unavailable`. */
+function apiAccessFee(modelId: ModelId): ApiAccessFee {
+  try {
+    const atomic = newRentalApiAccessDailyFee(modelId);
+    return atomic === null ? { kind: "none" } : { kind: "included", atomic };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
 export function marketplaceDeps(): MarketplaceDeps {
   const { network } = resolveServerNetwork();
   const token = marketplaceToken(network);
@@ -69,6 +82,7 @@ export function marketplaceDeps(): MarketplaceDeps {
       const tariff = publishedTariff();
       return tariff && tariff.decimals === token.decimals ? tariff.computeFeeAtomic : null;
     },
+    apiAccessFee,
     token,
     now: () => new Date(),
   };

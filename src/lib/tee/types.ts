@@ -12,8 +12,9 @@ export interface TdxEvidence {
   composeHash: string;
 }
 
+/** Versions 3 et 4 pour les nouvelles attestations ; 1 et 2 (avec `releaseEnvelopeHash`) restent lisibles. */
 export interface LoanAttestationPayload {
-  version: 1 | 2;
+  version: 1 | 2 | 3 | 4;
   kind: "sirius-loan-training";
   chainId: number;
   escrow: string;
@@ -29,7 +30,8 @@ export interface LoanAttestationPayload {
   modelId: ModelId;
   modelVersion: string;
   modelCid: string;
-  releaseEnvelopeHash: string;
+  /** Historique (versions 1 et 2) : empreinte de la capsule de livraison supprimée. */
+  releaseEnvelopeHash?: string;
   billingQuoteHash?: string;
 }
 

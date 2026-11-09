@@ -134,6 +134,7 @@ test("le contrat HTTP du runner impose healthcheck et capability", async () => {
     merkleRoot: "a".repeat(64),
     priceUsdcAtomic: "1000000000000000000",
     challengeDays: 7,
+    maxRentalDays: 30,
     modelId: "other",
     modelVersion: "1.0.0",
     datasetReceipt: "not-read-before-model-validation",
@@ -165,7 +166,7 @@ test("l’amorçage expose la preuve et refuse toutes les opérations, même aut
     settlementAddress: `0x${"11".repeat(20)}`, bootstrapOnly: true,
   };
   assert.deepEqual((await request("GET", "/ra-tls", undefined, "{}", true, evidence, true)).body, evidence);
-  for (const op of ["dataset-ingress-key", "seal-dataset", "prepare-escrow-lock", "run-training", "run-loan-job", "settle-loan", "loan-model-key", "self-train-key"] as const) {
+  for (const op of ["dataset-ingress-key", "seal-dataset", "prepare-escrow-lock", "run-training", "run-loan-job", "settle-loan", "recover-loan-job", "predict"] as const) {
     const response = await request("POST", `/${op}`, issueRunnerCapability(op, {}), "{}", true, evidence, true);
     assert.equal(response.status, 503, op);
   }

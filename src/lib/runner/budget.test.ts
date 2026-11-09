@@ -361,12 +361,12 @@ test("le handler et le calcul en processus refusent les opérations de productio
   delete process.env.RUNNER_BUDGET_FILE;
   Object.assign(process.env, { NODE_ENV: "production", TEE_MODE: "stub", EVM_NETWORK: "testnet" });
   const { handleRunnerOp } = await import("@/runner/handler");
-  const { runTraining } = await import("@/lib/tee/core");
+  const { runSelfTraining } = await import("@/lib/tee/core");
   await assert.rejects(handleRunnerOp("dataset-ingress-key", {}), /RUNNER_BUDGET_FILE obligatoire/);
-  await assert.rejects(runTraining({
+  await assert.rejects(runSelfTraining({
     datasetId: "test", cid: "bafy-test", wrappedKey: "unused", merkleRoot: "unused",
-    priceUsdcAtomic: "1000", challengeDays: 1, modelId: "linear_regression", modelVersion: "1.0.0",
-    keyContext: "synthetic", filename: "test.enc",
+    priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, modelId: "linear_regression", modelVersion: "1.0.0",
+    jobId: "job-test", owner: `0x${"12".repeat(20)}`,
   }), /RUNNER_BUDGET_FILE obligatoire/);
 });
 
@@ -850,7 +850,7 @@ test("abandonner une transaction la clôt sans compter d’échec et libère le 
 test("résultat et consommation v7 restent récupérables après redémarrage sans clé dataset ni nouvelle exécution", () => {
   const { ledger, open, policy: p } = workflowFixture();
   ledger.reserveWorkflow(workflow, "signed", p.validUntil, BigInt(p.gas.totalWei));
-  const context = JSON.stringify({ datasetCid: "bafy-dataset", merkleRoot: "abc", deliveryPublicKey: "public" });
+  const context = JSON.stringify({ datasetCid: "bafy-dataset", merkleRoot: "abc" });
   ledger.prepareWorkflowResult(workflow, context);
   assert.throws(() => ledger.prepareWorkflowResult(workflow, "autre"), /hors scope/);
   ledger.reserve("training", "input", "training", workflow);

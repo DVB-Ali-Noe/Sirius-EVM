@@ -1,0 +1,31 @@
+[Unit]
+Description=Disponibilité de la CVM runner pour l'API développeurs Sirius
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/sirius/operations/api-availability.env
+
+[Service]
+Type=simple
+User=sirius-ops
+WorkingDirectory=/opt/sirius-ops
+EnvironmentFile=/etc/sirius/operations/api-availability.env
+ExecStart=/usr/bin/node --conditions=react-server --import tsx /opt/sirius-ops/scripts/operations/api-availability.ts
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sirius-ops
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

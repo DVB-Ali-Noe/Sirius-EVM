@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DEMO_PAGE, demoOnlyRoute, isDemoOnlyHost } from "@/lib/phala-demo/demo-host";
+import { API_HOST_NOT_FOUND, apiHostPath, isApiHost } from "@/lib/http/api-host";
 import {
   CLOSED_API_BODY,
   CLOSED_API_STATUS,
@@ -10,6 +11,7 @@ import {
   decidePreviewGate,
   readPreviewGateConfig,
 } from "@/lib/preview-gate/gate";
+import { r2BrowserOrigin } from "@/lib/storage/r2-origin";
 
 /**
  * Origines du portefeuille embarqué, ajoutées seulement là où il est proposé.
@@ -40,6 +42,8 @@ const ORIGINES_EMBARQUEES = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID?.trim()
 
 function contentSecurityPolicy(nonce: string): string {
   const development = process.env.NODE_ENV !== "production";
+  // Gros envois : le navigateur envoie les morceaux chiffrés directement à R2 (voir r2-origin.ts).
+  const r2 = r2BrowserOrigin(process.env.R2_ACCOUNT_ID);
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
@@ -47,7 +51,7 @@ function contentSecurityPolicy(nonce: string): string {
     `style-src 'self' 'unsafe-inline'${ORIGINES_EMBARQUEES ? " https://fonts.googleapis.com" : ""}`,
     `img-src 'self' data: blob:${ORIGINES_EMBARQUEES ? " https://*.web3auth.io https://images.toruswallet.io" : ""}`,
     `font-src 'self' data:${ORIGINES_EMBARQUEES ? " https://fonts.gstatic.com" : ""}`,
-    `connect-src 'self' https://rpc.mainnet.chain.robinhood.com https://rpc.testnet.chain.robinhood.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com https://buy.moonpay.com https://buy-sandbox.moonpay.com${ORIGINES_EMBARQUEES}`,
+    `connect-src 'self' https://rpc.mainnet.chain.robinhood.com https://rpc.testnet.chain.robinhood.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com https://buy.moonpay.com https://buy-sandbox.moonpay.com${ORIGINES_EMBARQUEES}${r2 ? ` ${r2}` : ""}`,
     `frame-src ${ORIGINES_EMBARQUEES ? "https://*.web3auth.io" : "'none'"}`,
     "worker-src 'self' blob:",
     "media-src 'none'",
@@ -78,7 +82,13 @@ function forwardedHeaders(request: NextRequest, gateClosed: boolean): Headers {
 }
 
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  // 0. Adresse de l'API développeurs (src/lib/http/api-host.ts) : `/v1/...` y est servi par
+  //    `/api/v1/...`, tout autre chemin répond 404 JSON. La suite (porte d'aperçu) s'applique au
+  //    chemin interne, comme à toute API ; ni page, ni CSP : ce sont des clients programmatiques.
+  const apiHost = isApiHost(request.headers.get("host"));
+  const apiTarget = apiHost ? apiHostPath(request.nextUrl.pathname) : null;
+  if (apiHost && !apiTarget) return NextResponse.json(API_HOST_NOT_FOUND, { status: 404, headers: { "cache-control": "no-store" } });
+  const pathname = apiTarget ?? request.nextUrl.pathname;
 
   // 1. Adresse démo : seule la session de training Phala est servie (src/lib/phala-demo/demo-host.ts).
   //    Avant la porte d'aperçu, et indépendamment d'elle : l'adresse démo est rattachée au
@@ -111,6 +121,13 @@ export async function proxy(request: NextRequest) {
       rewriteToWaiting = true;
     }
     if (decision === "public") gateClosed = true;
+  }
+
+  // 2 bis. Hôte API, porte passée : réécriture vers la route interne, rien d'autre.
+  if (apiTarget) {
+    const url = request.nextUrl.clone();
+    url.pathname = apiTarget;
+    return NextResponse.rewrite(url);
   }
 
   // 3. Préchargements hors porte : inchangés, sans nonce (voir isPrefetch).

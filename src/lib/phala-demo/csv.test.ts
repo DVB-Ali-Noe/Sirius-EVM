@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { csvWithTargetLast, demoQualityReport, tableWithTargetLast } from "./csv";
-import { DEMO_EXAMPLES } from "./examples";
+import { demoExamples } from "./examples";
+
+// Profils facultatifs activés : chaque exemple reste entraînable quand son profil est proposé.
+const DEMO_EXAMPLES = demoExamples("linear_regression");
 import { selectionForModelId } from "../models/registry";
 import { trainSelectedModel } from "../tee/model-registry";
 import { gateModel } from "../tee/output-gate";

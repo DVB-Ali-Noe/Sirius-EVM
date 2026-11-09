@@ -9,7 +9,8 @@ const profile = { computeAmount: "3000000", maxFailureFee: "1000000", executionR
 const policy = (computeAmount = "3000000") => ({
   version: 1, tariffVersion: "test-v1", costReference: "synthetic", validUntil: Date.now() + 86_400_000,
   chainId: 46630, usdc: `0x${"34".repeat(20)}`, usdcDecimals: 6, computeRecipient: `0x${"56".repeat(20)}`,
-  minimumComputeAmount: "1000000",
+  minimumComputeAmount: "1000000", noTrainingComputeAmount: "100000",
+  apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
   profiles: { linear_regression: { ...profile, computeAmount }, logistic_regression: profile },
 });
 
@@ -46,4 +47,39 @@ test("une politique installée avant le profil arbres reste valide ; un profil a
   }
   const withoutLogistic = { ...policy(), profiles: { linear_regression: profile } };
   assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(withoutLogistic) }), /Tarif compute/);
+});
+
+test("frais sans entraînement et quotas d'API sont obligatoires et bornés ; jamais pour la régression linéaire", () => {
+  const loaded = billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()) });
+  assert.equal(loaded.noTrainingComputeAmount, "100000");
+  assert.deepEqual(loaded.apiCallsPerDay, { logistic_regression: 50, gradient_boosted_trees: 100 });
+  assert.deepEqual(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), apiCallsPerDay: {} }) }).apiCallsPerDay, {},
+    "aucun profil avec API : politique valide, ni API ni packs");
+  for (const invalid of [
+    // JSON.stringify omet une clé `undefined` : champ absent.
+    { ...policy(), noTrainingComputeAmount: undefined }, { ...policy(), apiCallsPerDay: undefined },
+    { ...policy(), noTrainingComputeAmount: "0" },
+    { ...policy(), noTrainingComputeAmount: "1e5" },
+    { ...policy(), noTrainingComputeAmount: 100000 },
+    { ...policy(), apiCallsPerDay: [50] },
+    { ...policy(), apiCallsPerDay: null },
+    { ...policy(), apiCallsPerDay: { linear_regression: 10 } },
+    { ...policy(), apiCallsPerDay: { logistic_regression: 0 } },
+    { ...policy(), apiCallsPerDay: { logistic_regression: 10_001 } },
+    { ...policy(), apiCallsPerDay: { logistic_regression: 1.5 } },
+    { ...policy(), apiCallsPerDay: { logistic_regression: "50" } },
+    { ...policy(), apiCallsPerDay: { unknown_model: 50 } },
+  ]) {
+    assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(invalid) }), /Tarif compute/, JSON.stringify(invalid).slice(-80));
+  }
+});
+
+test("tarif journalier de l'accès API facultatif : absent, l'accès n'est pas en vente ; présent, strictement positif", () => {
+  assert.equal(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify(policy()) }).apiAccessDailyComputeAmount, undefined);
+  assert.equal(billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), apiAccessDailyComputeAmount: "1500000" }) })
+    .apiAccessDailyComputeAmount, "1500000");
+  for (const fee of ["0", "1.5", 1500000, "", null]) {
+    assert.throws(() => billingPolicy({ SIRIUS_BILLING_POLICY_JSON: JSON.stringify({ ...policy(), apiAccessDailyComputeAmount: fee }) }),
+      /Tarif compute/, String(fee));
+  }
 });

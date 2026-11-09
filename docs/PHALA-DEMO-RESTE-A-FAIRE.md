@@ -1,5 +1,7 @@
 # Reste à faire — espace Phala puis runner VPS
 
+> **Mise à jour du 1er novembre 2026 ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)) :** la livraison du modèle après arrêt est retirée. Les cases qui parlent de capsule, de clé IndexedDB ou de modèle téléchargé sont caduques ; le critère devient la prédiction signée pendant une session ouverte, refusée à un autre wallet et indisponible CVM arrêtée.
+
 État documentaire du **26 septembre 2026**, sans attribution nominative des tâches. Cette liste reprend le reste à faire communiqué dans la conversation. Elle complète le [plan](PLAN-VPS-PHALA.md), le [journal avant/après](PHALA-DEMO-IMPLEMENTATION.md) et le [runbook technique](PHALA-DEMO-RUNBOOK.md).
 
 ## Point de départ

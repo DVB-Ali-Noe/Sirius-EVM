@@ -69,8 +69,8 @@ test("projection publique : champ par champ, même si la ligne contient des cham
 
   const detail = toPublicDetail(hostile, { borrowCount: 4, settledCount: 3, refundedCount: 1 }, false, QUOTED);
   assert.deepEqual(Object.keys(detail).sort(), [
-    "borrowCount", "category", "challengeDays", "columnCount", "computeFee", "description", "id", "listedAt", "modelId",
-    "modelVersion", "name", "priceAtomic", "priceKind", "provider", "providerPriceAtomic", "refundedCount", "rowCount",
+    "apiAccessFee", "borrowCount", "category", "challengeDays", "columnCount", "computeFee", "description", "id", "listedAt", "maxRentalDays",
+    "modelId", "modelVersion", "name", "priceAtomic", "priceKind", "provider", "providerPriceAtomic", "refundedCount", "rowCount",
     "settledCount", "sizeBytes", "successRate", "verified",
   ]);
   assertNoPrivateData(detail);
@@ -91,6 +91,11 @@ test("prix affiché : total si les frais sont connus (v6 : zéro), sinon le gain
   // Prix stocké illisible : jamais d'addition, jamais de montant inventé.
   const broken = toPublicListing(row({ priceUsdcAtomic: "12.5" }), EMPTY_LOAN_STATS, null, QUOTED);
   assert.deepEqual([broken.providerPriceAtomic, broken.priceAtomic, broken.priceKind], ["", "", "providerReceives"]);
+  // Accès API inclus (D-32) : un jour au tarif journalier ; location refusée faute de tarif : aucun total.
+  const api = toPublicListing(row(), EMPTY_LOAN_STATS, null, QUOTED, { kind: "included", atomic: "1500000" });
+  assert.deepEqual([api.priceAtomic, api.priceKind], ["24500000", "borrowerPays"]);
+  const refused = toPublicListing(row(), EMPTY_LOAN_STATS, null, QUOTED, { kind: "unavailable" });
+  assert.deepEqual([refused.priceAtomic, refused.priceKind], ["20000000", "providerReceives"]);
 });
 
 test("valeurs stockées douteuses : profil inconnu, métriques et tailles invalides, statut de vérification non booléen", () => {

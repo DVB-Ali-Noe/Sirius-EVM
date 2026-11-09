@@ -316,8 +316,9 @@ export const EDITABLE_STATUSES: readonly DatasetStatusValue[] = ["DRAFT", "LISTI
 
 /**
  * Validation stricte de `PATCH /api/datasets/[id]/settings`. Clés admises : `name`,
- * `description`. Le prix a son propre refus explicite : il est inscrit dans le reçu signé
- * par l'enclave au scellement et ne peut pas changer sans re-sceller le dataset.
+ * `description`. Le prix par jour et la durée maximale de location ont leur propre refus explicite :
+ * ils sont inscrits dans le reçu signé par l'enclave au scellement et ne peuvent pas changer sans
+ * re-sceller le dataset.
  */
 export function validateDetailsPatch(input: unknown): DetailsPatch {
   if (!isPlainObject(input)) throw new AppError("JSON invalide", 400);
@@ -325,6 +326,9 @@ export function validateDetailsPatch(input: unknown): DetailsPatch {
   for (const key of Object.keys(input)) {
     if (key === "priceUsdcAtomic" || key === "priceUsdc" || key === "price") {
       throw new AppError("Le prix n'est pas modifiable : il est inscrit dans le reçu signé par l'enclave", 400);
+    }
+    if (key === "maxRentalDays") {
+      throw new AppError("La durée maximale de location n'est pas modifiable : elle est inscrite dans le reçu signé par l'enclave", 400);
     }
     if (key !== "name" && key !== "description") throw new AppError("Champ de dataset non modifiable", 400);
   }
@@ -684,6 +688,7 @@ export interface OwnerDatasetRow {
   sizeBytes: number | null;
   metrics: unknown;
   priceUsdcAtomic: string;
+  maxRentalDays: number;
   ipfsCid: string | null;
   merkleRoot: string | null;
   evmDatasetId: string | null;
@@ -712,7 +717,9 @@ export interface OwnerDatasetView {
   sizeBytes: number | null;
   rowCount: number | null;
   columnCount: number | null;
+  /** Prix de location par jour (unités atomiques). */
   priceUsdcAtomic: string;
+  maxRentalDays: number;
   ipfsCid: string | null;
   merkleRoot: string | null;
   evmDatasetId: string | null;
@@ -764,6 +771,7 @@ export function toOwnerView(
     rowCount: metrics?.rowCount ?? null,
     columnCount: metrics?.columnCount ?? null,
     priceUsdcAtomic: row.priceUsdcAtomic,
+    maxRentalDays: row.maxRentalDays,
     ipfsCid: row.ipfsCid,
     merkleRoot: row.merkleRoot,
     evmDatasetId: row.evmDatasetId,

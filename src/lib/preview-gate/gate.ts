@@ -173,8 +173,8 @@ export const ROOT_FILES: ReadonlySet<string> = new Set([
   "/window.svg",
 ]);
 
-/** Dossiers de `public/` servis sous la porte, avec la barre finale. */
-export const PUBLIC_DIRECTORIES: readonly string[] = ["/images/", "/examples/"];
+/** Dossiers de `public/` servis sous la porte, avec la barre finale (`/openapi/` : spécification publique de l'API, D-30). */
+export const PUBLIC_DIRECTORIES: readonly string[] = ["/images/", "/examples/", "/openapi/"];
 
 /**
  * Un fichier sous un dossier de `public/` : chaque segment non vide et sans point initial,

@@ -17,6 +17,9 @@ import { formatBytes, truncate } from "@/lib/format";
 import { categoryLabelKey } from "@/lib/marketplace/categories";
 import type { DetailResponse } from "@/lib/marketplace/catalogue";
 import { MODEL_REGISTRY, modelDisplayName, modelSelection } from "@/lib/models/registry";
+import { MIN_RENTAL_DAYS, RENTAL_GRACE_DAYS } from "@/lib/billing/rental";
+import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { MAX_CSV_ROWS } from "@/lib/sirius/metrics";
 import { BorrowPanel } from "./BorrowPanel";
 
 type LoadResult =
@@ -42,6 +45,8 @@ export default function MarketplaceListingPage() {
   const id = typeof params?.id === "string" ? params.id : "";
   const { t } = useLocale();
   const [result, setResult] = useState<LoadResult | null>(null);
+  // Jours de location choisis par l'emprunteur (D-29) ; ramenés dans les bornes du dataset à l'affichage.
+  const [chosenDays, setChosenDays] = useState(MIN_RENTAL_DAYS);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -93,9 +98,14 @@ export default function MarketplaceListingPage() {
   const { dataset, token } = result.data;
   const model = modelSelection(dataset.modelId, dataset.modelVersion);
   const fee = dataset.computeFee;
+  // Accès API inclus à toute location (D-32) : tarif par jour loué, ajouté au total affiché.
+  // Champ absent (réponse d'une autre version du serveur) : accès API inconnu, aucun total annoncé.
+  const api = dataset.apiAccessFee ?? null;
+  const apiDaily = api?.kind === "included" ? api.atomic : null;
   const resolved = dataset.settledCount + dataset.refundedCount;
   const name = dataset.name.trim() === "" ? t("Dataset sans nom") : dataset.name;
   const days = dataset.challengeDays;
+  const rentalDays = Math.min(Math.max(chosenDays, MIN_RENTAL_DAYS), dataset.maxRentalDays);
 
   return (
     <Page>
@@ -135,9 +145,16 @@ export default function MarketplaceListingPage() {
             <dl className="mt-3 space-y-2 text-sm">
               <Fact label={t("Modèle")} value={modelDisplayName(model)} />
               <Fact label={t("Ce qu’il fait")} value={MODEL_REGISTRY[model.modelId].description} />
-              <Fact label={t("Ce que vous recevez")} value={model.modelId === "gradient_boosted_trees" ? t("Le modèle entraîné : ses arbres et ses métriques de qualité.") : t("Le modèle entraîné : ses coefficients et ses métriques de qualité.")} />
+              <Fact label={t("Ce que vous obtenez")} value={t("Des prédictions signées du modèle entraîné, qui reste scellé dans l’enclave, et ses métriques de qualité.")} />
             </dl>
-          ) : (
+          ) : null}
+          {/* Gros fichier (envoi en morceaux) : entraîné sur un échantillon tant que l'entraînement complet n'est pas en ligne. */}
+          {model && ((dataset.sizeBytes ?? 0) > MAX_DATASET_BYTES || (dataset.rowCount ?? 0) >= MAX_CSV_ROWS) ? (
+            <p className="mt-3 text-xs text-muted">
+              {t("Gros fichier : pour l’instant, le modèle est entraîné sur un échantillon fixe de {rows} lignes au plus, réparti sur tout le fichier. Le nombre de lignes utilisées figure dans les métriques du modèle.", { rows: formatCount(MAX_CSV_ROWS - 1) })}
+            </p>
+          ) : null}
+          {model ? null : (
             <p className="mt-3 text-sm text-negative">{t("Profil d’entraînement manquant")}</p>
           )}
         </Card>
@@ -187,14 +204,21 @@ export default function MarketplaceListingPage() {
 
         <section aria-labelledby="price-heading" className="min-w-0 md:col-span-2" data-guide="page:dataset:price">
           <CardTitle id="price-heading" className="mb-2">{t("Ce que vous payez")}</CardTitle>
-          {fee.kind !== "unknown" && dataset.providerPriceAtomic ? (
+          {fee.kind !== "unknown" && api !== null && api.kind !== "unavailable" && dataset.providerPriceAtomic ? (
             <>
               <PriceBreakdown
                 providerAtomic={dataset.providerPriceAtomic}
+                rentalDays={rentalDays}
                 computeAtomic={fee.atomic}
+                apiAccessDailyAtomic={apiDaily}
                 token={token}
                 perspective="borrower"
               />
+              {apiDaily && (
+                <p className="mt-2 text-xs text-muted">
+                  {t("Toute location inclut l’accès API développeurs, payé par jour loué.")}
+                </p>
+              )}
               {fee.kind === "quoted" && (
                 <p className="mt-2 text-xs text-muted">
                   {t("Frais de calcul indicatifs pour ce modèle (dernier devis ou tarif publié). Le montant exact est affiché dans le devis, avant tout paiement.")}
@@ -205,10 +229,13 @@ export default function MarketplaceListingPage() {
             <Card>
               <dl className="space-y-2 text-sm">
                 <Fact
-                  label={t("Le fournisseur reçoit")}
+                  label={t("Le fournisseur reçoit par jour")}
                   value={(dataset.providerPriceAtomic && formatTokenWithSymbol(dataset.providerPriceAtomic, token)) || "—"}
                 />
                 <Fact label={t("Frais de calcul (enclave Phala)")} value={t("Indiqués dans le devis")} />
+                {apiDaily && (
+                  <Fact label={t("Accès API inclus")} value={t("{price} par jour", { price: formatTokenWithSymbol(apiDaily, token) ?? "—" })} />
+                )}
               </dl>
               <p className="mt-3 text-xs text-muted">
                 {t("Les frais de calcul et le total sont affichés dans le devis, avant tout paiement.")}
@@ -220,7 +247,11 @@ export default function MarketplaceListingPage() {
         <Card>
           <CardTitle>{t("Ce que vous obtenez")}</CardTitle>
           <p className="mt-2 text-sm text-muted">
-            {t("Un accès à cette donnée et un entraînement dans l’enclave. Vous recevez le modèle entraîné, jamais la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}
+            {t("Un accès à cette donnée et un entraînement dans l’enclave. Le modèle entraîné y reste scellé : vous obtenez ses prédictions signées, jamais le modèle ni la donnée. Chaque nouvel entraînement est un nouvel emprunt.")}{" "}
+            {t("Les prédictions restent ouvertes pendant la durée louée (jusqu’à {max} jours), comptée depuis le règlement. Après l’échéance, le modèle reste scellé {grace} jours : vous pouvez prolonger en payant de nouveaux jours, puis il est supprimé.", {
+              max: formatCount(dataset.maxRentalDays),
+              grace: RENTAL_GRACE_DAYS,
+            })}
           </p>
         </Card>
 
@@ -247,8 +278,13 @@ export default function MarketplaceListingPage() {
             datasetId={dataset.id}
             providerVerified={dataset.verified}
             priceUsdcAtomic={dataset.providerPriceAtomic}
+            maxRentalDays={dataset.maxRentalDays}
+            rentalDays={rentalDays}
+            onRentalDays={setChosenDays}
             modelId={dataset.modelId}
             modelVersion={dataset.modelVersion}
+            apiAccessDailyFee={apiDaily ? formatTokenWithSymbol(apiDaily, token) : null}
+            apiAccessUnavailable={api?.kind === "unavailable"}
           />
         </Card>
       </div>

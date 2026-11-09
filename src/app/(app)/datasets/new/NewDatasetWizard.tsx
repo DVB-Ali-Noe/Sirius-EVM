@@ -12,17 +12,26 @@ import { messageOf } from "@/lib/errors-client";
 import { checkFileSize, inspectCsvTable, readCsvTable, type CsvInspection, type CsvRejection } from "@/lib/datasets/csv-check";
 import { qualityReport } from "@/lib/datasets/quality";
 import { parseProviderPrice } from "@/lib/datasets/price-input";
+import { DEFAULT_MAX_RENTAL_DAYS, isValidRentalDays } from "@/lib/billing/rental";
 import { DEFAULT_LISTING_DURATION_DAYS, type ListingDurationDays } from "@/lib/datasets/publication";
 import { providerPriceBreakdown, type PublishedTariff } from "@/lib/datasets/tariff";
 import { UPLOAD_STEPS, UploadError, uploadAndPublishDataset, type UploadStep } from "@/lib/datasets/upload-client";
 import { publishDataset, type PublishDatasetStage } from "@/lib/datasets/client";
+import { inspectStreamSummary, readLargeCsv } from "@/lib/datasets/csv-check-stream";
+import { uploadAndPublishLargeDataset } from "@/lib/datasets/large-upload-client";
+import { blobSource } from "@/lib/upload/chunked-transfer";
+import { MAX_DATASET_BYTES } from "@/lib/tee/contract";
+import { DEFAULT_MODEL_SELECTION } from "@/lib/models/registry";
 import { DataStep, exampleDatasetPath } from "./DataStep";
 import { PricingStep } from "./PricingStep";
 import { type DataValues, type LoadedFile, type StepState } from "./wizard-types";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
 
 interface NewDatasetWizardProps {
   tariff: PublishedTariff | null;
   token: TokenInfo;
+  /** Taille maximale d'un gros fichier envoyé en morceaux ; `null` si l'instance ne le permet pas. */
+  largeUploadMaxBytes?: number | null;
 }
 
 type Phase = "data" | "securing" | "pricing";
@@ -47,18 +56,22 @@ function toHex(bytes: ArrayBuffer): string {
  * Étape 2 : gain, décomposition en direct, durée, estimations, avertissement, consentement,
  * puis publication avec sa progression (brouillon, chiffrement, scellement, titre on-chain).
  */
-export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
+export function NewDatasetWizard({ tariff, token, largeUploadMaxBytes = null }: NewDatasetWizardProps) {
   const router = useRouter();
   const { t } = useLocale();
   const [phase, setPhase] = useState<Phase>("data");
-  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: "linear_regression" });
+  const [values, setValues] = useState<DataValues>({ name: "", description: "", category: "", modelId: DEFAULT_MODEL_SELECTION.modelId });
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [fileRejection, setFileRejection] = useState<CsvRejection | null>(null);
   const [readingFile, setReadingFile] = useState(false);
+  const [readProgress, setReadProgress] = useState<number | null>(null);
+  const [uploadSent, setUploadSent] = useState<number | null>(null);
+  const largeRead = useRef<AbortController | null>(null);
   const [loadingExample, setLoadingExample] = useState(false);
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [securingLines, setSecuringLines] = useState(0);
   const [price, setPrice] = useState("10");
+  const [maxRentalDays, setMaxRentalDays] = useState(String(DEFAULT_MAX_RENTAL_DAYS));
   const [listingDays, setListingDays] = useState<ListingDurationDays>(DEFAULT_LISTING_DURATION_DAYS);
   const [consent, setConsent] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -67,6 +80,9 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const [progress, setProgress] = useState<Record<UploadStep, StepState>>(PENDING_PROGRESS);
   const [stage, setStage] = useState<PublishDatasetStage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Enclave à l'arrêt : la création du brouillon la réveille ; secondes avant le prochain essai.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [sealedDatasetId, setSealedDatasetId] = useState<string | null>(null);
   const readToken = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -75,8 +91,19 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
 
   useEffect(() => {
     const pending = timers.current;
-    return () => pending.forEach(clearTimeout);
+    return () => {
+      pending.forEach(clearTimeout);
+      largeRead.current?.abort();
+    };
   }, []);
+
+  // Gros fichier : fermer la page pendant l'envoi l'interromprait, le navigateur demande confirmation.
+  useEffect(() => {
+    if (!publishing || !file?.large) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [publishing, file]);
 
   // Le bouton qui a déclenché le changement d'étape est démonté : le focus clavier repart
   // du panneau de la nouvelle étape plutôt que du corps de la page. Comparer à la phase
@@ -87,10 +114,10 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     if (phase !== "securing") panelRef.current?.focus();
   }, [phase]);
 
-  const table = useMemo(() => (file ? readCsvTable(file.text) : null), [file]);
+  const table = useMemo(() => (file && !file.large ? readCsvTable(file.text) : null), [file]);
   const inspection: CsvInspection | null = useMemo(
-    () => (table ? inspectCsvTable(table, values.modelId) : null),
-    [table, values.modelId],
+    () => (file?.large ? inspectStreamSummary(file.large.summary, values.modelId) : table ? inspectCsvTable(table, values.modelId) : null),
+    [file, table, values.modelId],
   );
   // Indépendant du profil : calculé une fois par fichier, gardé en mémoire de la page.
   const quality = useMemo(() => (table?.ok ? qualityReport(table.table) : null), [table]);
@@ -101,17 +128,27 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   const breakdown = tariff && providerAtomic !== null ? providerPriceBreakdown(tariff, values.modelId, providerAtomic.toString()) : null;
   const belowMinimum = breakdown !== null && breakdown.ok && breakdown.belowMinimum;
   // Sans tarif, pas de décomposition du prix : la publication attend (07, « Terminé quand »).
-  const canPublish = providerAtomic !== null && !belowMinimum && breakdown !== null && breakdown.ok;
+  // Durée maximale saisie en texte : seul un entier de 1 à 365 est accepté, sans arrondi.
+  const maxRentalDaysValue = /^[0-9]{1,3}$/.test(maxRentalDays.trim()) ? Number(maxRentalDays.trim()) : null;
+  const rentalDaysValid = isValidRentalDays(maxRentalDaysValue);
+  const canPublish = providerAtomic !== null && !belowMinimum && breakdown !== null && breakdown.ok && rentalDaysValid;
 
   async function readFile(selected: File | null) {
     // Une lecture plus récente rend la précédente caduque : seule la dernière écrit l'état.
     const ticket = ++readToken.current;
+    largeRead.current?.abort();
+    largeRead.current = null;
     setError(null);
     setFile(null);
     setFingerprint(null);
+    setReadProgress(null);
     if (!selected) {
       setFileRejection(null);
       setReadingFile(false);
+      return;
+    }
+    if (largeUploadMaxBytes !== null && selected.size > MAX_DATASET_BYTES) {
+      await readLargeFile(selected, ticket, largeUploadMaxBytes);
       return;
     }
     const rejection = checkFileSize(selected.size);
@@ -131,6 +168,44 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
       if (ticket === readToken.current) setFileRejection({ kind: "unreadable" });
     } finally {
       if (ticket === readToken.current) setReadingFile(false);
+    }
+  }
+
+  /** Gros fichier : lu par tranches (contrôle et racine de Merkle), sans jamais le charger en entier. */
+  async function readLargeFile(selected: File, ticket: number, maxBytes: number) {
+    if (selected.size > maxBytes) {
+      setFileRejection({ kind: "file-too-large", sizeBytes: selected.size, maxBytes });
+      setReadingFile(false);
+      return;
+    }
+    const controller = new AbortController();
+    largeRead.current = controller;
+    setFileRejection(null);
+    setReadingFile(true);
+    setReadProgress(0);
+    try {
+      const read = await readLargeCsv(blobSource(selected), (fraction) => {
+        if (ticket === readToken.current) setReadProgress(fraction);
+      }, controller.signal);
+      if (ticket !== readToken.current) return;
+      if (!read.ok) {
+        setFileRejection(read.reason);
+        return;
+      }
+      setFile({
+        name: selected.name,
+        sizeBytes: selected.size,
+        content: new ArrayBuffer(0),
+        text: "",
+        large: { blob: selected, summary: read.summary, merkleRoot: read.merkleRoot },
+      });
+    } catch {
+      if (ticket === readToken.current) setFileRejection({ kind: "unreadable" });
+    } finally {
+      if (ticket === readToken.current) {
+        setReadingFile(false);
+        setReadProgress(null);
+      }
     }
   }
 
@@ -165,8 +240,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     try {
       // Empreinte réelle du fichier, calculée sur l'appareil : elle sert d'identité locale au
       // contenu jusqu'au chiffrement et prouve que le fichier est bien lu en mémoire ici.
-      const digest = await crypto.subtle.digest("SHA-256", file.content);
-      setFingerprint(toHex(digest));
+      // Gros fichier : la racine de Merkle du clair, calculée à la lecture (celle du titre on-chain).
+      setFingerprint(file.large ? file.large.merkleRoot : toHex(await crypto.subtle.digest("SHA-256", file.content)));
       const elapsed = Date.now() - started;
       schedule(() => setSecuringLines(3), Math.max(0, SECURING_LINE_MS * 3 - elapsed));
       schedule(() => setPhase("pricing"), Math.max(0, SECURING_MIN_MS - elapsed));
@@ -202,7 +277,7 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
   }
 
   async function publishOnce() {
-    if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish) return;
+    if (!file || !summary || values.category === "" || providerAtomic === null || !canPublish || maxRentalDaysValue === null) return;
     // Wallet non vérifié : fenêtre de vérification avant tout envoi, puis la publication reprend.
     if (!(await ensureVerifiedFor("publish"))) return;
     if (sealedDatasetId) return retryRegistration(sealedDatasetId);
@@ -210,32 +285,36 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
     setStage(null);
     setProgress(PENDING_PROGRESS);
     setPublishing(true);
+    setUploadSent(null);
+    const onProgress = ({ step, stage: nextStage, sent }: { step: UploadStep; stage?: PublishDatasetStage; sent?: number }) => {
+      setStage(nextStage ?? null);
+      setUploadSent(step === "encrypt" && sent !== undefined ? sent : null);
+      setProgress((current) => {
+        const next = { ...current };
+        for (const candidate of UPLOAD_STEPS) {
+          if (candidate === step) next[candidate] = "active";
+          else if (UPLOAD_STEPS.indexOf(candidate) < UPLOAD_STEPS.indexOf(step)) next[candidate] = "done";
+        }
+        return next;
+      });
+    };
+    const terms = {
+      sizeBytes: file.sizeBytes,
+      name: values.name.trim(),
+      description: values.description.trim(),
+      category: values.category,
+      modelId: values.modelId,
+      priceUsdc: price.trim(),
+      priceUsdcAtomic: providerAtomic.toString(),
+      maxRentalDays: maxRentalDaysValue,
+      listingDays,
+      trainingConsent: consent,
+    };
     try {
-      await uploadAndPublishDataset(
-        {
-          content: file.content,
-          sizeBytes: file.sizeBytes,
-          name: values.name.trim(),
-          description: values.description.trim(),
-          category: values.category,
-          modelId: values.modelId,
-          priceUsdc: price.trim(),
-          priceUsdcAtomic: providerAtomic.toString(),
-          listingDays,
-          trainingConsent: consent,
-        },
-        ({ step, stage: nextStage }) => {
-          setStage(nextStage ?? null);
-          setProgress((current) => {
-            const next = { ...current };
-            for (const candidate of UPLOAD_STEPS) {
-              if (candidate === step) next[candidate] = "active";
-              else if (UPLOAD_STEPS.indexOf(candidate) < UPLOAD_STEPS.indexOf(step)) next[candidate] = "done";
-            }
-            return next;
-          });
-        },
-      );
+      // Page quittée : l'attente de l'enclave et l'envoi s'arrêtent (un gros envoi interrompu est fermé).
+      const options = { onEnclaveWaiting: setEnclaveRetry, signal: unmountSignal() };
+      if (file.large) await uploadAndPublishLargeDataset({ ...terms, file: file.large.blob }, onProgress, options);
+      else await uploadAndPublishDataset({ ...terms, content: file.content }, onProgress, options);
       setProgress({ draft: "done", encrypt: "done", seal: "done", register: "done" });
       router.push("/datasets");
     } catch (cause) {
@@ -297,6 +376,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             inspection={inspection}
             quality={fileRejection ? null : quality}
             readingFile={readingFile}
+            readProgress={readProgress}
+            largeUploadMaxBytes={largeUploadMaxBytes}
             onFileSelected={readFile}
             onLoadExample={loadExample}
             loadingExample={loadingExample}
@@ -354,6 +435,9 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             onPrice={setPrice}
             providerAtomic={providerAtomic}
             belowMinimum={belowMinimum}
+            maxRentalDays={maxRentalDays}
+            onMaxRentalDays={setMaxRentalDays}
+            maxRentalDaysInvalid={maxRentalDays.trim() !== "" && !rentalDaysValid}
             listingDays={listingDays}
             onListingDays={setListingDays}
             consent={consent}
@@ -362,6 +446,8 @@ export function NewDatasetWizard({ tariff, token }: NewDatasetWizardProps) {
             publishing={publishing}
             progress={progress}
             stage={stage}
+            uploadSent={uploadSent}
+            enclaveRetry={enclaveRetry}
             error={error}
             sealedDatasetId={sealedDatasetId}
             onBack={() => {

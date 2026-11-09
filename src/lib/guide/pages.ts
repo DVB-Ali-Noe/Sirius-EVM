@@ -72,9 +72,9 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
   train: {
     title: "Entraîner",
     steps: [
-      { anchor: null, title: "Entraîner un modèle", body: "Ici tu suis tes emprunts et tes entraînements : chaque carte est un prêt, du paiement jusqu’au modèle livré." },
+      { anchor: null, title: "Entraîner un modèle", body: "Ici tu suis tes emprunts et tes entraînements : chaque carte est un prêt, du paiement jusqu’aux prédictions du modèle." },
       { anchor: "own-data", title: "Tes propres données", body: "Entraîner sur tes données sans escrow est réservé à l’équipe pendant la bêta : écris-nous pour l’essayer." },
-      { anchor: "history", title: "Mes entraînements", body: "Après un emprunt, attends la finalité du paiement (~15 min), puis « Lancer le job (TEE) ». Un modèle réglé se vérifie et se télécharge ici ; un prêt jamais réglé se rembourse après son délai." },
+      { anchor: "history", title: "Mes entraînements", body: "Après un emprunt, attends la finalité du paiement (~15 min), puis « Lancer le job (TEE) ». Un modèle réglé reste scellé dans l’enclave et répond ici à tes demandes de prédiction ; un prêt jamais réglé se rembourse après son délai." },
     ],
   },
   phala: {
@@ -84,14 +84,14 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
       { anchor: "attestation", title: "L’attestation", body: "Ce lien ouvre l’attestation du runner : la preuve que le code attendu tourne bien dans l’enclave." },
       { anchor: "examples", title: "Jeux d’exemple", body: "Un dataset synthétique prêt à l’emploi pour essayer sans rien préparer." },
       { anchor: "prepare", title: "Préparer l’entraînement", body: "Ton CSV, le modèle et la colonne à prédire. Le fichier est chiffré dans ton navigateur ; le calcul est offert pendant la démo." },
-      { anchor: "results", title: "Mes résultats", body: "Tes modèles entraînés restent dans ce navigateur : télécharge-les pour les garder ailleurs." },
+      { anchor: "results", title: "Mes résultats", body: "Tes modèles restent privés dans Phala, sans téléchargement : demande-leur une prédiction pendant une session ouverte." },
       { anchor: "workspace", title: "L’espace Phala", body: "La démo s’ouvre dans un espace dédié ; l’entraînement standard reste sur la page Entraîner." },
     ],
   },
   marketplace: {
     title: "Marketplace",
     steps: [
-      { anchor: null, title: "La marketplace", body: "Les datasets publiés par les fournisseurs. Un emprunt, c’est un entraînement dans l’enclave : tu reçois le modèle, jamais la donnée." },
+      { anchor: null, title: "La marketplace", body: "Les datasets publiés par les fournisseurs. Un emprunt, c’est un entraînement dans l’enclave : tu obtiens des prédictions signées du modèle, jamais le modèle ni la donnée." },
       { anchor: "search", title: "Rechercher", body: "Par nom ou description ; la recherche part après une pause de frappe, ou sur Entrée." },
       { anchor: "filters", title: "Filtrer", body: "Catégorie, modèle, prix total, taille — et « Vérifiés uniquement » pour ne garder que les fournisseurs attestés." },
       { anchor: "sort", title: "Trier", body: "Plus récents, plus empruntés ou prix croissant." },
@@ -103,7 +103,7 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
     steps: [
       { anchor: null, title: "Fiche d’un dataset", body: "Tout ce qui est public sur ce dataset avant d’emprunter. Les colonnes elles-mêmes restent chiffrées." },
       { anchor: "data", title: "Les données", body: "Lignes, colonnes, taille et catégorie. Les noms et types des colonnes ne sont pas publiés." },
-      { anchor: "model", title: "Le modèle", body: "Fixé par le fournisseur à la publication : c’est ce modèle entraîné que tu recevras, avec ses coefficients et ses métriques." },
+      { anchor: "model", title: "Le modèle", body: "Fixé par le fournisseur à la publication : c’est ce modèle qui sera entraîné ; il reste scellé dans l’enclave et répond à tes demandes de prédiction." },
       { anchor: "stats", title: "Statistiques", body: "Emprunts passés et part réglée au fournisseur : un signal sur la fiabilité du dataset." },
       { anchor: "price", title: "Ce que tu paies", body: "La part du fournisseur plus les frais de calcul. Le montant exact est dans le devis, avant tout paiement ; le gas se paie à part, en ETH." },
       { anchor: "borrow", title: "Emprunter", body: "Une transaction bloque le prix en escrow. La connexion et la vérification du wallet ne sont demandées qu’à ce moment-là." },
@@ -125,7 +125,8 @@ export const GUIDE_PAGE_TOURS: Readonly<Record<GuidePageKey, GuidePageTour>> = {
       { anchor: "steps", title: "Les étapes", body: "La donnée d’abord — fichier, nom, catégorie, profil —, puis le prix et la durée de publication." },
       { anchor: "file", title: "Ton CSV", body: "Glisse ton fichier ou charge le jeu d’exemple. Il reste sur ton appareil tant que tu ne publies pas." },
       { anchor: "profile", title: "Catégorie et profil", body: "La catégorie sert de filtre sur la marketplace ; le profil d’entraînement est vérifié sur le CSV puis verrouillé on-chain." },
-      { anchor: "price", title: "Ton gain", body: "Ce que tu veux gagner par emprunt, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur." },
+      { anchor: "price", title: "Ton gain", body: "Ce que tu veux gagner par jour de location, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur." },
+      { anchor: "rental", title: "Durée maximale de location", body: "L’emprunteur choisit combien de jours louer, dans cette limite ; à l’échéance ses prédictions s’arrêtent, sauf s’il prolonge." },
       { anchor: "duration", title: "Durée de publication", body: "Le temps pendant lequel le dataset reste empruntable ; tu pourras le mettre en pause avant." },
       { anchor: "publish", title: "Publier", body: "Chiffrement, scellement dans l’enclave, IPFS, puis le titre on-chain : une transaction à signer dans ton wallet." },
     ],

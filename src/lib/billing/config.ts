@@ -1,7 +1,7 @@
 import "server-only";
 import { readFileSync } from "node:fs";
 import { AppError } from "@/lib/app-error";
-import type { ModelId } from "@/lib/models/registry";
+import { modelSelectionForId, type ModelId } from "@/lib/models/registry";
 
 export function billingEnabled(): boolean {
   const version = process.env.SIRIUS_BILLING_VERSION;
@@ -30,6 +30,21 @@ export interface BillingPolicy {
   computeRecipient: string;
   minimumComputeAmount: string;
   /**
+   * Frais Sirius à prix coûtant d'une opération sans entraînement (prolongation, pack d'appels),
+   * à la place de `minimumComputeAmount` : le contrat refuse un compute nul (D-30).
+   */
+  noTrainingComputeAmount: string;
+  /**
+   * Quota quotidien inclus d'un prêt (site + API, compteur unique) et base du prix des packs.
+   * Un profil absent n'a ni API ni packs ; `linear_regression` est interdit (D-27).
+   */
+  apiCallsPerDay: Partial<Record<ModelId, number>>;
+  /**
+   * Tarif journalier de l'accès API (D-32), payé à Sirius par pass. Absent : l'accès API n'est pas
+   * en vente, donc aucune clé ni aucun appel API (jamais gratuit) ; les passes déjà payés restent servis.
+   */
+  apiAccessDailyComputeAmount?: string;
+  /**
    * Un profil ajouté après coup reste facultatif : les politiques déjà installées dans les
    * volumes du runner restent valides sans réinitialisation, et ce profil n'est simplement
    * pas facturable tant que l'opérateur ne l'a pas tarifé.
@@ -46,7 +61,14 @@ export function validateBillingPolicy(value: unknown): BillingPolicy {
       || !Number.isSafeInteger(p.chainId) || p.chainId < 1
       || !/^0x[0-9a-f]{40}$/.test(p.usdc) || !/^0x[0-9a-f]{40}$/.test(p.computeRecipient)
       || !Number.isInteger(p.usdcDecimals) || p.usdcDecimals < 3 || p.usdcDecimals > 30
-      || !amount(p.minimumComputeAmount) || BigInt(p.minimumComputeAmount) <= BigInt(0)) throw new Error();
+      || !amount(p.minimumComputeAmount) || BigInt(p.minimumComputeAmount) <= BigInt(0)
+      || !amount(p.noTrainingComputeAmount) || BigInt(p.noTrainingComputeAmount) <= BigInt(0)
+      || (p.apiAccessDailyComputeAmount !== undefined
+        && (!amount(p.apiAccessDailyComputeAmount) || BigInt(p.apiAccessDailyComputeAmount) <= BigInt(0)))
+      || !p.apiCallsPerDay || typeof p.apiCallsPerDay !== "object" || Array.isArray(p.apiCallsPerDay)) throw new Error();
+    for (const [id, calls] of Object.entries(p.apiCallsPerDay)) {
+      if (id === "linear_regression" || !modelSelectionForId(id) || !Number.isSafeInteger(calls) || calls < 1 || calls > 10_000) throw new Error();
+    }
     for (const id of new Set<string>([...REQUIRED_PROFILES, ...Object.keys(p.profiles)])) {
       const profile = p.profiles[id as ModelId];
       if (!profile || ![profile.computeAmount, profile.maxFailureFee, profile.executionRateAtomicPerMs].every(amount)

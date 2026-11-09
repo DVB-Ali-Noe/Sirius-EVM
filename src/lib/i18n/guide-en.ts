@@ -96,14 +96,14 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
     "Marketplace to borrow, Train to follow your jobs, My datasets to publish your own.",
 
   // Entraîner
-  "Ici tu suis tes emprunts et tes entraînements : chaque carte est un prêt, du paiement jusqu’au modèle livré.":
-    "Here you follow your borrowings and training runs: each card is a loan, from payment to the delivered model.",
+  "Ici tu suis tes emprunts et tes entraînements : chaque carte est un prêt, du paiement jusqu’aux prédictions du modèle.":
+    "Here you follow your borrowings and training runs: each card is a loan, from payment to the model’s predictions.",
   "Tes propres données": "Your own data",
   "Entraîner sur tes données sans escrow est réservé à l’équipe pendant la bêta : écris-nous pour l’essayer.":
     "Training on your own data without escrow is reserved to the team during the beta: write to us to try it.",
   "Mes entraînements": "My training runs",
-  "Après un emprunt, attends la finalité du paiement (~15 min), puis « Lancer le job (TEE) ». Un modèle réglé se vérifie et se télécharge ici ; un prêt jamais réglé se rembourse après son délai.":
-    "After borrowing, wait for payment finality (~15 min), then “Run job (TEE)”. A settled model is verified and downloaded here; a loan never settled is refunded after its deadline.",
+  "Après un emprunt, attends la finalité du paiement (~15 min), puis « Lancer le job (TEE) ». Un modèle réglé reste scellé dans l’enclave et répond ici à tes demandes de prédiction ; un prêt jamais réglé se rembourse après son délai.":
+    "After borrowing, wait for payment finality (~15 min), then “Run job (TEE)”. A settled model stays sealed in the enclave and answers your prediction requests here; a loan never settled is refunded after its deadline.",
 
   // Phala
   "Phala, l’enclave": "Phala, the enclave",
@@ -119,16 +119,16 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "Ton CSV, le modèle et la colonne à prédire. Le fichier est chiffré dans ton navigateur ; le calcul est offert pendant la démo.":
     "Your CSV, the model and the column to predict. The file is encrypted in your browser; the compute is free during the demo.",
   "Mes résultats": "My results",
-  "Tes modèles entraînés restent dans ce navigateur : télécharge-les pour les garder ailleurs.":
-    "Your trained models stay in this browser: download them to keep them elsewhere.",
+  "Tes modèles restent privés dans Phala, sans téléchargement : demande-leur une prédiction pendant une session ouverte.":
+    "Your models stay private inside Phala, with no download: ask them for a prediction while a session is open.",
   "L’espace Phala": "The Phala workspace",
   "La démo s’ouvre dans un espace dédié ; l’entraînement standard reste sur la page Entraîner.":
     "The demo opens in a dedicated workspace; standard training stays on the Train page.",
 
   // Marketplace
   "La marketplace": "The marketplace",
-  "Les datasets publiés par les fournisseurs. Un emprunt, c’est un entraînement dans l’enclave : tu reçois le modèle, jamais la donnée.":
-    "The datasets published by providers. A loan is one training run in the enclave: you receive the model, never the data.",
+  "Les datasets publiés par les fournisseurs. Un emprunt, c’est un entraînement dans l’enclave : tu obtiens des prédictions signées du modèle, jamais le modèle ni la donnée.":
+    "The datasets published by providers. A loan is one training run in the enclave: you get signed predictions from the model, never the model or the data.",
   "Rechercher": "Search",
   "Par nom ou description ; la recherche part après une pause de frappe, ou sur Entrée.":
     "By name or description; the search runs after a typing pause, or on Enter.",
@@ -148,8 +148,8 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "Lignes, colonnes, taille et catégorie. Les noms et types des colonnes ne sont pas publiés.":
     "Rows, columns, size and category. Column names and types are not published.",
   "Le modèle": "The model",
-  "Fixé par le fournisseur à la publication : c’est ce modèle entraîné que tu recevras, avec ses coefficients et ses métriques.":
-    "Set by the provider at publication: this is the trained model you will receive, with its coefficients and metrics.",
+  "Fixé par le fournisseur à la publication : c’est ce modèle qui sera entraîné ; il reste scellé dans l’enclave et répond à tes demandes de prédiction.":
+    "Set by the provider at publication: this is the model that will be trained; it stays sealed in the enclave and answers your prediction requests.",
   "Statistiques": "Statistics",
   "Emprunts passés et part réglée au fournisseur : un signal sur la fiabilité du dataset.":
     "Past loans and the share settled to the provider: a signal of the dataset’s reliability.",
@@ -183,8 +183,11 @@ export const GUIDE_MESSAGES_EN: Record<string, string> = {
   "La catégorie sert de filtre sur la marketplace ; le profil d’entraînement est vérifié sur le CSV puis verrouillé on-chain.":
     "The category is a marketplace filter; the training profile is checked against the CSV, then locked on-chain.",
   "Ton gain": "Your earnings",
-  "Ce que tu veux gagner par emprunt, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur.":
-    "What you want to earn per loan, in {token}. Compute fees are added for the borrower.",
+  "Ce que tu veux gagner par jour de location, en {token}. Les frais de calcul s’ajoutent pour l’emprunteur.":
+    "What you want to earn per rental day, in {token}. Compute fees are added for the borrower.",
+  "Durée maximale de location": "Maximum rental duration",
+  "L’emprunteur choisit combien de jours louer, dans cette limite ; à l’échéance ses prédictions s’arrêtent, sauf s’il prolonge.":
+    "The borrower chooses how many days to rent, within this limit; at expiry their predictions stop unless they extend.",
   "Durée de publication": "Listing duration",
   "Le temps pendant lequel le dataset reste empruntable ; tu pourras le mettre en pause avant.":
     "How long the dataset stays borrowable; you can pause it earlier.",

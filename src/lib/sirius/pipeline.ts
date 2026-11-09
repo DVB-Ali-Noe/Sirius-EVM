@@ -6,6 +6,7 @@ import { datasetIngressKeyInRunner, sealDatasetInRunner } from "@/lib/tee/runner
 import type { DatasetIngressEnvelope } from "@/lib/tee/contract";
 import type { RunnerGrant } from "@/lib/runner/authorization-contract";
 import { requireAcceptedKyb } from "@/lib/sirius/access";
+import { requireRunnerOrWake } from "@/lib/sirius/availability";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
 import { modelSelection, type ModelSelection } from "@/lib/models/registry";
 import { assertCurrentRunner, currentRunnerProvenance, type RunnerProvenance } from "@/lib/runner/provenance";
@@ -15,6 +16,8 @@ const ABANDONED_DRAFT_TTL_MS = 30 * 60_000;
 const MAX_OPEN_DRAFTS_PER_PROVIDER = 5;
 const MAX_DATASETS_PER_PROVIDER_WINDOW = 10;
 const MAX_DATASETS_GLOBAL_WINDOW = 200;
+/** Fenêtre du quota journalier d'envoi en morceaux (`chunked-upload.ts`), calculé sur les lignes `DatasetUpload`. */
+export const UPLOAD_QUOTA_WINDOW_MS = 24 * 60 * 60_000;
 
 export interface IngestInput {
   name: string;
@@ -23,6 +26,8 @@ export interface IngestInput {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  /** Durée maximale de location choisie par le fournisseur (1–365 jours), signée dans le reçu. */
+  maxRentalDays: number;
   model: ModelSelection;
 }
 
@@ -32,7 +37,55 @@ export interface AuthorizedDatasetUpload extends RunnerProvenance {
   sizeBytes: number;
   priceUsdcAtomic: string;
   challengeDays: number;
+  maxRentalDays: number;
   model: ModelSelection;
+}
+
+/** Brouillons vides abandonnés d'un fournisseur : jamais comptés dans ses quotas de création. */
+function abandonedDrafts(provider: string, now: number): Prisma.DatasetWhereInput {
+  return {
+    provider, status: "DRAFT", ipfsCid: null, wrappedKey: null, runnerReceipt: null,
+    updatedAt: { lte: new Date(now - ABANDONED_DRAFT_TTL_MS) },
+  };
+}
+
+/**
+ * Brouillons abandonnés supprimés à la création suivante. Un brouillon passé par l'envoi en
+ * morceaux attend que chacun de ses envois soit purgé de R2 par le reaper (`purgedAt`) et sorti
+ * de la fenêtre du quota journalier : sinon ses morceaux resteraient dans R2 sans plus aucune
+ * ligne pour les retrouver, et supprimer ses envois effacerait les octets comptés dans le quota.
+ */
+function deletableDrafts(provider: string, now: number): Prisma.DatasetWhereInput {
+  return {
+    ...abandonedDrafts(provider, now),
+    uploads: { every: { purgedAt: { not: null }, createdAt: { lte: new Date(now - UPLOAD_QUOTA_WINDOW_MS) } } },
+  };
+}
+
+/**
+ * Quotas de création, lus sans écrire : appelés avant le réveil de la CVM (un fournisseur au quota
+ * ne la réveille pas), puis de nouveau dans la transaction qui crée le brouillon, où ils font foi.
+ */
+async function assertIngestionQuota(
+  db: { dataset: { count(args: { where: Prisma.DatasetWhereInput }): Promise<number> } },
+  provider: string,
+  now: number,
+) {
+  const since = new Date(now - DATASET_WINDOW_MS);
+  const abandoned = abandonedDrafts(provider, now);
+  const [drafts, providerRecent, globalRecent, stale, staleRecent] = await Promise.all([
+    db.dataset.count({ where: { provider, status: "DRAFT" } }),
+    db.dataset.count({ where: { provider, createdAt: { gte: since } } }),
+    db.dataset.count({ where: { createdAt: { gte: since } } }),
+    db.dataset.count({ where: abandoned }),
+    db.dataset.count({ where: { ...abandoned, createdAt: { gte: since } } }),
+  ]);
+  if (drafts - stale >= MAX_OPEN_DRAFTS_PER_PROVIDER) {
+    throw new AppError("Trop de datasets en attente d’upload", 429);
+  }
+  if (providerRecent - staleRecent >= MAX_DATASETS_PER_PROVIDER_WINDOW || globalRecent - staleRecent >= MAX_DATASETS_GLOBAL_WINDOW) {
+    throw new AppError("Quota d’ingestion atteint — réessaie plus tard", 429);
+  }
 }
 
 /**
@@ -46,34 +99,22 @@ export async function beginDatasetIngestion({
   sizeBytes,
   priceUsdcAtomic,
   challengeDays,
+  maxRentalDays,
   model,
 }: IngestInput) {
   await requireAcceptedKyb(provider);
+  await assertIngestionQuota(prisma, provider, Date.now());
+  // Fournisseur authentifié, requête validée, KYB accepté, quotas libres : CVM éteinte ⇒ réveil
+  // demandé (budget du compte) et 503 `enclave_starting` avant toute écriture ; le navigateur relance.
+  await requireRunnerOrWake({ wakeSubject: provider });
   const runner = await currentRunnerProvenance();
   const dataset = await serializableTransaction(async (tx) => {
     const now = Date.now();
-    const since = new Date(now - DATASET_WINDOW_MS);
-    await tx.dataset.deleteMany({
-      where: {
-        provider,
-        status: "DRAFT",
-        ipfsCid: null,
-        wrappedKey: null,
-        runnerReceipt: null,
-        updatedAt: { lte: new Date(now - ABANDONED_DRAFT_TTL_MS) },
-      },
-    });
-    const [drafts, providerRecent, globalRecent] = await Promise.all([
-      tx.dataset.count({ where: { provider, status: "DRAFT" } }),
-      tx.dataset.count({ where: { provider, createdAt: { gte: since } } }),
-      tx.dataset.count({ where: { createdAt: { gte: since } } }),
-    ]);
-    if (drafts >= MAX_OPEN_DRAFTS_PER_PROVIDER) {
-      throw new AppError("Trop de datasets en attente d’upload", 429);
-    }
-    if (providerRecent >= MAX_DATASETS_PER_PROVIDER_WINDOW || globalRecent >= MAX_DATASETS_GLOBAL_WINDOW) {
-      throw new AppError("Quota d’ingestion atteint — réessaie plus tard", 429);
-    }
+    const deletable = deletableDrafts(provider, now);
+    // Clé étrangère RESTRICT : les envois purgés partent d'abord, leur brouillon ensuite.
+    await tx.datasetUpload.deleteMany({ where: { dataset: deletable } });
+    await tx.dataset.deleteMany({ where: deletable });
+    await assertIngestionQuota(tx, provider, now);
     return tx.dataset.create({
       data: {
         name,
@@ -82,6 +123,7 @@ export async function beginDatasetIngestion({
         sizeBytes,
         priceUsdcAtomic,
         challengeDays,
+        maxRentalDays,
         modelId: model.modelId,
         modelVersion: model.modelVersion,
         ...runner,
@@ -95,6 +137,7 @@ export async function beginDatasetIngestion({
       ingressKey,
       priceUsdcAtomic: dataset.priceUsdcAtomic!,
       challengeDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       sizeBytes: dataset.sizeBytes,
       model,
     };
@@ -104,13 +147,20 @@ export async function beginDatasetIngestion({
   }
 }
 
+/** Termes du brouillon relus avant le réveil, pour les contrôles propres à chaque route. */
+export type DatasetUploadTerms = Omit<AuthorizedDatasetUpload, keyof RunnerProvenance>;
+
 /**
  * Transmet uniquement l'enveloppe chiffrée au runner. Le CSV est ouvert dans la CVM, puis
  * immédiatement rescellé sous une DEK aléatoire avant son envoi vers IPFS.
+ *
+ * `validate` : contrôles sans écriture de la route appelante (corps, taille, manifeste, morceaux
+ * reçus), exécutés après ceux du brouillon et avant le réveil : une requête invalide ne réveille rien.
  */
 export async function authorizeDatasetUpload(
   datasetId: string,
   provider: string,
+  validate?: (terms: DatasetUploadTerms) => Promise<void> | void,
 ): Promise<AuthorizedDatasetUpload> {
   const dataset = await prisma.dataset.findUnique({
     where: { id: datasetId },
@@ -120,6 +170,7 @@ export async function authorizeDatasetUpload(
       sizeBytes: true,
       priceUsdcAtomic: true,
       challengeDays: true,
+      maxRentalDays: true,
       modelId: true,
       modelVersion: true,
       ipfsCid: true,
@@ -144,6 +195,19 @@ export async function authorizeDatasetUpload(
     throw new AppError("Ce dataset ne peut plus recevoir de fichier", 409);
   }
   await requireAcceptedKyb(provider);
+  const terms: DatasetUploadTerms = {
+    id: datasetId,
+    provider,
+    sizeBytes: dataset.sizeBytes,
+    priceUsdcAtomic: dataset.priceUsdcAtomic,
+    challengeDays: dataset.challengeDays,
+    maxRentalDays: dataset.maxRentalDays,
+    model,
+  };
+  await validate?.(terms);
+  // Scellement ou envoi en morceaux du brouillon de ce fournisseur : même réveil (budget du compte),
+  // avant de le toucher.
+  await requireRunnerOrWake({ wakeSubject: provider });
   const runner = await assertCurrentRunner(dataset);
   const claimed = await prisma.dataset.updateMany({
     where: {
@@ -157,15 +221,7 @@ export async function authorizeDatasetUpload(
     data: { updatedAt: new Date() },
   });
   if (claimed.count !== 1) throw new AppError("Upload déjà finalisé ou supprimé", 409);
-  return {
-    id: datasetId,
-    provider,
-    sizeBytes: dataset.sizeBytes,
-    priceUsdcAtomic: dataset.priceUsdcAtomic,
-    challengeDays: dataset.challengeDays,
-    model,
-    ...runner,
-  };
+  return { ...terms, ...runner };
 }
 
 export async function completeDatasetIngestion(
@@ -184,6 +240,7 @@ export async function completeDatasetIngestion(
       envelope,
       authorization,
       dataset.model,
+      dataset.maxRentalDays,
     );
   } catch (error) {
     // Un refus du runner (fichier invalide, quota de démonstration, session fermée, grant

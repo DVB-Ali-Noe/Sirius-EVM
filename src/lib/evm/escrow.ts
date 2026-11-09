@@ -9,6 +9,7 @@ import { normalizeAddress, type CanonicalAddress } from "./address";
 import { siriusdatasetregistryAbi } from "./abi/siriusdatasetregistry";
 import { datasetRegistryAddress, escrowAddress as configuredEscrowAddress } from "./addresses";
 import { getPublicClient } from "./client";
+import { findLatestLog } from "./log-window";
 import { datasetIdHash } from "./dataset-key";
 import { resolveServerNetwork } from "./networks";
 import { trainingProfileHash, type ModelSelection } from "@/lib/models/registry";
@@ -306,8 +307,12 @@ export async function settleEscrow(loanKey: Hex, preimage: Hex, fromBlock?: bigi
 /**
  * État d'un prêt on-chain. Le hash de transaction est retrouvé uniquement depuis
  * le bloc du lock persistant ; aucun scan depuis le genesis n'est autorisé.
+ * `releaseTier` ne s'applique qu'à un `release` (prêt déjà classé rapide par l'enclave, revu
+ * ensuite à finalité complète par le reaper) ; un remboursement ou un échec reste à finalité complète.
  */
-export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, binding = evmEscrowBinding()): Promise<EscrowResolution> {
+export async function reconcileLoanEscrow(
+  loanKey: Hex, fromBlock?: bigint, binding = evmEscrowBinding(), releaseTier: FinalityTier = "FULL",
+): Promise<EscrowResolution> {
   const loan = await readLoan(loanKey, binding);
   if (!loan) throw new AppError("Prêt inconnu du contrat escrow", 409);
   if (loan.status === STATUS_LOCKED) return { state: "active" };
@@ -327,7 +332,7 @@ export async function reconcileLoanEscrow(loanKey: Hex, fromBlock?: bigint, bind
     const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
     if (receipt.status !== "success" || receipt.to?.toLowerCase() !== escrowReadAddress(binding)
       || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) throw new AppError("Résolution on-chain non confirmée", 409);
-    await assertCanonicalReceipt(client, receipt);
+    await assertCanonicalReceipt(client, receipt, 1, settled ? releaseTier : "FULL");
   }
   return settled
     ? { state: "settled", txHash, preimage: loan.preimage }
@@ -346,6 +351,18 @@ const REFUNDED_EVENT = parseAbiItem(
   "event LoanRefunded(bytes32 indexed loanKey, address indexed borrower, uint256 amount, uint64 seq)",
 );
 
+/**
+ * Hash du `release` d'un prêt déjà libéré on-chain, à n'importe quelle profondeur (aucune garde de
+ * finalité ni de reçu canonique) ; `null` si le contrat ne le montre pas libéré. Sert seulement à ne
+ * pas perdre l'état « release diffusé » d'un achat dont la réconciliation complète a échoué : la
+ * preuve reste exigée par le runner, qui rejoue la même opération idempotente.
+ */
+export async function releasedTxHashAnyDepth(loanKey: Hex, fromBlock: bigint, binding = evmEscrowBinding()): Promise<string | null> {
+  const loan = await readLoan(loanKey, binding);
+  if (loan?.status !== STATUS_RELEASED) return null;
+  return findLifecycleTxHash(loanKey, "LoanReleased", fromBlock, binding, Boolean(loan.billing));
+}
+
 async function findLifecycleTxHash(
   loanKey: Hex,
   eventName: "LoanReleased" | "LoanRefunded" | "LoanFailed",
@@ -355,25 +372,28 @@ async function findLifecycleTxHash(
 ): Promise<string> {
   const client = getPublicClient();
   const address = escrowReadAddress(binding);
+  // Fenêtres bornées (log-window.ts) : un `eth_getLogs` ouvert jusqu'au dernier bloc est refusé
+  // au-delà de 10 000 blocs, et le reaper ne pouvait plus clore les prêts réglés ou remboursés tard.
+  const latest = await client.getBlockNumber();
   if (billing) {
-    const logs = await client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock });
-    const txHash = logs.at(-1)?.transactionHash;
+    const last = await findLatestLog(fromBlock, latest, (from, to) =>
+      client.getContractEvents({ address, abi: siriusescrowv7Abi, eventName, args: { loanKey }, fromBlock: from, toBlock: to }));
+    const txHash = last?.transactionHash;
     if (!txHash) throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
     return txHash;
   }
-  const logs =
+  const last = await findLatestLog<{ transactionHash: Hex | null }>(fromBlock, latest, (from, to) =>
     eventName === "LoanReleased"
-      ? await client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock })
-      : await client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock });
+      ? client.getLogs({ address, event: RELEASED_EVENT, args: { loanKey }, fromBlock: from, toBlock: to })
+      : client.getLogs({ address, event: REFUNDED_EVENT, args: { loanKey }, fromBlock: from, toBlock: to }));
 
-  const last = logs.at(-1);
   if (!last?.transactionHash) {
     throw new AppError("Résolution on-chain confirmée mais transaction introuvable", 503);
   }
   return last.transactionHash;
 }
 
-/** Préimage publié, que le navigateur utilise pour ouvrir sa capsule. */
+/** Préimage publié par `release` : preuve de règlement exigée avant toute prédiction sur le modèle d'un prêt. */
 export async function publishedPreimage(loanKey: Hex, binding = evmEscrowBinding()): Promise<Hex> {
   const [revealed, preimage] = await getPublicClient().readContract({
     address: escrowReadAddress(binding),

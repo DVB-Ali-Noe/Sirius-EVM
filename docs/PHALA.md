@@ -2,7 +2,7 @@
 
 **Point de reprise au 26 septembre :** la [checklist de l’espace Phala](PHALA-DEMO-RESTE-A-FAIRE.md) et son [runbook manuel](PHALA-DEMO-RUNBOOK.md) font référence. La bascule globale de staging et le nettoyage Neon sont différés ; les mesures et étapes ci-dessous restent historiques. La nouvelle démonstration nécessite sa propre configuration et une nouvelle validation matérielle. Le calcul VPS reste un chantier distinct, sans garantie TEE.
 
-Le runner Phala détient les clés, déchiffre les datasets, entraîne et règle les prêts. Next ne reçoit ni donnée brute, ni DEK, ni master key, ni préimage avant règlement. Le VPS héberge les reapers et les outils de supervision extérieure ; le calcul confidentiel reste dans la CVM.
+Le runner Phala détient les clés, déchiffre les datasets, entraîne, scelle les modèles et règle les prêts. Depuis [D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule), aucun modèle ne sort de la CVM : il répond par prédiction signée, seulement pendant qu’elle tourne. Next ne reçoit ni donnée brute, ni DEK, ni master key, ni modèle, ni préimage avant règlement. Le VPS héberge les reapers et les outils de supervision extérieure ; le calcul confidentiel reste dans la CVM.
 
 `main` impose `SIRIUS_REQUIRE_PHALA=true`, même sur testnet. Staging et le développement peuvent conserver `TEE_MODE=stub` sans `RUNNER_URL` pour les données synthétiques ou non sensibles. Il n’y a ni sélecteur utilisateur, ni repli automatique vers ce mode en cas de panne Phala. La présence d’un runner distant en production impose HTTPS et l’attestation, même en mode démonstration.
 
@@ -211,7 +211,7 @@ Appliquer la migration Prisma `20260919000000_track_runner_provenance` dans la f
 
 Suspendre les anciennes fiches publiées sans supprimer les blobs et reçus historiques. Réimporter les datasets depuis le navigateur du provider vers Phala et publier de nouveaux titres. Une nouvelle clé ne peut pas ouvrir les anciennes enveloppes et ne rend pas rétroactivement confidentiels les traitements Vercel.
 
-Préserver avant la bascule le téléchargement des anciens modèles et l’environnement permettant leur re-livraison. Le nouveau runner refuse les ressources d’une autre identité ou de provenance inconnue. Les préimages déjà publics et retraits des anciens escrows restent accessibles, mais `SIRIUS_LEGACY_ESCROW_ADDRESSES` ne donne pas à Phala les anciennes clés. Un accès historique doit rester séparé de la production Phala ; aucun routage automatique vers le runner de démonstration n’est ajouté.
+Les anciens modèles ne sont plus livrés ni re-livrés (D-28) ; leurs blobs et reçus restent en base et sur IPFS comme archives. Le nouveau runner refuse les ressources d’une autre identité ou de provenance inconnue. Les préimages déjà publics et retraits des anciens escrows restent accessibles, mais `SIRIUS_LEGACY_ESCROW_ADDRESSES` ne donne pas à Phala les anciennes clés. Un accès historique doit rester séparé de la production Phala ; aucun routage automatique vers le runner de démonstration n’est ajouté.
 
 Avec le fichier de contrôle de la bonne cible et les migrations appliquées :
 
@@ -227,7 +227,7 @@ Synchroniser Next, le runner et le reaper, puis reconstruire le frontend : les v
 ## Validation avant réouverture
 
 - Dépôt chiffré depuis le navigateur et entraînement personnel avec provenance persistée.
-- Prêt complet avec deux wallets : approve, autorisation v6, lock, entraînement, capsule, release et retrait provider.
+- Prêt complet avec deux wallets : approve, autorisation, lock, entraînement scellé, release, prédiction signée de l’emprunteur et retrait provider.
 - Remboursement après échéance et retrait borrower ; lecture des crédits historiques.
 - Refus d’un ancien dataset, d’une attestation incorrecte et d’un changement de runner ; aucune bascule in-process.
 - Récupération du modèle après reconnexion, redémarrage CVM et renouvellement du certificat.

@@ -24,6 +24,10 @@ interface DataStepProps {
   /** Rapport de qualité du fichier lu, y compris refusé ; reste dans la page. */
   quality: QualityReport | null;
   readingFile: boolean;
+  /** Gros fichier : part déjà lue, de 0 à 1. */
+  readProgress?: number | null;
+  /** Taille maximale d’un envoi en morceaux sur cette instance ; absent : petits fichiers seulement. */
+  largeUploadMaxBytes?: number | null;
   onFileSelected: (file: File | null) => void;
   onLoadExample: () => void;
   loadingExample: boolean;
@@ -50,6 +54,8 @@ export function DataStep({
   inspection,
   quality,
   readingFile,
+  readProgress = null,
+  largeUploadMaxBytes = null,
   onFileSelected,
   onLoadExample,
   loadingExample,
@@ -82,7 +88,11 @@ export function DataStep({
       }}
       noValidate
     >
-      <DisclaimerNote messages={["dataLimits"]} />
+      <DisclaimerNote messages={["dataLimits"]}>
+        {largeUploadMaxBytes ? (
+          <p>{t("Gros fichiers : cette instance accepte aussi des CSV jusqu’à {maxSize}, chiffrés et envoyés en morceaux ; l’entraînement se fait alors sur un échantillon qui respecte les limites ci-dessous.", { maxSize: formatBytes(largeUploadMaxBytes) })}</p>
+        ) : null}
+      </DisclaimerNote>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-medium" htmlFor={ids.file}>{t("Fichier CSV")}</label>
@@ -111,7 +121,10 @@ export function DataStep({
             className="w-full min-w-0 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-background hover:file:bg-accent/90"
           />
           <div id={ids.report} aria-live="polite" className="min-w-0 text-sm">
-            {readingFile && <p className="text-muted">{t("Lecture du fichier…")}</p>}
+            {readingFile && readProgress === null && <p className="text-muted">{t("Lecture du fichier…")}</p>}
+            {readingFile && readProgress !== null && (
+              <p className="text-muted tabular-nums">{t("Lecture du fichier… {percent} %", { percent: Math.floor(readProgress * 100) })}</p>
+            )}
             {!readingFile && file && (
               <p className="wrap-anywhere text-foreground">
                 <span className="font-medium">{file.name}</span>
@@ -143,6 +156,11 @@ export function DataStep({
                     <dd className="wrap-anywhere font-mono">{summary.target}</dd>
                   </div>
                 </dl>
+                {file?.large && (
+                  <p className="mt-2 text-muted">
+                    {t("Gros fichier : il sera chiffré et envoyé en morceaux depuis ce navigateur. Garde la page ouverte pendant l’envoi.")}
+                  </p>
+                )}
                 <p className="mt-2 text-muted">
                   {t("L’enclave entraîne sur la dernière colonne numérique du fichier et utilise les autres colonnes numériques comme variables ({count}). Réordonne les colonnes si la cible n’est pas la bonne.", {
                     count: formatCount(summary.features.length),

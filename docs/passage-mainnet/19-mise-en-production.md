@@ -235,7 +235,7 @@ pnpm dlx phala@1.1.22 deploy --profile sirius --cvm-id <cvm-id> \
 
 ### Étape 9 — Variables Vercel production
 
-**Qui** : Ali. Projet `sirius-evm`, environnement **Production** uniquement. Par le tableau de bord, ou `vercel env add <NOM> production --sensitive` qui demande la valeur sur l'entrée standard (jamais `--value=` avec un secret : il resterait dans l'historique). Liste complète et sources en section 3.1.
+**Qui** : Ali. Projet `sirius-evm`, environnement **Production** uniquement. Par le tableau de bord, ou `vercel env add <NOM> production --sensitive` qui demande la valeur sur l'entrée standard (jamais `--value=` avec un secret : il resterait dans l'historique). **Exception** : `SIRIUS_BILLING_VERSION`, `SIRIUS_BILLING_POLICY_JSON` et `SIRIUS_PHALA_DEMO` ne sont pas des secrets et se posent **sans** `--sensitive` (`--no-sensitive`) : la porte tarif D-33 de la pipeline doit pouvoir les lire (section 3.1). Liste complète et sources en section 3.1.
 
 1. Retirer d'abord ce qui est interdit sur mainnet : `SIRIUS_MASTER_KEY`, `SIRIUS_FAUCET_KEY`, `SIRIUS_KYB_VERIFIER_KEY`, `DSTACK_SIMULATOR_ENDPOINT`, `SIRIUS_DEPLOYMENT_MODE`, `NEXT_PUBLIC_SIRIUS_DEPLOYMENT_MODE`, `SIRIUS_PHALA_DEMO`, `SIRIUS_LEGACY_ESCROW_ADDRESSES`, `SIRIUS_EXPECTED_RTMR3`, `NEXT_PUBLIC_SIRIUS_E2E`.
 2. Poser toutes les variables de la section 3.1.
@@ -369,6 +369,8 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 
 ### 3.1 Next sur Vercel (projet `sirius-evm`, Production)
 
+`SIRIUS_BILLING_VERSION`, `SIRIUS_BILLING_POLICY_JSON` et `SIRIUS_PHALA_DEMO` ne doivent **pas** être marquées Sensitive : `vercel pull` les remplace alors par `[SENSITIVE]`, et la porte tarif D-33 de la pipeline (`scripts/operations/check-billing-rate-card.mjs`) refuse le déploiement en nommant la variable dès qu'elle en a besoin (une cible v6 ou de démonstration ne lit pas le tarif). Aucune n'est un secret.
+
 | Variable | Valeur attendue | Source | Obligatoire | `.env.example` |
 |---|---|---|---|---|
 | `EVM_NETWORK`, `NEXT_PUBLIC_EVM_NETWORK` | `mainnet` | décision | oui | oui |
@@ -392,7 +394,7 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `SIRIUS_TRUST_PROXY_HEADERS`, `SIRIUS_INGRESS_RATE_LIMITED` | `true`, `true` | fixe | oui | oui |
 | `DATABASE_URL`, `DATABASE_POOL_MAX` | URL pooler Neon mainnet, `5` | Neon | oui | oui |
 | `PINATA_JWT`, `PINATA_GATEWAY` | production | Pinata | pratique (modèles, publication) | oui |
-| `SIRIUS_BILLING_POLICY_JSON` | même JSON que `billing-policy.json` | étape 7 | pratique (affichage du tarif à l'upload) | en commentaire seulement |
+| `SIRIUS_BILLING_POLICY_JSON` | même JSON que `billing-policy.json` | étape 7 | requise pour louer en v7 (API incluse et prix journalier lus par Next, D-33 ; sinon 503) et affichage du tarif à l'upload | en commentaire seulement |
 | `NEXT_PUBLIC_WEB3AUTH_CLIENT_ID`, `NEXT_PUBLIC_WEB3AUTH_NETWORK` | projet de production, `sapphire_mainnet` | Web3Auth | `sapphire_mainnet` obligatoire dès que le client ID est posé | oui |
 | `NEXT_PUBLIC_MOONPAY_PUBLISHABLE_KEY`, `MOONPAY_SECRET_KEY` | `pk_live_…`, `sk_live_…` | MoonPay | non (carte masquée sans) | oui |
 | `SIRIUS_ADMIN_ADDRESSES` | adresses d'Ali et Noé | décision | non | oui |
@@ -473,7 +475,7 @@ Dérouler [18-a-tester-au-passage-mainnet.md](18-a-tester-au-passage-mainnet.md)
 | `RUNNER_MONITOR_SECRET` | runner actif, supervision | `compose.v7.yaml`, `runner-monitor.ts` |
 | `RUNNER_INITIAL_BUDGET_POLICY`, `RUNNER_INITIAL_BILLING_POLICY` | initialisation | `compose.init-v7.yaml` |
 | `DSTACK_DOCKER_REGISTRY`, `DSTACK_DOCKER_USERNAME`, `DSTACK_DOCKER_PASSWORD` | CVM, image privée | Phala |
-| `SIRIUS_BILLING_POLICY_JSON` | Next, tarif affiché | `billing/config.ts` (présente en commentaire) |
+| `SIRIUS_BILLING_POLICY_JSON` | Next, tarif affiché et API incluse aux emprunts (D-33) | `billing/config.ts` (présente en commentaire) |
 
 Facultatives mais absentes aussi : `SIRIUS_ADMISSIONS_CLOSED`, `SIRIUS_PHALA_DEMO_ORIGIN`, `EVM_CHAIN_ID`.
 

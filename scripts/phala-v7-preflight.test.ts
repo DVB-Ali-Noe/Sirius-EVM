@@ -110,9 +110,9 @@ test("le préflight B bloque un token divergent, un ancien escrow, un autre sign
   }
 });
 
-test("le préflight B exige que le registre v4 ou v5 accepte chaque profil proposé, arbres compris une fois activés", async () => {
+test("le préflight B exige que le registre v4, v5 ou v6 accepte chaque profil proposé, arbres compris une fois activés", async () => {
   const trees = testnetV7Configuration({ ...environment(), NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "gradient_boosted_trees" });
-  for (const datasetVersion of ["sirius-dataset-v4", "sirius-dataset-v5"]) {
+  for (const datasetVersion of ["sirius-dataset-v4", "sirius-dataset-v5", "sirius-dataset-v6"]) {
     const { client, config, state } = fixture();
     state.datasetVersion = datasetVersion;
     assert.equal((await checkTestnetV7(client, config)).chainChecksPassed, true, datasetVersion);
@@ -121,7 +121,7 @@ test("le préflight B exige que le registre v4 ou v5 accepte chaque profil propo
   const { client, state } = fixture();
   Object.assign(state, { datasetVersion: "sirius-dataset-v5", profiles: [...BASE_PROFILES, TREES_PROFILE] });
   assert.equal((await checkTestnetV7(client, trees)).chainChecksPassed, true);
-  state.datasetVersion = "sirius-dataset-v6";
+  state.datasetVersion = "sirius-dataset-v7";
   await assert.rejects(checkTestnetV7(client, trees), /Versions/);
 });
 

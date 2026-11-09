@@ -11,10 +11,11 @@ const valid = {
   description: " Trajets agrégés ",
   sizeBytes: 15_000,
   priceUsdc: "20",
+  maxRentalDays: 30,
   category: "Mobility",
   listingDays: 30,
   trainingConsent: false,
-  modelId: "linear_regression",
+  modelId: "logistic_regression",
 };
 
 function parsed(body: unknown) {
@@ -38,10 +39,11 @@ test("un corps valide est normalisé et le délai de sécurité forcé à 3 jour
     description: "Trajets agrégés",
     sizeBytes: 15_000,
     priceUsdcAtomic: priceUsdcToAtomic("20"),
+    maxRentalDays: 30,
     category: "Mobility",
     listingDays: 30,
     trainingConsent: false,
-    model: { modelId: "linear_regression", modelVersion: "1.0.0" },
+    model: { modelId: "logistic_regression", modelVersion: "1.0.0" },
     challengeDays: ESCROW_CHALLENGE_DAYS,
   });
   assert.equal(value.challengeDays, 3);
@@ -94,7 +96,7 @@ test("nom, description, taille, prix et profil gardent leurs bornes", () => {
   }
   assert.equal(parsed({ ...valid, sizeBytes: MAX_DATASET_BYTES }).sizeBytes, MAX_DATASET_BYTES);
   for (const priceUsdc of [undefined, 20, "0", "0.0001", "1000001", "-1", "1e3", "", "20,5", "0x10"]) {
-    refused({ ...valid, priceUsdc }, "Prix invalide (0.001 à 1 000 000 par emprunt)");
+    refused({ ...valid, priceUsdc }, "Prix invalide (0.001 à 1 000 000 par jour)");
   }
   assert.equal(parsed({ ...valid, priceUsdc: "0.001" }).priceUsdcAtomic, priceUsdcToAtomic("0.001"));
   assert.equal(parsed({ ...valid, priceUsdc: "1000000" }).priceUsdcAtomic, priceUsdcToAtomic("1000000"));
@@ -104,14 +106,38 @@ test("nom, description, taille, prix et profil gardent leurs bornes", () => {
   assert.deepEqual(parsed({ ...valid, modelId: "logistic_regression" }).model, { modelId: "logistic_regression", modelVersion: "1.0.0" });
 });
 
+test("la régression linéaire n'est publiable que si elle est activée (D-31)", () => {
+  const previous = process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+  try {
+    for (const optIn of [undefined, "gradient_boosted_trees"]) {
+      if (optIn === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+      else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = optIn;
+      refused({ ...valid, modelId: "linear_regression" }, "Profil d’entraînement obligatoire");
+    }
+    process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees,linear_regression";
+    assert.deepEqual(parsed({ ...valid, modelId: "linear_regression" }).model, { modelId: "linear_regression", modelVersion: "1.0.0" });
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS;
+    else process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = previous;
+  }
+});
+
+test("la durée maximale de location est un entier de 1 à 365 jours, obligatoire", () => {
+  for (const maxRentalDays of [1, 30, 365]) assert.equal(parsed({ ...valid, maxRentalDays }).maxRentalDays, maxRentalDays);
+  for (const maxRentalDays of [undefined, null, 0, -1, 366, 1.5, "30", Number.NaN, true, [30]]) {
+    refused({ ...valid, maxRentalDays }, "Durée maximale de location invalide (1 à 365 jours)");
+  }
+});
+
 test("les champs sont vérifiés dans un ordre fixe : la première erreur est signalée", () => {
   refused({}, "Nom manquant");
   refused({ name: "x" }, "Fichier vide ou trop volumineux (max 3 Mo)", 413);
-  refused({ name: "x", sizeBytes: 1 }, "Prix invalide (0.001 à 1 000 000 par emprunt)");
-  refused({ name: "x", sizeBytes: 1, priceUsdc: "1" }, "Catégorie obligatoire");
-  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", category: "Other" }, "Durée de publication invalide (7, 30 ou 90 jours)");
-  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", category: "Other", listingDays: 7, trainingConsent: "yes" }, "Consentement invalide");
-  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", category: "Other", listingDays: 7 }, "Profil d’entraînement obligatoire");
+  refused({ name: "x", sizeBytes: 1 }, "Prix invalide (0.001 à 1 000 000 par jour)");
+  refused({ name: "x", sizeBytes: 1, priceUsdc: "1" }, "Durée maximale de location invalide (1 à 365 jours)");
+  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", maxRentalDays: 1 }, "Catégorie obligatoire");
+  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", maxRentalDays: 1, category: "Other" }, "Durée de publication invalide (7, 30 ou 90 jours)");
+  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", maxRentalDays: 1, category: "Other", listingDays: 7, trainingConsent: "yes" }, "Consentement invalide");
+  refused({ name: "x", sizeBytes: 1, priceUsdc: "1", maxRentalDays: 1, category: "Other", listingDays: 7 }, "Profil d’entraînement obligatoire");
 });
 
 test("un corps qui n'est pas un objet est refusé sans exception", () => {
@@ -123,7 +149,7 @@ test("en facturation v7, un profil facultatif absent du tarif publié est refus�
   process.env.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS = "gradient_boosted_trees";
   try {
     const trees = { ...valid, modelId: "gradient_boosted_trees" };
-    const tariff = { version: "t", computeFeeAtomic: { linear_regression: "1", logistic_regression: "1" }, minimumProviderAtomic: "1", decimals: 6 };
+    const tariff = { version: "t", computeFeeAtomic: { linear_regression: "1", logistic_regression: "1" }, apiAccessDailyFeeAtomic: {}, unrentableModels: [], minimumProviderAtomic: "1", decimals: 6 };
     const unpriced = "Profil d’entraînement sans tarif de calcul : publication impossible pour l’instant";
     for (const billing of [{ v7: true, tariff }, { v7: true, tariff: null }]) {
       const result = parseCreateDatasetRequest(trees, billing);

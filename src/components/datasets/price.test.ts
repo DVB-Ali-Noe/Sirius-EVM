@@ -15,6 +15,17 @@ test("montants exacts à 6 décimales (USDG) : exemple du cahier des charges, 20
   assert.equal(formatTokenWithSymbol("23000000", { symbol: "USDG", decimals: 6 }), "23.00 USDG");
 });
 
+test("accès API inclus (D-32) : ajouté au total, montant illisible refusé", () => {
+  const breakdown = computePriceBreakdown({ providerAtomic: "40000000", computeAtomic: "3000000", apiAccessAtomic: "3000000", decimals: 6 });
+  assert.ok(breakdown.ok);
+  assert.equal(breakdown.apiAccess, BigInt(3_000_000));
+  assert.equal(breakdown.total, BigInt(46_000_000));
+  const none = computePriceBreakdown({ providerAtomic: "1", computeAtomic: "1", apiAccessAtomic: null, decimals: 6 });
+  assert.ok(none.ok);
+  assert.equal(none.apiAccess, null);
+  assert.deepEqual(computePriceBreakdown({ providerAtomic: "1", computeAtomic: "1", apiAccessAtomic: "1.5", decimals: 6 }), { ok: false, reason: "invalid-amount" });
+});
+
 test("aucun arrondi : toutes les décimales significatives sont conservées", () => {
   assert.equal(formatTokenAmount("1", 6), "0.000001");
   assert.equal(formatTokenAmount("1000", 6), "0.001");

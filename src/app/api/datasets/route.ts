@@ -7,10 +7,12 @@ import { readJson } from "@/lib/http/body";
 import { reputationsForAddresses } from "@/lib/sirius/reputation";
 import { datasetResponse } from "@/lib/sirius/dataset-response";
 import { parseCreateDatasetRequest } from "@/lib/datasets/create-request";
+import { requireChunkedUploads } from "@/lib/sirius/chunked-upload";
 import { createDatasetDraft } from "@/lib/datasets/draft";
 import { billingEnabled } from "@/lib/billing/config";
 import { publishedTariff } from "@/lib/datasets/tariff-server";
 import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 
 export const runtime = "nodejs";
 
@@ -85,20 +87,24 @@ async function listerDatasets(req: Request) {
 /**
  * Création du brouillon (07-upload.md). Les validations sont toutes refaites côté serveur
  * dans `parseCreateDatasetRequest` : catégorie de la liste fixe, durée de publication parmi
- * 7 / 30 / 90 jours, consentement strictement booléen, prix borné, profil connu. Le délai
- * de sécurité de l'escrow n'est pas une entrée : il vaut `ESCROW_CHALLENGE_DAYS` quoi que
- * contienne le corps.
+ * 7 / 30 / 90 jours, consentement strictement booléen, prix par jour borné, durée maximale de
+ * location (1 à 365 jours), profil connu. Le délai de sécurité de l'escrow n'est pas une entrée :
+ * il vaut `ESCROW_CHALLENGE_DAYS` quoi que contienne le corps. La réponse renvoie `maxRentalDays`,
+ * signé ensuite dans le reçu du runner (non modifiable après publication). CVM éteinte : après ces
+ * contrôles et le KYB, réveil demandé et `503 enclave_starting` sans rien créer (`beginDatasetIngestion`).
  */
 export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
     const parsed = parseCreateDatasetRequest(await readJson(req), { v7: billingEnabled(), tariff: publishedTariff() });
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    // Gros fichier : l'envoi en morceaux doit être disponible avant de créer le brouillon.
+    if (parsed.value.transfer === "chunked") requireChunkedUploads(parsed.value.sizeBytes);
     // Avant tout scellement : les contrats doivent être compatibles et accepter le profil au mint.
     await requireCurrentEvmDeployment();
     const upload = await createDatasetDraft(parsed.value, session.address);
     return NextResponse.json(upload, { status: 201 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

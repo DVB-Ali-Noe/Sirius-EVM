@@ -12,9 +12,12 @@ import { requireCurrentEvmDeployment } from "@/lib/evm/deployment";
 import { cidHash, datasetIdHash, merkleRootAsBytes32 } from "@/lib/evm/dataset-key";
 import { destroyDatasetTransaction, mintDatasetTransaction } from "@/lib/evm/transaction";
 import { unpinFromIpfs } from "@/lib/ipfs/pinata";
+import { parseChunkedDatasetCid } from "@/lib/upload/chunked";
+import { purgeDeletedDatasetUploads } from "./chunked-upload";
 import { modelSelection, trainingProfileHash } from "@/lib/models/registry";
 import { requireAcceptedKyb } from "./access";
 import { assertCurrentRunner } from "@/lib/runner/provenance";
+import { assertOfferedProfile } from "@/lib/runner/profile-admission";
 import { rebasedListingExpiry } from "@/lib/datasets/publication";
 
 export const VISIBILITY_STATES = ["LISTED", "UNLISTED", "PRIVATE"] as const;
@@ -134,6 +137,8 @@ export async function prepareDatasetListing(datasetId: string, provider: string)
     await markDatasetListed(dataset, onChainId);
     return { reconciled: true as const };
   }
+  // Nouveau titre : un profil retiré (D-31) ne se publie plus. Un titre déjà minté reste réconcilié ci-dessus.
+  assertOfferedProfile(modelSelection(dataset.modelId, dataset.modelVersion)!);
   return { transaction: mintDatasetTransaction(terms) };
 }
 
@@ -244,7 +249,11 @@ export async function deleteDataset(datasetId: string, provider: string, txHash?
     },
   });
   if (deleted.count !== 1) throw new AppError("Suppression impossible : emprunt actif ou état modifié", 409);
-  if (dataset.ipfsCid) {
+  // Envois en morceaux (gros dataset, ou brouillon en cours d'envoi) : morceaux et manifeste quittent
+  // R2, sans quoi la clé d'envoi se recalculerait ; le reaper reprend une purge ratée. Un petit
+  // dataset quitte IPFS.
+  await purgeDeletedDatasetUploads(datasetId).catch(() => console.error(`[dataset] purge R2 ${datasetId} échouée, reprise par le reaper`));
+  if (dataset.ipfsCid && !parseChunkedDatasetCid(dataset.ipfsCid)) {
     await unpinFromIpfs(dataset.ipfsCid).catch(() => console.error(`[dataset] unpin ${datasetId} échoué`));
   }
   return prisma.dataset.findUniqueOrThrow({ where: { id: datasetId } });

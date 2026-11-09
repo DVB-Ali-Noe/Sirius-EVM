@@ -116,7 +116,10 @@ test("l'interrupteur des profils facultatifs est écrit en clair dans le seul Co
   const staging = renderPhalaV7("active", image, "https://sirius-evm-staging.vercel.app", " gradient_boosted_trees ");
   assert.equal(staging.services.runner.environment.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS, "gradient_boosted_trees");
   assert.ok(!Object.hasOwn(renderPhalaV7("demo-active", image).services.runner.environment, "NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS"), "coupé par défaut");
-  for (const value of ["linear_regression", "unknown", "gradient_boosted_trees,gradient_boosted_trees", "${NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS}"]) {
+  // Réactivation de la régression linéaire (D-31) : par la seule variable du Compose.
+  assert.equal(renderPhalaV7("active", image, "https://sirius-evm-staging.vercel.app", "gradient_boosted_trees,linear_regression")
+    .services.runner.environment.NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS, "gradient_boosted_trees,linear_regression");
+  for (const value of ["logistic_regression", "unknown", "gradient_boosted_trees,gradient_boosted_trees", "${NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS}"]) {
     assert.throws(() => renderPhalaV7("demo-active", image, undefined, value), /facultatif/, value);
   }
   for (const mode of ["demo-billing", "demo-init"]) assert.throws(() => renderPhalaV7(mode, image, undefined, "gradient_boosted_trees"), /Compose actif/);

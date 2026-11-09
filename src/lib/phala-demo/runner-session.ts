@@ -48,9 +48,23 @@ export function demoControlAuthorized(header: string | string[] | undefined): bo
   return timingSafeEqual(hash(header), hash(`Bearer ${secret}`));
 }
 
+/**
+ * Révision de session liée à une prédiction : sur la démonstration Phala, la session doit être
+ * ouverte et sa révision est signée ; hors démonstration, la révision vaut 0.
+ */
+export function predictionSessionRevision(): number {
+  if (!demoEnabled()) return 0;
+  const session = demoSessions().read();
+  if (!session.open) throw new AppError("Démonstration Phala fermée", 403);
+  return session.revision;
+}
+
 export function checkDemoOperation(op: string): void {
   if (!demoEnabled()) return;
-  if (op === "self-train-key") return;
+  if (op === "predict") {
+    predictionSessionRevision();
+    return;
+  }
   if (!["dataset-ingress-key", "seal-dataset", "run-training"].includes(op)) {
     throw new AppError("Cette instance est réservée à l’entraînement sur ses propres données", 403);
   }

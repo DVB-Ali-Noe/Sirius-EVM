@@ -26,8 +26,9 @@ model Dataset {
   wrappedKey     String? // DEK enveloppée ; sa suppression active ne purge pas les sauvegardes.
   merkleRoot     String? // racine Merkle des chunks (intégrité)
   sizeBytes      Int?
-  priceUsdcAtomic String // prix en unités atomiques USDC (précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
+  priceUsdcAtomic String // prix de location PAR JOUR en unités atomiques USDC (D-29 ; précision selon le réseau, cf. USDC_DECIMALS_BY_NETWORK)
   challengeDays  Int           @default(7) // délai avant remboursement possible
+  maxRentalDays  Int           @default(30) // durée de location maximale (1–365 j), signée dans le reçu runner
   modelId        String?
   modelVersion   String?
   metrics        Json? // métriques en clair (stats, fraîcheur, schéma, complétude)
@@ -53,21 +54,48 @@ model Dataset {
   keyGrants    KeyGrant[]
   trainingJobs TrainingJob[]
   accessLogs   DatasetAccessLog[]
+  uploads      DatasetUpload[]
 
   @@index([provider])
   @@index([status])
 }
 
-/// Journal des accès à un dataset, déclaré dans les conditions d'utilisation : qui a reçu
-/// quel modèle, pour quel prêt. Écrit à la livraison du modèle, lu par l'admin seulement.
+/// Envoi en morceaux d'un gros dataset (jusqu'à 1 Gio, voir docs/UPLOAD-1GO.md). Le navigateur ou la
+/// CLI envoie les morceaux chiffrés directement dans R2 par des URL pré-signées : le site ne voit
+/// ni clair ni clé, seulement le manifeste (empreintes) qu'il transmet à l'enclave pour scellement.
+model DatasetUpload {
+  id             String              @id @default(cuid())
+  datasetId      String
+  // RESTRICT : un envoi survit à toute suppression de son brouillon tant que ses morceaux R2 ne
+  // sont pas purgés ; ses octets restent aussi comptés dans le quota journalier du fournisseur.
+  dataset        Dataset             @relation(fields: [datasetId], references: [id], onDelete: Restrict)
+  provider       String // adresse EVM du provider, en minuscules
+  sizeBytes      Int // taille claire annoncée, égale à `Dataset.sizeBytes`
+  chunkBytes     Int
+  chunkCount     Int
+  state          DatasetUploadState  @default(OPEN)
+  manifestSha256 String? // posé à la clôture ; la référence publiée du dataset s'y engage
+  error          String? // dernier refus de l'enclave, affiché au fournisseur
+  expiresAt      DateTime // au-delà, plus d'URL d'envoi ni de clôture
+  purgedAt       DateTime? // morceaux et manifeste supprimés de R2 par le reaper ; vide = à (re)purger
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([datasetId])
+  @@index([provider, createdAt])
+  @@index([state, purgedAt])
+}
+
+/// Journal historique des livraisons de modèle (qui a reçu quel modèle, pour quel prêt). Plus
+/// aucune écriture depuis la fin de la livraison de modèles ; les lignes restantes sont purgées.
 model DatasetAccessLog {
   id               String   @id @default(cuid())
   datasetId        String
   dataset          Dataset  @relation(fields: [datasetId], references: [id])
   loanId           String? // identifiant du prêt, sans clé étrangère : le journal survit à tout nettoyage
   address          String // wallet destinataire, en minuscules
-  modelCid         String? // CID du modèle livré
-  modelFingerprint String? // empreinte du modèle livré, pour relier un modèle qui circulerait
+  modelCid         String? // CID du modèle livré (historique)
+  modelFingerprint String? // empreinte du modèle livré (historique)
   createdAt        DateTime @default(now()) // purgée après 24 mois par le reaper (access-log-retention.ts)
 
   @@index([datasetId])
@@ -92,7 +120,8 @@ model UserProfile {
 }
 
 /// Self-train (MLaaS) : entraînement sur SON PROPRE dataset, sans escrow ni
-/// fair-exchange (aucun tiers à payer, cf. D-19). Le TEE rend le modèle au propriétaire.
+/// fair-exchange (aucun tiers à payer, cf. D-19). Le modèle reste scellé dans le runner et ne
+/// s'utilise que par prédiction signée.
 model TrainingJob {
   id        String  @id @default(cuid())
   datasetId String
@@ -101,11 +130,13 @@ model TrainingJob {
   modelId   String  @default("linear_regression")
   modelVersion String @default("1.0.0")
 
-  modelCid      String? // modèle entraîné (chiffré) livré au propriétaire
+  modelCid      String? // empreinte du modèle scellé (`sm1…`, servedModelFingerprint) ; ancien CID IPFS sur l'historique
+  servedModelId String? @unique // modèle gardé exclusivement par le runner ; identique à l'id du job
+  modelFeatures String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   metrics       Json? // métriques en clair (R², RMSE…)
-  runnerReceipt String? // reçu enclave requis pour toute re-livraison de clé
-  deliveryPublicKey String?
-  deliveryEnvelope Json?
+  runnerReceipt String? // reçu enclave du job, jamais renvoyé au client
+  deliveryPublicKey String? // historique, plus lu ni écrit
+  deliveryEnvelope Json? // historique, plus lu ni écrit
   runnerKind    RunnerKind @default(UNKNOWN)
   runnerDeploymentId String?
 
@@ -137,6 +168,24 @@ model Loan {
   modelId   String @default("linear_regression")
   modelVersion String @default("1.0.0")
 
+  // Location (D-29) : durée signée dans le devis. Null = prêt hérité, sans expiration.
+  rentalDays      Int?
+  rentalExpiresAt DateTime? // bloc du release du prêt d'origine + rentalDays jours, prolongations comprises
+  extendsLoanId   String? // prêt de prolongation → prêt d'origine
+  extendsLoan     Loan?   @relation("LoanExtensions", fields: [extendsLoanId], references: [id], onDelete: Restrict)
+  extensions      Loan[]  @relation("LoanExtensions")
+
+  // API développeurs (D-30) : pack d'appels prépayé → prêt d'origine crédité. Pass d'accès API
+  // (D-32) : même prêt rattaché (`packForLoanId`), avec `apiAccessDays` au lieu de `callPack`.
+  callPack        Int? // 100, 1 000 ou 10 000 appels ; null hors pack
+  apiAccessDays   Int? // jours d'accès API payés ; null hors pass
+  apiAccessRefusedAt DateTime? // prêt de pass refusé pour toujours par l'enclave (base du prix changée) : jamais repris, remboursable à l'échéance
+  apiPaidUntil    DateTime? // prêt d'origine : fin de l'accès API payé, renvoyée par l'enclave au règlement des passes
+  packForLoanId   String? // prêt de pack ou de pass → prêt d'origine
+  packForLoan     Loan?    @relation("LoanCallPacks", fields: [packForLoanId], references: [id], onDelete: Restrict)
+  callPacks       Loan[]   @relation("LoanCallPacks")
+  apiKeys         ApiKey[]
+
   // Escrow USDC conditionnel
   evmLoanKey       String? @unique // clé bytes32 du prêt EVM
   evmHashlock      String? // SHA-256 du préimage TEE
@@ -149,9 +198,12 @@ model Loan {
 
   // Résultat TEE préparé avant le release atomique
   jobId                  String?
-  modelCid               String? // modèle entraîné chiffré, produit avant le règlement
+  // Empreinte du modèle scellé dans le runner (`sm1…`, servedModelFingerprint) ; ancien CID IPFS
+  // sur l'historique. Non nulle = modèle produit : remboursement, reaper et attestation en dépendent.
+  modelCid               String?
+  modelFeatures          String[] @default([]) // colonnes que la prédiction attend, dans l'ordre du modèle
   attestationHash        String? // SHA-256 du payload TEE attesté
-  attestationPayload     String? // payload canonique lié au modèle, scope et hash de capsule
+  attestationPayload     String? // payload canonique lié au modèle et au scope du prêt
   attestationQuote       String? // quote TDX matérielle (hex), mode phala — vérif externe (3d.2)
   attestationEventLog    String? // event-log mesuré, rejoué contre RTMR3
   attestationComposeHash String? // compose_hash lié à l'event-log
@@ -186,6 +238,8 @@ model Loan {
   @@index([provider, status])
   @@index([borrower, status])
   @@index([finalityTier, status])
+  @@index([extendsLoanId])
+  @@index([packForLoanId])
 }
 
 /// Octroi de la clé de déchiffrement au TEE pour un job donné.
@@ -295,6 +349,57 @@ model KybAutoInvite {
   @@index([createdAt])
 }
 
+/// Clé API d'un prêt loué (D-30). Le secret n'existe que dans le navigateur (affiché une fois)
+/// et scellé dans l'enclave : cette ligne ne sert qu'à l'affichage et au contrôleur de disponibilité.
+model ApiKey {
+  id         String        @id // keyId : 16 octets base64url
+  loanId     String
+  loan       Loan          @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  owner      String // adresse EVM de l'emprunteur, minuscules
+  name       String
+  createdAt  DateTime      @default(now())
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  usage      ApiUsageDay[]
+
+  @@index([loanId])
+}
+
+/// Appels d'une clé API par jour UTC, pour l'affichage seulement : le quota fait foi dans l'enclave.
+model ApiUsageDay {
+  keyId   String
+  key     ApiKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+  day     String // AAAA-MM-JJ UTC
+  calls   Int    @default(0)
+  refused Int    @default(0)
+
+  @@id([keyId, day])
+}
+
+/// État de la CVM tenu par le contrôleur de disponibilité (une seule ligne, id = 1).
+/// `requestedUntil` : réveil demandé par une action wallet authentifiée ou l'API publique (D-30).
+/// `validUntil` : phase garantie jusqu'à cette date, repoussée à chaque tour du contrôleur ; au-delà,
+/// Next la tient pour inconnue (contrôleur muet). Null : ligne d'un contrôleur antérieur ou maintenance.
+model RunnerAvailability {
+  id             Int       @id @default(1)
+  phase          String // stopped | starting | running | stopping | maintenance
+  since          DateTime
+  requestedUntil DateTime?
+  validUntil     DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+/// Budget de réveil de la CVM par compte (D-30, « budget de réveil ») : fenêtres fixes d'une heure
+/// et d'un jour, dépensées atomiquement par `spendWakeBudget`. `subject` : adresse en minuscules.
+/// Ligne purgée par le reaper une fois ses deux fenêtres échues (au plus un jour après la dernière dépense).
+model RunnerWakeBudget {
+  subject   String   @id
+  hourStart DateTime
+  hourCount Int
+  dayStart  DateTime
+  dayCount  Int
+}
+
 /// Réputation dérivée des events on-chain (calcul léger au MVP).
 model Reputation {
   id             String          @id @default(cuid())
@@ -306,6 +411,14 @@ model Reputation {
   updatedAt      DateTime        @updatedAt
 
   @@unique([address, role])
+}
+
+enum DatasetUploadState {
+  OPEN // morceaux en cours d'envoi
+  SEALING // manifeste transmis, l'enclave relit et scelle
+  SEALED // scellé : le dataset porte sa référence, sa clé enveloppée et son reçu
+  FAILED // refusé par l'enclave (fichier invalide) ; un nouvel envoi reste possible
+  ABORTED // abandonné, expiré ou dataset supprimé ; morceaux supprimés (définitivement une fois `purgedAt` posé)
 }
 
 enum DatasetStatus {

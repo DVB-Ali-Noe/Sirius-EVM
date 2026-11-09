@@ -9,14 +9,14 @@
  */
 export const SHARED_MESSAGES_EN: Record<string, string> = {
   // Avertissements communs
-  "Sirius entraîne pour l’instant trois modèles sur données tabulaires : régression linéaire, régression logistique et arbres boostés pour une classification binaire. Les résultats dépendent des données. De nouveaux modèles sont en développement.":
-    "Sirius currently trains three models on tabular data: linear regression, logistic regression and gradient-boosted trees for binary classification. Results depend on the data. New models are in development.",
+  "Sirius entraîne pour l’instant quelques modèles simples sur données tabulaires ; les profils proposés sont listés dans la documentation. Les résultats dépendent des données. De nouveaux modèles sont en développement.":
+    "Sirius currently trains a few simple models on tabular data; the profiles on offer are listed in the documentation. Results depend on the data. New models are in development.",
   "Besoin d’un modèle plus puissant ou de données précises ? Contactez-nous à {email}.":
     "Need a stronger model or specific data? Contact us at {email}.",
   "Bêta : vérification on-chain instantanée du wallet, montants plafonnés par prêt et au total.":
     "Beta: instant on-chain wallet verification, capped amounts per loan and in total.",
-  "La régression linéaire et la régression logistique sont déterministes : réentraîner sur les mêmes données donne le même modèle.":
-    "Linear and logistic regression are deterministic: retraining on the same data gives the same model.",
+  "Les entraînements sont déterministes : réentraîner sur les mêmes données donne le même modèle.":
+    "Training is deterministic: retraining on the same data gives the same model.",
   "CSV jusqu’à {maxSize}, de {minRows} à {maxRows} lignes, colonnes numériques, jusqu’à {maxFeatures} variables explicatives.":
     "CSV up to {maxSize}, {minRows} to {maxRows} rows, numeric columns, up to {maxFeatures} input features.",
 
@@ -40,6 +40,10 @@ export const SHARED_MESSAGES_EN: Record<string, string> = {
   "Minimum imposé par le tarif : {minimum}.": "Minimum set by the tariff: {minimum}.",
   "Sous le minimum imposé par le tarif : {minimum}.": "Below the minimum set by the tariff: {minimum}.",
   "Montant indisponible : valeur invalide.": "Amount unavailable: invalid value.",
+  "{days} j × {price} par jour": "{days} d × {price} per day",
+  "Le fournisseur reçoit par jour": "Provider receives per day",
+  "Prix pour un jour de location": "Price for one rental day",
+  "Durée de location (jours)": "Rental duration (days)",
 
   // Carte de dataset ("Profil absent", "{count} lignes" et "{count} colonnes" existent déjà)
   "Emprunts": "Borrows",

@@ -32,20 +32,34 @@ export function runnerEndpoint(): string | null {
   return url.origin;
 }
 
+/**
+ * Pins d'identité du runner Phala (mesures TDX, Compose, chaîne KMS, clé d'ingestion) : présents et
+ * au bon format, sinon l'attestation RA-TLS serait refusée à chaque appel. Partagé par Next et le
+ * contrôleur de disponibilité (`scripts/operations/api-availability.ts`).
+ */
+export function assertRunnerPins(env: Readonly<Record<string, string | undefined>> = process.env): void {
+  for (const [name, length] of [
+    ["SIRIUS_EXPECTED_MRTD", 96],
+    ["SIRIUS_EXPECTED_RTMR0", 96],
+    ["SIRIUS_EXPECTED_RTMR1", 96],
+    ["SIRIUS_EXPECTED_RTMR2", 96],
+    ["SIRIUS_EXPECTED_OS_IMAGE_HASH", 64],
+    ["SIRIUS_EXPECTED_APP_ID", 40],
+    ["SIRIUS_EXPECTED_COMPOSE_HASH", 64],
+    ["SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", 64],
+    ["NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256", 64],
+  ] as const) {
+    if (!new RegExp(`^[0-9a-f]{${length}}$`, "i").test(env[name]?.trim() ?? "")) {
+      throw new Error(`${name} obligatoire et valide pour le runner Phala`);
+    }
+  }
+}
+
 export function assertApplicationRunnerConfiguration(): void {
   const endpoint = runnerEndpoint();
   if (!endpoint || (process.env.NODE_ENV !== "production" && !requiresPhalaRunner())) return;
   if (process.env.SIRIUS_MASTER_KEY) throw new Error("Retirer SIRIUS_MASTER_KEY de Next avant la bascule Phala");
-  for (const [name, value, length] of [
-    ["SIRIUS_EXPECTED_MRTD", process.env.SIRIUS_EXPECTED_MRTD, 96],
-    ["SIRIUS_EXPECTED_COMPOSE_HASH", process.env.SIRIUS_EXPECTED_COMPOSE_HASH, 64],
-    ["SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256", process.env.SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256, 64],
-    ["NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256", process.env.NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256, 64],
-  ] as const) {
-    if (!new RegExp(`^[0-9a-f]{${length}}$`, "i").test(value?.trim() ?? "")) {
-      throw new Error(`${name} obligatoire et valide pour le runner Phala`);
-    }
-  }
+  assertRunnerPins();
   if (!process.env.RUNNER_TRANSPORT_SECRET) throw new Error("RUNNER_TRANSPORT_SECRET obligatoire pour le runner Phala");
 }
 

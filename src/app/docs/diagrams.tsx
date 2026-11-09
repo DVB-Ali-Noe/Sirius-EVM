@@ -72,7 +72,7 @@ function EdgeLabel({ x, y, children }: { x: number; y: number; children: string 
 
 export function OverviewDiagram({ d }: { d: Translate }) {
   return (
-    <DiagramFrame height={460} title={d("Flux du dataset et du règlement")} description={d("Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et livre le modèle chiffré au borrower. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.")} d={d}>
+    <DiagramFrame height={460} title={d("Flux du dataset et du règlement")} description={d("Le provider envoie le CSV chiffré au runner et publie le titre. Le runner utilise IPFS pour le stockage chiffré et répond au borrower par prédictions signées. Le borrower verrouille le stablecoin ; le runner publie le préimage au règlement.")} d={d}>
       {(markerEnd) => <>
         <g {...edge} markerEnd={markerEnd}>
           <path d="M232 55 H276" />
@@ -89,7 +89,7 @@ export function OverviewDiagram({ d }: { d: Translate }) {
         <Box x={280} y={180} w={210} h={70} title="IPFS / Pinata" sub={d("stockage chiffré")} />
         <Box x={20} y={360} w={720} h={80} title="Robinhood Chain · EVM" sub={d("DatasetRegistry · KYB · Escrow\nCrédits en stablecoin · retraits séparés")} />
         <EdgeLabel x={255} y={14}>{d("CSV chiffré")}</EdgeLabel>
-        <EdgeLabel x={510} y={14}>{d("modèle chiffré")}</EdgeLabel>
+        <EdgeLabel x={510} y={14}>{d("prédictions signées")}</EdgeLabel>
         <EdgeLabel x={125} y={225}>{d("publie le titre")}</EdgeLabel>
         <EdgeLabel x={635} y={225}>{d("verrouille le stablecoin")}</EdgeLabel>
         <EdgeLabel x={316} y={140}>pin</EdgeLabel>
@@ -102,7 +102,7 @@ export function OverviewDiagram({ d }: { d: Translate }) {
 
 export function FairExchangeDiagram({ d }: { d: Translate }) {
   return (
-    <DiagramFrame height={400} title={d("Livraison du modèle et paiement")} description={d("Avant échéance, release crédite le provider et publie le préimage dans une seule transaction. Ensuite, le navigateur ouvre la capsule hors chaîne. Sans release avant échéance, refund crédite le borrower.")} d={d}>
+    <DiagramFrame height={400} title={d("Prédictions et paiement")} description={d("Avant échéance, release crédite le provider et publie le préimage dans une seule transaction. Ensuite, le runner répond aux prédictions du borrower. Sans release avant échéance, refund crédite le borrower.")} d={d}>
       {(markerEnd) => <>
         <g {...edge} markerEnd={markerEnd}>
           <path d="M200 155 L256 65" />
@@ -112,9 +112,9 @@ export function FairExchangeDiagram({ d }: { d: Translate }) {
           <path d="M462 290 H516" />
         </g>
         <Box x={20} y={132} w={180} h={74} title={d("Calcul du runner")} sub={d("modèle prêt ?")} strong />
-        <Box x={260} y={30} w={200} h={70} title={d("Capsule verrouillée")} sub={d("modèle chiffré")} />
+        <Box x={260} y={30} w={200} h={70} title={d("Modèle scellé")} sub={d("dans le runner")} />
         <Box x={520} y={20} w={220} h={90} title="release" sub={d("provider crédité\n+ préimage public\nune transaction EVM")} strong />
-        <Box x={520} y={160} w={220} h={70} title={d("Capsule ouverte")} sub={d("ensuite, dans le navigateur")} />
+        <Box x={520} y={160} w={220} h={70} title={d("Prédictions ouvertes")} sub={d("signées par le runner")} />
         <Box x={260} y={255} w={200} h={70} title={d("Pas de release")} sub={d("échec ou délai dépassé")} />
         <Box x={520} y={250} w={220} h={80} title="refund" sub={d("après échéance\nborrower crédité")} />
         <EdgeLabel x={380} y={375}>{d("Les crédits en stablecoin se retirent séparément.")}</EdgeLabel>

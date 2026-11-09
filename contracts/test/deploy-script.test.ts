@@ -171,7 +171,7 @@ describe("deploy.ts sur un nœud local « mainnet » 4663 (REP-11, REP-12, REP-1
     const kyb = addressIn(result.out, "SIRIUS_KYB_ADDRESS");
 
     // REP-11 corrigé : l'inverse de ce que l'audit avait reproduit.
-    assert.equal(await read(sim, datasets, "VERSION"), "sirius-dataset-v5");
+    assert.equal(await read(sim, datasets, "VERSION"), "sirius-dataset-v6");
     assert.equal(lower(await read(sim, datasets, "admin")), SAFE);
     assert.notEqual(lower(await read(sim, datasets, "admin")), DEPLOYER);
     assert.equal(lower(await read(sim, kyb, "admin")), SAFE);
@@ -289,6 +289,76 @@ describe("deploy.ts sur un nœud local « testnet » 46630", function () {
       SIRIUS_DATASET_ADMIN: DEPLOYER, SIRIUS_DATASET_TRAINING_PROFILES: "gradient_boosted_trees",
     });
     assert.equal(verified.code, 0, verified.out);
+  });
+
+  it("registre v6 : relève la taille maximale et importe les titres du v5 par lots préparés et vérifiés", async () => {
+    const wallet = createWalletClient({ account: privateKeyToAccount(DEPLOYER_KEY), chain: sim.client.chain, transport: http(sim.url) });
+    const provider = createWalletClient({ account: privateKeyToAccount(OTHER_KEY), chain: sim.client.chain, transport: http(sim.url) });
+    const deployArtifact = async (name: string, args: unknown[]) => {
+      const { abi: artifactAbi, bytecode } = await hre.artifacts.readArtifact(name);
+      const hash = await wallet.deployContract({ abi: artifactAbi, bytecode: bytecode as Hex, args, chain: sim.client.chain });
+      return (await sim.client.waitForTransactionReceipt({ hash })).contractAddress as Address;
+    };
+    const send = async (entry: { to: Address; data: Hex }) => {
+      const hash = await wallet.sendTransaction({ to: entry.to, data: entry.data, value: 0n, chain: sim.client.chain });
+      assert.equal((await sim.client.waitForTransactionReceipt({ hash })).status, "success");
+    };
+    // Le registre v5 en service, avec un titre publié par un fournisseur.
+    const kyb = await deployArtifact("SiriusOpenKybRegistry", []);
+    const v5 = await deployArtifact("SiriusDatasetRegistryV5", [kyb, DEPLOYER]);
+    const v5Abi = (await hre.artifacts.readArtifact("SiriusDatasetRegistryV5")).abi;
+    const idHash = keccak256(toHex("dataset-en-service"));
+    const minted = await provider.writeContract({
+      address: v5, abi: v5Abi, functionName: "mint", chain: sim.client.chain,
+      args: [idHash, keccak256(toHex("cid")), keccak256(toHex("racine")), 2_000_000n, trainingProfileHash(selectionForModelId("linear_regression"))],
+    });
+    await sim.client.waitForTransactionReceipt({ hash: minted });
+    const titleId = await sim.client.readContract({ address: v5, abi: v5Abi, functionName: "datasetIdOf", args: [OTHER, idHash] }) as Hex;
+
+    const base = {
+      SIRIUS_DEPLOY_NETWORK: "testnet", SIRIUS_BILLING_VERSION: "7", SIRIUS_KYB_MODE: "open", SIRIUS_KYB_EXISTING_ADDRESS: kyb,
+      EVM_RPC_URL: sim.url, ROBINHOOD_DEPLOYER_KEY: DEPLOYER_KEY,
+      SIRIUS_USDC_ADDRESS: token, SIRIUS_USDC_CODE_HASH: tokenCodeHash, SIRIUS_LOCK_AUTHORIZER: LOCK_AUTHORIZER,
+    };
+    const result = await deploy({ ...base, SIRIUS_PREVIOUS_DATASET_REGISTRY: v5 });
+    assert.equal(result.code, 0, `deploy.ts a échoué :\n${result.out}`);
+    assert.match(result.out, new RegExp(`registre préc\\.: ${v5}`, "i"));
+    const datasets = addressIn(result.out, "SIRIUS_DATASET_ADDRESS");
+    const escrow = addressIn(result.out, "SIRIUS_ESCROW_ADDRESS");
+    assert.equal(await read(sim, datasets, "VERSION"), "sirius-dataset-v6");
+
+    // Un « registre précédent » qui n'est pas un v5 est refusé avant tout envoi.
+    const before = await sim.client.getTransactionCount({ address: DEPLOYER });
+    const wrongPrevious = await deploy({ ...base, SIRIUS_PREVIOUS_DATASET_REGISTRY: datasets });
+    assert.notEqual(wrongPrevious.code, 0);
+    assert.match(wrongPrevious.out, /sirius-dataset-v5 attendu/);
+    assert.equal(await sim.client.getTransactionCount({ address: DEPLOYER }), before);
+
+    const env = (change: Record<string, string>) => ({
+      SIRIUS_DEPLOY_NETWORK: "testnet", EVM_RPC_URL: sim.url, SIRIUS_DATASET_ADDRESS: datasets, SIRIUS_ESCROW_ADDRESS: escrow,
+      SIRIUS_DATASET_ADMIN: DEPLOYER, ...change,
+    });
+    const size = await datasetAdmin("prepare-max-size", env({ SIRIUS_DATASET_MAX_SIZE_BYTES: String(1024 ** 3) }));
+    assert.equal(size.code, 0, size.out);
+    const [setSize] = batchIn(size.out).transactions;
+    await send(setSize);
+    assert.match((await datasetAdmin("prepare-max-size", env({ SIRIUS_DATASET_MAX_SIZE_BYTES: String(1024 ** 3) }))).out, /rien à signer/);
+    const tooBig = await datasetAdmin("prepare-max-size", env({ SIRIUS_DATASET_MAX_SIZE_BYTES: String(1024 ** 3 + 1) }));
+    assert.notEqual(tooBig.code, 0);
+    assert.match(tooBig.out, /plafond gravé/);
+
+    const unknown = await datasetAdmin("prepare-import", env({ SIRIUS_DATASET_IMPORT_IDS: keccak256(toHex("inconnu")) }));
+    assert.notEqual(unknown.code, 0);
+    assert.match(unknown.out, /n'est pas un titre vivant/);
+    const prepared = await datasetAdmin("prepare-import", env({ SIRIUS_DATASET_IMPORT_IDS: titleId }));
+    assert.equal(prepared.code, 0, prepared.out);
+    const [importCall] = batchIn(prepared.out).transactions;
+    await send(importCall);
+    const registryAbi = (await hre.artifacts.readArtifact("SiriusDatasetRegistry")).abi;
+    assert.equal(await sim.client.readContract({ address: datasets, abi: registryAbi, functionName: "isLive", args: [titleId] }), true);
+    const again = await datasetAdmin("prepare-import", env({ SIRIUS_DATASET_IMPORT_IDS: titleId }));
+    assert.notEqual(again.code, 0);
+    assert.match(again.out, /existe déjà dans ce registre/);
   });
 
   it("refuse un RPC qui n'est pas le réseau demandé", async () => {

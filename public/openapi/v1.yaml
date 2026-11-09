@@ -1,0 +1,306 @@
+openapi: 3.1.0
+info:
+  title: Sirius developer API
+  version: "1.0.0"
+  summary: Signed predictions from a model rented on Sirius (D-30).
+  description: |
+    Programmatic access to the models you rent on Sirius. The model stays sealed in an Intel TDX
+    enclave; every answer is signed by the enclave (EIP-712 `SiriusPrediction`).
+
+    **Access (D-32).** API access is paid per day and included in every rental: the rental quote
+    adds rented days × the API daily price (one quote, one payment), and the Train page creates a
+    default key after settlement. An extension automatically includes the API for the added days
+    when paid access reaches the current rental end. Rentals opened before 2026-11-08 without the
+    API can buy a daily API pass on the Train page (also used as a top-up after an uncovered
+    extension). Without paid access covering the current time, every call answers
+    `403 api_access_required`.
+
+    **Authentication.** Every request carries four headers. The signature is a lowercase hex
+    HMAC-SHA256 over the canonical string below, keyed with the 32 raw bytes of your secret
+    (base64url-decoded). Your full key is shown once when you create it: `sk_live_<keyId>.<secret>`.
+
+    ```
+    SIRIUS-HMAC-SHA256
+    <METHOD in upper case>
+    <public path, without query>       e.g. /v1/models/<loanId>/predict
+    <timestamp, integer seconds>
+    <nonce>
+    <sha256 hex of the raw body>       e3b0c442… for an empty body
+    ```
+
+    Lines are joined with `\n`, no trailing newline. The timestamp must be within ±300 s of the
+    enclave clock; each nonce is accepted once.
+
+    **Enclave start.** The confidential machine only runs while it is used and stops about one hour
+    after the last activity. The first call after a pause starts it and can take about 2 minutes
+    (up to 5 in rare cases): the API answers `503` with `code: enclave_starting` and a
+    `Retry-After` header; wait and send a new signed request (new timestamp and nonce). The
+    official SDKs retry automatically, up to 8 minutes of cumulative wait by default. An unknown
+    or revoked key, an expired rental or an invalid body never starts it.
+
+    **Retries.** Only `503 enclave_starting`, `503 runner_busy` and `503 controller_unavailable`
+    (the service that starts and stops the enclave is briefly unavailable or under maintenance;
+    refused before reaching the enclave, `Retry-After: 60`) are safe to retry blindly: nothing was
+    counted. Any other 503 (`runner_unavailable`), a network error or a client
+    timeout may come after the enclave already counted the call; the official SDKs raise them
+    without retrying. Use a client timeout above 60 s: the API waits up to 60 s for the enclave.
+
+    **Rate limits.** Each request counts in exactly one place:
+    - against your key, 120 per minute: answers given by the enclave after authenticating the
+      request (served, or refused for quota, features…), and refusals tied to the key's rental
+      (`rental_expired`, `api_access_required`, `model_unavailable`);
+    - against your client network (IP address, or /64 for IPv6), 60 per minute: invalid traffic
+      only, i.e. malformed headers or body, unknown or revoked key, and `invalid_signature`,
+      `request_expired` or `replayed_request` from the enclave. Beyond that, every request from
+      that network gets `429 rate_limited` with `Retry-After`, valid keys included;
+    - nowhere: `enclave_starting`, `controller_unavailable`, `runner_busy` and the enclave's own
+      `rate_limited`.
+
+    The enclave also allows at most 120 calls per minute per model, counted before the signature
+    is checked: someone who knows only your key identifier can still use up that per-model window,
+    but not your key's limit above nor your network's. Under a distributed flood the API may
+    refuse keys it has not served recently with `429 rate_limited`.
+
+    **Limits.** Linear regression is no longer offered for new datasets; even if it is re-enabled,
+    its models have no API access (a few calls would reconstruct them).
+    Outputs are a 0/1 decision or a rounded value, never a probability. Quota: the profile's
+    included calls per day (shared with the website), then prepaid call packs (100 / 1,000 /
+    10,000), which expire with the rental and are not refundable.
+  license:
+    name: Proprietary
+servers:
+  - url: https://api.sirius-data.tech
+    description: Production
+security:
+  - siriusKey: []
+    siriusTimestamp: []
+    siriusNonce: []
+    siriusSignature: []
+paths:
+  /v1/models/{loanId}:
+    get:
+      operationId: getModelInfo
+      summary: Model profile, expected features and remaining calls
+      description: Does not consume quota. Signed with method `GET`, this path and an empty body.
+      parameters:
+        - $ref: "#/components/parameters/LoanId"
+      responses:
+        "200":
+          description: Model information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelInfo"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "408": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/EnclaveStarting" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/models/{loanId}/predict:
+    post:
+      operationId: predict
+      summary: Signed prediction
+      description: |
+        Consumes one call: first from today's included quota (UTC day), then from prepaid credits.
+        The body is signed byte for byte; send exactly the bytes you hashed (max 16 KiB).
+      parameters:
+        - $ref: "#/components/parameters/LoanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PredictRequest"
+            example:
+              features: { age: 42, income: 51000.5 }
+      responses:
+        "200":
+          description: Prediction signed by the enclave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prediction"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "408": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/EnclaveStarting" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    siriusKey:
+      type: apiKey
+      in: header
+      name: Sirius-Key
+      description: Key identifier (22 base64url characters), without the `sk_live_` prefix or the secret.
+    siriusTimestamp:
+      type: apiKey
+      in: header
+      name: Sirius-Timestamp
+      description: Unix time in seconds (integer).
+    siriusNonce:
+      type: apiKey
+      in: header
+      name: Sirius-Nonce
+      description: Single-use random string, 16 to 64 base64url characters.
+    siriusSignature:
+      type: apiKey
+      in: header
+      name: Sirius-Signature
+      description: Lowercase hex HMAC-SHA256 of the canonical string (64 characters).
+  parameters:
+    LoanId:
+      name: loanId
+      in: path
+      required: true
+      description: Identifier of your settled loan (shown on the Train page).
+      schema: { type: string }
+  schemas:
+    PredictRequest:
+      type: object
+      additionalProperties: false
+      required: [features]
+      properties:
+        features:
+          type: object
+          description: Exactly the model's features (see `GET /v1/models/{loanId}`), finite numbers.
+          additionalProperties: { type: number }
+    Remaining:
+      type: object
+      required: [today, credits]
+      properties:
+        today: { type: integer, description: Calls left in today's included quota (website and API combined). }
+        credits: { type: integer, description: Prepaid calls left (packs), used after the daily quota. }
+    ModelInfo:
+      type: object
+      required: [loanId, modelId, modelVersion, features, expiresAt, remaining]
+      properties:
+        loanId: { type: string }
+        modelId: { type: string, enum: [logistic_regression, gradient_boosted_trees] }
+        modelVersion: { type: string }
+        features: { type: array, items: { type: string } }
+        expiresAt: { type: string, format: date-time, description: End of the rental. }
+        remaining: { $ref: "#/components/schemas/Remaining" }
+    Prediction:
+      type: object
+      required: [outputKind, counter, remaining, expiresAt, modelId, modelVersion, signature, signer, domain, signedMessage]
+      properties:
+        outputKind: { type: string, enum: [decision, value] }
+        decision: { type: string, enum: ["0", "1"], description: "\"0\" or \"1\" (a string, as in the signed message) when outputKind is decision." }
+        value: { type: string, description: Rounded value when outputKind is value. }
+        counter: { type: integer, description: Call number for this loan. }
+        remaining: { $ref: "#/components/schemas/Remaining" }
+        expiresAt: { type: string, format: date-time, description: End of the rental. }
+        modelId: { type: string }
+        modelVersion: { type: string }
+        signature: { type: string, description: EIP-712 signature of `signedMessage` by `signer`. }
+        signer: { type: string, description: Enclave signing address. }
+        domain:
+          type: object
+          description: EIP-712 domain.
+          required: [name, version, chainId]
+          properties:
+            name: { type: string, const: SiriusPrediction }
+            version: { type: string, const: "2" }
+            chainId: { type: integer, description: "Chain of the Sirius escrow the server is bound to: 4663 on mainnet, 46630 on testnet." }
+        signedMessage: { type: object, description: "`SiriusPrediction` message as signed." }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_signature
+                - request_expired
+                - replayed_request
+                - key_revoked
+                - unknown_key
+                - rental_expired
+                - api_access_required
+                - quota_exceeded
+                - api_not_available_for_profile
+                - invalid_features
+                - enclave_starting
+                - runner_busy
+                - controller_unavailable
+                - rate_limited
+                - payload_too_large
+                - not_found
+                - model_unavailable
+                - invalid_request
+                - unsupported_media_type
+                - request_timeout
+                - conflict
+                - prediction_unstable
+                - unauthorized
+                - forbidden
+                - runner_unavailable
+                - runner_error
+                - internal_error
+            message: { type: string }
+    EnclaveStarting:
+      type: object
+      required: [error, retryAfterSeconds]
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, const: enclave_starting }
+            message: { type: string }
+        status: { type: string, enum: [starting, stopped] }
+        retryAfterSeconds: { type: integer }
+  responses:
+    Error:
+      description: |
+        `invalid_signature` (also missing or malformed `Sirius-*` headers), `request_expired`,
+        `unknown_key`, `key_revoked`, `unauthorized` (other enclave refusal) → 401;
+        `rental_expired`, `api_access_required` (no paid daily API pass covering now),
+        `forbidden` (other enclave refusal) → 403; `not_found` (unknown loan) → 404;
+        `request_timeout` (body not received in time) → 408; `replayed_request`,
+        `api_not_available_for_profile`, `model_unavailable` (loan not settled), `conflict`
+        (transient enclave-side conflict, e.g. on-chain settlement not confirmed yet or an RPC
+        failure; retry later with a new signature) → 409; `invalid_features`, `invalid_request` →
+        400; `payload_too_large` (body over 16 KiB) → 413; `unsupported_media_type` → 415;
+        `prediction_unstable` (the enclave could not compute a numerically stable output for
+        these features; the call was counted) → 422; `quota_exceeded` (daily quota used up and no credits) and `rate_limited`
+        (see Rate limits; also 120 per minute per model in the enclave, at most 60 of them
+        `GET /v1/models/{loanId}`; `Retry-After`) → 429; `runner_error` → 502;
+        `runner_unavailable` (enclave unreachable; the call may have been counted, do not retry
+        blindly) → 503; `internal_error` → 500.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    EnclaveStarting:
+      description: |
+        `enclave_starting` (body below, with `status` and `retryAfterSeconds`), `runner_busy`
+        (enclave saturated, `Retry-After: 1`) or `controller_unavailable` (Error body; enclave
+        management briefly unavailable or under maintenance, `Retry-After: 60`): nothing was counted, retry after `Retry-After`
+        seconds with a new signature. `runner_unavailable` (Error body) may come after the enclave
+        counted the call: do not retry it blindly.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/EnclaveStarting"
+              - $ref: "#/components/schemas/Error"

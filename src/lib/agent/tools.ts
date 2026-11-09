@@ -4,7 +4,7 @@ import type { CertificateRecord } from "@/lib/certificate/resolve";
 import { presentVerification, type VerificationOutcome } from "@/lib/certificate/presentation";
 import { CATEGORY_IDS, type CategoryId } from "@/lib/marketplace/categories";
 import type { CatalogueResponse, DetailResponse } from "@/lib/marketplace/catalogue";
-import { displayedPrice, feeForRow, type ComputeFee, type PublicListing } from "@/lib/marketplace/listing";
+import { apiFeeForRow, displayedPrice, feeForRow, type ApiAccessFee, type ComputeFee, type PublicListing } from "@/lib/marketplace/listing";
 import {
   DEFAULT_MARKETPLACE_QUERY,
   foldSearchText,
@@ -144,7 +144,11 @@ const datasetSummaryOutput = z.object({
   category: z.string().nullable(),
   trainingProfile: trainingProfileOutput.nullable(),
   price: z.string().nullable(),
-  priceMeaning: z.enum(["total paid by the buyer", "amount received by the provider (compute fee unknown)"]),
+  priceMeaning: z.enum([
+    "total paid by the buyer for one rental day",
+    "amount received by the provider for one rental day (compute fee unknown)",
+    "amount received by the provider for one rental day (rentals refused: the tariff does not price the API access every rental includes)",
+  ]),
   rows: z.number().nullable(),
   columns: z.number().nullable(),
   borrowCount: z.number(),
@@ -174,10 +178,12 @@ export const getDatasetOutput = z.object({
         providerReceives: z.string().nullable(),
         computeFee: z.string().nullable(),
         computeFeeStatus: z.enum(["none", "indicative", "unknown"]),
+        apiAccessPerDay: z.string().nullable(),
         totalPaidByBuyer: z.string().nullable(),
         note: z.string(),
       }),
       refundAfterDays: z.number(),
+      maxRentalDays: z.number(),
       stats: z.object({
         borrowCount: z.number(),
         settledCount: z.number(),
@@ -272,10 +278,11 @@ function agentFee(listing: Pick<PublicListing, "modelId">, fee: ComputeFee, toke
 function datasetSummary(
   listing: PublicListing,
   fee: ComputeFee,
+  api: ApiAccessFee,
   token: TokenInfo,
   origin: string,
 ): z.infer<typeof datasetSummaryOutput> {
-  const price = displayedPrice(listing.providerPriceAtomic, fee);
+  const price = displayedPrice(listing.providerPriceAtomic, fee, api);
   return {
     id: listing.id,
     name: cleanProviderName(listing.name),
@@ -284,7 +291,11 @@ function datasetSummary(
     trainingProfile: trainingProfile(listing),
     price: formatTokenWithSymbol(price.priceAtomic, token),
     priceMeaning:
-      price.priceKind === "borrowerPays" ? "total paid by the buyer" : "amount received by the provider (compute fee unknown)",
+      price.priceKind === "borrowerPays"
+        ? "total paid by the buyer for one rental day"
+        : api.kind === "unavailable"
+          ? "amount received by the provider for one rental day (rentals refused: the tariff does not price the API access every rental includes)"
+          : "amount received by the provider for one rental day (compute fee unknown)",
     rows: listing.rowCount,
     columns: listing.columnCount,
     borrowCount: listing.borrowCount,
@@ -307,7 +318,7 @@ export function searchDatasetsResult(
     settlementToken: pricing.settlementToken,
     catalogueTruncated: response.truncated,
     datasets: response.items.map((item) =>
-      datasetSummary(item, agentFee(item, feeForRow(item, response.computeFees), token, pricing), token, origin),
+      datasetSummary(item, agentFee(item, feeForRow(item, response.computeFees), token, pricing), apiFeeForRow(item, response.apiAccessFees), token, origin),
     ),
   };
 }
@@ -318,7 +329,7 @@ function feeStatus(fee: ComputeFee): "none" | "indicative" | "unknown" {
 
 export const HOW_TO_BUY =
   "A purchase is made on the dataset page by the holder of a KYB-verified wallet: the payment is locked in an on-chain escrow, " +
-  "training runs inside an Intel TDX enclave, and only the trained model is delivered (never the raw rows). " +
+  "training runs inside an Intel TDX enclave, and the trained model stays sealed there, usable only through signed predictions (never the raw rows). " +
   "Purchase through this MCP server is not available yet.";
 
 export function getDatasetResult(
@@ -330,12 +341,13 @@ export function getDatasetResult(
   const { dataset } = detail;
   const token = { symbol: pricing.symbol, decimals: detail.token.decimals };
   const fee = agentFee(dataset, dataset.computeFee, token, pricing);
-  const price = displayedPrice(dataset.providerPriceAtomic, fee);
+  const api = dataset.apiAccessFee;
+  const price = displayedPrice(dataset.providerPriceAtomic, fee, api);
   return {
     notice: PROVIDER_TEXT_NOTICE,
     found: true,
     dataset: {
-      ...datasetSummary(dataset, fee, token, origin),
+      ...datasetSummary(dataset, fee, api, token, origin),
       description: cleanProviderDescription(dataset.description),
       sizeBytes: dataset.sizeBytes,
       provider: dataset.provider,
@@ -343,13 +355,20 @@ export function getDatasetResult(
         providerReceives: formatTokenWithSymbol(dataset.providerPriceAtomic, token),
         computeFee: fee.kind === "unknown" ? null : formatTokenWithSymbol(fee.atomic, token),
         computeFeeStatus: feeStatus(fee),
+        apiAccessPerDay: api.kind === "included" ? formatTokenWithSymbol(api.atomic, token) : null,
         totalPaidByBuyer: price.priceKind === "borrowerPays" ? formatTokenWithSymbol(price.priceAtomic, token) : null,
         note:
-          fee.kind === "unknown"
+          `Prices are for one rental day: the buyer picks 1 to ${dataset.maxRentalDays} days, the provider share is multiplied by the days ` +
+          "and the compute fee is paid once. Predictions stop at expiry unless the loan is extended. " +
+          (api.kind === "included"
+            ? "Developer API access is included in every rental and paid per rented day (apiAccessPerDay). "
+            : api.kind === "unavailable" ? "Rentals are refused right now: the tariff does not price the API access every rental includes. " : "") +
+          (fee.kind === "unknown"
             ? "No compute fee is published right now: the signed quote presented before payment gives it, and the total."
-            : "The compute fee shown is indicative: the signed quote presented before payment is authoritative.",
+            : "The compute fee shown is indicative: the signed quote presented before payment is authoritative."),
       },
       refundAfterDays: dataset.challengeDays,
+      maxRentalDays: dataset.maxRentalDays,
       stats: {
         borrowCount: dataset.borrowCount,
         settledCount: dataset.settledCount,
@@ -362,8 +381,9 @@ export function getDatasetResult(
 }
 
 export const DELIVERY =
-  "The buyer receives the trained model only: target column, feature columns, coefficients or depth-2 trees, and evaluation metrics, " +
-  "encrypted to the buyer, plus a public execution certificate. The raw rows never leave the enclave.";
+  "The trained model stays sealed in the enclave and is never delivered: the buyer sends feature values and receives signed predictions " +
+  "(a value rounded to 3 significant digits for linear regression, a 0/1 decision otherwise), plus the evaluation metrics and a public " +
+  "execution certificate. The raw rows never leave the enclave.";
 
 export function listTrainingProfilesResult(): z.infer<typeof listTrainingProfilesOutput> {
   return {

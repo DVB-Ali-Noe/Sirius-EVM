@@ -10,6 +10,7 @@ import { formatBytes } from "@/lib/format";
 import { formatCount } from "@/lib/copy/numbers";
 import type { CsvSummary } from "@/lib/datasets/csv-check";
 import { MAX_PROVIDER_PRICE_WHOLE, minimumProviderPriceAtomic } from "@/lib/datasets/price-input";
+import { MAX_RENTAL_DAYS, MIN_RENTAL_DAYS } from "@/lib/billing/rental";
 import {
   DEFAULT_LISTING_DURATION_DAYS,
   ESCROW_CHALLENGE_DAYS,
@@ -21,12 +22,21 @@ import {
 } from "@/lib/datasets/publication";
 import type { PublishedTariff } from "@/lib/datasets/tariff";
 import { UPLOAD_STEPS, type UploadStep } from "@/lib/datasets/upload-client";
+import { UPLOAD_CHUNK_BYTES } from "@/lib/upload/chunked";
 import type { PublishDatasetStage } from "@/lib/datasets/client";
 import { MODEL_REGISTRY, type ModelId } from "@/lib/models/registry";
 import { INPUT_CLASS, PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, type LoadedFile, type StepState } from "./wizard-types";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
 
 /** Étiquette AES-GCM ajoutée au contenu chiffré ; l'enveloppe JSON et le base64 s'ajoutent sur le fil. */
 const AES_GCM_TAG_BYTES = 16;
+/** Gros fichier : chaque morceau stocké porte son IV (12 octets) et son tag (16 octets). */
+const CHUNK_OVERHEAD_BYTES = 12 + AES_GCM_TAG_BYTES;
+
+function encryptedBytes(file: LoadedFile): number {
+  if (!file.large) return file.sizeBytes + AES_GCM_TAG_BYTES;
+  return file.sizeBytes + Math.ceil(file.sizeBytes / UPLOAD_CHUNK_BYTES) * CHUNK_OVERHEAD_BYTES;
+}
 
 interface PricingStepProps {
   token: TokenInfo;
@@ -39,6 +49,10 @@ interface PricingStepProps {
   /** Gain en unités atomiques, `null` si la saisie est invalide. */
   providerAtomic: bigint | null;
   belowMinimum: boolean;
+  /** Durée maximale de location saisie (jours, texte brut). */
+  maxRentalDays: string;
+  onMaxRentalDays: (value: string) => void;
+  maxRentalDaysInvalid: boolean;
   listingDays: ListingDurationDays;
   onListingDays: (days: ListingDurationDays) => void;
   consent: boolean;
@@ -47,6 +61,10 @@ interface PricingStepProps {
   publishing: boolean;
   progress: Record<UploadStep, StepState>;
   stage: PublishDatasetStage | null;
+  /** Gros fichier : part chiffrée et envoyée, de 0 à 1, pendant le chiffrement. */
+  uploadSent?: number | null;
+  /** Enclave en démarrage pendant la publication : secondes avant le prochain essai automatique. */
+  enclaveRetry?: number | null;
   error: string | null;
   sealedDatasetId: string | null;
   onBack: () => void;
@@ -77,6 +95,9 @@ export function PricingStep({
   onPrice,
   providerAtomic,
   belowMinimum,
+  maxRentalDays,
+  onMaxRentalDays,
+  maxRentalDaysInvalid,
   listingDays,
   onListingDays,
   consent,
@@ -85,13 +106,15 @@ export function PricingStep({
   publishing,
   progress,
   stage,
+  uploadSent = null,
+  enclaveRetry = null,
   error,
   sealedDatasetId,
   onBack,
   onPublish,
 }: PricingStepProps) {
   const { t } = useLocale();
-  const ids = { price: useId(), priceHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
+  const ids = { price: useId(), priceHint: useId(), rental: useId(), rentalHint: useId(), duration: useId(), consent: useId(), consentHint: useId() };
   // Sans tarif chargé, le plancher reste celui que la route impose (0,001 jeton) : il est connu localement.
   const minimum = formatTokenWithSymbol(tariff ? tariff.minimumProviderAtomic : minimumProviderPriceAtomic(token.decimals) ?? "", token) ?? "—";
   // Date indicative : la vraie échéance part de l’inscription on-chain (rebase côté serveur).
@@ -114,7 +137,7 @@ export function PricingStep({
     >
       <div className="flex flex-col gap-1.5" data-guide="page:upload:price">
         <label className="text-sm font-medium" htmlFor={ids.price}>
-          {t("Ce que je veux gagner par emprunt ({symbol})", { symbol: token.symbol })}
+          {t("Ce que je veux gagner par jour de location ({symbol})", { symbol: token.symbol })}
         </label>
         <input
           id={ids.price}
@@ -143,12 +166,52 @@ export function PricingStep({
         )}
       </div>
 
+      <div className="flex flex-col gap-1.5" data-guide="page:upload:rental">
+        <label className="text-sm font-medium" htmlFor={ids.rental}>
+          {t("Durée maximale de location (jours)")}
+        </label>
+        <input
+          id={ids.rental}
+          name="maxRentalDays"
+          type="text"
+          inputMode="numeric"
+          value={maxRentalDays}
+          required
+          autoComplete="off"
+          aria-describedby={ids.rentalHint}
+          aria-invalid={maxRentalDaysInvalid ? true : undefined}
+          disabled={frozen}
+          onChange={(event) => onMaxRentalDays(event.target.value)}
+          className={`${INPUT_CLASS} font-mono tabular-nums`}
+        />
+        <p id={ids.rentalHint} className="text-xs text-muted">
+          {t("Entre {min} et {max} jours. L’emprunteur choisit sa durée dans cette limite et paie ton prix par jour pour chaque jour. À l’échéance, ses prédictions s’arrêtent ; il peut prolonger en payant de nouveaux jours. Durée non modifiable après publication.", {
+            min: MIN_RENTAL_DAYS,
+            max: MAX_RENTAL_DAYS,
+          })}
+        </p>
+        {maxRentalDaysInvalid && (
+          <p role="alert" className="text-xs text-negative">{t("Durée invalide : un nombre entier de jours entre {min} et {max}.", { min: MIN_RENTAL_DAYS, max: MAX_RENTAL_DAYS })}</p>
+        )}
+      </div>
+
       {tariff && tariff.computeFeeAtomic[modelId] !== undefined ? (
         <div className="flex flex-col gap-2">
-          {providerAtomic !== null ? (
+          {tariff.unrentableModels.includes(modelId) ? (
+            // Location refusée par le tarif (D-33) : aucun total emprunteur annoncé.
+            <section role="note" data-testid="pricing-unrentable" className="rounded-xl border border-yellow-400/40 bg-yellow-400/5 p-4 text-xs text-foreground/90">
+              <p>{t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}</p>
+              <p className="mt-2">
+                {t("Tu recevrais {amount} par jour de location réglé.", {
+                  amount: providerAtomic === null ? "—" : formatTokenWithSymbol(providerAtomic, token) ?? "—",
+                })}
+              </p>
+            </section>
+          ) : providerAtomic !== null ? (
             <PriceBreakdown
               providerAtomic={providerAtomic}
               computeAtomic={tariff.computeFeeAtomic[modelId]}
+              apiAccessDailyAtomic={tariff.apiAccessDailyFeeAtomic[modelId] ?? null}
               token={token}
               minimumAtomic={tariff.minimumProviderAtomic}
               perspective="provider"
@@ -162,7 +225,7 @@ export function PricingStep({
           <p className="text-xs text-muted">
             {tariff.version === "legacy-v6"
               ? t("Aucun frais de calcul avec l’escrow actuel : l’emprunteur bloque exactement ta part, que tu reçois à chaque emprunt réglé.")
-              : t("Frais de calcul du tarif en vigueur ({version}) pour le profil {model}. L’emprunteur paie ta part plus ces frais ; tu reçois ta part à chaque emprunt réglé.", {
+              : t("Montants pour un jour de location. Frais de calcul du tarif en vigueur ({version}) pour le profil {model}, payés une fois par emprunt. L’emprunteur paie ta part par jour × le nombre de jours choisi, plus ces frais ; tu reçois ta part à chaque emprunt réglé.", {
                 version: tariff.version,
                 model: MODEL_REGISTRY[modelId].label,
               })}
@@ -172,7 +235,7 @@ export function PricingStep({
         <div role="note" className="rounded-xl border border-yellow-400/40 bg-yellow-400/5 p-4 text-xs text-foreground/90">
           <p>{t("Le tarif en vigueur n’a pas pu être chargé : les frais de calcul ne peuvent pas être affichés. La publication est suspendue tant que la décomposition du prix ne peut pas être montrée. Réessaie dans quelques instants ou contacte-nous.")}</p>
           <p className="mt-2">
-            {t("Tu recevrais {amount} par emprunt réglé.", {
+            {t("Tu recevrais {amount} par jour de location réglé.", {
               amount: providerAtomic === null ? "—" : formatTokenWithSymbol(providerAtomic, token) ?? "—",
             })}
           </p>
@@ -225,7 +288,7 @@ export function PricingStep({
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted">{t("Taille chiffrée (environ)")}</dt>
-            <dd className="tabular-nums">{formatBytes(file.sizeBytes + AES_GCM_TAG_BYTES)}</dd>
+            <dd className="tabular-nums">{formatBytes(encryptedBytes(file))}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted">{t("Modèle")}</dt>
@@ -286,6 +349,9 @@ export function PricingStep({
                 <span className="min-w-0">
                   {t(STEP_LABEL_KEYS[step])}
                   {step === "register" && state === "active" && stage && <span className="text-muted"> — {t(STAGE_LABEL_KEYS[stage])}</span>}
+                  {step === "encrypt" && state === "active" && uploadSent !== null && (
+                    <span className="text-muted tabular-nums"> — {t("{percent} % envoyé", { percent: Math.floor(uploadSent * 100) })}</span>
+                  )}
                   <span className="sr-only">
                     {" "}
                     {state === "done" ? t("terminé") : state === "failed" ? t("échoué") : state === "active" ? t("en cours") : t("en attente")}
@@ -295,6 +361,15 @@ export function PricingStep({
             );
           })}
         </ol>
+      )}
+
+      {enclaveRetry !== null && (
+        <EnclaveStartingSteps
+          phase="starting"
+          retryInSeconds={enclaveRetry}
+          testId="publish-enclave-starting"
+          closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+        />
       )}
 
       <div className="flex flex-wrap items-center gap-3" data-guide="page:upload:publish">
@@ -310,7 +385,9 @@ export function PricingStep({
               ? t("Publication suspendue : tarif indisponible.")
               : belowMinimum
                 ? t("Le gain doit atteindre le minimum imposé par le tarif.")
-                : t("Indique un gain valide pour publier.")}
+                : maxRentalDaysInvalid
+                  ? t("Indique une durée maximale de location valide pour publier.")
+                  : t("Indique un gain valide pour publier.")}
           </p>
         )}
       </div>

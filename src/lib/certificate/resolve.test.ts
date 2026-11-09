@@ -32,8 +32,7 @@ function row(overrides: Partial<CertificateLoanRow> = {}, payloadOverrides: Reco
     merkleRoot: "f".repeat(64),
     modelId: "logistic_regression",
     modelVersion: "1.0.0",
-    modelCid: "bafy-model",
-    releaseEnvelopeHash: "e".repeat(64),
+    modelCid: `sm1${"a".repeat(64)}`,
     billingQuoteHash: `0x${"cd".repeat(32)}`,
     ...payloadOverrides,
   });
@@ -47,7 +46,7 @@ function row(overrides: Partial<CertificateLoanRow> = {}, payloadOverrides: Reco
     billingQuoteHash: `0x${"cd".repeat(32)}`,
     modelId: "logistic_regression",
     modelVersion: "1.0.0",
-    modelCid: "bafy-model",
+    modelCid: `sm1${"a".repeat(64)}`,
     evmLoanKey: LOAN_KEY,
     evmChainId: CHAIN_ID,
     evmEscrowAddress: ESCROW,
@@ -164,7 +163,7 @@ test("certificat prêt : seuls les champs du certificat, payload gardé pour l'e
   if (result.kind !== "ready") return;
   const { record } = result;
   assert.deepEqual(record.dataset, { id: "cdataset0000000000000000001", name: "Retail churn" });
-  assert.deepEqual(record.model, { name: "Binary logistic regression v1.0.0", cid: "bafy-model" });
+  assert.deepEqual(record.model, { name: "Binary logistic regression v1.0.0", cid: `sm1${"a".repeat(64)}` });
   assert.deepEqual(record.settlement, { txHash: SETTLE_TX, chainId: CHAIN_ID, network: "testnet" });
   assert.equal(record.evidence.payloadHash, row().attestationHash);
   assert.equal(record.evidence.composeHash, "c".repeat(64));
@@ -229,7 +228,7 @@ test("propriétés de la vue : aucune adresse, aucun montant, aucun payload", ()
   const props = certificateViewProps(result.record, { status: "absent" });
   assert.ok(props);
   const text = JSON.stringify(props);
-  for (const secret of [BORROWER, PROVIDER, "2500000", LOAN_KEY, ESCROW, "releaseEnvelopeHash", "e".repeat(64)]) {
+  for (const secret of [BORROWER, PROVIDER, "2500000", LOAN_KEY, ESCROW]) {
     assert.equal(text.includes(secret), false, secret);
   }
   assert.equal(props.proofHref, "/proof/cdataset0000000000000000001");

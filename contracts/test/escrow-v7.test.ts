@@ -42,7 +42,7 @@ async function setup(decimals: number) {
     });
     await kyb.write.acceptAttestation([verifier.account.address, expiresAt, signature], { account: wallet.account });
   }
-  const registryDeployment = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address]);
+  const registryDeployment = await hre.viem.deployContract("SiriusDatasetRegistry", [kyb.address, admin.account.address, "0x0000000000000000000000000000000000000000"]);
   const registry = getContract({ address: registryDeployment.address, abi: siriusdatasetregistryAbi, client });
   const escrowDeployment = await hre.viem.deployContract("SiriusEscrowV7", [usdc.address, kyb.address, registry.address, admin.account.address]);
   const escrow = getContract({ address: escrowDeployment.address, abi: siriusescrowv7Abi, client });
@@ -130,7 +130,7 @@ describe("SiriusEscrow v7 — facturation compute", () => {
     const ctx = await loadFixture(fixture);
     const gbdtProfile = keccak256(toHex("sirius.training-profile.v1:gradient_boosted_trees:1.0.0"));
     const gbdtDataset = datasetIdHash("gbdt-v7-dataset");
-    assert.equal(await ctx.registry.read.VERSION(), "sirius-dataset-v5");
+    assert.equal(await ctx.registry.read.VERSION(), "sirius-dataset-v6");
     await ctx.registry.write.addTrainingProfile([gbdtProfile], { account: ctx.admin.account });
     await ctx.registry.write.mint([gbdtDataset, EVIDENCE, EVIDENCE, 1n, gbdtProfile], { account: ctx.provider.account });
     const datasetId = await ctx.registry.read.datasetIdOf([ctx.provider.account.address, gbdtDataset]);

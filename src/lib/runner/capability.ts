@@ -5,12 +5,19 @@ export type RunnerOperation =
   | "dataset-ingress-key"
   | "seal-dataset"
   | "run-training"
+  | "predict"
   | "prepare-escrow-lock"
   | "run-loan-job"
   | "recover-loan-job"
   | "settle-loan"
-  | "loan-model-key"
-  | "self-train-key";
+  | "extend-loan"
+  | "seal-chunked-dataset"
+  | "seal-chunked-status"
+  | "register-api-key"
+  | "revoke-api-key"
+  | "api-predict"
+  | "api-info"
+  | "buy-calls";
 
 export interface RunnerScope {
   datasetId?: string;

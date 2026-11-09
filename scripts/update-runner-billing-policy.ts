@@ -66,7 +66,14 @@ export function updateRunnerBillingPolicy(
   const addedProfiles = profileIds.filter((id) => !Object.hasOwn(current.profiles ?? {}, id));
   const changedProfiles = profileIds.filter((id) => Object.hasOwn(current.profiles ?? {}, id)
     && canonicalProfile(current.profiles[id]) !== canonicalProfile(next.profiles[id]));
-  if ((changedProfiles.length || next.minimumComputeAmount !== current.minimumComputeAmount) && !allowProfileChanges) {
+  // D-30 : un tarif installé avant l'API reçoit ses premiers frais sans entraînement et quotas sans
+  // option ; un montant ou un quota déjà installé ne change (ni ne disparaît) qu'avec l'option. Même
+  // règle pour le tarif journalier de l'accès API (D-32).
+  const installedCalls: Partial<Record<string, number>> = current.apiCallsPerDay ?? {};
+  const apiPriceChanged = (current.noTrainingComputeAmount !== undefined && next.noTrainingComputeAmount !== current.noTrainingComputeAmount)
+    || (current.apiAccessDailyComputeAmount !== undefined && next.apiAccessDailyComputeAmount !== current.apiAccessDailyComputeAmount)
+    || Object.keys(installedCalls).some((id) => next.apiCallsPerDay[id as keyof BillingPolicy["apiCallsPerDay"]] !== installedCalls[id]);
+  if ((changedProfiles.length || next.minimumComputeAmount !== current.minimumComputeAmount || apiPriceChanged) && !allowProfileChanges) {
     throw new Error("Prix d'un profil installé modifié : option explicite requise");
   }
 

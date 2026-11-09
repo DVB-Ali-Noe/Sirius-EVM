@@ -15,8 +15,8 @@ test("les profils, actions et erreurs métier sont affichés en anglais", () => 
     "Profil du dataset verrouillé": "Dataset profile locked",
     "TEE en cours…": "TEE working…",
     "Récupérer le lock": "Recover lock",
-    "Probabilité (classe 1)": "Probability (class 1)",
-    "Classe prédite": "Predicted class",
+    "Demander une prédiction": "Request a prediction",
+    "Valeur : {value} · appel n° {count}": "Value: {value} · call #{count}",
     "Origine de requête non autorisée": "Request origin not allowed",
     "Challenge refusé": "Sign-in challenge rejected",
     "Loan non verrouillé ou déjà en cours": "Loan not locked or already running",
@@ -34,10 +34,6 @@ test("la traduction reste à la frontière d'affichage, après les décisions m�
 
 test("les erreurs dynamiques gardent les colonnes utilisateur, identifiants et valeurs", () => {
   const examples = {
-    "Valeur invalide dans la colonne « revenu_annuel_€ »": "Invalid value in column “revenu_annuel_€”",
-    "La colonne « défaut » doit être strictement encodée en 0 ou 1": "Column “défaut” must be strictly encoded as 0 or 1",
-    "Valeur invalide pour « prix »": "Invalid value for “prix”",
-    "Le CSV de test doit contenir au moins 2 lignes": "The test CSV must contain at least 2 rows",
     "trop de colonnes CSV (max 32)": "Too many CSV columns (maximum 32)",
     "dataset trop petit pour préserver la confidentialité (min 100 lignes)": "Dataset too small to preserve privacy (minimum 100 rows)",
     "Trop de poids (40 > 32) — borné par l'output-gate": "Too many weights (40 > 32) — restricted by the output gate",

@@ -31,7 +31,7 @@ const linearDataset = {
   id: "responsive-linear",
   name: "Energy-demand-Test",
   description: "Jeu de données de consommation énergétique",
-  modelId: "linear_regression",
+  modelId: "logistic_regression",
 };
 
 const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SETTLED", "CANCELLED"].map((status) => ({
@@ -47,8 +47,8 @@ const loans = ["PENDING", "SUBMITTING", "ESCROWED", "TRAINING", "SETTLING", "SET
   evmLoanKey: status === "PENDING" || status === "SUBMITTING" ? null : `0x${"9".repeat(64)}`,
   settleTxHash: status === "SETTLED" ? `0x${"e".repeat(64)}` : null,
   cancelTxHash: null,
-  modelCid: status === "SETTLING" ? "bafy-layout-model" : null,
-  runnerReceipt: status === "SETTLING" ? "layout-fixture" : null,
+  modelCid: status === "SETTLING" || status === "SETTLED" ? "sm1layoutmodel" : null,
+  runnerReceipt: status === "SETTLING" || status === "SETTLED" ? "layout-fixture" : null,
   evmDeadline: "2026-09-12T12:00:00.000Z",
   createdAt: "2026-09-05T12:00:00.000Z",
   refundable: false,
@@ -76,6 +76,8 @@ function catalogueBody(datasets: Array<typeof dataset>) {
     items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
     token: { symbol: "USDC", decimals: 18 }, kybAvailable: true,
     computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+    // v6 : aucun devis, donc aucune API incluse (D-33).
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
   };
 }
 
@@ -100,10 +102,12 @@ test.beforeEach(async ({ page }) => {
             description: dataset.description,
             provider: PROVIDER,
             challengeDays: 3,
+            maxRentalDays: 30,
             settledCount: 1,
             refundedCount: 0,
             successRate: 1,
             computeFee: { kind: "none", atomic: "0" },
+            apiAccessFee: { kind: "none" },
           },
           token: { symbol: "USDC", decimals: 18 },
           kybAvailable: true,
@@ -138,8 +142,7 @@ test.beforeEach(async ({ page }) => {
           status: "DONE",
           modelId: dataset.modelId,
           modelVersion: dataset.modelVersion,
-          modelCid: "bafy-layout-model",
-          runnerReceipt: null,
+          servedModelId: "responsive-self-job",
           metrics: { accuracy: 0.812345 },
           createdAt: "2026-09-05T12:00:00.000Z",
         }];
@@ -225,7 +228,9 @@ for (const screen of SCREENS) {
     test("les profils du catalogue restent dans leur carte", async ({ page }) => {
       await openLayoutPage(page, "/marketplace", screen.fontSize);
       await expect(page.getByRole("heading", { name: dataset.name, exact: true })).toBeVisible();
-      await expect(page.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
+      // Deux fixtures partagent désormais le profil logistique (D-31) : libellé cherché dans sa carte.
+      const profileCard = page.getByRole("listitem").filter({ hasText: dataset.name });
+      await expect(profileCard.getByText("Binary logistic regression v1.0.0", { exact: true })).toBeVisible();
       await expectContainedLayout(page);
 
       const card = page.getByRole("listitem").filter({ hasText: linearDataset.name });
@@ -251,7 +256,8 @@ for (const screen of SCREENS) {
       await openLayoutPage(page, "/train", screen.fontSize);
       await connect(page);
       await expect(page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true })).toBeVisible();
-      await expect(page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true })).toBeVisible();
+      const selfJob = page.getByRole("heading", { name: `Self-train ${LONG_NAME}`, exact: true }).locator("../..");
+      await expect(selfJob.getByRole("button", { name: "Request a prediction" })).toBeVisible();
       await expectContainedLayout(page);
 
       const pending = page.getByRole("heading", { name: `PENDING ${LONG_NAME}`, exact: true }).locator("../../../..");
@@ -270,6 +276,8 @@ for (const screen of SCREENS) {
       const settled = page.getByRole("heading", { name: `SETTLED ${LONG_NAME}`, exact: true }).locator("../../../..");
       await settled.getByRole("button", { name: "Retrain", exact: true }).click();
       await expect(settled.getByRole("button", { name: "View the quote and retrain" })).toBeVisible();
+      await expect(settled.getByRole("button", { name: "Request a prediction" })).toBeVisible();
+      await expect(settled.getByRole("button", { name: /download/i })).toHaveCount(0);
       await expectContainedLayout(page);
     });
 

@@ -10,6 +10,15 @@ const REQUIRED_PROFILES = ["linear_regression", "logistic_regression"];
 /** Profils facultatifs (src/lib/billing/config.ts) : tarifés seulement s'ils figurent dans la proposition. */
 const OPTIONAL_PROFILES = ["gradient_boosted_trees"];
 const proposedProfiles = (p) => [...REQUIRED_PROFILES, ...OPTIONAL_PROFILES.filter((id) => Object.hasOwn(p.profiles ?? {}, id))];
+/**
+ * Quota d'appels API par jour (D-30) : profils connus seulement, jamais la régression linéaire (D-27).
+ * La politique ne garde que les profils effectivement proposés.
+ */
+const validCallsPerDay = (p) => {
+  const calls = p.api?.callsPerDay;
+  return calls && typeof calls === "object" && !Array.isArray(calls)
+    && Object.entries(calls).every(([id, n]) => OPTIONAL_PROFILES.concat(REQUIRED_PROFILES).includes(id) && id !== "linear_regression" && int(n, 1, 10_000));
+};
 const amount = (value) => typeof value === "string" && /^(0|[1-9][0-9]{0,28})$/.test(value);
 const int = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= min && value <= max;
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
@@ -26,6 +35,8 @@ export function usdMicrosToAtomic(usdMicros, decimals, rounding) {
 export function validateProposal(p) {
   const ok = p && p.version === 1 && ["proposed", "approved"].includes(p.status)
     && Array.isArray(p.approval?.approvedBy) && amount(p.minimumComputeUsdMicros) && BigInt(p.minimumComputeUsdMicros) > 0n
+    && amount(p.noTraining?.computeUsdMicros) && BigInt(p.noTraining.computeUsdMicros) > 0n && validCallsPerDay(p)
+    && (p.api.accessDailyUsdMicros === undefined || (amount(p.api.accessDailyUsdMicros) && BigInt(p.api.accessDailyUsdMicros) > 0n))
     && amount(p.currency?.usdPerUsdcLowerBoundMicros) && amount(p.currency?.usdPerUsdcUpperBoundMicros)
     && BigInt(p.currency.usdPerUsdcLowerBoundMicros) <= MICROS && BigInt(p.currency.usdPerUsdcUpperBoundMicros) >= MICROS
     && amount(p.fixedCostCoverage?.monthlyFixedUsdMicros) && amount(p.fixedCostCoverage?.variableUsdMicrosPerAttempt)
@@ -89,11 +100,17 @@ export function tariffReport(proposal, plan, token) {
   for (const id of PROFILES) {
     if (BigInt(profiles[id].maxFailureFee) > BigInt(profiles[id].computeAmount)) blockers.push(`retenue maximale ${id} supérieure au prix`);
   }
+  // Pass d'accès API (D-32), arrondi au supérieur : facultatif, absent ⇒ accès API non vendu.
+  const apiAccessDailyAtomic = p.api.accessDailyUsdMicros === undefined ? null
+    : String(usdMicrosToAtomic(p.api.accessDailyUsdMicros, decimals, "ceil"));
 
   const billingPolicy = blockers.length ? null : {
     version: 1, tariffVersion: `tarif-${p.approval.approvedAt}`, costReference: "deploy/operations/tariff-proposal.json",
     validUntil: p.approval.validUntil, chainId: plan.chainId, usdc: token.usdc, usdcDecimals: decimals,
     computeRecipient: plan.computeRecipient, minimumComputeAmount: String(minimumAtomic),
+    noTrainingComputeAmount: String(usdMicrosToAtomic(p.noTraining.computeUsdMicros, decimals, "ceil")),
+    apiCallsPerDay: Object.fromEntries(Object.entries(p.api.callsPerDay).filter(([id]) => PROFILES.includes(id))),
+    ...(apiAccessDailyAtomic === null ? {} : { apiAccessDailyComputeAmount: apiAccessDailyAtomic }),
     profiles: Object.fromEntries(PROFILES.map((id) => [id, { computeAmount: profiles[id].computeAmount,
       maxFailureFee: profiles[id].maxFailureFee, executionRateAtomicPerMs: profiles[id].executionRateAtomicPerMs,
       maxExecutionMs: profiles[id].maxExecutionMs }])),
@@ -107,6 +124,8 @@ export function tariffReport(proposal, plan, token) {
       minimumComputeUsdMicros: String(minimum), minimumCoversCost: minimum >= perSuccess,
       marginAtAssumedVolumeUsdMicros: String((minimum - perSuccess) * BigInt(c.successesPerMonth)) },
     profiles,
+    apiAccess: apiAccessDailyAtomic === null ? null
+      : { dailyUsdMicros: p.api.accessDailyUsdMicros, dailyComputeAmount: apiAccessDailyAtomic },
     trial: { ...costs.trial, proposedEnvelopeUsdMicros: p.trialFunding.proposedEnvelopeUsdMicros,
       fundingSource: p.trialFunding.fundingSource, approved: p.trialFunding.approved, providerEnforced: p.trialFunding.providerEnforced },
     stopScenarios: p.stopScenarios,

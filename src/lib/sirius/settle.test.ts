@@ -34,13 +34,6 @@ test("le règlement refuse un résultat sans preuve d’attestation", () => {
   assert.match(settlement, /TEE_MODE === "phala"/);
 });
 
-test("le règlement reprend avec le hash attesté, pas une capsule navigateur", () => {
-  const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
-
-  assert.match(settlement, /payload\.releaseEnvelopeHash/);
-  assert.doesNotMatch(settlement, /releaseEnvelopeHash: string/);
-});
-
 const read = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), "utf8");
 
 test("un règlement en attente de finalité reste SETTLING avec son hash, sans réconciliation ni retour arrière", () => {
@@ -72,16 +65,16 @@ test("l’entraînement n’est demandé au runner qu’après finalité du lock
   assert.match(preparation, /runLoanJobInRunner\([\s\S]*?billingQuote,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
   const settlement = SOURCE.slice(SOURCE.indexOf("export async function settlePreparedLoan"));
   assert.match(settlement, /settleLoanInRunner\([\s\S]*?authorization,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
-  const key = read("src", "app", "api", "loans", "[id]", "key", "route.ts");
-  assert.match(key, /loanModelKeyInRunner\([\s\S]*?loan\.settleTxHash,\s*effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\)/);
-  assert.match(key, /if \(loan\.finalityReview\) return NextResponse\.json\(\{ error: "Règlement en cours de revue : livraison suspendue" \}, \{ status: 409 \}\)/);
+  const predict = read("src", "app", "api", "loans", "[id]", "predict", "route.ts");
+  assert.match(predict, /predictInRunner\([\s\S]*?settleTxHash: loan\.settleTxHash,\s*finalityTier: effectiveLoanFinalityTier\(loan\.finalityTier\),\s*\}\)/);
+  assert.match(predict, /loan\.status !== "SETTLED" \|\| loan\.finalityReview \|\| !loan\.runnerReceipt \|\| !loan\.settleTxHash/);
 });
 
 test("finalité rapide : l'enclave arbitre seule le palier des trois opérations v7, Next ne transmet que FAST", () => {
   const handler = read("src", "runner", "handler.ts");
   const client = read("src", "lib", "tee", "runner-client.ts");
   // Montant du devis signé, bornes de l'environnement attesté, refus explicite sinon.
-  // La décision ne réserve rien : règlement et livraison de clé la reprennent telle quelle.
+  // La décision ne réserve rien : règlement et prédiction la reprennent telle quelle.
   const decision = handler.slice(handler.indexOf("function loanFinalityTier("), handler.indexOf("function reserveFastExposure("));
   assert.match(decision, /enclaveFinalityTier\(requested, BigInt\(totalQuoteAmount\(quote\)\), fastFinalityPolicy\(\)\)[\s\S]*?throw new AppError\("Finalité rapide refusée par l’enclave pour ce prêt", 409\)/);
   assert.doesNotMatch(decision, /reserveFastExposure|requireBillingBudget/, "aucune réservation dans la décision");
@@ -95,10 +88,14 @@ test("finalité rapide : l'enclave arbitre seule le palier des trois opérations
   const reservation = run.indexOf("!reserveFastExposure(signedQuote.quote)");
   assert.ok(scopeRead > 0 && scopeRead < reservation, "lecture du lock avant la réservation");
   assert.match(run, /!reserveFastExposure\(signedQuote\.quote\)\) \{[\s\S]*?try \{ await loanScope\("FULL"\); \} catch \{ throw new RunnerRetryLater\(LOCK_FINALITY_PENDING\); \}/);
-  // Les deux autres opérations décident sans réserver : une livraison après release ne touche pas le plafond.
-  const settleOp = handler.slice(handler.lastIndexOf('case "settle-loan"'), handler.lastIndexOf('case "loan-model-key"'));
-  const keyOp = handler.slice(handler.lastIndexOf('case "loan-model-key"'), handler.lastIndexOf('case "run-training"'));
-  for (const [name, source] of [["settle-loan", settleOp], ["loan-model-key", keyOp]] as const) {
+  // Les deux autres opérations décident sans réserver : une prédiction après release ne touche pas le plafond.
+  const caseBody = (op: string) => {
+    const start = handler.lastIndexOf(`case "${op}"`);
+    const next = handler.slice(start + 1).search(/\n\s*case "/);
+    return handler.slice(start, next < 0 ? undefined : start + 1 + next);
+  };
+  for (const name of ["settle-loan", "predict"]) {
+    const source = caseBody(name);
     assert.match(source, /loanFinalityTier\(body\.finalityTier/, name);
     assert.doesNotMatch(source, /reserveFastExposure/, `${name} ne réserve jamais`);
   }
@@ -112,9 +109,9 @@ test("finalité rapide : l'enclave arbitre seule le palier des trois opérations
   assert.match(handler, /publishedFinalizedPreimage\([\s\S]*?loanFinalityTier\(body\.finalityTier, signed\.quote\)\)/);
   // Le client n'ajoute le champ que pour FAST : un prêt FULL envoie la charge historique.
   assert.match(client, /return tier === "FAST" \? \{ finalityTier: "FAST" \} : \{\};/);
-  for (const op of ["run-loan-job", "settle-loan", "loan-model-key"]) {
+  for (const op of ["run-loan-job", "settle-loan", "predict"]) {
     const call = client.slice(client.indexOf(`"${op}"`));
-    assert.match(call.slice(0, call.indexOf(";")), /\.\.\.finalityTierField\(finalityTier\)/, op);
+    assert.match(call.slice(0, call.indexOf(";")), /\.\.\.finalityTierField\([^)]*finalityTier\)/, op);
   }
 });
 
@@ -159,10 +156,12 @@ type Resolution = { state: "active" } | { state: "settled"; txHash: string };
 
 function settlementFixture(
   evmDeadline: Date | undefined,
-  runner: () => Promise<never>,
+  runner: () => Promise<{ settleTxHash: string; expiresAt?: number; apiPaidUntil?: number }>,
   resolution: Resolution = { state: "active" },
   quote: Record<string, unknown> = {},
+  loanOverrides: Record<string, unknown> = {},
 ) {
+  const rentalReads: Record<string, unknown>[] = [];
   const loan = {
     id: "loan", datasetId: "dataset", borrower: `0x${"44".repeat(20)}`, provider: `0x${"55".repeat(20)}`,
     status: "TRAINING", amountUsdcAtomic: "100", modelId: "linear_regression", modelVersion: "1.0.0",
@@ -171,12 +170,13 @@ function settlementFixture(
     attestationPayload: "attestation-payload", updatedAt: new Date(0), runnerKind: "PHALA", runnerDeploymentId: "phala:runner",
     attestationQuote: "aa", attestationEventLog: "[]", attestationComposeHash: "88".repeat(32),
     dataset: { ipfsCid: "bafyDataset", merkleRoot: "77".repeat(32), challengeDays: 7 },
+    ...loanOverrides,
   };
   const payload = {
     chainId: 46630, escrow: ESCROW, loanId: loan.id, loanKey: KEY, datasetId: loan.datasetId, datasetCid: loan.dataset.ipfsCid,
     provider: loan.provider, borrower: loan.borrower, amountUsdcAtomic: loan.amountUsdcAtomic, billingQuoteHash: loan.billingQuoteHash,
     challengeDays: 7, merkleRoot: loan.dataset.merkleRoot, modelId: loan.modelId, modelVersion: loan.modelVersion,
-    modelCid: loan.modelCid, releaseEnvelopeHash: "envelope-hash",
+    modelCid: loan.modelCid,
   };
   const updates: { where: Record<string, unknown>; data: Record<string, unknown> }[] = [];
   const api = load<typeof import("./settle")>("src/lib/sirius/settle.ts", {
@@ -190,7 +190,8 @@ function settlementFixture(
     "@/lib/evm/client": {}, "@/lib/evm/finality": {},
     "@/lib/runner/failure-policy": { RunnerFinalityPending }, "./settlement-queued": { settlementQueuedError },
     "@/lib/tee/runner-client": { settleLoanInRunner: runner },
-    "./model-storage": {}, "@/lib/models/registry": {}, "@/lib/runner/delivery": {},
+    "@/lib/models/registry": {},
+    "./prediction": { modelFeaturesFromRunner: (value: string[]) => value },
     "@/lib/tee/attestation": {
       hashLoanAttestationPayload: () => loan.attestationHash,
       parseLoanAttestationPayload: () => payload,
@@ -198,16 +199,62 @@ function settlementFixture(
     },
     "@/lib/tee/quote": quote,
     "@/lib/tee/evm-binding": { evmEscrowBinding: () => ({ chainId: 46630, escrow: ESCROW }) },
-    "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: {} }) },
+    "@/lib/billing/loan": { loanBillingQuote: () => ({ quote: loanOverrides.apiAccessIncluded ? { apiAccessIncluded: true } : {} }) },
     "@/lib/loans/settlement-status": { LOCK_FINALITY_PENDING: "attente" },
     "./finality-tier": { assignLoanFinalityTier: async () => "FULL", effectiveLoanFinalityTier: (tier: string) => tier },
     "./settlement-evidence": { recordSettlementEvidence: async () => false },
+    "./rental": { loanRentalExpiry: async (row: Record<string, unknown>) => { rentalReads.push(row); return null; } },
   });
-  return { api, updates };
+  return { api, updates, rentalReads };
 }
 
 const overdue = () => new Date(Date.now() - 60_000);
 const inTime = () => new Date(Date.now() + 60_000);
+
+test("D-29 : le règlement enregistre l'échéance de location posée par le runner au release", async () => {
+  const expiresAt = Date.parse("2026-11-10T12:00:00.000Z");
+  const { api, updates, rentalReads } = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {},
+    { rentalDays: 7, extendsLoanId: null });
+  await api.settlePreparedLoan("loan");
+  const settled = updates.find((update) => update.data.status === "SETTLED");
+  assert.ok(settled);
+  assert.equal(settled.data.settleTxHash, OTHER_TX);
+  assert.equal(Number(settled.data.rentalExpiresAt), expiresAt);
+  assert.equal(rentalReads.length, 0, "aucune relecture de la chaîne quand le runner a répondu");
+});
+
+test("D-29 : sans échéance du runner, elle est relue du bloc de release ; un prêt hérité n'en a jamais", async () => {
+  const rented = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX }), { state: "active" }, {}, { rentalDays: 7, extendsLoanId: null });
+  await rented.api.settlePreparedLoan("loan");
+  assert.equal(rented.updates.find((update) => update.data.status === "SETTLED")!.data.rentalExpiresAt, undefined);
+  assert.deepEqual(rented.rentalReads.map((row) => [row.status, row.settleTxHash, row.rentalDays, row.rentalExpiresAt]), [["SETTLED", OTHER_TX, 7, null]]);
+
+  const legacy = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt: Date.now() }), { state: "active" }, {},
+    { rentalDays: null, extendsLoanId: null });
+  await legacy.api.settlePreparedLoan("loan");
+  assert.equal(legacy.updates.find((update) => update.data.status === "SETTLED")!.data.rentalExpiresAt, undefined);
+  assert.equal(legacy.rentalReads.length, 0);
+});
+
+test("API incluse (D-32) : la couverture de l'enclave est reflétée dans la même écriture que SETTLED ; sans API, rien", async () => {
+  const expiresAt = Date.parse("2026-11-10T12:00:00.000Z");
+  const rental = { rentalDays: 7, extendsLoanId: null };
+  const included = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt, apiPaidUntil: expiresAt }), { state: "active" }, {},
+    { ...rental, apiAccessIncluded: true });
+  await included.api.settlePreparedLoan("loan");
+  const settled = included.updates.find((update) => update.data.status === "SETTLED")!;
+  assert.equal(Number(settled.data.apiPaidUntil), expiresAt);
+  assert.equal(Number(settled.data.rentalExpiresAt), expiresAt);
+  // Couverture absente de la réponse : l'échéance de la location fait foi.
+  const implicit = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {},
+    { ...rental, apiAccessIncluded: true });
+  await implicit.api.settlePreparedLoan("loan");
+  assert.equal(Number(implicit.updates.find((update) => update.data.status === "SETTLED")!.data.apiPaidUntil), expiresAt);
+  const plain = settlementFixture(inTime(), async () => ({ settleTxHash: OTHER_TX, expiresAt }), { state: "active" }, {}, rental);
+  await plain.api.settlePreparedLoan("loan");
+  assert.equal(plain.updates.find((update) => update.data.status === "SETTLED")!.data.apiPaidUntil, undefined);
+});
+
 const rejected = (message: string, status: number) => async () => { throw new AppError(message, status); };
 
 test("A-05 : release rejetée après l'échéance, escrow encore verrouillé : le hash mort est effacé et le prêt redevient remboursable", async () => {

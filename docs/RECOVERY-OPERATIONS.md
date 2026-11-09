@@ -2,6 +2,8 @@
 
 État local du 23 septembre 2026. Aucun contrat public, environnement privé, abonnement ou secret distant n’a été modifié. Ce document décrit le code préparé et les opérations à effectuer dans l’environnement concerné.
 
+> **Mise à jour du 1er novembre 2026 ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)) :** plus aucune livraison ni clé de modèle ; les mentions de livraison, de re-livraison et d'outils de vérification de livraison ci-dessous sont historiques. Le règlement et la reprise des transactions sont inchangés.
+
 L'[exercice de reprise suivant](BACKUP-RECOVERY.md) couvre la restauration du paquet complet et deux arrêts `SIGKILL` du registre synthétique. La livraison, le déchiffrement et la restauration hors ligne sont vérifiés pour les deux modèles du wallet local. Onze modèles restent liés à d'anciens wallets de test inaccessibles ; la copie hors machine est différée par Noé.
 
 ## Résultat perdu entre runner et Next

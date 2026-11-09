@@ -13,7 +13,9 @@ import { MODEL_REGISTRY, selectionForModelId, trainingProfileHash, type ModelId 
  * Aucune fonction de ce module n'envoie de transaction : il lit, compare et encode.
  */
 
-export const DATASET_REGISTRY_VERSION = "sirius-dataset-v5";
+export const DATASET_REGISTRY_VERSION = "sirius-dataset-v6";
+/** Versions gérées par ces scripts : la v5 reste en service jusqu'à la migration vers la v6. */
+export const DATASET_REGISTRY_VERSIONS: readonly string[] = ["sirius-dataset-v5", DATASET_REGISTRY_VERSION];
 export const ESCROW_VERSIONS = {
   SiriusEscrow: "sirius-escrow-usdc-v6",
   SiriusEscrowV7: "sirius-escrow-usdc-v7",
@@ -28,6 +30,33 @@ export const registryAdminAbi = parseAbi([
   "function bindEscrow(address escrow_)",
   "function addTrainingProfile(bytes32 profile)",
 ]);
+
+/** Fonctions propres au registre v6 : taille maximale et import des titres du v5. */
+export const registryV6AdminAbi = parseAbi([
+  "function maxSizeBytes() view returns (uint64)",
+  "function MAX_SIZE_CEILING() view returns (uint64)",
+  "function MAX_IMPORT_BATCH() view returns (uint256)",
+  "function previousRegistry() view returns (address)",
+  "function setMaxSizeBytes(uint64 maxSizeBytes_)",
+  "function importTitles(bytes32[] ids)",
+  "function getDataset(bytes32 id) view returns ((address provider, uint40 mintedAt, uint40 destroyedAt, uint64 sizeBytes, bytes32 merkleRoot, bytes32 cidHash, bytes32 trainingProfile))",
+]);
+
+export function setMaxSizeBytesCall(datasets: Address, maxSizeBytes: bigint): AdminCall {
+  return {
+    to: datasets, value: "0",
+    data: encodeFunctionData({ abi: registryV6AdminAbi, functionName: "setMaxSizeBytes", args: [maxSizeBytes] }),
+    description: `SiriusDatasetRegistry(${datasets}).setMaxSizeBytes(${maxSizeBytes}) — taille maximale au mint`,
+  };
+}
+
+export function importTitlesCall(datasets: Address, ids: readonly Hex[]): AdminCall {
+  return {
+    to: datasets, value: "0",
+    data: encodeFunctionData({ abi: registryV6AdminAbi, functionName: "importTitles", args: [ids] }),
+    description: `SiriusDatasetRegistry(${datasets}).importTitles([${ids.length} titre(s)]) — ${ids.join(", ")}`,
+  };
+}
 const escrowLinkAbi = parseAbi([
   "function VERSION() view returns (string)",
   "function datasets() view returns (address)",
@@ -88,8 +117,8 @@ export async function readBinding(client: BindingReader, datasets: Address, escr
 }
 
 function assertPair(state: BindingState, expectedAdmin: Address, expectedEscrowVersion?: string): void {
-  if (state.registryVersion !== DATASET_REGISTRY_VERSION) {
-    throw new Error(`Registre de datasets en ${state.registryVersion}, ${DATASET_REGISTRY_VERSION} attendu`);
+  if (!DATASET_REGISTRY_VERSIONS.includes(state.registryVersion)) {
+    throw new Error(`Registre de datasets en ${state.registryVersion}, ${DATASET_REGISTRY_VERSIONS.join(" ou ")} attendu`);
   }
   const known = Object.values(ESCROW_VERSIONS) as string[];
   if (!known.includes(state.escrowVersion) || (expectedEscrowVersion && state.escrowVersion !== expectedEscrowVersion)) {

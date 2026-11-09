@@ -1,8 +1,8 @@
 # Sirius
 
-**Entraîner sur des datasets confidentiels et livrer le modèle.**
+**Entraîner sur des datasets confidentiels, interroger le modèle sans jamais le sortir de l'enclave.**
 
-Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE** et ne récupère que le modèle produit. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
+Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE**. Le modèle reste scellé dans le runner : le borrower obtient des **prédictions signées** (décision 0/1 pour la logistique et les arbres ; valeur arrondie à 3 chiffres significatifs pour les modèles linéaires existants), jamais le modèle ni sa clé ([D-28](docs/DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)). Les prédictions ne répondent que pendant que le runner tourne. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
 
 ## Principe
 
@@ -15,11 +15,11 @@ Provider                 Robinhood Chain                     Borrower
   │                             │                               │
   │           Phala TEE : déchiffre, entraîne, atteste          │
   │                             │                               │
-  │◄── SiriusEscrow.release ────┼── règlement confirmé ─────────►│ clé livrée en v7
+  │◄── SiriusEscrow.release ────┼── règlement confirmé ─────────►│ prédictions signées
   │    crédit provider          │                               │
 ```
 
-En v6, le runner produit une capsule que le préimage publié permet d'ouvrir. En v7, il ne transmet pas cette capsule à Next : la clé du modèle est livrée après vérification du règlement canonique et des confirmations configurées. `release` crédite le provider et, en v7, la trésorerie compute. `refund` reste possible après l'échéance si le prêt est encore verrouillé, en déduisant les frais déjà attestés on-chain en v7. Wallet et Dashboard permettent le retrait séparé des crédits. Le préimage est transmis au RPC avant inclusion ; les limites de finalité sont détaillées dans le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
+Le runner génère le préimage du hashlock et l'envoie via `release` une fois le calcul fait : ce préimage ne sert qu'au règlement, il n'ouvre aucun modèle. Après règlement confirmé (reçu canonique et confirmations configurées en v7), l'emprunteur interroge le modèle par `POST /api/loans/[id]/predict`. `release` crédite le provider et, en v7, la trésorerie compute. `refund` reste possible après l'échéance si le prêt est encore verrouillé, en déduisant les frais déjà attestés on-chain en v7. Wallet et Dashboard permettent le retrait séparé des crédits. Le préimage est transmis au RPC avant inclusion ; les limites de finalité sont détaillées dans le [suivi de l'audit](docs/AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026).
 
 ## Stack
 
@@ -46,15 +46,17 @@ Le parcours applicatif est EVM-only : wallet EIP-1193, signatures EIP-191/EIP-71
 
 Le dernier état applicatif distant documenté est une démonstration sur Robinhood testnet avec calcul dans le processus de l'application. La CVM Phala a été amorcée et attestée, puis arrêtée à la demande de Noé ; son arrêt a été confirmé le 23 septembre 2026 à 13:13 UTC. L'application n'a pas basculé. Le parcours métier réel navigateur/Phala/contrats et le KYB externe restent à valider. Deux modèles historiques ont été récupérés et restaurés hors ligne ; les onze autres appartiennent à d'anciens wallets de test inaccessibles. Voir [l'état des sauvegardes](docs/BACKUP-RECOVERY.md).
 
-L'upload impose un profil (`linear_regression` ou `logistic_regression`, version `1.0.0`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. Le CSV est limité à 3 Mio ; une cible logistique doit être binaire.
+L'upload impose un profil proposé par l'instance (`logistic_regression` 1.0.0 ; `gradient_boosted_trees` 1.1.0 et `linear_regression` 1.0.0 seulement s'ils figurent dans `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`) qui est conservé dans le titre, le prêt et les reçus du runner. Un autre algorithme ne peut pas être sélectionné à l'emprunt. La régression linéaire est retirée de tout nouvel usage depuis [D-31](docs/DECISIONS.md#d-31--régression-linéaire-retirée-pour-tout-nouvel-usage-profil-facultatif) ; les datasets et prêts linéaires existants restent servis. Le CSV est limité à 3 Mio ; une cible de classification doit être binaire.
 
 Le [parcours v7](docs/BILLING-INTEGRATION.md) est raccordé : devis signé et accepté, prépaiement, calcul borné, règlement ou remboursement, budget réservé jusqu'à la clôture. Le mode par défaut reste v6 ; v7 exige `SIRIUS_BILLING_VERSION=7`, des politiques et un registre persistants. La migration Prisma est préparée, non appliquée à distance. Aucun tarif commercial n'est fixé.
 
-**Reprise et exploitation préparées :** le résultat v7 enregistré dans SQLite est récupérable après perte de la réponse Next ; les transactions signées sont journalisées sous chiffrement et rediffusées à l'identique dans une limite de trois envois. Les quotas PostgreSQL et l'anti-rejeu sont éprouvés entre huit processus. Une sauvegarde chiffrée de la base réelle a été restaurée et migrée sur PostgreSQL 18 local ; les 13 blobs de modèles historiques ont été copiés et vérifiés. Les images et le superviseur d'arrêt sont préparés localement. Voir la [reprise](docs/RECOVERY-OPERATIONS.md) et la [préparation de l'exploitation](docs/OPERATIONS-PREPARATION.md).
+**Reprise et exploitation préparées :** le résultat v7 enregistré dans SQLite est récupérable après perte de la réponse Next ; les transactions signées sont journalisées sous chiffrement et rediffusées à l'identique dans une limite de trois envois. Les quotas PostgreSQL et l'anti-rejeu sont éprouvés entre huit processus. Une sauvegarde chiffrée de la base réelle a été restaurée et migrée sur PostgreSQL 18 local. Les images et le superviseur d'arrêt sont préparés localement. Voir la [reprise](docs/RECOVERY-OPERATIONS.md) et la [préparation de l'exploitation](docs/OPERATIONS-PREPARATION.md).
 
-**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, les plafonds fournisseurs, les tarifs et la validation Phala complète. La sauvegarde reste locale à ce stade ; les onze modèles sans wallet accessible restent conservés sans preuve de récupération. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
+**Modèles loués, jamais livrés (état au 7 novembre 2026, staging) :** les trois profils restent chiffrés sur le volume du runner et ne s'utilisent que par prédiction signée EIP-712 ([D-28](docs/DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)), validée sur Phala le 2 novembre. Les prêts sont loués à la journée, avec prolongation payante (D-29). L'[API développeurs](docs/DECISIONS.md#d-30--api-développeurs-sur-les-modèles-loués) (D-30 : clés scellées dans l'enclave, quota quotidien inclus, packs d'appels, SDK, `/docs/api`) est fusionnée et déployée sur staging ; la démonstration Phala refuse les prêts, donc l'API n'y est pas active. Location et API restent à valider sur un environnement facturé. État et procédures : [roadmap](docs/ROADMAP.md), [runbook Phala](docs/PHALA-DEMO-RUNBOOK.md).
 
-La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows, crédits et clés des modèles historiques séparément de la nouvelle identité Phala.
+**Activation toujours bloquée :** restent la coupure avant enregistrement durable du résultat runner, les transactions encore introuvables après les reprises autorisées, la finalité/RPC sur la cible, les plafonds fournisseurs, les tarifs et la validation Phala complète. La sauvegarde reste locale à ce stade. Aucun budget réel n'est approuvé. Les identifiants PostgreSQL sont conservés à la demande de Noé.
+
+La politique d'échec retenue rembourse le dataset et le compute non consommé ; seuls les frais engagés, plafonnés et annoncés sont retenus. Après correction et validation, le prochain déploiement utilisera les contrats retenus et un nouveau registre associé ; aucun v6 intermédiaire n'est prévu pour le seul changement de runner. Conserver les escrows et crédits historiques séparément de la nouvelle identité Phala.
 
 Le [récapitulatif des coûts et business plan](docs/BUSINESS-PLAN.md) centralise les coûts connus, les hypothèses d'exploitation, le budget jusqu'au mainnet et les scénarios de rentabilité. Les prix de vente proposés et les provisions ne sont pas des tarifs actifs ou des dépenses approuvées ; le total des factures historiques reste à réconcilier.
 
@@ -105,7 +107,7 @@ Le rechargement de l'accueil conserve le blob et restaure la session sans redire
 - [Audit approfondi du 23 septembre — suivi des correctifs](docs/AUDIT-2026-09-23.md)
 - [Reprise des résultats, transactions et registres](docs/RECOVERY-OPERATIONS.md)
 - [Préparation de l'exploitation, sauvegardes et coûts](docs/OPERATIONS-PREPARATION.md)
-- [Exercice de restauration et récupération des modèles historiques](docs/BACKUP-RECOVERY.md)
+- [Exercice de restauration (archive ; récupération des modèles abandonnée par D-28)](docs/BACKUP-RECOVERY.md)
 - [Intégration du parcours de facturation](docs/BILLING-INTEGRATION.md)
 - [Politique de facturation et protection du PnL](docs/COMPUTE-BILLING.md)
 - [Escrow v7](docs/ESCROW-V7.md) et [budgets persistants du runner](docs/RUNNER-BUDGETS.md)

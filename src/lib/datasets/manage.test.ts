@@ -242,6 +242,8 @@ test("validateDetailsPatch : nom, description, bornes exactes et refus du prix",
   for (const key of ["priceUsdcAtomic", "priceUsdc", "price"]) {
     rejectsWith(() => validateDetailsPatch({ name: "x", [key]: "1" }), 400, "Le prix n'est pas modifiable : il est inscrit dans le reçu signé par l'enclave");
   }
+  rejectsWith(() => validateDetailsPatch({ name: "x", maxRentalDays: 90 }), 400,
+    "La durée maximale de location n'est pas modifiable : elle est inscrite dans le reçu signé par l'enclave");
   for (const key of ["status", "provider", "listingExpiresAt", "trainingConsentRevokedAt", "wrappedKey", "id", "__proto__", "constructor"]) {
     rejectsWith(() => validateDetailsPatch(JSON.parse(`{"name":"x",${JSON.stringify(key)}:1}`)), 400, "Champ de dataset non modifiable");
   }
@@ -380,7 +382,7 @@ function fakeDb(rows: Partial<FakeDataset>[], loans: Record<string, unknown>[] =
       id: "ds1", provider: OWNER, status: "LISTED", name: "Ventes", description: null, listingExpiresAt: null,
       evmDatasetId: `0x${"01".repeat(32)}`, listedAt: null, trainingConsentAt: null, trainingConsentVersion: null,
       trainingConsentRevokedAt: null, wrappedKey: "SECRET-KEY", runnerReceipt: "RECEIPT", metrics: { rowCount: 120, columnCount: 4, columns: ["secret"] },
-      category: null, modelId: "linear_regression", modelVersion: "1.0.0", sizeBytes: 1000, priceUsdcAtomic: "20000000",
+      category: null, modelId: "linear_regression", modelVersion: "1.0.0", sizeBytes: 1000, priceUsdcAtomic: "20000000", maxRentalDays: 30,
       ipfsCid: "bafy", merkleRoot: "0xroot", evmMintTxHash: "0xmint", evmDestroyTxHash: null, deletionReconciledAt: null,
       keyDestroyedAt: null, createdAt: new Date(NOW - 10 * DAY), updatedAt: new Date(NOW - DAY),
       ...row,
@@ -520,9 +522,10 @@ test("vue du propriétaire : champ par champ, consentement ré-inclus, aucun sec
   const view = await readOwnerView(store.db, "ds1", OWNER, NOW);
   assert.deepEqual(Object.keys(view).sort(), [
     "canRelist", "category", "columnCount", "consent", "createdAt", "deletionPending", "description", "displayStatus", "evmDatasetId", "evmMintTxHash",
-    "id", "ipfsCid", "keyDestroyedAt", "listedAt", "listingExpired", "listingExpiresAt", "merkleRoot", "modelId", "modelVersion", "name",
+    "id", "ipfsCid", "keyDestroyedAt", "listedAt", "listingExpired", "listingExpiresAt", "maxRentalDays", "merkleRoot", "modelId", "modelVersion", "name",
     "priceUsdcAtomic", "rowCount", "sizeBytes", "status", "updatedAt",
   ]);
+  assert.equal(view.maxRentalDays, 30);
   const serialized = JSON.stringify(view);
   for (const secret of ["SECRET-KEY", "RECEIPT", OWNER, "secret"]) assert.ok(!serialized.includes(secret), `fuite : ${secret}`);
   assert.deepEqual(view.consent, { givenAt: new Date(NOW - DAY).toISOString(), version: "v1", revokedAt: null, active: true });

@@ -11,9 +11,12 @@ export default defineConfig({
     url: `${origin}/phala`, reuseExistingServer: false, timeout: 180_000,
     env: {
       NEXT_PUBLIC_SIRIUS_E2E: "1", SIRIUS_PHALA_DEMO: "true", EVM_NETWORK: "testnet", NEXT_PUBLIC_EVM_NETWORK: "testnet",
+      NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS: "gradient_boosted_trees",
       SIRIUS_REAPER_ENABLED: "false", SIRIUS_MASTER_KEY: "", TEE_MODE: "phala", DSTACK_SIMULATOR_ENDPOINT: "",
       RUNNER_URL: "https://runner.invalid", RUNNER_TRANSPORT_SECRET: "e2e-only-never-deploy",
       SIRIUS_EXPECTED_MRTD: "11".repeat(48), SIRIUS_EXPECTED_RTMR3: "22".repeat(48),
+      SIRIUS_EXPECTED_RTMR0: "60".repeat(48), SIRIUS_EXPECTED_RTMR1: "61".repeat(48), SIRIUS_EXPECTED_RTMR2: "62".repeat(48),
+      SIRIUS_EXPECTED_OS_IMAGE_HASH: "63".repeat(32), SIRIUS_EXPECTED_APP_ID: "64".repeat(20),
       SIRIUS_EXPECTED_COMPOSE_HASH: "33".repeat(32), SIRIUS_EXPECTED_MASTER_KEY_CHAIN_SHA256: "44".repeat(32),
       NEXT_PUBLIC_SIRIUS_INGRESS_KEY_SHA256: "55".repeat(32),
       SIRIUS_APP_ORIGIN: origin, NEXT_PUBLIC_SIRIUS_APP_ORIGIN: origin,

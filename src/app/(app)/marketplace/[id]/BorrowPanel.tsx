@@ -10,7 +10,12 @@ import { connectWallet } from "@/components/wallet/WalletConnector";
 import { signInWithWallet } from "@/lib/auth/client";
 import { messageOf } from "@/lib/errors-client";
 import { borrowDataset } from "@/lib/loans/client";
-import { modelSelection } from "@/lib/models/registry";
+import { retryWhileEnclaveStarts } from "@/lib/train/enclave-wait";
+import { EnclaveStartingSteps } from "@/components/train/EnclaveStartingSteps";
+import { useUnmountSignal } from "@/components/ui/useUnmountSignal";
+import { MIN_RENTAL_DAYS } from "@/lib/billing/rental";
+import { RentalDaysInput } from "@/components/loans/RentalDaysInput";
+import { isModelOffered, modelSelection } from "@/lib/models/registry";
 import { createInFlightGuard } from "@/lib/onboarding/steps";
 import { activeLoanOnDataset, type LoanDisplayInput } from "@/lib/train/loan-display";
 import { useWalletStore } from "@/stores/wallet";
@@ -27,17 +32,23 @@ function currentSession(): string | null {
 /**
  * Bouton « Emprunter » de la fiche publique.
  *
- * Le parcours d'emprunt est celui d'avant, inchangé : `borrowDataset` (préparation du prêt,
- * devis signé confirmé par l'emprunteur, approbation puis lock). Seule nouveauté : la fiche se lit
- * sans wallet, et c'est ici, au clic, que la connexion puis la signature sont demandées. Après la
+ * Le parcours d'emprunt est celui d'avant : `borrowDataset` (préparation du prêt, devis signé
+ * confirmé par l'emprunteur, approbation puis lock), avec la durée de location choisie ici (D-29) :
+ * le devis porte `rentalDays`, le prix du dataset vaut prix par jour × jours. La fiche se lit sans
+ * wallet, et c'est ici, au clic, que la connexion puis la signature sont demandées. Après la
  * signature, l'emprunteur clique à nouveau : l'emprunt ne part jamais tout seul.
  */
 export function BorrowPanel({
   datasetId,
   priceUsdcAtomic,
+  maxRentalDays,
+  rentalDays,
+  onRentalDays,
   modelId,
   modelVersion,
   providerVerified,
+  apiAccessDailyFee,
+  apiAccessUnavailable,
 }: {
   datasetId: string;
   /**
@@ -46,9 +57,19 @@ export function BorrowPanel({
    * `null` (illisible) laisse essayer : le serveur tranche.
    */
   providerVerified: boolean | null;
+  /** Prix du dataset par jour de location, en unités atomiques. */
   priceUsdcAtomic: string;
+  /** Durée maximale fixée par le fournisseur (jours). */
+  maxRentalDays: number;
+  /** Jours choisis, déjà ramenés dans `[1, maxRentalDays]` par la fiche (qui affiche le total). */
+  rentalDays: number;
+  onRentalDays: (days: number) => void;
   modelId: string | null;
   modelVersion: string | null;
+  /** Tarif journalier de l'API, incluse à toute location (D-32), déjà formaté ; `null` : pas d'API pour ce profil. */
+  apiAccessDailyFee: string | null;
+  /** Le tarif ne vend pas l'API de ce profil : le serveur refuserait la location, le bouton est désactivé. */
+  apiAccessUnavailable: boolean;
 }) {
   const { t } = useLocale();
   const address = useWalletStore((s) => s.address);
@@ -56,6 +77,9 @@ export function BorrowPanel({
   const { confirmQuote, quoteDialog } = useComputeQuoteConfirmation();
   const { confirmDuplicate, duplicateDialog } = useDuplicateLoanConfirmation();
   const [busy, setBusy] = useState(false);
+  // Enclave à l'arrêt : la préparation du devis la réveille ; secondes avant le prochain essai.
+  const [enclaveRetry, setEnclaveRetry] = useState<number | null>(null);
+  const unmountSignal = useUnmountSignal();
   const [borrowGuard] = useState(createInFlightGuard);
   const [signingIn, setSigningIn] = useState(false);
   // Message d'erreur et emprunt réussi sont, eux aussi, rangés avec le compte : après un
@@ -71,6 +95,8 @@ export function BorrowPanel({
   const [loans, setLoans] = useState<{ session: string; active: LoanDisplayInput | null } | null>(null);
   const [rechecked, setRechecked] = useState<string | null>(null);
   const model = modelSelection(modelId, modelVersion);
+  // Profil retiré pour un nouvel usage (D-31) : Next et le runner refuseraient le devis.
+  const withdrawn = model !== null && !isModelOffered(model.modelId);
   const sessionKey = authenticated && address ? address : null;
   // `null` tant qu'on ne sait pas : rien n'est affiché plutôt qu'un bouton qui clignote.
   const kybManquant = kyb && kyb.session === sessionKey ? kyb.missing : null;
@@ -158,7 +184,10 @@ export function BorrowPanel({
     if (dejaEmprunte && !(await confirmDuplicate(dejaEmprunte))) return;
     setBusy(true);
     try {
-      if (await borrowDataset({ datasetId, priceUsdcAtomic, confirmQuote })) {
+      if (await retryWhileEnclaveStarts(
+        () => borrowDataset({ datasetId, priceUsdcAtomic, rentalDays, confirmQuote }),
+        { onWaiting: setEnclaveRetry, signal: unmountSignal() },
+      )) {
         setBorrowed((current) => ({ session: currentSession(), count: current.count + 1 }));
       }
     } catch (err) {
@@ -181,11 +210,32 @@ export function BorrowPanel({
     <div className="space-y-3">
       {quoteDialog}
       {duplicateDialog}
+      <div className="flex flex-wrap items-end gap-3">
+        <RentalDaysInput value={rentalDays} max={maxRentalDays} onChange={onRentalDays} disabled={busy} />
+        <p className="pb-2 text-xs text-muted">
+          {t("De {min} à {max} jours. Le prix du dataset est payé par jour ; les prédictions s’arrêtent à l’échéance, prolongeable depuis la page Entraîner.", {
+            min: MIN_RENTAL_DAYS,
+            max: maxRentalDays,
+          })}
+        </p>
+      </div>
+      {apiAccessDailyFee && (
+        <p className="text-xs text-muted" data-testid="api-access-included">
+          <span className="font-medium text-foreground">{t("Accès API inclus : +{fee} par jour loué.", { fee: apiAccessDailyFee })}</span>
+          {" "}
+          {t("Toute location comprend l’API développeurs pour toute sa durée ; une clé est créée pour toi après le règlement, et les prolongations gardent l’API.")}
+        </p>
+      )}
+      {apiAccessUnavailable && (
+        <p className="text-xs text-negative" data-testid="api-access-unavailable">
+          {t("Location indisponible pour le moment : le tarif en vigueur ne fixe pas le prix de l’accès API, inclus dans toute location.")}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => void borrow()}
-          disabled={busy || signingIn || !model || !priceUsdcAtomic || providerVerified === false}
+          disabled={busy || signingIn || !model || withdrawn || !priceUsdcAtomic || providerVerified === false || apiAccessUnavailable}
           title={!model ? t("Réimporte ce dataset avec un profil d’entraînement") : undefined}
           className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-background transition-colors hover:bg-accent/90 disabled:opacity-50"
         >
@@ -207,10 +257,19 @@ export function BorrowPanel({
         </p>
       )}
       {!model && <p className="text-xs text-negative">{t("Profil d’entraînement manquant")}</p>}
+      {withdrawn && <p className="text-xs text-negative">{t("Ce profil d’entraînement n’est plus proposé : ce dataset ne peut plus être emprunté.")}</p>}
       {providerVerified === false && (
         <p className="text-xs text-negative">
           {t("Emprunt indisponible : l’attestation de vérification du fournisseur est absente ou expirée.")}
         </p>
+      )}
+      {enclaveRetry !== null && (
+        <EnclaveStartingSteps
+          phase="starting"
+          retryInSeconds={enclaveRetry}
+          testId="borrow-enclave-starting"
+          closeNote={t("Garde cette page ouverte jusqu’à la fin de l’opération.")}
+        />
       )}
       {error && (
         <p role="alert" className="rounded-lg border border-negative/40 bg-negative/10 px-3 py-2 text-sm text-negative">

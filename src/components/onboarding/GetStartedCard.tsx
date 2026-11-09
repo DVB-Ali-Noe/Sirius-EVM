@@ -65,7 +65,7 @@ interface GetStartedCardProps {
 
 /**
  * Carte « Get started » du tableau de bord : les étapes d'un premier entraînement, de la
- * connexion du wallet au modèle livré, cochées d'après l'état réel du compte (wallet, session,
+ * connexion du wallet au modèle prêt, cochées d'après l'état réel du compte (wallet, session,
  * registre KYB, soldes, prêts), chacune avec son action. Seule l'étape suivante porte le bouton
  * principal, qui fait l'action elle-même. Affichée dès la première visite ; une fois signé, elle
  * est masquable, la fermeture est enregistrée dans le profil et la carte revient depuis
@@ -172,7 +172,7 @@ export function GetStartedCard({ address, gasWei, stableAtomic, token, onAddFund
           <CardTitle id="get-started-title">{t("Bien démarrer")}</CardTitle>
           <p className="mt-1 text-xs text-muted">
             {progress.current === null
-              ? t("Tout est fait : tu as vérifié ton wallet, emprunté un dataset et récupéré un modèle.")
+              ? t("Tout est fait : tu as vérifié ton wallet, emprunté un dataset et obtenu un modèle prêt à prédire.")
               : t("{done} étapes sur {total} — de ton wallet à ton premier modèle entraîné.", { done: progress.completed, total: progress.total })}
           </p>
         </div>

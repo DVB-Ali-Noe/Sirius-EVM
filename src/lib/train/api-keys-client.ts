@@ -1,0 +1,142 @@
+"use client";
+
+import { issueRunnerGrant } from "@/lib/runner/authorization-client";
+import { apiKeyEnvelopeSha256, encryptApiKeySecretForRunner } from "@/lib/tee/ingress-client";
+import type { DatasetIngressKey } from "@/lib/tee/contract";
+import { AUTO_API_KEY_EXISTS_CODE } from "@/lib/billing/api-pricing";
+import { AutoApiKeyExistsError } from "./auto-api-key";
+import { responseError } from "./enclave-wait";
+
+/** Clé API telle que la renvoie `GET /api/loans/[id]/api-keys` : jamais de secret. */
+export interface ApiKeySummary {
+  keyId: string;
+  name: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  calls30d: number;
+}
+
+export type EnclavePhase = "stopped" | "starting" | "running" | "stopping";
+
+export interface ApiKeysOverview {
+  keys: ApiKeySummary[];
+  callsPerDay: number;
+  /** Chiffres indicatifs côté Next : le compteur faisant foi est dans l'enclave. */
+  usage: { apiCallsToday: number; creditsPurchased: number };
+  /**
+   * Pass d'accès API (D-32) : tarif journalier (`null` : pas en vente), fin de la couverture payée,
+   * couverture de l'instant de la lecture, échéance de la location, jours et prix total estimés du
+   * prochain pass (le devis fait foi).
+   */
+  apiAccess: {
+    dailyFee: string | null; paidUntil: string | null; paid: boolean; rentalExpiresAt: string; daysToBuy: number; price: string | null;
+    /** API incluse à l'emprunt (D-32) : prolongée d'office avec la location. */
+    included: boolean;
+  };
+  enclave: EnclavePhase;
+}
+
+export interface CreatedApiKey {
+  keyId: string;
+  name: string;
+  createdAt: string;
+  /** `sk_live_<keyId>.<secret>` : affiché une seule fois, jamais stocké par Sirius en clair. */
+  token: string;
+}
+
+export const API_KEY_NAME_MAX_LENGTH = 64;
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/** Identifiant (16 octets) et secret (32 octets) tirés dans le navigateur, en base64url. */
+export function generateApiKeyMaterial(random: (bytes: Uint8Array) => Uint8Array = (bytes) => crypto.getRandomValues(bytes)): {
+  keyId: string;
+  secret: string;
+  token: string;
+} {
+  const keyId = encodeBase64Url(random(new Uint8Array(16)));
+  const secret = encodeBase64Url(random(new Uint8Array(32)));
+  return { keyId, secret, token: `sk_live_${keyId}.${secret}` };
+}
+
+const keysPath = (loanId: string) => `/api/loans/${encodeURIComponent(loanId)}/api-keys`;
+
+export async function listApiKeys(loanId: string, signal?: AbortSignal): Promise<ApiKeysOverview> {
+  const response = await fetch(keysPath(loanId), { signal });
+  if (!response.ok) throw await responseError(response, "Chargement des clés API impossible");
+  return await response.json() as ApiKeysOverview;
+}
+
+export type ApiKeyCreationStep = "preparing" | "sealing" | "signing" | "registering";
+
+/**
+ * Crée une clé API pour le prêt `loanId`. Première requête sans secret : contrôle d'accès et clé
+ * d'ingestion de l'enclave (503 `enclave_starting` tant qu'elle démarre : rien n'est créé, relance
+ * sans risque). Puis génération locale, chiffrement du secret pour l'enclave, grant
+ * `register-api-key` lié à l'empreinte de l'enveloppe, et enregistrement. Le secret ne quitte le
+ * navigateur que chiffré pour l'enclave.
+ */
+/** Refus `409 api_key_auto_exists` d'une création d'office : `AutoApiKeyExistsError`, sinon l'erreur habituelle. */
+async function creationError(response: Response): Promise<Error> {
+  if (response.status === 409) {
+    const body = await response.clone().json().catch(() => null) as { code?: unknown } | null;
+    if (body?.code === AUTO_API_KEY_EXISTS_CODE) return new AutoApiKeyExistsError();
+  }
+  return responseError(response, "Création de la clé API échouée");
+}
+
+export async function createApiKey(input: {
+  loanId: string;
+  name: string;
+  onStep?: (step: ApiKeyCreationStep) => void;
+  /** Clé créée d'office après le règlement (D-33) : le serveur la refuse si le prêt a déjà une clé. */
+  auto?: boolean;
+}): Promise<CreatedApiKey> {
+  const auto = input.auto ? { auto: true } : {};
+  const name = input.name.trim();
+  if (!name || name.length > API_KEY_NAME_MAX_LENGTH) throw new Error("Nom de clé invalide (1 à 64 caractères)");
+  input.onStep?.("preparing");
+  const prepared = await fetch(keysPath(input.loanId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(auto),
+  });
+  if (!prepared.ok) throw await creationError(prepared);
+  const { ingressKey } = await prepared.json() as { ingressKey?: DatasetIngressKey };
+  if (!ingressKey) throw new Error("Clé d’ingestion de l’enclave absente");
+  const { keyId, secret, token } = generateApiKeyMaterial();
+  input.onStep?.("sealing");
+  const envelope = await encryptApiKeySecretForRunner(secret, keyId, ingressKey);
+  input.onStep?.("signing");
+  const authorization = await issueRunnerGrant("register-api-key", { loanId: input.loanId }, [
+    input.loanId,
+    keyId,
+    await apiKeyEnvelopeSha256(envelope),
+  ]);
+  input.onStep?.("registering");
+  const response = await fetch(keysPath(input.loanId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keyId, name, envelope, authorization, ...auto }),
+  });
+  if (!response.ok) throw await creationError(response);
+  const created = await response.json() as { keyId: string; name: string; createdAt: string };
+  if (created.keyId !== keyId) throw new Error("Création de la clé API échouée");
+  return { keyId, name: created.name, createdAt: created.createdAt, token };
+}
+
+export async function revokeApiKey(input: { loanId: string; keyId: string }): Promise<{ keyId: string; revokedAt: string }> {
+  const authorization = await issueRunnerGrant("revoke-api-key", { loanId: input.loanId }, [input.loanId, input.keyId]);
+  const response = await fetch(`${keysPath(input.loanId)}/${encodeURIComponent(input.keyId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ authorization }),
+  });
+  if (!response.ok) throw await responseError(response, "Révocation de la clé API échouée");
+  return await response.json() as { keyId: string; revokedAt: string };
+}

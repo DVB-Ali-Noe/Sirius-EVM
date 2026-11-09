@@ -19,6 +19,8 @@ function policy(overrides: Partial<BillingPolicy> = {}): BillingPolicy {
     usdcDecimals: 6,
     computeRecipient: "0xb6acf8a998bb8efa34a954cd6334ccc15da7f919",
     minimumComputeAmount: "2000000",
+    noTrainingComputeAmount: "100000",
+    apiCallsPerDay: { logistic_regression: 50, gradient_boosted_trees: 100 },
     profiles: {
       linear_regression: { computeAmount: "3000000", maxFailureFee: "1000000", executionRateAtomicPerMs: "100", maxExecutionMs: 15000 },
       logistic_regression: { computeAmount: "1500000", maxFailureFee: "1000000", executionRateAtomicPerMs: "100", maxExecutionMs: 15000 },
@@ -72,6 +74,23 @@ test("la décomposition affichée est la somme exacte et signale la part sous le
   assert.ok(below.ok && below.belowMinimum);
   assert.equal(providerPriceBreakdown(tariff, "linear_regression", "12.5").ok, false);
   assert.equal(providerPriceBreakdown(tariff, "linear_regression", "").ok, false);
+});
+
+test("accès API inclus à toute location (D-32) : un jour au tarif journalier, jamais pour la régression linéaire", () => {
+  assert.deepEqual(tariffFromPolicy(policy(), scope)!.apiAccessDailyFeeAtomic, {}, "tarif sans prix journalier : aucune API ajoutée");
+  assert.deepEqual(tariffFromPolicy(policy(), scope)!.unrentableModels, ["logistic_regression"], "sans prix journalier : location refusée, linéaire exceptée");
+  const noQuota = tariffFromPolicy(policy({ apiAccessDailyComputeAmount: "1500000", apiCallsPerDay: {} }), scope)!;
+  assert.deepEqual([noQuota.unrentableModels, noQuota.apiAccessDailyFeeAtomic], [["logistic_regression"], {}], "profil sans quota API : refusé");
+  assert.deepEqual(legacyTariff(6, "1000")!.unrentableModels, [], "v6 : jamais d'API, toujours louable");
+  const priced = tariffFromPolicy(policy({ apiAccessDailyComputeAmount: "1500000" }), scope) as PublishedTariff;
+  assert.deepEqual(priced.apiAccessDailyFeeAtomic, { logistic_regression: "1500000" }, "profil non tarifé : rien");
+  assert.deepEqual(priced.unrentableModels, []);
+  const logistic = providerPriceBreakdown(priced, "logistic_regression", "20000000");
+  assert.ok(logistic.ok);
+  assert.equal(logistic.apiAccess, BigInt(1_500_000));
+  assert.equal(logistic.total, BigInt(23_500_000));
+  const linear = providerPriceBreakdown(priced, "linear_regression", "20000000");
+  assert.ok(linear.ok && linear.apiAccess === null && linear.total === BigInt(23_000_000));
 });
 
 test("un profil sans tarif dans la politique n'a pas de frais affichés et ne peut pas être publié", () => {

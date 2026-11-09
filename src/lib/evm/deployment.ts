@@ -10,7 +10,7 @@ import { resolveServerNetwork } from "./networks";
 import { MODEL_REGISTRY, isModelOffered, selectionForModelId, trainingProfileHash, type ModelId } from "@/lib/models/registry";
 
 /** v5 garde l'interface de v4 et ajoute la liste de profils extensible par l'administrateur. */
-const DATASET_VERSIONS = ["sirius-dataset-v4", "sirius-dataset-v5"];
+const DATASET_VERSIONS = ["sirius-dataset-v4", "sirius-dataset-v5", "sirius-dataset-v6"];
 const CACHE_MS = 60_000;
 let verifiedAt = 0;
 let verifiedKey = "";

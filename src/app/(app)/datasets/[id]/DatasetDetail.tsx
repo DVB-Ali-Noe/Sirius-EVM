@@ -233,10 +233,11 @@ function DetailContent({ id }: { id: string }) {
 
       <Card>
         <CardTitle>{t("Prix")}</CardTitle>
-        <p className="mt-2 text-lg font-medium tabular-nums">{price}</p>
-        <p className="mt-1 text-xs text-muted">{t("Ce que tu reçois par emprunt réglé. Les frais de calcul de l’enclave s’ajoutent pour l’emprunteur.")}</p>
+        <p className="mt-2 text-lg font-medium tabular-nums">{t("{price} par jour", { price })}</p>
+        <p className="mt-1 text-sm text-muted">{t("Location de 1 à {max} jours", { max: view.maxRentalDays })}</p>
+        <p className="mt-1 text-xs text-muted">{t("Ce que tu reçois par jour de location réglé. L’emprunteur choisit sa durée dans la limite que tu as fixée ; les frais de calcul de l’enclave s’ajoutent pour lui.")}</p>
         <p className="mt-3 text-xs text-muted">
-          {t("Le prix n’est pas modifiable : il est inscrit dans le reçu signé par l’enclave au scellement du dataset. Pour changer de prix, détruis le dataset et publie-le à nouveau.")}
+          {t("Le prix par jour et la durée maximale de location ne sont pas modifiables : ils sont inscrits dans le reçu signé par l’enclave au scellement du dataset. Pour les changer, détruis le dataset et publie-le à nouveau.")}
         </p>
       </Card>
 
@@ -332,7 +333,7 @@ function StatsCard({ stats, error, token }: { stats: DatasetStatsView | null; er
             <Field label={t("Dernier emprunt")} value={stats.lastBorrowAt ? formatUtcDateTime(stats.lastBorrowAt) : t("Aucun")} />
             <Field label={t("Revenus gagnés")} value={amount(stats.earnedAtomic)} />
             <Field label={t("Bloqué dans l’escrow")} value={amount(stats.inEscrowAtomic)} />
-            <Field label={t("Entraînements livrés")} value={formatCount(stats.trainingsSucceeded)} />
+            <Field label={t("Entraînements réussis")} value={formatCount(stats.trainingsSucceeded)} />
             <Field label={t("Remboursés (échec ou délai dépassé)")} value={formatCount(stats.trainingsRefunded)} />
           </dl>
           <p className="mt-3 text-xs text-muted">
@@ -609,7 +610,7 @@ function DestroyCard({ view, busy, onDestroy }: { view: OwnerDatasetView; busy: 
       <p className="mt-1 text-sm text-muted">
         {finalize
           ? t("Vérifie le titre dans le registre EVM courant et finalise la suppression. Les éventuels anciens registres ne seront pas modifiés.")
-          : t("Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà livrés ne sont pas effacés.")}
+          : t("Détruit la clé active et désactive le titre on-chain. Le dataset devient irrécupérable. Les sauvegardes et les modèles déjà entraînés ne sont pas effacés.")}
       </p>
       {!open ? (
         <button

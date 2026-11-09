@@ -6,6 +6,9 @@ import { errorResponse } from "@/lib/errors";
 import { readJson } from "@/lib/http/body";
 import { loanBillingQuote } from "@/lib/billing/loan";
 import { enforceRateLimit, FixedWindowRateLimiter } from "@/lib/http/rate-limit";
+import { isValidRentalDays } from "@/lib/billing/rental";
+import { loanApiCallsPerDay } from "@/lib/sirius/api-keys";
+import { loanRouteErrorResponse } from "@/lib/sirius/availability";
 
 export const runtime = "nodejs";
 
@@ -17,21 +20,37 @@ const preparationLimiter = new FixedWindowRateLimiter({ windowMs: 600_000, maxPe
 export async function GET(req: Request) {
   try {
     const session = requireAuth(req);
-    // N'expose que les prêts où le compte est partie prenante (borrower ou provider).
+    // N'expose que les prêts où le compte est partie prenante (borrower ou provider). Les colonnes de
+    // location (`rentalDays`, `rentalExpiresAt`, `extendsLoanId`), de pack d'appels (`callPack`,
+    // `packForLoanId`, D-30) et de pass d'accès API (`apiAccessDays`, `apiPaidUntil`, D-32) partent
+    // telles quelles ; le prix par jour et la durée maximale du dataset
+    // servent au choix des jours d'une prolongation et au prix des packs. Pour un prêt d'origine,
+    // `apiEnabled` et `callsPerDay` disent si son profil a une API (quota quotidien inclus).
     const loans = await prisma.loan.findMany({
       where: { OR: [{ borrower: session.address }, { provider: session.address }] },
       orderBy: { createdAt: "desc" },
-      include: { dataset: { select: { name: true, runnerReceipt: true } } },
+      include: { dataset: { select: { name: true, runnerReceipt: true, maxRentalDays: true, priceUsdcAtomic: true } } },
     });
     const now = Date.now();
-    return NextResponse.json(loans.map((loan) => ({
-      ...loan,
-      usdcDecimals: loanBillingQuote(loan)?.quote.usdcDecimals,
-      refundable:
-        (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
-        loan.evmDeadline !== null &&
-        loan.evmDeadline.getTime() <= now,
-    })));
+    const callsPerDayByModel = new Map<string, number | null>();
+    const callsPerDayFor = (modelId: string) => {
+      if (!callsPerDayByModel.has(modelId)) callsPerDayByModel.set(modelId, loanApiCallsPerDay(modelId));
+      return callsPerDayByModel.get(modelId) ?? null;
+    };
+    return NextResponse.json(loans.map((loan) => {
+      const origin = !loan.extendsLoanId && !loan.packForLoanId;
+      const callsPerDay = origin ? callsPerDayFor(loan.modelId) : null;
+      return {
+        ...loan,
+        usdcDecimals: loanBillingQuote(loan)?.quote.usdcDecimals,
+        apiEnabled: callsPerDay !== null,
+        callsPerDay,
+        refundable:
+          (loan.status === "ESCROWED" || loan.status === "TRAINING" || loan.status === "SETTLING") &&
+          loan.evmDeadline !== null &&
+          loan.evmDeadline.getTime() <= now,
+      };
+    }));
   } catch (err) {
     return errorResponse(err);
   }
@@ -41,15 +60,20 @@ export async function POST(req: Request) {
   try {
     const session = requireAuth(req);
     enforceRateLimit(preparationLimiter, `subject:${session.address}`);
-    const { datasetId } = await readJson<Record<string, unknown>>(req);
+    const { datasetId, rentalDays } = await readJson<Record<string, unknown>>(req);
 
     if (typeof datasetId !== "string" || !datasetId) {
       return NextResponse.json({ error: "datasetId manquant" }, { status: 400 });
     }
-    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address);
+    // Bornée ici à 1–365, puis par `maxRentalDays` du dataset dans `prepareLoan`.
+    if (!isValidRentalDays(rentalDays)) {
+      return NextResponse.json({ error: "Durée de location invalide" }, { status: 400 });
+    }
+    // L'API est toujours incluse (D-32, décision du 8 novembre 2026) : aucune option ici, `prepareLoan` décide.
+    const { loan, approveTransaction, lockTransaction, billingQuote } = await prepareLoan(datasetId, session.address, rentalDays);
 
     return NextResponse.json({ loanId: loan.id, approveTransaction, lockTransaction, billingQuote }, { status: 201 });
   } catch (err) {
-    return errorResponse(err);
+    return loanRouteErrorResponse(err);
   }
 }

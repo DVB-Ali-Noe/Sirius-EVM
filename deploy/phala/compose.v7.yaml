@@ -19,6 +19,10 @@ services:
       SIRIUS_FAST_FINALITY_MAX_USDC: "25"
       SIRIUS_FAST_FINALITY_TOTAL_USDC: "100"
       SIRIUS_FAST_FINALITY_CONFIRMATIONS: "30"
+      # Modèles servis (D-28) : scellés sur le volume privé, utilisables par prédiction signée seulement.
+      RUNNER_SERVED_MODELS_DIR: /var/lib/sirius-runner/budget/served-models
+      RUNNER_PREDICT_USAGE_FILE: /var/lib/sirius-runner/budget/prediction-usage.sqlite
+      RUNNER_PREDICT_DAILY_LIMIT: ${RUNNER_PREDICT_DAILY_LIMIT:-24}
     volumes:
       - runner_budget:/var/lib/sirius-runner/budget
 

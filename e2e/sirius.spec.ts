@@ -83,7 +83,7 @@ test("affiche le tableau de bord EVM d'un wallet authentifié", async ({ page })
 /** Carte de la réponse publique `GET /api/marketplace` (facturation v6 : le total est le prix du dataset). */
 function catalogueItem(dataset: DatasetFixture) {
   return {
-    id: dataset.id, name: dataset.name, category: "mobility", modelId: "linear_regression", modelVersion: "1.0.0",
+    id: dataset.id, name: dataset.name, category: "mobility", modelId: "logistic_regression", modelVersion: "1.0.0",
     rowCount: dataset.metrics.rowCount, columnCount: dataset.metrics.columnCount, sizeBytes: dataset.sizeBytes,
     providerPriceAtomic: dataset.priceUsdcAtomic, priceAtomic: dataset.priceUsdcAtomic, priceKind: "borrowerPays",
     borrowCount: 0, verified: true, listedAt: "2026-10-01T00:00:00.000Z",
@@ -95,6 +95,7 @@ function catalogue(items: unknown[]) {
     items, total: items.length, page: 1, pageCount: 1, pageSize: 24, truncated: false,
     token: { symbol: "USDC", decimals: USDC_DECIMALS }, kybAvailable: true,
     computeFees: { linear_regression: { kind: "none", atomic: "0" }, logistic_regression: { kind: "none", atomic: "0" } },
+    apiAccessFees: { linear_regression: { kind: "none" }, logistic_regression: { kind: "none" }, gradient_boosted_trees: { kind: "none" } },
   };
 }
 

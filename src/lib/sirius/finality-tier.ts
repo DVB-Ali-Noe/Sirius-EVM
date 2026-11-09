@@ -107,7 +107,7 @@ export async function assignLoanFinalityTier(
 }
 
 /**
- * Palier effectif d'un prêt déjà classé, pour le règlement et la livraison : celui de la ligne
+ * Palier effectif d'un prêt déjà classé, pour le règlement et la prédiction : celui de la ligne
  * tant que la finalité rapide est active ici, `FULL` dès que le coupe-circuit est fermé.
  */
 export function effectiveLoanFinalityTier(tier: FinalityTier, config: FastFinalityConfig = fastFinalityPolicy()): FinalityTier {

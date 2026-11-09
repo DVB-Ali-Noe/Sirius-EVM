@@ -1,6 +1,6 @@
 # Architecture
 
-État local au 23 septembre 2026. La facturation v7 est intégrée avec activation explicite ; le mode par défaut reste v6. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des limites encore bloquantes. Phala reste arrêté, sans bascule distante effectuée.
+État local au 23 septembre 2026, livraison retirée le 1er novembre ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)). La facturation v7 est intégrée avec activation explicite ; le mode par défaut reste v6. Le [suivi de l'audit](AUDIT-2026-09-23.md#suivi-des-correctifs-locaux--23-septembre-2026) distingue les correctifs locaux des limites encore bloquantes. Phala reste arrêté, sans bascule distante effectuée.
 
 ## Principe
 
@@ -21,14 +21,14 @@ Le titre n'est pas un NFT transférable : il représente la provenance d'un data
 
 ## Parcours de règlement
 
-1. Le provider choisit le profil linéaire ou logistique et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
+1. Le provider choisit un profil proposé par l'instance (logistique ; arbres boostés ou linéaire seulement s'ils sont activés par `NEXT_PUBLIC_SIRIUS_OPT_IN_MODELS`, voir [D-31](DECISIONS.md#d-31--régression-linéaire-retirée-pour-tout-nouvel-usage-profil-facultatif)) et chiffre le dataset dans le navigateur pour la clé d'ingestion du runner. Avec un runner distant, Next ne reçoit pas le CSV en clair.
 2. Le runner valide le CSV et le budget d’opérations du profil avant de sceller une DEK par dataset, stocke le blob chiffré sur IPFS et signe son reçu.
 3. Le provider publie le titre du dataset via `SiriusDatasetRegistry.mint` après validation KYB ; seuls les hash du `datasetId` et du CID entrent dans la transaction.
 4. Le runner dérive un préimage de 32 octets, son hashlock et un `loanKey` lié au borrower et au hash du `loanId`.
 5. Le borrower et le provider doivent détenir un KYB valide. Le borrower approuve l'escrow puis appelle `SiriusEscrow.lock` avec les USDC, le provider, le hashlock, la durée de challenge, le hash du `loanId`, le titre dataset, son profil d'entraînement et une autorisation EIP-712 du runner, renouvelée après l'approbation USDC.
 6. Avant de calculer, le runner vérifie le KYB des deux parties, le titre `matchesScope` du dataset et les termes de l'escrow.
-7. Après l'entraînement, le runner atteste un payload canonique liant modèle/version, scope EVM et CID. En v6, il produit aussi une capsule liée à la clé ECDH du navigateur et au préimage ; le borrower la persiste. En v7, il n'envoie aucune capsule avant règlement : Next ne reçoit qu'un engagement de livraison attesté. En Phala, la quote TDX et son evidence sont vérifiées puis persistées.
-8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement ; en v7, la trésorerie compute l'est aussi. La clé du modèle v7 est livrée après vérification du reçu canonique et des confirmations configurées.
+7. Après l'entraînement, le runner scelle le modèle sur son volume privé et atteste un payload canonique liant modèle/version, scope EVM et empreinte du modèle servi (`sm1…`, dans les champs `modelCid`). Aucune capsule ni clé ne sort. En Phala, la quote TDX et son evidence sont vérifiées puis persistées.
+8. Avant l'échéance, le runner appelle `release(loanKey, preimage)`. Le préimage devient public et le provider est crédité atomiquement ; en v7, la trésorerie compute l'est aussi. Le préimage ne sert qu'au règlement. Après vérification du reçu canonique et des confirmations configurées, l'emprunteur obtient des prédictions signées (`POST /api/loans/[id]/predict`), tant que le runner tourne.
 9. Si le prêt n'est pas réglé, `refund(loanKey)` devient possible après l'échéance. Next prépare la transaction, le wallet du borrower la signe, puis Next confirme son inclusion. Le borrower retire ensuite son crédit depuis Wallet ou Dashboard avec `withdrawFor(session.address)` ; Next n'utilise aucune clé de règlement pour rembourser.
 
 Le contrat vérifie le delta de solde à chaque transfert USDC et n'accepte donc ni token à frais ni transfert silencieux. Il n'effectue aucun transfert externe pendant `release` ou `refund` : les fonds sont crédités puis retirés séparément.
@@ -45,7 +45,7 @@ Les transactions signées sont chiffrées dans le journal avant diffusion. Aprè
 
 ## Séparation de domaine
 
-Le préimage est dérivé dans le TEE avec le `chainId`, l'adresse du contrat escrow, le borrower et le `loanId`. Cette liaison empêche qu'un préimage révélé sur un déploiement ou un réseau ouvre une capsule destinée à un autre.
+Le préimage est dérivé dans le TEE avec le `chainId`, l'adresse du contrat escrow, le borrower et le `loanId`. Cette liaison empêche qu'un préimage révélé sur un déploiement ou un réseau règle un autre prêt.
 
 Les attestations KYB strictes v3 utilisent EIP-712 : le domaine version `2` inclut le `chainId` et l’adresse de `SiriusKybRegistry`. Le message inclut `verifierEpoch` en plus du sujet, du vérificateur, de l’expiration et du nonce ; retirer puis réactiver un vérificateur ne réactive aucune ancienne signature inutilisée.
 
@@ -53,7 +53,7 @@ L'authentification HTTP utilise un domaine canonique propre au déploiement. La 
 
 ## Frontières de confiance
 
-- Le navigateur chiffre le dataset avant transit et conserve la clé privée ECDH non exportable de livraison.
+- Le navigateur chiffre le dataset avant transit ; il ne reçoit jamais de modèle, seulement des prédictions signées.
 - Le runner Phala est le seul détenteur de la master key dstack ; il ouvre le dataset, entraîne le modèle, génère le préimage et signe les reçus.
 - Next orchestre, persiste l'état applicatif et vérifie les attestations, mais ne reçoit ni la donnée brute ni les secrets de règlement.
 - `RUNNER_TRANSPORT_SECRET` authentifie le canal Next→runner. Pour préparer un lock, Next fait autorité sur le prêt et sa visibilité en base ; le runner vérifie le reçu provider, le titre et les conditions avant de signer.
@@ -61,19 +61,19 @@ L'authentification HTTP utilise un domaine canonique propre au déploiement. La 
 - Restaurer un wallet et une session sur `/` ne déclenche aucune redirection : l'accueil garde le blob ; le dashboard s'ouvre par navigation explicite.
 - Le RPC de règlement reçoit le préimage lors de la simulation et de l'envoi avant inclusion : il doit être de confiance. La suppression des erreurs brutes dans les logs ne protège pas contre un RPC hostile.
 
-La réussite atomique de `release` ne garantit pas que le préimage reste secret si une transaction échoue ou est incluse trop tard. En v7, aucune capsule n'est remise avant règlement et la clé est livrée après contrôle du reçu canonique et de la politique `SIRIUS_EVM_FINALITY`. Le mode `finalized` est celui par défaut en production et obligatoire sur mainnet ; son indisponibilité bloque la livraison. La sémantique du RPC cible et les scénarios de réorganisation du rollup restent à valider.
+La réussite atomique de `release` ne garantit pas que le préimage reste secret si une transaction échoue ou est incluse trop tard ; depuis D-28, ce préimage n'ouvre plus aucun modèle. Les prédictions d'un prêt ne sont servies qu'après contrôle du reçu canonique et de la politique `SIRIUS_EVM_FINALITY`. Le mode `finalized` est celui par défaut en production et obligatoire sur mainnet ; son indisponibilité bloque la prédiction. La sémantique du RPC cible et les scénarios de réorganisation du rollup restent à valider.
 
 Les états des pages privées et des soldes sont recréés selon une révision de connexion et l’authentification. Le login contrôle cette révision et le provider après chaque attente ; les écritures du cookie de connexion/déconnexion sont sérialisées. Entraîner charge ses listes par pages de 24, sans charger tout le catalogue en mémoire.
 
 ## Reprise et historique
 
-Chaque nouveau prêt conserve `evmChainId`, `evmEscrowAddress` et `evmPreparedBlock`. Les lectures historiques sont limitées aux escrows explicitement autorisés du même réseau. Les crédits et les preuves d’attestation utilisent eux aussi les déploiements historiques autorisés ; une panne de lecture d’un ancien crédit n’empêche pas d’afficher les autres. Les décimales du crédit sont lues sur le token de chaque escrow. Un reçu HMAC v2 peut relivrer une clé après règlement, mais ne peut pas autoriser un nouvel entraînement ou règlement.
+Chaque nouveau prêt conserve `evmChainId`, `evmEscrowAddress` et `evmPreparedBlock`. Les lectures historiques sont limitées aux escrows explicitement autorisés du même réseau. Les crédits et les preuves d’attestation utilisent eux aussi les déploiements historiques autorisés ; une panne de lecture d’un ancien crédit n’empêche pas d’afficher les autres. Les décimales du crédit sont lues sur le token de chaque escrow. Les reçus runner v2 sont refusés ; un reçu de prêt v3 d'un escrow historique prouve son règlement mais n'autorise ni nouvel entraînement ni nouveau règlement.
 
 Le reaper parcourt les prêts par lots avec un curseur stable. L'absence de hash en base ne suffit pas pour annuler : il vérifie l'escrow et récupère les transactions déjà minées. Un mauvais hash peut être remplacé sur preuve d'un vrai `lock` du même borrower et du même prêt. Les transitions concurrentes sont protégées par comparaison de l'état lu, et une panne RPC ne crée pas de confirmation locale.
 
 La pipeline exécute un préflight avant la migration des profils, y compris pour les prêts annulés sans preuve de remboursement. Une transaction connue encore en attente bloque la migration. Le schéma PostgreSQL supporté est `public`.
 
-Les admissions concurrentes ont été vérifiées sur PostgreSQL 17 entre huit processus, avec reprise bornée des conflits de sérialisation et deadlocks. Une sauvegarde cohérente chiffrée de la base réelle PostgreSQL 18 a été restaurée et migrée localement sans altérer les valeurs historiques. Les 13 blobs de modèles sont sauvegardés ; leur déchiffrement et leur re-livraison restent à prouver. Voir [OPERATIONS-PREPARATION.md](OPERATIONS-PREPARATION.md).
+Les admissions concurrentes ont été vérifiées sur PostgreSQL 17 entre huit processus, avec reprise bornée des conflits de sérialisation et deadlocks. Une sauvegarde cohérente chiffrée de la base réelle PostgreSQL 18 a été restaurée et migrée localement sans altérer les valeurs historiques. Les anciens modèles ne sont plus livrés (D-28). Voir [OPERATIONS-PREPARATION.md](OPERATIONS-PREPARATION.md).
 
 La suppression d'un dataset conserve sa fiche d'audit (`DELETED`). `deletionReconciledAt` enregistre la fin du parcours applicatif, même si le titre est déjà détruit ou absent du registre courant et qu'aucune nouvelle transaction n'est nécessaire. `evmDestroyTxHash` reste réservé à une transaction réellement confirmée ; constater l'absence d'un titre dans le nouveau registre ne prouve pas sa destruction dans un ancien registre. Les suppressions non finalisées restent accessibles au provider. Un brouillon sans titre peut être supprimé sans RPC ; un ancien dataset sans profil valide doit être réimporté et ne peut pas être publié tel quel.
 
@@ -97,7 +97,7 @@ contracts/
 src/
   lib/evm/                # réseau, adresses, montants, signatures, client et escrow
   lib/billing/            # devis, politiques tarifaires, exécution bornée et règlement v7
-  lib/runner/             # autorisations, livraison et registre SQLite de budgets
+  lib/runner/             # autorisations, quotas de prédiction et registre SQLite de budgets
   lib/tee/                # cœur sans DB, liaison EVM, chiffrement et attestation
   runner/                 # opérations confidentielles et règlement du runner
   lib/sirius/             # orchestration applicative et persistance
@@ -114,4 +114,4 @@ La migration applicative est EVM-only. La validation sur testnet avec des wallet
 - Le runner Phala doit être déployé avec RA-TLS, quote TDX, replay RTMR3 et valeurs d'attestation épinglées côté Next.
 - Les adresses de contrat, le réseau attendu et le RPC sont des paramètres de déploiement : aucune valeur vide ne doit atteindre une instance de production.
 
-La migration v6 demeure une [référence historique](ESCROW-V6.md). La prochaine bascule suit v7 après correction des bloqueurs, validation des tarifs, de la comptabilité et des plafonds fournisseurs. Elle exige des contrats cohérents, la clôture des anciens prêts, la préservation des modèles et les préflights adaptés. Aucun changement d'adresse ne migre les prêts actifs. Voir [PHALA.md](PHALA.md).
+La migration v6 demeure une [référence historique](ESCROW-V6.md). La prochaine bascule suit v7 après correction des bloqueurs, validation des tarifs, de la comptabilité et des plafonds fournisseurs. Elle exige des contrats cohérents, la clôture des anciens prêts et les préflights adaptés. Aucun changement d'adresse ne migre les prêts actifs. Voir [PHALA.md](PHALA.md).

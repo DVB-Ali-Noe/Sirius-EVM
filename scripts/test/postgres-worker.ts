@@ -5,6 +5,7 @@ import { prepareLoan } from "../../src/lib/sirius/borrower";
 import { runSelfTrain } from "../../src/lib/sirius/self-train";
 import { assertOperatorCode } from "../../src/lib/phala-demo/operator-code";
 import { databaseOperatorAttempts } from "../../src/lib/phala-demo/operator-attempts";
+import { spendWakeBudget } from "../../src/lib/sirius/wake-budget";
 import { randomUUID } from "node:crypto";
 import type { RunnerGrant } from "../../src/lib/runner/authorization-contract";
 
@@ -17,7 +18,7 @@ client.readContract = (async ({ address, functionName }: { address: string; func
   return true;
 }) as typeof client.readContract;
 client.getBlockNumber = async () => BigInt(10);
-globalThis.fetch = async (input) => {
+globalThis.fetch = async (input, init) => {
   const url = String(input);
   if (url === "http://runner.test.invalid/dataset-ingress-key") {
     return Response.json({ version: 1, publicKey: Buffer.alloc(65, 7).toString("base64url"), origin: "http://localhost" });
@@ -28,19 +29,23 @@ globalThis.fetch = async (input) => {
   if (url === "http://runner.test.invalid/run-training") {
     process.send?.({ accepted: true });
     await new Promise<void>((resolve) => process.once("message", () => resolve()));
-    return Response.json({ modelCid: "bafy-model", metrics: { n: 20 }, runnerReceipt: "synthetic-result" });
+    const { jobId } = JSON.parse(String(init?.body)) as { jobId: string };
+    return Response.json({ servedModelId: jobId, modelCid: `sm1${"a".repeat(64)}`, metrics: { n: 20 }, features: ["x"], runnerReceipt: "synthetic-result" });
   }
   throw new Error("Accès externe interdit dans le test PostgreSQL");
 };
 
 process.send?.("ready");
-process.once("message", async (message: { task: "ingest" | "loan" | "training" | "operator-code"; provider: string }) => {
+process.once("message", async (message: { task: "ingest" | "loan" | "training" | "operator-code" | "wake"; provider: string }) => {
   try {
-    if (message.task === "loan") await prepareLoan("history", message.provider);
+    if (message.task === "loan") await prepareLoan("history", message.provider, 1);
     else if (message.task === "training") await runSelfTrain("history", message.provider, randomUUID(), "synthetic", {} as RunnerGrant);
     else if (message.task === "operator-code") await assertOperatorCode(message.provider, "wrong-operator-code", databaseOperatorAttempts);
-    else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
-      priceUsdcAtomic: "1000", challengeDays: 1, model: { modelId: "linear_regression", modelVersion: "1.0.0" } });
+    else if (message.task === "wake") {
+      // Chaque processus est une instance Next distincte : seul l'état en base est partagé.
+      if (!(await spendWakeBudget(message.provider)).spent) throw Object.assign(new Error("budget"), { status: 429 });
+    } else await beginDatasetIngestion({ name: "synthetic", provider: message.provider, sizeBytes: 100,
+      priceUsdcAtomic: "1000", challengeDays: 1, maxRentalDays: 30, model: { modelId: "logistic_regression", modelVersion: "1.0.0" } });
     process.send?.({ accepted: true });
   } catch (error) {
     process.send?.({ accepted: false, code: (error as { code?: string; status?: number }).code

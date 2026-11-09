@@ -15,6 +15,7 @@ import { PriceBreakdown } from "@/components/datasets/PriceBreakdown";
 import { DisclaimerNote } from "./DisclaimerNote";
 import { StatusPill } from "./StatusPill";
 import { STATUS_KINDS } from "./status";
+import { WaitSteps } from "./WaitSteps";
 
 const token = { symbol: "USDG", decimals: 6 };
 const hostile = "<img src=x onerror=alert(1)>\"'";
@@ -109,6 +110,33 @@ const cases: Record<string, React.ReactNode> = {
   "card-invalid-amounts": <DatasetCard {...baseCard} priceAtomic="1e6" revenueAtomic="-1" />,
   "tile": <DatasetAddTile href="/datasets/new" />,
   "tile-unsafe": <DatasetAddTile href="https://evil.example" />,
+  "wait-all-states": (
+    <WaitSteps
+      testId="wait"
+      title="Titre"
+      remainingSeconds={90}
+      canClose
+      steps={[
+        { id: "one", label: "Étape faite", status: "done" },
+        { id: "two", label: "Étape en cours", status: "active", detail: "Précision" },
+        { id: "three", label: "Étape à venir", status: "pending" },
+      ]}
+    />
+  ),
+  "wait-seconds-stay": (
+    <WaitSteps remainingSeconds={41.2} canClose={false} steps={[{ id: "only", label: "Seule étape", status: "active" }]} />
+  ),
+  "wait-error-custom-note": (
+    <WaitSteps
+      remainingSeconds={0}
+      closeNote="Note sur mesure"
+      steps={[
+        { id: "a", label: "Faite", status: "done" },
+        { id: "b", label: "Échouée", status: "error" },
+      ]}
+    />
+  ),
+  "wait-done-bare": <WaitSteps steps={[{ id: "a", label: "Faite", status: "done" }, { id: "b", label: hostile, status: "done" }]} />,
 };
 for (const status of STATUS_KINDS) cases[`pill-${status}`] = <StatusPill status={status} />;
 

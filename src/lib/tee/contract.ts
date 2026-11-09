@@ -1,5 +1,5 @@
 import type { DatasetMetrics } from "@/lib/sirius/metrics";
-import type { ModelSelection } from "@/lib/models/registry";
+import type { ModelId, ModelSelection } from "@/lib/models/registry";
 import type { LoanExecutionAttestation } from "./types";
 
 // Le JSON chiffré en base64 doit rester sous les 4,5 Mo admis par Vercel.
@@ -20,22 +20,16 @@ export interface DatasetIngressEnvelope {
   ciphertext: string;
 }
 
-export interface RunnerDeliveryEnvelope {
-  version: 1;
-  ephemeralPublicKey: string;
-  salt: string;
-  iv: string;
-  ciphertext: string;
-}
-
 /**
- * Nature du secret qui verrouille une capsule et sera publié par l'escrow.
+ * Clé API (D-30) : `sk_live_<keyId>.<secret>`, générée dans le navigateur. `keyId` : 16 octets
+ * base64url (22 caractères), public. `secret` : 32 octets base64url, chiffré pour l'enclave avec
+ * la clé d'ingestion (enveloppe de même forme que celle d'un dataset, AAD = `keyId`), scellé
+ * ensuite dans le runner ; il n'en ressort jamais.
  */
-export type RunnerReleaseKind = "evm-preimage";
-
-export interface RunnerReleaseEnvelope extends RunnerDeliveryEnvelope {
-  release: RunnerReleaseKind;
-}
+export const API_KEY_INGRESS_INFO_PREFIX = "sirius-api-key-v1:";
+export const API_KEY_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+export const API_KEY_SECRET_BYTES = 32;
+export type ApiKeySecretEnvelope = DatasetIngressEnvelope;
 
 /**
  * Verrou d'escrow EVM : préimage secret et son empreinte publique.
@@ -52,7 +46,7 @@ export interface EvmEscrowLock {
 /**
  * Contrat de la frontière Next ↔ runner confidentiel (inc.3d-B). Le runner est le SEUL
  * détenteur de la master key enclave ; le Next lui passe des inputs explicites (jamais de
- * handle DB) et ne voit jamais plaintext / DEK / clé du modèle / fulfillment avant l'heure.
+ * handle DB) et ne voit jamais plaintext / DEK / modèle entraîné / préimage avant le règlement.
  */
 
 /** Référence d'un dataset chiffré au repos (ce que le Next connaît sans jamais déchiffrer). */
@@ -61,26 +55,20 @@ export type DatasetRef = {
   cid: string; // blob chiffré sur IPFS
   wrappedKey: string; // DEK scellée
   merkleRoot: string; // intégrité vérifiée après déchiffrement
-  priceUsdcAtomic: string; // termes provider authentifiés par le reçu runner (USDC, six décimales)
+  priceUsdcAtomic: string; // prix de location PAR JOUR, authentifié par le reçu runner (USDC, six décimales)
   challengeDays: number;
+  maxRentalDays: number; // durée de location maximale (1–365 j), signée dans le reçu runner v4
 } & ModelSelection;
 
-/** Entrée d'un entraînement libre (self-train) : dataset + où livrer le modèle chiffré. */
-export type TrainingInput = DatasetRef & {
-  keyContext: string; // contexte de la clé du modèle livré (redérivable pour la livraison)
-  filename: string; // nom du blob modèle sur IPFS
-}
-
-/** Entrée d'un self-train : le runner dérive lui-même la clé et le nom du modèle. */
+/** Entrée d'un self-train : le modèle est scellé dans le runner sous `{ kind: "job", id: jobId }`. */
 export type SelfTrainingInput = DatasetRef & {
   jobId: string;
   owner: string;
 }
 
 /**
- * Entrée d'un job d'emprunt : juste la ref dataset + le `loanId`. Le contexte de clé et le
- * nom de blob sont dérivés du `loanId` DANS le runner (pas de champ libre côté appelant) →
- * un modèle ne peut pas être chiffré sous le contexte d'un autre emprunt.
+ * Entrée d'un job d'emprunt : juste la ref dataset + le `loanId`. La référence scellée
+ * `{ kind: "loan", id: loanId }` et son propriétaire (le borrower) sont fixés DANS le runner.
  */
 export type LoanJobInput = DatasetRef & {
   loanId: string;
@@ -100,25 +88,144 @@ export interface AuthorizedSealDatasetResult extends SealDatasetResult {
   runnerReceipt: string;
 }
 
-export interface AuthorizedTrainingResult {
+/**
+ * Résultat d'un self-train : le modèle reste scellé dans le runner. `modelCid` porte l'empreinte
+ * `servedModelFingerprint` (`sm1…`), pas un CID IPFS : voir served-models.ts.
+ */
+export interface SelfTrainingResult {
+  servedModelId: string;
   modelCid: string;
   metrics: Record<string, number>;
+  /** Colonnes que `predict` attend, dans l'ordre du modèle. */
+  features: string[];
   runnerReceipt: string;
-  modelKeyEnvelope?: RunnerDeliveryEnvelope;
 }
 
+/** `modelCid` : empreinte `sm1…` du modèle scellé sous `{ kind: "loan", id: loanId }`. */
 export interface LoanJobResult {
   modelCid: string;
   metrics: Record<string, number>;
+  features: string[];
   attestation: LoanExecutionAttestation;
-  releaseEnvelope?: RunnerReleaseEnvelope;
-  releaseEnvelopeHash: string;
+  loanKey: string;
+  hashlock: string;
   runnerReceipt: string;
 }
 
 export type RecoveredLoanResult =
   | { state: "missing" | "pending" | "failed" }
-  | { state: "ready"; deliveryPublicKey: string; result: LoanJobResult };
+  | { state: "ready"; result: LoanJobResult };
+
+/** Modèle scellé dans le runner : un self-train (`job`) ou un prêt (`loan`). */
+export type ModelRefKind = "job" | "loan";
+
+export interface ModelRef {
+  kind: ModelRefKind;
+  id: string;
+}
+
+export const MODEL_REF_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** Forme canonique `kind:id`, signée dans la prédiction et clé du quota. */
+export function modelRefString(ref: ModelRef): string {
+  return `${ref.kind}:${ref.id}`;
+}
+
+export type PredictionOutputKind = "value" | "decision";
+
+const PREDICTION_OUTPUT_KIND: Record<ModelId, PredictionOutputKind> = {
+  linear_regression: "value",
+  logistic_regression: "decision",
+  gradient_boosted_trees: "decision",
+};
+
+export function predictionOutputKind(modelId: ModelId): PredictionOutputKind {
+  return PREDICTION_OUTPUT_KIND[modelId];
+}
+
+/** Décision : « 0 » ou « 1 ». Valeur : nombre fini déjà arrondi à 3 chiffres significatifs. */
+export function isValidPredictionOutput(outputKind: PredictionOutputKind, output: string): boolean {
+  if (outputKind === "decision") return output === "0" || output === "1";
+  const value = Number(output);
+  return output.length > 0 && output.length <= 32 && Number.isFinite(value)
+    && String(Number(value.toPrecision(3))) === output;
+}
+
+export const PREDICTION_DOMAIN_NAME = "SiriusPrediction";
+export const PREDICTION_DOMAIN_VERSION = "2";
+
+export const PREDICTION_EIP712_TYPES = {
+  Prediction: [
+    { name: "modelRef", type: "string" },
+    { name: "modelId", type: "string" },
+    { name: "modelVersion", type: "string" },
+    { name: "subject", type: "address" },
+    { name: "featuresHash", type: "bytes32" },
+    { name: "outputKind", type: "string" },
+    { name: "output", type: "string" },
+    { name: "counter", type: "uint64" },
+    { name: "sessionRevision", type: "uint64" },
+  ],
+} as const;
+
+export interface SignedPrediction {
+  modelRef: string;
+  modelId: ModelId;
+  modelVersion: string;
+  outputKind: PredictionOutputKind;
+  output: string;
+  counter: number;
+  signer: `0x${string}`;
+  signature: `0x${string}`;
+  domain: { name: typeof PREDICTION_DOMAIN_NAME; version: typeof PREDICTION_DOMAIN_VERSION; chainId: number };
+  signedMessage: {
+    modelRef: string;
+    modelId: ModelId;
+    modelVersion: string;
+    subject: `0x${string}`;
+    featuresHash: `0x${string}`;
+    outputKind: PredictionOutputKind;
+    output: string;
+    counter: number;
+    sessionRevision: number;
+  };
+}
+
+/** Appels restants d'un prêt (D-30) : quota inclus du jour (UTC) puis crédits de packs. */
+export interface ApiRemaining {
+  today: number;
+  credits: number;
+}
+
+/** Prédiction servie par l'API développeurs : même signature EIP-712 que `predict`. `expiresAt` en ms epoch. */
+export interface ApiPrediction extends SignedPrediction {
+  remaining: ApiRemaining;
+  expiresAt: number;
+}
+
+export interface ApiModelInfo {
+  loanId: string;
+  modelId: ModelId;
+  modelVersion: string;
+  features: string[];
+  expiresAt: number;
+  remaining: ApiRemaining;
+}
+
+/**
+ * Requête signée par le client (HMAC-SHA256 sous le secret de la clé, sur `apiCanonicalString`) :
+ * `path` est le chemin PUBLIC (`/v1/models/<loanId>/predict` ou `/v1/models/<loanId>`), `body` le
+ * corps brut exact, `timestamp` en secondes, `signature` en hexadécimal minuscule.
+ */
+export interface ApiSignedRequest {
+  keyId: string;
+  method: string;
+  path: string;
+  timestamp: number;
+  nonce: string;
+  signature: string;
+  body: string;
+}
 
 export type RunnerEscrowReconciliation =
   | { state: "active" }
