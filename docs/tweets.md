@@ -16,6 +16,21 @@
 
 Sirius présente une infrastructure de prêt de données confidentielles pour l’IA. Les données sont chiffrées côté navigateur, traitées dans un environnement d’exécution de confiance, puis conservées hors chaîne. La blockchain sert au règlement, à la provenance, à la vérification d’identité et aux preuves publiques. Le compte documente le produit, les contrats, le hashlock de paiement, le crypto-shredding, les modèles de régression, les preuves publiques, les comptes MPC et la feuille de route vers le mainnet.
 
+## Publications après l'archive
+
+L'archive détaillée ci-dessous s'arrête au 29 septembre 2026. Publications marquantes ajoutées depuis :
+
+- **06/10/2026 — lancement du mainnet** : https://x.com/sirius_data/status/2107442766737526843
+- **09/11/2026 15:00 UTC — API développeurs + envoi jusqu'à 1 Go**, vidéo de 63 s (Sirio, voix off ; « Powered by
+  Phala » au début et à la fin, schéma « How Sirius uses Phala » au milieu) :
+  https://x.com/sirius_data/status/2119808650315231454
+
+  > Live on Sirius today:
+  > → Sirius API: call your private model from your app or agent
+  > → Uploads up to 1 GB, encrypted in your browser
+  > Every model trains in a Confidential VM on @PhalaNetwork Cloud. No one can open it. Not even us.
+  > sirius-data.tech
+
 ## Publications complètes
 
 ### 1. 29/09/2026 20:41 UTC

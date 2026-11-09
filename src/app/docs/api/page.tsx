@@ -11,6 +11,11 @@ const API_EN: Record<string, string> = {
   "Appelle depuis ton code le modèle que tu loues sur Sirius. Le modèle reste scellé dans l’enclave ; chaque réponse est signée par elle. Les requêtes sont signées avec ta clé : ni Sirius ni le serveur web ne peuvent appeler à ta place.":
     "Call the model you rent on Sirius from your code. The model stays sealed in the enclave, and every answer is signed by it. Requests are signed with your key: neither Sirius nor the web server can call on your behalf.",
   "Démarrer": "Get started",
+  "Où tourne le modèle": "Where the model runs",
+  "Ton modèle tourne dans une Confidential VM Intel TDX sur Phala Cloud, construite avec dstack. Le site vérifie son attestation RA-TLS à chaque appel, et la clé qui signe les réponses ne sort jamais de l’enclave.":
+    "Your model runs in an Intel TDX Confidential VM on Phala Cloud, built with dstack. The site checks its RA-TLS attestation on every call, and the key that signs the answers never leaves the enclave.",
+  "La CVM est allumée à la demande : le premier appel après une pause peut attendre son réveil (voir « Délais et réessais »).":
+    "The CVM runs on demand: the first call after a pause may wait for it to wake up (see “Delays and retries”).",
   "Spécification OpenAPI": "OpenAPI specification",
   "Authentification": "Authentication",
   "Signature pas à pas": "Signing step by step",
@@ -236,6 +241,11 @@ export default function ApiDocsPage() {
       toc={TOC}
       tocLabel={d}
     >
+      <Hint title={d("Où tourne le modèle")}>
+        <p>{d("Ton modèle tourne dans une Confidential VM Intel TDX sur Phala Cloud, construite avec dstack. Le site vérifie son attestation RA-TLS à chaque appel, et la clé qui signe les réponses ne sort jamais de l’enclave.")}</p>
+        <p className="mt-2">{d("La CVM est allumée à la demande : le premier appel après une pause peut attendre son réveil (voir « Délais et réessais »).")}</p>
+      </Hint>
+
       <DocSection id="authentification" title={d("Authentification")}>
         <p>{d("Quand la page Train suit le règlement de ton emprunt, elle crée une clé par défaut ; sinon, ouvre l’emprunt réglé, puis « Créer une clé API ». La clé complète, sk_live_<keyId>.<secret>, n’est affichée qu’une fois : copie-la dans ton gestionnaire de secrets. Elle est générée dans ton navigateur et son secret est chiffré pour l’enclave ; Sirius ne le conserve pas en clair.")}</p>
         <p>{d("Chaque requête porte quatre en-têtes :")}</p>
