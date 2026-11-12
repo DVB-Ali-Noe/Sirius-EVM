@@ -490,7 +490,7 @@ test("POST /api/assistant/chat : refus et panne du modèle deviennent des évén
     assert.equal(response.status, 200);
     assert.deepEqual(await readSse(response), [{ type: "error", message: "Assistant indisponible pour le moment" }]);
     // Panne sans jeton : la réservation est rendue, aucun jeton inscrit (audit du 11 novembre, F2).
-    assert.deepEqual(failed.recorded, [NO_TOKENS], "réservation rendue, aucun jeton après une panne");
+    assert.deepEqual(failed.recorded.map((usage) => ({ ...usage })), [NO_TOKENS], "réservation rendue, aucun jeton après une panne");
     // Panne après des tours déjà payés : le total courant est inscrit au budget quand même.
     const spent = { inputTokens: 800, outputTokens: 35, cacheReadTokens: 5_000, cacheWriteTokens: 0 };
     const late = fixture({ reply: async (emit, _signal, onUsage) => { emit("Let me check."); onUsage?.(spent); throw new Error("boom"); } });
@@ -523,7 +523,7 @@ test("POST /api/assistant/chat : un navigateur parti annule l'appel en amont, sa
     await gate;
     assert.equal(upstreamAborted, true);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.deepEqual(recorded, [NO_TOKENS], "réservation rendue, aucun jeton");
+    assert.deepEqual(recorded.map((usage) => ({ ...usage })), [NO_TOKENS], "réservation rendue, aucun jeton");
     assert.ok(logs.some((line) => /annulé par le client/.test(line)), logs.join("\n"));
   });
 });
