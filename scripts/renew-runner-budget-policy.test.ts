@@ -138,12 +138,14 @@ test("reprise après coupure : rien d'appliqué si la transaction est interrompu
   const { path, policy } = sponsoredVolume(t);
   const previous = storedPolicy(path);
   // Un processus prend le verrou d'écriture, modifie la politique sans valider, puis est tué.
-  // Le canal IPC ouvert le garde en vie jusqu'au SIGKILL.
+  // Un minuteur le garde en vie jusqu'au SIGKILL : sans écouteur de messages, Node ne retient pas le
+  // processus par son canal IPC, qui pouvait alors finir seul avant d'être tué (test instable en CI).
   const script = `
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(process.argv[1]);
     db.exec("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE");
     db.prepare("UPDATE budget SET policy = '{}' WHERE id = 1").run();
+    setInterval(() => {}, 60_000);
     process.send("ready");
   `;
   const child = spawn(process.execPath, ["--input-type=module", "--eval", script, path], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
