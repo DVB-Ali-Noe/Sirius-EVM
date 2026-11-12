@@ -8,6 +8,7 @@ import { kybRegistryAddress } from "@/lib/evm/addresses";
 import { siriuskybregistryAbi } from "@/lib/evm/abi/siriuskybregistry";
 import { getPublicClient } from "@/lib/evm/client";
 import { resolveServerNetwork } from "@/lib/evm/networks";
+import { readUserProfile } from "@/lib/users/profile";
 
 /**
  * Attestation KYB parrainée, réservée aux instances de démonstration.
@@ -53,6 +54,25 @@ export function demoAttestationAvailable(): boolean {
   return isDemoDeployment() && Boolean(process.env.SIRIUS_KYB_VERIFIER_KEY?.trim());
 }
 
+/** Marge acceptée sur l'échéance signée : horloges du navigateur et du serveur, attente de signature. */
+const EXPIRATION_MARGE_SECONDES = 15 * 60;
+
+/**
+ * Mêmes refus que l'accès instantané (`kyb/auto-invite.ts`), aux deux étapes (audit du 11 novembre,
+ * F3) : un compte bloqué par l'admin ou une attestation révoquée ne se réhabilite pas par la démo ;
+ * c'est une décision explicite de l'équipe.
+ */
+async function refusIfBlockedOrRevoked(address: `0x${string}`, registry: `0x${string}`): Promise<void> {
+  const profile = await readUserProfile(address);
+  if (profile?.blockedAt !== null && profile?.blockedAt !== undefined) {
+    throw new AppError("Compte bloqué : contacte l’équipe Sirius", 403);
+  }
+  const attestation = await getPublicClient().readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "attestationOf", args: [address] });
+  if (attestation.verifier !== "0x0000000000000000000000000000000000000000" && attestation.revoked) {
+    throw new AppError("Vérification du wallet révoquée : contacte l’équipe Sirius", 403);
+  }
+}
+
 /**
  * Ce que le navigateur doit signer.
  *
@@ -70,6 +90,7 @@ export async function prepareDemoAttestation(subject: string) {
   const client = getPublicClient();
   const version = await client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "VERSION" });
   if (version !== "sirius-kyb-v3") throw new AppError("Migration du registre KYB requise", 503);
+  await refusIfBlockedOrRevoked(address, registry);
   const epoch = await client.readContract({ address: registry, abi: siriuskybregistryAbi, functionName: "verifierEpoch", args: [verifier.address] });
   const nonce = await getPublicClient().readContract({
     address: registry,
@@ -111,6 +132,11 @@ export async function prepareDemoAttestation(subject: string) {
 async function submitDemoAttestationEnSerie(subject: string, expiresAt: number, signature: string) {
   if (!isDemoDeployment()) throw new AppError("Réservé aux instances de démonstration", 403);
   if (!/^0x[0-9a-fA-F]+$/.test(signature)) throw new AppError("Signature malformée", 400);
+  // L'échéance soumise doit être celle préparée (30 jours) : le sujet ne choisit pas la sienne.
+  const maintenant = Math.floor(Date.now() / 1000);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= maintenant || expiresAt > maintenant + VALIDITE_JOURS * 86_400 + EXPIRATION_MARGE_SECONDES) {
+    throw new AppError("Échéance d’attestation invalide : recommence la vérification", 400);
+  }
 
   const address = normalizeAddress(subject);
   const registry = kybRegistryAddress();
@@ -125,6 +151,7 @@ async function submitDemoAttestationEnSerie(subject: string, expiresAt: number, 
     args: [address],
   });
   if (dejaValide) return { subject: address, status: "ACCEPTED" as const, txHash: null, verifier: verifier.address };
+  await refusIfBlockedOrRevoked(address, registry);
 
   const wallet = createWalletClient({ account: verifier, chain, transport: http(rpcUrl) });
   const hash = await wallet.writeContract({

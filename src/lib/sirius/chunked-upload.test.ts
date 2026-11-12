@@ -370,6 +370,75 @@ test("un envoi expiré ou abandonné est fermé et ses morceaux supprimés", asy
   assert.equal(h.datasetUpload.rows.find((row) => row.id === second.uploadId)?.state, "ABORTED");
 });
 
+test("audit du 11 novembre, U1 : un morceau plus gros que celui du site est refusé sans réveiller la CVM", async () => {
+  const h = harness(64 * 1024 * 1024);
+  const saved = process.env.SIRIUS_CHUNKED_MAX_BYTES;
+  process.env.SIRIUS_CHUNKED_MAX_BYTES = String(1024 * 1024 * 1024);
+  try {
+    for (const chunkBytes of [8 * 1024 * 1024 + CHUNK, 16 * 1024 * 1024, 64 * 1024 * 1024]) {
+      await assert.rejects(
+        uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes }, h.deps),
+        (error: unknown) => error instanceof AppError && error.status === 400 && /Taille de morceau invalide/.test(error.message),
+      );
+    }
+    assert.equal(h.calls.wakes, 0, "aucun réveil pour un morceau refusé");
+    assert.equal((await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: 8 * 1024 * 1024 }, h.deps)).chunkCount, 8);
+  } finally {
+    if (saved === undefined) delete process.env.SIRIUS_CHUNKED_MAX_BYTES;
+    else process.env.SIRIUS_CHUNKED_MAX_BYTES = saved;
+  }
+});
+
+test("audit du 11 novembre, U4 : une annulation perdante face à une clôture ne supprime rien", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const { objects } = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, objects);
+  const stored = h.stored.size;
+  // La clôture passe l'envoi en scellé juste entre la lecture de l'annulation et sa mise à jour.
+  const original = h.datasetUpload.updateMany;
+  h.datasetUpload.updateMany = async (args: { where: Row; data: Row }) => {
+    if (args.data.state === "ABORTED") h.datasetUpload.rows[0].state = "SEALED";
+    return original(args);
+  };
+  await assert.rejects(uploads.abortDatasetUpload("ds1", uploadId, PROVIDER, h.deps), (error: unknown) => error instanceof AppError && error.status === 409);
+  assert.equal(h.datasetUpload.rows[0].state, "SEALED");
+  assert.deepEqual(h.calls.deleted, [], "aucune suppression R2");
+  assert.equal(h.stored.size, stored, "morceaux intacts");
+});
+
+test("audit du 11 novembre, U3 : une clôture perdante n'écrase pas le manifeste du gagnant", async () => {
+  const h = harness();
+  const { uploadId } = await uploads.openDatasetUpload("ds1", PROVIDER, { chunkBytes: CHUNK }, h.deps);
+  const winner = await manifestFor(uploadId, 200_000);
+  const loser = await manifestFor(uploadId, 200_000);
+  storeAll(h, uploadId, winner.objects);
+  // La clôture du perdant passe ses contrôles pendant que celle du gagnant prend l'envoi.
+  const authorize = (h.deps as unknown as { authorize: (...args: unknown[]) => Promise<unknown> }).authorize;
+  (h.deps as unknown as { authorize: (...args: unknown[]) => Promise<unknown> }).authorize = async (...args: unknown[]) => {
+    const result = await authorize(...args);
+    h.datasetUpload.rows[0].state = "SEALING";
+    return result;
+  };
+  await assert.rejects(uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, loser.manifest, GRANT, h.deps), /déjà clôturé/);
+  assert.deepEqual(h.calls.put, [], "le perdant n'écrit aucun manifeste");
+  assert.equal(h.datasetUpload.rows[0].manifestSha256, null);
+
+  // Sans concurrence, la clôture écrit son manifeste une fois l'envoi pris ; un stockage en panne le rouvre.
+  (h.deps as unknown as { authorize: unknown }).authorize = authorize;
+  h.datasetUpload.rows[0].state = "OPEN";
+  const put = (h.deps as unknown as { put: unknown }).put;
+  (h.deps as unknown as { put: () => Promise<void> }).put = async () => {
+    throw new Error("R2 indisponible");
+  };
+  await assert.rejects(uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, winner.manifest, GRANT, h.deps), (error: unknown) => error instanceof AppError && error.status === 503);
+  assert.equal(h.datasetUpload.rows[0].state, "OPEN");
+  (h.deps as unknown as { put: unknown }).put = put;
+  await uploads.completeDatasetUpload("ds1", uploadId, PROVIDER, winner.manifest, GRANT, h.deps);
+  assert.deepEqual(h.calls.put, [manifestObjectKey({ datasetId: "ds1", uploadId })]);
+  assert.equal(h.datasetUpload.rows[0].manifestSha256, await manifestSha256(winner.manifest));
+});
+
 /** Erreurs console capturées pendant `action` (suppressions R2 ratées attendues). */
 async function quietErrors(action: () => Promise<unknown>): Promise<string> {
   const errors: string[] = [];
