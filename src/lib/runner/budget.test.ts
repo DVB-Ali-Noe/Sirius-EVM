@@ -423,7 +423,7 @@ test("une préparation refusée rend sa réservation et se relance ; un revert n
 });
 
 test("audit du 11 novembre, F1 : un revert dont l'effet est déjà acquis on-chain ne compte pas au coupe-circuit", async () => {
-  const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "2000"; });
+  const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; });
   // Release concurrent : la transaction de l'enclave revert, mais le prêt est déjà libéré.
   await assert.rejects(
     sendBudgetedTransaction(ledger, "c", "c", io({ confirm: async () => "reverted", alreadyApplied: async () => true })),
