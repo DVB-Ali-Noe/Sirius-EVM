@@ -27,6 +27,7 @@ import {
   parseChunkedDatasetCid,
   parseChunkedUploadManifest,
   plaintextLeaves,
+  UPLOAD_CHUNK_BYTES,
   type ChunkedUploadManifest,
 } from "@/lib/upload/chunked";
 import { chunkedTrainingSample, r2SampleSource } from "./chunked-sample";
@@ -329,6 +330,9 @@ export async function sealChunkedDataset(
     throw new AppError((error as Error).message, 400);
   }
   if (manifest.datasetId !== datasetId) throw new AppError("Le manifeste ne correspond pas à ce dataset", 400);
+  // Audit du 11 novembre, U1 : pas de nouveau dataset en morceaux plus gros que ceux du site (8 Mio),
+  // même si le site est contourné. Les datasets déjà scellés restent lisibles (échantillon borné).
+  if (manifest.chunkBytes > UPLOAD_CHUNK_BYTES) throw new AppError("Taille de morceau invalide", 400);
   if (manifest.plainBytes !== expectedSizeBytes) {
     throw new AppError("La taille du fichier ne correspond pas au dépôt", 400);
   }

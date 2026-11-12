@@ -133,6 +133,7 @@ export const ERROR_MESSAGES_EN: Record<string, string> = {
   "Règlement on-chain rejeté : aucune relance automatique": "On-chain settlement reverted: automatic retries are disabled",
   "Règlement refusé avant envoi : vérifier budget et réseau": "Settlement blocked before submission: check budget and network",
   "Tentative de règlement épuisée": "Settlement attempt exhausted",
+  "Règlement déjà publié on-chain par une autre transaction": "Settlement already published on-chain by another transaction",
   "Transaction runner incertaine : nouvel envoi bloqué": "Runner transaction is unconfirmed: further submissions are blocked",
   "Changement du registre runner interdit à chaud": "Runner ledger cannot be changed while running",
   "Identité du wallet requise pour le budget runner": "Runner budget requires a wallet identity",
