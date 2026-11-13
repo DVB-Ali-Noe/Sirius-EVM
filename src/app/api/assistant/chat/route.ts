@@ -7,6 +7,7 @@ import { readJson } from "@/lib/http/body";
 import { enforceRateLimit, FixedWindowRateLimiter, requestClientKey } from "@/lib/http/rate-limit";
 import { assistantErrorMessage, streamAssistantReply, type AssistantEvent } from "@/lib/assistant/claude";
 import {
+  ASSISTANT_RESERVED_MICRO_USD,
   assistantDailyBudgetMicroUsd,
   assistantDailyCap,
   assistantDailyPerClient,
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
     const messages = pruneUnsignedHistory(request.messages, (text, signature) => verifyAssistantTurn(secret, conversation, text, signature));
     const day = utcDay();
     if (clientKey) await reserveAssistantClient(prisma.assistantClientUsage, day, clientKey, assistantDailyPerClient());
-    await reserveAssistantRequest(prisma.assistantUsage, day, assistantDailyCap(), assistantDailyBudgetMicroUsd());
+    await reserveAssistantRequest(prisma.assistantUsage, day, assistantDailyCap(), assistantDailyBudgetMicroUsd(), ASSISTANT_RESERVED_MICRO_USD);
 
     const startedAt = Date.now();
     const turns = messages.length;
@@ -96,10 +97,11 @@ export async function POST(req: Request) {
         // même si un tour suivant échoue ou si le navigateur part (jetons facturés quand même).
         let usage: AssistantTokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
         let recorded = false;
+        // Toujours appelé une fois : rend la réservation et inscrit le coût réel, même sans jeton.
         const record = async () => {
           recorded = true;
-          if (!hasTokens(usage)) return 0;
-          return recordAssistantUsage(prisma.assistantUsage, day, usage).catch(() => -1);
+          const spent = await recordAssistantUsage(prisma.assistantUsage, day, usage, ASSISTANT_RESERVED_MICRO_USD).catch(() => -1);
+          return hasTokens(usage) ? spent : 0;
         };
         try {
           const outcome = await streamAssistantReply(

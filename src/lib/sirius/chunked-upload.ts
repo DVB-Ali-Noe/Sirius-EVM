@@ -215,15 +215,22 @@ async function receivedChunks(deps: ChunkedUploadDeps, config: R2Config, upload:
   return [...received].sort((a, b) => a - b);
 }
 
-/** Envoi abandonné : morceaux supprimés tout de suite ; le reaper repasse après l'expiration des URL signées. */
-async function abortUpload(deps: ChunkedUploadDeps, upload: DatasetUploadRow, from: DatasetUploadState[], error?: string): Promise<void> {
-  await deps.db.datasetUpload.updateMany({
+/**
+ * Envoi abandonné : morceaux supprimés tout de suite ; le reaper repasse après l'expiration des URL signées.
+ * Rien n'est supprimé si l'annulation a perdu face à une clôture concurrente (audit du 11 novembre, U4) :
+ * l'envoi a pu passer en scellement, voire être scellé et publié, entre la lecture et la mise à jour.
+ * Rend `true` si l'envoi a bien été annulé par cet appel.
+ */
+async function abortUpload(deps: ChunkedUploadDeps, upload: DatasetUploadRow, from: DatasetUploadState[], error?: string): Promise<boolean> {
+  const marked = await deps.db.datasetUpload.updateMany({
     where: { id: upload.id, state: { in: from } },
     data: { state: "ABORTED", ...(error ? { error } : {}) },
   });
+  if (marked.count !== 1) return false;
   await deps.deletePrefix(deps.storage(), uploadPrefix(idsOf(upload))).catch(() =>
     console.error(`Nettoyage R2 impossible pour l’envoi ${upload.id}, reprise par le reaper`),
   );
+  return true;
 }
 
 /**
@@ -365,6 +372,9 @@ export async function openDatasetUpload(
   } catch {
     throw new AppError("Taille de morceau invalide", 400);
   }
+  // Audit du 11 novembre, U1 : un morceau plus gros que celui du site et de la CLI (8 Mio) pouvait
+  // épuiser la mémoire du runner à l'échantillonnage. Refusé ici, avant tout réveil de la CVM.
+  if (chunkBytes > UPLOAD_CHUNK_BYTES) throw new AppError("Taille de morceau invalide", 400);
   const now = deps.now();
   // Contrôles sans écriture (taille, découpage, reprise, quotas) avant le réveil de la CVM par
   // `authorize` : un envoi invalide ou hors quota ne la réveille pas.
@@ -478,12 +488,19 @@ export async function completeDatasetUpload(
   });
 
   const sha = await manifestSha256(manifest);
-  await deps.put(config, manifestObjectKey(idsOf(upload)), new Uint8Array(new TextEncoder().encode(canonicalManifestJson(manifest))));
   const claimed = await deps.db.datasetUpload.updateMany({
     where: { id: upload.id, state: "OPEN" },
     data: { state: "SEALING", manifestSha256: sha, error: null },
   });
   if (claimed.count !== 1) throw new AppError("Envoi déjà clôturé", 409);
+  // Écrit seulement par la clôture gagnante (audit du 11 novembre, U3) : une clôture perdante
+  // n'écrase plus le manifeste du gagnant.
+  try {
+    await deps.put(config, manifestObjectKey(idsOf(upload)), new Uint8Array(new TextEncoder().encode(canonicalManifestJson(manifest))));
+  } catch {
+    await deps.db.datasetUpload.updateMany({ where: { id: upload.id, state: "SEALING" }, data: { state: "OPEN", error: "Stockage indisponible" } });
+    throw new AppError("Stockage indisponible : relance la clôture", 503);
+  }
 
   try {
     await deps.startSeal({
@@ -552,9 +569,13 @@ export async function datasetUploadStatus(
 
   if (upload.state === "OPEN") {
     if (upload.expiresAt.getTime() <= deps.now()) {
-      await abortUpload(deps, upload, ["OPEN"], "Envoi expiré");
-      return publicUpload({ ...upload, state: "ABORTED", error: "Envoi expiré" });
+      if (await abortUpload(deps, upload, ["OPEN"], "Envoi expiré")) {
+        return publicUpload({ ...upload, state: "ABORTED", error: "Envoi expiré" });
+      }
+      upload = await loadUpload(deps, datasetId, uploadId, provider);
     }
+  }
+  if (upload.state === "OPEN") {
     const config = requireChunkedUploads(upload.sizeBytes, deps);
     return { ...publicUpload(upload), received: await receivedChunks(deps, config, upload) };
   }
@@ -602,6 +623,11 @@ export async function abortDatasetUpload(
   const upload = await loadUpload(deps, datasetId, uploadId, provider);
   if (upload.state === "SEALING") throw new AppError("Scellement en cours : attends sa fin", 409);
   if (upload.state === "SEALED") throw new AppError("Envoi déjà scellé", 409);
-  if (upload.state !== "ABORTED") await abortUpload(deps, upload, ["OPEN", "FAILED"]);
+  if (upload.state !== "ABORTED" && !(await abortUpload(deps, upload, ["OPEN", "FAILED"]))) {
+    // Une clôture a gagné entre la lecture et l'annulation : l'envoi n'est pas annulé.
+    const current = await loadUpload(deps, datasetId, uploadId, provider);
+    if (current.state === "SEALED") throw new AppError("Envoi déjà scellé", 409);
+    if (current.state !== "ABORTED") throw new AppError("Scellement en cours : attends sa fin", 409);
+  }
   return publicUpload({ ...upload, state: "ABORTED" });
 }

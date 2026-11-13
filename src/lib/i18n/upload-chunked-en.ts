@@ -53,6 +53,7 @@ export const UPLOAD_CHUNKED_MESSAGES_EN: Record<string, string> = {
   "Envoi expiré": "Upload expired",
   "Dataset supprimé": "Dataset deleted",
   "Scellement interrompu : relance la clôture": "Sealing interrupted: complete the upload again",
+  "Stockage indisponible : relance la clôture": "Storage unavailable: complete the upload again",
   "Manifeste manquant": "Missing manifest",
 
   // Enclave et runner
