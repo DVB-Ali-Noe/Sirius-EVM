@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ReadingVeil } from "@/components/layout/ReadingVeil";
 import type {
   CertificateCheck,
   CertificateMeasurement,
@@ -84,7 +85,9 @@ function Measurement({ measurement }: { measurement: CertificateMeasurement }) {
 export function CertificateView(props: CertificateViewProps) {
   const { presentation } = props;
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
+    <>
+      <ReadingVeil />
+      <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{props.datasetName}</h1>
 
@@ -192,12 +195,15 @@ export function CertificateView(props: CertificateViewProps) {
         </a>
       </p>
     </main>
+    </>
   );
 }
 
 export function CertificateUnavailable() {
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
+    <>
+      <ReadingVeil />
+      <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Certificate not available yet</h1>
       <p className="mt-4 max-w-prose text-sm text-muted">
@@ -210,17 +216,21 @@ export function CertificateUnavailable() {
         </Link>
       </p>
     </main>
+    </>
   );
 }
 
 export function CertificateBusy() {
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
+    <>
+      <ReadingVeil />
+      <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">Execution certificate</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Too many requests</h1>
       <p className="mt-4 max-w-prose text-sm text-muted">
         Certificates are being opened faster than this server serves them. Try again in a minute.
       </p>
     </main>
+    </>
   );
 }

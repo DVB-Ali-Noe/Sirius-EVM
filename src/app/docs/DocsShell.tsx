@@ -12,8 +12,15 @@ export interface TocItem {
   label: string;
 }
 
+export interface DocsPage {
+  href: string;
+  group: string;
+  tab: string;
+  label: string;
+}
+
 // Les pages de la documentation, dans l'ordre de lecture : groupe du menu, onglet de l'en-tête, page précédente et suivante.
-const PAGES = [
+const PAGES: DocsPage[] = [
   { href: "/docs", group: "Protocol", tab: "Documentation", label: "How Sirius works" },
   { href: "/docs/mcp", group: "For developers", tab: "Developers", label: "MCP server" },
   { href: "/docs/api", group: "For developers", tab: "API", label: "Developer API" },
@@ -59,7 +66,11 @@ function SectionLinks({ toc, tocLabel, active, onPick }: { toc: TocItem[]; tocLa
   ));
 }
 
-export function DocsShell({ title, lead, actions, toc, tocLabel, children }: {
+export function DocsShell({ title, lead, actions, toc, tocLabel, children, pages = PAGES, section }: {
+  /** Pages de la rubrique (par défaut la documentation) : menu, onglets, précédente et suivante. */
+  pages?: DocsPage[];
+  /** Nom de la rubrique à côté de « Sirius » dans l'en-tête (par défaut « Documentation »). */
+  section?: string;
   title: string;
   lead: React.ReactNode;
   actions?: React.ReactNode;
@@ -91,12 +102,12 @@ export function DocsShell({ title, lead, actions, toc, tocLabel, children }: {
     };
   }, []);
 
-  const index = Math.max(0, PAGES.findIndex((page) => page.href === pathname));
-  const current = PAGES[index];
-  const previous = PAGES[index - 1];
-  const next = PAGES[index + 1];
+  const index = Math.max(0, pages.findIndex((page) => page.href === pathname));
+  const current = pages[index];
+  const previous = pages[index - 1];
+  const next = pages[index + 1];
 
-  const nav = (onPick?: () => void) => PAGES.map((page) => {
+  const nav = (onPick?: () => void) => pages.map((page) => {
     const open = page.href === current.href;
     return (
       <div key={page.href}>
@@ -127,12 +138,12 @@ export function DocsShell({ title, lead, actions, toc, tocLabel, children }: {
         <div className="flex h-16 items-center justify-between px-4 sm:px-8">
           <div className="flex items-baseline gap-2">
             <Link href="/" className="text-xl font-semibold tracking-[-0.04em]">Sirius</Link>
-            <span className="text-sm font-medium text-muted">{t("Documentation")}</span>
+            <span className="text-sm font-medium text-muted">{section ?? t("Documentation")}</span>
           </div>
           <ConnectButton />
         </div>
         <div className="flex gap-6 overflow-x-auto px-4 [scrollbar-width:none] sm:px-8">
-          {PAGES.map((page) => (
+          {pages.map((page) => (
             <Link
               key={page.href}
               href={page.href}

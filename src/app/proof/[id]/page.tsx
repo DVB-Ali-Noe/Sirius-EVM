@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { ReadingVeil } from "@/components/layout/ReadingVeil";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { resolveServerNetwork } from "@/lib/evm/networks";
@@ -94,7 +95,9 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
   const gateway = (process.env.PINATA_GATEWAY ?? "https://gateway.pinata.cloud").replace(/\/+$/, "");
 
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
+    <>
+      <ReadingVeil />
+      <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
       <p className="text-xs uppercase tracking-[0.11em] text-muted">On-chain proof</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">{dataset.name}</h1>
       {dataset.description && <p className="mt-2 text-sm text-muted">{dataset.description}</p>}
@@ -146,5 +149,6 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
         </Link>
       </p>
     </main>
+    </>
   );
 }
