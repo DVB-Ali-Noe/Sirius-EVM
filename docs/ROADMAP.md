@@ -6,6 +6,8 @@ Le [plan global vers mainnet](MAINNET-PLAN.md) conserve les quatre phases, leurs
 
 Le [business plan et récapitulatif des coûts](BUSINESS-PLAN.md) centralise désormais les hypothèses d'exploitation, le budget de lancement et la rentabilité. Ses propositions de prix et de dépenses ne valent ni approbation ni activation.
 
+**Mainnet du 9 novembre 2026 ([PR #160](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/160), plan A validé par Ali et Noé) :** registre v6 `0x496ff036fbf7ca85e36294d3e976c10c4b0951b4` (limite 1 Gio, profil arbres 1.1.0, 2 titres du v5 importés) et escrow `0xcf5506219ec7dc04157934e3d2f6eacc0e631f97`, liés par le lot du Safe (nonce 3) ; même CVM `sirius-mainnet` sur le KMS de Phala (identité et signataire `0x9e92…3498` inchangés), nouvelle image, tarif `mainnet-api-2026-11-09`. API développeurs et envoi jusqu'à 1 Go ouverts au public ; annonce sur X le 9 novembre à 15:00 UTC. Migration vers le KMS on-chain (Base) prévue plus tard.
+
 **Livraison de modèle supprimée ([D-28](DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule), 1er novembre 2026) :** self-train et prêts, historique compris. Les trois profils sont servis par prédiction signée depuis le runner, seulement pendant qu'il tourne. Les cases cochées ci-dessous qui parlent de livraison, de capsule ou de re-livraison de clé décrivent un état antérieur, retiré du code.
 
 **Location des prêts ([D-29](DECISIONS.md#d-29--location-des-modèles-de-prêt--prix-par-jour-durée-bornée-prolongation), 3 novembre 2026) :** prix par jour, durée maximale fixée par le fournisseur, échéance appliquée par le runner, prolongation payante pendant 30 jours de grâce, puis suppression du modèle.
