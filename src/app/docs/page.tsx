@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useLocale } from "@/components/i18n/LocaleProvider";
-import { isModelOffered } from "@/lib/models/registry";
+import { MODEL_REGISTRY, isModelOffered } from "@/lib/models/registry";
 import { DocSection, DocsShell, HERO_PRIMARY, HERO_SECONDARY, Hint } from "./DocsShell";
 import { EscrowLifecycleDiagram, FairExchangeDiagram, OverviewDiagram } from "./diagrams";
 
@@ -123,7 +123,6 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "Attestations EIP-712 avec consentement, nonce anti-rejeu, expiration, révocation et époque de vérificateur. L’admin pilote les vérificateurs.": "EIP-712 attestations with consent, anti-replay nonce, expiry, revocation, and verifier epoch. The admin manages verifiers.",
   "Provenance": "Provenance",
   "Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.": "Deterministic title, KYB checks, CID hash, Merkle root, size, immutable training profile, and tombstone after deletion.",
-  "Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4 ou v5 ; un profil ajouté après le déploiement, comme les arbres boostés, exige le registre v5. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.": "The current code uses SiriusEscrow v7 (billed compute) or v6, with SiriusDatasetRegistry v4 or v5; a profile added after deployment, such as boosted trees, requires the v5 registry. Changing contracts requires a coordinated migration of the application, database, and services; this page does not attest to any instance’s configuration.",
   "Ce que la chaîne garantit": "What the chain guarantees",
   "Un prêt ne passe qu’une fois de `Locked` vers `Released`, `Refunded` ou `Failed`.": "A loan transitions only once from `Locked` to `Released`, `Refunded`, or `Failed`.",
   "Le provider ne peut être crédité sans que le préimage soit rendu public, et réciproquement.": "The provider cannot be credited without the preimage becoming public, and vice versa.",
@@ -184,7 +183,34 @@ const DOCUMENTATION_EN: Record<string, string> = {
   "release avant échéance\npréimage public\nprovider crédité": "release before expiry\npublic preimage\nprovider credited",
   "refund après échéance\nborrower crédité": "refund after expiry\nborrower credited",
   "Lire la documentation": "Read the docs",
-  "Serveur MCP pour les agents IA": "MCP server for AI agents"
+  "Serveur MCP pour les agents IA": "MCP server for AI agents",
+  "API développeurs": "Developer API",
+  "Comment Sirius utilise Phala": "How Sirius uses Phala",
+  "Sur l’instance publique, le runner tourne dans une Confidential VM (CVM) sur Phala Cloud : une enclave Intel TDX construite avec dstack. Ni l’hébergeur ni l’équipe Sirius ne peuvent lire sa mémoire.":
+    "On the public instance, the runner runs in a Confidential VM (CVM) on Phala Cloud: an Intel TDX enclave built with dstack. Neither the host nor the Sirius team can read its memory.",
+  "Confidential VM Intel TDX": "Intel TDX Confidential VM",
+  "le CSV n’est déchiffré et le modèle n’est entraîné qu’à l’intérieur de la CVM ; le modèle y reste scellé et ne répond que par prédictions signées.":
+    "the CSV is decrypted and the model trained only inside the CVM; the model stays sealed there and only answers through signed predictions.",
+  "Clés dérivées par dstack": "Keys derived by dstack",
+  "la clé maître du runner vient du KMS de dstack pour cette application : les clés de datasets et la clé qui signe les prédictions ne sortent jamais de l’enclave.":
+    "the runner’s master key comes from the dstack KMS for this application: dataset keys and the key that signs predictions never leave the enclave.",
+  "Attestation à distance": "Remote attestation",
+  "chaque appel au runner est vérifié en RA-TLS contre des mesures épinglées (MRTD, RTMR, Compose). Le certificat public d’un entraînement s’appuie sur cette attestation : chacun peut le vérifier.":
+    "every call to the runner is checked over RA-TLS against pinned measurements (MRTD, RTMR, Compose). A training run’s public certificate relies on this attestation: anyone can verify it.",
+  "Allumée à la demande": "On-demand",
+  "la CVM démarre quand elle sert (publication, devis, entraînement, prédictions, API) et s’arrête ensuite ; le premier appel après une pause attend son réveil.":
+    "the CVM starts when it is needed (publication, quotes, training, predictions, API) and stops afterwards; the first call after a pause waits for it to wake up.",
+  "Gros datasets (jusqu’à 1 Go)": "Large datasets (up to 1 GB)",
+  "Au-delà de 3 Mo, si l’instance l’autorise, le navigateur ou la CLI découpe le CSV en morceaux de 8 Mio, les chiffre en AES-256-GCM et les envoie dans un stockage privé (Cloudflare R2) par des URL pré-signées. Le site et le stockage ne voient que du chiffré.":
+    "Above 3 MB, if the instance allows it, the browser or the CLI splits the CSV into 8 MiB chunks, encrypts them with AES-256-GCM and sends them to private storage (Cloudflare R2) through pre-signed URLs. The site and the storage only see ciphertext.",
+  "L’enclave relit les morceaux, vérifie le manifeste et ses deux racines de Merkle, valide le CSV comme un petit fichier, puis scelle la clé de l’envoi avec sa clé maître. L’empreinte du manifeste remplace le CID IPFS dans le titre on-chain.":
+    "The enclave reads the chunks back, checks the manifest and its two Merkle roots, validates the CSV like a small file, then seals the upload key with its master key. The manifest hash replaces the IPFS CID in the on-chain title.",
+  "La taille maximale est fixée par le registre (`maxSizeBytes`, 1 Gio au plus, réglée par l’admin). Sur la mainnet, elle est de 1 Gio depuis le 9 novembre 2026.":
+    "The maximum size is set by the registry (`maxSizeBytes`, at most 1 GiB, set by the admin). On mainnet it has been 1 GiB since 9 November 2026.",
+  "Pour l’instant, un gros dataset est entraîné sur un échantillon déterministe réparti sur tout le fichier (au plus 3 Mio et 49 999 lignes). Le nombre de lignes utilisées figure dans les métriques du modèle et sur la fiche du dataset.":
+    "For now, a large dataset is trained on a deterministic sample spread across the whole file (at most 3 MiB and 49,999 rows). The number of rows used is shown in the model metrics and on the dataset page.",
+  "Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4, v5 ou v6 ; un profil ajouté après le déploiement, comme les arbres boostés, exige au moins le registre v5. Le registre v6 ajoute une taille maximale réglable (jusqu’à 1 Gio) et l’import des titres du registre précédent. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.":
+    "The current code uses SiriusEscrow v7 (billed compute) or v6, with SiriusDatasetRegistry v4, v5 or v6; a profile added after deployment, such as boosted trees, requires at least the v5 registry. The v6 registry adds an adjustable maximum size (up to 1 GiB) and imports titles from the previous registry. Changing contracts requires a coordinated migration of the application, database, and services; this page does not attest to any instance’s configuration."
 };
 
 type Translate = (value: string) => string;
@@ -192,8 +218,10 @@ type Translate = (value: string) => string;
 const TOC = [
   { id: "probleme", label: "Le problème" },
   { id: "solution", label: "La solution en un coup d'œil" },
+  { id: "phala", label: "Comment Sirius utilise Phala" },
   { id: "acteurs", label: "Les acteurs & artefacts" },
   { id: "profils", label: "Profil d’entraînement du dataset" },
+  { id: "gros-fichiers", label: "Gros datasets (jusqu’à 1 Go)" },
   { id: "parcours", label: "Le parcours complet" },
   { id: "etat", label: "État de l’implémentation" },
   { id: "fair-exchange", label: "Le fair-exchange atomique" },
@@ -229,6 +257,7 @@ export default function DocsPage() {
       actions={(
         <>
           <a href="#probleme" className={HERO_PRIMARY}>{d("Lire la documentation")}</a>
+          <Link href="/docs/api" className={HERO_SECONDARY}>{d("API développeurs")}</Link>
           <Link href="/docs/mcp" className={HERO_SECONDARY}>{d("Serveur MCP pour les agents IA")}</Link>
         </>
       )}
@@ -250,6 +279,16 @@ export default function DocsPage() {
           <p>{d("Le navigateur chiffre le dataset avant son envoi au runner. Celui-ci stocke le dataset chiffré sur IPFS, entraîne le modèle et le garde scellé : le modèle ne sort jamais du runner. Le borrower l’interroge par prédictions signées après le règlement EVM.")}</p>
           <OverviewDiagram d={d} />
           <Caption>{d("Après l’envoi, le runner déchiffre le CSV pour calculer. Seul le mode Phala attesté isole ce calcul matériellement ; le mode stub ne le fait pas.")}</Caption>
+        </DocSection>
+
+        <DocSection id="phala" title={d("Comment Sirius utilise Phala")}>
+          <p>{d("Sur l’instance publique, le runner tourne dans une Confidential VM (CVM) sur Phala Cloud : une enclave Intel TDX construite avec dstack. Ni l’hébergeur ni l’équipe Sirius ne peuvent lire sa mémoire.")}</p>
+          <ul className="ml-5 list-disc space-y-2 marker:text-muted">
+            <li><span className={strong}>{d("Confidential VM Intel TDX")}</span> — {d("le CSV n’est déchiffré et le modèle n’est entraîné qu’à l’intérieur de la CVM ; le modèle y reste scellé et ne répond que par prédictions signées.")}</li>
+            <li><span className={strong}>{d("Clés dérivées par dstack")}</span> — {d("la clé maître du runner vient du KMS de dstack pour cette application : les clés de datasets et la clé qui signe les prédictions ne sortent jamais de l’enclave.")}</li>
+            <li><span className={strong}>{d("Attestation à distance")}</span> — {d("chaque appel au runner est vérifié en RA-TLS contre des mesures épinglées (MRTD, RTMR, Compose). Le certificat public d’un entraînement s’appuie sur cette attestation : chacun peut le vérifier.")}</li>
+            <li><span className={strong}>{d("Allumée à la demande")}</span> — {d("la CVM démarre quand elle sert (publication, devis, entraînement, prédictions, API) et s’arrête ensuite ; le premier appel après une pause attend son réveil.")}</li>
+          </ul>
         </DocSection>
 
         <DocSection id="acteurs" title={d("Les acteurs & artefacts")}>
@@ -279,7 +318,7 @@ export default function DocsPage() {
             ].map(([name, model, description]) => (
               <div key={model} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]">
                 <h3 className="font-semibold text-foreground">{name}</h3>
-                <p className="mt-1 font-mono text-xs">{model} · v1.0.0</p>
+                <p className="mt-1 font-mono text-xs">{model} · v{MODEL_REGISTRY[model as keyof typeof MODEL_REGISTRY].version}</p>
                 <p className="mt-2">{description}</p>
               </div>
             ))}
@@ -296,6 +335,13 @@ export default function DocsPage() {
             <li><a href="/examples/classification/credit-default-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement logistique")}</a></li>
             {trees && <li><a href="/examples/classification/credit-risk-train.csv" download className="text-foreground underline underline-offset-4">{d("Exemple d’entraînement par arbres boostés")}</a></li>}
           </ul>
+        </DocSection>
+
+        <DocSection id="gros-fichiers" title={d("Gros datasets (jusqu’à 1 Go)")}>
+          <p>{d("Au-delà de 3 Mo, si l’instance l’autorise, le navigateur ou la CLI découpe le CSV en morceaux de 8 Mio, les chiffre en AES-256-GCM et les envoie dans un stockage privé (Cloudflare R2) par des URL pré-signées. Le site et le stockage ne voient que du chiffré.")}</p>
+          <p>{d("L’enclave relit les morceaux, vérifie le manifeste et ses deux racines de Merkle, valide le CSV comme un petit fichier, puis scelle la clé de l’envoi avec sa clé maître. L’empreinte du manifeste remplace le CID IPFS dans le titre on-chain.")}</p>
+          <p>{d("La taille maximale est fixée par le registre (`maxSizeBytes`, 1 Gio au plus, réglée par l’admin). Sur la mainnet, elle est de 1 Gio depuis le 9 novembre 2026.")}</p>
+          <p>{d("Pour l’instant, un gros dataset est entraîné sur un échantillon déterministe réparti sur tout le fichier (au plus 3 Mio et 49 999 lignes). Le nombre de lignes utilisées figure dans les métriques du modèle et sur la fiche du dataset.")}</p>
         </DocSection>
 
         <DocSection id="parcours" title={d("Le parcours complet")}>
@@ -404,7 +450,7 @@ export default function DocsPage() {
               ["SiriusDatasetRegistry", d("Provenance"), d("Titre déterministe, contrôle KYB, hash du CID, Merkle root, taille, profil d’entraînement immuable et tombstone après destruction.")],
             ].map(([name, role, description]) => <div key={name} className="min-w-0 rounded-[1.25rem] border border-white/10 bg-surface/50 backdrop-blur-xl p-4 [overflow-wrap:anywhere]"><div className="text-xs font-medium tracking-widest text-muted">{role}</div><div className="mt-1 font-semibold text-foreground">{name}</div><p className="mt-1 text-sm text-muted">{description}</p></div>)}
           </div>
-          <p>{d("Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4 ou v5 ; un profil ajouté après le déploiement, comme les arbres boostés, exige le registre v5. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.")}</p>
+          <p>{d("Le code actuel utilise SiriusEscrow v7 (calcul facturé) ou v6, avec SiriusDatasetRegistry v4, v5 ou v6 ; un profil ajouté après le déploiement, comme les arbres boostés, exige au moins le registre v5. Le registre v6 ajoute une taille maximale réglable (jusqu’à 1 Gio) et l’import des titres du registre précédent. Un changement de contrats nécessite une migration coordonnée de l’application, de la base et des services ; cette page n’atteste pas la configuration d’une instance.")}</p>
         </DocSection>
 
         <DocSection id="securite" title={d("Garanties & limites de sécurité")}>

@@ -6,8 +6,9 @@ import { estimateAssistantCostMicroUsd, type AssistantTokenUsage } from "./confi
  * Plafonds quotidiens de l'assistant, tenus en base pour valoir d'une instance serverless à
  * l'autre :
  *   - `AssistantUsage` : une ligne par jour UTC, nombre de requêtes, jetons et dépense estimée en
- *     micro-dollars ; une nouvelle question est refusée dès que le nombre OU la dépense atteint
- *     son plafond ;
+ *     micro-dollars ; chaque question réserve d'abord son coût maximal sur la dépense, qui est
+ *     ensuite ramenée au coût réel ; une nouvelle question est refusée si le nombre atteint son
+ *     plafond OU si sa réservation ferait dépasser le budget (audit du 11 novembre, F2) ;
  *   - `AssistantClientUsage` : une ligne par jour et par client (empreinte de l'adresse IP
  *     transmise par l'ingress, sinon du wallet signé), pour qu'un seul poste ne vide pas le budget.
  * Écritures atomiques, jamais de lecture puis écriture : en parallèle sur plusieurs instances,
@@ -17,10 +18,10 @@ import { estimateAssistantCostMicroUsd, type AssistantTokenUsage } from "./confi
 /** Sous-ensemble du client Prisma utilisé ici, injectable dans les tests. */
 export interface AssistantUsageStore {
   updateMany(args: {
-    where: { day: string; count: { lt: number }; spentMicroUsd: { lt: number } };
-    data: { count: { increment: number } };
+    where: { day: string; count: { lt: number }; spentMicroUsd: { lte: number } };
+    data: { count: { increment: number }; spentMicroUsd: { increment: number } };
   }): Promise<{ count: number }>;
-  create(args: { data: { day: string; count: number } }): Promise<unknown>;
+  create(args: { data: { day: string; count: number; spentMicroUsd: number } }): Promise<unknown>;
   update(args: {
     where: { day: string };
     data: {
@@ -44,21 +45,29 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Réserve une requête pour le jour donné ; lève 429 quand le nombre ou le budget est atteint.
- *   1. incrémente la ligne du jour si elle existe et reste sous les deux plafonds ;
- *   2. sinon crée la ligne à 1 ; une création concurrente (P2002) signifie que la ligne vient
- *      d'apparaître : on retente l'incrément une fois, puis on refuse.
+ * Réserve une requête et `reservedMicroUsd` sur le budget du jour donné ; lève 429 quand le nombre
+ * est atteint ou que la réservation ferait dépasser le budget.
+ *   1. incrémente la ligne du jour si elle existe et garde de la place pour la réservation ;
+ *   2. sinon crée la ligne à 1, réservation comprise ; une création concurrente (P2002) signifie que
+ *      la ligne vient d'apparaître : on retente l'incrément une fois, puis on refuse.
+ * La réservation est rendue par `recordAssistantUsage`, qui inscrit le coût réel à sa place.
  */
-export async function reserveAssistantRequest(store: AssistantUsageStore, day: string, cap: number, budgetMicroUsd: number): Promise<void> {
+export async function reserveAssistantRequest(
+  store: AssistantUsageStore,
+  day: string,
+  cap: number,
+  budgetMicroUsd: number,
+  reservedMicroUsd: number,
+): Promise<void> {
   const refused = new AppError("Assistant indisponible aujourd’hui : plafond quotidien atteint", 429);
-  if (cap < 1 || budgetMicroUsd < 1) throw refused;
+  if (cap < 1 || budgetMicroUsd < 1 || reservedMicroUsd < 1 || reservedMicroUsd > budgetMicroUsd) throw refused;
   const increment = () => store.updateMany({
-    where: { day, count: { lt: cap }, spentMicroUsd: { lt: budgetMicroUsd } },
-    data: { count: { increment: 1 } },
+    where: { day, count: { lt: cap }, spentMicroUsd: { lte: budgetMicroUsd - reservedMicroUsd } },
+    data: { count: { increment: 1 }, spentMicroUsd: { increment: reservedMicroUsd } },
   });
   if ((await increment()).count === 1) return;
   try {
-    await store.create({ data: { day, count: 1 } });
+    await store.create({ data: { day, count: 1, spentMicroUsd: reservedMicroUsd } });
     return;
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -67,8 +76,12 @@ export async function reserveAssistantRequest(store: AssistantUsageStore, day: s
   throw refused;
 }
 
-/** Ajoute les jetons d'une réponse et son coût estimé à la ligne du jour (créée par la réservation). */
-export async function recordAssistantUsage(store: AssistantUsageStore, day: string, usage: AssistantTokenUsage): Promise<number> {
+/**
+ * Ajoute les jetons d'une réponse à la ligne du jour (créée par la réservation) et remplace la
+ * réservation par le coût réel : la dépense varie de `coût réel − réservation`, éventuellement
+ * négative. À appeler une fois par question réservée, réponse finie, échouée ou annulée.
+ */
+export async function recordAssistantUsage(store: AssistantUsageStore, day: string, usage: AssistantTokenUsage, reservedMicroUsd: number): Promise<number> {
   const spent = estimateAssistantCostMicroUsd(usage);
   await store.update({
     where: { day },
@@ -77,7 +90,7 @@ export async function recordAssistantUsage(store: AssistantUsageStore, day: stri
       outputTokens: { increment: usage.outputTokens },
       cacheReadTokens: { increment: usage.cacheReadTokens },
       cacheWriteTokens: { increment: usage.cacheWriteTokens },
-      spentMicroUsd: { increment: spent },
+      spentMicroUsd: { increment: spent - reservedMicroUsd },
     },
   });
   return spent;
