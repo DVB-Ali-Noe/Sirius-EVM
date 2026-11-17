@@ -4,6 +4,31 @@
 
 Sirius est un protocole de data lending confidentiel. Le provider conserve son dataset chiffré ; le borrower soumet un entraînement dans un **TEE**. Le modèle reste scellé dans le runner : le borrower obtient des **prédictions signées** (décision 0/1 pour la logistique et les arbres ; valeur arrondie à 3 chiffres significatifs pour les modèles linéaires existants), jamais le modèle ni sa clé ([D-28](docs/DECISIONS.md#d-28--plus-aucune-livraison-de-modèle--prédiction-signée-seule)). Les prédictions ne répondent que pendant que le runner tourne. Les garanties de règlement et d'audit reposent sur des contrats **EVM** déployables sur Robinhood Chain.
 
+## En production (9 novembre 2026)
+
+Sirius tourne sur **Robinhood Chain mainnet** (`4663`), réglé en **USDG**, avec un runner dans une **Confidential VM
+Intel TDX sur Phala Cloud** (dstack, KMS de Phala, attestation RA-TLS vérifiée à chaque appel). Depuis le 9 novembre
+2026 ([PR #160](https://github.com/DVB-Ali-Noe/Sirius-EVM/pull/160)) :
+
+- **API développeurs** : chaque location inclut une API ; une clé est créée automatiquement sur la page Train, les
+  requêtes sont signées en HMAC et les réponses par l'enclave ([D-30](docs/DECISIONS.md#d-30--api-développeurs-sur-les-modèles-loués),
+  [D-33](docs/DECISIONS.md#d-33--api-toujours-incluse-dans-toute-nouvelle-location), doc publique `/docs/api`).
+- **Datasets jusqu'à 1 Go** : chiffrés dans le navigateur, envoyés en morceaux de 8 Mio vers un stockage privé (R2),
+  ouverts seulement dans l'enclave, entraînés pour l'instant sur un échantillon ([plan](docs/UPLOAD-1GO.md)).
+- Profils proposés : régression logistique 1.0.0 et arbres boostés 1.1.0 ; régression linéaire retirée pour tout
+  nouvel usage ([D-31](docs/DECISIONS.md#d-31--régression-linéaire-retirée-pour-tout-nouvel-usage-profil-facultatif)).
+
+| Contrat mainnet | Adresse |
+|---|---|
+| Escrow (`SiriusEscrowV7`, depuis le 9 nov.) | `0xcf5506219ec7dc04157934e3d2f6eacc0e631f97` |
+| Registre de datasets v6 (limite 1 Gio, admin = Safe) | `0x496ff036fbf7ca85e36294d3e976c10c4b0951b4` |
+| Registre KYB v3 | `0x8bd1590e2e223605adf3ea83dfa4cd272033c24c` |
+| USDG | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
+
+Les contrats précédents (registre v5 `0x9f40…b57f`, escrow `0xc43a…81f7` du 28 octobre ; registre v4 et escrow
+`0x7121…5b13` d'octobre) restent consultables pour l'historique et les retraits. État public à jour :
+https://sirius-data.tech/status.
+
 ## Principe
 
 ```text
@@ -29,14 +54,14 @@ Le runner génère le préimage du hashlock et l'envoie via `release` une fois l
 | Chaîne | Robinhood Chain, EVM Arbitrum Nitro · testnet `46630` · mainnet `4663` |
 | Contrats | Solidity `0.8.24` · Hardhat · viem |
 | Calcul confidentiel | Phala dstack, runner HTTP isolé, RA-TLS |
-| Stockage | IPFS / Pinata · AES-256-GCM |
+| Stockage | IPFS / Pinata (petits fichiers) · Cloudflare R2 (gros fichiers, en morceaux) · AES-256-GCM |
 
 ## Contrats EVM
 
 - `SiriusEscrow` v6 : autorisation de lock EIP-712 du runner, USDC ERC-20 exact, hashlock SHA-256, profil d'entraînement verrouillé, KYB des deux parties, release atomique avant échéance, remboursement et paiements pull-only.
-- `SiriusEscrowV7` : devis signé, prépaiement dataset + compute, crédits provider/Sirius séparés, remboursement avec retenue plafonnée des frais attestés. Intégration locale, activation explicite ; aucun déploiement public v7 effectué.
+- `SiriusEscrowV7` : devis signé, prépaiement dataset + compute, crédits provider/Sirius séparés, remboursement avec retenue plafonnée des frais attestés. Déployé sur la mainnet (escrow actuel ci-dessus).
 - `SiriusKybRegistry` v3 : attestations KYB EIP-712, consenties par le sujet, expirables, révocables et liées à l’époque du vérificateur (domaine EIP-712 version `2`).
-- `SiriusDatasetRegistry` v4 : titre non transférable d'un dataset chiffré, lié au hash de son CID, à son Merkle root, à sa taille et à son profil d'entraînement.
+- `SiriusDatasetRegistry` v4 à v6 : titre non transférable d'un dataset chiffré, lié au hash de son CID (ou du manifeste d'un gros envoi), à son Merkle root, à sa taille et à son profil d'entraînement. La v6 ajoute une taille maximale réglable par l'admin (jusqu'à 1 Gio) et l'import des titres du registre précédent.
 
 Les contrats, leurs tests et leurs scripts sont dans [`contracts/`](contracts). Les ABI TypeScript sont générées dans [`src/lib/evm/abi/`](src/lib/evm/abi).
 

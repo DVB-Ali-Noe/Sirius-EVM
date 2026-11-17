@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { DocSection } from "@/app/docs/DocsShell";
+import { LegalShell } from "@/components/layout/LegalShell";
+import { legalSectionId } from "@/lib/copy/legal-sections";
 import type { Metadata } from "next";
 import { CONTACT_EMAIL } from "@/lib/copy/disclaimers";
 
@@ -97,27 +100,27 @@ const SECTIONS: [string, string[]][] = [
   ]],
 ];
 
+const TOC = [
+  ...SECTIONS.map(([title]) => ({ id: legalSectionId(title), label: title })),
+  { id: legalSectionId("Changes and contact"), label: "Changes and contact" },
+];
+
 export default function TermsPage() {
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
-      <p className="text-xs uppercase tracking-[0.11em] text-muted">Mainnet beta</p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Beta terms</h1>
-      <p className="mt-3 text-sm text-muted">Last updated {LAST_UPDATED}. See the current limits on the <Link href="/status" className="text-accent hover:text-accent/80">status page</Link>.</p>
+    <LegalShell title="Beta terms" lead={<p>Last updated {LAST_UPDATED}. See the current limits on the <Link href="/status" className="text-foreground underline underline-offset-4 hover:text-muted">status page</Link>.</p>} toc={TOC}>
       {SECTIONS.map(([title, items]) => (
-        <section key={title} className="mt-8">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-muted">
+        <DocSection key={title} id={legalSectionId(title)} title={title}>
+          <ul className="ml-5 list-disc space-y-2 marker:text-muted">
             {items.map((item) => <li key={item}>{item}</li>)}
           </ul>
-        </section>
+        </DocSection>
       ))}
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">Changes and contact</h2>
-        <p className="mt-3 text-sm text-muted">
+      <DocSection id={legalSectionId("Changes and contact")} title="Changes and contact">
+        <p>
           These terms may change during the beta. The date above shows the last update. Questions about them:{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`} className="text-accent hover:text-accent/80">{CONTACT_EMAIL}</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`} className="text-foreground underline underline-offset-4 hover:text-muted">{CONTACT_EMAIL}</a>.
         </p>
-      </section>
-    </main>
+      </DocSection>
+    </LegalShell>
   );
 }

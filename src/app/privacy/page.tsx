@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { DocSection } from "@/app/docs/DocsShell";
+import { LegalShell } from "@/components/layout/LegalShell";
+import { legalSectionId } from "@/lib/copy/legal-sections";
 import type { Metadata } from "next";
 import { CONTACT_EMAIL } from "@/lib/copy/disclaimers";
 
@@ -144,25 +147,27 @@ const SECTIONS: [string, string[]][] = [
   ]],
 ];
 
+const TOC = [
+  { id: legalSectionId("Who is responsible"), label: "Who is responsible" },
+  { id: legalSectionId("What Sirius processes and why"), label: "What Sirius processes and why" },
+  ...SECTIONS.map(([title]) => ({ id: legalSectionId(title), label: title })),
+  { id: legalSectionId("Changes and contact"), label: "Changes and contact" },
+];
+
 export default function PrivacyPage() {
   return (
-    <main className="relative z-10 mx-auto w-full max-w-2xl px-6 py-12">
-      <p className="text-xs uppercase tracking-[0.11em] text-muted">Sirius</p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Privacy policy</h1>
-      <p className="mt-3 text-sm text-muted">Last updated {LAST_UPDATED}. This policy completes the <Link href="/terms" className="text-accent hover:text-accent/80">terms</Link>.</p>
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">Who is responsible</h2>
-        <p className="mt-3 text-sm text-muted">
+    <LegalShell title="Privacy policy" lead={<p>Last updated {LAST_UPDATED}. This policy completes the <Link href="/terms" className="text-foreground underline underline-offset-4 hover:text-muted">terms</Link>.</p>} toc={TOC}>
+      <DocSection id={legalSectionId("Who is responsible")} title="Who is responsible">
+        <p>
           Sirius is the controller of the personal data processed through sirius-data.tech. Contact:{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`} className="text-accent hover:text-accent/80">{CONTACT_EMAIL}</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`} className="text-foreground underline underline-offset-4 hover:text-muted">{CONTACT_EMAIL}</a>.
         </p>
-      </section>
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">What Sirius processes and why</h2>
+      </DocSection>
+      <DocSection id={legalSectionId("What Sirius processes and why")} title="What Sirius processes and why">
         {PROCESSING.map(({ title, data, purpose, basis, retention }) => (
-          <div key={title} className="mt-5">
-            <h3 className="text-sm font-semibold">{title}</h3>
-            <dl className="mt-2 space-y-1 text-sm text-muted">
+          <div key={title} className="pt-2">
+            <h3 className="font-semibold text-foreground">{title}</h3>
+            <dl className="mt-2 space-y-1">
               <div><dt className="inline font-medium text-foreground">Data: </dt><dd className="inline">{data}</dd></div>
               <div><dt className="inline font-medium text-foreground">Purpose: </dt><dd className="inline">{purpose}</dd></div>
               <div><dt className="inline font-medium text-foreground">Legal basis: </dt><dd className="inline">{basis}</dd></div>
@@ -170,22 +175,20 @@ export default function PrivacyPage() {
             </dl>
           </div>
         ))}
-      </section>
+      </DocSection>
       {SECTIONS.map(([title, items]) => (
-        <section key={title} className="mt-8">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-muted">
+        <DocSection key={title} id={legalSectionId(title)} title={title}>
+          <ul className="ml-5 list-disc space-y-2 marker:text-muted">
             {items.map((item) => <li key={item}>{item}</li>)}
           </ul>
-        </section>
+        </DocSection>
       ))}
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">Changes and contact</h2>
-        <p className="mt-3 text-sm text-muted">
+      <DocSection id={legalSectionId("Changes and contact")} title="Changes and contact">
+        <p>
           This policy may change. The date above shows the last update. Questions about it:{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`} className="text-accent hover:text-accent/80">{CONTACT_EMAIL}</a>.
+          <a href={`mailto:${CONTACT_EMAIL}`} className="text-foreground underline underline-offset-4 hover:text-muted">{CONTACT_EMAIL}</a>.
         </p>
-      </section>
-    </main>
+      </DocSection>
+    </LegalShell>
   );
 }

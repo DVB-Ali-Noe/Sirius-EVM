@@ -67,6 +67,28 @@ export function estimateAssistantCostMicroUsd(usage: AssistantTokenUsage): numbe
   return Math.ceil(nano / 1_000);
 }
 
+
+/**
+ * Réservation faite avant chaque question (audit du 11 novembre, F2) : le pire cas de tous les appels
+ * possibles, réservé atomiquement sur le budget du jour avant d'appeler le fournisseur, puis ramené au
+ * coût réel une fois la réponse finie (ou annulée). Sans elle, N questions parallèles voyaient toutes le
+ * budget libre et le dépassaient ensemble.
+ *   - appels : `ASSISTANT_MAX_TOOL_ROUNDS` (3, `tools.ts`) tours d'outils + la réponse finale ;
+ *   - entrée par appel, estimation haute : consigne système (~4 000 jetons), historique
+ *     (≤ `ASSISTANT_MAX_HISTORY_CHARS`), résultats d'outils accumulés, tous comptés au tarif plein ;
+ *   - sortie par appel : `ASSISTANT_MAX_OUTPUT_TOKENS`.
+ */
+export const ASSISTANT_RESERVED_CALLS = 4;
+export const ASSISTANT_RESERVED_INPUT_TOKENS_PER_CALL = 20_000;
+
+/** Montant réservé sur le budget du jour avant chaque question, en micro-dollars (0,384 $). */
+export const ASSISTANT_RESERVED_MICRO_USD = estimateAssistantCostMicroUsd({
+  inputTokens: ASSISTANT_RESERVED_CALLS * ASSISTANT_RESERVED_INPUT_TOKENS_PER_CALL,
+  outputTokens: ASSISTANT_RESERVED_CALLS * ASSISTANT_MAX_OUTPUT_TOKENS,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+});
+
 export type AssistantEnvironment = { readonly [variable: string]: string | undefined };
 
 /** Vrai seulement si le drapeau vaut exactement « true ». */

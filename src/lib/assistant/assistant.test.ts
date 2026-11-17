@@ -13,6 +13,7 @@ import * as body from "../http/body";
 import { CONTACT_EMAIL } from "../copy/disclaimers";
 import { EN_MESSAGES } from "../i18n/english";
 import * as config from "./config";
+import { ASSISTANT_MAX_TOOL_ROUNDS } from "./tools";
 import type { AssistantTokenUsage } from "./config";
 import {
   assistantClientUsageId,
@@ -155,13 +156,14 @@ function usageStore() {
   const store: AssistantUsageStore = {
     async updateMany({ where, data }) {
       const current = rows.get(where.day);
-      if (!current || current.count >= where.count.lt || current.spentMicroUsd >= where.spentMicroUsd.lt) return { count: 0 };
+      if (!current || current.count >= where.count.lt || current.spentMicroUsd > where.spentMicroUsd.lte) return { count: 0 };
       current.count += data.count.increment;
+      current.spentMicroUsd += data.spentMicroUsd.increment;
       return { count: 1 };
     },
     async create({ data }) {
       if (rows.has(data.day)) throw Object.assign(new Error("Unique"), { code: "P2002" });
-      rows.set(data.day, { count: data.count, spentMicroUsd: 0, tokens: [0, 0, 0, 0] });
+      rows.set(data.day, { count: data.count, spentMicroUsd: data.spentMicroUsd, tokens: [0, 0, 0, 0] });
     },
     async update({ where, data }) {
       const row = rows.get(where.day)!;
@@ -172,31 +174,58 @@ function usageStore() {
   return { rows, store };
 }
 
+const NO_TOKENS: AssistantTokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
 test("le plafond quotidien compte requêtes et dépense en base, atomiquement, et refuse en 429", async () => {
   const { rows, store } = usageStore();
-  await reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000);
-  await reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000);
-  await assert.rejects(() => reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000), (e: AppError) => e.status === 429);
+  await reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000, 1_000);
+  await reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000, 1_000);
+  await assert.rejects(() => reserveAssistantRequest(store, "2026-10-07", 2, 1_000_000, 1_000), (e: AppError) => e.status === 429);
   assert.equal(rows.get("2026-10-07")?.count, 2);
-  await reserveAssistantRequest(store, "2026-10-08", 10, 20_000);
-  const spent = await recordAssistantUsage(store, "2026-10-08", { inputTokens: 200, outputTokens: 500, cacheReadTokens: 3_000, cacheWriteTokens: 0 });
+  assert.equal(rows.get("2026-10-07")?.spentMicroUsd, 2_000, "deux réservations en cours");
+  // La réservation est remplacée par le coût réel.
+  await reserveAssistantRequest(store, "2026-10-08", 10, 20_000, 12_000);
+  const spent = await recordAssistantUsage(store, "2026-10-08", { inputTokens: 200, outputTokens: 500, cacheReadTokens: 3_000, cacheWriteTokens: 0 }, 12_000);
   assert.equal(spent, 11_400);
   assert.deepEqual(rows.get("2026-10-08"), { count: 1, spentMicroUsd: 11_400, tokens: [200, 500, 3_000, 0] });
-  await reserveAssistantRequest(store, "2026-10-08", 10, 20_000);
-  await recordAssistantUsage(store, "2026-10-08", { inputTokens: 200, outputTokens: 500, cacheReadTokens: 3_000, cacheWriteTokens: 0 });
-  // 22 800 µ$ dépensés ≥ budget 20 000 : refus par le budget, bien avant les dix requêtes.
-  await assert.rejects(() => reserveAssistantRequest(store, "2026-10-08", 10, 20_000), /plafond quotidien/);
-  assert.equal(rows.get("2026-10-08")?.count, 2);
+  // 11 400 dépensés + 12 000 réservés > budget 20 000 : refus par le budget, bien avant les dix requêtes.
+  await assert.rejects(() => reserveAssistantRequest(store, "2026-10-08", 10, 20_000, 12_000), /plafond quotidien/);
+  assert.equal(rows.get("2026-10-08")?.count, 1);
+  // Une réservation plus grande que le budget est refusée d'emblée.
+  await assert.rejects(() => reserveAssistantRequest(store, "2026-10-10", 10, 20_000, 30_000), /plafond quotidien/);
   // Création concurrente : la ligne apparaît entre l'incrément raté et la création.
   const racing: AssistantUsageStore = {
     ...store,
     async create(args) {
-      rows.set(args.data.day, { count: 1, spentMicroUsd: 0, tokens: [0, 0, 0, 0] });
+      rows.set(args.data.day, { count: 1, spentMicroUsd: 1_000, tokens: [0, 0, 0, 0] });
       throw Object.assign(new Error("Unique"), { code: "P2002" });
     },
   };
-  await reserveAssistantRequest(racing, "2026-10-09", 5, 1_000_000);
+  await reserveAssistantRequest(racing, "2026-10-09", 5, 1_000_000, 1_000);
   assert.equal(rows.get("2026-10-09")?.count, 2);
+  assert.equal(rows.get("2026-10-09")?.spentMicroUsd, 2_000);
+});
+
+test("audit du 11 novembre, F2 : des questions parallèles ne dépassent pas le budget du jour", async () => {
+  assert.equal(config.ASSISTANT_RESERVED_CALLS, ASSISTANT_MAX_TOOL_ROUNDS + 1, "tous les tours d'outils plus la réponse finale");
+  assert.equal(config.ASSISTANT_RESERVED_MICRO_USD, 384_000);
+  const { rows, store } = usageStore();
+  const day = "2026-11-11";
+  const budget = 10_000;
+  const reserved = 4_000;
+  // Dix questions en même temps : seules celles dont la réservation tient dans le budget passent.
+  const results = await Promise.allSettled(Array.from({ length: 10 }, () => reserveAssistantRequest(store, day, 100, budget, reserved)));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 2);
+  assert.ok(results.filter((result) => result.status === "rejected").every((result) => (result as PromiseRejectedResult).reason.status === 429));
+  assert.equal(rows.get(day)?.spentMicroUsd, 8_000);
+  // Chaque réponse coûte moins que sa réservation : la dépense réelle reste sous le budget.
+  for (let i = 0; i < 2; i++) await recordAssistantUsage(store, day, { inputTokens: 750, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, reserved);
+  assert.equal(rows.get(day)?.spentMicroUsd, 6_000);
+  assert.ok((rows.get(day)?.spentMicroUsd ?? Infinity) <= budget);
+  // Une question annulée sans jeton rend toute sa réservation.
+  await reserveAssistantRequest(store, day, 100, budget, reserved);
+  await recordAssistantUsage(store, day, NO_TOKENS, reserved);
+  assert.equal(rows.get(day)?.spentMicroUsd, 6_000);
 });
 
 test("le quota par client est tenu en base sous empreinte, par jour, et nettoie les jours passés", async () => {
@@ -360,7 +389,8 @@ function fixture(options: { reply?: Reply; cap?: number; perClient?: number } = 
         clientReserved += 1;
         if (clientReserved > (options.perClient ?? max)) throw new AppError("Trop de questions aujourd’hui depuis ce poste — réessaie demain", 429);
       },
-      recordAssistantUsage: async (_store: unknown, _day: string, outcome: AssistantStreamOutcome) => {
+      recordAssistantUsage: async (_store: unknown, _day: string, outcome: AssistantStreamOutcome, reservedMicroUsd: number) => {
+        assert.equal(reservedMicroUsd, config.ASSISTANT_RESERVED_MICRO_USD, "la réservation est toujours rendue");
         recorded.push(outcome);
         return 123;
       },
@@ -459,7 +489,8 @@ test("POST /api/assistant/chat : refus et panne du modèle deviennent des évén
     const response = await failed.post(QUESTION);
     assert.equal(response.status, 200);
     assert.deepEqual(await readSse(response), [{ type: "error", message: "Assistant indisponible pour le moment" }]);
-    assert.equal(failed.recorded.length, 0, "aucun usage connu après une panne");
+    // Panne sans jeton : la réservation est rendue, aucun jeton inscrit (audit du 11 novembre, F2).
+    assert.deepEqual(failed.recorded.map((usage) => ({ ...usage })), [NO_TOKENS], "réservation rendue, aucun jeton après une panne");
     // Panne après des tours déjà payés : le total courant est inscrit au budget quand même.
     const spent = { inputTokens: 800, outputTokens: 35, cacheReadTokens: 5_000, cacheWriteTokens: 0 };
     const late = fixture({ reply: async (emit, _signal, onUsage) => { emit("Let me check."); onUsage?.(spent); throw new Error("boom"); } });
@@ -492,7 +523,7 @@ test("POST /api/assistant/chat : un navigateur parti annule l'appel en amont, sa
     await gate;
     assert.equal(upstreamAborted, true);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(recorded.length, 0);
+    assert.deepEqual(recorded.map((usage) => ({ ...usage })), [NO_TOKENS], "réservation rendue, aucun jeton");
     assert.ok(logs.some((line) => /annulé par le client/.test(line)), logs.join("\n"));
   });
 });
