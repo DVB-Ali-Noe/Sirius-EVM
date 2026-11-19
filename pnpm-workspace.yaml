@@ -85,3 +85,9 @@ auditConfig:
     # `pnpm audit --prod` ne les voit pas. À retirer dès que mocha/hardhat acceptent ces versions.
     - GHSA-g3hv-75wg-m249
     - GHSA-3g3m-2fjr-6pw4
+    # picomatch <= 4.0.7 (GHSA-fc5q-39xc-vjpf, haute : ReDoS sur un motif à extglob répété), sans
+    # version corrigée publiée sur npm. Le motif doit venir de l'attaquant : ici les motifs sont
+    # écrits dans le code (vite/vitest en développement ; unstorage > anymatch sous WalletConnect,
+    # via @web3auth/modal, qui ne compile aucun motif fourni par un utilisateur).
+    # À retirer dès que picomatch 4.0.8 (et un correctif 2.x) est publiée.
+    - GHSA-fc5q-39xc-vjpf
