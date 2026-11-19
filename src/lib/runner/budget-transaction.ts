@@ -12,6 +12,20 @@ export interface BudgetedTransactionIO {
   latestNonce?(): Promise<number>;
   /** Re-signe la transaction donnée : même cible, mêmes données, même nonce, frais à jour. */
   resign?(serialized: Hex): Promise<Hex>;
+  /**
+   * Après un revert : vrai si l'effet visé est déjà acquis on-chain par une autre transaction
+   * (release concurrent ou rediffusé, audit du 11 novembre, F1). Le revert n'est alors pas une
+   * panne de la plateforme : il ne compte pas au coupe-circuit.
+   */
+  alreadyApplied?(): Promise<boolean>;
+}
+
+/** Revert bénin : l'action était déjà faite on-chain. L'appelant réconcilie avec la transaction canonique. */
+export class AlreadyAppliedOnChain extends AppError {
+  constructor() {
+    super("Règlement déjà publié on-chain par une autre transaction", 409);
+    this.name = "AlreadyAppliedOnChain";
+  }
 }
 
 export type SendFailure = "fee-too-low" | "nonce-consumed" | "already-known" | "unknown";
@@ -110,6 +124,10 @@ export async function sendBudgetedTransaction(
   // Hash durable, reçu pas encore finalisé : la tentative suivante reprend CETTE transaction,
   // sans nouveau nonce. Ni échec compté, ni crédit de requête consommé.
   if (status === "pending") throw new RunnerFinalityPending(hash);
+  if (status === "reverted" && await io.alreadyApplied?.().catch(() => false)) {
+    ledger.finish(id, fingerprint, false, null, false);
+    throw new AlreadyAppliedOnChain();
+  }
   ledger.finish(id, fingerprint, status === "success");
   if (status === "reverted") throw new AppError("Règlement on-chain rejeté : aucune relance automatique", 502);
   return hash;

@@ -3,7 +3,7 @@ import { AppError } from "@/lib/app-error";
 import { MAX_CSV_ROWS, parseCsv } from "@/lib/sirius/metrics";
 import { r2ConfigFromEnv, r2GetObject } from "@/lib/storage/r2";
 import { RunnerRetryLater } from "@/lib/runner/failure-policy";
-import { StrictCsvStream } from "@/lib/upload/csv-stream";
+import { MAX_CELL_CHARS, StrictCsvStream } from "@/lib/upload/csv-stream";
 import {
   chunkObjectKey,
   decryptChunk,
@@ -29,6 +29,17 @@ import { MAX_DATASET_BYTES } from "./contract";
  * Intégrité : la référence publiée s'engage sur l'empreinte du manifeste, le manifeste sur chaque
  * morceau stocké et sur la racine du clair scellée. Chaque morceau lu est comparé au manifeste
  * avant déchiffrement ; l'AES-GCM lie en plus son contenu à sa place dans le fichier.
+ *
+ * Mémoire (audit du 11 novembre, U1) : seules les lignes retenues sont décodées, jamais un morceau
+ * entier découpé en lignes, et aucun morceau n'est gardé en cache : un morceau de 64 Mio à lignes
+ * courtes faisait sortir le runner de son tas.
+ *
+ * Champs multilignes (audit du 11 novembre, U5) : au milieu d'un morceau, on ne sait pas si l'on est
+ * dans un champ entre guillemets. Le scellement a validé tout le fichier avec le lecteur strict, qui
+ * borne chaque cellule à `MAX_CELL_CHARS` caractères, donc à `QUOTE_GUARD_BYTES` octets au plus : un
+ * champ entre guillemets qui toucherait les lignes retenues aurait un guillemet à moins de cette
+ * distance. Sans aucun guillemet dans cette marge, de part et d'autre, les lignes retenues sont de
+ * vraies lignes du fichier ; sinon, l'échantillon est pris au début du fichier par le lecteur strict.
  */
 
 export const SAMPLE_CHUNKS = 8;
@@ -37,6 +48,14 @@ export const SAMPLE_MAX_BYTES = MAX_DATASET_BYTES;
 /** `parseCsv` compte l'en-tête dans sa limite de lignes. */
 export const SAMPLE_MAX_ROWS = MAX_CSV_ROWS - 1;
 const HEADER_MARGIN_BYTES = 1024;
+/** Octets UTF-8 d'une cellule au plus (3 par unité UTF-16) et ses deux guillemets, arrondis à 32 Kio. */
+export const QUOTE_GUARD_BYTES = Math.max(32 * 1024, MAX_CELL_CHARS * 3 + 2);
+const NEWLINE = 0x0a;
+const QUOTE = 0x22;
+
+function tail(bytes: Uint8Array, length: number): Uint8Array {
+  return bytes.subarray(Math.max(0, bytes.length - length));
+}
 
 /** Octets UTF-8 d'une ligne de l'échantillon, retour à la ligne compris : la limite se compte en octets, pas en caractères. */
 function lineBytes(line: string): number {
@@ -120,18 +139,45 @@ async function prefixSample(manifest: ChunkedUploadManifest, chunk: (index: numb
   return Buffer.from(`${lines.join("\n")}\n`);
 }
 
-/** Lignes entières d'un morceau : sans la ligne coupée au début (sauf le premier) ni à la fin (sauf le dernier). */
-function completeLines(text: string, first: boolean, last: boolean): string[] {
-  let body = text;
-  if (!first) {
-    const start = body.indexOf("\n");
-    body = start < 0 ? "" : body.slice(start + 1);
+/**
+ * Lignes retenues d'une fenêtre d'octets, sans décoder ni découper le reste : au plus `maxRows`
+ * lignes et `maxBytes` octets, à partir de la première ligne entière commençant après `from`
+ * (exactement à `from` en début de fichier, juste après l'en-tête). Les lignes retenues finissent
+ * avant `until`. Rend `null` si elles ne sont pas sûres (U5) : guillemet à moins de
+ * `QUOTE_GUARD_BYTES` octets de part et d'autre, ou marge absente de la fenêtre alors que ce
+ * n'est pas une limite du fichier.
+ */
+export function chunkSampleLines(
+  bytes: Uint8Array,
+  options: { fileStart: boolean; fileEnd: boolean; from: number; until: number; maxRows: number; maxBytes: number },
+): string[] | null {
+  const { fileStart, fileEnd, until, maxRows, maxBytes } = options;
+  let start = options.from;
+  if (!fileStart) {
+    // Première ligne entière, avec une marge complète avant elle.
+    const newline = bytes.indexOf(NEWLINE, Math.max(options.from, QUOTE_GUARD_BYTES));
+    if (newline < 0 || newline + 1 >= until) return null;
+    start = newline + 1;
   }
-  if (!last) {
-    const end = body.lastIndexOf("\n");
-    body = end < 0 ? "" : body.slice(0, end);
+  let end = start;
+  let rows = 0;
+  while (rows < maxRows && end < until) {
+    const newline = bytes.indexOf(NEWLINE, end);
+    // Dernière ligne sans retour final : seulement à la fin réelle du fichier.
+    const lineEnd = newline < 0 || newline >= until ? (fileEnd && newline < 0 ? until : -1) : newline + 1;
+    if (lineEnd < 0 || lineEnd - start > maxBytes) break;
+    end = lineEnd;
+    rows += 1;
   }
-  return body.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+  if (!fileEnd && end + QUOTE_GUARD_BYTES > bytes.length) return null;
+  const guardStart = fileStart ? 0 : start - QUOTE_GUARD_BYTES;
+  if (bytes.subarray(guardStart, Math.min(bytes.length, end + QUOTE_GUARD_BYTES)).includes(QUOTE)) return null;
+  if (end === start) return [];
+  const text = new TextDecoder("utf-8").decode(bytes.subarray(start, end));
+  return text
+    .split("\n")
+    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+    .filter((line) => line !== "");
 }
 
 export async function chunkedTrainingSample(
@@ -142,10 +188,8 @@ export async function chunkedTrainingSample(
   const manifest = await verifiedManifest(ref, source);
   const ids: UploadIds = { datasetId: manifest.datasetId, uploadId: manifest.uploadId };
   const key = await crypto.subtle.importKey("raw", new Uint8Array(uploadKey), "AES-GCM", false, ["decrypt"]);
-  const plain = new Map<number, Uint8Array<ArrayBuffer>>();
+  // Pas de cache : chaque morceau est relu et lâché après usage (U1).
   const chunk = async (index: number) => {
-    const cached = plain.get(index);
-    if (cached) return cached;
     const object = await source.readChunk(index);
     const record = manifest.chunks[index];
     if (createHash("sha256").update(object).digest("hex") !== record.sha256) throw integrityError(ref.datasetId);
@@ -155,7 +199,6 @@ export async function chunkedTrainingSample(
     } catch {
       throw integrityError(ref.datasetId);
     }
-    plain.set(index, bytes);
     return bytes;
   };
 
@@ -175,29 +218,35 @@ export async function chunkedTrainingSample(
   // Assez de morceaux pour remplir l'échantillon : 8 morceaux de 8 Mio, ou plus s'ils sont petits.
   const wanted = Math.min(MAX_SAMPLE_CHUNKS, Math.max(SAMPLE_CHUNKS, Math.ceil(SAMPLE_MAX_BYTES / manifest.chunkBytes)));
   const indexes = sampleChunkIndexes(manifest.chunkCount, wanted);
-  const decoder = new TextDecoder("utf-8");
-  const firstText = decoder.decode(await chunk(0));
-  const headerEnd = firstText.indexOf("\n");
-  const header = (headerEnd < 0 ? firstText : firstText.slice(0, headerEnd)).replace(/\r$/, "");
+  const first = await chunk(0);
+  const headerEnd = first.indexOf(NEWLINE);
+  if (headerEnd < 0) return prefixSample(manifest, chunk);
+  const header = new TextDecoder("utf-8").decode(first.subarray(0, headerEnd)).replace(/\r$/, "");
   const rowsPerChunk = Math.floor(SAMPLE_MAX_ROWS / indexes.length);
   const bytesPerChunk = Math.floor((SAMPLE_MAX_BYTES - lineBytes(header) - HEADER_MARGIN_BYTES) / indexes.length);
 
   const lines = [header];
+  const lastIndex = manifest.chunkCount - 1;
   for (const index of indexes) {
-    const text = index === 0 ? firstText : decoder.decode(await chunk(index));
-    const all = completeLines(text, index === 0, index === manifest.chunkCount - 1);
-    // Le premier morceau commence par l'en-tête, déjà pris.
-    const candidates = index === 0 ? all.slice(1) : all;
-    let rows = 0;
-    let bytes = 0;
-    for (const line of candidates) {
-      if (line === "") continue;
-      const size = lineBytes(line);
-      if (rows >= rowsPerChunk || bytes + size > bytesPerChunk) break;
-      lines.push(line);
-      rows += 1;
-      bytes += size;
-    }
+    const current = index === 0 ? first : await chunk(index);
+    // Petits morceaux : la marge se lit dans les voisins (QUOTE_GUARD_BYTES seulement). Les morceaux
+    // de 8 Mio du site la contiennent déjà : aucune lecture de plus.
+    const small = current.length < 4 * QUOTE_GUARD_BYTES;
+    const before = index > 0 && small ? tail(await chunk(index - 1), QUOTE_GUARD_BYTES) : new Uint8Array(0);
+    const after = index < lastIndex && small ? (await chunk(index + 1)).subarray(0, QUOTE_GUARD_BYTES) : new Uint8Array(0);
+    const window = before.length === 0 && after.length === 0 ? current : Buffer.concat([before, current, after]);
+    const taken = chunkSampleLines(window, {
+      fileStart: index === 0,
+      fileEnd: index === lastIndex,
+      // Le premier morceau commence par l'en-tête, déjà pris.
+      from: index === 0 ? headerEnd + 1 : before.length,
+      until: before.length + current.length,
+      maxRows: rowsPerChunk,
+      maxBytes: bytesPerChunk,
+    });
+    // Lignes pas sûres (champ entre guillemets possible) : échantillon par le lecteur strict.
+    if (taken === null) return prefixSample(manifest, chunk);
+    lines.push(...taken);
   }
   const sample = Buffer.from(`${lines.join("\n")}\n`);
   try {

@@ -4,10 +4,11 @@ import { AppError } from "@/lib/app-error";
 import { getPublicClient } from "@/lib/evm/client";
 import { resolveServerNetwork } from "@/lib/evm/networks";
 import { settlementAccount } from "@/lib/evm/runner-account";
-import { readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
+import { LOAN_RELEASED, readLoan, reconcileLoanEscrow } from "@/lib/evm/escrow";
 import { siriusescrowv7Abi } from "@/lib/evm/abi/siriusescrowv7";
 import { boundedGas, lowGasBalanceAlert } from "@/lib/runner/gas-policy";
 import { sendBudgetedTransaction } from "@/lib/runner/budget-transaction";
+import { RunnerFinalityPending } from "@/lib/runner/failure-policy";
 import { reconcileRunnerTransactions } from "@/lib/runner/transaction-recovery";
 import { sealRunnerTransaction } from "@/lib/runner/transaction-journal";
 import { resignWithFreshFees } from "@/lib/runner/fee-replacement";
@@ -37,6 +38,8 @@ async function sendBilledAction(quote: ComputeQuote, loanKey: Hex, kind: "releas
   const fingerprint = keccak256(data);
   return sendBudgetedTransaction(ledger, id, fingerprint, {
     seal: (serialized) => sealRunnerTransaction(id, fingerprint, serialized),
+    // Release concurrent (audit F1) : le prêt est déjà libéré, le revert n'est pas une panne.
+    ...(kind === "release" ? { alreadyApplied: async () => (await readLoan(loanKey, quote))?.status === LOAN_RELEASED } : {}),
     async prepare() {
       if (await client.getChainId() !== quote.chainId) throw new AppError("RPC sur un autre réseau", 409);
       const [estimate, price, balance, nonce] = await Promise.all([
@@ -90,7 +93,18 @@ export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, prei
   beforeFirstRelease?: () => void | Promise<void>): Promise<string> {
   const ledger = requireBillingBudget();
   const data = encodeFunctionData({ abi: siriusescrowv7Abi, functionName: "release", args: [loanKey, preimage] });
-  if (!ledger.find(`release:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data))) {
+  const recorded = ledger.find(`release:${quote.chainId}:${quote.escrow}:${loanKey}`, keccak256(data));
+  /**
+   * Audit du 11 novembre, F1 : `release` est permissionless. Un release concurrent ou rediffusé
+   * (procédure de reprise, rejeu après coupure) libère le prêt avant la transaction de l'enclave,
+   * qui revert. Le paiement est alors bien fait : la prestation (prolongation, pack, pass) est due
+   * sur la transaction canonique, au lieu d'être refusée pour toujours.
+   */
+  const canonicalRelease = async (): Promise<string | null> => {
+    const resolution = await reconcileLoanEscrow(loanKey, fromBlock, quote, finalityTier);
+    return resolution.state === "settled" ? resolution.txHash : null;
+  };
+  if (!recorded) {
     const resolution = await reconcileLoanEscrow(loanKey, fromBlock, quote);
     if (resolution.state !== "active") ledger.releaseFastExposure(quoteWorkflow(quote));
     if (resolution.state === "settled") return resolution.txHash;
@@ -99,10 +113,25 @@ export async function settleBilledEscrow(quote: ComputeQuote, loanKey: Hex, prei
   }
   const loan = await readLoan(loanKey, quote);
   if (loan?.billing?.termsHash !== quoteTermsHash(quote)) throw new AppError("Devis compute hors scope", 409);
+  if (recorded?.state === "failed") {
+    // Tentative de l'enclave close en échec (revert) : le prêt a pu être libéré par une autre transaction.
+    const canonical = await canonicalRelease();
+    if (canonical) {
+      ledger.releaseFastExposure(quoteWorkflow(quote));
+      return canonical;
+    }
+  }
   let txHash: string;
   try {
     txHash = await sendBilledAction(quote, loanKey, "release", data, finalityTier);
   } catch (error) {
+    if (!(error instanceof RunnerFinalityPending)) {
+      const canonical = await canonicalRelease().catch(() => null);
+      if (canonical) {
+        ledger.releaseFastExposure(quoteWorkflow(quote));
+        return canonical;
+      }
+    }
     // Échec définitif du règlement (release rejeté, tentative épuisée) : le prêt ne sera plus libéré
     // par l'enclave, sa part ne pèse plus sur le plafond rapide. Une attente de finalité ou un refus
     // avant signature ne sont pas définitifs : la part reste réservée.

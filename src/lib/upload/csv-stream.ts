@@ -19,7 +19,7 @@ import {
  * dernier caractère est alors gardé pour la tranche suivante).
  */
 
-const MAX_CELL_CHARS = 10_000;
+export const MAX_CELL_CHARS = 10_000;
 /**
  * Plafond des lignes d'un envoi en morceaux. Le lecteur ne garde que des compteurs par colonne : la
  * mémoire ne dépend pas du nombre de lignes, et une ligne fait au moins 4 octets (« 1,2

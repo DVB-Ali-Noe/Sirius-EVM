@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { keccak256, type Hex } from "viem";
 import { BudgetLedger, initializeBudgetLedger, QUOTE_RESERVATION_MARGIN_MS, validateBudgetPolicy, type BudgetPolicy } from "./budget-ledger";
 import { assertTrialDeployment, assertTrialSubject, budgetFingerprint, runBudgetedOperation, runnerBudget, withWorkflowBudget } from "./budget";
-import { classifySendError, sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
+import { classifySendError, AlreadyAppliedOnChain, sendBudgetedTransaction, type BudgetedTransactionIO } from "./budget-transaction";
 import { assertAbandonable, parseTransactionsCommand } from "../../../scripts/runner-transactions";
 import { boundedGas, lowGasBalanceAlert } from "./gas-policy";
 import { countsAsRunnerFailure, RunnerFinalityPending, RunnerRetryLater } from "./failure-policy";
@@ -420,6 +420,20 @@ test("une préparation refusée rend sa réservation et se relance ; un revert n
   await assert.rejects(sendBudgetedTransaction(ledger, "b", "b", io({ confirm: async () => "reverted" })), /aucune relance/);
   await assert.rejects(sendBudgetedTransaction(ledger, "b", "b", io()), /épuisée/);
   assert.equal(ledger.snapshot().failures, 1, "seul le revert, signé et payé, compte comme échec");
+});
+
+test("audit du 11 novembre, F1 : un revert dont l'effet est déjà acquis on-chain ne compte pas au coupe-circuit", async () => {
+  const { ledger } = fixture((p) => { p.earnedMarginUsdMicros = p.cashUsdMicros = "5000"; p.gas.totalWei = "500000000000"; });
+  // Release concurrent : la transaction de l'enclave revert, mais le prêt est déjà libéré.
+  await assert.rejects(
+    sendBudgetedTransaction(ledger, "c", "c", io({ confirm: async () => "reverted", alreadyApplied: async () => true })),
+    (error: unknown) => error instanceof AlreadyAppliedOnChain && error.status === 409,
+  );
+  assert.equal(ledger.snapshot().failures, 0, "pas une panne de la plateforme");
+  // Un vrai revert reste compté, et une vérification en panne ne l'excuse pas.
+  await assert.rejects(sendBudgetedTransaction(ledger, "d", "d", io({ confirm: async () => "reverted", alreadyApplied: async () => false })), /aucune relance/);
+  await assert.rejects(sendBudgetedTransaction(ledger, "e", "e", io({ confirm: async () => "reverted", alreadyApplied: async () => { throw new Error("rpc"); } })), /aucune relance/);
+  assert.equal(ledger.snapshot().failures, 2);
 });
 
 test("un timeout estimateGas puis une reprise règlent le prêt sans épuiser le devis", async () => {
