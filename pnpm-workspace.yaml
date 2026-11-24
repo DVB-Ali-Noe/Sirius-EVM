@@ -67,6 +67,10 @@ overrides:
   # GHSA-mrwp-f3q8-3g9p (haute), corrigé en 1.16.2 dans la même branche. Atteint seulement par
   # solc via hardhat (outillage Solidity de développement).
   'follow-redirects@>=1.16.0 <1.16.2': '1.16.2'
+  # GHSA-7589-6fvf-x4pw (haute : ReDoS dans Schema.TemplateLiteral), corrigé en 3.22.1. Prisma 7.10
+  # épingle effect 3.20.0 exactement dans @prisma/config (outillage CLI de migration) : la 3.22.4
+  # reste dans la branche 3.x et dépasse la politique d'âge minimal.
+  '@prisma/config>effect': '3.22.4'
 auditConfig:
   ignoreGhsas:
     # braces <= 3.0.3 (déni de service par motifs imbriqués), publiée le 3 octobre 2026 sans
@@ -85,3 +89,9 @@ auditConfig:
     # `pnpm audit --prod` ne les voit pas. À retirer dès que mocha/hardhat acceptent ces versions.
     - GHSA-g3hv-75wg-m249
     - GHSA-3g3m-2fjr-6pw4
+    # picomatch <= 4.0.7 (GHSA-fc5q-39xc-vjpf, haute : ReDoS sur un motif à extglob répété), sans
+    # version corrigée publiée sur npm. Le motif doit venir de l'attaquant : ici les motifs sont
+    # écrits dans le code (vite/vitest en développement ; unstorage > anymatch sous WalletConnect,
+    # via @web3auth/modal, qui ne compile aucun motif fourni par un utilisateur).
+    # À retirer dès que picomatch 4.0.8 (et un correctif 2.x) est publiée.
+    - GHSA-fc5q-39xc-vjpf

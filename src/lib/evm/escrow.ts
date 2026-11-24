@@ -42,6 +42,8 @@ export type EscrowResolution =
 
 const STATUS_LOCKED = 1;
 const STATUS_RELEASED = 2;
+/** Statut on-chain d'un prêt libéré (`LoanStatus.Released`). */
+export const LOAN_RELEASED = STATUS_RELEASED;
 const STATUS_REFUNDED = 3;
 
 export interface OnChainLoan {

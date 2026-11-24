@@ -14,7 +14,15 @@ import {
   manifestObjectKey,
   type ChunkedUploadManifest,
 } from "@/lib/upload/chunked";
-import { SAMPLE_MAX_BYTES, SAMPLE_MAX_ROWS, chunkedTrainingSample, sampleChunkIndexes, type ChunkedSampleSource } from "./chunked-sample";
+import {
+  QUOTE_GUARD_BYTES,
+  SAMPLE_MAX_BYTES,
+  SAMPLE_MAX_ROWS,
+  chunkSampleLines,
+  chunkedTrainingSample,
+  sampleChunkIndexes,
+  type ChunkedSampleSource,
+} from "./chunked-sample";
 import { runSelfTraining, sealChunkedDataset, type ChunkSource } from "./core";
 import { datasetIngressPublicKey } from "./ingress";
 import { trainSelectedModel } from "./model-registry";
@@ -146,6 +154,41 @@ test("des retours à la ligne entre guillemets font prendre le début du fichier
     const i = Number(/^ligne (\d+)\nsuite$/.exec(row[0])?.[1]);
     assert.deepEqual(row, [`ligne ${i}\nsuite`, String(20 + (i % 180)), String((i * 1.7) % 900)]);
   }
+});
+
+test("audit du 11 novembre, U5 : un champ cité multiligne n'injecte aucune fausse ligne dans l'échantillon", async () => {
+  // Champ cité (≤ 10 000 caractères, accepté par le scellement) dont le contenu imite des lignes du
+  // fichier : x = 9 n'existe dans aucune vraie ligne (x = i % 7).
+  const fake = "z,9,999\n".repeat(1_000);
+  const lines = ["note,x,prix"];
+  for (let i = 0; i < 400_000; i++) lines.push(i % 400 === 0 ? `"${fake}",${i % 7},${(i * 1.7) % 900}` : `n${i},${i % 7},${(i * 1.7) % 900}`);
+  const s = await sealed(Buffer.from(`${lines.join("\n")}\n`));
+  const sample = await chunkedTrainingSample(s.ref, s.uploadKey, memory(s));
+  const table = parseCsv(sample.toString("utf-8"));
+  assert.deepEqual(table[0], ["note", "x", "prix"]);
+  assert.ok(table.length > 1000 && sample.length <= SAMPLE_MAX_BYTES);
+  assert.equal(table.slice(1).filter((row) => row[1] === "9").length, 0, "aucune ligne fantôme");
+  for (const row of table.slice(1)) assert.ok(row[0] === fake || /^n\d+$/.test(row[0]), row[0].slice(0, 20));
+});
+
+test("audit du 11 novembre, U1 : seules les lignes retenues d'un gros morceau sont décodées", () => {
+  // 16 Mio de lignes courtes (~4 millions) : l'ancien découpage matérialisait toutes les lignes.
+  const bytes = Buffer.from("1,2\n".repeat(4 * 1024 * 1024));
+  const taken = chunkSampleLines(bytes, { fileStart: false, fileEnd: false, from: 0, until: bytes.length, maxRows: 1_000, maxBytes: 1024 * 1024 });
+  assert.equal(taken?.length, 1_000);
+  assert.ok(taken?.every((line) => line === "1,2"));
+  // Un guillemet dans la marge, de part et d'autre des lignes retenues : refusé.
+  const quotedBefore = Buffer.from(bytes);
+  quotedBefore[QUOTE_GUARD_BYTES - 10] = 0x22;
+  assert.equal(chunkSampleLines(quotedBefore, { fileStart: false, fileEnd: false, from: 0, until: bytes.length, maxRows: 1_000, maxBytes: 1024 * 1024 }), null);
+  const quotedAfter = Buffer.from(bytes);
+  quotedAfter[QUOTE_GUARD_BYTES + 4_000 + 4_000] = 0x22;
+  assert.equal(chunkSampleLines(quotedAfter, { fileStart: false, fileEnd: false, from: 0, until: bytes.length, maxRows: 1_000, maxBytes: 1024 * 1024 }), null);
+  // Marge absente au bord d'un morceau qui n'est pas une limite du fichier : refusé.
+  const small = Buffer.from("1,2\n".repeat(1_000));
+  assert.equal(chunkSampleLines(small, { fileStart: false, fileEnd: false, from: 0, until: small.length, maxRows: 10, maxBytes: 1_000 }), null);
+  // Début du fichier : pas de marge à gauche nécessaire.
+  assert.equal(chunkSampleLines(small, { fileStart: true, fileEnd: true, from: 0, until: small.length, maxRows: 10, maxBytes: 1_000 })?.length, 10);
 });
 
 test("l'échantillon d'un fichier accentué tient en octets, pas seulement en caractères", async () => {
